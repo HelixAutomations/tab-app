@@ -1,7 +1,6 @@
 const express = require('express');
 const axios = require('axios');
-const { DefaultAzureCredential } = require('@azure/identity');
-const { SecretClient } = require('@azure/keyvault-secrets');
+const { getClient } = require('../utils/getSecret');
 
 const router = express.Router();
 
@@ -17,9 +16,7 @@ async function getGraphSecrets() {
   }
 
   try {
-    const kvUri = 'https://helix-keys.vault.azure.net/';
-    const credential = new DefaultAzureCredential({ additionallyAllowedTenants: ['*'] });
-    const secretClient = new SecretClient(kvUri, credential);
+    const secretClient = getClient();
 
     const [clientIdSecret, clientSecretSecret] = await Promise.all([
       secretClient.getSecret('graph-aidenteams-clientid'),

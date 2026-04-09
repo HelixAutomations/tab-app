@@ -1,8 +1,7 @@
 const express = require('express');
 const { withRequest } = require('../utils/db');
 const { getMatterDateExpressions } = require('../utils/matterDateColumns');
-const { DefaultAzureCredential } = require('@azure/identity');
-const { SecretClient } = require('@azure/keyvault-secrets');
+const { getClient } = require('../utils/getSecret');
 const fetch = require('node-fetch');
 const { getRedisClient, cacheWrapper, generateCacheKey } = require('../utils/redisClient');
 const { performUnifiedEnquiriesQuery } = require('./enquiries-unified');
@@ -506,9 +505,7 @@ async function fetchWipDbCurrentWeek({ connectionString }) {
 }
 
 // --- Direct Clio API Integration (replaced Azure Function call) ---
-const credential = new DefaultAzureCredential({ additionallyAllowedTenants: ['*'] });
-const vaultUrl = process.env.KEY_VAULT_URL || 'https://helix-keys.vault.azure.net/';
-const kvClient = new SecretClient(vaultUrl, credential);
+const kvClient = getClient();
 
 async function getClioCredentialsCached() {
   const cacheKey = 'clio:credentials';

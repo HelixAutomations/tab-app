@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { FiCheck, FiCheckCircle, FiAlertCircle, FiBriefcase, FiCalendar, FiArrowUpRight, FiExternalLink, FiSearch, FiChevronDown, FiArrowRight, FiCreditCard, FiPhone, FiClock } from 'react-icons/fi';
+import React, { useState, useEffect, useCallback, useMemo, useRef, useDeferredValue, startTransition } from 'react';
+import { FiCheck, FiCheckCircle, FiAlertCircle, FiBriefcase, FiCalendar, FiArrowUpRight, FiExternalLink, FiSearch, FiChevronDown, FiArrowRight, FiCreditCard, FiClock } from 'react-icons/fi';
 import { SiAsana, SiStripe } from 'react-icons/si';
 import { colours } from '../../app/styles/colours';
 
@@ -165,26 +165,6 @@ interface StripeRecentItem {
   paymentReference: string | null;
 }
 
-interface DubberCallItem {
-  recording_id: string;
-  from_party: string | null;
-  from_label: string | null;
-  to_party: string | null;
-  to_label: string | null;
-  call_type: string | null;
-  duration_seconds: number | null;
-  start_time_utc: string;
-  document_sentiment_score: number | null;
-  ai_document_sentiment: string | null;
-  channel: string | null;
-  status: string | null;
-  matched_team_initials: string | null;
-  matched_team_email: string | null;
-  match_strategy: string | null;
-  document_emotion_json: string | null;
-  is_internal?: boolean;
-}
-
 interface OperationsLookupResult {
   kind: 'payment' | 'transaction-v2' | 'debt';
   id: string;
@@ -215,6 +195,7 @@ interface OperationsQueueProps {
   isDevOwner?: boolean;
   /** Home dev toggle for the temporary CCL dates box */
   showHomeOpsCclDates?: boolean;
+  isActive?: boolean;
 }
 
 // ─── Demo data ──────────────────────────────────────────────────────────────
@@ -540,7 +521,7 @@ const getDebtTransferMeta = (item: TransactionV2Item) => {
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
-const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userInitials, showToast, demoModeEnabled = false, isAdmin = false, isV2User = false, isDevOwner = false, showHomeOpsCclDates = false }) => {
+const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userInitials, showToast, demoModeEnabled = false, isAdmin = false, isV2User = false, isDevOwner = false, showHomeOpsCclDates = false, isActive = true }) => {
   // Bank transfer state
   const [bankPending, setBankPending] = useState<BankTransferItem[]>([]);
   const [recent, setRecent] = useState<RecentApproval[]>([]);
@@ -592,11 +573,7 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
   // Detail modal state
   const [selectedStripeItem, setSelectedStripeItem] = useState<StripeRecentItem | null>(null);
   const [selectedDebtItem, setSelectedDebtItem] = useState<TransactionV2Item | null>(null);
-  const [hoveredSection, setHoveredSection] = useState<string | null>(null);
   const [showPaymentsLedger, setShowPaymentsLedger] = useState(true);
-
-  // Dubber recent calls state (admin stream only — users get CallTicketsStrip)
-  const [recentCalls, setRecentCalls] = useState<DubberCallItem[]>([]);
 
   // Cross-operations lookup state
   const [paymentQuery, setPaymentQuery] = useState('');
@@ -612,6 +589,11 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
   // Close link picker when pipeline collapses
   useEffect(() => { if (!pipelineExpanded) setLinkingTaskGid(null); }, [pipelineExpanded]);
 
+  // In-flight guard to prevent StrictMode / remount double-fetch
+  const fetchInFlightRef = useRef(false);
+  const queueRootRef = useRef<HTMLDivElement | null>(null);
+  const [isQueueNearViewport, setIsQueueNearViewport] = useState(() => typeof window === 'undefined');
+
   const demoModeActive = useMemo(() => {
     if (demoModeEnabled) return true;
     try {
@@ -621,17 +603,46 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
     }
   }, [demoModeEnabled]);
 
+  useEffect(() => {
+    const node = queueRootRef.current;
+    if (!node || typeof window === 'undefined' || typeof IntersectionObserver === 'undefined') {
+      setIsQueueNearViewport(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        setIsQueueNearViewport(entry.isIntersecting || entry.intersectionRatio > 0);
+      },
+      { rootMargin: '280px 0px' },
+    );
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  const deferredTxnPending = useDeferredValue(txnPending);
+  const deferredTxnV2Pending = useDeferredValue(txnV2Pending);
+  const deferredUserDebts = useDeferredValue(userDebts);
+  const deferredStripeRecent = useDeferredValue(stripeRecent);
+  const deferredAsanaTasks = useDeferredValue(asanaTasks);
+
   const fetchQueue = useCallback(async () => {
+    if (fetchInFlightRef.current) return;
+    fetchInFlightRef.current = true;
     if (demoModeActive) {
-      setBankPending(DEMO_BANK_ITEMS);
-      setCclPending(showHomeOpsCclDates ? DEMO_CCL_ITEMS : []);
-      setTxnPending(DEMO_TXN_ITEMS);
-      setRecent(DEMO_RECENT_ITEMS);
-      setTxnV2Pending(DEMO_V2_ITEMS);
-      setUserDebts(DEMO_DEBT_ITEMS);
-      setStripeRecent(DEMO_STRIPE_ITEMS);
-      setMigrationRequired(false);
+      startTransition(() => {
+        setBankPending(DEMO_BANK_ITEMS);
+        setCclPending(showHomeOpsCclDates ? DEMO_CCL_ITEMS : []);
+        setTxnPending(DEMO_TXN_ITEMS);
+        setRecent(DEMO_RECENT_ITEMS);
+        setTxnV2Pending(DEMO_V2_ITEMS);
+        setUserDebts(DEMO_DEBT_ITEMS);
+        setStripeRecent(DEMO_STRIPE_ITEMS);
+        setMigrationRequired(false);
+      });
       setIsLoading(false);
+      fetchInFlightRef.current = false;
       return;
     }
 
@@ -645,47 +656,48 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
         fetch('/api/ops-queue/stripe-recent').catch(() => null),
       ]);
 
+      let nextBankPending: BankTransferItem[] | undefined;
+      let nextMigrationRequired: boolean | undefined;
+      let nextRecent: RecentApproval[] | undefined;
+      let nextCclPending: CclDateItem[] | undefined;
+      let nextTxnPending: TransactionItem[] | undefined;
+      let nextAsanaTasks: AsanaAccountTask[] | undefined;
+      let nextAsanaSections: AsanaSectionSummary[] | undefined;
+      let nextAsanaError: boolean | undefined;
+      let nextStripeRecent: StripeRecentItem[] | undefined;
+      let nextTxnV2Pending: TransactionV2Item[] | undefined;
+      let nextUserDebts: TransactionV2Item[] | undefined;
+
       if (bankRes?.ok) {
         const data = await bankRes.json();
-        setBankPending(data.items || []);
-        setMigrationRequired(Boolean(data.migrationRequired));
+        nextBankPending = data.items || [];
+        nextMigrationRequired = Boolean(data.migrationRequired);
       }
       if (recentRes?.ok) {
         const data = await recentRes.json();
-        setRecent(data.items || []);
+        nextRecent = data.items || [];
       }
       if (cclRes?.ok) {
         const data = await cclRes.json();
-        setCclPending(data.items || []);
+        nextCclPending = data.items || [];
       } else if (!showHomeOpsCclDates) {
-        setCclPending([]);
+        nextCclPending = [];
       }
       if (txnRes?.ok) {
         const data = await txnRes.json();
-        setTxnPending(data.items || []);
+        nextTxnPending = data.items || [];
       }
       if (asanaRes?.ok) {
         const data = await asanaRes.json();
-        setAsanaTasks(data.tasks || []);
-        setAsanaSections(data.sections || []);
-        setAsanaError(false);
+        nextAsanaTasks = data.tasks || [];
+        nextAsanaSections = data.sections || [];
+        nextAsanaError = false;
       } else {
-        setAsanaError(true);
+        nextAsanaError = true;
       }
       if (stripeRes?.ok) {
         const data = await stripeRes.json();
-        setStripeRecent(data.items || []);
-      }
-
-      // Dubber team call stream — admin only, non-blocking
-      if (isAdmin) {
-        try {
-          const dubberRes = await fetch('/api/dubberCalls/recent?limit=12');
-          if (dubberRes?.ok) {
-            const dubberData = await dubberRes.json();
-            setRecentCalls(dubberData.recordings || []);
-          }
-        } catch { /* silent — calls are supplementary */ }
+        nextStripeRecent = data.items || [];
       }
 
       // V2 transactions — parallel, independent of V1
@@ -700,18 +712,36 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
           ]);
           if (v2Res?.ok) {
             const v2Data = await v2Res.json();
-            setTxnV2Pending(v2Data.items || []);
+            const items: TransactionV2Item[] = v2Data.items || [];
+            nextTxnV2Pending = items;
+            // Seed known IDs so first poll doesn't re-announce them as new
+            items.forEach((i: TransactionV2Item) => knownV2IdsRef.current.add(i.id));
           }
           if (debtsRes?.ok) {
             const debtsData = await debtsRes.json();
-            setUserDebts(debtsData.items || []);
+            nextUserDebts = debtsData.items || [];
           }
         } catch { /* silent — V2 is supplementary */ }
       }
+
+      startTransition(() => {
+        if (nextBankPending !== undefined) setBankPending(nextBankPending);
+        if (nextMigrationRequired !== undefined) setMigrationRequired(nextMigrationRequired);
+        if (nextRecent !== undefined) setRecent(nextRecent);
+        if (nextCclPending !== undefined) setCclPending(nextCclPending);
+        if (nextTxnPending !== undefined) setTxnPending(nextTxnPending);
+        if (nextAsanaTasks !== undefined) setAsanaTasks(nextAsanaTasks);
+        if (nextAsanaSections !== undefined) setAsanaSections(nextAsanaSections);
+        if (nextAsanaError !== undefined) setAsanaError(nextAsanaError);
+        if (nextStripeRecent !== undefined) setStripeRecent(nextStripeRecent);
+        if (nextTxnV2Pending !== undefined) setTxnV2Pending(nextTxnV2Pending);
+        if (nextUserDebts !== undefined) setUserDebts(nextUserDebts);
+      });
     } catch {
       // silent — queue is supplementary
     } finally {
       setIsLoading(false);
+      fetchInFlightRef.current = false;
     }
   }, [demoModeActive, isV2User, isDevOwner, showHomeOpsCclDates]);
 
@@ -722,12 +752,16 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
   }, [showHomeOpsCclDates]);
 
   useEffect(() => {
+    if (!isActive || !isQueueNearViewport) {
+      return;
+    }
+
     fetchQueue();
-  }, [fetchQueue]);
+  }, [fetchQueue, isActive, isQueueNearViewport]);
 
   // ─── V2 real-time polling (15s) ─────────────────────────────────────────
   const pollV2 = useCallback(async () => {
-    if (!isV2User || demoModeActive) return;
+    if (!isV2User || demoModeActive || !isQueueNearViewport) return;
     try {
       const debtsUrl = isDevOwner
         ? '/api/transactions-v2/debts'
@@ -755,14 +789,19 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
           if (!currentIds.has(id)) knownV2IdsRef.current.delete(id);
         }
 
-        setTxnV2Pending(items);
+        startTransition(() => {
+          setTxnV2Pending(items);
+
+          if (arrivedIds.length > 0) {
+            setNewV2Ids(prev => {
+              const next = new Set(prev);
+              arrivedIds.forEach(id => next.add(id));
+              return next;
+            });
+          }
+        });
 
         if (arrivedIds.length > 0) {
-          setNewV2Ids(prev => {
-            const next = new Set(prev);
-            arrivedIds.forEach(id => next.add(id));
-            return next;
-          });
           // Auto-clear the "new" tag after animation completes (1.2s)
           for (const id of arrivedIds) {
             const existing = newV2TimersRef.current.get(id);
@@ -781,17 +820,15 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
       }
       if (debtsRes?.ok) {
         const debtsData = await debtsRes.json();
-        setUserDebts(debtsData.items || []);
+        startTransition(() => {
+          setUserDebts(debtsData.items || []);
+        });
       }
     } catch { /* silent */ }
-  }, [isV2User, demoModeActive, userInitials, isDevOwner]);
+  }, [isV2User, demoModeActive, userInitials, isDevOwner, isQueueNearViewport]);
 
   useEffect(() => {
-    if (!isV2User) return;
-    // Seed known IDs from initial fetch
-    if (knownV2IdsRef.current.size === 0 && txnV2Pending.length > 0) {
-      txnV2Pending.forEach(i => knownV2IdsRef.current.add(i.id));
-    }
+    if (!isV2User || !isActive || !isQueueNearViewport) return;
     // Visibility-aware polling — pause when tab/document is hidden
     let interval: ReturnType<typeof setInterval> | null = null;
     const start = () => { if (!interval) interval = setInterval(pollV2, 15_000); };
@@ -805,7 +842,8 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
       for (const t of newV2TimersRef.current.values()) clearTimeout(t);
       newV2TimersRef.current.clear();
     };
-  }, [isV2User, pollV2, txnV2Pending.length]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isV2User, isActive, isQueueNearViewport, pollV2]);
 
   // ─── Bank transfer approve ──────────────────────────────────────────────
 
@@ -1171,7 +1209,7 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
   }, []);
 
   const filteredTxn = useMemo(() => {
-    const rangeFiltered = txnPending.filter(item => {
+    const rangeFiltered = deferredTxnPending.filter(item => {
       if (!item.transaction_date) return txnRange === 'today' || txnRange === 'week';
       const d = new Date(item.transaction_date);
       if (txnRange === 'today') return d >= rangeFilter.todayStart;
@@ -1185,7 +1223,7 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
       return rangeFiltered.filter(item => (item.fe || '').toUpperCase() === userInitials.toUpperCase());
     }
     return rangeFiltered;
-  }, [txnPending, txnRange, rangeFilter, isAdmin, userInitials]);
+  }, [deferredTxnPending, txnRange, rangeFilter, isAdmin, userInitials]);
 
   const txnV1StatusOptions = useMemo(() => {
     const counts = {
@@ -1219,7 +1257,7 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
 
   // V2 filtered transactions (same date range logic)
   const filteredTxnV2 = useMemo(() => {
-    const rangeFiltered = txnV2Pending.filter(item => {
+    const rangeFiltered = deferredTxnV2Pending.filter(item => {
       if (!item.transaction_date) return txnRange === 'today' || txnRange === 'week';
       const d = new Date(item.transaction_date);
       if (txnRange === 'today') return d >= rangeFilter.todayStart;
@@ -1232,7 +1270,7 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
       return rangeFiltered.filter(item => (item.fee_earner || '').toUpperCase() === userInitials.toUpperCase());
     }
     return rangeFiltered;
-  }, [txnV2Pending, txnRange, rangeFilter, isAdmin, userInitials]);
+  }, [deferredTxnV2Pending, txnRange, rangeFilter, isAdmin, userInitials]);
 
   const matchesTxnRange = (dateStr: string | null | undefined, selectedRange: typeof txnRange) => {
     if (!dateStr) return selectedRange === 'today' || selectedRange === 'week' || selectedRange === 'mtd';
@@ -1256,7 +1294,7 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
   };
 
   const filteredDebts = useMemo(() => {
-    const activeDebts = userDebts.filter(item => {
+    const activeDebts = deferredUserDebts.filter(item => {
       const debtStatus = item.lifecycle_status || 'pending';
       return debtStatus === 'pending' || debtStatus === 'rejected' || debtStatus === 'converted_to_request';
     });
@@ -1264,10 +1302,10 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
       return activeDebts.filter(item => (item.fee_earner || '').toUpperCase() === userInitials.toUpperCase());
     }
     return activeDebts;
-  }, [userDebts, isAdmin, userInitials]);
+  }, [deferredUserDebts, isAdmin, userInitials]);
 
   const resolvedDebtTransfers = useMemo(() => {
-    const actionedDebts = userDebts.filter(item => {
+    const actionedDebts = deferredUserDebts.filter(item => {
       const debtStatus = item.lifecycle_status || 'pending';
       return debtStatus === 'approved' || debtStatus === 'left_in_client' || debtStatus === 'transferred';
     });
@@ -1275,14 +1313,14 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
       return actionedDebts.filter(item => (item.fee_earner || '').toUpperCase() === userInitials.toUpperCase());
     }
     return actionedDebts;
-  }, [userDebts, isAdmin, userInitials]);
+  }, [deferredUserDebts, isAdmin, userInitials]);
 
   const filteredResolvedDebtTransfers = useMemo(() => {
     return resolvedDebtTransfers.filter(item => matchesTxnRange(getTransferSortDate(item), txnRange));
   }, [resolvedDebtTransfers, txnRange, rangeFilter]);
 
   const lookupTxnV2Items = useMemo(() => {
-    const regularTransfers = txnV2Pending.filter(item => item.source_type !== 'aged_debt');
+    const regularTransfers = deferredTxnV2Pending.filter(item => item.source_type !== 'aged_debt');
     const byId = new Map<number, TransactionV2Item>();
     regularTransfers.forEach(item => byId.set(item.id, item));
     resolvedDebtTransfers.forEach(item => byId.set(item.id, item));
@@ -1291,11 +1329,11 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
       const secondTime = new Date(getTransferSortDate(second) || 0).getTime();
       return secondTime - firstTime;
     });
-  }, [txnV2Pending, resolvedDebtTransfers]);
+  }, [deferredTxnV2Pending, resolvedDebtTransfers]);
 
   // Filtered stripe payments (same date range logic)
   const filteredStripeRecent = useMemo(() => {
-    return stripeRecent.filter(p => {
+    return deferredStripeRecent.filter(p => {
       const dateStr = p.createdAt || p.updatedAt;
       if (!dateStr) return txnRange === 'today' || txnRange === 'week' || txnRange === 'mtd';
       const d = new Date(dateStr);
@@ -1305,7 +1343,7 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
       if (txnRange === 'lastWeek') return d >= rangeFilter.lastMonday && d <= rangeFilter.lastSunday;
       return d >= rangeFilter.monthStart;
     });
-  }, [stripeRecent, txnRange, rangeFilter]);
+  }, [deferredStripeRecent, txnRange, rangeFilter]);
 
   // ─── Cross-operations lookup ───────────────────────────────────────────
 
@@ -1488,26 +1526,26 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
         return d >= start && d <= end;
       }).length;
 
-    const yesterdayCount = countInRange(txnPending, rangeFilter.yesterdayStart, rangeFilter.yesterdayEnd)
-      + countInRange(txnV2Pending, rangeFilter.yesterdayStart, rangeFilter.yesterdayEnd);
+    const yesterdayCount = countInRange(deferredTxnPending, rangeFilter.yesterdayStart, rangeFilter.yesterdayEnd)
+      + countInRange(deferredTxnV2Pending, rangeFilter.yesterdayStart, rangeFilter.yesterdayEnd);
 
-    const weekCount = countInRange(txnPending, rangeFilter.thisMonday, new Date())
-      + countInRange(txnV2Pending, rangeFilter.thisMonday, new Date());
+    const weekCount = countInRange(deferredTxnPending, rangeFilter.thisMonday, new Date())
+      + countInRange(deferredTxnV2Pending, rangeFilter.thisMonday, new Date());
 
     if (yesterdayCount > 0) return { label: `Auto showing Yesterday (${yesterdayCount})`, range: 'yesterday' as const };
     if (weekCount > 0) return { label: `Auto showing Week (${weekCount})`, range: 'week' as const };
     return null;
-  }, [txnRange, filteredTxn.length, filteredTxnV2.length, txnPending, txnV2Pending, rangeFilter, txnVersion]);
+  }, [txnRange, filteredTxn.length, filteredTxnV2.length, deferredTxnPending, deferredTxnV2Pending, rangeFilter, txnVersion]);
 
   const txnFallbackItems = useMemo(() => {
     if (!txnFallbackHint) return [];
     let items: typeof txnPending;
-    items = txnPending.filter(item => matchesTxnRange(item.transaction_date, txnFallbackHint.range));
+    items = deferredTxnPending.filter(item => matchesTxnRange(item.transaction_date, txnFallbackHint.range));
     if (!isAdmin) {
       items = items.filter(item => (item.fe || '').toUpperCase() === userInitials.toUpperCase());
     }
     return items;
-  }, [txnFallbackHint, txnPending, rangeFilter, isAdmin, userInitials]);
+  }, [txnFallbackHint, deferredTxnPending, rangeFilter, isAdmin, userInitials]);
 
   const txnFallbackItemsByStatus = useMemo(() => {
     if (txnV1StatusFilter === 'all') return txnFallbackItems;
@@ -1517,12 +1555,12 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
   const txnV2FallbackItems = useMemo(() => {
     if (!txnFallbackHint) return [];
     let items: typeof txnV2Pending;
-    items = txnV2Pending.filter(item => matchesTxnRange(item.transaction_date, txnFallbackHint.range));
+    items = deferredTxnV2Pending.filter(item => matchesTxnRange(item.transaction_date, txnFallbackHint.range));
     if (!isAdmin) {
       items = items.filter(item => (item.fee_earner || '').toUpperCase() === userInitials.toUpperCase());
     }
     return items;
-  }, [txnFallbackHint, txnV2Pending, rangeFilter, isAdmin, userInitials]);
+  }, [txnFallbackHint, deferredTxnV2Pending, rangeFilter, isAdmin, userInitials]);
 
   const resolvedDebtTransferFallbackItems = useMemo(() => {
     if (!txnFallbackHint) return [];
@@ -1589,11 +1627,11 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
 
   const stripeFallbackItems = useMemo(() => {
     if (!txnFallbackHint) return [];
-    return stripeRecent.filter(p => {
+    return deferredStripeRecent.filter(p => {
       const dateStr = p.createdAt || p.updatedAt;
       return matchesTxnRange(dateStr, txnFallbackHint.range);
     });
-  }, [txnFallbackHint, stripeRecent, rangeFilter]);
+  }, [txnFallbackHint, deferredStripeRecent, rangeFilter]);
 
   const displayedStripeRecent = useMemo(() => {
     return filteredStripeRecent;
@@ -1657,13 +1695,13 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
   // Group Asana tasks by section for expandable breakdown
   const asanaTasksBySection = useMemo(() => {
     const map = new Map<string, AsanaAccountTask[]>();
-    for (const t of asanaTasks) {
+    for (const t of deferredAsanaTasks) {
       const existing = map.get(t.section) || [];
       existing.push(t);
       map.set(t.section, existing);
     }
     return map;
-  }, [asanaTasks]);
+  }, [deferredAsanaTasks]);
 
   // ─── Week-to-date filter for CCL dates ──────────────────────────────────
 
@@ -1692,22 +1730,22 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
   // Map matter_ref → Asana task for cross-referencing transactions
   const asanaByRef = useMemo(() => {
     const map = new Map<string, AsanaAccountTask>();
-    for (const t of asanaTasks) {
+    for (const t of deferredAsanaTasks) {
       if (t.matterRef) map.set(t.matterRef.toUpperCase(), t);
     }
     return map;
-  }, [asanaTasks]);
+  }, [deferredAsanaTasks]);
 
   // Asana tasks in active workflow stages (not completed/archived sections)
   const COMPLETED_SECTIONS = ['Added to Clio/Xero', 'Rejected'];
   const activeAsanaTasks = useMemo(() => {
-    return asanaTasks.filter(t => !COMPLETED_SECTIONS.includes(t.section));
-  }, [asanaTasks]);
+    return deferredAsanaTasks.filter(t => !COMPLETED_SECTIONS.includes(t.section));
+  }, [deferredAsanaTasks]);
 
   // ─── Sync suggestions: Asana section moved → V2 lifecycle mismatch ──────
   const syncSuggestions = useMemo(() => {
     const suggestions: { item: TransactionV2Item; asanaTask: AsanaAccountTask; implied: { status: string; action: 'approve' | 'leave_in_client' | 'reject' } }[] = [];
-    for (const item of txnV2Pending) {
+    for (const item of deferredTxnV2Pending) {
       if (item.lifecycle_status !== 'pending') continue;
       if (dismissedSyncs.has(item.id)) continue;
       const ref = (item.matter_ref || '').toUpperCase();
@@ -1718,10 +1756,10 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
       suggestions.push({ item, asanaTask, implied });
     }
     return suggestions;
-  }, [txnV2Pending, asanaByRef, dismissedSyncs]);
+  }, [deferredTxnV2Pending, asanaByRef, dismissedSyncs]);
 
   // Asana tasks that don't match any pending transaction (form-originated, etc.)
-  const txnRefs = useMemo(() => new Set(txnPending.map(t => t.matter_ref?.toUpperCase())), [txnPending]);
+  const txnRefs = useMemo(() => new Set(deferredTxnPending.map(t => t.matter_ref?.toUpperCase())), [deferredTxnPending]);
   const unmatchedAsanaTasks = useMemo(() => {
     return activeAsanaTasks.filter(t => t.matterRef && !txnRefs.has(t.matterRef.toUpperCase()));
   }, [activeAsanaTasks, txnRefs]);
@@ -1729,16 +1767,16 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
   // Reverse lookup: which Asana tasks have a matching V2 transaction?
   // Matches by matter_ref (auto) OR external_task_id (manual/persistent DB link)
   const linkedAsanaGids = useMemo(() => {
-    const refs = new Set(txnV2Pending.map(t => t.matter_ref?.toUpperCase()).filter(Boolean));
-    const extIds = new Set(txnV2Pending.map(t => t.external_task_id).filter(Boolean));
+    const refs = new Set(deferredTxnV2Pending.map(t => t.matter_ref?.toUpperCase()).filter(Boolean));
+    const extIds = new Set(deferredTxnV2Pending.map(t => t.external_task_id).filter(Boolean));
     const linked = new Set<string>();
-    for (const t of asanaTasks) {
+    for (const t of deferredAsanaTasks) {
       if ((t.matterRef && refs.has(t.matterRef.toUpperCase())) || extIds.has(t.gid)) {
         linked.add(t.gid);
       }
     }
     return linked;
-  }, [asanaTasks, txnV2Pending]);
+  }, [deferredAsanaTasks, deferredTxnV2Pending]);
 
   // ─── Tokens (aligned with OperationsDashboard) ─────────────────────────
 
@@ -1747,11 +1785,33 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
   const cardShadow = isDarkMode ? 'none' : 'inset 0 0 0 1px rgba(13,47,96,0.06), 0 1px 4px rgba(13,47,96,0.04)';
   const borderCol = isDarkMode ? 'rgba(75, 85, 99, 0.25)' : 'rgba(13, 47, 96, 0.08)';
   const rowBorder = isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(13,47,96,0.06)';
+  const sectionDivider = isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(13,47,96,0.08)';
   const textPrimary = isDarkMode ? colours.dark.text : colours.light.text;
   const textBody = isDarkMode ? '#d1d5db' : '#374151';
   const textMuted = isDarkMode ? colours.subtleGrey : colours.greyText;
   const accent = isDarkMode ? colours.accent : colours.highlight;
   const hoverBg = isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(13,47,96,0.03)';
+  const sectionSurface = isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(13,47,96,0.025)';
+  const sectionSurfaceAlt = isDarkMode ? 'rgba(255,255,255,0.025)' : 'rgba(214,232,255,0.34)';
+  const queueTitle = isAdmin ? 'Operations' : 'My transactions';
+  const queueSubtitle = isAdmin
+    ? 'Accounts pipeline, transfers, payments, and debt follow-up in one Home workspace.'
+    : 'Transfers, payments, and recent decisions linked to your work.';
+  const pipelineTotal = asanaSections.reduce((sum, section) => sum + section.count, 0);
+  const queueSummaryChips = [
+    { key: 'pipeline', label: 'Pipeline', count: pipelineTotal, colour: accent, show: isAdmin && pipelineTotal > 0 },
+    { key: 'ccl', label: 'CCL dates', count: visibleCclCount, colour: colours.orange, show: visibleCclCount > 0 },
+    {
+      key: 'transfers',
+      label: txnVersion === 'v2' ? 'Transfers' : 'Transactions',
+      count: txnVersion === 'v2' ? displayedTxnV2.length : displayedTxn.length,
+      colour: accent,
+      show: (txnVersion === 'v2' ? displayedTxnV2.length : displayedTxn.length) > 0,
+    },
+    { key: 'payments', label: 'Payments', count: displayedStripeRecent.length, colour: colours.green, show: displayedStripeRecent.length > 0 },
+    { key: 'debts', label: 'Aged debt', count: filteredDebts.length, colour: colours.orange, show: isV2User && filteredDebts.length > 0 },
+    { key: 'recent', label: 'Recent', count: recentCount, colour: colours.green, show: isAdmin && recentCount > 0 },
+  ].filter(chip => chip.show);
 
   // ─── Toggle expand ──────────────────────────────────────────────────────
 
@@ -1773,7 +1833,7 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
     const skelBar = isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(13,47,96,0.05)';
     const skelBorder = isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(13,47,96,0.06)';
     return (
-      <div style={{
+      <div ref={queueRootRef} style={{
         background: cardBg,
         border: `1px solid ${cardBorder}`,
         boxShadow: cardShadow,
@@ -1903,7 +1963,7 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
   }
 
   // Nothing to show — non-admins only care about their own transactions
-  if (isAdmin ? (totalPending === 0 && txnV2Pending.length === 0 && recentCount === 0 && recentCalls.length === 0 && !migrationRequired && !hasFallbackPreview) : (filteredTxn.length === 0 && filteredTxnV2.length === 0 && !hasFallbackPreview)) return null;
+  if (isAdmin ? (totalPending === 0 && txnV2Pending.length === 0 && recentCount === 0 && !migrationRequired && !hasFallbackPreview) : (filteredTxn.length === 0 && filteredTxnV2.length === 0 && !hasFallbackPreview)) return null;
 
   // ─── Card renderer (compact ticket) ────────────────────────────────────
 
@@ -1963,11 +2023,6 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
   };
 
   return (
-    <>
-      <div style={{ fontSize: 11, fontWeight: 600, color: textMuted, padding: '2px 0 3px', letterSpacing: '0.2px', display: 'flex', alignItems: 'center', gap: 4 }}>
-        <SiAsana size={10} color={accent} style={{ flexShrink: 0 }} />
-        {isAdmin ? 'Operations' : 'My Transactions'}
-      </div>
       <div style={{
         background: cardBg,
         border: `1px solid ${cardBorder}`,
@@ -1975,31 +2030,103 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
         fontFamily: "'Raleway', 'Segoe UI', sans-serif",
         animation: 'opsQReveal 0.28s ease-out both',
       }}>
-      {!isAdmin && (
-        <div style={{
-          padding: '7px 12px 6px',
-          background: isDarkMode ? 'rgba(135,243,243,0.03)' : 'rgba(13,47,96,0.025)',
-          borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}`,
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <FiAlertCircle size={10} color={totalPending > 0 ? colours.orange : colours.green} strokeWidth={2.2} />
-            <span style={{ fontSize: 9, fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.highlight, letterSpacing: '0.3px', lineHeight: 1.1 }}>
-              My Transactions
-            </span>
-            {demoModeActive && (
-              <span style={{
-                fontSize: 7, fontWeight: 700, color: textMuted,
-                padding: '1px 4px',
-                border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.15)' : 'rgba(13,47,96,0.15)'}`,
-                lineHeight: 1.1,
-              }}>
-                demo
-              </span>
-            )}
+      <div style={{
+        padding: '10px 14px 9px',
+        background: sectionSurface,
+        borderBottom: `1px solid ${borderCol}`,
+        display: 'grid',
+        gap: 8,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, minWidth: 0 }}>
+            <div style={{
+              width: 18,
+              height: 18,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: isDarkMode ? 'rgba(135,243,243,0.08)' : 'rgba(54,144,206,0.08)',
+              border: `1px solid ${isDarkMode ? 'rgba(135,243,243,0.2)' : 'rgba(54,144,206,0.18)'}`,
+              color: accent,
+              flexShrink: 0,
+            }}>
+              {isAdmin ? <SiAsana size={10} /> : <FiCreditCard size={10} />}
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: textPrimary, letterSpacing: '0.45px', textTransform: 'uppercase' as const }}>
+                  {queueTitle}
+                </span>
+                {demoModeActive && (
+                  <span style={{
+                    fontSize: 7,
+                    fontWeight: 700,
+                    color: textMuted,
+                    padding: '1px 4px',
+                    border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.15)' : 'rgba(13,47,96,0.15)'}`,
+                    lineHeight: 1.1,
+                  }}>
+                    demo
+                  </span>
+                )}
+              </div>
+              <div style={{ fontSize: 11, color: textBody, lineHeight: 1.4, marginTop: 2 }}>
+                {queueSubtitle}
+              </div>
+            </div>
           </div>
+
+          {queueSummaryChips.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginLeft: 'auto' }}>
+              {queueSummaryChips.map(chip => (
+                <span
+                  key={chip.key}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '3px 8px',
+                    border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(13,47,96,0.1)'}`,
+                    background: isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.7)',
+                    fontSize: 9,
+                    fontWeight: 600,
+                    color: textMuted,
+                    lineHeight: 1.1,
+                  }}
+                >
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: chip.colour, flexShrink: 0 }} />
+                  <span>{chip.label}</span>
+                  <span style={{ color: textPrimary, fontWeight: 700 }}>{chip.count}</span>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
-      )}
+
+        {isAdmin && recentCount > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 10, color: textMuted }}>
+              The live queue stays focused on active work. Recent approvals sit behind a single toggle.
+            </span>
+            <button
+              onClick={() => setShowRecent(prev => !prev)}
+              style={{
+                background: 'none',
+                border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(13,47,96,0.1)'}`,
+                cursor: 'pointer',
+                fontSize: 9,
+                fontWeight: 600,
+                color: showRecent ? accent : textMuted,
+                padding: '3px 8px',
+                fontFamily: "'Raleway', 'Segoe UI', sans-serif",
+                lineHeight: 1.2,
+              }}
+            >
+              {showRecent ? 'Hide recent approvals' : `Show ${recentCount} recent approval${recentCount === 1 ? '' : 's'}`}
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* ── Accounts pipeline summary row ── */}
       {isAdmin && (
@@ -2007,19 +2134,15 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
           onClick={() => setPipelineExpanded(prev => !prev)}
           style={{
             display: 'flex', alignItems: 'center', gap: 8,
-            padding: '0 14px',
-            height: 32,
+            padding: '8px 14px 7px',
             boxSizing: 'border-box',
             cursor: 'pointer',
-            background: isDarkMode ? colours.darkBlue : colours.grey,
-            borderBottom: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)'}`,
-            boxShadow: isDarkMode
-              ? '0 2px 8px rgba(0, 0, 0, 0.3)'
-              : '0 1px 4px rgba(0, 0, 0, 0.04)',
+            background: sectionSurface,
+            borderBottom: `1px solid ${rowBorder}`,
             transition: 'background 0.12s ease',
           }}
-          onMouseEnter={e => { e.currentTarget.style.background = isDarkMode ? 'rgba(6, 23, 51, 0.9)' : '#ebebed'; }}
-          onMouseLeave={e => { e.currentTarget.style.background = isDarkMode ? colours.darkBlue : colours.grey; }}
+          onMouseEnter={e => { e.currentTarget.style.background = hoverBg; }}
+          onMouseLeave={e => { e.currentTarget.style.background = sectionSurface; }}
         >
           <FiChevronDown
             size={10}
@@ -2090,27 +2213,6 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
             }}>
               demo
             </span>
-          )}
-          {recentCount > 0 && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowRecent(prev => !prev);
-              }}
-              style={{
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                fontSize: 8,
-                color: textMuted,
-                padding: '1px 4px',
-                fontFamily: "'Raleway', 'Segoe UI', sans-serif",
-                lineHeight: 1.1,
-                flexShrink: 0,
-              }}
-            >
-              {showRecent ? 'hide' : `${recentCount} recent`}
-            </button>
           )}
         </div>
       )}
@@ -2446,24 +2548,25 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
           <div style={{ padding: '0 14px 8px' }}>
             <div style={{
               display: 'grid',
-              gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
-              border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.07)' : 'rgba(13,47,96,0.09)'}`,
-              background: isDarkMode ? colours.darkBlue : colours.grey,
-              overflow: 'hidden',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+              gap: 12,
+              alignItems: 'start',
             }}>
             <div style={{
               display: 'flex',
               flexDirection: 'column',
               minWidth: 0,
-              borderRight: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(13,47,96,0.08)'}`,
+              padding: '8px 10px 10px',
+              background: sectionSurface,
+              borderTop: `1px solid ${sectionDivider}`,
             }}>
               <div style={{
                 display: 'flex',
                 alignItems: 'center',
                 gap: 6,
                 minWidth: 0,
-                padding: '8px 10px',
-                background: isDarkMode ? colours.darkBlue : colours.grey,
+                padding: '0 0 6px',
+                background: 'transparent',
               }}>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 9, fontWeight: 600, color: textMuted, letterSpacing: '0.2px' }}>
                   <FiArrowRight size={8} style={{ flexShrink: 0, opacity: 0.75 }} />
@@ -2476,9 +2579,9 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
                 gap: 4,
                 flexWrap: 'wrap',
                 minWidth: 0,
-                padding: '6px 10px 8px',
-                borderTop: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(13,47,96,0.06)'}`,
-                background: isDarkMode ? colours.darkBlue : colours.grey,
+                padding: '0 0 8px',
+                borderTop: 'none',
+                background: 'transparent',
               }}>
                 {(txnVersion === 'v1' ? txnV1StatusOptions : txnV2StatusOptions).map(option => {
                   const isActive = txnVersion === 'v1'
@@ -2560,14 +2663,17 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
               display: 'flex',
               flexDirection: 'column',
               minWidth: 0,
+              padding: '8px 10px 10px',
+              background: sectionSurfaceAlt,
+              borderTop: `1px solid ${sectionDivider}`,
             }}>
               <div style={{
                 display: 'flex',
                 alignItems: 'center',
                 gap: 5,
                 minWidth: 0,
-                padding: '8px 10px',
-                background: isDarkMode ? colours.darkBlue : colours.highlightBlue,
+                padding: '0 0 6px',
+                background: 'transparent',
               }}>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 9, fontWeight: 600, color: textMuted, letterSpacing: '0.2px' }}>
                   <SiStripe size={11} style={{ color: '#635bff', flexShrink: 0, opacity: 0.75 }} />
@@ -2588,9 +2694,9 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
                 gap: 6,
                 flexWrap: 'wrap',
                 minWidth: 0,
-                padding: '6px 10px 8px',
-                borderTop: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(13,47,96,0.06)'}`,
-                background: isDarkMode ? colours.darkBlue : colours.highlightBlue,
+                padding: '0 0 8px',
+                borderTop: 'none',
+                background: 'transparent',
               }}>
                 {paymentsPreviewMode && txnFallbackHint && (
                   <span style={{ fontSize: 8, color: textMuted, opacity: 0.55 }}>
@@ -2991,14 +3097,12 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
           {txnVersion === 'v2' && (
               <div style={{ padding: '2px 14px 6px' }}>
                 <div style={{
-                  display: 'flex',
-                  gap: 0,
-                  border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.07)' : 'rgba(13,47,96,0.09)'}`,
-                    background: isDarkMode ? colours.darkBlue : colours.grey,
-                  overflow: 'hidden',
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+                    gap: 12,
                 }}>
                 {/* Left: V2 transaction cards */}
-                <div style={{ flex: '1 1 0', minWidth: 0, padding: '8px', background: isDarkMode ? colours.darkBlue : colours.sectionBackground }}>
+                  <div style={{ flex: '1 1 0', minWidth: 0, padding: '8px 10px 10px', background: sectionSurface, borderTop: `1px solid ${sectionDivider}` }}>
                 {renderedTxnV2.length === 0 && syncSuggestions.length === 0 ? (
                   <div style={{ padding: '4px 0 8px', textAlign: 'center' }}>
                     <span style={{ fontSize: 10, color: textMuted, opacity: 0.6 }}>No V2 transactions</span>
@@ -3219,11 +3323,11 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
                 {/* Right: Payments ledger — 50/50 split, stretches to match transactions */}
                 <div style={{
                   flex: '1 1 0', minWidth: 0,
-                  borderLeft: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.07)' : 'rgba(13,47,96,0.09)'}`,
-                  padding: '8px', alignSelf: 'stretch',
+                  padding: '8px 10px 10px', alignSelf: 'stretch',
                   display: 'flex', flexDirection: 'column',
                   minHeight: 50,
-                  background: isDarkMode ? colours.darkBlue : colours.highlightBlue,
+                  background: sectionSurfaceAlt,
+                  borderTop: `1px solid ${sectionDivider}`,
                 }}>
                   <div style={{
                     display: 'flex',
@@ -3231,8 +3335,8 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
                     flex: 1,
                     minHeight: 0,
                     position: 'relative',
-                    border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(13,47,96,0.05)'}`,
-                    background: isDarkMode ? colours.darkBlue : colours.sectionBackground,
+                    border: 'none',
+                    background: 'transparent',
                   }}>
                     {/* Payment rows — fills available height, scrolls if needed */}
                     <div data-ops-payment-list="true" style={{ display: 'flex', flexDirection: 'column', gap: 1, flex: 1, overflowY: 'auto', minHeight: 0, padding: '4px 0', opacity: 1, filter: 'none', pointerEvents: 'auto' }}>
@@ -3589,126 +3693,6 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
           </div>
         </div>
       )}
-
-      {/* ── Team call stream (admin only — side-by-side) ────────── */}
-      {isAdmin && recentCalls.length > 0 && (() => {
-        const externalCalls = recentCalls.filter(c => !c.is_internal);
-        const internalCalls = recentCalls.filter(c => c.is_internal);
-
-        const renderStreamRow = (call: DubberCallItem) => {
-          const isInbound = call.call_type === 'inbound';
-          const party = isInbound
-            ? (call.from_label || call.from_party || '—')
-            : (call.to_label || call.to_party || '—');
-          const teamLabel = call.matched_team_initials || '—';
-          const mins = call.duration_seconds != null ? Math.floor(call.duration_seconds / 60) : null;
-          const secs = call.duration_seconds != null ? call.duration_seconds % 60 : null;
-          const durationText = mins != null ? `${mins}:${String(secs).padStart(2, '0')}` : '—';
-          const callTime = call.start_time_utc ? new Date(call.start_time_utc) : null;
-          const timeLabel = callTime
-            ? callTime.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
-            : '—';
-          const sentimentScore = call.document_sentiment_score;
-          const sentimentColour = sentimentScore != null
-            ? (sentimentScore >= 0.6 ? colours.green : sentimentScore <= 0.4 ? colours.cta : colours.orange)
-            : colours.subtleGrey;
-          const dirColour = isInbound ? colours.green : colours.blue;
-          return (
-            <div
-              key={call.recording_id}
-              style={{
-                display: 'grid',
-                gridTemplateColumns: '2px 24px minmax(0, 1fr) 34px 32px',
-                alignItems: 'center',
-                columnGap: 4,
-                padding: '3px 6px',
-                background: 'transparent',
-                transition: 'all 0.12s ease',
-              }}
-              onMouseEnter={e => { e.currentTarget.style.background = hoverBg; }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
-            >
-              <div style={{ width: 2, height: '100%', minHeight: 14, background: sentimentColour, borderRadius: 999, opacity: 0.7 }} />
-              <span style={{
-                fontSize: 7, fontWeight: 700, letterSpacing: '0.3px',
-                color: isDarkMode ? colours.dark.text : colours.light.text,
-                background: isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(13, 47, 96, 0.06)',
-                padding: '1px 4px', textAlign: 'center', borderRadius: 0,
-              }}>
-                {teamLabel}
-              </span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0, overflow: 'hidden' }}>
-                <span style={{ fontSize: 7, color: dirColour, fontWeight: 600, flexShrink: 0 }}>
-                  {isInbound ? '←' : '→'}
-                </span>
-                <span style={{
-                  fontSize: 8, fontWeight: 600, color: textPrimary,
-                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0,
-                }}>
-                  {party}
-                </span>
-              </div>
-              <span style={{
-                fontSize: 7, color: textMuted,
-                fontFamily: "'Consolas', 'Courier New', monospace",
-                fontVariantNumeric: 'tabular-nums',
-                textAlign: 'right',
-              }}>
-                {durationText}
-              </span>
-              <span style={{ fontSize: 7, color: textMuted, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                {timeLabel}
-              </span>
-            </div>
-          );
-        };
-
-        return (
-        <div style={{ marginTop: 10, borderTop: `1px solid ${rowBorder}`, paddingTop: 8 }}>
-          <div style={{ padding: '2px 14px 3px', display: 'flex', alignItems: 'center', gap: 5 }}>
-            <FiPhone size={10} color={accent} style={{ flexShrink: 0 }} />
-            <span style={{ fontSize: 9, fontWeight: 600, color: textMuted, letterSpacing: '0.2px' }}>
-              Team calls
-            </span>
-            <span style={{ fontSize: 8, color: textMuted, opacity: 0.5 }}>{recentCalls.length}</span>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, padding: '4px 14px 8px' }}>
-            {/* External column */}
-            <div>
-              <div style={{
-                fontSize: 7, fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase' as const,
-                color: accent, padding: '2px 6px 4px', borderBottom: `1px solid ${rowBorder}`,
-              }}>
-                External
-                <span style={{ marginLeft: 4, fontSize: 7, opacity: 0.5, fontWeight: 500 }}>{externalCalls.length}</span>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                {externalCalls.length > 0
-                  ? externalCalls.map(renderStreamRow)
-                  : <span style={{ fontSize: 8, color: textMuted, opacity: 0.4, fontStyle: 'italic', padding: '6px' }}>None</span>
-                }
-              </div>
-            </div>
-            {/* Internal column */}
-            <div>
-              <div style={{
-                fontSize: 7, fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase' as const,
-                color: textMuted, padding: '2px 6px 4px', borderBottom: `1px solid ${rowBorder}`,
-              }}>
-                Internal
-                <span style={{ marginLeft: 4, fontSize: 7, opacity: 0.5, fontWeight: 500 }}>{internalCalls.length}</span>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                {internalCalls.length > 0
-                  ? internalCalls.map(renderStreamRow)
-                  : <span style={{ fontSize: 8, color: textMuted, opacity: 0.4, fontStyle: 'italic', padding: '6px' }}>None</span>
-                }
-              </div>
-            </div>
-          </div>
-        </div>
-        );
-      })()}
 
       {/* ── CCL date confirmations ─────────────────────────────────── */}
       {isAdmin && showHomeOpsCclDates && cclCount > 0 && (
@@ -4201,7 +4185,6 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
         }
       `}</style>
     </div>
-    </>
   );
 };
 

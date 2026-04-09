@@ -14,8 +14,7 @@ const express = require('express');
 const fetch = require('node-fetch');
 const { withRequest } = require('../utils/db');
 const { getRedisClient, generateCacheKey, setCache, getCache } = require('../utils/redisClient');
-const { DefaultAzureCredential } = require('@azure/identity');
-const { SecretClient } = require('@azure/keyvault-secrets');
+const { getClient } = require('../utils/getSecret');
 
 const router = express.Router();
 const { annotate } = require('../utils/devConsole');
@@ -208,20 +207,9 @@ function getTwoWeekBounds() {
 // Clio API (matches reporting.js credential pattern)
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Key Vault client (deferred init)
-const vaultUrl = process.env.KEY_VAULT_URL || 'https://helix-keys.vault.azure.net/';
-let kvClient = null;
-
-function getKvClient() {
-  if (!kvClient) {
-    const credential = new DefaultAzureCredential({ additionallyAllowedTenants: ['*'] });
-    kvClient = new SecretClient(vaultUrl, credential);
-  }
-  return kvClient;
-}
-
 // In-memory cache for credentials and token
 const cache = new Map();
+let inflightCredentialsFetch = null;
 
 // Timeout helper
 function withTimeout(promise, ms, label) {
@@ -252,38 +240,49 @@ async function getClioCredentialsCached() {
   if (memCached && memCached.expires > Date.now()) {
     return memCached.data;
   }
-  
-  // Fetch from Key Vault (use PBI credentials like reporting.js)
-  console.log('[home-wip] Fetching credentials from Key Vault...');
-  const client = getKvClient();
-  const [refreshTokenSecret, clientSecret, clientIdSecret] = await withTimeout(
-    Promise.all([
-      client.getSecret('clio-pbi-refreshtoken'),
-      client.getSecret('clio-pbi-secret'),
-      client.getSecret('clio-pbi-clientid'),
-    ]),
-    15000,
-    'Key Vault credentials fetch'
-  );
-  console.log('[home-wip] Key Vault credentials fetched successfully');
-  
-  const credentials = {
-    refreshToken: refreshTokenSecret.value,
-    clientSecret: clientSecret.value,
-    clientId: clientIdSecret.value,
-  };
-  
-  // Cache for 1 hour
-  const expiryTime = Date.now() + 60 * 60 * 1000;
-  cache.set(cacheKey, { data: credentials, expires: expiryTime });
-  
-  if (redis) {
-    try {
-      await redis.setEx('homeWip:' + cacheKey, 3600, JSON.stringify(credentials));
-    } catch { /* ignore */ }
+
+  if (inflightCredentialsFetch) {
+    return inflightCredentialsFetch;
   }
   
-  return credentials;
+  // Fetch from Key Vault (use PBI credentials like reporting.js)
+  inflightCredentialsFetch = (async () => {
+    console.log('[home-wip] Fetching credentials from Key Vault...');
+    const client = getClient();
+    const [refreshTokenSecret, clientSecret, clientIdSecret] = await withTimeout(
+      Promise.all([
+        client.getSecret('clio-pbi-refreshtoken'),
+        client.getSecret('clio-pbi-secret'),
+        client.getSecret('clio-pbi-clientid'),
+      ]),
+      15000,
+      'Key Vault credentials fetch'
+    );
+    console.log('[home-wip] Key Vault credentials fetched successfully');
+
+    const credentials = {
+      refreshToken: refreshTokenSecret.value,
+      clientSecret: clientSecret.value,
+      clientId: clientIdSecret.value,
+    };
+
+    const expiryTime = Date.now() + 60 * 60 * 1000;
+    cache.set(cacheKey, { data: credentials, expires: expiryTime });
+
+    if (redis) {
+      try {
+        await redis.setEx('homeWip:' + cacheKey, 3600, JSON.stringify(credentials));
+      } catch { /* ignore */ }
+    }
+
+    return credentials;
+  })();
+
+  try {
+    return await inflightCredentialsFetch;
+  } finally {
+    inflightCredentialsFetch = null;
+  }
 }
 
 // De-dup forced token refresh: only one Clio OAuth call at a time.
@@ -374,7 +373,7 @@ async function getClioAccessTokenInternal(forceRefresh = false) {
   if (tokenData.refresh_token && tokenData.refresh_token !== refreshToken) {
     console.log('[home-wip] Storing new Clio refresh token to Key Vault');
     try {
-      const client = getKvClient();
+      const client = getClient();
       await withTimeout(
         client.setSecret('clio-pbi-refreshtoken', tokenData.refresh_token),
         10000,

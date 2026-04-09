@@ -72,12 +72,15 @@
   min-height: 700px;
 }
 
+.home-stable-shell-ops {
+  min-height: 0;
+}
+
 .home-stable-shell-team {
   min-height: 340px;
 }
 
 .home-stable-shell-panel {
-  min-height: inherit;
   width: 100%;
 }
 
@@ -85,10 +88,47 @@
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
+  min-height: inherit;
 }
 
 .home-stable-shell-live {
   animation: homeStableReveal 0.22s ease-out both;
+}
+
+.home-team-panel:hover {
+  background: var(--home-team-panel-hover-bg, transparent);
+}
+
+.home-team-section:hover {
+  background: var(--home-team-section-hover-bg, transparent);
+  box-shadow: var(--home-team-section-hover-shadow, none);
+  outline-color: var(--home-team-section-hover-ring, transparent);
+}
+
+.home-team-section:hover .home-team-toggle,
+.home-team-section.is-expanded .home-team-toggle {
+  color: var(--home-team-toggle-active, inherit);
+}
+
+.home-team-avatar:not(.is-selected):hover {
+  background: var(--home-team-avatar-hover-bg, transparent);
+  border-color: var(--home-team-avatar-hover-border, currentColor);
+  color: var(--home-team-avatar-hover-colour, inherit);
+}
+
+.home-team-grid-chip:hover {
+  background: var(--home-team-grid-chip-hover-bg, transparent);
+  border-color: var(--home-team-grid-chip-hover-border, currentColor);
+  color: var(--home-team-grid-chip-hover-colour, inherit);
+}
+
+.home-team-leave-tile:not(.is-selected):hover {
+  background: var(--home-team-leave-hover-bg, transparent);
+  border-color: var(--home-team-leave-hover-border, currentColor);
+}
+
+.home-team-swimlane-row:hover {
+  background: var(--home-team-row-hover-bg, transparent);
 }
 
 /* Reduced motion support */

@@ -1,854 +1,554 @@
-// src/tabs/roadmap/Roadmap.tsx
-// invisible change removed
+// src/tabs/roadmap/Roadmap.tsx — Activity tab (auto-updated changelog view)
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { Stack } from '@fluentui/react/lib/Stack';
-import type { IStackTokens } from '@fluentui/react/lib/Stack';
-import { Text } from '@fluentui/react/lib/Text';
-import { mergeStyles } from '@fluentui/react/lib/Styling';
-import { Icon } from '@fluentui/react/lib/Icon';
-import { Modal } from '@fluentui/react/lib/Modal';
-import { PrimaryButton, IconButton } from '@fluentui/react/lib/Button';
-import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
-import { Spinner, SpinnerSize } from '@fluentui/react/lib/Spinner';
-import ThemedSpinner from '../../components/ThemedSpinner';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { Spinner } from '@fluentui/react/lib/Spinner';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';
-import BespokeForm from '../../CustomForms/BespokeForms';
 import { UserData } from '../../app/functionality/types';
-import { format } from 'date-fns';
-import { isInTeams } from '../../app/functionality/isInTeams';
-import localRoadmap from '../../localData/localRoadmap.json';
-import '../../app/styles/Roadmap.css';
+import HomeBootMonitor from './HomeBootMonitor';
+import ActivityFeedSection from './parts/ActivityFeedSection';
+import ActivityCardLabPanel from './parts/ActivityCardLabPanel';
+import { ActivityFeedItem } from './parts/types';
 
-// Define the properties for the Roadmap component
-interface RoadmapProps {
+interface ActivityProps {
   userData: UserData[] | null;
+  showBootMonitor?: boolean;
 }
 
-// Define the structure of a roadmap entry
-interface RoadmapEntry {
-  id: number;
-  requested_by: string;
-  date_requested: string;
-  component: string;
+type ReleaseCategory = 'feature' | 'improvement' | 'fix' | 'ops';
+
+type ReleaseEntry = {
+  date: string;
+  title: string;
+  details?: string;
+  category: ReleaseCategory;
+  idx: number;
+};
+
+type ReleaseGroup = {
   label: string;
-  description: string;
-  status: string;
+  version: string;
+  monthKey: string;
+  entries: ReleaseEntry[];
+};
+
+const CATEGORY_KEYWORDS: Record<Exclude<ReleaseCategory, 'feature'>, RegExp> = {
+  fix: /\bfix(ed|es|ing)?\b|\bbug\b|\bpatch\b|\bharden(ed|ing)?\b|\bfallback\b|\bstabil/i,
+  ops: /\btelemetry\b|\bapp\s*insights\b|\bscheduler\b|\bdeploy\b|\bops\b|\bmigrat/i,
+  improvement: /\boptimis|refactor|clean|performance|simplif|redesign|improv|enrich|enhanc|inline|converge|consolidat/i,
+};
+
+function detectCategory(title: string, details?: string): ReleaseCategory {
+  const hay = `${title} ${details || ''}`;
+  for (const [cat, re] of Object.entries(CATEGORY_KEYWORDS) as [Exclude<ReleaseCategory, 'feature'>, RegExp][]) {
+    if (re.test(hay)) return cat;
+  }
+  return 'feature';
 }
 
-// Define how roadmap entries are grouped by status
-interface GroupedRoadmap {
-  [status: string]: RoadmapEntry[];
+const CATEGORY_META: Record<ReleaseCategory, { label: string; colour: string; darkColour: string }> = {
+  feature: { label: 'New', colour: colours.green, darkColour: colours.green },
+  improvement: { label: 'Improved', colour: colours.highlight, darkColour: colours.accent },
+  fix: { label: 'Fixed', colour: colours.orange, darkColour: colours.orange },
+  ops: { label: 'Under the hood', colour: colours.greyText, darkColour: colours.subtleGrey },
+};
+
+function parseChangelog(markdown: string): ReleaseEntry[] {
+  const lines = markdown.split('\n');
+  const entries: ReleaseEntry[] = [];
+  lines.forEach((line, idx) => {
+    const match = line.match(/^\s*(\d{4}-\d{2}-\d{2})\s*\/\s*([^/]+?)(?:\s*\/\s*(.*))?\s*$/);
+    if (!match) return;
+    const date = match[1];
+    const title = (match[2] || '').trim();
+    const details = (match[3] || '').trim() || undefined;
+    if (!title) return;
+    entries.push({ date, title, details, category: detectCategory(title, details), idx });
+  });
+  entries.sort((a, b) => (a.date === b.date ? a.idx - b.idx : a.date < b.date ? 1 : -1));
+  return entries;
 }
 
-// Caching variables to store fetched roadmap data and errors
-let cachedRoadmapData: RoadmapEntry[] | null = null;
-
-const inTeams = isInTeams();
-// PHASED OUT: Roadmap feature no longer supports live data - always use local data
-const useLocalData = true;
-const ROADMAP_SUGGESTIONS_STORAGE_KEY = 'helix-roadmap-local-suggestions';
-
-const getLocalRoadmapEntries = (): RoadmapEntry[] => {
-  const baseEntries = localRoadmap as RoadmapEntry[];
-
-  if (typeof window === 'undefined') {
-    return baseEntries;
+function groupByMonth(entries: ReleaseEntry[]): ReleaseGroup[] {
+  const map = new Map<string, ReleaseEntry[]>();
+  for (const entry of entries) {
+    const monthKey = entry.date.slice(0, 7);
+    (map.get(monthKey) ?? (map.set(monthKey, []), map.get(monthKey)!)).push(entry);
   }
 
+  const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const keys = Array.from(map.keys()).sort((a, b) => (a < b ? 1 : -1));
+  return keys.map((key) => {
+    const [year, month] = key.split('-');
+    return {
+      monthKey: key,
+      version: `v${year}.${parseInt(month, 10)}`,
+      label: `${months[parseInt(month, 10) - 1]} ${year}`,
+      entries: map.get(key) || [],
+    };
+  });
+}
+
+function formatDate(iso: string): string {
   try {
-    const storedValue = window.localStorage.getItem(ROADMAP_SUGGESTIONS_STORAGE_KEY);
-    if (!storedValue) {
-      return baseEntries;
-    }
-
-    const parsed = JSON.parse(storedValue);
-    return Array.isArray(parsed) ? [...baseEntries, ...parsed] : baseEntries;
-  } catch (error) {
-    console.error('Error reading local roadmap suggestions:', error);
-    return baseEntries;
+    const date = new Date(`${iso}T00:00:00`);
+    return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  } catch {
+    return iso;
   }
+}
+
+type PlannedPriority = 'high' | 'medium' | 'low';
+
+type PlannedProject = {
+  title: string;
+  summary: string;
+  priority: PlannedPriority;
+  stream?: string;
 };
 
-const persistLocalRoadmapSuggestions = (entries: RoadmapEntry[]) => {
-  if (typeof window === 'undefined') {
-    return;
-  }
+const PLANNED_PROJECTS: PlannedProject[] = [
+  { title: 'Prospects decomposition', summary: 'Enquiries.tsx is 11k+ lines — decompose incrementally.', priority: 'high' },
+  { title: 'Data Centre → Helix CRM Control Plane', summary: 'Drift alerts, scheduled integrity sweeps, cross-dataset reconciliation.', priority: 'high' },
+  { title: 'Cache-vs-live truth layer', summary: 'Freshness state model: snapshot | reconciling | live-confirmed.', priority: 'high', stream: 'D1' },
+  { title: 'Cross-app event contract', summary: 'Shared event shape across tab-app, enquiry-processing, instruct-pitch.', priority: 'high', stream: 'D2' },
+  { title: 'Azure resource alignment', summary: 'Audit resources, zip deploy, staging slot swap, retire local Functions boot.', priority: 'high', stream: 'D3' },
+  { title: 'Hub Tools consolidation', summary: 'SQL pool health, Clio auth status, scheduler tier status, freshness indicators.', priority: 'high', stream: 'D4' },
+  { title: 'Blueprints tab', summary: 'Infrastructure, data flow, permissions, and schema blueprints.', priority: 'high', stream: 'E2' },
+  { title: 'Telemetry transparency', summary: 'Team-facing processing status strip and simplified App Insights view.', priority: 'high', stream: 'E3' },
+  { title: 'Deploy speed: run-from-package + staging swap', summary: 'Zip mount deploys (~2 min vs 30 min) and zero-downtime slot swap.', priority: 'high' },
+  { title: 'CFA-specific email templates', summary: 'Dedicated CFA completion emails with appropriate wording.', priority: 'high' },
+  { title: 'Command Centre — Hub controls the portal', summary: 'Matter edit panel, pipeline write actions, snapshot editor, checklist CRUD.', priority: 'high' },
+  { title: 'Matter one-off hardening', summary: 'Canonical area-of-work mapping, duplicate MatterRequest guard.', priority: 'medium' },
+  { title: 'Opponent pipeline tracking', summary: 'Opponent completion chip in pipeline + workbench tab.', priority: 'medium' },
+  { title: 'Instructions → Prospects + Client Matters', summary: 'Move instruction workspace into Prospects; retire separate Matters tab.', priority: 'medium' },
+  { title: 'Resource-group auth broker', summary: 'Centralise token acquisition + caching (3+ route files duplicating tokenCache).', priority: 'medium' },
+  { title: 'Cognito → Bespoke Form conversion', summary: 'Replace remaining 9 Cognito-embedded forms with React components.', priority: 'medium' },
+  { title: 'Consolidate duplicate SQL patterns', summary: 'Standardise around withRequest from server/utils/db.js.', priority: 'medium' },
+  { title: 'Retire Home CCL demo surfaces', summary: 'Remove unreachable inspector/letter-preview/demo-AI code from OperationsDashboard.', priority: 'medium' },
+  { title: 'Year Comparison Report', summary: '5-year financial-year bar charts for WIP, Collected, and Matters Opened.', priority: 'medium' },
+  { title: 'AML annual review automation', summary: 'Combined script or Hub panel for the SRA AML Firm-Wide Risk Assessment.', priority: 'low' },
+  { title: 'Dead code cleanup sweep', summary: 'Unused helpers/components across src/**. 292 potentially dead exports found.', priority: 'low' },
+  { title: 'Remove unused routes', summary: 'Grep server route registrations against frontend fetch calls.', priority: 'low' },
+];
 
-  try {
-    window.localStorage.setItem(ROADMAP_SUGGESTIONS_STORAGE_KEY, JSON.stringify(entries));
-  } catch (error) {
-    console.error('Error persisting local roadmap suggestions:', error);
-  }
+const PRIORITY_META: Record<PlannedPriority, { label: string; colour: string; darkColour: string }> = {
+  high: { label: 'High', colour: colours.cta, darkColour: colours.cta },
+  medium: { label: 'Medium', colour: colours.highlight, darkColour: colours.accent },
+  low: { label: 'Low', colour: colours.greyText, darkColour: colours.subtleGrey },
 };
 
-/**
- * Normalize status strings to standardized labels.
- * @param status - The original status string.
- * @returns Normalized status label.
- */
-const normalizeStatus = (status: string): string => {
-  switch (status.toLowerCase()) {
-    case 'completed':
-      return 'Recently Completed';
-    case 'in_progress':
-    case 'in progress':
-      return 'In Progress';
-    case 'next':
-      return 'Next';
-    case 'suggested':
-      return 'Suggested';
-    case 'add_suggestion':
-    case 'add suggestion':
-      return 'Add Suggestion';
-    default:
-      return 'Suggested'; // Default mapping
-  }
-};
-
-/**
- * Get the appropriate icon name based on the status.
- * @param status - The normalized status label.
- * @returns Icon name as a string.
- */
-const getStatusIcon = (status: string) => {
-  switch (status.toLowerCase()) {
-    case 'recently completed':
-      return 'Completed';
-    case 'in progress':
-      return 'Sync';
-    case 'next':
-      return 'View';
-    case 'suggested':
-      return 'Lightbulb';
-    case 'add suggestion':
-      return 'Add';
-    default:
-      return 'Lightbulb';
-  }
-};
-
-/**
- * Format ISO date strings to a more readable format.
- * @param isoDate - The ISO date string.
- * @returns Formatted date string.
- */
-const formatDate = (isoDate: string): string => {
-  const date = new Date(isoDate);
-  return format(date, 'MMM d, yyyy');
-};
-
-/**
- * Styles for the main container.
- */
-const containerStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    position: 'relative',
-    width: '100%',
-    minHeight: '100vh',
-    padding: '40px',
-    backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
-    transition: 'background-color 0.3s',
-    fontFamily: 'Raleway, sans-serif',
-  });
-
-/**
- * Styles for the timeline line.
- */
-const timelineLineStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    position: 'absolute',
-    left: '50%',
-    transform: 'translateX(-50%)',
-    top: 0,
-    bottom: 0,
-    width: '4px',
-    background: `linear-gradient(to bottom, ${colours.blue}, ${
-      isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground
-    })`,
-    transition: 'background-color 0.3s',
-    zIndex: 1,
-  });
-
-const stackTokens: IStackTokens = { childrenGap: 20 };
-
-/**
- * Styles for each timeline row.
- */
-const timelineRowStyle = (side: 'left' | 'right') =>
-  mergeStyles({
-    position: 'relative',
-    marginBottom: '60px',
-    display: 'flex',
-    flexDirection: side === 'left' ? 'row-reverse' : 'row',
-  });
-
-/**
- * Styles for the status marker.
- */
-const markerStyle = (statusColor: string) =>
-  mergeStyles({
-    position: 'absolute',
-    left: '50%',
-    top: '50%',
-    transform: 'translate(-50%, -50%)',
-    width: '20px',
-    height: '20px',
-    borderRadius: '50%',
-    backgroundColor: statusColor,
-    animation: 'pulse 2s infinite',
-    border: '4px solid white',
-    boxShadow: '0 0 0 2px rgba(0,0,0,0.1)',
-    zIndex: 2,
-  });
-
-/**
- * Styles for the content container.
- */
-const contentContainerStyle = (side: 'left' | 'right') =>
-  mergeStyles({
-    position: 'relative',
-    width: '50%',
-    paddingLeft: side === 'right' ? '40px' : 0,
-    paddingRight: side === 'left' ? '40px' : 0,
-    textAlign: side === 'left' ? 'right' : 'left',
-  });
-
-/**
- * Styles for the content box with animations.
- */
-const contentBoxStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    width: '100%',
-    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-    padding: '20px',
-    borderRadius: '8px',
-    boxShadow: isDarkMode
-      ? `0 4px 12px ${colours.dark.border}`
-      : `0 4px 12px ${colours.light.border}`,
-    transition: 'background-color 0.3s, box-shadow 0.3s, transform 0.3s',
-    cursor: 'pointer',
-    marginTop: '20px',
-    opacity: 0,
-    transform: 'translateY(20px)',
-    animation: 'fadeInUp 0.5s ease forwards',
-  });
-
-/**
- * Styles for grey-colored bubbles (e.g., date and component).
- */
-const greyBubbleStyle = mergeStyles({
-  display: 'inline-flex',
-  alignItems: 'center',
-  padding: '4px 8px',
-  borderRadius: '12px',
-  backgroundColor: colours.grey,
-  color: colours.greyText,
-  fontSize: '14px',
-  marginTop: '5px',
-  marginRight: '8px',
+const containerStyles = (isDarkMode: boolean): React.CSSProperties => ({
+  width: '100%',
+  minHeight: '100%',
+  padding: '32px 40px',
+  backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
+  fontFamily: 'Raleway, sans-serif',
+  transition: 'background-color 0.2s',
 });
 
-/**
- * Mapping of statuses to their respective colors.
- */
-const statusColorMapping: { [key: string]: string } = {
-  'recently completed': colours.green,
-  'in progress': colours.cta,
-  'next': colours.highlight,
-  'suggested': colours.darkBlue,
-  'add suggestion': colours.grey,
-};
+const headerStyles = (isDarkMode: boolean): React.CSSProperties => ({
+  marginBottom: 28,
+  paddingBottom: 20,
+  borderBottom: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+});
 
-/**
- * Sub-component for rendering each roadmap entry item.
- */
-interface RoadmapEntryItemProps {
-  entry: RoadmapEntry;
+const FilterChip: React.FC<{
+  label: string;
+  count: number;
+  active: boolean;
+  colour: string;
   isDarkMode: boolean;
-  onClick: (entry: RoadmapEntry) => void;
-  animationDelay: number;
-}
+  onClick: () => void;
+}> = ({ label, count, active, colour, isDarkMode, onClick }) => (
+  <button
+    onClick={onClick}
+    style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: 5,
+      padding: '5px 12px',
+      borderRadius: 0,
+      border: `1px solid ${active ? colour : isDarkMode ? colours.dark.border : colours.light.border}`,
+      background: active ? `${colour}18` : 'transparent',
+      color: active ? colour : isDarkMode ? colours.subtleGrey : colours.greyText,
+      fontSize: 11,
+      fontWeight: 700,
+      cursor: 'pointer',
+      transition: 'all 0.15s',
+      letterSpacing: '0.2px',
+      fontFamily: 'Raleway, sans-serif',
+    }}
+  >
+    {label}
+    <span style={{ fontSize: 10, fontWeight: 800, opacity: 0.7 }}>{count}</span>
+  </button>
+);
 
-const RoadmapEntryItem: React.FC<RoadmapEntryItemProps> = ({ entry, isDarkMode, onClick, animationDelay }) => {
-  const iconName = getStatusIcon(entry.status);
+const EntryRow: React.FC<{
+  entry: ReleaseEntry;
+  isDarkMode: boolean;
+  expanded: boolean;
+  onToggle: () => void;
+}> = ({ entry, isDarkMode, expanded, onToggle }) => {
+  const meta = CATEGORY_META[entry.category];
+  const [hovered, setHovered] = useState(false);
+  const catColour = isDarkMode ? meta.darkColour : meta.colour;
+
   return (
     <div
-      className={mergeStyles('roadmap-entry', {
-        borderTop: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-        paddingTop: '10px',
-        cursor: 'pointer',
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onClick={entry.details ? onToggle : undefined}
+      style={{
         display: 'flex',
         alignItems: 'flex-start',
-        opacity: 0,
-        transform: 'translateY(20px)',
-        animation: `fadeInUp 0.5s ease forwards`,
-        animationDelay: `${animationDelay}s`,
-        transition: 'opacity 0.5s ease, transform 0.5s ease',
-      })}
-      onClick={() => onClick(entry)}
-      role="button"
-      tabIndex={0}
-      aria-label={`View details for ${entry.label}`}
+        gap: 12,
+        padding: '10px 14px',
+        borderRadius: 0,
+        background: hovered ? (isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)') : 'transparent',
+        transition: 'background 0.12s',
+        cursor: entry.details ? 'pointer' : 'default',
+      }}
     >
-      <div className="entry-icon icon-hover">
-        <Icon iconName={iconName} className="icon-outline" />
-        <Icon iconName={iconName} className="icon-filled" />
-      </div>
-      <div className="entry-text">
-        <span className="entry-main">
-          <Text
-            styles={{
-              root: {
-                textAlign: 'left',
-                fontSize: '16px',
-                color: colours.blue,
-                fontWeight: 600,
-              },
-            }}
-          >
-            {entry.label}
-          </Text>
-          <Stack horizontal tokens={{ childrenGap: 8 }} verticalAlign="start">
-            <Text className={greyBubbleStyle}>{formatDate(entry.date_requested)}</Text>
-            <Text className={greyBubbleStyle}>{entry.component}</Text>
-          </Stack>
-        </span>
-        <span className="entry-reveal">
-          <Text
-            styles={{
-              root: {
-                fontSize: '14px',
-                color: isDarkMode ? colours.dark.text : colours.light.text,
-              },
-            }}
-          >
-            {entry.description}
-          </Text>
-          <Text
-            styles={{
-              root: {
-                marginTop: '5px',
-                fontSize: '12px',
-                color: colours.greyText,
-                fontStyle: 'italic',
-              },
-            }}
-          >
-            Requested by: {entry.requested_by}
-          </Text>
-        </span>
-      </div>
-
-    </div>
-  );
-};
-
-/**
- * Sub-component for rendering each group of roadmap entries.
- */
-interface RoadmapGroupProps {
-  group: {
-    status: string;
-    entries: RoadmapEntry[];
-    animationDelay: number;
-  };
-  groupIndex: number;
-  isDarkMode: boolean;
-  onEntryClick: (entry: RoadmapEntry) => void;
-  side: 'left' | 'right';
-}
-
-const RoadmapGroup: React.FC<RoadmapGroupProps> = ({ group, groupIndex, isDarkMode, onEntryClick, side }) => {
-  const isFormGroup = group.status.toLowerCase() === 'add suggestion';
-  const statusColor = statusColorMapping[group.status.toLowerCase()] || colours.darkBlue;
-
-  return (
-    <div key={group.status} className={timelineRowStyle(side)}>
-      <div className={markerStyle(statusColor)} />
-      <div className={contentContainerStyle(side)}>
-        <Stack
-          className={mergeStyles(contentBoxStyle(isDarkMode), {
-            animationDelay: `${group.animationDelay}s`,
-          })}
-        >
-          <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
-            <Icon iconName={getStatusIcon(group.status)} />
-            <Text
-              variant="large"
-              styles={{
-                root: {
-                  fontWeight: '700',
-                  color: isDarkMode ? colours.dark.text : colours.light.text,
-                  fontSize: '20px',
-                },
-              }}
-            >
-              {isFormGroup ? group.status : `${group.status} (${group.entries.length})`}
-            </Text>
-          </Stack>
-
-          {!isFormGroup ? (
-            // Render roadmap entries within the group
-            <Stack tokens={{ childrenGap: 10 }} styles={{ root: { marginTop: '15px' } }}>
-              {group.entries.map((entry, entryIndex) => (
-                <RoadmapEntryItem
-                  key={entry.id}
-                  entry={entry}
-                  isDarkMode={isDarkMode}
-                  onClick={onEntryClick}
-                  animationDelay={group.animationDelay + entryIndex * 0.1}
-                />
-              ))}
-            </Stack>
-          ) : (
-            // Render the suggestion form within the group
-            <Stack tokens={{ childrenGap: 20 }} styles={{ root: { marginTop: '15px' } }}>
-              <AddSuggestionForm />
-            </Stack>
+      <div style={{ width: 7, height: 7, borderRadius: 999, background: catColour, marginTop: 6, flexShrink: 0 }} />
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text, lineHeight: 1.4, letterSpacing: '-0.1px' }}>
+          {entry.title}
+        </div>
+        <div style={{ fontSize: 11, marginTop: 3, display: 'flex', alignItems: 'center', gap: 8, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+          <span>{formatDate(entry.date)}</span>
+          <span style={{ fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.4px', color: catColour, opacity: 0.85 }}>
+            {meta.label}
+          </span>
+          {entry.details && (
+            <span style={{ fontSize: 9, opacity: 0.5, transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s', display: 'inline-block' }}>
+              &#9654;
+            </span>
           )}
-        </Stack>
+        </div>
+        {expanded && entry.details && (
+          <div style={{ marginTop: 8, fontSize: 12, lineHeight: 1.5, color: isDarkMode ? '#d1d5db' : '#374151', padding: '8px 0 4px', borderTop: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}` }}>
+            {entry.details}
+          </div>
+        )}
       </div>
     </div>
   );
 };
 
-/**
- * Sub-component for the suggestion form and its related logic.
- */
-const AddSuggestionForm: React.FC = () => {
+const Activity: React.FC<ActivityProps> = ({ showBootMonitor = false }) => {
   const { isDarkMode } = useTheme();
-  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
-  const [message, setMessage] = useState<{ type: MessageBarType; text: string } | null>(null);
-  const [roadmapData, setRoadmapData] = useState<RoadmapEntry[] | null>(cachedRoadmapData);
-  const { userData } = React.useContext(UserDataContext); // Assuming you have a UserDataContext
+  const [content, setContent] = useState('');
+  const [activityItems, setActivityItems] = useState<ActivityFeedItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [activityError, setActivityError] = useState<string | null>(null);
+  const [activityFeedRefreshing, setActivityFeedRefreshing] = useState(false);
+  const [activityFeedLastSyncAt, setActivityFeedLastSyncAt] = useState<number | null>(null);
+  const [activityFeedUsingSnapshot, setActivityFeedUsingSnapshot] = useState(false);
+  const [filter, setFilter] = useState<ReleaseCategory | 'all'>('all');
+  const [expandedMonths, setExpandedMonths] = useState<Set<string>>(new Set());
+  const [expandedEntries, setExpandedEntries] = useState<Set<string>>(new Set());
+  const [showPlanned, setShowPlanned] = useState(false);
+  const activityItemsRef = useRef<ActivityFeedItem[]>([]);
 
-  /**
-   * Handles the submission of a new suggestion.
-   * @param values - The form values.
-   */
-  const handleSuggestSubmit = async (values: { [key: string]: string | number | boolean | File }) => {
-    if (!userData || userData.length === 0) {
-      setMessage({
-        type: MessageBarType.error,
-        text: 'User data is missing. Cannot submit suggestion.',
-      });
-      return;
-    }
+  useEffect(() => {
+    activityItemsRef.current = activityItems;
+  }, [activityItems]);
 
-    const userInitials = userData[0]?.Initials || 'N/A';
-    const label = typeof values['Label'] === 'string' ? values['Label'] : '';
-    const component = typeof values['Component'] === 'string' ? values['Component'] : '';
-    const description = typeof values['Description'] === 'string' ? values['Description'] : '';
+  useEffect(() => {
+    let disposed = false;
 
-    if (!label || !component || !description) {
-      setMessage({
-        type: MessageBarType.error,
-        text: 'Suggestion Title/Label, Component, and Description are required.',
-      });
-      return;
-    }
+    const loadReleaseNotes = async () => {
+      const releaseNotesRes = await fetch('/api/release-notes');
+      if (!releaseNotesRes.ok) {
+        throw new Error(`Release notes HTTP ${releaseNotesRes.status}`);
+      }
 
-    const payload = {
-      label,
-      component,
-      description,
-      requested_by: userInitials,
+      const nextContent = await releaseNotesRes.text();
+      if (!disposed) {
+        setContent(nextContent);
+      }
     };
 
-    setIsSubmitting(true);
-    setMessage(null);
+    const loadActivityFeed = async (background = false) => {
+      if (!disposed && background) {
+        setActivityFeedRefreshing(true);
+      }
 
-    try {
-      const newEntry: RoadmapEntry = {
-        id: Date.now(),
-        requested_by: userInitials,
-        date_requested: new Date().toISOString(),
-        component: payload.component,
-        label: payload.label,
-        description: payload.description,
-        status: 'Suggested',
-      };
-
-      setMessage({
-        type: MessageBarType.success,
-        text: 'Your suggestion has been saved locally for this browser.',
-      });
-
-      setRoadmapData((prevData) => {
-        const updatedData = prevData ? [...prevData, newEntry] : [newEntry];
-        const localSuggestions = updatedData.filter((entry) => entry.id >= 1000000000000);
-        cachedRoadmapData = updatedData;
-        persistLocalRoadmapSuggestions(localSuggestions);
-        return updatedData;
-      });
-    } catch (error) {
-      console.error('Error submitting suggestion:', error);
-      setMessage({
-        type: MessageBarType.error,
-        text: 'Unexpected error while saving your suggestion locally.',
-      });
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  return (
-    <Stack tokens={{ childrenGap: 20 }}>
-      {message && (
-        <MessageBar
-          messageBarType={message.type}
-          isMultiline={false}
-          onDismiss={() => setMessage(null)}
-          dismissButtonAriaLabel="Close"
-          styles={{ root: { marginBottom: '20px' } }}
-        >
-          {message.text}
-        </MessageBar>
-      )}
-
-      <BespokeForm
-        fields={[
-          {
-            label: 'Suggestion Title/Label',
-            name: 'Label',
-            type: 'text',
-            required: true,
-            placeholder: 'Enter the title of your suggestion…',
-          },
-          {
-            label: 'Component',
-            name: 'Component',
-            type: 'dropdown',
-            options: ['Home', 'Forms', 'Resources', 'Enquiries', 'Matters'],
-            required: true,
-          },
-          {
-            label: 'Description',
-            name: 'Description',
-            type: 'textarea',
-            required: true,
-            placeholder: 'Describe your improvement suggestion in detail…',
-          },
-        ]}
-        onSubmit={handleSuggestSubmit}
-        onCancel={() => {}}
-        isSubmitting={isSubmitting}
-        matters={[]}
-      />
-    </Stack>
-  );
-};
-
-/**
- * Context for user data. Assumes you have a UserDataContext.
- */
-const UserDataContext = React.createContext<{ userData: UserData[] | null }>({ userData: null });
-
-/**
- * Main Roadmap component.
- */
-const Roadmap: React.FC<RoadmapProps> = ({ userData }) => {
-  const { isDarkMode } = useTheme();
-
-  const [roadmapData, setRoadmapData] = useState<RoadmapEntry[] | null>(null);
-  const [isLoadingRoadmap, setIsLoadingRoadmap] = useState<boolean>(true);
-  const [roadmapError, setRoadmapError] = useState<string | null>(null);
-
-  const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
-  const [selectedItem, setSelectedItem] = useState<RoadmapEntry | null>(null);
-
-  /**
-   * Inject keyframe animations on component mount.
-   */
-  useEffect(() => {
-    const styles = `
-      @keyframes pulse {
-        0% {
-          transform: translate(-50%, -50%) scale(1);
-          opacity: 1;
+      try {
+        const activityFeedRes = await fetch('/api/activity-feed?limit=24');
+        if (!activityFeedRes.ok) {
+          throw new Error(`Operational feed unavailable (${activityFeedRes.status})`);
         }
-        50% {
-          transform: translate(-50%, -50%) scale(1.2);
-          opacity: 0.7;
+
+        const activityFeed = await activityFeedRes.json();
+        if (disposed) return;
+
+        setActivityItems(Array.isArray(activityFeed?.items) ? activityFeed.items : []);
+        setActivityFeedLastSyncAt(Date.now());
+        setActivityFeedUsingSnapshot(false);
+        setActivityError(null);
+      } catch (err) {
+        if (disposed) return;
+
+        const hasCurrentItems = activityItemsRef.current.length > 0;
+        if (hasCurrentItems) {
+          setActivityFeedUsingSnapshot(true);
+          setActivityError('Live refresh unavailable. Showing the last known activity feed.');
+          return;
         }
-        100% {
-          transform: translate(-50%, -50%) scale(1);
-          opacity: 1;
+
+        setActivityItems([]);
+        setActivityError(err instanceof Error ? err.message : 'Failed to load operational feed');
+      } finally {
+        if (!disposed) {
+          setActivityFeedRefreshing(false);
         }
       }
-      @keyframes fadeInUp {
-        0% {
-          opacity: 0;
-          transform: translateY(20px);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void loadActivityFeed(true);
+      }
+    };
+
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        void loadActivityFeed(true);
+      }
+    }, 30000);
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    (async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        setActivityError(null);
+        await Promise.all([loadReleaseNotes(), loadActivityFeed(false)]);
+      } catch (err) {
+        if (!disposed) {
+          setError(err instanceof Error ? err.message : 'Failed to load activity data');
         }
-        100% {
-          opacity: 1;
-          transform: translateY(0);
+      } finally {
+        if (!disposed) {
+          setLoading(false);
         }
       }
-    `;
-    const styleSheet = document.createElement('style');
-    styleSheet.type = 'text/css';
-    styleSheet.innerText = styles;
-    document.head.appendChild(styleSheet);
+    })();
+
     return () => {
-      document.head.removeChild(styleSheet);
+      disposed = true;
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, []);
 
-  /**
-   * Fetch roadmap data from the API or use cached data if available.
-   */
+  const allEntries = useMemo(() => parseChangelog(content), [content]);
+  const filtered = useMemo(() => (filter === 'all' ? allEntries : allEntries.filter((entry) => entry.category === filter)), [allEntries, filter]);
+  const groups = useMemo(() => groupByMonth(filtered), [filtered]);
+
   useEffect(() => {
-    if (cachedRoadmapData) {
-      setRoadmapData(cachedRoadmapData);
-      setIsLoadingRoadmap(false);
-    } else if (useLocalData) {
-      const localData = getLocalRoadmapEntries();
-      setRoadmapData(localData);
-      cachedRoadmapData = localData;
-      setIsLoadingRoadmap(false);
-    } else {
-      setRoadmapError('Live roadmap data is no longer supported.');
-      setIsLoadingRoadmap(false);
-    }
-  }, [useLocalData]);
-
-  /**
-   * Group roadmap entries by their normalized status.
-   */
-  const groupedRoadmap = useMemo<GroupedRoadmap>(() => {
-    const groups: GroupedRoadmap = {};
-    if (roadmapData) {
-      // Group entries by normalized status
-      roadmapData.forEach((entry) => {
-        const normStatus = normalizeStatus(entry.status);
-        if (!groups[normStatus]) {
-          groups[normStatus] = [];
-        }
-        groups[normStatus].push(entry);
-      });
-  
-      // For each group, sort the entries so that the newest (by date_requested) comes first
-      Object.keys(groups).forEach((key) => {
-        groups[key].sort(
-          (a, b) =>
-            new Date(b.date_requested).getTime() - new Date(a.date_requested).getTime()
-        );
-      });
-    }
-    return groups;
-  }, [roadmapData]);
-  
-
-  /**
-   * Open the modal with the selected roadmap entry's details.
-   * @param item - The roadmap entry to display.
-   */
-  const openModal = (item: RoadmapEntry) => {
-    setSelectedItem(item);
-    setIsModalOpen(true);
-  };
-
-  /**
-   * Close the details modal.
-   */
-  const closeModal = () => {
-    setSelectedItem(null);
-    setIsModalOpen(false);
-  };
-
-  /**
-   * Calculate animation delay for each group based on its index.
-   * @param groupIndex - The index of the group.
-   * @returns Animation delay in seconds.
-   */
-  const calculateGroupAnimationDelay = (groupIndex: number) => {
-    return groupIndex * 0.3; // 300ms delay between groups
-  };
-
-  /**
-   * Calculate animation delay for each entry within a group.
-   * @param entryIndex - The index of the entry within the group.
-   * @returns Animation delay in seconds.
-   */
-  const calculateEntryAnimationDelay = (entryIndex: number) => {
-    return entryIndex * 0.1; // 100ms delay between entries
-  };
-
-  /**
-   * Prepare the grouped roadmap entries, including the suggestion form as a separate group.
-   */
-  const groupedRoadmapEntries = useMemo(() => {
-    const groupsArray = roadmapData ? Object.entries(groupedRoadmap) : [];
-    // Append the form as a separate group
-    groupsArray.push(['Add Suggestion', []]);
-
-    const orderMapping: { [key: string]: number } = {
-      'In Progress': 1,
-      'Next': 2,
-      'Suggested': 3,
-      'Add Suggestion': 4,
-      'Recently Completed': 5,
-    };
-
-    // Sort groups based on predefined order
-    groupsArray.sort((a, b) => {
-      const aOrder = orderMapping[a[0]] || 100;
-      const bOrder = orderMapping[b[0]] || 100;
-      return aOrder - bOrder;
+    if (!groups.length) return;
+    setExpandedMonths((prev) => {
+      if (prev.size > 0) return prev;
+      const initial = new Set<string>();
+      groups.slice(0, 2).forEach((group) => initial.add(group.monthKey));
+      return initial;
     });
+  }, [groups]);
 
-    return groupsArray.map(([status, entries], groupIndex) => ({
-      status,
-      entries,
-      animationDelay: calculateGroupAnimationDelay(groupIndex),
-    }));
-  }, [groupedRoadmap, roadmapData]);
+  const toggleMonth = useCallback((key: string) => {
+    setExpandedMonths((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+  const toggleEntry = useCallback((entryKey: string) => {
+    setExpandedEntries((prev) => {
+      const next = new Set(prev);
+      if (next.has(entryKey)) next.delete(entryKey);
+      else next.add(entryKey);
+      return next;
+    });
+  }, []);
+
+  const catCounts = useMemo(() => {
+    const counts: Record<string, number> = { feature: 0, improvement: 0, fix: 0, ops: 0 };
+    allEntries.forEach((entry) => counts[entry.category]++);
+    return counts;
+  }, [allEntries]);
+
+  const recentCardLabItems = useMemo(() => activityItems.filter((item) => item.source === 'activity.cardlab' || item.source === 'activity.dm.send'), [activityItems]);
+
+  const handleCardLabItemSent = useCallback((item: ActivityFeedItem) => {
+    setActivityItems((current) => [item, ...current.filter((existing) => existing.id !== item.id)].slice(0, 24));
+    setActivityFeedLastSyncAt(Date.now());
+    setActivityFeedUsingSnapshot(false);
+    setActivityError(null);
+  }, []);
+
+  const textColour = isDarkMode ? colours.dark.text : colours.light.text;
+  const mutedColour = isDarkMode ? colours.subtleGrey : colours.greyText;
+  const accentColour = isDarkMode ? colours.accent : colours.highlight;
+  const borderColour = isDarkMode ? colours.dark.border : colours.light.border;
+  const surfaceColour = isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground;
 
   return (
-    <UserDataContext.Provider value={{ userData }}>
-      <div className={containerStyle(isDarkMode)}>
-        <div className={timelineLineStyle(isDarkMode)} />
+    <div style={containerStyles(isDarkMode)}>
+      <div style={headerStyles(isDarkMode)}>
+        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: textColour, letterSpacing: '-0.3px', fontFamily: 'Raleway, sans-serif' }}>
+          Activity
+        </h1>
+        <div style={{ fontSize: 12, color: mutedColour, marginTop: 4 }}>
+          {`${activityItems.length > 0 ? `${activityItems.length} live signals · ` : ''}${groups.length > 0 ? `${allEntries.length} updates · Latest: ${groups[0].version} · ${groups[0].label}` : 'Platform updates and improvements'}`}
+        </div>
 
-        <Stack tokens={stackTokens}>
-          {isLoadingRoadmap ? (
-            <ThemedSpinner label="Loading roadmap..." size={SpinnerSize.medium} />
-          ) : roadmapError ? (
-            <MessageBar messageBarType={MessageBarType.error}>{roadmapError}</MessageBar>
-          ) : roadmapData && roadmapData.length > 0 ? (
-            groupedRoadmapEntries.map((group, groupIndex) => (
-              <RoadmapGroup
-                key={group.status}
-                group={group}
-                groupIndex={groupIndex}
+        {!loading && !error && allEntries.length > 0 && (
+          <div style={{ display: 'flex', gap: 6, marginTop: 16, flexWrap: 'wrap' }}>
+            <FilterChip label="All" count={allEntries.length} active={filter === 'all'} colour={accentColour} isDarkMode={isDarkMode} onClick={() => setFilter('all')} />
+            {(['feature', 'improvement', 'fix', 'ops'] as const).map((category) => (
+              <FilterChip
+                key={category}
+                label={CATEGORY_META[category].label}
+                count={catCounts[category]}
+                active={filter === category}
+                colour={isDarkMode ? CATEGORY_META[category].darkColour : CATEGORY_META[category].colour}
                 isDarkMode={isDarkMode}
-                onEntryClick={openModal}
-                side={groupIndex % 2 === 0 ? 'left' : 'right'}
+                onClick={() => setFilter(filter === category ? 'all' : category)}
               />
-            ))
-          ) : (
-            <Text>No roadmap entries available.</Text>
-          )}
-        </Stack>
-
-        {/* Modal for displaying roadmap entry details */}
-        <Modal
-          isOpen={isModalOpen}
-          onDismiss={closeModal}
-          isBlocking={false}
-          containerClassName={mergeStyles({
-            maxWidth: '600px',
-            padding: '30px',
-            borderRadius: '12px',
-            backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-            color: isDarkMode ? colours.dark.text : colours.light.text,
-            fontFamily: 'Raleway, sans-serif',
-          })}
-          styles={{
-            main: {
-              maxWidth: '600px',
-              margin: 'auto',
-            },
-          }}
-          aria-labelledby="roadmap-item-details"
-        >
-          {selectedItem && (
-            <Stack tokens={{ childrenGap: 20 }}>
-              <Stack horizontalAlign="end">
-                <IconButton
-                  iconProps={{ iconName: 'Cancel' }}
-                  onClick={closeModal}
-                  aria-label="Close"
-                />
-              </Stack>
-              <Text
-                variant="xxLarge"
-                styles={{
-                  root: {
-                    fontWeight: '700',
-                    color: isDarkMode ? colours.dark.text : colours.light.text,
-                    fontSize: '24px',
-                  },
-                }}
-              >
-                {selectedItem.label}
-              </Text>
-              <Text
-                variant="medium"
-                styles={{
-                  root: {
-                    color: isDarkMode ? colours.dark.text : colours.light.text,
-                    fontSize: '16px',
-                  },
-                }}
-              >
-                {selectedItem.description}
-              </Text>
-              <Text
-                variant="medium"
-                styles={{
-                  root: {
-                    color: isDarkMode ? colours.dark.text : colours.light.text,
-                    fontSize: '16px',
-                  },
-                }}
-              >
-                <strong>Component:</strong> {selectedItem.component}
-              </Text>
-              <Text
-                variant="medium"
-                styles={{
-                  root: {
-                    color: isDarkMode ? colours.dark.text : colours.light.text,
-                    fontSize: '16px',
-                  },
-                }}
-              >
-                <strong>Requested By:</strong> {selectedItem.requested_by}
-              </Text>
-              <Text
-                variant="medium"
-                styles={{
-                  root: {
-                    color: isDarkMode ? colours.dark.text : colours.light.text,
-                    fontSize: '16px',
-                  },
-                }}
-              >
-                <strong>Date Suggested:</strong> {formatDate(selectedItem.date_requested)}
-              </Text>
-              <Text
-                variant="small"
-                styles={{
-                  root: {
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    padding: '4px 8px',
-                    borderRadius: '12px',
-                    backgroundColor:
-                      statusColorMapping[normalizeStatus(selectedItem.status).toLowerCase()] || colours.darkBlue,
-                    color: 'white',
-                    fontSize: '16px',
-                    fontWeight: 'bold',
-                    alignSelf: 'flex-start',
-                  },
-                }}
-              >
-                <Icon iconName={getStatusIcon(normalizeStatus(selectedItem.status))} style={{ marginRight: '6px' }} />
-                {normalizeStatus(selectedItem.status)}
-              </Text>
-              <Stack horizontal tokens={{ childrenGap: 15 }} horizontalAlign="end">
-                <PrimaryButton text="Close" onClick={closeModal} />
-              </Stack>
-            </Stack>
-          )}
-        </Modal>
+            ))}
+          </div>
+        )}
       </div>
-    </UserDataContext.Provider>
+
+      {showBootMonitor && <HomeBootMonitor />}
+
+      {!loading && !error && (
+        <>
+          <ActivityFeedSection
+            items={activityItems}
+            isDarkMode={isDarkMode}
+            isRefreshing={activityFeedRefreshing}
+            isSnapshot={activityFeedUsingSnapshot}
+            lastLiveSyncAt={activityFeedLastSyncAt}
+            error={activityError}
+          />
+          <ActivityCardLabPanel recentItems={recentCardLabItems} onItemSent={handleCardLabItemSent} />
+        </>
+      )}
+
+      {!loading && !error && (
+        <div style={{ marginBottom: 28, maxWidth: 800 }}>
+          <button
+            onClick={() => setShowPlanned((previous) => !previous)}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'transparent', border: 'none', cursor: 'pointer', padding: '0 0 16px', fontFamily: 'Raleway, sans-serif' }}
+          >
+            <span style={{ fontSize: 10, color: mutedColour, transform: showPlanned ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s', display: 'inline-block' }}>
+              &#9654;
+            </span>
+            <span style={{ fontSize: 16, fontWeight: 700, color: textColour, letterSpacing: '-0.2px' }}>Planned</span>
+            <span style={{ fontSize: 11, color: mutedColour, fontWeight: 600, padding: '2px 8px', borderRadius: 0, background: surfaceColour }}>{PLANNED_PROJECTS.length}</span>
+          </button>
+
+          {showPlanned && (['high', 'medium', 'low'] as PlannedPriority[]).map((priority) => {
+            const projects = PLANNED_PROJECTS.filter((project) => project.priority === priority);
+            if (!projects.length) return null;
+            const meta = PRIORITY_META[priority];
+            const priorityColour = isDarkMode ? meta.darkColour : meta.colour;
+
+            return (
+              <div key={priority} style={{ marginBottom: 20 }}>
+                <div style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px', color: priorityColour, padding: '4px 0 8px', opacity: 0.85 }}>
+                  {meta.label} priority
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 1, borderLeft: `2px solid ${borderColour}`, paddingLeft: 16 }}>
+                  {projects.map((project, index) => (
+                    <div key={index} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '8px 14px' }}>
+                      <div style={{ width: 7, height: 7, borderRadius: 999, border: `2px solid ${priorityColour}`, background: 'transparent', marginTop: 5, flexShrink: 0 }} />
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, lineHeight: 1.4, color: isDarkMode ? colours.dark.text : colours.light.text, letterSpacing: '-0.1px' }}>
+                          {project.title}
+                          {project.stream && (
+                            <span style={{ fontSize: 9, fontWeight: 700, marginLeft: 8, color: accentColour, opacity: 0.7, fontFamily: 'monospace' }}>
+                              {project.stream}
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ fontSize: 12, marginTop: 2, lineHeight: 1.4, color: isDarkMode ? '#d1d5db' : '#374151' }}>{project.summary}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {loading ? (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 60 }}>
+          <Spinner label="Loading activity..." />
+        </div>
+      ) : error ? (
+        <div style={{ padding: 20, textAlign: 'center', fontSize: 13, color: colours.cta, background: isDarkMode ? 'rgba(214,85,65,0.08)' : 'rgba(214,85,65,0.05)' }}>
+          {error}
+        </div>
+      ) : groups.length === 0 ? (
+        <div style={{ padding: 40, textAlign: 'center', color: mutedColour, fontSize: 13 }}>No updates found.</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxWidth: 800 }}>
+          {groups.map((group) => {
+            const isExpanded = expandedMonths.has(group.monthKey);
+            return (
+              <div key={group.monthKey}>
+                <button
+                  onClick={() => toggleMonth(group.monthKey)}
+                  style={{ width: '100%', textAlign: 'left', padding: '12px 4px', border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontFamily: 'Raleway, sans-serif' }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 10, color: mutedColour, transition: 'transform 0.15s', transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)', display: 'inline-block' }}>
+                      &#9654;
+                    </span>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: accentColour, padding: '1px 6px', borderRadius: 0, background: `${accentColour}14`, fontFamily: 'monospace', letterSpacing: '0.3px' }}>
+                      {group.version}
+                    </span>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: textColour, letterSpacing: '-0.2px' }}>{group.label}</span>
+                  </div>
+                  <span style={{ fontSize: 11, color: mutedColour, fontWeight: 600, padding: '2px 8px', borderRadius: 0, background: surfaceColour }}>
+                    {group.entries.length}
+                  </span>
+                </button>
+
+                {isExpanded && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 1, marginLeft: 8, borderLeft: `2px solid ${borderColour}`, paddingLeft: 16, marginBottom: 12 }}>
+                    {group.entries.map((entry, index) => {
+                      const entryKey = `${entry.date}-${entry.idx}`;
+                      return (
+                        <EntryRow
+                          key={`${entryKey}-${index}`}
+                          entry={entry}
+                          isDarkMode={isDarkMode}
+                          expanded={expandedEntries.has(entryKey)}
+                          onToggle={() => toggleEntry(entryKey)}
+                        />
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 };
 
-export default Roadmap;
+export default Activity;

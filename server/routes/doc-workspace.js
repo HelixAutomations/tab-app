@@ -1,13 +1,13 @@
 const express = require('express');
 const crypto = require('crypto');
 const multer = require('multer');
-const { DefaultAzureCredential } = require('@azure/identity');
 const {
   BlobServiceClient,
   StorageSharedKeyCredential,
   BlobSASPermissions,
   generateBlobSASQueryParameters,
 } = require('@azure/storage-blob');
+const { getCredential } = require('../utils/getSecret');
 const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
 
 const router = express.Router();
@@ -127,7 +127,7 @@ function getBlobServiceClient() {
   }
 
   blobServiceClientMode = 'aad';
-  const credential = new DefaultAzureCredential({ additionallyAllowedTenants: ['*'] });
+  const credential = getCredential();
   blobServiceClient = new BlobServiceClient(
     `https://${STORAGE_ACCOUNT_NAME}.blob.core.windows.net`,
     credential,

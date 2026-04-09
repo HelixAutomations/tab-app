@@ -1,7 +1,7 @@
 {
     "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.15/MicrosoftTeams.schema.json",
     "manifestVersion": "1.15",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "id": "0fece093-a853-4990-bc18-2ef2a2f83287",
     "packageName": "com.helixlaw.teamhub",
     "developer": {
@@ -23,7 +23,14 @@
         "full": "A bespoke hub designed to enhance the Helix Law team's access to key resources."
     },
     "accentColor": "#3690CE",
-    "bots": [],
+    "bots": [
+        {
+            "botId": "3d935d23-349e-4502-a9c0-6f5ca48d5d33",
+            "scopes": ["personal"],
+            "supportsFiles": false,
+            "isNotificationOnly": false
+        }
+    ],
     "composeExtensions": [],
     "staticTabs": [
     {
@@ -35,7 +42,8 @@
     }
     ],
     "permissions": [
-        "identity"
+        "identity",
+        "messageTeamMembers"
     ],
         "validDomains": [
             "link-hub-v1-fehchxeqgxe9bsha.uksouth-01.azurewebsites.net",
@@ -43,7 +51,7 @@
             "*.blob.core.windows.net"
         ],
     "webApplicationInfo": {
-        "id": "bee758ec-919c-45b2-9cdf-540c6419561f",
-        "resource": "api://bee758ec-919c-45b2-9cdf-540c6419561f"
+        "id": "3d935d23-349e-4502-a9c0-6f5ca48d5d33",
+        "resource": "api://3d935d23-349e-4502-a9c0-6f5ca48d5d33"
     }
 }

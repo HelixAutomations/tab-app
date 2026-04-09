@@ -104,6 +104,36 @@ Every user request is filtered through this, in order:
 3) **Avoid scope creep**. If an improvement is not directly adjacent, park it in `.github/instructions/ROADMAP.md` instead of doing it now.
 4) **Log the work** (mandatory). After completing any task that changes behaviour, UI, or server logic, add an entry to `logs/changelog.md`. See the Logging section below. If you skip this, the work is invisible in the release notes UI.
 
+## Plan-First Default (CRITICAL)
+
+Before touching code on any task that involves more than a single-file edit:
+1) **State the plan**: list what will change, which files, what the expected outcome is.
+2) **Wait for confirmation** unless the user has pre-approved (e.g. "just do it").
+3) **Execute** the approved plan. After implementation, confirm what was done and any deviations.
+
+Single-file fixes (typo, one-liner bug, style tweak) skip the plan step. Multi-file refactors, new features, and infrastructure changes always plan first.
+
+## Continuous Health Observations (CRITICAL)
+
+While working on any file, silently note codebase health issues. At the end of every response that modifies code, append a **Health Observations** footer if you spotted any of these:
+- Dead imports or unused variables
+- Functions longer than ~80 lines that could be extracted
+- Duplicated logic across files (same helper written twice)
+- Missing error handling at system boundaries
+- Performance anti-patterns (unnecessary re-renders, N+1 queries, unbounded fetches)
+- Security concerns (unsanitised input, exposed secrets, missing auth checks)
+- Files approaching the 3,000-line threshold (run `npm run check-sizes` mentally)
+
+**Format** (only include observations you actually found — never fabricate):
+```
+---
+**Health Observations** (from files touched this task):
+- [ ] `src/components/Foo.tsx`: 3 dead imports (X, Y, Z) — safe to remove
+- [ ] `server/routes/bar.js`: duplicated date-formatting logic — same as `server/utils/dates.js`
+```
+
+These are observations, not actions. The user decides whether to act on them. Park non-trivial ones in ROADMAP.md.
+
 ## Precedence (Conflict Resolver)
 
 If rules conflict, apply in this order:

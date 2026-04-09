@@ -121,8 +121,8 @@ const UserBubble: React.FC<UserBubbleProps> = ({
     // ── Computed ──
     const initials = user.Initials || `${user.First?.charAt(0) || ''}${user.Last?.charAt(0) || ''}`.toUpperCase();
     const isAdmin = isAdminUser(user);
-    const isAdminEligible = isAdmin || isLocalDev;
-    const canSwitchUser = isAdminUser(user);
+    const isAdminEligible = isAdmin || isLocalDev || !!originalAdminUser;
+    const canSwitchUser = isAdminUser(user) || !!originalAdminUser;
     const hasSessionFilters = !!onAreasChange || !!onFeatureToggle;
     const tier = getUserTier(user);
 
@@ -606,8 +606,8 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                     onFeatureToggle={onFeatureToggle}
                                     featureToggles={featureToggles}
                                     onDevDashboard={() => { setShowDevDashboard(true); closePopover(false); }}
-                                    onLoadingDebug={() => setShowLoadingDebug(true)}
-                                    onErrorTracker={() => setShowErrorTracker(true)}
+                                    onLoadingDebug={() => { setShowLoadingDebug(true); closePopover(false); }}
+                                    onErrorTracker={() => { setShowErrorTracker(true); closePopover(false); }}
                                     onDemoPrompts={() => { setShowDemoPrompts(true); closePopover(); }}
                                     onMigrationTool={() => { setShowMigrationTool(true); closePopover(false); }}
                                     closePopover={closePopover}

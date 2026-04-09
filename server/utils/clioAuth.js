@@ -13,7 +13,7 @@
  *   const token = await getClioAccessToken('lz');       // per-user
  */
 
-const { DefaultAzureCredential } = require('@azure/identity');
+const { getCredential } = require('./getSecret');
 const { SecretClient } = require('@azure/keyvault-secrets');
 
 const KV_URI = 'https://helix-keys.vault.azure.net/';
@@ -53,7 +53,7 @@ async function getClioAccessToken(initials) {
     return cached.token;
   }
 
-  const credential = new DefaultAzureCredential({ additionallyAllowedTenants: ['*'] });
+  const credential = getCredential();
   const secretClient = new SecretClient(KV_URI, credential);
 
   const secretNames = initials ? userSecretNames(initials) : SERVICE_SECRET_NAMES;

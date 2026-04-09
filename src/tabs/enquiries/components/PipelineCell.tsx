@@ -12,6 +12,7 @@ import { colours } from '../../../app/styles/colours';
 import { MiniPipelineChip, renderPipelineIcon } from './pipeline';
 import type { Enquiry } from '../../../app/functionality/types';
 import type { EnquiryEnrichmentData } from '../../../app/functionality/enquiryEnrichment';
+import type { WorkbenchItem } from '../../../utils/workbenchTypes';
 import type { RowPipelineHandlers, RowDataDeps } from './rowTypes';
 
 export interface PipelineCellProps {
@@ -19,7 +20,7 @@ export interface PipelineCellProps {
   isDarkMode: boolean;
   activeState: '' | 'Claimed' | 'Claimable' | 'Triaged';
   enrichmentData: EnquiryEnrichmentData | undefined;
-  inlineWorkbenchItem: any | undefined;
+  inlineWorkbenchItem: WorkbenchItem | undefined;
   pipelineNeedsCarousel: boolean;
   visiblePipelineChipCount: number;
   PIPELINE_CHIP_MIN_WIDTH_PX: number;
@@ -111,14 +112,17 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
   const isDefinitelyLegacy = !hasV2Infrastructure;
   const pocDisplayName = item.Point_of_Contact || (item as any).poc || '';
   const hasClaimerStage = !!pocDisplayName;
+  const workbenchPayments = Array.isArray(inlineWorkbenchItem?.payments) ? inlineWorkbenchItem?.payments ?? [] : [];
+  const workbenchMatters = Array.isArray(inlineWorkbenchItem?.matters) ? inlineWorkbenchItem?.matters ?? [] : [];
+  const workbenchInstruction = inlineWorkbenchItem?.instruction ?? null;
   const hasImmediatePipelineState = Boolean(
     hasClaimerStage ||
     deal ||
     inst ||
     inlineWorkbenchItem?.eid ||
     inlineWorkbenchItem?.risk ||
-    (Array.isArray(inlineWorkbenchItem?.payments) && inlineWorkbenchItem.payments.length > 0) ||
-    (Array.isArray(inlineWorkbenchItem?.matters) && inlineWorkbenchItem.matters.length > 0)
+    workbenchPayments.length > 0 ||
+    workbenchMatters.length > 0
   );
 
   const showTeamsStage = isV2Enquiry && !!teamsData;
@@ -152,11 +156,9 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
 
   const hasResolvedWorkbench = Boolean(inlineWorkbenchItem);
   const hasResolvedEid = Boolean(inlineWorkbenchItem?.eid);
-  const hasResolvedPayment = Array.isArray(inlineWorkbenchItem?.payments) && inlineWorkbenchItem.payments.length > 0;
+  const hasResolvedPayment = workbenchPayments.length > 0;
   const hasResolvedRisk = Boolean(inlineWorkbenchItem?.risk);
-  const hasResolvedMatter = Boolean(
-    inlineWorkbenchItem?.instruction?.MatterId ?? inlineWorkbenchItem?.instruction?.matterId
-  ) || (Array.isArray(inlineWorkbenchItem?.matters) && inlineWorkbenchItem.matters.length > 0);
+  const hasResolvedMatter = Boolean(workbenchInstruction?.MatterId ?? workbenchInstruction?.matterId) || workbenchMatters.length > 0;
 
   useEffect(() => {
     const resolvedFlags = [
@@ -355,7 +357,7 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
   const eidLabel = eidPassed ? 'Pass' : eidResult === 'refer' ? 'Refer' : eidResult === 'review' ? 'Review' : eidResult || 'ID';
 
   // Payment
-  const payments = Array.isArray(inlineWorkbenchItem?.payments) ? inlineWorkbenchItem.payments : [];
+  const payments = workbenchPayments;
   const latestPayment = payments[0] as any;
   const methodRaw = (latestPayment?.payment_method || latestPayment?.payment_type || latestPayment?.method || latestPayment?.paymentMethod || latestPayment?.PaymentMethod || '').toString().toLowerCase();
   const meta = typeof latestPayment?.metadata === 'object' ? latestPayment.metadata : {};
@@ -394,8 +396,8 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
   const riskLabel = riskResult ? `${riskResult.charAt(0).toUpperCase()}${riskResult.slice(1)}` : 'Recorded';
 
   // Matter
-  const hasMatter = Boolean(inst?.MatterId ?? inst?.matterId) || (Array.isArray(inlineWorkbenchItem?.matters) && inlineWorkbenchItem.matters.length > 0);
-  const mainMatterRecord = Array.isArray(inlineWorkbenchItem?.matters) ? inlineWorkbenchItem.matters[0] : null;
+  const hasMatter = Boolean(inst?.MatterId ?? inst?.matterId) || workbenchMatters.length > 0;
+  const mainMatterRecord = workbenchMatters[0] ?? null;
   const mainMatterRef = (mainMatterRecord?.DisplayNumber || mainMatterRecord?.['Display Number'] || mainMatterRecord?.displayNumber || mainMatterRecord?.display_number || inst?.MatterId || inst?.matterId) as string | undefined;
   const shouldShowPostPitch = Boolean(inlineWorkbenchItem) || showPitch;
 

@@ -163,7 +163,7 @@ function shouldPreserveSpan(attributes: string): boolean {
 /**
  * Enhanced line break preservation for Outlook compatibility
  */
-export function preserveLineBreaksV2(html: string): string {
+function preserveLineBreaksV2(html: string): string {
   if (!html) {
     return '';
   }
@@ -381,7 +381,7 @@ function collapseStructuralBreakBlocks(html: string): string {
 /**
  * Normalise inconsistent div/span structures that cause selection gaps
  */
-export function normalizeHtmlStructure(html: string): string {
+function normalizeHtmlStructure(html: string): string {
   if (!html) {
     return '';
   }
@@ -431,7 +431,7 @@ export function normalizeHtmlStructure(html: string): string {
 /**
  * Convert inline content-focused divs into paragraphs so downstream formatting stays consistent
  */
-export function convertContentDivsToParagraphs(html: string): string {
+function convertContentDivsToParagraphs(html: string): string {
   if (!html) {
     return '';
   }
@@ -471,7 +471,7 @@ export function convertContentDivsToParagraphs(html: string): string {
 /**
  * Remove redundant leading/trailing <br> tags inside paragraphs and collapse empty paragraphs
  */
-export function tidyParagraphBreaks(html: string): string {
+function tidyParagraphBreaks(html: string): string {
   if (!html) {
     return '';
   }
@@ -505,7 +505,7 @@ export function tidyParagraphBreaks(html: string): string {
   return processed;
 }
 
-export function splitParagraphsOnDoubleBreaks(html: string): string {
+function splitParagraphsOnDoubleBreaks(html: string): string {
   if (!html) {
     return '';
   }
@@ -533,7 +533,7 @@ export function splitParagraphsOnDoubleBreaks(html: string): string {
   );
 }
 
-export function protectNumbersFromOutlook(html: string): string {
+function protectNumbersFromOutlook(html: string): string {
   if (!html) {
     return '';
   }
@@ -566,7 +566,7 @@ export function protectNumbersFromOutlook(html: string): string {
   return processed;
 }
 
-export function wrapWithEmailContainer(html: string): string {
+function wrapWithEmailContainer(html: string): string {
   if (!html) {
     return '';
   }
@@ -626,7 +626,7 @@ function tightenEdgeParagraphSpacing(html: string): string {
 /**
  * Enhanced heading formatting for better email client compatibility
  */
-export function enhanceHeadingFormatting(html: string): string {
+function enhanceHeadingFormatting(html: string): string {
   if (!html) {
     return '';
   }
@@ -653,7 +653,7 @@ export function enhanceHeadingFormatting(html: string): string {
 /**
  * Enhanced list formatting with better Outlook compatibility
  */
-export function enhanceListFormattingV2(html: string): string {
+function enhanceListFormattingV2(html: string): string {
   if (!html) {
     return '';
   }
@@ -712,7 +712,7 @@ export function enhanceListFormattingV2(html: string): string {
 /**
  * Enhanced link formatting for better email client support
  */
-export function enhanceLinkFormatting(html: string): string {
+function enhanceLinkFormatting(html: string): string {
   if (!html) {
     return '';
   }
@@ -734,7 +734,7 @@ export function enhanceLinkFormatting(html: string): string {
  * This commonly happens when rich HTML produces `</ul></div>Some text...`.
  * Wrap those loose text runs into paragraphs with our base style.
  */
-export function wrapLooseTextAfterLists(html: string): string {
+function wrapLooseTextAfterLists(html: string): string {
   if (!html) {
     return '';
   }
@@ -771,7 +771,7 @@ export function wrapLooseTextAfterLists(html: string): string {
 /**
  * Enhanced paragraph formatting for consistent spacing
  */
-export function enhanceParagraphFormatting(html: string): string {
+function enhanceParagraphFormatting(html: string): string {
   if (!html) {
     return '';
   }
@@ -830,7 +830,7 @@ export function enhanceParagraphFormatting(html: string): string {
  * This function adds an empty line break element between paragraphs to ensure
  * visible separation that holds in all email clients.
  */
-export function addStructuralParagraphBreaks(html: string): string {
+function addStructuralParagraphBreaks(html: string): string {
   if (!html) {
     return '';
   }

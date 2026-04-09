@@ -41,8 +41,8 @@ function getCclBlobServiceClient() {
             blobServiceClient = new BlobServiceClient(`https://${STORAGE_ACCOUNT_NAME}.blob.core.windows.net`, cred);
             return blobServiceClient;
         }
-        const { DefaultAzureCredential } = require('@azure/identity');
-        const credential = new DefaultAzureCredential({ additionallyAllowedTenants: ['*'] });
+        const { getCredential } = require('../utils/getSecret');
+        const credential = getCredential();
         blobServiceClient = new BlobServiceClient(`https://${STORAGE_ACCOUNT_NAME}.blob.core.windows.net`, credential);
         return blobServiceClient;
     } catch (err) {

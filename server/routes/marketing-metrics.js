@@ -1,6 +1,5 @@
 const express = require('express');
-const { DefaultAzureCredential } = require('@azure/identity');
-const { SecretClient } = require('@azure/keyvault-secrets');
+const { getSecret, getClient } = require('../utils/getSecret');
 const { google } = require('googleapis');
 const fs = require('fs');
 const { getRedisClient, generateCacheKey, cacheWrapper } = require('../utils/redisClient');
@@ -16,15 +15,10 @@ async function getSecretFromAnySource(secretName) {
   const envSnake = process.env[secretName.replace(/-/g, '_').toUpperCase()];
   if (envSnake && String(envSnake).trim()) return String(envSnake).trim();
 
-  // 2) Azure Key Vault via Managed Identity, if configured
+  // 2) Azure Key Vault via shared singleton
   try {
-    const vaultUrl = process.env.KEY_VAULT_URL || 'https://helix-keys.vault.azure.net/';
-    if (vaultUrl) {
-      const credential = new DefaultAzureCredential({ additionallyAllowedTenants: ['*'] });
-      const kvClient = new SecretClient(vaultUrl, credential);
-      const sec = await kvClient.getSecret(secretName);
-      if (sec?.value) return sec.value;
-    }
+    const sec = await getClient().getSecret(secretName);
+    if (sec?.value) return sec.value;
   } catch (_) {
     // ignore and try proxy fallback
   }
@@ -51,10 +45,8 @@ async function getFacebookSystemUserToken() {
   if (process.env.FACEBOOK_SYSTEM_USER_TOKEN && process.env.FACEBOOK_SYSTEM_USER_TOKEN.trim().length > 0) {
     return process.env.FACEBOOK_SYSTEM_USER_TOKEN.trim();
   }
-  // Fallback to Key Vault via Managed Identity
-  const credential = new DefaultAzureCredential({ additionallyAllowedTenants: ['*'] });
-  const vaultUrl = process.env.KEY_VAULT_URL || 'https://helix-keys.vault.azure.net/';
-  const client = new SecretClient(vaultUrl, credential);
+  // Fallback to Key Vault via shared singleton
+  const client = getClient();
   const secretName = process.env.FACEBOOK_SYSTEM_USER_TOKEN_SECRET || 'facebook-system-user-token';
   const facebookToken = await client.getSecret(secretName);
   if (!facebookToken?.value) {
@@ -912,9 +904,7 @@ async function getGa4AuthAndClient() {
     const raw = fs.readFileSync(process.env.GA4_CREDENTIALS_PATH, 'utf8');
     serviceAccount = JSON.parse(raw);
   } else {
-    const kvUrl = process.env.KEY_VAULT_URL || 'https://helix-keys.vault.azure.net/';
-    const credential = new DefaultAzureCredential({ additionallyAllowedTenants: ['*'] });
-    const client = new SecretClient(kvUrl, credential);
+    const client = getClient();
     const secretName = process.env.GA4_SERVICE_ACCOUNT_SECRET || 'ga4-service-account-json';
     const saSecret = await client.getSecret(secretName);
     if (!saSecret.value) throw new Error('GA4 service account secret missing');

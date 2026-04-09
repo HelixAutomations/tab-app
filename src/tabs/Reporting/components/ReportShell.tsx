@@ -57,6 +57,14 @@ export interface ReportShellProps {
   /** Auto-refresh interval in seconds (used for indicator colour) */
   autoRefreshIntervalSecs?: number;
 
+  /**
+   * Shell variant.
+   * - `'full'` (default): full date range toolbar, presets, refresh indicator.
+   * - `'minimal'`: themed container only — no toolbar chrome. The consumer
+   *   owns all visible controls while still using useReportRange() for range state.
+   */
+  variant?: 'full' | 'minimal';
+
   /** Report content */
   children: React.ReactNode;
 }
@@ -80,6 +88,7 @@ const ReportShell: React.FC<ReportShellProps> = ({
   toolbarExtras,
   toolbarBottom,
   autoRefreshIntervalSecs = 900,
+  variant = 'full',
   children,
 }) => {
   const { isDarkMode } = useTheme();
@@ -89,9 +98,10 @@ const ReportShell: React.FC<ReportShellProps> = ({
   const [timeElapsed, setTimeElapsed] = useState(0);
 
   useEffect(() => {
+    if (variant === 'minimal') return;
     const interval = setInterval(() => setTimeElapsed((t) => t + 1), 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [variant]);
 
   useEffect(() => {
     if (lastRefreshTimestamp) setTimeElapsed(0);
@@ -103,6 +113,10 @@ const ReportShell: React.FC<ReportShellProps> = ({
   const handleRefresh = () => {
     if (onRefresh && !isFetching) onRefresh();
   };
+
+  if (variant === 'minimal') {
+    return <>{children}</>;
+  }
 
   return (
     <div className={`management-dashboard-container ${themeClass}`} style={reportContainerStyle(isDarkMode)}>

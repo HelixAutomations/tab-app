@@ -131,6 +131,23 @@ const statusClass = (s: string): string => {
 const getDisplayName = (m: TeamMember): string =>
   m.Nickname || m.First || m['Full Name']?.split(' ')[0] || m.Initials;
 
+const prefersReducedMotion = (): boolean => {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+};
+
+const getScrollContainer = (element: HTMLElement | null): HTMLElement | null => {
+  if (typeof window === 'undefined') return element;
+  let current: HTMLElement | null = element;
+  while (current) {
+    const { overflowY } = window.getComputedStyle(current);
+    const isScrollable = (overflowY === 'auto' || overflowY === 'scroll') && current.scrollHeight > current.clientHeight + 4;
+    if (isScrollable) return current;
+    current = current.parentElement;
+  }
+  return element;
+};
+
 /* ═══════════════════════════════════════════════════════════════════════
    SUB-COMPONENTS
    ═══════════════════════════════════════════════════════════════════════ */
@@ -585,9 +602,12 @@ const AttendancePortal: React.FC<AttendancePortalProps> = ({
   const [loading, setLoading] = useState(!preloadedTeam);
   const [error, setError] = useState<string | null>(null);
   const [selectedPerson, setSelectedPerson] = useState<string | null>(null);
+  const [isNavigatingToDetail, setIsNavigatingToDetail] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'on-leave' | 'upcoming'>('all');
+  const portalRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const detailTransitionFrameRef = useRef<number | null>(null);
 
   // ── Fetch data ────────────────────────────────────────────────────────
   const loadData = useCallback(async () => {
@@ -677,6 +697,72 @@ const AttendancePortal: React.FC<AttendancePortalProps> = ({
   const awayCount = personData.filter(p => p.status === 'on-leave').length;
   const upcomingCount = personData.filter(p => !!p.nextLeave && p.status !== 'on-leave').length;
 
+  const cancelPendingDetailTransition = useCallback(() => {
+    if (typeof window !== 'undefined' && detailTransitionFrameRef.current !== null) {
+      window.cancelAnimationFrame(detailTransitionFrameRef.current);
+      detailTransitionFrameRef.current = null;
+    }
+    setIsNavigatingToDetail(false);
+  }, []);
+
+  const scrollPortalToTop = useCallback((behavior: ScrollBehavior) => {
+    const scrollContainer = getScrollContainer(portalRef.current);
+    if (!scrollContainer) return;
+    if (typeof scrollContainer.scrollTo === 'function') {
+      scrollContainer.scrollTo({ top: 0, behavior });
+      return;
+    }
+    scrollContainer.scrollTop = 0;
+  }, []);
+
+  const handleSelectPerson = useCallback((initials: string) => {
+    cancelPendingDetailTransition();
+
+    const scrollContainer = getScrollContainer(portalRef.current);
+    if (!scrollContainer) {
+      setSelectedPerson(initials);
+      return;
+    }
+
+    const useSmoothScroll = !prefersReducedMotion() && scrollContainer.scrollTop > 12;
+    const commitSelection = () => {
+      detailTransitionFrameRef.current = null;
+      setIsNavigatingToDetail(false);
+      setSelectedPerson(initials);
+    };
+
+    if (!useSmoothScroll) {
+      scrollContainer.scrollTop = 0;
+      commitSelection();
+      return;
+    }
+
+    setIsNavigatingToDetail(true);
+    scrollContainer.scrollTo({ top: 0, behavior: 'smooth' });
+    const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+
+    const waitForTop = () => {
+      const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      const nearTop = scrollContainer.scrollTop <= 8;
+      const timedOut = now - startTime > 420;
+
+      if (nearTop || timedOut) {
+        commitSelection();
+        return;
+      }
+
+      detailTransitionFrameRef.current = window.requestAnimationFrame(waitForTop);
+    };
+
+    detailTransitionFrameRef.current = window.requestAnimationFrame(waitForTop);
+  }, [cancelPendingDetailTransition]);
+
+  useEffect(() => () => {
+    if (typeof window !== 'undefined' && detailTransitionFrameRef.current !== null) {
+      window.cancelAnimationFrame(detailTransitionFrameRef.current);
+    }
+  }, []);
+
   // ── Style tokens (corrected dark surface ladder) ──────────────────────
   const bg = isDarkMode ? colours.dark.background : colours.light.background;
   const gridBg = isDarkMode ? colours.dark.sectionBackground : '#fff';
@@ -757,17 +843,23 @@ const AttendancePortal: React.FC<AttendancePortalProps> = ({
 
   // ── Render ────────────────────────────────────────────────────────────
   return (
-    <div className="ap-portal ap-fade-in" style={{ background: bg }}>
+    <div
+      ref={portalRef}
+      className="ap-portal ap-fade-in"
+      data-detail-transition={isNavigatingToDetail ? 'true' : 'false'}
+      aria-busy={isNavigatingToDetail ? 'true' : 'false'}
+      style={{ background: bg }}
+    >
       {selectedPersonData ? (
         <PersonDetailView
           person={selectedPersonData}
           isDarkMode={isDarkMode}
           showBalance={isAdmin || selectedPersonData.initials === currentUserInitials}
           onBack={() => {
+            cancelPendingDetailTransition();
             setSelectedPerson(null);
             requestAnimationFrame(() => {
-              const el = document.querySelector('.ap-portal');
-              if (el) el.scrollTop = 0;
+              scrollPortalToTop(prefersReducedMotion() ? 'auto' : 'smooth');
             });
           }}
         />
@@ -860,7 +952,7 @@ const AttendancePortal: React.FC<AttendancePortalProps> = ({
                 key={person.initials}
                 person={person}
                 isDarkMode={isDarkMode}
-                onClick={() => setSelectedPerson(person.initials)}
+                onClick={() => handleSelectPerson(person.initials)}
               />
             ))}
             {filteredPeople.length === 0 && (

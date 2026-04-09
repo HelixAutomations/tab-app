@@ -10,8 +10,7 @@
 
 const express = require('express');
 const sql = require('mssql');
-const { DefaultAzureCredential } = require('@azure/identity');
-const { SecretClient } = require('@azure/keyvault-secrets');
+const { getClient } = require('../utils/getSecret');
 const { withRequest } = require('../utils/db');
 
 const router = express.Router();
@@ -100,7 +99,7 @@ let cachedCorePool;
 
 async function getTeamSqlPool() {
   if (cachedCorePool) return cachedCorePool;
-  const secretClient = new SecretClient(KV_URI, new DefaultAzureCredential());
+  const secretClient = getClient();
   const passwordSecret = await secretClient.getSecret('sql-databaseserver-password');
   cachedCorePool = await sql.connect({
     server: CORE_SQL_SERVER,

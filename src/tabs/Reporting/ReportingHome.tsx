@@ -30,7 +30,7 @@ import AgedDebtsReport from './AgedDebtsReport';
 import DataCentre from './DataCentre';
 import { useStreamingDatasets } from '../../hooks/useStreamingDatasets';
 import { fetchWithRetry, fetchJSON } from '../../utils/fetchUtils';
-import { isAdminUser, isPowerUser, canSeePrivateHubControls } from '../../app/admin';
+import { isAdminUser, isPowerUser, canSeePrivateHubControls, isDevOwner } from '../../app/admin';
 import markWhite from '../../assets/markwhite.svg';
 import type { PpcIncomeMetrics } from './PpcReport';
 import { useToast } from '../../components/feedback/ToastProvider';
@@ -38,6 +38,7 @@ import type { DealRecord, InstructionRecord, DubberCallRecord } from './dataSour
 import { reportingPanelBackground, reportingPanelBorder } from './styles/reportingFoundation';
 import NavigatorDetailBar from '../../components/NavigatorDetailBar';
 import CallsReport from './CallsReport';
+import EnquiryLedgerReport from './EnquiryLedgerReport';
 
 // Add spinner animation CSS
 const spinnerStyle = `
@@ -625,6 +626,7 @@ const MATTERS_RANGE_DATASETS: DatasetKey[] = ['allMatters', 'wip', 'recoveredFee
 const ENQUIRIES_RANGE_DATASETS: DatasetKey[] = ['enquiries', 'deals', 'instructions', 'metaMetrics'];
 const MATTERS_REPORT_REFRESH_DATASETS: DatasetKey[] = [...MATTERS_RANGE_DATASETS, 'deals', 'instructions'];
 const ENQUIRIES_REPORT_DATASETS: DatasetKey[] = ['enquiries', 'teamData', 'annualLeave', 'metaMetrics', 'deals', 'instructions'];
+const ENQUIRY_LEDGER_REPORT_DATASETS: DatasetKey[] = ['enquiries', 'deals', 'instructions'];
 const META_REPORT_DATASETS: DatasetKey[] = ['metaMetrics', 'enquiries', 'deals', 'instructions'];
 type DatasetStatusValue = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -646,7 +648,7 @@ interface AvailableReport {
   key: string;
   name: string;
   status: string;
-  action?: 'dashboard' | 'annualLeave' | 'enquiries' | 'metaMetrics' | 'seoReport' | 'ppcReport' | 'matters' | 'logMonitor' | 'calls';
+  action?: 'dashboard' | 'annualLeave' | 'enquiries' | 'enquiryLedger' | 'metaMetrics' | 'seoReport' | 'ppcReport' | 'matters' | 'logMonitor' | 'calls';
   requiredDatasets: DatasetKey[];
   description?: string;
   disabled?: boolean;
@@ -667,6 +669,14 @@ const AVAILABLE_REPORTS: AvailableReport[] = [
     status: 'In development',
     action: 'enquiries',
     requiredDatasets: ENQUIRIES_REPORT_DATASETS,
+    development: true,
+  },
+  {
+    key: 'enquiryLedger',
+    name: 'Enquiry ledger',
+    status: 'Draft',
+    action: 'enquiryLedger',
+    requiredDatasets: ENQUIRY_LEDGER_REPORT_DATASETS,
     development: true,
   },
   {
@@ -1413,6 +1423,7 @@ const REPORT_NAV_TABS: { key: typeof ACTIVE_VIEW_TYPE; label: string; draft?: bo
   // ── Prod ─────────────────────────────────────────
   { key: 'dashboard' as const, label: 'Dashboard' },
   { key: 'enquiries' as const, label: 'Enquiries' },
+  { key: 'enquiryLedger' as const, label: 'Ledger', draft: true },
   { key: 'annualLeave' as const, label: 'Leave', draft: true },
   { key: 'metaMetrics' as const, label: 'Meta', draft: true },
   // ── Draft (visually muted) ──────────────────────
@@ -1422,7 +1433,7 @@ const REPORT_NAV_TABS: { key: typeof ACTIVE_VIEW_TYPE; label: string; draft?: bo
   { key: 'agedDebts' as const, label: 'Debts', draft: true },
   { key: 'calls' as const, label: 'Calls', draft: true },
 ];
-type ActiveViewType = 'overview' | 'dashboard' | 'annualLeave' | 'enquiries' | 'metaMetrics' | 'seoReport' | 'ppcReport' | 'matters' | 'logMonitor' | 'dataCentre' | 'cacheMonitor' | 'agedDebts' | 'calls';
+type ActiveViewType = 'overview' | 'dashboard' | 'annualLeave' | 'enquiries' | 'enquiryLedger' | 'metaMetrics' | 'seoReport' | 'ppcReport' | 'matters' | 'logMonitor' | 'dataCentre' | 'cacheMonitor' | 'agedDebts' | 'calls';
 const ACTIVE_VIEW_TYPE: ActiveViewType = 'overview';
 
 interface ReportingNavigationRequest {
@@ -1735,6 +1746,10 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
   const [refreshStartedAt, setRefreshStartedAt] = useState<number | null>(null);
   const prevIsFetchingRef = useRef<boolean>(false);
   const primaryUser = propUserData?.[0] ?? null;
+  const canViewEnquiryLedger = useMemo(
+    () => Boolean(primaryUser) && isDevOwner(primaryUser),
+    [primaryUser],
+  );
   const canAccessReportingOps = useMemo(
     () => Boolean(primaryUser) && (isAdminUser(primaryUser) || isPowerUser(primaryUser)),
     [primaryUser]
@@ -1745,6 +1760,12 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       setShowReportingOpsModal(false);
     }
   }, [canAccessReportingOps]);
+
+  useEffect(() => {
+    if (activeView === 'enquiryLedger' && !canViewEnquiryLedger) {
+      setActiveView('overview');
+    }
+  }, [activeView, canViewEnquiryLedger]);
 
   const reportingOpsRows = useMemo(() => {
     const priority: Record<DatasetStatusValue, number> = {
@@ -2631,12 +2652,16 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     const isLocalNow = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
     const isViewingAsProd = Boolean(featureToggles?.viewAsProd);
     const initials = extractUserInitials(propUserData);
-    const isDraftViewer = (isLocalNow && !isViewingAsProd) || initials === 'LZ' || initials === 'AW';
     const PROD_TAB_KEYS = ['dashboard', 'enquiries', 'calls'];
-    // In prod: only prod tabs. Locally: show all (drafts muted via isDraftViewer).
-    const visibleTabs = (isLocalNow && !isViewingAsProd)
-      ? REPORT_NAV_TABS
-      : REPORT_NAV_TABS.filter(t => PROD_TAB_KEYS.includes(t.key as string));
+    const visibleTabs = REPORT_NAV_TABS.filter((tab) => {
+      if (tab.key === 'enquiryLedger') {
+        return canViewEnquiryLedger;
+      }
+      if (isLocalNow && !isViewingAsProd) {
+        return true;
+      }
+      return PROD_TAB_KEYS.includes(tab.key as string);
+    });
 
     setContent(
       <NavigatorDetailBar
@@ -2652,7 +2677,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     return () => {
       setContent(null);
     };
-  }, [activeView, handleBackToOverview, isDarkMode, setContent, propUserData, featureToggles]);
+  }, [activeView, canViewEnquiryLedger, handleBackToOverview, isDarkMode, setContent, propUserData, featureToggles]);
 
   const fetchAnnualLeaveDataset = useCallback(async (forceRefresh: boolean): Promise<AnnualLeaveFetchResult> => {
     const endpoint = forceRefresh ? '/api/attendance/getAnnualLeave?forceRefresh=true' : '/api/attendance/getAnnualLeave';
@@ -4356,10 +4381,15 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
     const PROD_REPORT_KEYS = ['dashboard', 'enquiries', 'calls'];
 
-    // In production: only show prod reports. Locally: show all.
-    const visibleCards = isLocal
-      ? reportCards
-      : reportCards.filter(card => PROD_REPORT_KEYS.includes(card.key));
+    const visibleCards = reportCards.filter((card) => {
+      if (card.key === 'enquiryLedger') {
+        return canViewEnquiryLedger;
+      }
+      if (isLocal) {
+        return true;
+      }
+      return PROD_REPORT_KEYS.includes(card.key);
+    });
 
     // Hero: dashboard stands alone
     const heroCard = visibleCards.find(card => card.key === 'dashboard');
@@ -4368,8 +4398,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     const developmentCards = visibleCards.filter(card => card.development && !card.disabled);
     const disabledCards = visibleCards.filter(card => card.disabled);
 
-    // Locally: grey out non-prod cards
-    const isGreyedOut = (key: string) => isLocal && !PROD_REPORT_KEYS.includes(key);
+    // Locally: keep unreleased draft cards visually muted, but allow explicitly-enabled draft tools through.
+    const isGreyedOut = (key: string) => isLocal && !PROD_REPORT_KEYS.includes(key) && key !== 'enquiryLedger';
     
     return (
       <>
@@ -4470,7 +4500,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
                 letterSpacing: '0.06em',
                 color: isDarkMode ? colours.green : colours.green,
               }}>
-                Production
+                Draft
               </span>
               <span style={{
                 width: 5,
@@ -4575,6 +4605,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
               return <FaChartLine size={18} />;
             case 'enquiries':
               return <FaInbox size={18} />;
+            case 'enquiryLedger':
+              return <FaClipboardList size={18} />;
             case 'annualLeave':
               return <FaClipboardList size={18} />;
             case 'matters':
@@ -5900,6 +5932,20 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
             />
         </div>
       </div>
+    );
+  }
+
+  if (activeView === 'enquiryLedger') {
+    return (
+        <EnquiryLedgerReport
+          enquiries={datasetData.enquiries}
+          deals={datasetData.deals}
+          instructions={datasetData.instructions}
+          teamData={datasetData.teamData}
+          isFetching={isFetching}
+          lastRefreshTimestamp={lastRefreshTimestamp ?? undefined}
+          triggerRefresh={refreshEnquiriesScoped}
+        />
     );
   }
 

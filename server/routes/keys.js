@@ -1,12 +1,7 @@
 const express = require('express');
-const { DefaultAzureCredential } = require('@azure/identity');
-const { SecretClient } = require('@azure/keyvault-secrets');
+const { getSecret } = require('../utils/getSecret');
 
 const router = express.Router();
-
-const credential = new DefaultAzureCredential({ additionallyAllowedTenants: ['*'] });
-const vaultUrl = process.env.KEY_VAULT_URL || 'https://helix-keys.vault.azure.net/';
-const client = new SecretClient(vaultUrl, credential);
 
 function getLocalSecret(name) {
     const envKey = name.replace(/-/g, '_').toUpperCase();
@@ -24,8 +19,8 @@ router.get('/:name', async (req, res) => {
             return res.json({ value });
         }
 
-        const secret = await client.getSecret(name);
-        res.json({ value: secret.value });
+        const value = await getSecret(name);
+        res.json({ value });
     } catch (err) {
         console.error('Failed to retrieve secret', err);
         res.status(500).json({ error: 'Failed to retrieve secret' });

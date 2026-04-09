@@ -1,7 +1,6 @@
 const express = require('express');
 const { sql } = require('../utils/db');
-const { DefaultAzureCredential } = require('@azure/identity');
-const { SecretClient } = require('@azure/keyvault-secrets');
+const { getClient } = require('../utils/getSecret');
 const router = express.Router();
 
 const KV_URI = "https://helix-keys.vault.azure.net/";
@@ -33,7 +32,7 @@ const FILE_FIELD_MAPPING = {
 
 // Get Asana credentials from SQL by team initials
 async function getAsanaCredentials(initials) {
-  const secretClient = new SecretClient(KV_URI, new DefaultAzureCredential());
+  const secretClient = getClient();
   const passwordSecret = await secretClient.getSecret("sql-databaseserver-password");
   
   const pool = await sql.connect({
@@ -137,7 +136,7 @@ async function getAsanaAccessToken(credentials, requestId) {
 
 // Get Microsoft Graph access token
 async function getGraphAccessToken() {
-  const secretClient = new SecretClient(KV_URI, new DefaultAzureCredential());
+  const secretClient = getClient();
   const [clientIdSecret, clientSecretSecret] = await Promise.all([
     secretClient.getSecret("graph-aidenteams-clientid"),
     secretClient.getSecret("graph-aiden-teamhub-financialattachments-clientsecret")

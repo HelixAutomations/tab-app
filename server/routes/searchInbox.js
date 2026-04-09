@@ -1,16 +1,10 @@
 /* eslint-disable no-console */
 const express = require('express');
-const { DefaultAzureCredential } = require('@azure/identity');
-const { SecretClient } = require('@azure/keyvault-secrets');
 const { randomUUID } = require('crypto');
 const opLog = require('../utils/opLog');
+const { getSecret } = require('../utils/getSecret');
 
 const router = express.Router();
-
-// Key Vault setup (reuse same vault as the rest of the server)
-const credential = new DefaultAzureCredential({ additionallyAllowedTenants: ['*'] });
-const vaultUrl = process.env.KEY_VAULT_URL || 'https://helix-keys.vault.azure.net/';
-const secretClient = new SecretClient(vaultUrl, credential);
 
 // Secret names for Graph client credentials
 const GRAPH_CLIENT_ID_SECRET = 'graph-aidenteams-clientid';
@@ -27,12 +21,12 @@ async function getGraphSecrets() {
   if (cachedSecrets.id && cachedSecrets.secret && now - cachedSecrets.ts < 30 * 60 * 1000) {
     return { clientId: cachedSecrets.id, clientSecret: cachedSecrets.secret };
   }
-  const [id, secret] = await Promise.all([
-    secretClient.getSecret(GRAPH_CLIENT_ID_SECRET),
-    secretClient.getSecret(GRAPH_CLIENT_SECRET_SECRET),
+  const [clientId, clientSecret] = await Promise.all([
+    getSecret(GRAPH_CLIENT_ID_SECRET),
+    getSecret(GRAPH_CLIENT_SECRET_SECRET),
   ]);
-  cachedSecrets = { id: id.value, secret: secret.value, ts: now };
-  return { clientId: id.value, clientSecret: secret.value };
+  cachedSecrets = { id: clientId, secret: clientSecret, ts: now };
+  return { clientId, clientSecret };
 }
 
 async function getGraphToken() {

@@ -55,10 +55,16 @@ import DocumentUploadZone from '../../components/DocumentUploadZone';
 import FlatMatterOpening from './MatterOpening/FlatMatterOpening';
 import CompactMatterWizard from './MatterOpening/CompactMatterWizard';
 import type { POID } from '../../app/functionality/types';
+import { deriveWorkbenchStageStatuses } from '../../utils/workbenchStatusDerivation';
+import type {
+  WorkbenchContextStage,
+  WorkbenchItem,
+  WorkbenchStageStatus,
+  WorkbenchStageStatuses,
+  WorkbenchTab,
+} from '../../utils/workbenchTypes';
 
-type StageStatus = 'pending' | 'processing' | 'warning' | 'review' | 'complete' | 'neutral';
-type WorkbenchTab = 'details' | 'identity' | 'payment' | 'risk' | 'matter' | 'documents' | 'pitch';
-type ContextStageKey = 'enquiry' | 'instructed';
+type ContextStageKey = WorkbenchContextStage;
 type MatterClientTypeOption = 'Individual' | 'Company' | 'Multiple Individuals' | 'Existing Client';
 
 type MatterClientCandidate = {
@@ -103,11 +109,11 @@ type VerificationDetails = {
 };
 
 type InlineWorkbenchProps = {
-  item: any;
+  item: WorkbenchItem;
   isDarkMode: boolean;
   initialTab?: WorkbenchTab;
   initialContextStage?: ContextStageKey | null;
-  stageStatuses?: Partial<Record<WorkbenchTab | 'id', StageStatus>>;
+  stageStatuses?: WorkbenchStageStatuses;
   teamData?: TeamData[] | null;
   enableContextStageChips?: boolean;
   contextStageKeys?: ContextStageKey[];
@@ -390,15 +396,16 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   }, [verificationDetails?.instructionRef]);
 
   // Extract data from item
-  const inst = item?.instruction;
-  const deal = item?.deal;
-  const enquiry = item?.enquiry || item?.Enquiry || item?.enquiryRecord || item?.prospectEnquiry || null;
-  const pitch = item?.pitch || item?.Pitch || item?.pitchRecord || item?.pitchData || null;
+  const inst = (item?.instruction ?? null) as WorkbenchItem['instruction'];
+  const deal = (item?.deal ?? null) as WorkbenchItem['deal'];
+  const enquiry = (item?.enquiry || item?.Enquiry || item?.enquiryRecord || item?.prospectEnquiry || null) as WorkbenchItem['enquiry'];
+  const pitch = (item?.pitch || item?.Pitch || item?.pitchRecord || item?.pitchData || null) as WorkbenchItem['pitch'];
   const eid = item?.eid;
+  const eids = Array.isArray(item?.eids) ? item.eids : [];
   const risk = item?.risk;
   const parentDocuments = item?.documents || inst?.documents || [];
   const payments = (() => {
-    const instructionPayments = Array.isArray(inst?.payments) ? inst.payments : [];
+    const instructionPayments = Array.isArray(inst?.payments) ? (inst?.payments ?? []) : [];
     const itemPayments = Array.isArray(item?.payments) ? item.payments : [];
     return instructionPayments.length > 0 ? instructionPayments : itemPayments;
   })();
@@ -2757,34 +2764,43 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   }, [teamData]);
 
   // Normalised identity stage status (prefer pipeline status when provided)
-  const identityStatus: StageStatus = (stageStatuses?.id || (
-    eidStatus === 'verified' ? 'complete' : (eidStatus === 'failed' || eidStatus === 'review') ? 'review' : 'pending'
-  )) as StageStatus;
+  const derivedStageStatuses = useMemo(() => deriveWorkbenchStageStatuses({
+    instruction: inst,
+    payments,
+    risk,
+    eid,
+    eids,
+    matters,
+    documents,
+    stageStatuses,
+  }, { mediumRiskStatus: 'warning' }), [documents, eid, eids, inst, matters, payments, risk, stageStatuses]);
 
-  // Normalised per-tab statuses (prefer pipeline stageStatuses)
-  const paymentStatus: StageStatus = (stageStatuses?.payment || (hasSuccessfulPayment ? 'complete' : hasFailedPayment ? 'review' : 'pending')) as StageStatus;
-  const riskStatus: StageStatus = (stageStatuses?.risk || (riskComplete ? (isHighRisk ? 'review' : isMediumRisk ? 'warning' : 'complete') : 'pending')) as StageStatus;
-  const matterStageStatus: StageStatus = (stageStatuses?.matter || (hasMatter ? 'complete' : 'pending')) as StageStatus;
-  const documentStatus: StageStatus = (stageStatuses?.documents || (documents.length > 0 ? 'complete' : 'neutral')) as StageStatus;
+  const identityStatus: WorkbenchStageStatus = eidProcessingState === 'processing'
+    ? 'processing'
+    : derivedStageStatuses.id;
+  const paymentStatus: WorkbenchStageStatus = derivedStageStatuses.payment;
+  const riskStatus: WorkbenchStageStatus = riskEditMode ? 'processing' : derivedStageStatuses.risk;
+  const matterStageStatus: WorkbenchStageStatus = showLocalMatterModal ? 'processing' : derivedStageStatuses.matter;
+  const documentStatus: WorkbenchStageStatus = derivedStageStatuses.documents;
 
   // Banner status safety: only show complete/blue when we have concrete evidence in this record.
-  const identityBannerStatus: StageStatus =
+  const identityBannerStatus: WorkbenchStageStatus =
     identityStatus === 'complete' && !(hasId || eidStatus === 'verified' || isManuallyApproved)
       ? 'pending'
       : identityStatus;
-  const paymentBannerStatus: StageStatus =
+  const paymentBannerStatus: WorkbenchStageStatus =
     paymentStatus === 'complete' && !hasSuccessfulPayment
       ? 'pending'
       : paymentStatus;
-  const riskBannerStatus: StageStatus =
+  const riskBannerStatus: WorkbenchStageStatus =
     riskStatus === 'complete' && !riskComplete
       ? 'pending'
       : riskStatus;
-  const matterBannerStatus: StageStatus =
+  const matterBannerStatus: WorkbenchStageStatus =
     matterStageStatus === 'complete' && !hasMatter
       ? 'pending'
       : matterStageStatus;
-  const documentBannerStatus: StageStatus =
+  const documentBannerStatus: WorkbenchStageStatus =
     documentStatus === 'complete' && documents.length === 0
       ? 'neutral'
       : documentStatus;
@@ -3037,7 +3053,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     setMatterJointClientKeys([]);
   }, [hasMatter, instructionRef, inst, matterClientCandidates]);
 
-  const getStatusColors = React.useCallback((status: StageStatus) => {
+  const getStatusColors = React.useCallback((status: WorkbenchStageStatus) => {
     if (status === 'complete') return { 
       bg: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
       border: colours.highlight,
@@ -3072,7 +3088,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
   const renderStatusBanner = (
     title: string,
-    status: StageStatus,
+    status: WorkbenchStageStatus,
     prompt: string,
     icon: React.ReactNode,
     action?: React.ReactNode,
@@ -3213,7 +3229,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   };
 
   const isInstructedComplete = Boolean(instructionSubmittedRaw && instructionSubmittedRaw !== '—');
-  const instructedStatus: StageStatus = isInstructedComplete
+  const instructedStatus: WorkbenchStageStatus = isInstructedComplete
     ? 'complete'
     : (isInstructionInitialised ? 'processing' : 'pending');
 
@@ -3229,7 +3245,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         dateRaw: null,
         isComplete: !!prospectId, // Has linked enquiry
         hasIssue: false,
-        status: (prospectId ? 'complete' : 'neutral') as StageStatus,
+        status: (prospectId ? 'complete' : 'neutral') as WorkbenchStageStatus,
         navigatesTo: 'external' as const, // Special: navigates to Enquiries tab
         externalAction: () => {
           if (prospectId) {
@@ -3247,7 +3263,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         dateRaw: pitchDateRaw,
         isComplete: !!pitchDateRaw,
         hasIssue: false,
-        status: (pitchDateRaw ? 'complete' : 'pending') as StageStatus,
+        status: (pitchDateRaw ? 'complete' : 'pending') as WorkbenchStageStatus,
         navigatesTo: 'pitch' as WorkbenchTab,
       },
       { 
@@ -3269,7 +3285,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         dateRaw: paymentDateRaw,
         isComplete: hasSuccessfulPayment,
         hasIssue: hasFailedPayment,
-        status: (stageStatuses?.payment || (hasSuccessfulPayment ? 'complete' : hasFailedPayment ? 'review' : 'pending')) as StageStatus,
+        status: paymentStatus,
         navigatesTo: 'payment' as WorkbenchTab,
       },
       { 
@@ -3280,7 +3296,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         dateRaw: null,
         isComplete: hasId || eidStatus === 'verified',
         hasIssue: eidStatus === 'failed' || eidStatus === 'review',
-        status: (eidProcessingState === 'processing' ? 'processing' : stageStatuses?.id || (eidStatus === 'verified' ? 'complete' : (eidStatus === 'failed' || eidStatus === 'review') ? 'review' : 'pending')) as StageStatus,
+        status: identityStatus,
         navigatesTo: 'identity' as WorkbenchTab,
       },
       { 
@@ -3291,7 +3307,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         dateRaw: null,
         isComplete: riskComplete && !isHighRisk && !isMediumRisk,
         hasIssue: isHighRisk || isMediumRisk,
-        status: (riskEditMode ? 'processing' : stageStatuses?.risk || (riskComplete ? (isHighRisk ? 'review' : isMediumRisk ? 'warning' : 'complete') : 'pending')) as StageStatus,
+        status: riskStatus,
         navigatesTo: 'risk' as WorkbenchTab,
       },
       { 
@@ -3302,7 +3318,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         dateRaw: matterOpenDateRaw,
         isComplete: hasMatter,
         hasIssue: false,
-        status: (showLocalMatterModal ? 'processing' : stageStatuses?.matter || (hasMatter ? 'complete' : 'pending')) as StageStatus,
+        status: matterStageStatus,
         navigatesTo: 'matter' as WorkbenchTab,
       },
       { 
@@ -3314,11 +3330,11 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         isComplete: documents.length > 0,
         hasIssue: false,
         count: documents.length,
-        status: (stageStatuses?.documents || (documents.length > 0 ? 'complete' : 'neutral')) as StageStatus,
+        status: documentStatus,
         navigatesTo: 'documents' as WorkbenchTab,
       },
     ];
-  }, [prospectId, hasId, eidStatus, eidProcessingState, hasSuccessfulPayment, hasFailedPayment, documents.length, riskComplete, isHighRisk, isMediumRisk, riskEditMode, showLocalMatterModal, hasMatter, stageStatuses, pitchDate, pitchDateRaw, instructionSubmittedDate, instructionSubmittedRaw, paymentDate, paymentDateRaw, matterOpenDate, matterOpenDateRaw, firstDocUploadDate, firstDocUploadDateRaw, isInstructedComplete, instructedStatus]);
+  }, [documentStatus, documents.length, firstDocUploadDate, firstDocUploadDateRaw, hasFailedPayment, hasId, hasMatter, hasSuccessfulPayment, identityStatus, instructedStatus, instructionSubmittedDate, instructionSubmittedRaw, isInstructedComplete, matterOpenDate, matterOpenDateRaw, matterStageStatus, paymentDate, paymentDateRaw, paymentStatus, pitchDate, pitchDateRaw, prospectId, riskStatus]);
 
   const contextStageKeyList = useMemo(() => {
     // If context stage chips disabled, don't show any context stages
@@ -10287,7 +10303,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                 )}
               >
                 <LazyPitchComposer
-                  enquiry={item}
+                  enquiry={(enquiry || item) as any}
                   userData={teamData as any}
                   isDarkMode={isDarkMode}
                   userEmail={currentUser?.Email}

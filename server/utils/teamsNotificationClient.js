@@ -10,11 +10,18 @@
 
 const { getSecret } = require('./getSecret');
 const { trackEvent, trackException, trackMetric } = require('./appInsights');
-const log = require('./logger');
+const log = require('./logger').createLogger('TeamsNotify');
 
-// ── Token cache ──────────────────────────────────────────────
+// ── Token caches ─────────────────────────────────────────────
 let cachedToken = null;
 let cachedExpiry = 0; // Unix ms
+let cachedBotToken = null;
+let cachedBotExpiry = 0; // Unix ms
+
+// ── Bot identity ─────────────────────────────────────────────
+const BOT_APP_ID = '3d935d23-349e-4502-a9c0-6f5ca48d5d33';
+const BOT_CONNECTOR_BASE = 'https://smba.trafficmanager.net/apis';
+const ALLOWED_DM_RECIPIENTS = ['lz@helix-law.com'];
 
 // ── Channel routes (mirrors enquiry-processing-v2 ChannelResolver) ──
 const PRIMARY_TEAM_ID = 'b7d73ffb-70b5-45d6-9940-8f9cc7762135';
@@ -222,14 +229,224 @@ async function postCardToArea(area, adaptiveCard, summary) {
   return postAdaptiveCardToChannel(teamId, channelId, adaptiveCard, summary);
 }
 
+// ── Bot Framework token (separate from Graph) ────────────────
+async function getBotToken() {
+  const now = Date.now();
+  if (cachedBotToken && cachedBotExpiry - now > 5 * 60 * 1000) {
+    return cachedBotToken;
+  }
+
+  const tenantId = await getSecret('team-hub-notification-tenant-id');
+  const appId = await getSecret('team-hub-notification-app-id');
+  const secret = await getSecret('team-hub-notification-client-secret');
+
+  const tokenUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`;
+  const body = new URLSearchParams({
+    client_id: appId,
+    client_secret: secret,
+    scope: 'https://api.botframework.com/.default',
+    grant_type: 'client_credentials',
+  });
+
+  const start = Date.now();
+  const resp = await fetch(tokenUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
+  });
+
+  const data = await resp.json();
+  const durationMs = Date.now() - start;
+
+  if (!resp.ok) {
+    const err = new Error(`Bot token request failed: ${resp.status} ${data.error_description || data.error || ''}`);
+    trackException(err, { operation: 'TeamsNotification.GetBotToken', status: String(resp.status) });
+    throw err;
+  }
+
+  cachedBotToken = data.access_token;
+  cachedBotExpiry = now + (data.expires_in * 1000);
+  log.info(`[TeamsNotify] Acquired Bot token (expires in ${data.expires_in}s, took ${durationMs}ms)`);
+  trackMetric('TeamsNotification.BotTokenAcquire.Duration', durationMs);
+  return cachedBotToken;
+}
+
+// ── Invalidate bot token (for retry after 401) ──────────────
+function invalidateBotToken() {
+  cachedBotToken = null;
+  cachedBotExpiry = 0;
+}
+
+// ── Resolve user AAD ID from email via Graph ─────────────────
+async function resolveUserAadId(email) {
+  const token = await getGraphToken();
+  const url = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(email)}?$select=id,displayName`;
+
+  const resp = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!resp.ok) {
+    const body = await resp.text();
+    throw new Error(`Failed to resolve user ${email}: ${resp.status} ${body.slice(0, 200)}`);
+  }
+
+  const data = await resp.json();
+  return { aadId: data.id, displayName: data.displayName };
+}
+
+// ── Synthesise DM conversation ID (enquiry-processing pattern) ─
+function buildDmConversationId(userAadId) {
+  return `19:${userAadId}_${BOT_APP_ID}@unq.gbl.spaces`;
+}
+
+// ── Send Adaptive Card to a user's DM ────────────────────────
+async function sendCardToDM(userEmail, card, summary = 'Notification') {
+  const emailLower = (userEmail || '').toLowerCase().trim();
+  if (!ALLOWED_DM_RECIPIENTS.includes(emailLower)) {
+    const msg = `DM blocked: ${emailLower} is not in ALLOWED_DM_RECIPIENTS`;
+    log.warn(`[TeamsNotify] ${msg}`);
+    trackEvent('TeamsNotification.DM.Blocked', { email: emailLower });
+    return { success: false, error: msg };
+  }
+
+  const start = Date.now();
+
+  const { aadId, displayName } = await resolveUserAadId(emailLower);
+  const conversationId = buildDmConversationId(aadId);
+  const botToken = await getBotToken();
+
+  const activity = {
+    type: 'message',
+    from: { id: `28:${BOT_APP_ID}`, name: 'Team Hub' },
+    recipient: { id: `29:${aadId}`, name: displayName },
+    conversation: { id: conversationId },
+    attachments: [{
+      contentType: 'application/vnd.microsoft.card.adaptive',
+      content: typeof card === 'string' ? JSON.parse(card) : card,
+    }],
+    summary: summary,
+  };
+
+  const url = `${BOT_CONNECTOR_BASE}/v3/conversations/${encodeURIComponent(conversationId)}/activities`;
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${botToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(activity),
+    });
+
+    const body = await resp.text();
+    const durationMs = Date.now() - start;
+
+    if (resp.ok) {
+      let activityId = null;
+      try {
+        const parsed = JSON.parse(body);
+        activityId = parsed.id || null;
+      } catch { /* ignore */ }
+
+      log.info(`[TeamsNotify] DM card sent to ${displayName} (attempt ${attempt + 1}, ${durationMs}ms)`);
+      trackEvent('TeamsNotification.DM.Sent', {
+        email: emailLower,
+        displayName,
+        conversationId,
+        activityId,
+        durationMs: String(durationMs),
+        attempt: String(attempt + 1),
+      });
+      trackMetric('TeamsNotification.DM.Duration', durationMs);
+      return { success: true, conversationId, activityId, displayName, durationMs };
+    }
+
+    if (resp.status === 401 && attempt === 0) {
+      log.warn('[TeamsNotify] DM 401 — refreshing bot token and retrying');
+      invalidateBotToken();
+      continue;
+    }
+
+    if (resp.status === 429 || resp.status >= 500) {
+      const delay = Math.pow(2, attempt) * 1000;
+      log.warn(`[TeamsNotify] DM ${resp.status} on attempt ${attempt + 1}, retrying in ${delay}ms`);
+      await new Promise(r => setTimeout(r, delay));
+      continue;
+    }
+
+    log.error(`[TeamsNotify] DM send failed (${resp.status}): ${body.slice(0, 500)}`);
+    trackEvent('TeamsNotification.DM.Failed', {
+      email: emailLower,
+      status: String(resp.status),
+      error: body.slice(0, 300),
+    });
+    return { success: false, error: body.slice(0, 500), statusCode: resp.status };
+  }
+
+  return { success: false, error: 'Max retries exceeded', statusCode: 503 };
+}
+
+// ── Update an existing card in a conversation ────────────────
+async function updateCardInConversation(conversationId, activityId, card) {
+  const botToken = await getBotToken();
+
+  const activity = {
+    type: 'message',
+    from: { id: `28:${BOT_APP_ID}`, name: 'Team Hub' },
+    conversation: { id: conversationId },
+    attachments: [{
+      contentType: 'application/vnd.microsoft.card.adaptive',
+      content: typeof card === 'string' ? JSON.parse(card) : card,
+    }],
+  };
+
+  const url = `${BOT_CONNECTOR_BASE}/v3/conversations/${encodeURIComponent(conversationId)}/activities/${encodeURIComponent(activityId)}`;
+
+  const resp = await fetch(url, {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${botToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(activity),
+  });
+
+  const body = await resp.text();
+
+  if (resp.ok) {
+    log.info(`[TeamsNotify] Card updated in conversation (activityId=${activityId})`);
+    trackEvent('TeamsNotification.CardUpdate.Success', { conversationId, activityId });
+    return { success: true };
+  }
+
+  log.error(`[TeamsNotify] Card update failed (${resp.status}): ${body.slice(0, 500)}`);
+  trackEvent('TeamsNotification.CardUpdate.Failed', {
+    conversationId,
+    activityId,
+    status: String(resp.status),
+    error: body.slice(0, 300),
+  });
+  return { success: false, error: body.slice(0, 500), statusCode: resp.status };
+}
+
 module.exports = {
   getGraphToken,
+  getBotToken,
   resolveChannel,
+  resolveUserAadId,
+  buildDmConversationId,
   postAdaptiveCardToChannel,
   postHtmlToChannel,
   sendActivityFeedNotification,
   postCardToArea,
+  sendCardToDM,
+  updateCardInConversation,
   CHANNEL_ROUTES,
   PRIMARY_TEAM_ID,
   NEW_ENQUIRIES_TEAM_ID,
+  BOT_APP_ID,
+  BOT_CONNECTOR_BASE,
+  ALLOWED_DM_RECIPIENTS,
 };

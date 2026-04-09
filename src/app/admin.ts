@@ -99,6 +99,11 @@ export function isDevGroupOrHigher(user?: UserData | null): boolean {
     return tier === 'dev' || tier === 'devGroup';
 }
 
+export function canSeeActivityTab(user?: UserData | null, isLocalDev = false): boolean {
+    if (isLocalDev) return true;
+    return isDevOwner(user);
+}
+
 // Helper to determine if a user can access the Instructions tab
 export function hasInstructionsAccess(user?: UserData | null): boolean {
     // Instructions tab is now open to all users

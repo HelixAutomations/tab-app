@@ -1,6 +1,5 @@
 const express = require('express');
-const { DefaultAzureCredential } = require('@azure/identity');
-const { SecretClient } = require('@azure/keyvault-secrets');
+const { getClient } = require('../utils/getSecret');
 const { Connection, Request: SqlRequest, TYPES } = require('tedious');
 
 const router = express.Router();
@@ -58,7 +57,7 @@ async function updatePOCInSQL(ID, Point_of_Contact) {
     const sqlServer = "helix-database-server.database.windows.net";
     const sqlDatabase = "helix-core-data";
 
-    const secretClient = new SecretClient(kvUri, new DefaultAzureCredential({ additionallyAllowedTenants: ['*'] }));
+    const secretClient = getClient();
     const passwordSecret = await secretClient.getSecret(passwordSecretName);
     const password = passwordSecret.value;
 

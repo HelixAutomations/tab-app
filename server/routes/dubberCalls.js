@@ -10,6 +10,7 @@ const { getClioId } = require('../utils/teamLookup');
 const { chatCompletion } = require('../utils/aiClient');
 const { getSecret } = require('../utils/getSecret');
 const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
+const { deleteCachePattern } = require('../utils/redisClient');
 const {
   Document, Packer, Paragraph, TextRun, AlignmentType, BorderStyle, HeadingLevel,
 } = require('docx');
@@ -35,8 +36,8 @@ function getAttendanceBlobClient() {
     _blobClient = new BlobServiceClient(`https://${STORAGE_ACCOUNT_NAME}.blob.core.windows.net`, cred);
     return _blobClient;
   }
-  const { DefaultAzureCredential } = require('@azure/identity');
-  _blobClient = new BlobServiceClient(`https://${STORAGE_ACCOUNT_NAME}.blob.core.windows.net`, new DefaultAzureCredential({ additionallyAllowedTenants: ['*'] }));
+  const { getCredential } = require('../utils/getSecret');
+  _blobClient = new BlobServiceClient(`https://${STORAGE_ACCOUNT_NAME}.blob.core.windows.net`, getCredential());
   return _blobClient;
 }
 
@@ -187,6 +188,63 @@ function corePool() {
   const connStr = process.env.SQL_CONNECTION_STRING;
   if (!connStr) throw new Error('SQL_CONNECTION_STRING not configured');
   return getPool(connStr);
+}
+
+async function resolveMatterDisplayNumberById(matterId) {
+  if (!matterId) return null;
+  try {
+    const pool = await corePool();
+    const result = await pool.request()
+      .input('matterId', sql.NVarChar, String(matterId))
+      .query(`
+        SELECT TOP 1 [Display Number] AS display_number
+        FROM matters
+        WHERE CONVERT(NVARCHAR(100), [Unique ID]) = @matterId
+      `);
+    return result.recordset[0]?.display_number || null;
+  } catch (err) {
+    console.warn('[dubber] matter display lookup failed:', err.message);
+    return null;
+  }
+}
+
+async function resolveNdWorkspaceRef(rawMatterRef) {
+  const requestedRef = String(rawMatterRef || '').trim();
+  if (!requestedRef) return { requestedRef, resolvedRef: '', source: 'missing' };
+  if (!/^HLX-/i.test(requestedRef)) {
+    return { requestedRef, resolvedRef: requestedRef, source: 'provided' };
+  }
+
+  try {
+    const pool = await instrPool();
+    const instructionResult = await pool.request()
+      .input('instructionRef', sql.NVarChar, requestedRef)
+      .query(`
+        SELECT TOP 1 MatterId
+        FROM Instructions
+        WHERE InstructionRef = @instructionRef
+      `);
+
+    const clioMatterId = instructionResult.recordset[0]?.MatterId;
+    if (!clioMatterId) {
+      return { requestedRef, resolvedRef: requestedRef, source: 'instruction-ref-no-matter' };
+    }
+
+    const displayNumber = await resolveMatterDisplayNumberById(clioMatterId);
+    if (!displayNumber) {
+      return { requestedRef, resolvedRef: requestedRef, source: 'instruction-ref-no-display-number' };
+    }
+
+    return {
+      requestedRef,
+      resolvedRef: String(displayNumber).trim(),
+      source: 'instruction-ref-resolved',
+      clioMatterId: String(clioMatterId),
+    };
+  } catch (err) {
+    console.warn('[dubber] ND workspace ref resolution failed:', err.message);
+    return { requestedRef, resolvedRef: requestedRef, source: 'instruction-ref-lookup-failed' };
+  }
 }
 
 /** Strip a phone string to normalised digits for matching. */
@@ -510,94 +568,116 @@ router.get('/dubberCalls/recent', async (req, res) => {
 /**
  * Given an array of normalised digit strings, search both enquiry tables
  * (Core Data + Instructions DB) and return a map:  normDigits → { name, source }.
+ * All 3 lookups run in parallel for speed; priority: Core Data > Instructions enquiries > Instructions table.
  */
 async function resolvePhoneNames(normDigitsArr) {
   if (!normDigitsArr.length) return {};
-  const map = {};
 
-  // Build LIKE patterns from normalised digits
   const patterns = normDigitsArr.map(d => `%${d.slice(-7)}%`); // last 7 digits for reliable LIKE
 
-  try {
-    // ── 1. Core Data DB — enquiries.Phone_Number ──
-    const mainConnStr = process.env.SQL_CONNECTION_STRING;
-    if (mainConnStr) {
-      const pool = await corePool();
-      const req = pool.request();
-      const orClauses = [];
-      patterns.forEach((pat, i) => {
-        const param = `p${i}`;
-        req.input(param, sql.NVarChar, pat);
-        orClauses.push(`REPLACE(REPLACE(REPLACE(Phone_Number, ' ', ''), '+', ''), '-', '') LIKE @${param}`);
-      });
-      const result = await req.query(`
-        SELECT ID, First_Name, Last_Name, Phone_Number, Area_of_Work
-        FROM enquiries
-        WHERE ${orClauses.join(' OR ')}
-      `);
-      for (const row of result.recordset) {
-        const norm = normDigits(row.Phone_Number);
-        const name = [row.First_Name, row.Last_Name].filter(Boolean).join(' ');
-        if (name && norm) map[norm] = { name, source: 'enquiry', ref: row.ID ? String(row.ID) : null, areaOfWork: row.Area_of_Work || null };
+  // ── Fire all 3 lookups in parallel ──
+  const [coreResults, instrEnqResults, instrResults] = await Promise.all([
+    // 1. Core Data DB — enquiries.Phone_Number
+    (async () => {
+      try {
+        const mainConnStr = process.env.SQL_CONNECTION_STRING;
+        if (!mainConnStr) return [];
+        const pool = await corePool();
+        const req = pool.request();
+        const orClauses = [];
+        patterns.forEach((pat, i) => {
+          const param = `p${i}`;
+          req.input(param, sql.NVarChar, pat);
+          orClauses.push(`REPLACE(REPLACE(REPLACE(Phone_Number, ' ', ''), '+', ''), '-', '') LIKE @${param}`);
+        });
+        const result = await req.query(`
+          SELECT ID, First_Name, Last_Name, Phone_Number, Area_of_Work
+          FROM enquiries
+          WHERE ${orClauses.join(' OR ')}
+        `);
+        return result.recordset.map(row => ({
+          norm: normDigits(row.Phone_Number),
+          name: [row.First_Name, row.Last_Name].filter(Boolean).join(' '),
+          source: 'enquiry',
+          ref: row.ID ? String(row.ID) : null,
+          areaOfWork: row.Area_of_Work || null,
+        }));
+      } catch (err) {
+        console.warn('[dubber] Core Data phone resolve failed:', err.message);
+        return [];
       }
-    }
-  } catch (err) {
-    console.warn('[dubber] Core Data phone resolve failed:', err.message);
-  }
+    })(),
 
-  try {
-    // ── 2. Instructions DB — dbo.enquiries.phone ──
-    const pool = await instrPool();
-    const req = pool.request();
-    const orClauses = [];
-    // Only resolve digits not already found
-    const remaining = normDigitsArr.filter(d => !map[d]);
-    if (remaining.length > 0) {
-      remaining.forEach((d, i) => {
-        const param = `ip${i}`;
-        req.input(param, sql.NVarChar, `%${d.slice(-7)}%`);
-        orClauses.push(`REPLACE(REPLACE(REPLACE(phone, ' ', ''), '+', ''), '-', '') LIKE @${param}`);
-      });
-      const result = await req.query(`
-        SELECT id, first AS First_Name, last AS Last_Name, phone, aow
-        FROM dbo.enquiries
-        WHERE ${orClauses.join(' OR ')}
-      `);
-      for (const row of result.recordset) {
-        const norm = normDigits(row.phone);
-        const name = [row.First_Name, row.Last_Name].filter(Boolean).join(' ');
-        if (name && norm) map[norm] = { name, source: 'enquiry-v2', ref: row.id ? String(row.id) : null, areaOfWork: row.aow || null };
+    // 2. Instructions DB — dbo.enquiries.phone
+    (async () => {
+      try {
+        const pool = await instrPool();
+        const req = pool.request();
+        const orClauses = [];
+        patterns.forEach((pat, i) => {
+          const param = `ip${i}`;
+          req.input(param, sql.NVarChar, pat);
+          orClauses.push(`REPLACE(REPLACE(REPLACE(phone, ' ', ''), '+', ''), '-', '') LIKE @${param}`);
+        });
+        const result = await req.query(`
+          SELECT id, first AS First_Name, last AS Last_Name, phone, aow
+          FROM dbo.enquiries
+          WHERE ${orClauses.join(' OR ')}
+        `);
+        return result.recordset.map(row => ({
+          norm: normDigits(row.phone),
+          name: [row.First_Name, row.Last_Name].filter(Boolean).join(' '),
+          source: 'enquiry-v2',
+          ref: row.id ? String(row.id) : null,
+          areaOfWork: row.aow || null,
+        }));
+      } catch (err) {
+        console.warn('[dubber] Instructions DB phone resolve failed:', err.message);
+        return [];
       }
-    }
-  } catch (err) {
-    console.warn('[dubber] Instructions DB phone resolve failed:', err.message);
-  }
+    })(),
 
-  try {
-    // ── 3. Instructions DB — Instructions.Phone ──
-    const pool = await instrPool();
-    const req = pool.request();
-    const remaining = normDigitsArr.filter(d => !map[d]);
-    if (remaining.length > 0) {
-      const orClauses = [];
-      remaining.forEach((d, i) => {
-        const param = `xp${i}`;
-        req.input(param, sql.NVarChar, `%${d.slice(-7)}%`);
-        orClauses.push(`REPLACE(REPLACE(REPLACE(Phone, ' ', ''), '+', ''), '-', '') LIKE @${param}`);
-      });
-      const result = await req.query(`
-        SELECT InstructionRef, FirstName, LastName, Phone
-        FROM Instructions
-        WHERE ${orClauses.join(' OR ')}
-      `);
-      for (const row of result.recordset) {
-        const norm = normDigits(row.Phone);
-        const name = [row.FirstName, row.LastName].filter(Boolean).join(' ');
-        if (name && norm) map[norm] = { name, source: 'instructions', ref: row.InstructionRef || null, areaOfWork: null };
+    // 3. Instructions DB — Instructions.Phone
+    (async () => {
+      try {
+        const pool = await instrPool();
+        const req = pool.request();
+        const orClauses = [];
+        patterns.forEach((pat, i) => {
+          const param = `xp${i}`;
+          req.input(param, sql.NVarChar, pat);
+          orClauses.push(`REPLACE(REPLACE(REPLACE(Phone, ' ', ''), '+', ''), '-', '') LIKE @${param}`);
+        });
+        const result = await req.query(`
+          SELECT InstructionRef, FirstName, LastName, Phone
+          FROM Instructions
+          WHERE ${orClauses.join(' OR ')}
+        `);
+        return result.recordset.map(row => ({
+          norm: normDigits(row.Phone),
+          name: [row.FirstName, row.LastName].filter(Boolean).join(' '),
+          source: 'instructions',
+          ref: row.InstructionRef || null,
+          areaOfWork: null,
+        }));
+      } catch (err) {
+        console.warn('[dubber] Instructions table phone resolve failed:', err.message);
+        return [];
       }
-    }
-  } catch (err) {
-    console.warn('[dubber] Instructions table phone resolve failed:', err.message);
+    })(),
+  ]);
+
+  // ── Merge with priority: Core Data > Instructions enquiries > Instructions table ──
+  const map = {};
+  // Apply lowest priority first, higher priority overwrites
+  for (const row of instrResults) {
+    if (row.name && row.norm) map[row.norm] = { name: row.name, source: row.source, ref: row.ref, areaOfWork: row.areaOfWork };
+  }
+  for (const row of instrEnqResults) {
+    if (row.name && row.norm) map[row.norm] = { name: row.name, source: row.source, ref: row.ref, areaOfWork: row.areaOfWork };
+  }
+  for (const row of coreResults) {
+    if (row.name && row.norm) map[row.norm] = { name: row.name, source: row.source, ref: row.ref, areaOfWork: row.areaOfWork };
   }
 
   return map;
@@ -647,6 +727,10 @@ router.get('/dubberCalls/activities', async (req, res) => {
     if (!initials) return res.status(400).json({ error: 'Missing initials' });
 
     const fetchAll = req.query.all === 'true';
+    const requestedLimit = Number.parseInt(String(req.query.limit || '30'), 10);
+    const responseLimit = Number.isFinite(requestedLimit)
+      ? Math.min(Math.max(requestedLimit, 1), 100)
+      : 30;
 
     // For all-team view, use service account token and skip user_id filter
     let accessToken;
@@ -688,7 +772,13 @@ router.get('/dubberCalls/activities', async (req, res) => {
         clearTimeout(timeout);
         if (!resp.ok) throw new Error(`Clio API ${resp.status}`);
         const data = await resp.json();
-        if (data.data && Array.isArray(data.data)) activities.push(...data.data);
+        if (data.data && Array.isArray(data.data)) {
+          const remaining = responseLimit - activities.length;
+          if (remaining > 0) {
+            activities.push(...data.data.slice(0, remaining));
+          }
+        }
+        if (activities.length >= responseLimit) break;
         if (!data.meta?.paging?.next || data.data.length < limit) break;
         offset += limit;
       } catch (err) {
@@ -697,7 +787,14 @@ router.get('/dubberCalls/activities', async (req, res) => {
       }
     }
 
-    trackEvent('Dubber.Activities.Fetched', { reqId, initials, fetchAll: String(fetchAll), count: String(activities.length), durationMs: String(Date.now() - started) });
+    trackEvent('Dubber.Activities.Fetched', {
+      reqId,
+      initials,
+      fetchAll: String(fetchAll),
+      count: String(activities.length),
+      requestedLimit: String(responseLimit),
+      durationMs: String(Date.now() - started),
+    });
     return res.json({ activities });
   } catch (err) {
     console.error(`[dubber ${reqId}] activities error:`, err?.message || err);
@@ -841,94 +938,116 @@ router.get('/dubberCalls/:recordingId/matter-chain', async (req, res) => {
 
     const chain = { phone: externalPhone, name: externalName, enquiry: null, deal: null, instruction: null, matter: null };
 
-    // Step 1: Find enquiry by phone (Core Data)
-    try {
-      const coreP = await corePool();
-      const eqResult = await coreP.request()
-        .input('phone', sql.NVarChar, `%${norm.slice(-7)}%`)
-        .query(`
-          SELECT TOP 1 ID, First_Name, Last_Name, Phone_Number, Area_of_Work
-          FROM enquiries
-          WHERE REPLACE(REPLACE(REPLACE(Phone_Number, ' ', ''), '+', ''), '-', '') LIKE @phone
-          ORDER BY ID DESC
-        `);
-      if (eqResult.recordset.length > 0) {
-        const eq = eqResult.recordset[0];
-        chain.enquiry = { id: eq.ID, name: [eq.First_Name, eq.Last_Name].filter(Boolean).join(' '), areaOfWork: eq.Area_of_Work };
-      }
-    } catch (err) {
-      console.warn('[dubber] matter-chain: Core Data enquiry lookup failed:', err.message);
-    }
+    // ── Parallel batch: all three phone-based lookups fire simultaneously ───
+    const phoneSuffix = `%${norm.slice(-7)}%`;
 
-    // Step 2: Find deal via prospect (Instructions DB)
-    try {
-      // Look in Instructions DB enquiries for a prospect with this phone
-      const eqResult2 = await pool.request()
-        .input('phone', sql.NVarChar, `%${norm.slice(-7)}%`)
-        .query(`
-          SELECT TOP 1 id, prospect_id, first, last, area_of_work
-          FROM dbo.enquiries
-          WHERE REPLACE(REPLACE(REPLACE(phone, ' ', ''), '+', ''), '-', '') LIKE @phone
-          ORDER BY id DESC
-        `);
-      if (eqResult2.recordset.length > 0) {
-        const eq2 = eqResult2.recordset[0];
-        if (!chain.enquiry) {
-          chain.enquiry = { id: eq2.id, name: [eq2.first, eq2.last].filter(Boolean).join(' '), areaOfWork: eq2.area_of_work };
-        }
-        // Find deal by prospect_id
-        if (eq2.prospect_id) {
-          const dealResult = await pool.request()
-            .input('pid', sql.NVarChar, String(eq2.prospect_id))
+    const [coreEnquiry, instrEnquiryAndDeal, instrByPhone] = await Promise.all([
+      // Branch A: Core Data enquiry by phone
+      (async () => {
+        try {
+          const coreP = await corePool();
+          const r = await coreP.request()
+            .input('phone', sql.NVarChar, phoneSuffix)
             .query(`
-              SELECT TOP 1 DealId, InstructionRef, Amount, ServiceDescription
-              FROM Deals WHERE ProspectId = @pid ORDER BY DealId DESC
+              SELECT TOP 1 ID, First_Name, Last_Name, Phone_Number, Area_of_Work
+              FROM enquiries
+              WHERE REPLACE(REPLACE(REPLACE(Phone_Number, ' ', ''), '+', ''), '-', '') LIKE @phone
+              ORDER BY ID DESC
             `);
-          if (dealResult.recordset.length > 0) {
-            const deal = dealResult.recordset[0];
-            chain.deal = { dealId: deal.DealId, instructionRef: deal.InstructionRef, amount: deal.Amount, service: deal.ServiceDescription };
-          }
+          return r.recordset[0] || null;
+        } catch (err) {
+          console.warn('[dubber] matter-chain: Core Data enquiry lookup failed:', err.message);
+          return null;
         }
-      }
-    } catch (err) {
-      console.warn('[dubber] matter-chain: Instructions DB lookup failed:', err.message);
+      })(),
+
+      // Branch B: Instructions enquiry by phone → conditional deal by prospect_id
+      (async () => {
+        try {
+          const r = await pool.request()
+            .input('phone', sql.NVarChar, phoneSuffix)
+            .query(`
+              SELECT TOP 1 id, prospect_id, first, last, area_of_work
+              FROM dbo.enquiries
+              WHERE REPLACE(REPLACE(REPLACE(phone, ' ', ''), '+', ''), '-', '') LIKE @phone
+              ORDER BY id DESC
+            `);
+          const eq = r.recordset[0] || null;
+          let deal = null;
+          if (eq?.prospect_id) {
+            const dr = await pool.request()
+              .input('pid', sql.NVarChar, String(eq.prospect_id))
+              .query(`
+                SELECT TOP 1 DealId, InstructionRef, Amount, ServiceDescription
+                FROM Deals WHERE ProspectId = @pid ORDER BY DealId DESC
+              `);
+            deal = dr.recordset[0] || null;
+          }
+          return { enquiry: eq, deal };
+        } catch (err) {
+          console.warn('[dubber] matter-chain: Instructions DB lookup failed:', err.message);
+          return { enquiry: null, deal: null };
+        }
+      })(),
+
+      // Branch C: Instructions table by phone
+      (async () => {
+        try {
+          const r = await pool.request()
+            .input('phone', sql.NVarChar, phoneSuffix)
+            .query(`
+              SELECT TOP 1 InstructionRef, ClientId, MatterId, FirstName, LastName, ServiceDescription, Stage
+              FROM Instructions
+              WHERE REPLACE(REPLACE(REPLACE(Phone, ' ', ''), '+', ''), '-', '') LIKE @phone
+              ORDER BY InstructionRef DESC
+            `);
+          return r.recordset[0] || null;
+        } catch (err) {
+          console.warn('[dubber] matter-chain: Instruction phone lookup failed:', err.message);
+          return null;
+        }
+      })(),
+    ]);
+
+    // ── Assemble chain from parallel results ────────────────────────────────
+    // Enquiry: prefer Core Data, fall back to Instructions enquiry
+    if (coreEnquiry) {
+      chain.enquiry = { id: coreEnquiry.ID, name: [coreEnquiry.First_Name, coreEnquiry.Last_Name].filter(Boolean).join(' '), areaOfWork: coreEnquiry.Area_of_Work };
+    } else if (instrEnquiryAndDeal.enquiry) {
+      const eq = instrEnquiryAndDeal.enquiry;
+      chain.enquiry = { id: eq.id, name: [eq.first, eq.last].filter(Boolean).join(' '), areaOfWork: eq.area_of_work };
     }
 
-    // Step 3: Find instruction + Clio matter
-    try {
-      // Look by phone in Instructions table directly
-      const instrResult = await pool.request()
-        .input('phone', sql.NVarChar, `%${norm.slice(-7)}%`)
-        .query(`
-          SELECT TOP 1 InstructionRef, ClientId, MatterId, FirstName, LastName, ServiceDescription, Stage
-          FROM Instructions
-          WHERE REPLACE(REPLACE(REPLACE(Phone, ' ', ''), '+', ''), '-', '') LIKE @phone
-          ORDER BY InstructionRef DESC
-        `);
-      if (instrResult.recordset.length > 0) {
-        const instr = instrResult.recordset[0];
-        chain.instruction = {
-          ref: instr.InstructionRef,
-          name: [instr.FirstName, instr.LastName].filter(Boolean).join(' '),
-          service: instr.ServiceDescription,
-          stage: instr.Stage,
-          clioClientId: instr.ClientId || null,
-          clioMatterId: instr.MatterId || null,
-        };
-        if (instr.MatterId) {
-          chain.matter = { clioMatterId: instr.MatterId, clioClientId: instr.ClientId || null };
-        }
+    // Deal
+    if (instrEnquiryAndDeal.deal) {
+      const d = instrEnquiryAndDeal.deal;
+      chain.deal = { dealId: d.DealId, instructionRef: d.InstructionRef, amount: d.Amount, service: d.ServiceDescription };
+    }
+
+    // Instruction + matter: prefer phone-matched, fall back to deal's InstructionRef
+    if (instrByPhone) {
+      chain.instruction = {
+        ref: instrByPhone.InstructionRef,
+        name: [instrByPhone.FirstName, instrByPhone.LastName].filter(Boolean).join(' '),
+        service: instrByPhone.ServiceDescription,
+        stage: instrByPhone.Stage,
+        clioClientId: instrByPhone.ClientId || null,
+        clioMatterId: instrByPhone.MatterId || null,
+      };
+      if (instrByPhone.MatterId) {
+        chain.matter = { clioMatterId: instrByPhone.MatterId, clioClientId: instrByPhone.ClientId || null };
       }
-      // Also try via deal's InstructionRef if we found one
-      if (!chain.instruction && chain.deal?.instructionRef) {
-        const instrResult2 = await pool.request()
+    } else if (chain.deal?.instructionRef) {
+      // Fallback: single sequential query only when phone match missed
+      try {
+        const r = await pool.request()
           .input('ref', sql.NVarChar, chain.deal.instructionRef)
           .query(`
             SELECT InstructionRef, ClientId, MatterId, FirstName, LastName, ServiceDescription, Stage
             FROM Instructions WHERE InstructionRef = @ref
           `);
-        if (instrResult2.recordset.length > 0) {
-          const instr = instrResult2.recordset[0];
+        const instr = r.recordset[0];
+        if (instr) {
           chain.instruction = {
             ref: instr.InstructionRef,
             name: [instr.FirstName, instr.LastName].filter(Boolean).join(' '),
@@ -941,9 +1060,19 @@ router.get('/dubberCalls/:recordingId/matter-chain', async (req, res) => {
             chain.matter = { clioMatterId: instr.MatterId, clioClientId: instr.ClientId || null };
           }
         }
+      } catch (err) {
+        console.warn('[dubber] matter-chain: Instruction ref fallback failed:', err.message);
       }
-    } catch (err) {
-      console.warn('[dubber] matter-chain: Instruction lookup failed:', err.message);
+    }
+
+    if (chain.matter?.clioMatterId) {
+      const matterDisplayNumber = await resolveMatterDisplayNumberById(chain.matter.clioMatterId);
+      if (matterDisplayNumber) {
+        chain.matter.displayNumber = matterDisplayNumber;
+        if (chain.instruction) {
+          chain.instruction.matterDisplayNumber = matterDisplayNumber;
+        }
+      }
     }
 
     return res.json({ chain });
@@ -991,8 +1120,62 @@ router.post('/dubberCalls/:recordingId/save-note', async (req, res) => {
       blobHTTPHeaders: { blobContentType: 'application/json' },
     });
 
+    // ── Index in SQL for fast lookups ──
+    try {
+      const pool = await instrPool();
+      const savedBy = String(req.headers['x-user-initials'] || '').trim().toUpperCase() || 'SYS';
+      const callDate = note.date || null;
+      const callDuration = note.duration ? Math.ceil(note.duration * 60) : null;
+      const partiesFrom = note.parties?.from || null;
+      const partiesTo = note.parties?.to || null;
+      const summary = (note.summary || '').slice(0, 500) || null;
+      const topicsJson = note.topics && note.topics.length > 0 ? JSON.stringify(note.topics) : null;
+      const actionItemsJson = note.actionItems && note.actionItems.length > 0 ? JSON.stringify(note.actionItems) : null;
+
+      await pool.request()
+        .input('recording_id', sql.NVarChar, recordingId)
+        .input('matter_ref', sql.NVarChar, matterRef || null)
+        .input('instruction_ref', sql.NVarChar, null)
+        .input('saved_by', sql.NVarChar, savedBy)
+        .input('call_date', sql.Date, callDate)
+        .input('call_duration_seconds', sql.Int, callDuration)
+        .input('parties_from', sql.NVarChar, partiesFrom)
+        .input('parties_to', sql.NVarChar, partiesTo)
+        .input('summary', sql.NVarChar, summary)
+        .input('topics_json', sql.NVarChar, topicsJson)
+        .input('action_items_json', sql.NVarChar, actionItemsJson)
+        .input('blob_name', sql.NVarChar, blobName)
+        .query(`
+          MERGE dbo.dubber_attendance_notes AS target
+          USING (SELECT @recording_id AS recording_id) AS source
+          ON target.recording_id = source.recording_id
+          WHEN MATCHED THEN UPDATE SET
+            matter_ref = @matter_ref,
+            saved_by = @saved_by,
+            saved_at = SYSDATETIMEOFFSET(),
+            call_date = @call_date,
+            call_duration_seconds = @call_duration_seconds,
+            parties_from = @parties_from,
+            parties_to = @parties_to,
+            summary = @summary,
+            topics_json = @topics_json,
+            action_items_json = @action_items_json,
+            blob_name = @blob_name
+          WHEN NOT MATCHED THEN INSERT
+            (recording_id, matter_ref, instruction_ref, saved_by, call_date, call_duration_seconds,
+             parties_from, parties_to, summary, topics_json, action_items_json, blob_name)
+          VALUES
+            (@recording_id, @matter_ref, @instruction_ref, @saved_by, @call_date, @call_duration_seconds,
+             @parties_from, @parties_to, @summary, @topics_json, @action_items_json, @blob_name);
+        `);
+    } catch (sqlErr) {
+      // Non-fatal: blob save succeeded, SQL index is best-effort
+      console.warn(`[dubber ${reqId}] SQL index for attendance note failed:`, sqlErr.message);
+    }
+
     const durationMs = Date.now() - started;
     trackEvent('Dubber.AttendanceNote.Saved', { reqId, recordingId, matterRef: matterRef || '', blobName, durationMs: String(durationMs) });
+    try { await deleteCachePattern('home-journey:*'); } catch { /* non-fatal */ }
 
     return res.json({ ok: true, blobUrl: blockBlobClient.url, blobName });
   } catch (err) {
@@ -1021,7 +1204,8 @@ router.post('/dubberCalls/:recordingId/upload-note-nd', async (req, res) => {
 
     // Parse matterRef into clientId / matterKey for ND workspace lookup
     // Common formats: "00123-45678", "HELIX01-00123-45678", display numbers
-    const refStr = String(matterRef).trim();
+    const workspaceRefResolution = await resolveNdWorkspaceRef(matterRef);
+    const refStr = workspaceRefResolution.resolvedRef;
     let clientId, matterKey;
     // Try splitting on last hyphen (clientId-matterKey pattern)
     const hyphenIdx = refStr.lastIndexOf('-');
@@ -1029,7 +1213,7 @@ router.post('/dubberCalls/:recordingId/upload-note-nd', async (req, res) => {
       clientId = refStr.slice(0, hyphenIdx);
       matterKey = refStr.slice(hyphenIdx + 1);
     } else {
-      return res.status(400).json({ error: 'Cannot parse matterRef into clientId/matterKey' });
+      return res.status(400).json({ error: `Cannot parse matterRef into clientId/matterKey (${String(matterRef).trim()})` });
     }
 
     // Step 1: Generate docx
@@ -1104,16 +1288,41 @@ router.post('/dubberCalls/:recordingId/upload-note-nd', async (req, res) => {
 
     const durationMs = Date.now() - started;
     trackEvent('Dubber.AttendanceNote.UploadedND', {
-      reqId, recordingId, matterRef: refStr, fileName,
+      reqId, recordingId, matterRef: refStr, requestedMatterRef: workspaceRefResolution.requestedRef, workspaceRefSource: workspaceRefResolution.source, fileName,
       attendanceFolderId: attendanceFolderId || 'workspace-root',
       durationMs: String(durationMs),
     });
     trackMetric('Dubber.AttendanceNote.UploadDuration', durationMs, { recordingId });
 
+    // ── Update SQL index with ND upload status ──
+    try {
+      const pool = await instrPool();
+      await pool.request()
+        .input('recording_id', sql.NVarChar, recordingId)
+        .input('nd_doc_id', sql.NVarChar, String(uploadResult?.id || uploadResult?.DocId || ''))
+        .input('nd_file_name', sql.NVarChar, fileName)
+        .input('matter_ref', sql.NVarChar, refStr)
+        .query(`
+          UPDATE dbo.dubber_attendance_notes
+          SET uploaded_nd = 1,
+              nd_doc_id = @nd_doc_id,
+              nd_file_name = @nd_file_name,
+              matter_ref = @matter_ref
+          WHERE recording_id = @recording_id
+        `);
+    } catch (sqlErr) {
+      console.warn(`[dubber ${reqId}] SQL update for ND upload status failed:`, sqlErr.message);
+    }
+
+    try { await deleteCachePattern('home-journey:*'); } catch { /* non-fatal */ }
+
     return res.json({
       ok: true,
       fileName,
       uploadedTo: attendanceFolderId ? 'Attendance Notes folder' : 'Workspace root',
+      matterRef: refStr,
+      requestedMatterRef: workspaceRefResolution.requestedRef,
+      workspaceRefSource: workspaceRefResolution.source,
       folderId: uploadTargetId,
       ndResult: uploadResult,
     });
@@ -1121,6 +1330,145 @@ router.post('/dubberCalls/:recordingId/upload-note-nd', async (req, res) => {
     console.error(`[dubber ${reqId}] upload-note-nd error:`, err?.message || err);
     trackException(err, { operation: 'Dubber.AttendanceNote.UploadND', reqId });
     return res.status(500).json({ error: 'Failed to upload attendance note to NetDocuments' });
+  }
+});
+
+// ── GET /api/dubberCalls/noted-ids ─────────────────────────────────────────
+/**
+ * Batch check which recording IDs have attendance notes.
+ * Query: ?ids=id1,id2,id3 (comma-separated, max 200)
+ * Returns: { notedIds: ['id1', 'id3'] }
+ */
+router.get('/dubberCalls/noted-ids', async (req, res) => {
+  try {
+    const raw = String(req.query.ids || '').trim();
+    if (!raw) return res.json({ notedIds: [] });
+
+    const ids = raw.split(',').map(s => s.trim()).filter(Boolean).slice(0, 200);
+    if (ids.length === 0) return res.json({ notedIds: [] });
+
+    const pool = await instrPool();
+    const request = pool.request();
+    const params = [];
+    ids.forEach((id, i) => {
+      const param = `id${i}`;
+      request.input(param, sql.NVarChar, id);
+      params.push(`@${param}`);
+    });
+
+    const result = await request.query(`
+      SELECT recording_id FROM dbo.dubber_attendance_notes
+      WHERE recording_id IN (${params.join(',')})
+    `);
+
+    return res.json({ notedIds: result.recordset.map(r => r.recording_id) });
+  } catch (err) {
+    console.error('[dubber] noted-ids error:', err?.message || err);
+    return res.status(500).json({ error: 'Failed to check noted IDs' });
+  }
+});
+
+// ── GET /api/dubberCalls/attendance-notes ──────────────────────────────────
+/**
+ * List attendance notes.
+ * Query: ?initials=CS&limit=30  OR  ?matterRef=SCOTT10803-00001
+ * Returns: { notes: [...] }
+ */
+router.get('/dubberCalls/attendance-notes', async (req, res) => {
+  try {
+    const initials = String(req.query.initials || '').trim().toUpperCase();
+    const matterRef = String(req.query.matterRef || '').trim();
+    const limit = Math.min(Number(req.query.limit) || 30, 100);
+
+    const pool = await instrPool();
+    const request = pool.request();
+    request.input('limit', sql.Int, limit);
+
+    let whereClause = '1=1';
+    if (matterRef) {
+      request.input('matterRef', sql.NVarChar, matterRef);
+      whereClause = 'n.matter_ref = @matterRef';
+    } else if (initials) {
+      request.input('initials', sql.NVarChar, initials);
+      whereClause = 'n.saved_by = @initials';
+    }
+
+    const result = await request.query(`
+      SELECT TOP (@limit)
+        n.id, n.recording_id, n.matter_ref, n.matter_id, n.instruction_ref,
+        n.saved_by, n.saved_at, n.call_date, n.call_duration_seconds,
+        n.parties_from, n.parties_to, n.summary, n.topics_json,
+        n.action_items_json, n.blob_name, n.uploaded_nd, n.nd_doc_id, n.nd_file_name
+      FROM dbo.dubber_attendance_notes n
+      WHERE ${whereClause}
+      ORDER BY n.saved_at DESC
+    `);
+
+    return res.json({ notes: result.recordset });
+  } catch (err) {
+    console.error('[dubber] attendance-notes error:', err?.message || err);
+    return res.status(500).json({ error: 'Failed to fetch attendance notes' });
+  }
+});
+
+// ── GET /api/dubberCalls/:recordingId/saved-note ───────────────────────────
+/**
+ * Retrieve a single saved attendance note by recording ID.
+ * Returns the full note from blob storage + SQL metadata, or null.
+ */
+router.get('/dubberCalls/:recordingId/saved-note', async (req, res) => {
+  try {
+    const recordingId = String(req.params.recordingId || '').trim();
+    if (!recordingId) return res.status(400).json({ error: 'Missing recordingId' });
+
+    const pool = await instrPool();
+    const sqlResult = await pool.request()
+      .input('rid', sql.NVarChar, recordingId)
+      .query(`
+        SELECT id, recording_id, matter_ref, saved_by, saved_at,
+               call_date, summary, blob_name,
+               uploaded_nd, nd_doc_id, nd_file_name
+        FROM dbo.dubber_attendance_notes
+        WHERE recording_id = @rid
+      `);
+
+    const row = sqlResult.recordset[0];
+    if (!row) return res.json({ note: null, meta: null });
+
+    let fullNote = null;
+    if (row.blob_name) {
+      try {
+        const client = getAttendanceBlobClient();
+        const containerClient = client.getContainerClient(ATTENDANCE_BLOB_CONTAINER);
+        const blobClient = containerClient.getBlockBlobClient(row.blob_name);
+        const downloadResponse = await blobClient.download(0);
+        const chunks = [];
+        for await (const chunk of downloadResponse.readableStreamBody) {
+          chunks.push(chunk);
+        }
+        const parsed = JSON.parse(Buffer.concat(chunks).toString());
+        fullNote = parsed.note || parsed;
+      } catch (blobErr) {
+        console.warn(`[dubber] saved-note blob fetch failed for ${recordingId}:`, blobErr.message);
+      }
+    }
+
+    return res.json({
+      note: fullNote,
+      meta: {
+        id: row.id,
+        recording_id: row.recording_id,
+        matter_ref: row.matter_ref,
+        saved_by: row.saved_by,
+        saved_at: row.saved_at,
+        uploaded_nd: !!row.uploaded_nd,
+        nd_file_name: row.nd_file_name,
+      },
+    });
+  } catch (err) {
+    console.error('[dubber] saved-note error:', err?.message || err);
+    trackException(err, { operation: 'Dubber.SavedNote.Fetch' });
+    return res.status(500).json({ error: 'Failed to fetch saved note' });
   }
 });
 

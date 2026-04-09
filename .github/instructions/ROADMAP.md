@@ -49,6 +49,8 @@ This section captures the current cross-app review baseline for the performance 
 - `Team Hub` app registration (`bee758ec-919c-45b2-9cdf-540c6419561f`) is the main Teams app identity in `appPackage/manifest.json`.
 - The same identity is also treated as attached to Tasking-v3 bot usage, which makes it effectively "taken" and unsuitable as a free app ID for new bot work until that is cleaned up.
 - `Team-Hub-Notification-Handler` (`3d935d23-349e-4502-a9c0-6f5ca48d5d33`) is already the notification-side app used by Team Hub server code.
+- Team Hub now carries minimal bot groundwork for `Team-Hub-Notification-Handler`: `POST /api/messages` exists in both server entrypoints and `appPackage/manifest.json` declares the bot for personal scope. Full outbound DM orchestration and persisted card-state tracking are still pending.
+- Activity is now the Luke-first operations lane for card traffic: the tab stays private to dev owner/local for now, `/api/activity-feed` merges `teams.bot` op-log events with recent `TeamsBotActivityTracking` rows, and the release-notes feed remains in the same surface.
 - `Aiden` (`bb3357f0-dca3-4fef-9c4d-e58f69dde46c`) remains the enquiry-processing bot identity and live Azure Bot resource.
 
 #### 4. Submodule work must leave this repo as briefs, not commits
@@ -563,6 +565,9 @@ Fee earner's read surface shows "Payment confirmed · £2,400 · 23 Mar"
   - [x] ID review inline in prospects (Feb 2026)
   - [x] Matter opening inline in prospects (Feb 2026)
   - [ ] Remove remaining `navigateToInstructions` dependencies (`Home` quick actions + prospects document preview deep-link) by replacing them with native Prospects Overview actions.
+  - [x] Shared workbench status/types extraction complete in tab-app (Apr 2026).
+  - [ ] Remove InlineWorkbench monolith drift in tab-app (shell/action/state).
+  - [ ] Establish the cross-app event contract for claim, stage-transition, and payment updates so instruct-pitch and enquiry-processing-v2 stay in sync with tab-app.
 - [ ] **Resource-group auth broker** — Centralise token acquisition + caching per resource group. At least 3 route files (`dataOperations.js`, `matter-audit.js`, `matter-metrics.js`) each define their own `tokenCache = new Map()` + identical `getAccessToken`. Extract shared helper to `server/utils/tokenBroker.js`.
 - [ ] **Metric details modal redesign** — Replace current horizontal-bar card layout in `MetricDetailsModal.tsx` with InlineWorkbench-style structure. See `InlineWorkbench.tsx` for reference patterns.
 - [ ] **Upstream instruct-pitch changes** — Apply pending changes in `HelixAutomations/instruct-pitch` (CC/BCC support in sendEmail, payment fetch in fetchInstructionData, logging config updates).
@@ -713,6 +718,39 @@ Each sub-component is `React.memo`-wrapped and receives only the props it needs.
   - For styles that depend only on `isDarkMode` / `colours`, move to `useMemo` at the top of the component or to a shared styles module.
   - Prioritise the table row styles (they're rendered per-row, so N×200 objects per render).
   - **Test**: Visual appearance unchanged.
+
+---
+
+## File Splitting Targets (Codebase Health)
+
+Six mega-files exceed or approach the 3,000-line threshold. Each blocks maintainability, slows IDE performance, and makes merge conflicts more likely. Track decomposition here.
+
+Run `npm run check-sizes` to see current line counts.
+
+| File | Lines | Priority | Decomposition strategy |
+|------|-------|----------|----------------------|
+| `src/tabs/instructions/InlineWorkbench.tsx` | ~10,900 | High | Extract editor panels, preview, toolbar, state hooks |
+| `src/tabs/enquiries/Enquiries.tsx` | ~10,500 | High | Extract filter bar, table columns, detail panel, action modals into `parts/` |
+| `src/components/modern/OperationsDashboard.tsx` | ~10,100 | High | Extract each panel (pipeline, lifecycle, stats, activity feed) into co-located components |
+| `src/tabs/enquiries/EnquiryTimeline.tsx` | ~8,500 | High | Extract timeline renderers, event types, detail views |
+| `src/tabs/instructions/Instructions.tsx` | ~8,200 | High | Extract table, detail drawer, filter logic, bulk actions |
+| `src/tabs/Reporting/ReportingHome.tsx` | ~6,900 | Medium | Extract individual report cards, filter controls |
+| `src/tabs/home/Home.tsx` | ~6,700 | Medium | Extract data-fetching hooks, panel components, action handlers |
+| `src/tabs/Reporting/MattersReport.tsx` | ~5,600 | Medium | Extract chart panels, table sections |
+| `src/tabs/instructions/MatterOpening/FlatMatterOpening.tsx` | ~5,500 | Medium | Extract form sections, validation, step components |
+| `src/tabs/Reporting/EnquiriesReport.tsx` | ~5,400 | Medium | Extract chart panels, filter controls |
+| `src/tabs/enquiries/pitch-builder/EditorAndTemplateBlocks.tsx` | ~5,300 | Medium | Extract block types, editor toolbar, template picker |
+| `src/tabs/enquiries/PitchBuilder.tsx` | ~5,100 | Medium | Extract step components, preview panel |
+| `src/tabs/matters/ccl/PreviewStep.tsx` | ~4,400 | Low | Extract field groups, preview renderer |
+| `src/components/modern/OperationsQueue.tsx` | ~4,100 | Low | Extract queue item renderers, filter controls |
+| `server/routes/dataOperations.js` | ~3,100 | Low | Extract sync handlers into separate route modules |
+
+**Rules for splitting:**
+1. Extract one logical section at a time — never rewrite entirely.
+2. Each extraction must be independently revertable and independently testable.
+3. Maintain the same prop interface — the parent file should import and render, nothing else changes externally.
+4. After each extraction, run `npm run check-sizes` to confirm line count reduced.
+5. Co-locate extracted pieces in a `parts/` sub-folder next to the parent file.
 
 ---
 

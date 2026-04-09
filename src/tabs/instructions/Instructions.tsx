@@ -8159,4 +8159,4 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
   );
 };
 
-export default Instructions;
+export default React.memo(Instructions);

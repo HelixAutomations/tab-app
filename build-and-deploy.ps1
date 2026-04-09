@@ -45,6 +45,7 @@ Copy-Item -Path "server\server.js" -Destination "$deployDir\server.js" -Force
 Copy-Item -Path "server\routes" -Destination "$deployDir\routes" -Recurse -Force
 Copy-Item -Path "server\middleware" -Destination "$deployDir\middleware" -Recurse -Force
 Copy-Item -Path "server\utils" -Destination "$deployDir\utils" -Recurse -Force
+Copy-Item -Path "server\activity-card-lab" -Destination "$deployDir\activity-card-lab" -Recurse -Force
 Copy-Item -Path "server\web.config" -Destination "$deployDir\web.config" -Force
 # Include shared merge field schema required by CCL routes
 $schemaDir = Join-Path $deployDir 'src\app\functionality'

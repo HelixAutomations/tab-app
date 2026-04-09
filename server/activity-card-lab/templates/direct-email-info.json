@@ -1,0 +1,139 @@
+{
+  "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+  "type": "AdaptiveCard",
+  "version": "1.4",
+  "body": [
+    {
+      "type": "Container",
+      "style": "emphasis",
+      "bleed": true,
+      "items": [
+        {
+          "type": "ColumnSet",
+          "columns": [
+            {
+              "type": "Column",
+              "width": "stretch",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "**EMAIL ENQUIRY** — {prospectName}",
+                  "size": "Medium",
+                  "weight": "Bolder",
+                  "wrap": true,
+                  "spacing": "None"
+                },
+                {
+                  "type": "TextBlock",
+                  "text": "{prospectEmail}",
+                  "size": "Small",
+                  "isSubtle": true,
+                  "wrap": true,
+                  "spacing": "None"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "Container",
+      "spacing": "Medium",
+      "items": [
+        {
+          "type": "TextBlock",
+          "text": "Subject",
+          "weight": "Bolder",
+          "spacing": "None"
+        },
+        {
+          "type": "TextBlock",
+          "text": "{subject}",
+          "wrap": true,
+          "spacing": "Small"
+        }
+      ]
+    },
+    {
+      "type": "Container",
+      "spacing": "Medium",
+      "items": [
+        {
+          "type": "TextBlock",
+          "text": "Enquiry Notes",
+          "weight": "Bolder",
+          "spacing": "None"
+        },
+        {
+          "type": "TextBlock",
+          "text": "{emailBody}",
+          "wrap": true,
+          "spacing": "Small"
+        }
+      ]
+    },
+    {
+      "type": "Container",
+      "id": "formIdFooter",
+      "style": "default",
+      "separator": true,
+      "spacing": "Large",
+      "items": [
+        {
+          "type": "ColumnSet",
+          "columns": [
+            {
+              "type": "Column",
+              "width": "stretch",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "⤷ {colleagueEmail}",
+                  "size": "Small",
+                  "isSubtle": true,
+                  "wrap": true,
+                  "spacing": "None"
+                }
+              ]
+            },
+            {
+              "type": "Column",
+              "width": "auto",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "{timestamp} · {enquiryId}",
+                  "size": "Small",
+                  "isSubtle": true,
+                  "wrap": true,
+                  "horizontalAlignment": "Right",
+                  "spacing": "None"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "type": "Action.Submit",
+      "title": "Claim and Respond",
+      "style": "positive",
+      "data": {
+        "action": "claim",
+        "emailType": "direct-info"
+      }
+    },
+    {
+      "type": "Action.Submit",
+      "title": "Manage",
+      "data": {
+        "action": "manage",
+        "emailType": "direct-info"
+      }
+    }
+  ]
+}

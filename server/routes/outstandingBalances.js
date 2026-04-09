@@ -5,14 +5,9 @@
 
 const express = require('express');
 const router = express.Router();
-const { DefaultAzureCredential } = require('@azure/identity');
-const { SecretClient } = require('@azure/keyvault-secrets');
+const { getClioAccessToken } = require('../utils/clioAuth');
 const { getRedisClient, generateCacheKey, cacheWrapper } = require('../utils/redisClient');
 const { withRequest } = require('../utils/db');
-
-// Cache for Clio access token (reuse across requests to avoid constant refreshes)
-let cachedAccessToken = null;
-let tokenExpiresAt = null;
 
 /**
  * GET /api/outstanding-balances/user/:entraId
@@ -186,83 +181,5 @@ router.get('/', async (req, res) => {
     });
   }
 });
-
-/**
- * Get Clio access token (cached or refresh if expired)
- */
-async function getClioAccessToken() {
-  // Check if we have a cached token that's still valid
-  if (cachedAccessToken && tokenExpiresAt && Date.now() < tokenExpiresAt) {
-    console.log('[OutstandingBalances] Using cached Clio access token');
-    return cachedAccessToken;
-  }
-
-  console.log('[OutstandingBalances] Refreshing Clio access token');
-
-  // Key Vault configuration
-  const kvUri = 'https://helix-keys.vault.azure.net/';
-  const credential = new DefaultAzureCredential({ additionallyAllowedTenants: ['*'] });
-  const secretClient = new SecretClient(kvUri, credential);
-
-  // Fetch OAuth credentials from Key Vault
-  const [refreshTokenSecret, clientSecretValue, clientIdSecret] = await Promise.all([
-    secretClient.getSecret('clio-teamhubv1-refreshtoken'),
-    secretClient.getSecret('clio-teamhubv1-secret'),
-    secretClient.getSecret('clio-teamhubv1-clientid')
-  ]);
-
-  const refreshToken = refreshTokenSecret.value;
-  const clientSecret = clientSecretValue.value;
-  const clientId = clientIdSecret.value;
-
-  if (!refreshToken || !clientSecret || !clientId) {
-    throw new Error('One or more Clio OAuth credentials are missing from Key Vault');
-  }
-
-  // Request new access token from Clio
-  const clioTokenUrl = 'https://eu.app.clio.com/oauth/token';
-  const params = new URLSearchParams({
-    client_id: clientId,
-    client_secret: clientSecret,
-    grant_type: 'refresh_token',
-    refresh_token: refreshToken
-  });
-
-  const tokenResponse = await fetch(`${clioTokenUrl}?${params.toString()}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' }
-  });
-
-  if (!tokenResponse.ok) {
-    const errorText = await tokenResponse.text();
-    console.error('[OutstandingBalances] Failed to refresh Clio token:', errorText);
-    
-    // Clear cache on failure
-    cachedAccessToken = null;
-    tokenExpiresAt = null;
-    
-    throw new Error(`Failed to obtain Clio access token (${tokenResponse.status}): ${errorText}. You may need to re-authenticate with Clio and update the refresh token in Key Vault.`);
-  }
-
-  const tokenData = await tokenResponse.json();
-  
-  // Clio returns a new refresh token on each refresh - store it back to Key Vault
-  if (tokenData.refresh_token && tokenData.refresh_token !== refreshToken) {
-    console.log('[OutstandingBalances] Storing new refresh token to Key Vault');
-    try {
-      await secretClient.setSecret('clio-teamhubv1-refreshtoken', tokenData.refresh_token);
-    } catch (kvError) {
-      console.error('[OutstandingBalances] Failed to update refresh token in Key Vault:', kvError.message);
-    }
-  }
-  
-  // Cache the token (use expires_in from response, default to 55 minutes)
-  const expiresInSeconds = tokenData.expires_in || 3600;
-  cachedAccessToken = tokenData.access_token;
-  tokenExpiresAt = Date.now() + ((expiresInSeconds - 300) * 1000); // Refresh 5 minutes before expiry
-  
-  console.log(`[OutstandingBalances] Successfully refreshed Clio access token (expires in ${expiresInSeconds}s)`);
-  return cachedAccessToken;
-}
 
 module.exports = router;

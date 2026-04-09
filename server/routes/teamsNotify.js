@@ -17,9 +17,11 @@ const {
   postHtmlToChannel,
   sendActivityFeedNotification,
   postCardToArea,
+  sendCardToDM,
   CHANNEL_ROUTES,
 } = require('../utils/teamsNotificationClient');
 const { trackEvent, trackException } = require('../utils/appInsights');
+const { append } = require('../utils/opLog');
 const log = require('../utils/logger');
 
 // ── POST /card — Post Adaptive Card to a channel ─────────────
@@ -155,6 +157,92 @@ router.post('/test', async (req, res) => {
     log.error('[TeamsNotifyRoute] /test error:', err.message);
     trackException(err, { operation: 'TeamsNotifyRoute.Test' });
     return res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /dm-test — Send a test card to Luke's DM ───────────
+router.post('/dm-test', async (req, res) => {
+  try {
+    const sentAt = new Date().toISOString();
+    const testCard = {
+      type: 'AdaptiveCard',
+      $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
+      version: '1.4',
+      body: [
+        {
+          type: 'ColumnSet',
+          columns: [
+            {
+              type: 'Column',
+              width: 'auto',
+              items: [{
+                type: 'Image',
+                url: 'https://helix-law.com/favicon.ico',
+                size: 'Small',
+                style: 'Person',
+              }],
+            },
+            {
+              type: 'Column',
+              width: 'stretch',
+              items: [
+                {
+                  type: 'TextBlock',
+                  text: 'Team Hub',
+                  weight: 'Bolder',
+                  size: 'Medium',
+                },
+                {
+                  type: 'TextBlock',
+                  text: `Test card · ${sentAt}`,
+                  isSubtle: true,
+                  spacing: 'None',
+                  size: 'Small',
+                },
+              ],
+            },
+          ],
+        },
+        {
+          type: 'TextBlock',
+          text: 'This is a test card sent from Team Hub directly to your DM. Click the button below to acknowledge — the card will update inline and the action will appear in Activity.',
+          wrap: true,
+          spacing: 'Medium',
+          size: 'Small',
+        },
+      ],
+      actions: [
+        {
+          type: 'Action.Submit',
+          title: 'Acknowledge',
+          data: { action: 'test-ack', sentAt },
+        },
+      ],
+    };
+
+    const result = await sendCardToDM('lz@helix-law.com', testCard, 'Team Hub DM test');
+
+    append({
+      type: 'activity.dm.send',
+      action: 'dm-test',
+      status: result.success ? 'success' : 'error',
+      email: 'lz@helix-law.com',
+      displayName: result.displayName || null,
+      conversationId: result.conversationId || null,
+      activityId: result.activityId || null,
+      error: result.error || undefined,
+    });
+
+    trackEvent('TeamsNotification.DmTest', {
+      success: String(result.success),
+      activityId: result.activityId || '',
+    });
+
+    return res.status(result.success ? 200 : 502).json(result);
+  } catch (err) {
+    console.error('[TeamsNotifyRoute] /dm-test error:', err.message);
+    trackException(err, { operation: 'TeamsNotifyRoute.DmTest' });
+    return res.status(500).json({ success: false, error: err.message });
   }
 });
 

@@ -25,8 +25,7 @@ const cors = require('cors');
 let compression;
 try { compression = require('compression'); } catch { /* optional */ }
 const opLog = require('./utils/opLog');
-const { DefaultAzureCredential } = require('@azure/identity');
-const { SecretClient } = require('@azure/keyvault-secrets');
+const { getClient } = require('./utils/getSecret');
 const refreshRouter = require('./routes/refresh');
 const clearCacheRouter = require('./routes/clearCache');
 const keysRouter = require('./routes/keys');
@@ -71,6 +70,7 @@ const poidRouter = require('./routes/poid');
 const homeMetricsStreamRouter = require('./routes/home-metrics-stream');
 const homeWipRouter = require('./routes/home-wip');
 const homeEnquiriesRouter = require('./routes/home-enquiries');
+const homeJourneyRouter = require('./routes/home-journey');
 const transactionsRouter = require('./routes/transactions');
 const futureBookingsRouter = require('./routes/futureBookings');
 const outstandingBalancesRouter = require('./routes/outstandingBalances');
@@ -94,8 +94,11 @@ const financialTaskRouter = require('./routes/financialTask');
 const { router: dataOperationsRouter } = require('./routes/dataOperations');
 const { startDataOperationsScheduler } = require('./utils/dataOperationsScheduler');
 const yoyComparisonRouter = require('./routes/yoy-comparison');
+const teamsBotRouter = require('./routes/teamsBot');
 const teamsNotifyRouter = require('./routes/teamsNotify');
+const activityCardLabRouter = require('./routes/activity-card-lab');
 const logsStreamRouter = require('./routes/logs-stream');
+const activityFeedRouter = require('./routes/activity-feed');
 const releaseNotesRouter = require('./routes/release-notes');
 const opsQueueRouter = require('./routes/opsQueue');
 const healthRouter = require('./routes/health');
@@ -126,14 +129,8 @@ app.use(cors({
 }));
 
 // Defer Key Vault client creation to route-time to avoid IMDS probe on boot
-const vaultUrl = process.env.KEY_VAULT_URL || 'https://helix-keys.vault.azure.net/';
-let kvClient = null;
 function getKvClient() {
-    if (!kvClient) {
-        const credential = new DefaultAzureCredential();
-        kvClient = new SecretClient(vaultUrl, credential);
-    }
-    return kvClient;
+    return getClient();
 }
 
 // Prefer serving the CRA build output from the repo root when available.
@@ -192,11 +189,14 @@ app.use('/api/reporting-stream', reportingStreamRouter);
 app.use('/api/home-metrics', homeMetricsStreamRouter);
 app.use('/api/home-wip', homeWipRouter);
 app.use('/api/home-enquiries', homeEnquiriesRouter);
+app.use('/api/home-journey', homeJourneyRouter);
 app.use('/api/marketing-metrics', marketingMetricsRouter);
 app.use('/api/transactions', transactionsRouter);
 app.use('/api/cache-preheater', cachePreheaterRouter);
 app.use('/api/teams-activity-tracking', teamsActivityTrackingRouter);
+app.use('/api/messages', teamsBotRouter);
 app.use('/api/teams-notify', teamsNotifyRouter);
+app.use('/api/activity-card-lab', activityCardLabRouter);
 app.use('/api/pitch-tracking', pitchTrackingRouter);
 app.use('/api/enquiry-enrichment', enquiryEnrichmentRouter);
 // Rate change notification tracking
@@ -227,6 +227,9 @@ app.use('/api/telemetry', telemetryRouter);
 
 // Log stream (SSE + polling) for Activity Monitor in Reporting
 app.use('/api/logs', logsStreamRouter);
+
+// Operational activity feed for the Activity tab
+app.use('/api/activity-feed', activityFeedRouter);
 
 // Release notes (powered by changelog.md)
 app.use('/api/release-notes', releaseNotesRouter);

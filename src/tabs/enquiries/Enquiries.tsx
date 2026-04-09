@@ -2,23 +2,17 @@
 import React, { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, useTransition, useDeferredValue, startTransition } from 'react';
 import ReactDOM from 'react-dom';
 import { getProxyBaseUrl } from '../../utils/getProxyBaseUrl';
-import {
-  Stack,
-  Text,
-  Icon,
-  mergeStyles,
-  MessageBar,
-  MessageBarType,
-  Link,
-  IconButton,
-  PrimaryButton,
-  DefaultButton,
-  ActionButton,
-  IButtonStyles,
-  Modal,
-  initializeIcons,
-  TooltipHost,
-} from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
+import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
+import { Link } from '@fluentui/react/lib/Link';
+import { IconButton, PrimaryButton, DefaultButton, ActionButton, IButtonStyles } from '@fluentui/react/lib/Button';
+import { Modal } from '@fluentui/react/lib/Modal';
+import { initializeIcons } from '@fluentui/react/lib/Icons';
+import { TooltipHost } from '@fluentui/react/lib/Tooltip';
+import { SearchBox } from '@fluentui/react/lib/SearchBox';
 import OperationStatusToast from './pitch-builder/OperationStatusToast';
 import IconAreaFilter from '../../components/filter/IconAreaFilter';
 import { renderAreaOfWorkGlyph, getAreaGlyphMeta } from '../../components/filter/areaGlyphs';
@@ -38,7 +32,6 @@ import {
   YAxis,
 } from 'recharts';
 // Search UI
-import { SearchBox } from '@fluentui/react';
 import { sharedSearchBoxContainerStyle, sharedSearchBoxStyle } from '../../app/styles/FilterStyles';
 import { parseISO, startOfMonth, format, isValid } from 'date-fns';
 import { Enquiry, POID, UserData, TeamData } from '../../app/functionality/types';
@@ -62,6 +55,7 @@ import NavigatorDetailBar from '../../components/NavigatorDetailBar';
 import CreateContactModal from './CreateContactModal';
 import PeopleSearchPanel from '../../components/PeopleSearchPanel';
 import TeamsLinkWidget from '../../components/TeamsLinkWidget';
+import DataFreshnessIndicator from '../../components/DataFreshnessIndicator';
 import { EnquiryEnrichmentData, EnquiryEnrichmentResponse, fetchEnquiryEnrichment } from '../../app/functionality/enquiryEnrichment';
 import {
   appendDefaultEnquiryProcessingParams,
@@ -81,6 +75,7 @@ import '../../app/styles/CustomTabs.css';
 import '../../app/styles/Prospects.css';
 import Slider from 'rc-slider';
 import { debugLog, debugWarn } from '../../utils/debug';
+import type { WorkbenchItem } from '../../utils/workbenchTypes';
 import { shouldAlwaysShowProspectHistory, isSharedProspectRecord } from './sharedProspects';
 import { checkIsLocalDev, isActuallyLocalhost } from '../../utils/useIsLocalDev';
 import EmptyState from '../../components/states/EmptyState';
@@ -1067,7 +1062,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   // Map enquiry ID -> InlineWorkbench item (instruction + attached domains)
   // This is intentionally lightweight and read-only for the Prospects view.
   const inlineWorkbenchByEnquiryId = useMemo(() => {
-    const result = new Map<string, any>();
+    const result = new Map<string, WorkbenchItem>();
     if (!effectiveInstructionData) return result;
 
     const normaliseId = (value: unknown): string | null => {
@@ -1105,7 +1100,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       });
     });
 
-    const scoreWorkbenchItem = (workbenchItem: any): number => {
+    const scoreWorkbenchItem = (workbenchItem: WorkbenchItem): number => {
       const inst = workbenchItem?.instruction;
       const matters = workbenchItem?.matters;
       const deal = workbenchItem?.deal;
@@ -1176,7 +1171,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
         if (!matchingInstruction && !finalDeal) return;
 
-        const workbenchItem = {
+        const workbenchItem: WorkbenchItem = {
           instruction: matchingInstruction,
           deal: finalDeal,
           clients: prospect?.jointClients || finalDeal?.jointClients || prospect?.clients || [],
@@ -2471,16 +2466,22 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     const selectedPitchId = String(selectedEnquiry.pitchEnquiryId || '').trim();
     const selectedEmail = normalizeSearchEmailArtifacts(selectedEnquiry.Email);
     const selectedIdentityKey = buildEnquiryIdentityKey(selectedEnquiry);
+    const hasStableSelectionId = Boolean(selectedId || selectedProcessingId || selectedPitchId);
 
-    const matchesSelected = (candidate: Enquiry) => {
+    const matchesSelectedById = (candidate: Enquiry) => {
       const candidateId = String(candidate.ID || '').trim();
       const candidateProcessingId = String(candidate.processingEnquiryId || '').trim();
       const candidatePitchId = String(candidate.pitchEnquiryId || '').trim();
-      const candidateEmail = normalizeSearchEmailArtifacts(candidate.Email);
 
       if (selectedId && candidateId === selectedId) return true;
       if (selectedProcessingId && candidateProcessingId === selectedProcessingId) return true;
       if (selectedPitchId && candidatePitchId === selectedPitchId) return true;
+      return false;
+    };
+
+    const matchesSelectedByIdentity = (candidate: Enquiry) => {
+      const candidateEmail = normalizeSearchEmailArtifacts(candidate.Email);
+
       if (selectedIdentityKey && buildEnquiryIdentityKey(candidate) === selectedIdentityKey) return true;
       if (selectedEmail && candidateEmail && candidateEmail === selectedEmail) return true;
       return false;
@@ -2491,10 +2492,21 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
     for (const source of candidateSources) {
       if (!Array.isArray(source) || source.length === 0) continue;
-      const found = source.find(matchesSelected);
+      const found = source.find(matchesSelectedById);
       if (found) {
         nextSelected = found;
         break;
+      }
+    }
+
+    if (!nextSelected && !hasStableSelectionId) {
+      for (const source of candidateSources) {
+        if (!Array.isArray(source) || source.length === 0) continue;
+        const found = source.find(matchesSelectedByIdentity);
+        if (found) {
+          nextSelected = found;
+          break;
+        }
       }
     }
 
@@ -7693,7 +7705,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                     <EmptyState
                       title={
                         hasActiveUserFilters
-                          ? 'No matching enquiries'
+                          ? (navigatorRefreshLoading || enquiriesUsingSnapshot
+                              ? 'Refreshing filtered enquiries'
+                              : 'No matching enquiries')
                           : activeState === 'Claimed' && showMineOnly
                           ? 'No claimed enquiries yet'
                           : activeState === 'Claimed'
@@ -7704,7 +7718,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                       }
                       description={
                         hasActiveUserFilters
-                          ? 'No enquiries match your current filters. Try adjusting or clearing your filters to see more results.'
+                          ? (navigatorRefreshLoading || enquiriesUsingSnapshot
+                              ? 'Your filters are still applied, and the live feed is settling. More matching enquiries may appear shortly.'
+                              : 'No enquiries match your current filters. Try adjusting or clearing your filters to see more results.')
                           : activeState === 'Claimed' && showMineOnly
                           ? 'You haven\'t claimed any enquiries yet. Check the claimable section to get started.'
                           : activeState === 'Claimed'
@@ -10525,4 +10541,4 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   );
 }
 
-export default Enquiries;
+export default React.memo(Enquiries);

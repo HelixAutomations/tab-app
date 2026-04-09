@@ -23,7 +23,7 @@ import {
 } from 'react-icons/md';
 import { Icon } from '@fluentui/react/lib/Icon';
 import { useTheme } from '../../app/functionality/ThemeContext';
-import { colours } from '../../app/styles/colours';
+import { colours, withAlpha } from '../../app/styles/colours';
 
 // Category types for immediate action styling
 export type ImmediateActionCategory = 'critical' | 'standard' | 'success' | 'warning';
@@ -39,6 +39,9 @@ export interface ImmediateActionChipProps {
   totalCount?: number;
   category?: ImmediateActionCategory;
   allowWrap?: boolean;
+  hideChevron?: boolean;
+  dense?: boolean;
+  fillWidth?: boolean;
 }
 
 type IconComponent = React.ComponentType<{ style?: React.CSSProperties; className?: string }>;
@@ -84,6 +87,9 @@ export const ImmediateActionChip: React.FC<ImmediateActionChipProps> = ({
   totalCount,
   category = 'critical',
   allowWrap = false,
+  hideChevron = false,
+  dense = false,
+  fillWidth = true,
 }) => {
   const ChipIcon = getChipIcon(icon);
   const [isHovered, setIsHovered] = React.useState(false);
@@ -92,7 +98,20 @@ export const ImmediateActionChip: React.FC<ImmediateActionChipProps> = ({
 
   const text = isDark ? colours.dark.text : colours.light.text;
   const textMuted = isDark ? colours.subtleGrey : colours.greyText;
-  const categoryAccent = colours.cta;
+  const categoryAccent = category === 'success'
+    ? colours.green
+    : category === 'warning'
+      ? colours.orange
+      : category === 'standard'
+        ? (isDark ? colours.accent : colours.blue)
+        : colours.cta;
+  const restingBorder = withAlpha(categoryAccent, isDark ? 0.3 : 0.24);
+  const restingSurface = isDark
+    ? withAlpha(colours.darkBlue, 0.96)
+    : colours.sectionBackground;
+  const hoverSurface = isDark
+    ? `linear-gradient(90deg, ${withAlpha(categoryAccent, 0.1)} 0%, ${withAlpha(colours.darkBlue, 0.96)} 100%)`
+    : `linear-gradient(90deg, ${withAlpha(categoryAccent, 0.08)} 0%, ${colours.sectionBackground} 100%)`;
 
   const hovered = isHovered && !disabled;
 
@@ -106,40 +125,30 @@ export const ImmediateActionChip: React.FC<ImmediateActionChipProps> = ({
       style={{
         display: 'inline-flex',
         alignItems: 'center',
-        gap: 7,
-        width: '100%',
-        minHeight: allowWrap ? 42 : 30,
-        padding: allowWrap ? '7px 10px 7px 14px' : '3px 10px 3px 14px',
-        minWidth: 0,
+        gap: dense ? 6 : 7,
+        width: fillWidth ? '100%' : 'fit-content',
+        minHeight: allowWrap ? (dense ? 32 : 34) : 28,
+        padding: allowWrap
+          ? (dense ? '3px 10px 3px 12px' : '4px 10px 4px 14px')
+          : (dense ? '2px 9px 2px 12px' : '2px 10px 2px 14px'),
+        minWidth: fillWidth ? 0 : 'fit-content',
         maxWidth: '100%',
         boxSizing: 'border-box' as const,
-        background: hovered 
-          ? (isDark
-            ? `${categoryAccent}10`
-            : `${categoryAccent}08`)
-          : (isDark ? 'rgba(255, 255, 255, 0.02)' : 'rgba(255, 255, 255, 0.35)'),
+        background: hovered ? hoverSurface : restingSurface,
         color: text,
-        borderTop: `1px solid ${hovered
-          ? categoryAccent
-          : `${categoryAccent}30`}`,
-        borderRight: `1px solid ${hovered
-          ? categoryAccent
-          : `${categoryAccent}30`}`,
-        borderBottom: `1px solid ${hovered
-          ? categoryAccent
-          : `${categoryAccent}30`}`,
+        borderTop: `1px solid ${hovered ? categoryAccent : restingBorder}`,
+        borderRight: `1px solid ${hovered ? categoryAccent : restingBorder}`,
+        borderBottom: `1px solid ${hovered ? categoryAccent : restingBorder}`,
         borderLeft: `2px solid ${categoryAccent}`,
         borderRadius: 2,
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.5 : 1,
         transition: 'all 0.15s ease',
-        boxShadow: 'none',
+        boxShadow: hovered ? `0 2px 8px ${withAlpha(categoryAccent, isDark ? 0.1 : 0.06)}` : 'none',
         transform: hovered && !disabled ? 'translateY(-0.5px)' : 'none',
         position: 'relative',
         textAlign: 'left',
         overflow: 'hidden',
-        backdropFilter: 'blur(12px)',
-        WebkitBackdropFilter: 'blur(12px)',
       }}
       onMouseEnter={() => !disabled && setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
@@ -159,15 +168,15 @@ export const ImmediateActionChip: React.FC<ImmediateActionChipProps> = ({
         background: 'transparent',
         borderRadius: 2,
         transition: 'color 0.2s ease',
-        marginTop: allowWrap ? 1 : 0,
+        marginTop: 0,
       }}>
         <ChipIcon style={{ fontSize: 8 }} />
       </div>
 
       {/* Title */}
-      <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+      <div style={{ flex: fillWidth ? 1 : '0 1 auto', minWidth: 0, overflow: 'hidden' }}>
         <div style={{
-          fontSize: 11,
+          fontSize: dense ? 10 : 11,
           fontWeight: 600,
           lineHeight: allowWrap ? 1.25 : 1.2,
           overflow: 'hidden',
@@ -176,17 +185,23 @@ export const ImmediateActionChip: React.FC<ImmediateActionChipProps> = ({
           display: '-webkit-box',
           WebkitLineClamp: allowWrap ? 2 : 1,
           WebkitBoxOrient: 'vertical' as const,
-          color: hovered ? text : text,
+          color: text,
         }}>
           {title}
           {typeof count === 'number' && count > 0 && (
             <span style={{
               marginLeft: 6,
-              padding: '1px 5px',
-              background: isDark ? `${categoryAccent}12` : `${categoryAccent}10`,
+              minWidth: 14,
+              height: 12,
+              padding: '0 5px',
+              background: withAlpha(categoryAccent, isDark ? 0.07 : 0.06),
               color: categoryAccent,
-              fontSize: 7,
+              fontSize: 6,
               fontWeight: 700,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              lineHeight: 1,
               verticalAlign: 'middle',
               borderRadius: 2,
             }}>
@@ -196,38 +211,22 @@ export const ImmediateActionChip: React.FC<ImmediateActionChipProps> = ({
         </div>
       </div>
 
-      {/* Chevron */}
-      <svg 
-        width="12" 
-        height="12" 
-        viewBox="0 0 24 24" 
-        fill="none" 
-        stroke={textMuted}
-        strokeWidth="2"
-        style={{ flexShrink: 0, opacity: hovered ? 0.5 : 0.32, alignSelf: allowWrap ? 'flex-start' : 'center', marginTop: allowWrap ? 2 : 0 }}
-      >
-        <path d="M9 18l6-6-6-6" />
-      </svg>
+      {/* Chevron — hidden in single-column layout mode */}
+      {!hideChevron && (
+        <svg 
+          width="12" 
+          height="12" 
+          viewBox="0 0 24 24" 
+          fill="none" 
+          stroke={textMuted}
+          strokeWidth="2"
+          style={{ flexShrink: 0, opacity: hovered ? 0.5 : 0.32, alignSelf: allowWrap ? 'flex-start' : 'center', marginTop: 0 }}
+        >
+          <path d="M9 18l6-6-6-6" />
+        </svg>
+      )}
     </button>
   );
 };
-
-// Responsive chip styles
-const iacResponsiveId = 'iac-responsive-styles';
-if (typeof document !== 'undefined' && !document.head.querySelector(`style[data-${iacResponsiveId}]`)) {
-  const s = document.createElement('style');
-  s.setAttribute(`data-${iacResponsiveId}`, '');
-  s.textContent = `
-    @media (max-width: 640px) {
-      .iab-chip { padding: 3px 10px 3px 14px !important; gap: 7px !important; min-width: 0 !important; font-size: 9px !important; }
-      .iab-chip > div:first-child { width: 16px !important; height: 16px !important; }
-      .iab-chip svg:last-child { display: none !important; }
-    }
-    @media (max-width: 420px) {
-      .iab-chip { padding: 3px 10px 3px 14px !important; gap: 6px !important; }
-    }
-  `;
-  document.head.appendChild(s);
-}
 
 export default ImmediateActionChip;

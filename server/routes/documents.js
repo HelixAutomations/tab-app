@@ -1,12 +1,12 @@
 const express = require('express');
 const multer = require('multer');
-const { DefaultAzureCredential } = require('@azure/identity');
 const {
     BlobServiceClient,
     StorageSharedKeyCredential,
     BlobSASPermissions,
     generateBlobSASQueryParameters,
 } = require('@azure/storage-blob');
+const { getCredential } = require('../utils/getSecret');
 const { withRequest, sql } = require('../utils/db');
 const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
 
@@ -58,7 +58,7 @@ function getBlobServiceClient() {
         return blobServiceClient;
     }
     // Fall back to DefaultAzureCredential (managed identity or dev login)
-    const credential = new DefaultAzureCredential({ additionallyAllowedTenants: ['*'] });
+    const credential = getCredential();
     blobServiceClient = new BlobServiceClient(
         `https://${storageAccountName}.blob.core.windows.net`,
         credential

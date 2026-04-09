@@ -533,12 +533,15 @@ async function fetchEnquiries({ connectionString, instructionsConnectionString, 
     }
 
     let dateOnly = '';
+    let dateIso = '';
     if (inst?.datetime) {
       const candidate = new Date(inst.datetime);
       if (!Number.isNaN(candidate.getTime())) {
         dateOnly = candidate.toISOString().split('T')[0];
+        dateIso = candidate.toISOString();
       } else if (typeof inst.datetime === 'string') {
         dateOnly = inst.datetime.split('T')[0];
+        dateIso = inst.datetime;
       }
     }
 
@@ -548,8 +551,8 @@ async function fetchEnquiries({ connectionString, instructionsConnectionString, 
     mappedInstructions.push({
       ID: mappedId,
       pitchEnquiryId: instructionsId,
-      Date_Created: dateOnly,
-      Touchpoint_Date: dateOnly,
+      Date_Created: dateIso || dateOnly,
+      Touchpoint_Date: dateIso || dateOnly,
       Email: inst?.email ?? '',
       Area_of_Work: inst?.aow ?? '',
       Type_of_Work: inst?.tow ?? '',

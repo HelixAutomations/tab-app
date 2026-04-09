@@ -1,0 +1,299 @@
+.activity-card-lab {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 28px;
+}
+
+.activity-card-lab__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.activity-card-lab__eyebrow {
+  font-size: var(--text-2xs);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-accent);
+  opacity: 0.85;
+}
+
+.activity-card-lab__title {
+  margin: 4px 0 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.2px;
+}
+
+.activity-card-lab__description {
+  margin: 4px 0 0;
+  max-width: 720px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-body);
+}
+
+.activity-card-lab__header-meta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.activity-card-lab__badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border: 1px solid var(--border-base);
+  background: rgba(var(--accent-rgb), 0.08);
+  color: var(--text-accent);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.activity-card-lab__grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 1.2fr) minmax(280px, 0.95fr);
+  gap: 16px;
+}
+
+.activity-card-lab__pane {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--border-base);
+  background: var(--surface-section);
+}
+
+.activity-card-lab__pane-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.activity-card-lab__pane-copy {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-body);
+}
+
+.activity-card-lab__control-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.activity-card-lab__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.activity-card-lab__textarea {
+  width: 100%;
+  min-height: 340px;
+  resize: vertical;
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.activity-card-lab__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.activity-card-lab__btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: transparent;
+  color: var(--text-accent);
+  border: 1px solid var(--border-strong);
+  border-radius: 2px;
+  font-family: var(--font-primary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.activity-card-lab__btn-secondary:hover:not(:disabled) {
+  background: rgba(var(--accent-rgb), 0.08);
+}
+
+.activity-card-lab__btn-secondary:disabled,
+.activity-card-lab__send:disabled,
+.activity-card-lab__preview:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.activity-card-lab__send {
+  background: var(--helix-cta);
+}
+
+.activity-card-lab__warning-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--helix-orange);
+}
+
+.activity-card-lab__notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.activity-card-lab__notice--info {
+  padding: 10px 14px;
+  border: 1px solid rgba(var(--accent-rgb), 0.24);
+  background: rgba(var(--accent-rgb), 0.08);
+  color: var(--text-accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.activity-card-lab__preview-shell {
+  min-height: 360px;
+  border: 1px dashed var(--border-strong);
+  background: var(--surface-card);
+  padding: 16px;
+  overflow: auto;
+}
+
+.activity-card-lab__preview-placeholder {
+  min-height: 328px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.activity-card-lab__preview-host {
+  display: flex;
+  justify-content: center;
+}
+
+.activity-card-lab__preview-host > * {
+  max-width: 100%;
+}
+
+.activity-card-lab__recent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.activity-card-lab__recent-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-base);
+  background: var(--surface-card);
+}
+
+.activity-card-lab__recent-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.activity-card-lab__recent-meta {
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.activity-card-lab__link-button {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-accent);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: var(--font-primary);
+}
+
+.activity-card-lab__status {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.activity-card-lab__quick-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.activity-card-lab__quick-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: transparent;
+  color: var(--text-accent);
+  border: 1px solid var(--border-strong);
+  border-radius: 2px;
+  font-family: var(--font-primary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.activity-card-lab__quick-btn:hover:not(:disabled) {
+  background: rgba(var(--accent-rgb), 0.08);
+}
+
+.activity-card-lab__quick-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.activity-card-lab__quick-btn--active {
+  background: rgba(var(--accent-rgb), 0.12);
+  border-color: var(--text-accent);
+}
+
+@media (max-width: 1100px) {
+  .activity-card-lab__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .activity-card-lab__control-grid {
+    grid-template-columns: 1fr;
+  }
+}

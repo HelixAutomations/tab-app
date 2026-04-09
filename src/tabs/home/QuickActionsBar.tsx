@@ -56,8 +56,8 @@ const SkeletonChip: React.FC<{ isDark: boolean; width?: number }> = ({ isDark, w
 );
 
 // Icon mapping for quick actions
-const CalendarDayIcon: React.FC<{ style?: React.CSSProperties }> = ({ style }) => (
-  <Icon iconName="CalendarDay" style={style} />
+const CalendarDayIcon: React.FC<{ style?: React.CSSProperties; className?: string }> = ({ style, className }) => (
+  <Icon iconName="CalendarDay" style={style} className={className} />
 );
 
 const iconMap: Record<string, { outline: React.ComponentType<any>; filled: React.ComponentType<any> }> = {
@@ -100,7 +100,6 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
   const [selected, setSelected] = React.useState<string | null>(null);
   const [isLoading, setIsLoading] = React.useState(false);
   const [expanded, setExpanded] = React.useState(false);
-  const [hoveredAction, setHoveredAction] = React.useState<string | null>(null);
   const [showGreeting, setShowGreeting] = React.useState(false);
   const [greetingDone, setGreetingDone] = React.useState(false);
   const [iconsMounted, setIconsMounted] = React.useState(false);
@@ -208,10 +207,8 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
           padding: isCompact ? '4px 10px' : '4px 20px',
           minHeight: isCompact ? 30 : 32,
           background: isDarkMode
-              ? 'rgba(6, 23, 51, 0.55)'
-            : 'rgba(255, 255, 255, 0.88)',
-          backdropFilter: 'blur(20px) saturate(1.5)',
-          WebkitBackdropFilter: 'blur(20px) saturate(1.5)',
+                ? colours.darkBlue
+              : colours.sectionBackground,
           borderTop: 'none',
           borderBottom: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(13, 47, 96, 0.08)'}`,
           width: '100%',
@@ -246,10 +243,8 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
         padding: isCompact ? '4px 10px' : '4px 20px',
         minHeight: isCompact ? 30 : 32,
         background: isDarkMode
-            ? 'rgba(6, 23, 51, 0.55)'
-          : 'rgba(255, 255, 255, 0.88)',
-        backdropFilter: 'blur(20px) saturate(1.5)',
-        WebkitBackdropFilter: 'blur(20px) saturate(1.5)',
+            ? colours.darkBlue
+          : colours.sectionBackground,
         borderBottom: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(13, 47, 96, 0.08)'}`,
         position: 'relative',
         width: '100%',
@@ -332,34 +327,30 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
       >
         {quickActions.map((action, index) => {
           const isSelected = selected === action.title;
-          const isHovered = hoveredAction === action.title;
           const isActive = isSelected && panelActive;
           const mapping = iconMap[action.icon] || { outline: FaRegCheckSquare, filled: FaCheckSquare };
-          const IconComponent = isHovered || isActive ? mapping.filled : mapping.outline;
+          const IconComponent = isActive ? mapping.filled : mapping.outline;
 
           return (
             <button
               key={action.title}
+              className={`qa-chip${isActive ? ' is-active' : ''}`}
               type="button"
               onClick={() => !isLoading && onCardClick(action)}
               disabled={isLoading && !isSelected}
-              onMouseEnter={() => setHoveredAction(action.title)}
-              onMouseLeave={() => setHoveredAction(null)}
               style={{
                 display: 'flex',
                 alignItems: 'center',
                 gap: isCompact ? 0 : 5,
                 padding: isCompact ? '3px 6px' : '3px 8px',
-                background: isActive 
+                background: isActive
                   ? (isDarkMode
                     ? 'linear-gradient(0deg, rgba(54, 144, 206, 0.12), rgba(54, 144, 206, 0.12)), #061733'
                     : `${interactiveAccent}${isDarkMode ? '1A' : '10'}`)
-                  : isHovered 
-                    ? (isDarkMode
-                      ? 'linear-gradient(0deg, rgba(54, 144, 206, 0.08), rgba(54, 144, 206, 0.08)), #061733'
-                      : interactiveHoverBg)
-                    : isDarkMode ? colours.darkBlue : 'transparent',
-                border: isDarkMode ? `0.5px solid rgba(54, 144, 206, ${isHovered || isActive ? '0.35' : '0.18'})` : `0.5px solid ${isHovered ? 'rgba(0,0,0,0.09)' : 'rgba(0,0,0,0.06)'}`,
+                  : isDarkMode ? colours.darkBlue : 'transparent',
+                border: isDarkMode
+                  ? `0.5px solid rgba(54, 144, 206, ${isActive ? '0.35' : '0.18'})`
+                  : `0.5px solid ${isActive ? 'rgba(0,0,0,0.09)' : 'rgba(0,0,0,0.06)'}`,
                 borderLeft: `2px solid ${isActive ? interactiveAccent : (isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.25)')}`,
                 borderRadius: 2,
                 color: isActive ? interactiveAccent : textPrimary,
@@ -371,13 +362,21 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
                 whiteSpace: 'nowrap',
                 flexShrink: 0,
                 animation: isCompact ? 'none' : (expanded ? `fadeInChip 0.2s ease ${index * 0.03}s both` : 'none'),
-              }}
+                ['--qa-chip-hover-bg' as string]: isDarkMode
+                  ? 'linear-gradient(0deg, rgba(54, 144, 206, 0.08), rgba(54, 144, 206, 0.08)), #061733'
+                  : interactiveHoverBg,
+                ['--qa-chip-hover-border' as string]: isDarkMode
+                  ? '0.5px solid rgba(54, 144, 206, 0.35)'
+                  : '0.5px solid rgba(0,0,0,0.09)',
+                ['--qa-chip-hover-text' as string]: textPrimary,
+                ['--qa-chip-hover-icon' as string]: textPrimary,
+              } as React.CSSProperties}
               title={getShortTitle(action.title)}
             >
               <IconComponent
+                className="qa-chip-icon"
                 style={{
                   fontSize: 10,
-                  color: isActive ? interactiveAccent : isHovered ? textPrimary : textSecondary,
                   transition: 'color 0.2s ease',
                 }}
               />
@@ -565,6 +564,17 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
         @keyframes qaIconDropIn {
           from { opacity: 0; }
           to { opacity: 1; }
+        }
+        .qa-chip:hover:not(:disabled) {
+          background: var(--qa-chip-hover-bg) !important;
+          border: var(--qa-chip-hover-border) !important;
+          color: var(--qa-chip-hover-text) !important;
+        }
+        .qa-chip:hover:not(:disabled) .qa-chip-icon {
+          color: var(--qa-chip-hover-icon) !important;
+        }
+        .qa-chip.is-active .qa-chip-icon {
+          color: ${interactiveAccent} !important;
         }
         /* JS ResizeObserver handles compact via .qa-compact class.
            CSS media queries stay as a pre-paint fallback. */

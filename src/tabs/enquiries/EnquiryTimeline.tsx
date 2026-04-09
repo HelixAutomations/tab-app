@@ -19,6 +19,13 @@ import ProspectHeroHeader from './components/ProspectHeroHeader';
 import { WorkbenchJourneyRail } from '../../components/workbench/WorkbenchJourneyRail';
 import PortalLaunchModal from '../../components/portal/PortalLaunchModal';
 import { buildPortalLaunchModel } from '../../utils/portalLaunch';
+import { deriveWorkbenchStageStatuses } from '../../utils/workbenchStatusDerivation';
+import type {
+  WorkbenchContextStage,
+  WorkbenchItem,
+  WorkbenchJourneyStatus,
+  WorkbenchTab,
+} from '../../utils/workbenchTypes';
 import './styles/ProspectOverview.css';
 
 // Add spinner animation
@@ -737,7 +744,7 @@ interface EnquiryTimelineProps {
   allEnquiries?: Enquiry[];
   onSelectEnquiry?: (enquiry: Enquiry) => void;
   /** Pre-fetched instruction workbench item for this enquiry (from parent instructionData) */
-  inlineWorkbenchItem?: any;
+  inlineWorkbenchItem?: WorkbenchItem;
   /** Team data for solicitor dropdowns in matter opening */
   teamData?: TeamData[] | null;
   workbenchHandlers?: {
@@ -843,8 +850,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
   const [showPitchConfirm, setShowPitchConfirm] = useState(false);
   const [selectedScenario, setSelectedScenario] = useState<string | null>(null);
   const [isWorkbenchCollapsed, setIsWorkbenchCollapsed] = useState<boolean>(false);
-  type WorkbenchTabKey = 'details' | 'identity' | 'payment' | 'risk' | 'matter' | 'documents' | 'pitch';
-  type ContextStageKey = 'enquiry' | 'instructed';
+  type WorkbenchTabKey = WorkbenchTab;
+  type ContextStageKey = WorkbenchContextStage;
   const [selectedWorkbenchTab, setSelectedWorkbenchTab] = useState<WorkbenchTabKey>(
     (initialWorkbenchTab as WorkbenchTabKey) || 'details'
   );
@@ -3950,8 +3957,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
     }
     
     // 4. PAYMENT ITEMS - from payments array (each payment is a separate item)
-    const payments = Array.isArray(inlineWorkbenchItem?.payments) ? inlineWorkbenchItem.payments : 
-                     Array.isArray(instruction?.payments) ? instruction.payments : [];
+    const payments = Array.isArray(inlineWorkbenchItem?.payments) ? inlineWorkbenchItem?.payments ?? [] : 
+             Array.isArray(instruction?.payments) ? instruction?.payments ?? [] : [];
     payments.forEach((payment: any, index: number) => {
       const paymentDate = payment.created_at || payment.CreatedAt || payment.PaymentDate || payment.paymentDate;
       const paymentStatus = payment.payment_status || payment.PaymentStatus || payment.status || 'pending';
@@ -4049,7 +4056,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
     }
     
     // 6. MATTER ITEMS - from matters array
-    const matters = Array.isArray(inlineWorkbenchItem?.matters) ? inlineWorkbenchItem.matters : [];
+    const matters = Array.isArray(inlineWorkbenchItem?.matters) ? inlineWorkbenchItem?.matters ?? [] : [];
     matters.forEach((matter: any, index: number) => {
       const matterDate = matter.OpenDate || matter.openDate || matter['Open Date'] || matter.CreatedAt || matter.createdAt;
       const displayNumber = matter['Display Number'] || matter.DisplayNumber || matter.displayNumber || matter.MatterRef || '';
@@ -5080,7 +5087,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         <div className={`prospect-pipeline-rail prospect-detail-rail prospect-detail-stage-bar-tabs ${isCompactPipelineMode ? 'is-compact' : ''}`}>
           {(() => {
               // Determine stage statuses from inlineWorkbenchItem
-              const hasPitch = pitchCount > 0 || stageItemsState.some((item) => item.type === 'pitch');
+              const hasPitch = pitchCount > 0;
               const instruction = inlineWorkbenchItem?.instruction;
               const instructionRef = instruction?.InstructionRef || instruction?.instructionRef || '';
               const instructionStage = (instruction?.Stage || instruction?.stage || '').toLowerCase();
@@ -5089,11 +5096,11 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               const hasInstruction = Boolean(instructionRef) && (Boolean(instructedDate) || !isShellInstruction);
               const hasInstructionActivity = Boolean(instructionRef);
               const stageStatuses = inlineWorkbenchItem?.stageStatuses;
-              const payments = Array.isArray(inlineWorkbenchItem?.payments) ? inlineWorkbenchItem.payments : [];
+              const payments = Array.isArray(inlineWorkbenchItem?.payments) ? inlineWorkbenchItem?.payments ?? [] : [];
               const risk = inlineWorkbenchItem?.risk;
               const eid = inlineWorkbenchItem?.eid;
-              const matters = Array.isArray(inlineWorkbenchItem?.matters) ? inlineWorkbenchItem.matters : [];
-              const documents = Array.isArray(inlineWorkbenchItem?.documents) ? inlineWorkbenchItem.documents : [];
+              const matters = Array.isArray(inlineWorkbenchItem?.matters) ? inlineWorkbenchItem?.matters ?? [] : [];
+              const documents = Array.isArray(inlineWorkbenchItem?.documents) ? inlineWorkbenchItem?.documents ?? [] : [];
 
               const eidResult = eid?.EIDOverallResult || instruction?.EIDOverallResult || '';
               const eidStatusValue = (eid?.EIDStatus || instruction?.EIDStatus || '').toLowerCase();
@@ -5150,17 +5157,21 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 pocRaw !== 'unknown' && 
                 pocRaw !== 'n/a';
 
-              const identityStatus = stageStatuses?.id || (
-                eidStatus === 'verified' || eidStatus === 'completed' || eidStatus === 'skipped' 
-                  ? 'complete' 
-                  : eidStatus === 'failed' || eidStatus === 'review' 
-                  ? 'review' 
-                  : 'pending'
-              );
-              const paymentStatus = stageStatuses?.payment || (hasSuccessfulPayment ? 'complete' : hasFailedPayment ? 'review' : 'pending');
-              const riskStatus = stageStatuses?.risk || (riskComplete ? ((isHighRisk || isMediumRisk) ? 'review' : 'complete') : 'pending');
-              const matterStageStatus = stageStatuses?.matter || (hasMatter ? 'complete' : 'pending');
-              const documentStatus = stageStatuses?.documents || (hasDocs ? 'complete' : 'neutral');
+              const derivedStageStatuses = deriveWorkbenchStageStatuses({
+                instruction,
+                payments,
+                risk,
+                eid,
+                matters,
+                documents,
+                stageStatuses,
+              }, { mediumRiskStatus: 'warning' });
+
+              const identityStatus = derivedStageStatuses.id;
+              const paymentStatus = derivedStageStatuses.payment;
+              const riskStatus = derivedStageStatuses.risk;
+              const matterStageStatus = derivedStageStatuses.matter;
+              const documentStatus = derivedStageStatuses.documents;
               
               // Get dates for completed stages
               const enquiryDate = enquiry?.Date_Created ? new Date(enquiry.Date_Created) : null;
@@ -5197,7 +5208,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 label: string;
                 shortLabel: string;
                 icon: React.ReactNode;
-                status: 'complete' | 'current' | 'review' | 'pending' | 'processing' | 'neutral' | 'disabled';
+                status: WorkbenchJourneyStatus;
                 date: Date | null;
                 detail?: string;
               }> = [
@@ -5273,10 +5284,11 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 const isCompleted = stage.status === 'complete';
                 const isCurrent = stage.status === 'current';
                 const isDisabled = stage.status === 'disabled';
-                const hasIssue = stage.status === 'review';
+                const hasIssue = stage.status === 'review' || stage.status === 'warning';
 
                 // Status text colors for inactive state
                 const statusColor = isCompleted ? colours.green 
+                  : stage.status === 'warning' ? colours.orange
                   : hasIssue ? colours.cta 
                   : isCurrent ? colours.highlight 
                   : (isDarkMode ? colours.subtleGrey : colours.greyText);

@@ -15,10 +15,11 @@ import { Matter, UserData, Enquiry, Tab, TeamData, POID, Transaction, BoardroomB
 import { hasActiveMatterOpening } from './functionality/matterOpeningUtils';
 import { normalizeMatterData } from '../utils/matterNormalization';
 import { getProxyBaseUrl } from '../utils/getProxyBaseUrl';
-import { ADMIN_USERS, isAdminUser, canSeePrivateHubControls } from './admin';
+import { ADMIN_USERS, isAdminUser, canSeePrivateHubControls, canSeeActivityTab } from './admin';
 import HubToolsChip from '../components/HubToolsChip';
 import MaintenanceNotice from './MaintenanceNotice';
 import { useServiceHealthMonitor } from './functionality/useServiceHealthMonitor';
+import actionLog from '../utils/actionLog';
 
 const proxyBaseUrl = getProxyBaseUrl();
 
@@ -137,6 +138,22 @@ type ReportingNavigationView = 'logMonitor' | 'dataCentre';
 interface ReportingNavigationRequest {
   view: ReportingNavigationView;
   requestedAt: number;
+}
+
+/** Fast shallow equality check for instruction arrays — avoids expensive workbench rebuild when data hasn't changed. */
+function instructionDataEqual(a: InstructionData[], b: InstructionData[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].prospectId !== b[i].prospectId) return false;
+    const aInst = a[i].instructions ?? [];
+    const bInst = b[i].instructions ?? [];
+    if (aInst.length !== bInst.length) return false;
+    for (let j = 0; j < aInst.length; j++) {
+      if ((aInst[j] as any)?.InstructionRef !== (bInst[j] as any)?.InstructionRef) return false;
+      if ((aInst[j] as any)?.Stage !== (bInst[j] as any)?.Stage) return false;
+    }
+  }
+  return true;
 }
 
 const App: React.FC<AppProps> = ({
@@ -324,8 +341,16 @@ const App: React.FC<AppProps> = ({
   const mattersHydrationRequestedForUserRef = React.useRef<string | null>(null);
   // Scroll position map for keep-alive tabs
   const tabScrollPositions = React.useRef<Record<string, number>>({});
-  // Scroll-driven collapse for ImmediateActionsBar
-  const [actionsHidden, setActionsHidden] = React.useState(false);
+  // Threshold-based collapse for Navigator + ImmediateActionsBar.
+  // Bars stay structurally intact until a scroll threshold, then collapse
+  // as a whole unit via CSS transition — no proportional squishing.
+  const navigatorChromeRef = React.useRef<HTMLDivElement | null>(null);
+  const immediateActionsPortalRef = React.useRef<HTMLDivElement | null>(null);
+  const chromeCollapsedRef = React.useRef(false);
+  const navigatorOpenHeightRef = React.useRef(0);
+  const immediateActionsOpenHeightRef = React.useRef(0);
+  const [navigatorOpenHeight, setNavigatorOpenHeight] = React.useState(0);
+  const [immediateActionsOpenHeight, setImmediateActionsOpenHeight] = React.useState(0);
   const currentUser = userData?.[0] || null;
   const useLocalData = useMemo(() => {
     if (process.env.REACT_APP_USE_LOCAL_DATA === 'true') {
@@ -347,7 +372,7 @@ const App: React.FC<AppProps> = ({
     () => ({ ...(featureToggles || {}), viewAsProd: false }),
     [featureToggles]
   );
-  const showRoadmapTab = isLocalDev && !isProductionPreview;
+  const showActivityTab = canSeeActivityTab(currentUser, isLocalDev) && !isProductionPreview;
   const matterSeedUserName = useMemo(() => {
     const user = userData?.[0];
     if (!user) {
@@ -375,6 +400,11 @@ const App: React.FC<AppProps> = ({
     );
   }, [matters, allMattersFromHome, matterSeedUserName]);
   const hasSeededMattersForTab = seededMattersForTab.length > 0;
+
+  // Stable empty-array fallback for Instructions matters prop
+  const mattersForInstructions = useMemo<Matter[]>(() => allMattersFromHome || [], [allMattersFromHome]);
+  // Stable enquiries prop for Matters — prefer team-wide if available
+  const enquiriesForMatters = useMemo(() => (teamWideEnquiries && teamWideEnquiries.length > 0) ? teamWideEnquiries : enquiries, [teamWideEnquiries, enquiries]);
 
   useEffect(() => {
     try {
@@ -566,23 +596,23 @@ const App: React.FC<AppProps> = ({
   }, [isInMatterOpeningWorkflow]);
 
   // Modal handlers with mutual exclusivity
-  const openFormsModal = () => {
+  const openFormsModal = useCallback(() => {
     setIsResourcesModalOpen(false);
     setIsFormsModalOpen(true);
-  };
+  }, []);
 
-  const openResourcesModal = () => {
+  const openResourcesModal = useCallback(() => {
     setIsFormsModalOpen(false);
     setIsResourcesModalOpen(true);
-  };
+  }, []);
 
-  const closeFormsModal = () => {
+  const closeFormsModal = useCallback(() => {
     setIsFormsModalOpen(false);
-  };
+  }, []);
 
-  const closeResourcesModal = () => {
+  const closeResourcesModal = useCallback(() => {
     setIsResourcesModalOpen(false);
-  };
+  }, []);
 
   // Open modals when tabs are selected
   useEffect(() => {
@@ -616,17 +646,14 @@ const App: React.FC<AppProps> = ({
 
     let cancelled = false;
     const warmNavigationChunks = () => {
-      if (cancelled) return;
+      if (cancelled || document.hidden) return;
       void loadEnquiriesTab();
-      void loadInstructionsTab();
-      void loadMattersTab();
-      void loadReportingTab();
     };
 
     if ('requestIdleCallback' in window) {
       const idleId = (window as typeof window & {
         requestIdleCallback: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
-      }).requestIdleCallback(() => warmNavigationChunks(), { timeout: 600 });
+      }).requestIdleCallback(() => warmNavigationChunks(), { timeout: 1800 });
 
       return () => {
         cancelled = true;
@@ -636,41 +663,186 @@ const App: React.FC<AppProps> = ({
       };
     }
 
-    const timer = globalThis.setTimeout(() => warmNavigationChunks(), 350);
+    const timer = globalThis.setTimeout(() => warmNavigationChunks(), 1800);
     return () => {
       cancelled = true;
       globalThis.clearTimeout(timer);
     };
   }, [isLocalDev, teamsContext, userData]);
 
+  useLayoutEffect(() => {
+    const navigatorNode = navigatorChromeRef.current;
+    const actionsNode = immediateActionsPortalRef.current;
+    if (!navigatorNode && !actionsNode) return;
+
+    const measure = () => {
+      const nextNavigatorOpenHeight = navigatorNode
+        ? Math.ceil(navigatorNode.scrollHeight)
+        : 0;
+      const nextImmediateActionsOpenHeight = actionsNode
+        ? Math.ceil(actionsNode.scrollHeight)
+        : 0;
+
+      navigatorOpenHeightRef.current = nextNavigatorOpenHeight;
+      immediateActionsOpenHeightRef.current = nextImmediateActionsOpenHeight;
+
+      setNavigatorOpenHeight((currentHeight) => (
+        currentHeight === nextNavigatorOpenHeight ? currentHeight : nextNavigatorOpenHeight
+      ));
+      setImmediateActionsOpenHeight((currentHeight) => (
+        currentHeight === nextImmediateActionsOpenHeight ? currentHeight : nextImmediateActionsOpenHeight
+      ));
+    };
+
+    measure();
+
+    const observer = new ResizeObserver(() => measure());
+    if (navigatorNode) observer.observe(navigatorNode);
+    if (actionsNode) observer.observe(actionsNode);
+
+    return () => observer.disconnect();
+  }, [activeTab, hasImmediateActions]);
+
+  const shouldChromeCollapse = React.useCallback((scrollTop: number): boolean => {
+    if (activeTab !== 'home') return false;
+    const hideThreshold = 50;
+    const showThreshold = 20;
+    if (scrollTop >= hideThreshold) return true;
+    if (scrollTop <= showThreshold) return false;
+    // Hysteresis zone — maintain current state
+    return chromeCollapsedRef.current;
+  }, [activeTab]);
+
+  const applyHomeChromeCollapse = React.useCallback((collapsed: boolean) => {
+    const navigatorNode = navigatorChromeRef.current;
+    const actionsNode = immediateActionsPortalRef.current;
+
+    // Smooth 0.3s transition gives the bars a deliberate, "decided" collapse
+    const transitionValue = 'height 0.3s ease, max-height 0.3s ease, opacity 0.28s ease, transform 0.3s ease';
+    const tabSwitchTransition = 'height 0.22s ease, max-height 0.22s ease, opacity 0.22s ease, transform 0.22s ease';
+
+    const clearNodeStyles = (node: HTMLDivElement) => {
+      node.style.height = '';
+      node.style.maxHeight = '';
+      node.style.opacity = '';
+      node.style.transform = '';
+      node.style.pointerEvents = '';
+      node.style.transition = '';
+      node.style.willChange = '';
+      node.style.overflow = '';
+    };
+
+    const collapseNode = (node: HTMLDivElement, transition: string) => {
+      node.style.height = '0px';
+      node.style.maxHeight = '0px';
+      node.style.opacity = '0';
+      node.style.transform = 'translateY(-6px)';
+      node.style.pointerEvents = 'none';
+      node.style.overflow = 'hidden';
+      node.style.transition = transition;
+      node.style.willChange = '';
+    };
+
+    const expandNode = (node: HTMLDivElement, openHeight: number, transition: string) => {
+      node.style.height = openHeight > 0 ? `${openHeight}px` : '';
+      node.style.maxHeight = openHeight > 0 ? `${openHeight}px` : '';
+      node.style.opacity = '1';
+      node.style.transform = '';
+      node.style.pointerEvents = '';
+      node.style.overflow = openHeight > 0 ? 'hidden' : '';
+      node.style.transition = transition;
+      node.style.willChange = '';
+    };
+
+    if (navigatorNode) {
+      if (activeTab === 'enquiries') {
+        // Enquiries injects FilterBanner / NavigatorDetailBar — keep navigator visible
+        clearNodeStyles(navigatorNode);
+      } else if (activeTab !== 'home') {
+        collapseNode(navigatorNode, tabSwitchTransition);
+      } else if (collapsed) {
+        collapseNode(navigatorNode, transitionValue);
+      } else {
+        expandNode(navigatorNode, navigatorOpenHeightRef.current, transitionValue);
+      }
+    }
+
+    if (actionsNode) {
+      if (activeTab !== 'home') {
+        collapseNode(actionsNode, tabSwitchTransition);
+      } else if (collapsed) {
+        collapseNode(actionsNode, transitionValue);
+      } else {
+        expandNode(actionsNode, immediateActionsOpenHeightRef.current, transitionValue);
+      }
+    }
+
+    if (activeTab === 'home') {
+      chromeCollapsedRef.current = collapsed;
+    }
+  }, [activeTab]);
+
+  useLayoutEffect(() => {
+    // Tab switch or height change — apply correct state
+    const scrollRegion = document.querySelector('.app-scroll-region') as HTMLElement | null;
+    const collapsed = shouldChromeCollapse(scrollRegion?.scrollTop ?? 0);
+    applyHomeChromeCollapse(collapsed);
+  }, [applyHomeChromeCollapse, shouldChromeCollapse, navigatorOpenHeight, immediateActionsOpenHeight]);
+
   // Save scroll position for the active tab continuously + collapse ImmediateActions on scroll
   useEffect(() => {
     const scrollRegion = document.querySelector('.app-scroll-region') as HTMLElement | null;
     if (!scrollRegion) return;
-    let ticking = false;
-    const handleScroll = () => {
-      tabScrollPositions.current[activeTab] = scrollRegion.scrollTop;
-      if (!ticking) {
-        ticking = true;
-        requestAnimationFrame(() => {
-          const scrollY = scrollRegion.scrollTop;
-          setActionsHidden(activeTab === 'home' && scrollY > 30);
-          ticking = false;
-        });
+
+    let frameId: number | null = null;
+
+    const syncHomeChromeToScroll = () => {
+      frameId = null;
+
+      const scrollTop = scrollRegion.scrollTop;
+      tabScrollPositions.current[activeTab] = scrollTop;
+
+      if (activeTab !== 'home') {
+        applyHomeChromeCollapse(false);
+        return;
+      }
+
+      const nextCollapsed = shouldChromeCollapse(scrollTop);
+      if (nextCollapsed !== chromeCollapsedRef.current) {
+        applyHomeChromeCollapse(nextCollapsed);
       }
     };
+
+    const handleScroll = () => {
+      if (frameId == null) {
+        frameId = requestAnimationFrame(syncHomeChromeToScroll);
+      }
+    };
+
     // Reset on tab switch
-    if (activeTab !== 'home') setActionsHidden(false);
+    if (activeTab !== 'home') {
+      applyHomeChromeCollapse(false);
+    } else {
+      handleScroll();
+    }
+
     scrollRegion.addEventListener('scroll', handleScroll, { passive: true });
-    return () => scrollRegion.removeEventListener('scroll', handleScroll);
-  }, [activeTab]);
+    return () => {
+      scrollRegion.removeEventListener('scroll', handleScroll);
+      if (frameId != null) {
+        cancelAnimationFrame(frameId);
+      }
+    };
+  }, [activeTab, applyHomeChromeCollapse, shouldChromeCollapse]);
 
   // Restore scroll position when switching tabs (synchronous to prevent flash)
   useLayoutEffect(() => {
     const scrollRegion = document.querySelector('.app-scroll-region') as HTMLElement | null;
     if (!scrollRegion) return;
     scrollRegion.scrollTop = tabScrollPositions.current[activeTab] || 0;
-  }, [activeTab]);
+    const collapsed = shouldChromeCollapse(scrollRegion.scrollTop);
+    applyHomeChromeCollapse(collapsed);
+  }, [activeTab, navigatorOpenHeight, immediateActionsOpenHeight, applyHomeChromeCollapse, shouldChromeCollapse]);
 
   useEffect(() => {
     mattersHydrationRequestedForUserRef.current = null;
@@ -693,15 +865,20 @@ const App: React.FC<AppProps> = ({
     if (shouldBlockOnHydration) {
       setIsHydratingMattersOnDemand(true);
     }
+    actionLog.start('Matters hydration');
     Promise.resolve(onRefreshMatters())
       .catch(() => {
         if (!cancelled) {
           mattersHydrationRequestedForUserRef.current = null;
+          actionLog.warn('Matters hydration failed');
         }
       })
       .finally(() => {
-        if (!cancelled && shouldBlockOnHydration) {
-          setIsHydratingMattersOnDemand(false);
+        if (!cancelled) {
+          actionLog.end('Matters hydration');
+          if (shouldBlockOnHydration) {
+            setIsHydratingMattersOnDemand(false);
+          }
         }
       });
 
@@ -721,9 +898,9 @@ const App: React.FC<AppProps> = ({
     setPendingShowCcl(false);
   }, []);
 
-  const handleAllMattersFetched = (fetchedMatters: Matter[]) => {
+  const handleAllMattersFetched = useCallback((fetchedMatters: Matter[]) => {
     setAllMattersFromHome(fetchedMatters);
-  };
+  }, []);
 
   const warmMattersTab = useCallback(() => {
     void loadMattersTab();
@@ -752,21 +929,27 @@ const App: React.FC<AppProps> = ({
     }
   }, [warmMattersTab]);
 
-  const handleOutstandingBalancesFetched = (data: any) => {
+  const handleOutstandingBalancesFetched = useCallback((data: any) => {
     setOutstandingBalances(data);
-  };
+  }, []);
 
-  const handleTransactionsFetched = (fetchedTransactions: Transaction[]) => {
+  const handleTransactionsFetched = useCallback((fetchedTransactions: Transaction[]) => {
     setTransactions(fetchedTransactions);
-  };
+  }, []);
 
-  const handleBoardroomBookingsFetched = (data: BoardroomBooking[]) => {
+  const handleBoardroomBookingsFetched = useCallback((data: BoardroomBooking[]) => {
     setBoardroomBookings(data);
-  };
+  }, []);
 
-  const handleSoundproofBookingsFetched = (data: SoundproofPodBooking[]) => {
+  const handleSoundproofBookingsFetched = useCallback((data: SoundproofPodBooking[]) => {
     setSoundproofBookings(data);
-  };
+  }, []);
+
+  const handleNavigationRequestHandled = useCallback((requestedAt: number) => {
+    setReportingNavigationRequest((current) => (
+      current && current.requestedAt === requestedAt ? null : current
+    ));
+  }, []);
 
   const handleFormsTabClick = () => {
     if (isFormsModalOpen) {
@@ -823,16 +1006,20 @@ const App: React.FC<AppProps> = ({
   // Listen for navigation events from child components
   useEffect(() => {
     const handleNavigateToInstructions = () => {
+      actionLog('Navigate → enquiries', 'via navigateToInstructions');
       setActiveTab('enquiries');
     };
     const handleNavigateToEnquiries = () => {
+      actionLog('Navigate → enquiries');
       setActiveTab('enquiries');
     };
     const handleNavigateToHome = () => {
+      actionLog('Navigate → home');
       setActiveTab('home');
     };
     const handleNavigateToEnquiry = (e: Event) => {
       const detail = (e as CustomEvent).detail;
+      actionLog('Navigate → enquiry', detail?.enquiryId ? `#${detail.enquiryId}` : undefined);
       if (detail?.enquiryId) {
         setPendingEnquiryId(String(detail.enquiryId));
         if (detail.subTab) setPendingEnquirySubTab(detail.subTab);
@@ -846,6 +1033,7 @@ const App: React.FC<AppProps> = ({
     const handleNavigateToReporting = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       const requestedView = detail?.view;
+      actionLog('Navigate → reporting', requestedView || undefined);
       if (requestedView === 'logMonitor' || requestedView === 'dataCentre') {
         setReportingNavigationRequest({
           view: requestedView,
@@ -856,6 +1044,7 @@ const App: React.FC<AppProps> = ({
     };
     const handleNavigateToMatter = (e: Event) => {
       const detail = (e as CustomEvent).detail;
+      actionLog('Navigate → matter', detail?.matterId || undefined);
       warmMattersTab();
       if (detail?.matterId) {
         setPendingMatterId(detail.matterId);
@@ -972,6 +1161,13 @@ const App: React.FC<AppProps> = ({
   // Determine the current user's initials
   const userInitials = userData?.[0]?.Initials?.toUpperCase() || '';
 
+  // Ref-based guard: track whether instruction data has been fetched to avoid re-triggering the effect
+  const instructionDataFetchedRef = React.useRef(false);
+  // Reset the ref when the refresh trigger increments (user explicitly requested re-fetch)
+  React.useEffect(() => {
+    instructionDataFetchedRef.current = false;
+  }, [instructionRefreshTrigger]);
+
   // Fetch instruction data when Instructions or Enquiries tab is active.
   // Enquiries needs workbench data (instruction/EID/payment/risk/matter) for pipeline chips.
   useEffect(() => {
@@ -981,12 +1177,13 @@ const App: React.FC<AppProps> = ({
       return;
     }
 
-    // Skip fetch if data already loaded
-    if (instructionData.length > 0 || allInstructionData.length > 0) {
+    // Skip fetch if data already loaded (ref-based to avoid re-trigger on state change)
+    if (instructionDataFetchedRef.current) {
       return;
     }
 
     async function fetchInstructionData() {
+      actionLog.start('Instructions fetch');
       const pilotUsers = ["AC", "JW", "KW", "BL", "LZ"];
       // Use the actual user's initials for filtering, not LZ's
       const targetInitials = userInitials;
@@ -1021,6 +1218,7 @@ const App: React.FC<AppProps> = ({
         setInstructionData(instructionsWithIdVerifications);
         // Populate allInstructionData for all users to support Mine/All toggle
         setAllInstructionData(instructionsWithIdVerifications);
+        instructionDataFetchedRef.current = true;
         return;
       }
 
@@ -1120,7 +1318,7 @@ const App: React.FC<AppProps> = ({
         });
 
         // Set filtered data for the user's personal view
-        setInstructionData(userFilteredData);
+        setInstructionData(prev => instructionDataEqual(prev, userFilteredData) ? prev : userFilteredData);
         
         // Debug: Check what was actually set
 
@@ -1135,11 +1333,13 @@ const App: React.FC<AppProps> = ({
 
         
         // Populate allInstructionData for all users to support Mine/All toggle
-        setAllInstructionData(transformedData);
-        
+        setAllInstructionData(prev => instructionDataEqual(prev, transformedData) ? prev : transformedData);
+        instructionDataFetchedRef.current = true;
+        actionLog.end('Instructions fetch', `${transformedData.length} items`);
 
 
       } catch (err) {
+        actionLog.warn('Instructions fetch failed', String(err));
         console.error("❌ Error fetching instruction data from unified endpoint:", err);
         
         // Fallback: try the legacy endpoint as backup
@@ -1155,7 +1355,7 @@ const App: React.FC<AppProps> = ({
               const all = Array.isArray(data) ? data : [data];
               
               // Populate allInstructionData for all users to support Mine/All toggle
-              setAllInstructionData(all);
+              setAllInstructionData(prev => instructionDataEqual(prev, all) ? prev : all);
               
               const filtered = all.reduce<InstructionData[]>((acc, prospect) => {
                 const instructions = (prospect.instructions ?? []).filter(
@@ -1176,6 +1376,7 @@ const App: React.FC<AppProps> = ({
                 return acc;
               }, []);
               setInstructionData(filtered);
+              instructionDataFetchedRef.current = true;
 
             } else {
               console.error("Failed to fetch instructions from legacy endpoint");
@@ -1192,7 +1393,7 @@ const App: React.FC<AppProps> = ({
     if (userInitials) {
       fetchInstructionData();
     }
-  }, [activeTab, userInitials, userData, instructionData.length, allInstructionData.length, instructionRefreshTrigger, useLocalData]);
+  }, [activeTab, userInitials, userData, instructionRefreshTrigger, useLocalData]);
 
   // Tabs visible to all users start with the Enquiries tab.
   // Only show the Reports tab to admins.
@@ -1205,10 +1406,10 @@ const App: React.FC<AppProps> = ({
       { key: 'matters', text: 'Matters' },
       { key: 'forms', text: 'Forms', disabled: true },
       { key: 'resources', text: 'Resources', disabled: true },
-      ...(showRoadmapTab ? [{ key: 'roadmap', text: 'Roadmap' }] : []),
+      ...(showActivityTab ? [{ key: 'roadmap', text: 'Activity' }] : []),
       ...(showReportsTab ? [{ key: 'reporting', text: 'Reports' }] : []),
     ];
-  }, [currentUser, showRoadmapTab]);
+  }, [currentUser, showActivityTab]);
 
   // Ensure the active tab is still valid when tabs change (e.g., when switching users)
   // If current tab is no longer available, redirect to home instead of breaking navigation
@@ -1252,9 +1453,9 @@ const App: React.FC<AppProps> = ({
         >
           <CustomTabs
             selectedKey={activeTab}
-            onTabSelect={(key) => setActiveTab(key)}
+            onTabSelect={(key) => { actionLog(`Tab → ${key}`); setActiveTab(key); }}
             onTabWarm={warmTabByKey}
-            onHomeClick={() => setActiveTab('home')}
+            onHomeClick={() => { actionLog('Tab → home'); setActiveTab('home'); }}
             tabs={tabs}
             ariaLabel="Main Navigation Tabs"
             user={userData?.[0]}
@@ -1290,14 +1491,10 @@ const App: React.FC<AppProps> = ({
           <style>{`@keyframes helix-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }`}</style>
           {/* Navigator + Immediate Actions — scroll-driven collapse on home tab */}
           <div
+            ref={navigatorChromeRef}
             className="app-navigator"
             style={{
               overflow: 'hidden',
-              maxHeight: (activeTab === 'home' && actionsHidden) ? 0 : 200,
-              opacity: (activeTab === 'home' && actionsHidden) ? 0 : 1,
-              transition: 'opacity 180ms ease, max-height 220ms ease',
-              transitionDelay: (activeTab === 'home' && actionsHidden) ? '0ms' : '120ms',
-              pointerEvents: (activeTab === 'home' && actionsHidden) ? 'none' : undefined,
             } as React.CSSProperties}
           >
             <Navigator />
@@ -1305,22 +1502,18 @@ const App: React.FC<AppProps> = ({
           
           {/* App-level Immediate Actions Bar — always mounted, scroll-driven collapse */}
           <div
+            ref={immediateActionsPortalRef}
             id="app-level-immediate-actions"
             className="immediate-actions-portal"
             style={{
               position: 'relative',
               zIndex: 1,
               width: '100%',
-              minHeight: (activeTab === 'home' && !actionsHidden) ? 56 : 0,
-              maxHeight: (activeTab === 'home' && !actionsHidden) ? 200 : 0,
+              minHeight: 0,
               minWidth: 0,
               boxSizing: 'border-box',
               color: 'inherit',
               overflow: 'hidden',
-              opacity: (activeTab === 'home' && !actionsHidden) ? 1 : 0,
-              pointerEvents: (activeTab === 'home' && !actionsHidden) ? undefined : 'none',
-              transition: 'opacity 180ms ease, max-height 220ms ease, min-height 220ms ease',
-              transitionDelay: (activeTab === 'home' && actionsHidden) ? '120ms' : '0ms',
             } as React.CSSProperties}
           />
 
@@ -1441,7 +1634,7 @@ const App: React.FC<AppProps> = ({
                     userData={userData}
                     isActive={activeTab === 'matters'}
                     teamData={teamData}
-                    enquiries={(teamWideEnquiries && teamWideEnquiries.length > 0) ? teamWideEnquiries : enquiries}
+                    enquiries={enquiriesForMatters}
                     workbenchByInstructionRef={workbenchByInstructionRef}
                     pendingMatterId={pendingMatterId}
                     pendingShowCcl={pendingShowCcl}
@@ -1462,7 +1655,7 @@ const App: React.FC<AppProps> = ({
                     allInstructionData={allInstructionData}
                     teamData={teamData}
                     userData={userData}
-                    matters={allMattersFromHome || []}
+                    matters={mattersForInstructions}
                     hasActiveMatter={hasActiveMatter}
                     setIsInMatterOpeningWorkflow={setIsInMatterOpeningWorkflow}
                     poidData={poidData}
@@ -1483,24 +1676,20 @@ const App: React.FC<AppProps> = ({
                   demoModeEnabled={demoModeEnabled}
                   featureToggles={featureToggles}
                   navigationRequest={reportingNavigationRequest}
-                  onNavigationRequestHandled={(requestedAt) => {
-                    setReportingNavigationRequest((current) => (
-                      current && current.requestedAt === requestedAt ? null : current
-                    ));
-                  }}
+                  onNavigationRequestHandled={handleNavigationRequestHandled}
                 />
               </Suspense>
             )}
             {activeTab === 'roadmap' && (
               <Suspense fallback={<ThemedSuspenseFallback />}>
-                <Roadmap userData={userData} />
+                <Roadmap userData={userData} showBootMonitor={isLocalDev && !isProductionPreview} />
               </Suspense>
             )}
             </>
             )}
           </div>
         </div>
-        {dataReady && (isLocalDev || canSeePrivateHubControls(userData[0] || null)) && (
+        {dataReady && (isLocalDev || canSeePrivateHubControls(userData[0] || null) || canSeePrivateHubControls(originalAdminUser || null)) && (
           <HubToolsChip
             user={userData[0] || { First: 'Local', Last: 'Dev', Initials: 'LD', AOW: 'Commercial, Construction, Property, Employment, Misc/Other', Email: 'local@dev.com' }}
             isLocalDev={isLocalDev}

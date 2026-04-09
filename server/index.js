@@ -62,44 +62,55 @@ async function buildConnectionString({ server, database, user, secretName }) {
 }
 
 async function hydrateSqlConnectionStringsFromKeyVault() {
-    const coreConn = process.env.SQL_CONNECTION_STRING;
+    let coreConn = process.env.SQL_CONNECTION_STRING;
     const vnetConn = process.env.SQL_CONNECTION_STRING_VNET;
     if ((!coreConn || isRedacted(coreConn)) && vnetConn && !isRedacted(vnetConn)) {
         process.env.SQL_CONNECTION_STRING = vnetConn;
+        coreConn = vnetConn;
         console.log('[Secrets] SQL_CONNECTION_STRING set from SQL_CONNECTION_STRING_VNET');
     }
-    if (!coreConn || isRedacted(coreConn)) {
-        const server = process.env.SQL_SERVER_FQDN || 'helix-database-server.database.windows.net';
-        const database = process.env.SQL_DATABASE_NAME || 'helix-core-data';
-        const user = process.env.SQL_USER_NAME || 'helix-database-server';
-        const secretName = process.env.SQL_PASSWORD_SECRET_NAME || process.env.SQL_SERVER_PASSWORD_KEY || 'sql-databaseserver-password';
 
-        try {
-            process.env.SQL_CONNECTION_STRING = await buildConnectionString({ server, database, user, secretName });
-            console.log('[Secrets] SQL_CONNECTION_STRING resolved via Key Vault');
-        } catch (error) {
-            console.warn('[Secrets] Failed to resolve SQL_CONNECTION_STRING via Key Vault:', error?.message || error);
-        }
+    const hydrationTasks = [];
+
+    if (!coreConn || isRedacted(coreConn)) {
+        hydrationTasks.push((async () => {
+            const server = process.env.SQL_SERVER_FQDN || 'helix-database-server.database.windows.net';
+            const database = process.env.SQL_DATABASE_NAME || 'helix-core-data';
+            const user = process.env.SQL_USER_NAME || 'helix-database-server';
+            const secretName = process.env.SQL_PASSWORD_SECRET_NAME || process.env.SQL_SERVER_PASSWORD_KEY || 'sql-databaseserver-password';
+
+            try {
+                process.env.SQL_CONNECTION_STRING = await buildConnectionString({ server, database, user, secretName });
+                console.log('[Secrets] SQL_CONNECTION_STRING resolved via Key Vault');
+            } catch (error) {
+                console.warn('[Secrets] Failed to resolve SQL_CONNECTION_STRING via Key Vault:', error?.message || error);
+            }
+        })());
     }
 
     const instructionsConn = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
     if (!instructionsConn || isRedacted(instructionsConn)) {
-        const server = process.env.INSTRUCTIONS_SQL_SERVER || 'instructions.database.windows.net';
-        const database = process.env.INSTRUCTIONS_SQL_DATABASE || 'instructions';
-        const user = process.env.INSTRUCTIONS_SQL_USER || 'instructionsadmin';
-        const secretName = process.env.INSTRUCTIONS_SQL_PASSWORD_SECRET_NAME || 'instructions-sql-password';
+        hydrationTasks.push((async () => {
+            const server = process.env.INSTRUCTIONS_SQL_SERVER || 'instructions.database.windows.net';
+            const database = process.env.INSTRUCTIONS_SQL_DATABASE || 'instructions';
+            const user = process.env.INSTRUCTIONS_SQL_USER || 'instructionsadmin';
+            const secretName = process.env.INSTRUCTIONS_SQL_PASSWORD_SECRET_NAME || 'instructions-sql-password';
 
-        try {
-            process.env.INSTRUCTIONS_SQL_CONNECTION_STRING = await buildConnectionString({ server, database, user, secretName });
-            console.log('[Secrets] INSTRUCTIONS_SQL_CONNECTION_STRING resolved via Key Vault');
-        } catch (error) {
-            console.warn('[Secrets] Failed to resolve INSTRUCTIONS_SQL_CONNECTION_STRING via Key Vault:', error?.message || error);
-        }
+            try {
+                process.env.INSTRUCTIONS_SQL_CONNECTION_STRING = await buildConnectionString({ server, database, user, secretName });
+                console.log('[Secrets] INSTRUCTIONS_SQL_CONNECTION_STRING resolved via Key Vault');
+            } catch (error) {
+                console.warn('[Secrets] Failed to resolve INSTRUCTIONS_SQL_CONNECTION_STRING via Key Vault:', error?.message || error);
+            }
+        })());
     }
+
+    await Promise.all(hydrationTasks);
 }
 
 // Warm up connections in background (non-blocking)
 async function warmupConnections() {
+    const shouldRunAggressiveWarmups = process.env.NODE_ENV === 'production' || process.env.FORCE_BOOT_WARMUPS === 'true';
     trackEvent('Server.Boot.Warmup.Scheduled', {
         tier1DelayMs: 3000,
         tier2DelayMs: 5000,
@@ -138,6 +149,11 @@ async function warmupConnections() {
                 });
         }
     } catch { /* ignore — route not loaded yet */ }
+
+    if (!shouldRunAggressiveWarmups) {
+        trackEvent('Server.Boot.Warmup.Skipped', { reason: 'local-dev' });
+        return;
+    }
 
     // ─── Aggressive data pre-warming ───────────────────────────────────
     // Fire-and-forget: populate caches for ALL heavy endpoints so the first
@@ -202,6 +218,7 @@ async function warmupConnections() {
         const tier1 = [
             { path: '/api/attendance/getAttendance', method: 'POST', label: 'Attendance' },
             { path: '/api/attendance/getAnnualLeave', method: 'POST', body: {}, label: 'Annual Leave' },
+            { path: '/api/home-enquiries/', method: 'GET', label: 'Home Enquiries' },
             { path: '/api/ops-queue/pending', method: 'GET', label: 'Ops Pending' },
             { path: '/api/ops-queue/recent', method: 'GET', label: 'Ops Recent' },
             { path: '/api/ops-queue/ccl-dates-pending', method: 'GET', label: 'CCL Dates' },
@@ -296,6 +313,7 @@ const forwardEmailRouter = require('./routes/forwardEmail');
 const searchInboxRouter = require('./routes/searchInbox');
 const callrailCallsRouter = require('./routes/callrailCalls');
 const dubberCallsRouter = require('./routes/dubberCalls');
+const homeJourneyRouter = require('./routes/home-journey');
 const attendanceRouter = require('./routes/attendance');
 const resourcesAnalyticsRouter = require('./routes/resources-analytics');
 const resourcesCoreRouter = require('./routes/resources-core');
@@ -330,23 +348,28 @@ const logsStreamRouter = require('./routes/logs-stream');
 const telemetryRouter = require('./routes/telemetry');
 const bookSpaceRouter = require('./routes/bookSpace');
 const financialTaskRouter = require('./routes/financialTask');
+const activityFeedRouter = require('./routes/activity-feed');
 const releaseNotesRouter = require('./routes/release-notes');
 const opsQueueRouter = require('./routes/opsQueue');
 const { router: dataOperationsRouter } = require('./routes/dataOperations');
 const yoyComparisonRouter = require('./routes/yoy-comparison');
 const formHealthCheckRouter = require('./routes/formHealthCheck');
+const teamsBotRouter = require('./routes/teamsBot');
+const teamsNotifyRouter = require('./routes/teamsNotify');
+const activityCardLabRouter = require('./routes/activity-card-lab');
 const { userContextMiddleware } = require('./middleware/userContext');
 
 const app = express();
 // Enable gzip compression if available, but skip SSE endpoints
 if (compression) {
+    const compress = compression();
     app.use((req, res, next) => {
         // Skip compression for Server-Sent Events to avoid buffering
         if (req.path.startsWith('/api/reporting-stream') || req.path.startsWith('/api/home-metrics') || req.path.startsWith('/api/logs/stream') || req.path.startsWith('/api/ccl-date') || req.path.startsWith('/api/enquiries-unified/stream') || req.path.startsWith('/api/attendance/annual-leave/stream') || req.path.startsWith('/api/attendance/attendance/stream') || req.path.startsWith('/api/future-bookings/stream') || req.path.startsWith('/api/data-operations/stream')) {
             res.setHeader('Cache-Control', 'no-cache, no-transform');
             return next();
         }
-        return compression()(req, res, next);
+        return compress(req, res, next);
     });
 }
 const PORT = process.env.PORT || 8080;
@@ -449,6 +472,7 @@ app.use('/api/ccl-ops', cclOpsRouter);
 app.use('/api/enquiries-unified', enquiriesUnifiedRouter);
 app.use('/api/home-wip', homeWipRouter);
 app.use('/api/home-enquiries', homeEnquiriesRouter);
+app.use('/api/home-journey', homeJourneyRouter);
 app.use('/api/updateEnquiryPOC', updateEnquiryPOCRouter);
 app.use('/api/claimEnquiry', claimEnquiryRouter);
 app.use('/api/matters-unified', mattersUnifiedRouter);
@@ -499,8 +523,12 @@ app.use('/api/pitch-tracking', pitchTrackingRouter);
 app.use('/api/enquiry-enrichment', enquiryEnrichmentRouter);
 app.use('/api/people-search', peopleSearchRouter);
 app.use('/api/logs', logsStreamRouter);
+app.use('/api/activity-feed', activityFeedRouter);
 app.use('/api/release-notes', releaseNotesRouter);
 app.use('/api/ops-queue', opsQueueRouter);
+app.use('/api/messages', teamsBotRouter);
+app.use('/api/teams-notify', teamsNotifyRouter);
+app.use('/api/activity-card-lab', activityCardLabRouter);
 
 // Rate change notification tracking (for Jan 2026 hourly rate increase)
 app.use('/api/rate-changes', rateChangesRouter);

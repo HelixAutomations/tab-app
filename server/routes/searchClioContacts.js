@@ -1,8 +1,7 @@
 const express = require('express');
-const { DefaultAzureCredential } = require('@azure/identity');
-const { SecretClient } = require('@azure/keyvault-secrets');
 const { URLSearchParams } = require('url');
 const { cacheClioContacts, generateCacheKey, CACHE_CONFIG } = require('../utils/redisClient');
+const { getClient } = require('../utils/getSecret');
 
 const router = express.Router();
 
@@ -68,8 +67,7 @@ async function performClioContactSearch(emails) {
   const clioApiBaseUrl = "https://eu.app.clio.com/api/v4";
 
   // Retrieve Clio OAuth credentials from Key Vault
-  const credential = new DefaultAzureCredential({ additionallyAllowedTenants: ['*'] });
-  const secretClient = new SecretClient(kvUri, credential);
+  const secretClient = getClient();
 
   const [refreshTokenSecret, clientSecret, clientIdSecret] = await Promise.all([
     secretClient.getSecret(clioRefreshTokenSecretName),

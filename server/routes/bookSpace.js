@@ -1,7 +1,7 @@
 const express = require('express');
 const { sql, withRequest } = require('../utils/db');
 const axios = require('axios');
-const { DefaultAzureCredential } = require('@azure/identity');
+const { getCredential } = require('../utils/getSecret');
 const { SecretClient } = require('@azure/keyvault-secrets');
 const router = express.Router();
 const { deleteCache, deleteCachePattern, generateCacheKey } = require('../utils/redisClient');
@@ -32,7 +32,7 @@ async function getSqlPassword() {
 
   sqlPasswordPromise = (async () => {
     try {
-      const credential = new DefaultAzureCredential();
+      const credential = getCredential();
       const client = new SecretClient(KV_URI, credential);
       const secretResponse = await client.getSecret("sql-databaseserver-password");
       const pwd = secretResponse.value;
@@ -62,7 +62,7 @@ const CLIO_CALENDAR_ID = 170197;
 
 // Get Clio access token
 async function getClioAccessToken() {
-  const secretClient = new SecretClient(KV_URI, new DefaultAzureCredential());
+  const secretClient = new SecretClient(KV_URI, getCredential());
   const [clientIdSecret, clientSecretSecret, refreshTokenSecret] = await Promise.all([
     secretClient.getSecret("clio-officeattendance-clientid"),
     secretClient.getSecret("clio-officeattendance-clientsecret"),

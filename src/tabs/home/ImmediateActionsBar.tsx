@@ -1,9 +1,8 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useTheme } from '../../app/functionality/ThemeContext';
-import { colours } from '../../app/styles/colours';
+import { colours, withAlpha } from '../../app/styles/colours';
 import { ImmediateActionChip } from './ImmediateActionChip';
 import type { HomeImmediateAction } from './ImmediateActionModel';
-import { Icon } from '@fluentui/react/lib/Icon';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types (matches Home.tsx action model)
@@ -18,8 +17,18 @@ interface ImmediateActionsBarProps {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Bar component
+// Bar component — scroll-driven collapse is handled by App.tsx portal wrapper.
+// On narrow viewports (≤720px), renders as a compact single-row notification
+// strip that expands into the full chip grid on demand.
 // ─────────────────────────────────────────────────────────────────────────────
+
+/** Build a compact one-line summary from the action list, e.g. "Approve Leave · 2 more" */
+const buildCompactSummary = (actions: HomeImmediateAction[]): string => {
+  if (actions.length === 0) return '';
+  const first = actions[0].title;
+  if (actions.length === 1) return first;
+  return `${first} · ${actions.length - 1} more`;
+};
 
 export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
   isDarkMode: propDarkMode,
@@ -32,20 +41,24 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
   const isDark = contextDarkMode ?? propDarkMode ?? false;
   const [showSuccess, setShowSuccess] = useState(false);
   const [allowEmptyState, setAllowEmptyState] = useState(false);
-  const [isCollapsed, setIsCollapsed] = useState(() => {
-    // Persist collapse state in localStorage
-    const saved = localStorage.getItem('immediateActionsCollapsed');
-    return saved === 'true';
-  });
+  const [expanded, setExpanded] = useState(false);
 
   // Track whether we've already shown the first live render.
   // Only the initial skeleton→live transition gets staggered chip animation;
   // subsequent list updates (new actions arriving) render without replaying it.
   const hasRenderedLive = useRef(false);
   const sectionRef = useRef<HTMLDivElement | null>(null);
+  const chipGridRef = useRef<HTMLDivElement | null>(null);
   const [layoutMode, setLayoutMode] = useState<'flow' | 'split' | 'stacked' | 'single'>('flow');
+  const [chipGridHeight, setChipGridHeight] = useState<number>(0);
 
   const actions = immediateActionsList;
+  const isCompact = layoutMode === 'stacked' || layoutMode === 'single';
+
+  // Collapse back to strip when actions disappear while expanded
+  useEffect(() => {
+    if (actions.length === 0 && expanded) setExpanded(false);
+  }, [actions.length, expanded]);
 
   useEffect(() => {
     const element = sectionRef.current;
@@ -72,6 +85,21 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
+
+  // Measure the chip grid's natural height for smooth expand/collapse animation
+  useEffect(() => {
+    const grid = chipGridRef.current;
+    if (!grid) return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setChipGridHeight(Math.ceil(entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height));
+      }
+    });
+    observer.observe(grid);
+    return () => observer.disconnect();
+  }, []);
+
+  const toggleExpanded = useCallback(() => setExpanded(prev => !prev), []);
 
   // Progressive display: show chips the moment they exist, don't wait for
   // all deps to finish. Skeletons only when the list is empty AND still loading.
@@ -106,15 +134,8 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
     : layoutMode === 'stacked'
       ? 'repeat(2, minmax(0, 1fr))'
       : layoutMode === 'split'
-        ? 'repeat(auto-fit, minmax(220px, 1fr))'
+        ? 'repeat(auto-fit, minmax(190px, 1fr))'
         : 'repeat(auto-fit, minmax(180px, 1fr))';
-
-  // Toggle collapse and persist
-  const toggleCollapse = () => {
-    const newState = !isCollapsed;
-    setIsCollapsed(newState);
-    localStorage.setItem('immediateActionsCollapsed', String(newState));
-  };
 
   // Show success briefly when loading completes with no actions
   // (only after settling delay, so it doesn't flash during transient empty state)
@@ -134,83 +155,208 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
     }
   }, [showChips]);
 
-
-  // Colors
-  const interactiveAccent = isDark ? colours.accent : colours.blue;
-  const interactiveHoverBg = `${interactiveAccent}${isDark ? '1A' : '14'}`;
-
-  // Empty state
+  // Empty state — on compact (small screens), render nothing to reclaim space
   if (immediateActionsReady && allowEmptyState && actions.length === 0) {
+    if (isCompact) return null;
     return (
       <Section isDark={isDark} seamless={seamless} quiet>
-        <EmptyState isDark={isDark} collapsed={false}>All caught up</EmptyState>
+        <EmptyState isDark={isDark}>All caught up</EmptyState>
       </Section>
     );
   }
 
   const totalCount = actions.reduce((sum, a) => sum + (a.count ?? 1), 0);
 
+  // Responsive props driven by ResizeObserver layoutMode (no CSS media queries)
+  const hideChipChevron = layoutMode !== 'flow';
+  const shrinkSingleAction = actions.length === 1 && !showSkeletons;
+
+  // ── Compact strip mode (≤720px) ────────────────────────────────────────
+  if (isCompact && hasActions) {
+    const compactSummary = buildCompactSummary(actions);
+    const topAction = actions[0];
+    const topCategoryAccent = topAction?.category === 'critical' ? colours.cta
+      : (isDark ? colours.accent : colours.blue);
+
+    return (
+      <Section isDark={isDark} seamless={seamless} highlighted={highlighted} compact>
+        <div ref={sectionRef} style={{ width: '100%', minWidth: 0 }}>
+          {/* Compact strip row — tap to expand */}
+          <button
+            type="button"
+            onClick={toggleExpanded}
+            aria-expanded={expanded}
+            aria-label={`To Do: ${compactSummary}. ${expanded ? 'Collapse' : 'Expand'} actions.`}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              width: '100%',
+              height: 32,
+              padding: '0 6px 0 5px',
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              color: isDark ? colours.dark.text : colours.light.text,
+              userSelect: 'none',
+            }}
+          >
+            <SectionLabel isDark={isDark} />
+            <CountBadge isDark={isDark}>{totalCount}</CountBadge>
+
+            {/* Priority summary */}
+            <span style={{
+              flex: 1,
+              minWidth: 0,
+              fontSize: 10,
+              fontWeight: 500,
+              color: isDark ? colours.subtleGrey : colours.greyText,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              textAlign: 'left',
+            }}>
+              {compactSummary}
+            </span>
+
+            {!immediateActionsReady && <Spinner isDark={isDark} />}
+
+            {/* Expand/collapse chevron */}
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke={isDark ? colours.subtleGrey : colours.greyText}
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{
+                flexShrink: 0,
+                opacity: 0.6,
+                transition: 'transform 0.2s ease',
+                transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
+              }}
+            >
+              <path d="M6 9l6 6 6-6" />
+            </svg>
+          </button>
+
+          {/* Expandable chip grid — always mounted for height measurement */}
+          <div
+            style={{
+              maxHeight: expanded ? chipGridHeight + 8 : 0,
+              opacity: expanded ? 1 : 0,
+              overflow: 'hidden',
+              transition: 'max-height 0.22s ease, opacity 0.18s ease',
+              willChange: expanded ? 'max-height, opacity' : 'auto',
+            }}
+          >
+            <div
+              ref={chipGridRef}
+              style={{
+                display: shrinkSingleAction ? 'flex' : 'grid',
+                gridTemplateColumns: shrinkSingleAction ? undefined
+                  : layoutMode === 'single' ? '1fr' : 'repeat(2, minmax(0, 1fr))',
+                justifyContent: shrinkSingleAction ? 'flex-start' : undefined,
+                alignItems: 'stretch',
+                width: '100%',
+                minWidth: 0,
+                gap: 8,
+                paddingTop: 4,
+                paddingBottom: 4,
+              }}
+            >
+              {actions.map((action, idx) => {
+                const shouldAnimate = !hasRenderedLive.current && expanded;
+                return (
+                  <div
+                    key={`${action.title}-${idx}`}
+                    style={{ position: 'relative', minWidth: 0, animation: shouldAnimate ? `iabChipIn 0.22s ease ${idx * 0.035}s both` : 'none' }}
+                  >
+                    <ImmediateActionChip
+                      title={action.title}
+                      icon={action.icon}
+                      category={action.category}
+                      count={action.count}
+                      totalCount={action.totalCount}
+                      onClick={action.onClick}
+                      disabled={action.disabled}
+                      isDarkMode={isDark}
+                      allowWrap
+                      hideChevron
+                      dense
+                      fillWidth={!shrinkSingleAction}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </Section>
+    );
+  }
+
+  // ── Wide mode (>720px) — full chip grid as before ──────────────────────
+
   return (
     <Section isDark={isDark} seamless={seamless} highlighted={highlighted}>
-      <div ref={sectionRef} className={`iab-shell iab-shell-${layoutMode}`} style={{ width: '100%', minWidth: 0 }}>
+      <div ref={sectionRef} style={{ width: '100%', minWidth: 0 }}>
         <HeaderRow layoutMode={layoutMode}>
-          <CollapseChevron 
-            isCollapsed={isCollapsed} 
-            onClick={toggleCollapse} 
-            isDark={isDark}
-            accent={interactiveAccent}
-            hoverBg={interactiveHoverBg}
-          />
+          <SectionLabel isDark={isDark} />
           {actions.length > 0 && <CountBadge isDark={isDark}>{totalCount}</CountBadge>}
           {!immediateActionsReady && <Spinner isDark={isDark} />}
           {showSuccess && <SuccessCheck />}
         </HeaderRow>
 
-        {!isCollapsed && (
-          <div className={`iab-chip-grid iab-chip-grid-${layoutMode}`} style={{ 
-            display: 'grid',
-            gridTemplateColumns: chipGridTemplateColumns,
-            alignItems: 'stretch',
-            width: '100%',
-            minHeight: 32,
-            minWidth: 0,
-            gap: layoutMode === 'flow' ? 6 : 8,
-            paddingLeft: 0,
-            paddingTop: layoutMode === 'flow' ? 2 : 4,
-            position: 'relative',
-            transition: 'opacity 0.18s ease',
-          }}>
-            {showSkeletons && (
-              <>
-                <SkeletonChip isDark={isDark} />
-                <SkeletonChip isDark={isDark} />
-                <SkeletonChip isDark={isDark} />
-              </>
-            )}
+        <div style={{ 
+          display: shrinkSingleAction ? 'flex' : 'grid',
+          gridTemplateColumns: shrinkSingleAction ? undefined : chipGridTemplateColumns,
+          justifyContent: shrinkSingleAction ? 'flex-start' : undefined,
+          alignItems: 'stretch',
+          width: '100%',
+          minHeight: 32,
+          minWidth: 0,
+          gap: layoutMode === 'flow' ? 6 : 8,
+          paddingLeft: 0,
+          paddingTop: layoutMode === 'flow' ? 2 : 4,
+          position: 'relative',
+          transition: 'opacity 0.18s ease',
+        }}>
+          {showSkeletons && (
+            <>
+              <SkeletonChip isDark={isDark} />
+              <SkeletonChip isDark={isDark} />
+              <SkeletonChip isDark={isDark} />
+            </>
+          )}
 
-            {showChips && actions.map((action, idx) => {
-              const shouldAnimate = !hasRenderedLive.current;
-              return (
-              <div 
-                key={`${action.title}-${idx}`} 
-                style={{ position: 'relative', minWidth: 0, animation: shouldAnimate ? `iabChipIn 0.22s ease ${idx * 0.035}s both` : 'none' }}
-              >
-                <ImmediateActionChip
-                  title={action.title}
-                  icon={action.icon}
-                  category={action.category}
-                  count={action.count}
-                  totalCount={action.totalCount}
-                  onClick={action.onClick}
-                  disabled={action.disabled}
-                  isDarkMode={isDark}
-                  allowWrap={shouldWrapChipText}
-                />
-              </div>
-              );
-            })}
-          </div>
-        )}
+          {showChips && actions.map((action, idx) => {
+            const shouldAnimate = !hasRenderedLive.current;
+            return (
+            <div 
+              key={`${action.title}-${idx}`} 
+              style={{ position: 'relative', minWidth: 0, animation: shouldAnimate ? `iabChipIn 0.22s ease ${idx * 0.035}s both` : 'none' }}
+            >
+              <ImmediateActionChip
+                title={action.title}
+                icon={action.icon}
+                category={action.category}
+                count={action.count}
+                totalCount={action.totalCount}
+                onClick={action.onClick}
+                disabled={action.disabled}
+                isDarkMode={isDark}
+                allowWrap={shouldWrapChipText}
+                hideChevron={hideChipChevron}
+                dense={layoutMode !== 'flow'}
+                fillWidth={!shrinkSingleAction}
+              />
+            </div>
+            );
+          })}
+        </div>
       </div>
     </Section>
   );
@@ -223,7 +369,7 @@ const SkeletonChip: React.FC<{ isDark: boolean }> = ({ isDark }) => (
       height: 28,
       minWidth: 140,
       borderRadius: 2,
-      background: isDark ? 'rgba(13, 47, 96, 0.32)' : 'rgba(214, 232, 255, 0.7)',
+      background: isDark ? withAlpha(colours.helixBlue, 0.32) : withAlpha(colours.highlightBlue, 0.7),
     }}
   />
 );
@@ -232,20 +378,23 @@ const SkeletonChip: React.FC<{ isDark: boolean }> = ({ isDark }) => (
 // Sub-components
 // ─────────────────────────────────────────────────────────────────────────────
 
-const Section: React.FC<{ isDark: boolean; seamless?: boolean; highlighted?: boolean; quiet?: boolean; children: React.ReactNode }> = ({ 
+const Section: React.FC<{ isDark: boolean; seamless?: boolean; highlighted?: boolean; quiet?: boolean; compact?: boolean; children: React.ReactNode }> = ({ 
   isDark, 
   seamless = false,
   highlighted = false,
   quiet = false,
+  compact = false,
   children 
 }) => (
   <section style={{
-    padding: seamless ? '4px 0 6px' : quiet ? '4px 0 6px' : '4px 0 6px',
-    minHeight: quiet ? 40 : 56,
-    background: isDark ? 'rgba(6, 23, 51, 0.55)' : '#FFFFFF',
+    padding: compact ? '2px 0 2px' : '4px 0 6px',
+    minHeight: compact ? 'auto' : quiet ? 40 : 56,
+    background: isDark ? colours.darkBlue : colours.sectionBackground,
     border: 'none',
-    borderBottom: `1px solid ${isDark ? 'rgba(54, 144, 206, 0.08)' : 'rgba(13, 47, 96, 0.08)'}`,
-    boxShadow: 'none',
+    borderBottom: `1px solid ${isDark ? withAlpha(colours.blue, 0.08) : withAlpha(colours.helixBlue, 0.08)}`,
+    boxShadow: highlighted
+      ? `inset 0 1px 0 ${isDark ? withAlpha(colours.accent, 0.1) : withAlpha(colours.highlight, 0.1)}`
+      : 'none',
     paddingInline: quiet ? '10px' : '12px',
     marginBottom: 0,
     transition: 'min-height 0.2s ease, padding 0.15s ease, opacity 0.18s ease',
@@ -268,113 +417,70 @@ const HeaderRow: React.FC<{ children: React.ReactNode; layoutMode: 'flow' | 'spl
   </div>
 );
 
-const CollapseChevron: React.FC<{ 
-  isCollapsed: boolean; 
-  onClick: () => void; 
-  isDark: boolean;
-  accent: string;
-  hoverBg: string;
-}> = ({ isCollapsed, onClick, isDark, accent, hoverBg }) => {
-  const [hovered, setHovered] = useState(false);
-  
-  return (
-    <button
-      onClick={onClick}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      aria-label={isCollapsed ? 'Expand actions' : 'Collapse actions'}
-      aria-expanded={!isCollapsed}
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 5,
-        height: 22,
-        padding: '0 7px 0 5px',
-        border: 'none',
-        borderRadius: 2,
-        background: hovered ? hoverBg : 'transparent',
-        cursor: 'pointer',
-        transition: 'all 0.2s ease',
-        marginRight: 0,
-        color: hovered ? accent : (isDark ? colours.subtleGrey : colours.greyText),
-        fontSize: 10,
-        fontWeight: 600,
-        whiteSpace: 'nowrap',
-        letterSpacing: '0.04em',
-        textTransform: 'none',
-      }}
-    >
-      <Icon 
-        iconName="ChevronRight"
-        style={{
-          fontSize: 8,
-          color: hovered ? accent : (isDark ? colours.subtleGrey : colours.greyText),
-          transition: 'transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), color 0.2s ease',
-          transform: isCollapsed ? 'rotate(0deg)' : 'rotate(90deg)',
-        }}
-      />
-      <span>To Do</span>
-    </button>
-  );
-};
+const SectionLabel: React.FC<{ isDark: boolean }> = ({ isDark }) => (
+  <span style={{
+    display: 'inline-flex',
+    alignItems: 'center',
+    height: 22,
+    padding: '0 7px 0 5px',
+    color: isDark ? colours.dark.text : colours.light.text,
+    fontSize: 10,
+    fontWeight: 600,
+    whiteSpace: 'nowrap',
+    letterSpacing: '0.04em',
+    textTransform: 'none',
+    userSelect: 'none',
+  }}>
+    To Do
+  </span>
+);
 
 const CountBadge: React.FC<{ isDark: boolean; children: React.ReactNode }> = ({ isDark, children }) => (
   <span style={{
-    minWidth: 16,
-    height: 16,
-    padding: '0 5px',
-    background: isDark ? 'rgba(135, 243, 243, 0.1)' : 'rgba(54, 144, 206, 0.08)',
-    color: isDark ? colours.accent : colours.highlight,
-    fontSize: 9,
-    fontWeight: 700,
+    minWidth: 22,
+    height: 22,
+    padding: '0 7px',
+    background: isDark ? withAlpha(colours.blue, 0.12) : withAlpha(colours.blue, 0.08),
+    color: isDark ? colours.dark.text : colours.highlight,
+    fontSize: 10,
+    fontWeight: 600,
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 2,
+    lineHeight: 1,
   }}>
     {children}
   </span>
 );
 
-const EmptyState: React.FC<{ isDark: boolean; collapsed?: boolean; children: React.ReactNode }> = ({ isDark, collapsed = false, children }) => (
+const EmptyState: React.FC<{ isDark: boolean; children: React.ReactNode }> = ({ isDark, children }) => (
   <div style={{
-    maxHeight: collapsed ? 0 : 48,
-    opacity: collapsed ? 0 : 1,
-    transform: collapsed ? 'translateY(-4px)' : 'translateY(0)',
-    overflow: 'hidden',
-    transition: 'max-height 0.25s ease, opacity 0.2s ease, transform 0.25s ease',
-  }} aria-hidden={collapsed}>
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    gap: 8,
+    padding: '8px 0 2px',
+  }}>
+    <svg 
+      width="12" 
+      height="12" 
+      viewBox="0 0 24 24" 
+      fill="none" 
+      stroke={colours.green}
+      strokeWidth="2" 
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{ opacity: 0.75, flexShrink: 0 }}
+    >
+      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+      <polyline points="22 4 12 14.01 9 11.01" />
+    </svg>
     <div style={{
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'flex-start',
-      gap: 8,
-      padding: '8px 0 2px',
-      background: 'transparent',
-      borderRadius: '2px',
-      border: 'none',
-    }}>
-      <svg 
-        width="12" 
-        height="12" 
-        viewBox="0 0 24 24" 
-        fill="none" 
-        stroke={colours.green}
-        strokeWidth="2" 
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        style={{ opacity: 0.75, flexShrink: 0 }}
-      >
-        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-        <polyline points="22 4 12 14.01 9 11.01" />
-      </svg>
-      <div style={{
-        fontSize: 11,
-        fontWeight: 600,
-        color: isDark ? 'rgba(209, 213, 219, 0.82)' : colours.greyText,
-      }}>{children}</div>
-    </div>
+      fontSize: 11,
+      fontWeight: 600,
+      color: isDark ? withAlpha(colours.dark.text, 0.82) : colours.greyText,
+    }}>{children}</div>
   </div>
 );
 
@@ -382,37 +488,26 @@ const Spinner: React.FC<{ isDark: boolean }> = ({ isDark }) => (
   <div style={{
     width: 12,
     height: 12,
-    border: `2px solid ${isDark ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
+    border: `2px solid ${isDark ? withAlpha(colours.dark.border, 0.3) : withAlpha(colours.helixBlue, 0.12)}`,
     borderTopColor: colours.highlight,
     borderRadius: '50%',
-    animation: 'spin 0.8s linear infinite',
+    animation: 'iabSpin 0.8s linear infinite',
     marginLeft: 'auto',
   }} />
 );
 
-// Responsive styles injected once
-const iabResponsiveId = 'iab-responsive-styles';
-if (typeof document !== 'undefined' && !document.head.querySelector(`style[data-${iabResponsiveId}]`)) {
+// Consolidated styles — single injection for keyframes
+const iabStyleId = 'iab-styles';
+if (typeof document !== 'undefined' && !document.head.querySelector(`style[data-${iabStyleId}]`)) {
   const s = document.createElement('style');
-  s.setAttribute(`data-${iabResponsiveId}`, '');
+  s.setAttribute(`data-${iabStyleId}`, '');
   s.textContent = `
     @keyframes iabChipIn {
       from { opacity: 0; }
       to { opacity: 1; }
     }
-    .iab-chip-grid > div {
-      min-width: 0;
-    }
-    .iab-shell-stacked .iab-chip-grid,
-    .iab-shell-single .iab-chip-grid {
-      align-items: stretch;
-    }
-    @media (max-width: 640px) {
-      .iab-chip-grid { gap: 6px !important; }
-      .iab-chip-grid > div { min-width: 0 !important; max-width: none !important; }
-    }
-    @media (max-width: 420px) {
-      .iab-chip-grid { grid-template-columns: 1fr !important; }
+    @keyframes iabSpin {
+      to { transform: rotate(360deg); }
     }
   `;
   document.head.appendChild(s);
@@ -423,15 +518,5 @@ const SuccessCheck: React.FC = () => (
     <path d="M20 6L9 17l-5-5" />
   </svg>
 );
-
-// CSS animation for spinner
-const style = document.createElement('style');
-style.textContent = `
-@keyframes spin { to { transform: rotate(360deg); } }
-`;
-if (!document.head.querySelector('style[data-immediate-actions]')) {
-  style.setAttribute('data-immediate-actions', '');
-  document.head.appendChild(style);
-}
 
 export default ImmediateActionsBar;

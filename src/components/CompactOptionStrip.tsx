@@ -6,6 +6,7 @@ export type CompactOptionStripItem<Key extends string = string> = {
   label: string;
   icon?: React.ReactNode;
   count?: number | string;
+  badge?: string;
   tone?: string;
   title?: string;
   disabled?: boolean;
@@ -86,10 +87,14 @@ export default function CompactOptionStrip<Key extends string = string>({
             onClick={() => {
               if (!item.disabled) onSelect(item.key);
             }}
+            onMouseDown={(e) => { e.currentTarget.classList.add('compact-option-strip__item--pressed'); }}
+            onMouseUp={(e) => { e.currentTarget.classList.remove('compact-option-strip__item--pressed'); }}
+            onMouseLeave={(e) => { e.currentTarget.classList.remove('compact-option-strip__item--pressed'); }}
           >
             {item.icon ? <span className="compact-option-strip__icon">{item.icon}</span> : null}
             <span className="compact-option-strip__label">{item.label}</span>
             {item.count !== undefined ? <span className="compact-option-strip__count">{item.count}</span> : null}
+            {item.badge ? <span className="compact-option-strip__badge">{item.badge}</span> : null}
           </button>
         );
       })}

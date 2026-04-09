@@ -1,10 +1,10 @@
 ﻿import React from 'react';
 import { createPortal } from 'react-dom';
-import { FiRefreshCw, FiInbox, FiSend, FiCheckCircle, FiChevronDown, FiChevronUp, FiFolder, FiFilter, FiTrendingUp, FiMail, FiPhoneCall, FiClock, FiFileText } from 'react-icons/fi';
+import { FiRefreshCw, FiInbox, FiCheckCircle, FiChevronDown, FiChevronUp, FiFolder, FiFilter, FiTrendingUp, FiMail, FiPhoneCall, FiClock, FiFileText, FiUser } from 'react-icons/fi';
 import { renderAreaOfWorkGlyph } from '../../components/filter/areaGlyphs';
 import { TbCurrencyPound } from 'react-icons/tb';
 import CallsAndNotes from './CallsAndNotes';
-import { colours } from '../../app/styles/colours';
+import { colours, withAlpha } from '../../app/styles/colours';
 import helixMark from '../../assets/markwhite.svg';
 import clioIcon from '../../assets/clio.svg';
 import netdocumentsIcon from '../../assets/netdocuments.svg';
@@ -12,8 +12,8 @@ import { useToast } from '../feedback/ToastProvider';
 import { useClaimEnquiry } from '../../utils/claimEnquiry';
 import { DEFAULT_CCL_TEMPLATE, generateTemplateContent, type GenerationOptions } from '../../shared/ccl';
 import { isCclUser } from '../../app/admin';
-import CompactOptionStrip, { type CompactOptionStripItem } from '../../components/CompactOptionStrip';
-import { buildPitchScenarioStripItems, scenarioIcon, scenarioTone } from '../../components/pitchScenarioPresentation';
+import HomePipelineStrip, { type HomePipelineStripItem } from '../../components/HomePipelineStrip';
+import { buildPitchScenarioStripItems } from '../../components/pitchScenarioPresentation';
 import { DocumentRenderer } from '../../tabs/instructions/ccl/DocumentRenderer';
 import { approveCcl, fetchCclCompile, fetchPressureTest, runCclService, uploadToNetDocuments, type AiFillRequest, type AiFillResponse, type CclCompileResponse, type PressureTestResponse, type PressureTestFieldScore } from '../../tabs/matters/ccl/cclAiService';
 
@@ -33,12 +33,13 @@ type CclReviewLaunchStepStatus = 'pending' | 'active' | 'done' | 'error';
 type CclReviewLaunchStep = { label: string; detail?: string; status: CclReviewLaunchStepStatus };
 type FollowUpChannel = 'email' | 'phone';
 type FollowUpDueState = 'pending' | 'due' | 'late' | null;
-type EnquiryLifecycleStepKey = 'claimed' | 'pitch' | 'follow-up' | 'instruction';
+type EnquiryLifecycleStepKey = 'pitch' | 'follow-up' | 'instruction';
 type EnquiryFollowUpModal = { record: DetailRecord };
 
 const HOME_PITCH_SCENARIO_STRIP_ITEMS = buildPitchScenarioStripItems();
 const HOME_MATTER_STEP_HEADER_LABELS = ['Compile', 'Generate', 'Test', 'Review', 'Upload'] as const;
-const HOME_ENQUIRY_STEP_HEADER_LABELS = ['Claimed', 'Pitch', 'Follow Up', 'Instruction'] as const;
+const HOME_ENQUIRY_STEP_HEADER_LABELS = ['Pitch', 'Follow Up', 'Instruction'] as const;
+const HOME_ENQUIRY_NOTES_SLOT_WIDTH = 22;
 const CCL_LOCAL_LAUNCH_HOLD_KEY = ' ';
 const CCL_ORDERED_REVIEW_FIELD_KEYS = [
   'insert_clients_name',
@@ -189,6 +190,8 @@ export interface ConversionComparisonBucket {
   currentMatters: number;
   previousMatters: number;
   isFuture?: boolean;
+  currentAvailable?: boolean;
+  isCurrentEndpoint?: boolean;
 }
 export interface ConversionComparisonAowItem {
   key: string;
@@ -206,7 +209,7 @@ export interface ConversionComparisonItem {
   previousMatters: number;
   currentPct: number;
   previousPct: number;
-  chartMode: 'none' | 'working-days' | 'month-weeks' | 'quarter-weeks';
+  chartMode: 'none' | 'hourly' | 'working-days' | 'month-weeks' | 'quarter-weeks';
   buckets: ConversionComparisonBucket[];
   currentAowMix?: ConversionComparisonAowItem[];
 }
@@ -221,6 +224,7 @@ export interface UnclaimedAowBreakdownItem {
 export interface UnclaimedInsightItem {
   id: string;
   name: string;
+  email?: string;
   aow: string;
   date: string;
   ageDays: number;
@@ -240,6 +244,7 @@ export interface UnclaimedRangeSummary {
 export interface UnclaimedSummaryPayload {
   ranges: UnclaimedRangeSummary[];
 }
+
 interface DetailRecordFollowUpSummary {
   totalCount: number;
   emailCount: number;
@@ -259,16 +264,34 @@ interface DetailRecord {
   pitchedBy?: string;
   pitchedAt?: string;
   pitchDealId?: string;
-  pitchInstructionRef?: string;
   pitchStatus?: string;
   pitchScenarioId?: string;
   followUpSummary?: DetailRecordFollowUpSummary;
-}
-interface DetailsPayload {
   currentRange?: string;
   previousRange?: string;
-  current?: { records?: DetailRecord[] };
-  previous?: { records?: DetailRecord[] };
+}
+
+interface DetailsPayload {
+  period?: string;
+  limit?: number;
+  currentRange?: string;
+  previousRange?: string;
+  current?: {
+    records?: DetailRecord[];
+  };
+  previous?: {
+    records?: DetailRecord[];
+  };
+  filters?: {
+    email?: string;
+    initials?: string;
+    includeTeamInbox?: boolean;
+    includePrevious?: boolean;
+    fetchAll?: boolean;
+    overridden?: boolean;
+  };
+  cached?: boolean;
+  stale?: boolean;
 }
 
 interface CclStatus {
@@ -434,6 +457,24 @@ const CCL_PROMPT_SECTION_PRIORITY: Record<string, string[]> = {
   eid_paragraph: ['matter-context', 'instruction-notes'],
 };
 
+function getRelevantPromptSectionKeys(fieldKey?: string | null, confidence?: string | null): string[] {
+  const normalizedFieldKey = String(fieldKey || '').trim();
+  if (normalizedFieldKey && CCL_PROMPT_SECTION_PRIORITY[normalizedFieldKey]?.length) {
+    return CCL_PROMPT_SECTION_PRIORITY[normalizedFieldKey];
+  }
+
+  switch (String(confidence || '').trim().toLowerCase()) {
+    case 'data':
+      return ['matter-context', 'deal-information'];
+    case 'templated':
+      return ['matter-context', 'instruction-notes'];
+    case 'inferred':
+      return ['pitch-email', 'initial-call-notes', 'enquiry-notes', 'instruction-notes', 'call-transcripts', 'deal-information', 'matter-context'];
+    default:
+      return ['matter-context', 'deal-information', 'pitch-email', 'initial-call-notes', 'enquiry-notes', 'instruction-notes', 'call-transcripts'];
+  }
+}
+
 const CCL_PROMPT_CONTEXT_LINE_MATCHERS: Record<string, RegExp[]> = {
   practiceArea: [/^- Practice Area:/i],
   description: [/^- Matter Description:/i, /^- Type of Work:/i],
@@ -496,39 +537,16 @@ function parseCclUserPromptSections(prompt: string): CclPromptSection[] {
       activeLines.push(line);
     }
   }
-
   flushSection();
   return sections;
 }
 
 function filterMatterContextPrompt(body: string, relevantKeys: string[]): string {
-  if (!body.trim()) return '';
-
+  const lines = body.split(/\r?\n/);
   const matchers = relevantKeys.flatMap((key) => CCL_PROMPT_CONTEXT_LINE_MATCHERS[key] || []);
   if (matchers.length === 0) return body;
-
-  const lines = body.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const filtered = lines.filter((line) => matchers.some((matcher) => matcher.test(line)));
-  return filtered.length > 0 ? filtered.join('\n') : body;
-}
-
-function getRelevantPromptSectionKeys(fieldKey: string | null, confidence: 'data' | 'inferred' | 'templated' | 'unknown' | undefined): string[] {
-  if (fieldKey && CCL_PROMPT_SECTION_PRIORITY[fieldKey]) {
-    return CCL_PROMPT_SECTION_PRIORITY[fieldKey];
-  }
-
-  switch (confidence) {
-    case 'inferred':
-      return ['initial-call-notes', 'call-transcripts', 'pitch-email', 'enquiry-notes', 'instruction-notes', 'matter-context'];
-    case 'data':
-      return ['matter-context', 'deal-information', 'pitch-service-description'];
-    case 'templated':
-      return ['matter-context', 'instruction-notes'];
-    case 'unknown':
-      return ['initial-call-notes', 'call-transcripts', 'enquiry-notes', 'instruction-notes', 'matter-context'];
-    default:
-      return ['matter-context', 'deal-information', 'pitch-email', 'initial-call-notes'];
-  }
+  return filtered.length > 0 ? filtered.join('\n').trim() : body;
 }
 
 interface SharedJsonCacheEntry<T> {
@@ -889,57 +907,33 @@ const friendlyDate = (raw?: string): string => {
   }
 };
 
-const friendlyTime = (raw?: string): string | null => {
-  if (!raw) return null;
-  try {
-    const source = String(raw).trim();
-    if (!source || !/\d{1,2}:\d{2}/.test(source)) return null;
-    const d = new Date(source);
-    if (isNaN(d.getTime())) return null;
-    const hrs = String(d.getHours()).padStart(2, '0');
-    const mins = String(d.getMinutes()).padStart(2, '0');
-    return `${hrs}:${mins}`;
-  } catch {
-    return null;
-  }
-};
-
-const friendlyDateParts = (raw?: string, nowMs: number = Date.now()): { primary: string; secondary?: string; isLive?: boolean } => {
+const friendlyDateParts = (raw?: string, nowMs: number = Date.now()): { primary: string; secondary?: string; isToday?: boolean } => {
   if (!raw) return { primary: '—' };
   try {
     const d = new Date(raw);
     if (isNaN(d.getTime())) return { primary: raw };
-    const diffMs = Math.max(0, nowMs - d.getTime());
-    if (diffMs < 24 * 60 * 60 * 1000) {
-      if (diffMs < 60 * 1000) {
-        return { primary: 'Just now', isLive: true };
-      }
-      if (diffMs < 60 * 60 * 1000) {
-        const mins = Math.floor(diffMs / (60 * 1000));
-        return { primary: `${mins}m`, secondary: 'ago', isLive: true };
-      }
-      const hours = Math.floor(diffMs / (60 * 60 * 1000));
-      const mins = Math.floor((diffMs % (60 * 60 * 1000)) / (60 * 1000));
-      return { primary: `${hours}h ${mins}m`, secondary: 'ago', isLive: true };
-    }
     const now = new Date(nowMs);
     const toDateKey = (dt: Date) => `${dt.getFullYear()}-${dt.getMonth()}-${dt.getDate()}`;
     const isToday = toDateKey(d) === toDateKey(now);
-    const yesterday = new Date(now); yesterday.setDate(now.getDate() - 1);
-    const isYesterday = toDateKey(d) === toDateKey(yesterday);
-    // If today is Monday, treat last Friday as "Fri"
-    const isMondayFriday = now.getDay() === 1 && (() => { const fri = new Date(now); fri.setDate(now.getDate() - 3); return toDateKey(d) === toDateKey(fri); })();
     const day = d.getDate();
     const month = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()];
-    const hrs = d.getHours();
+    const hrs = String(d.getHours()).padStart(2, '0');
     const mins = String(d.getMinutes()).padStart(2, '0');
-    const dateLabel = isToday ? 'Today' : isYesterday ? 'Yest' : isMondayFriday ? 'Fri' : `${day} ${month}`;
-    if (hrs === 0 && mins === '00') {
-      return { primary: dateLabel };
+    const hasMeaningfulTime = !(hrs === '00' && mins === '00');
+    if (isToday) {
+      if (!hasMeaningfulTime) {
+        return { primary: 'Today', isToday: true };
+      }
+      return {
+        primary: `${hrs}:${mins}`,
+        secondary: 'Today',
+        isToday: true,
+      };
     }
+
     return {
-      primary: dateLabel,
-      secondary: `${hrs}:${mins}`,
+      primary: `${day} ${month}`,
+      secondary: hasMeaningfulTime ? `${hrs}:${mins}` : undefined,
     };
   } catch {
     return { primary: raw };
@@ -962,7 +956,7 @@ const formatLiveSyncAge = (lastLiveSyncAt?: number | null, nowMs: number = Date.
 
 /* ── Component ── */
 
-const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
+const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
   metrics,
   enquiryMetrics,
   enquiryMetricsBreakdown,
@@ -1052,6 +1046,7 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
     return { label: raw.length <= 3 ? raw.toUpperCase() : raw, title: raw };
   }, [feInitials]);
   const [secondaryFetchesReady, setSecondaryFetchesReady] = React.useState(false);
+  const hasSeededRecentEnquiryRecords = recentEnquiryRecords.length > 0;
 
   React.useEffect(() => {
     let timeoutId: ReturnType<typeof globalThis.setTimeout> | null = null;
@@ -1126,7 +1121,6 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
   const activityDetailsPeriod = 'yearToDate';
   const showPrev = true;
   const layoutStacked = true;
-  const [unclaimedAowFilter, setUnclaimedAowFilter] = React.useState<string>('all');
   const [claimedUnclaimedIds, setClaimedUnclaimedIds] = React.useState<Set<string>>(new Set());
   const [claimedRecentEnquiryIds, setClaimedRecentEnquiryIds] = React.useState<Set<string>>(new Set());
   const [unclaimedClaimFeedback, setUnclaimedClaimFeedback] = React.useState<{ tone: 'success' | 'error'; message: string } | null>(null);
@@ -1170,7 +1164,8 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
     measureDashboardLayout();
   }, [measureDashboardLayout]);
   const isNarrow = containerWidth > 0 && containerWidth < 700;
-  const matterStepsInline = containerWidth >= 920;
+  const canSeeCcl = isCclUser(userInitials);
+  const matterStepsInline = canSeeCcl || containerWidth >= 920;
   const callsAndNotesNarrow = containerWidth > 0 && containerWidth < 540;
   React.useEffect(() => {
     const dashEl = dashRef.current;
@@ -1210,6 +1205,10 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
     };
   }, [isActive, measureDashboardLayout]);
   React.useEffect(() => {
+    if (!isActive) {
+      return;
+    }
+
     let timeoutId: number | null = null;
     let intervalId: number | null = null;
     const tick = () => {
@@ -1230,7 +1229,7 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
       if (timeoutId !== null) window.clearTimeout(timeoutId);
       if (intervalId !== null) window.clearInterval(intervalId);
     };
-  }, []);
+  }, [isActive]);
   const [unclaimedRange, setUnclaimedRange] = React.useState<UnclaimedRange>('today');
   const [activityTab, setActivityTab] = React.useState<ActivityTab>('enquiries');
   const [sortKey, setSortKey] = React.useState<SortKey>('date');
@@ -1239,20 +1238,22 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
   const [matterSortDesc, setMatterSortDesc] = React.useState(true);
   const initialCclReviewSession = React.useMemo(() => loadPersistedCclReviewSession(), []);
   const [details, setDetails] = React.useState<DetailsPayload | null>(null);
+  const [detailsRequestKey, setDetailsRequestKey] = React.useState('');
   const [detailsLoading, setDetailsLoading] = React.useState(false);
   const [pitchLookup, setPitchLookup] = React.useState<{
     byProspectId: Record<string, { pitchDealId?: string; pitchedBy?: string; pitchedAt?: string; pitchInstructionRef?: string; pitchStatus?: string; pitchScenarioId?: string }>;
     byEmail: Record<string, { pitchDealId?: string; pitchedBy?: string; pitchedAt?: string; pitchInstructionRef?: string; pitchStatus?: string; pitchScenarioId?: string }>;
   } | null>(null);
   const [pitchLookupLoading, setPitchLookupLoading] = React.useState(false);
+  const [pitchLookupHydrated, setPitchLookupHydrated] = React.useState(false);
   const [selectedConversionKey, setSelectedConversionKey] = React.useState<string>('week-vs-last');
+  const [hoveredConversionBucketKey, setHoveredConversionBucketKey] = React.useState<string | null>(null);
   const [insightPeriod, setInsightPeriod] = React.useState<InsightPeriod>(null);
   const [insightRecords, setInsightRecords] = React.useState<DetailRecord[]>([]);
   const [insightLoading, setInsightLoading] = React.useState(false);
   const [billingInsightIdx, setBillingInsightIdx] = React.useState<number | null>(null);
   const [expandedDays, setExpandedDays] = React.useState<Set<string>>(new Set());
   React.useEffect(() => { setExpandedDays(new Set()); }, [billingInsightIdx]);
-  const canSeeCcl = isCclUser(userInitials);
   const [cclMap, setCclMap] = React.useState<Record<string, CclStatus>>({});
   const [cclStatusResolvingByMatter, setCclStatusResolvingByMatter] = React.useState<Record<string, boolean>>({});
   const [cclStatusResolvedByMatter, setCclStatusResolvedByMatter] = React.useState<Record<string, boolean>>({});
@@ -2163,8 +2164,6 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
         label: 'Refreshing',
         detail: lastLiveAge ? `live ${lastLiveAge}` : 'checking live feed',
         color: isDarkMode ? colours.accent : colours.highlight,
-        borderColor: isDarkMode ? 'rgba(135,243,243,0.28)' : 'rgba(54,144,206,0.22)',
-        background: isDarkMode ? 'rgba(135,243,243,0.08)' : 'rgba(214,232,255,0.85)',
       };
     }
     if (enquiriesUsingSnapshot) {
@@ -2172,16 +2171,12 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
         label: 'Cached',
         detail: lastLiveAge ? `live ${lastLiveAge}` : 'awaiting sync',
         color: isDarkMode ? colours.yellow : colours.orange,
-        borderColor: isDarkMode ? 'rgba(255,213,79,0.24)' : 'rgba(255,140,0,0.2)',
-        background: isDarkMode ? 'rgba(255,213,79,0.08)' : 'rgba(255,140,0,0.08)',
       };
     }
     return {
       label: 'Live',
       detail: lastLiveAge ? `updated ${lastLiveAge}` : 'watching changes',
       color: colours.green,
-      borderColor: isDarkMode ? 'rgba(32,178,108,0.24)' : 'rgba(32,178,108,0.18)',
-      background: isDarkMode ? 'rgba(32,178,108,0.08)' : 'rgba(32,178,108,0.06)',
     };
   }, [enquiriesLastLiveSyncAt, enquiriesLiveRefreshInFlight, enquiriesUsingSnapshot, isDarkMode, liveNowMs]);
 
@@ -2248,7 +2243,7 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
 
   // Fetch CCL status for displayed matters; in demo mode, layer demo CCL onto actual demo matters
   React.useEffect(() => {
-    if (!secondaryFetchesReady) {
+    if (!secondaryFetchesReady || !isActive) {
       return;
     }
     if (!recentMatters || recentMatters.length === 0) {
@@ -2339,7 +2334,7 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
         }
       });
     return () => { cancelled = true; };
-  }, [recentMatters, demoModeActive, demoMatterIds, buildDemoCclMap, seedDemoDraftCache, secondaryFetchesReady]);
+  }, [recentMatters, demoModeActive, demoMatterIds, buildDemoCclMap, seedDemoDraftCache, secondaryFetchesReady, isActive]);
 
   const displayMatters = React.useMemo(() => {
     const list = [...recentMatters];
@@ -3135,6 +3130,9 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
     if (selectedConversionItem.key === 'month-vs-last') return 'monthToDate';
     return null;
   }, [selectedConversionItem]);
+  React.useEffect(() => {
+    setHoveredConversionBucketKey(null);
+  }, [selectedConversionKey]);
   const useExperimentalConversion = enableConversionComparison && conversionRows.length > 0;
   const showExperimentalConversionSkeleton = enableConversionComparison && isResolvingConversionComparison;
   const primaryRailMinHeight = isNarrow ? undefined : (useExperimentalConversion ? 440 : 520);
@@ -3175,29 +3173,16 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
     () => visibleUnclaimedRanges.find((range) => range.key === unclaimedRange) ?? null,
     [visibleUnclaimedRanges, unclaimedRange],
   );
-  const unclaimedAowOptions = React.useMemo(
-    () => activeUnclaimedRange?.aowBreakdown ?? [],
-    [activeUnclaimedRange],
-  );
-  const filteredUnclaimedItems = React.useMemo(() => {
+  const ledgerUnclaimedItems = React.useMemo(() => {
     const items = activeUnclaimedRange?.items ?? [];
-    if (unclaimedAowFilter === 'all') return items;
-    return items.filter((item) => item.aow === unclaimedAowFilter);
-  }, [activeUnclaimedRange, unclaimedAowFilter]);
-  const priorityUnclaimedItem = React.useMemo(() => {
-    const pool = filteredUnclaimedItems.length > 0 ? filteredUnclaimedItems : activeUnclaimedRange?.items ?? [];
-    return [...pool].sort((left, right) => {
-      const staleDelta = Number(right.ageDays || 0) - Number(left.ageDays || 0);
+    return [...items].sort((left, right) => {
+      const staleDelta = Number(left.ageDays || 0) - Number(right.ageDays || 0);
       if (staleDelta !== 0) return staleDelta;
       const valueDelta = Number(right.value || 0) - Number(left.value || 0);
       if (valueDelta !== 0) return valueDelta;
       return String(left.name || '').localeCompare(String(right.name || ''));
-    })[0] ?? null;
-  }, [activeUnclaimedRange?.items, filteredUnclaimedItems]);
-
-  React.useEffect(() => {
-    setUnclaimedAowFilter('all');
-  }, [unclaimedRange]);
+    });
+  }, [activeUnclaimedRange?.items]);
 
   const handleClaimUnclaimed = React.useCallback(async (item: { id: string; name: string; dataSource?: 'new' | 'legacy' }) => {
     if (!userEmail || !canClaimUnclaimed || isClaimingUnclaimed) return;
@@ -3221,10 +3206,6 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
       setClaimingItemId(null);
     }
   }, [activeUnclaimedRange?.label, canClaimUnclaimed, isClaimingUnclaimed, triggerClaimEnquiry, userEmail]);
-
-  const handleClaimPriorityUnclaimed = React.useCallback(() => {
-    if (priorityUnclaimedItem) handleClaimUnclaimed(priorityUnclaimedItem);
-  }, [handleClaimUnclaimed, priorityUnclaimedItem]);
 
   const closeEnquiryFollowUpModal = React.useCallback(() => {
     if (enquiryFollowUpSavingChannel) return;
@@ -3370,18 +3351,29 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
 
   const billingCurrentRows = React.useMemo(() => billingDailyRows.filter((r) => r.week === 'This week'), [billingDailyRows]);
   const billingLastRows = React.useMemo(() => billingDailyRows.filter((r) => r.week === 'Last week'), [billingDailyRows]);
+  const currentDetailsRequestKey = React.useMemo(() => {
+    if (isTeamWideEnquiryView) return '';
+    if (!userEmail && !userInitials) return '';
+    const params = new URLSearchParams();
+    if (userEmail) params.set('email', userEmail);
+    if (userInitials) params.set('initials', userInitials);
+    params.set('period', activityDetailsPeriod);
+    params.set('limit', '500');
+    params.set('includePrevious', 'false');
+    return `home-enquiries-details:${params.toString()}`;
+  }, [activityDetailsPeriod, isTeamWideEnquiryView, userEmail, userInitials]);
 
   /* ── Fetch recents ── */
   React.useEffect(() => {
-    if (!secondaryFetchesReady) return;
+    if (!isActive) return;
     if (isTeamWideEnquiryView) {
       setDetails(null);
+      setDetailsRequestKey('');
       setDetailsLoading(false);
       return;
     }
     if (!userEmail && !userInitials) return;
     let active = true;
-    let timeoutId: ReturnType<typeof globalThis.setTimeout> | null = null;
     const hasSeededRecords = recentEnquiryRecords.length > 0;
     const params = new URLSearchParams();
     if (userEmail) params.set('email', userEmail);
@@ -3396,40 +3388,62 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
     const requestKey = `home-enquiries-details:${params.toString()}`;
     const runFetch = () => {
       if (!active) return;
-      setDetailsLoading(true);
+      if (!hasSeededRecords) {
+        setDetailsLoading(true);
+      }
       fetchSharedJson(requestKey, () => fetch(`/api/home-enquiries/details?${params}`)
         .then((r) => (r.ok ? r.json() : Promise.reject(r.status))))
-        .then((d: DetailsPayload) => { if (active) setDetails(d); })
+        .then((d: DetailsPayload) => {
+          if (active) {
+            setDetails(d);
+            setDetailsRequestKey(requestKey);
+          }
+        })
         .catch(() => {})
         .finally(() => { if (active) setDetailsLoading(false); });
     };
 
-    setDetails(null);
-    if (hasSeededRecords) {
-      setDetailsLoading(true);
-      if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
-        timeoutId = globalThis.setTimeout(() => {
-          (window as typeof window & {
-            requestIdleCallback: (cb: IdleRequestCallback, options?: IdleRequestOptions) => number;
-          }).requestIdleCallback(() => runFetch(), { timeout: 1200 });
-        }, 550);
-      } else {
-        timeoutId = globalThis.setTimeout(runFetch, 700);
-      }
+    if (!hasSeededRecords) {
+      setDetails(null);
+      setDetailsRequestKey('');
+      runFetch();
+    } else if (typeof window !== 'undefined' && 'requestAnimationFrame' in window) {
+      setDetailsRequestKey('');
+      window.requestAnimationFrame(() => {
+        runFetch();
+      });
     } else {
+      setDetailsRequestKey('');
       runFetch();
     }
 
     return () => {
       active = false;
-      if (timeoutId !== null) {
-        globalThis.clearTimeout(timeoutId);
-      }
     };
-  }, [activityDetailsPeriod, isTeamWideEnquiryView, recentEnquiryRecords, userEmail, userInitials, secondaryFetchesReady]);
+  }, [activityDetailsPeriod, isTeamWideEnquiryView, recentEnquiryRecords, userEmail, userInitials, isActive]);
+
+  /* ── Stable key for pitch-lookup deps (avoids re-fire on array reference change) ── */
+  const pitchLookupKey = React.useMemo(() => {
+    const lookupRecords = isTeamWideEnquiryView
+      ? recentEnquiryRecords.filter((record) => recordFallsWithinPeriod(record.date, activityDetailsPeriod))
+      : recentEnquiryRecords;
+    const pids = [...new Set(
+      lookupRecords.flatMap((r) =>
+        Array.isArray(r.prospectIds) ? r.prospectIds.map((v: string) => String(v || '').trim()).filter(Boolean) : [],
+      ),
+    )].sort().join(',');
+    const em = [...new Set(
+      lookupRecords.map((r) => String(r.email || '').trim().toLowerCase()).filter(Boolean),
+    )].sort().join(',');
+    return `${pids}|${em}`;
+  }, [recentEnquiryRecords, isTeamWideEnquiryView, activityDetailsPeriod]);
 
   /* ── Fetch pitch evidence for ALL seeded records (not user-scoped) ── */
   React.useEffect(() => {
+    if (!isActive) {
+      return;
+    }
+
     const lookupRecords = isTeamWideEnquiryView
       ? recentEnquiryRecords.filter((record) => recordFallsWithinPeriod(record.date, activityDetailsPeriod))
       : recentEnquiryRecords;
@@ -3437,6 +3451,7 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
     if (lookupRecords.length === 0) {
       setPitchLookup(null);
       setPitchLookupLoading(false);
+      setPitchLookupHydrated(true);
       return;
     }
     let active = true;
@@ -3451,6 +3466,7 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
     setPitchLookup(null);
     if (prospectIds.length === 0 && emails.length === 0) {
       setPitchLookupLoading(false);
+      setPitchLookupHydrated(true);
       return;
     }
     setPitchLookupLoading(true);
@@ -3462,9 +3478,10 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
       .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
       .then((data) => { if (active) setPitchLookup(data); })
       .catch(() => {})
-      .finally(() => { if (active) setPitchLookupLoading(false); });
+      .finally(() => { if (active) { setPitchLookupLoading(false); setPitchLookupHydrated(true); } });
     return () => { active = false; };
-  }, [activityDetailsPeriod, isTeamWideEnquiryView, recentEnquiryRecords]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pitchLookupKey, isActive]);
 
   const recents = React.useMemo(() => {
     const seededRecords = isTeamWideEnquiryView
@@ -3476,7 +3493,8 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
         seededRecordMap.set(key, record);
       });
     });
-    const currentRecordsRaw = details?.current?.records;
+    const currentDetails = detailsRequestKey === currentDetailsRequestKey ? details : null;
+    const currentRecordsRaw = currentDetails?.current?.records;
     const currentRecords = Array.isArray(currentRecordsRaw) ? currentRecordsRaw : [];
     const mergedCurrentRecords = currentRecords.map((record) => {
       const seeded = getDetailRecordIds(record)
@@ -3540,7 +3558,7 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
       return sortDesc ? -cmp : cmp;
     });
     return list;
-  }, [activityDetailsPeriod, claimedRecentEnquiryIds, details, isTeamWideEnquiryView, pitchLookup, recentEnquiryRecords, sortKey, sortDesc, demoModeActive, userInitials]);
+  }, [activityDetailsPeriod, claimedRecentEnquiryIds, currentDetailsRequestKey, details, detailsRequestKey, isTeamWideEnquiryView, pitchLookup, recentEnquiryRecords, sortKey, sortDesc, demoModeActive, userInitials]);
 
   const filteredRecents = React.useMemo(() => {
     return recents.filter((record) => {
@@ -3559,20 +3577,22 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
   const activityVisibleCount = layoutStacked ? 6 : 8;
   const matterVisibleCount = Math.max(recentMatters.length, layoutStacked ? 6 : 8);
   const alignStackedColumns = layoutStacked && !isNarrow;
-  const showInlineMatterSteps = canSeeCcl && matterStepsInline;
+  const showInlineMatterSteps = matterStepsInline;
   const sharedDotColumnWidth = 28;
   const sharedDateColumnWidth = alignStackedColumns ? 78 : 74;
   const sharedFeColumnWidth = alignStackedColumns ? 62 : 48;
-  const sharedAowColumnWidth = alignStackedColumns ? 72 : 48;
-  const sharedStatusColumnWidth = 52;
-  const matterActionColumnWidth = canSeeCcl
-    ? showInlineMatterSteps
-      ? (alignStackedColumns ? 198 : 176)
-      : (alignStackedColumns ? 92 : 76)
-    : 14;
-  const matterStatusColumnWidth = alignStackedColumns ? sharedStatusColumnWidth : (canSeeCcl ? 34 : 14);
-  const nameColumnMax = alignStackedColumns ? 220 : 160;
-  const matterGridTemplate = `${sharedDotColumnWidth}px ${sharedDateColumnWidth}px ${sharedFeColumnWidth}px minmax(0, ${nameColumnMax}px) 1fr`;
+  const sharedPipelineColumnWidth = 240;
+  const sharedSeparatorColumnWidth = 12;
+  const matterCollapsedCclWidth = alignStackedColumns ? 78 : 62;
+  const matterActionLabelWidth = showInlineMatterSteps
+    ? sharedPipelineColumnWidth
+    : (canSeeCcl ? matterCollapsedCclWidth : 0);
+  const nameColumnMax = alignStackedColumns ? 160 : 120;
+  const matterGridTemplate = `${sharedDotColumnWidth}px ${sharedDateColumnWidth}px minmax(0, ${nameColumnMax}px) 1fr`;
+  const enquiryActionGridTemplate = `${HOME_ENQUIRY_NOTES_SLOT_WIDTH}px ${sharedFeColumnWidth}px ${sharedSeparatorColumnWidth}px minmax(0, ${sharedPipelineColumnWidth}px)`;
+  const matterActionGridTemplate = matterActionLabelWidth > 0
+    ? `${sharedFeColumnWidth}px ${sharedSeparatorColumnWidth}px minmax(0, ${matterActionLabelWidth}px)`
+    : `${sharedFeColumnWidth}px`;
 
   const getRecentRecordKey = React.useCallback((record: DetailRecord) => {
     return String(record.enquiryId || record.id || record.pitchEnquiryId || record.legacyEnquiryId || record.date || record.name || '').trim();
@@ -3733,168 +3753,53 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
   const hoverBg = isDarkMode ? 'rgba(135,243,243,0.04)' : 'rgba(13,47,96,0.04)';
   const hoverShadow = isDarkMode ? 'inset 2px 0 0 rgba(135,243,243,0.3)' : `inset 2px 0 0 ${colours.helixBlue}`;
 
-  const renderUnclaimedPipelinePanel = React.useCallback(() => (
-    <>
-      <div style={{ padding: '18px 16px 14px', animation: 'opsDashFadeIn 0.3s ease 0.12s both' }}>
-        {unclaimedClaimFeedback ? (
-          <div style={{ marginBottom: 12, padding: '9px 12px', border: `1px solid ${unclaimedClaimFeedback.tone === 'success' ? colours.green : colours.cta}`, background: unclaimedClaimFeedback.tone === 'success' ? (isDarkMode ? 'rgba(32,178,108,0.08)' : 'rgba(32,178,108,0.06)') : (isDarkMode ? 'rgba(214,85,65,0.08)' : 'rgba(214,85,65,0.06)'), fontSize: 11, color: text, lineHeight: 1.4 }}>
-            {unclaimedClaimFeedback.message}
-          </div>
-        ) : null}
+  const renderUnclaimedPipelinePanel = React.useCallback(() => {
+    const relativeAge = (dateStr: string): string => {
+      if (!dateStr) return '';
+      const then = new Date(dateStr);
+      if (isNaN(then.getTime())) return '';
+      const seconds = Math.floor((Date.now() - then.getTime()) / 1000);
+      if (seconds < 0) return 'just now';
+      if (seconds < 60) return 'just now';
+      if (seconds < 3600) {
+        const m = Math.floor(seconds / 60);
+        const s = seconds % 60;
+        return s > 0 ? `${m}m ${s}s` : `${m}m`;
+      }
+      if (seconds < 86400) {
+        const h = Math.floor(seconds / 3600);
+        const m = Math.floor((seconds % 3600) / 60);
+        return m > 0 ? `${h}h ${m}m` : `${h}h`;
+      }
+      const days = Math.floor(seconds / 86400);
+      if (days <= 2) {
+        const h = Math.floor((seconds % 86400) / 3600);
+        return h > 0 ? `${days}d ${h}h` : `${days}d`;
+      }
+      return `${days}d`;
+    };
 
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-          {bigNumber(
-            String(activeUnclaimedRange?.count ?? (unclaimedRange === 'today' ? unclaimedToday : unclaimedRange === 'week' ? unclaimedThisWeek : unclaimedLastWeek)),
-            { color: (activeUnclaimedRange?.count ?? claimSignal.unclaimed) > 0 ? colours.orange : text, loading: !!isLoadingEnquiryMetrics, size: 28 },
-          )}
-          <div style={{ fontSize: 13, color: isDarkMode ? '#d1d5db' : '#374151', fontWeight: 500, lineHeight: 1.3 }}>
-            {(activeUnclaimedRange?.count ?? claimSignal.unclaimed) === 1 ? 'enquiry waiting' : 'enquiries waiting'}
-          </div>
-        </div>
-        <div style={{ fontSize: 11, color: isDarkMode ? colours.subtleGrey : colours.greyText, marginTop: 4, lineHeight: 1.4 }}>
-          {(activeUnclaimedRange?.count ?? claimSignal.unclaimed) > 0
-            ? `These came in ${activeUnclaimedRange?.label?.toLowerCase() || 'recently'} and no one has picked them up yet.`
-            : 'All clear — every enquiry has been picked up.'}
-        </div>
-      </div>
+    const unclaimedGridTemplate = canClaimUnclaimed
+      ? `${sharedDotColumnWidth}px ${sharedDateColumnWidth}px minmax(0,1fr) 108px`
+      : `${sharedDotColumnWidth}px ${sharedDateColumnWidth}px minmax(0,1fr)`;
 
-      {priorityUnclaimedItem ? (
-        <div style={{
-          margin: '0 14px 12px',
-          padding: '14px 16px',
-          border: `1px solid ${isDarkMode ? 'rgba(214,85,65,0.32)' : 'rgba(214,85,65,0.24)'}`,
-          background: isDarkMode ? 'rgba(214,85,65,0.08)' : 'rgba(214,85,65,0.05)',
-          animation: 'opsDashFadeIn 0.35s ease 0.2s both',
-        }}>
-          <div style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: colours.cta, marginBottom: 8 }}>
-            Pick up next
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: aowColor(priorityUnclaimedItem.aow), display: 'inline-block', flexShrink: 0 }} />
-            <span style={{ fontSize: 14, fontWeight: 700, color: text }}>{priorityUnclaimedItem.name}</span>
-          </div>
-          <div style={{ fontSize: 11, color: isDarkMode ? '#d1d5db' : '#374151', marginBottom: canClaimUnclaimed ? 12 : 0, lineHeight: 1.4 }}>
-            {priorityUnclaimedItem.aow} · {priorityUnclaimedItem.ageDays === 0 ? 'arrived today' : priorityUnclaimedItem.ageDays === 1 ? 'arrived yesterday' : `waiting ${priorityUnclaimedItem.ageDays} days`}
-            {priorityUnclaimedItem.value > 0 ? ` · ${fmt.currency(priorityUnclaimedItem.value)}` : ''}
-          </div>
-          {canClaimUnclaimed ? (
-            <button
-              type="button"
-              onClick={handleClaimPriorityUnclaimed}
-              disabled={isClaimingUnclaimed || !userEmail}
-              style={{
-                border: 'none',
-                background: colours.cta,
-                color: '#fff',
-                padding: '9px 18px',
-                fontSize: 12,
-                fontWeight: 700,
-                width: '100%',
-                cursor: isClaimingUnclaimed ? 'default' : 'pointer',
-                opacity: isClaimingUnclaimed ? 0.7 : 1,
-                letterSpacing: '0.2px',
-                transition: 'opacity 0.2s ease',
-              }}
-            >
-              {isClaimingUnclaimed ? 'Claiming…' : 'Claim this enquiry'}
-            </button>
-          ) : null}
-        </div>
-      ) : (
-        <div style={{ margin: '0 14px 12px', padding: '14px 16px', border: `1px solid ${rowBorder}`, background: isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)' }}>
-          <div style={{ fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151', textAlign: 'center' }}>
-            Nothing waiting to be picked up.
-          </div>
-        </div>
-      )}
+    const formatShortDate = (dateStr: string): string => {
+      if (!dateStr) return '';
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return '';
+      return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    };
 
-      {unclaimedAowOptions.length > 0 && (
-        <div style={{ padding: '0 14px 10px', animation: 'opsDashFadeIn 0.35s ease 0.26s both' }}>
-          <div style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText, marginBottom: 8 }}>
-            By area
-          </div>
-          {unclaimedAowOptions.slice(0, 5).map((item) => {
-            const maxCount = unclaimedAowOptions[0]?.count || 1;
-            const barPct = Math.max(8, Math.round((item.count / maxCount) * 100));
-            return (
-              <div
-                key={item.key}
-                onClick={() => setUnclaimedAowFilter(unclaimedAowFilter === item.key ? 'all' : item.key)}
-                style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6, cursor: 'pointer', userSelect: 'none' }}
-              >
-                <span style={{ width: 6, height: 6, borderRadius: '50%', background: aowColor(item.key), display: 'inline-block', flexShrink: 0 }} />
-                <span style={{ fontSize: 11, color: unclaimedAowFilter === item.key ? text : (isDarkMode ? '#d1d5db' : '#374151'), fontWeight: unclaimedAowFilter === item.key ? 600 : 400, minWidth: 80 }}>{item.key}</span>
-                <div style={{ flex: 1, height: 6, background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', position: 'relative', overflow: 'hidden' }}>
-                  <div style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: `${barPct}%`, background: aowColor(item.key), opacity: unclaimedAowFilter === item.key ? 0.9 : 0.5, transition: 'width 0.3s ease, opacity 0.2s ease' }} />
-                </div>
-                <span style={{ fontSize: 11, fontWeight: 600, color: text, minWidth: 16, textAlign: 'right' }}>{item.count}</span>
-              </div>
-            );
-          })}
+    return (
+    <div style={{ width: '100%', transition: 'opacity 0.2s ease' }}>
+      {unclaimedClaimFeedback ? (
+        <div style={{ padding: '9px 12px', border: `1px solid ${unclaimedClaimFeedback.tone === 'success' ? colours.green : colours.cta}`, background: unclaimedClaimFeedback.tone === 'success' ? (isDarkMode ? 'rgba(32,178,108,0.08)' : 'rgba(32,178,108,0.06)') : (isDarkMode ? 'rgba(214,85,65,0.08)' : 'rgba(214,85,65,0.06)'), fontSize: 11, color: text, lineHeight: 1.4, animation: 'opsDashFadeIn 0.2s ease both' }}>
+          {unclaimedClaimFeedback.message}
         </div>
-      )}
+      ) : null}
 
-      {filteredUnclaimedItems.length > 0 && (
-        <div style={{ borderTop: `1px solid ${rowBorder}`, animation: 'opsDashFadeIn 0.35s ease 0.32s both' }}>
-          <div style={{ padding: '10px 14px 6px', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
-            {unclaimedAowFilter !== 'all' ? `${unclaimedAowFilter} enquiries` : 'Waiting longest'}
-          </div>
-          {filteredUnclaimedItems.slice(0, 4).map((item, index) => (
-            <div
-              key={item.id}
-              style={{
-                padding: '9px 14px',
-                borderBottom: index < Math.min(filteredUnclaimedItems.length, 4) - 1 ? `1px solid ${rowBorder}` : 'none',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-                transition: 'background 0.15s ease',
-              }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)'; }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
-            >
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: aowColor(item.aow), display: 'inline-block', flexShrink: 0 }} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</div>
-                <div style={{ fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText, marginTop: 2 }}>
-                  {item.aow}
-                </div>
-              </div>
-              <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                <div style={{ fontSize: 10, color: item.ageDays >= 7 ? colours.orange : (isDarkMode ? '#d1d5db' : '#374151'), fontWeight: item.ageDays >= 7 ? 600 : 400 }}>
-                  {item.ageDays === 0 ? 'Today' : item.ageDays === 1 ? '1 day' : `${item.ageDays} days`}
-                </div>
-                {item.value > 0 && (
-                  <div style={{ fontSize: 9, color: isDarkMode ? colours.subtleGrey : colours.greyText, marginTop: 1 }}>{fmt.currency(item.value)}</div>
-                )}
-              </div>
-              {canClaimUnclaimed && (
-                <button
-                  type="button"
-                  onClick={() => handleClaimUnclaimed(item)}
-                  disabled={isClaimingUnclaimed || !userEmail}
-                  style={{
-                    border: 'none',
-                    background: claimingItemId === item.id ? colours.cta : (isDarkMode ? 'rgba(214,85,65,0.16)' : 'rgba(214,85,65,0.1)'),
-                    color: claimingItemId === item.id ? '#fff' : colours.cta,
-                    padding: '4px 10px',
-                    fontSize: 10,
-                    fontWeight: 700,
-                    cursor: isClaimingUnclaimed ? 'default' : 'pointer',
-                    opacity: isClaimingUnclaimed && claimingItemId !== item.id ? 0.4 : 1,
-                    flexShrink: 0,
-                    transition: 'background 0.15s ease, color 0.15s ease, opacity 0.15s ease',
-                  }}
-                >
-                  {claimingItemId === item.id ? 'Claiming…' : 'Claim'}
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div style={{ display: 'flex', justifyContent: 'center', gap: 4, padding: '10px 14px', borderTop: `1px solid ${rowBorder}` }}>
+      {/* Range filter tabs */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 0, background: theadBg, borderBottom: `1px solid ${cardBorder}` }}>
         {([
           ['today', 'Today'],
           ['week', 'This week'],
@@ -3903,28 +3808,131 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
           const rangeData = visibleUnclaimedRanges.find((range) => range.key === key);
           const count = rangeData?.count ?? 0;
           return (
-            <button
+            <div
               key={key}
-              type="button"
               onClick={() => setUnclaimedRange(key)}
               style={{
-                border: 'none',
-                background: unclaimedRange === key ? (isDarkMode ? 'rgba(135,243,243,0.1)' : 'rgba(54,144,206,0.08)') : 'transparent',
-                color: unclaimedRange === key ? accent : muted,
-                padding: '5px 10px',
-                fontSize: 10,
-                fontWeight: unclaimedRange === key ? 700 : 400,
+                flex: 1,
+                padding: '9px 6px 7px',
+                fontSize: 9,
+                fontWeight: 600,
+                letterSpacing: '0.3px',
+                textAlign: 'center',
+                color: text,
+                borderBottom: unclaimedRange === key ? `2px solid ${accent}` : '2px solid transparent',
                 cursor: 'pointer',
-                transition: 'all 0.15s ease',
+                userSelect: 'none',
+                background: unclaimedRange === key ? tabActiveBg : 'transparent',
+                transition: 'color 0.2s ease, background 0.2s ease, border-color 0.2s ease',
               }}
             >
-              {label}{count > 0 ? ` (${count})` : ''}
-            </button>
+              {label}
+              {count > 0 && <span style={{ marginLeft: 3, fontSize: 8, opacity: 0.6 }}>{count}</span>}
+            </div>
           );
         })}
       </div>
-    </>
-  ), [activeUnclaimedRange, accent, canClaimUnclaimed, claimSignal.unclaimed, claimingItemId, filteredUnclaimedItems, fmt, handleClaimPriorityUnclaimed, handleClaimUnclaimed, isClaimingUnclaimed, isDarkMode, isLoadingEnquiryMetrics, muted, priorityUnclaimedItem, rowBorder, text, unclaimedAowFilter, unclaimedAowOptions, unclaimedClaimFeedback, unclaimedLastWeek, unclaimedRange, unclaimedThisWeek, unclaimedToday, userEmail, visibleUnclaimedRanges]);
+
+      {/* Column headers */}
+      {!isNarrow && ledgerUnclaimedItems.length > 0 ? (
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: unclaimedGridTemplate,
+          alignItems: 'center',
+          gap: 0,
+          padding: '7px 8px 5px 4px',
+          background: theadBg,
+          borderBottom: `1px solid ${cardBorder}`,
+        }}>
+          <span style={{ display: 'flex', justifyContent: 'center' }}>
+            <FiFolder size={9} style={{ color: theadText, opacity: 0.8 }} />
+          </span>
+          <span style={{ fontSize: 8, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: theadText }}>Date</span>
+          <span style={{ fontSize: 8, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: theadText }}>Prospect</span>
+          {canClaimUnclaimed ? <span style={{ fontSize: 8, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: theadText, textAlign: 'center' }}>Action</span> : null}
+        </div>
+      ) : null}
+
+      {/* Data rows */}
+      {ledgerUnclaimedItems.length > 0 ? (
+        ledgerUnclaimedItems.map((item, index) => {
+          const isClaimingRow = claimingItemId === item.id;
+          const ageLabel = relativeAge(item.date);
+          const ageTone = item.ageDays >= 7 ? colours.orange : muted;
+          return (
+            <div
+              key={item.id}
+              className="ops-enquiry-row"
+              style={{ borderBottom: `1px solid ${rowBorder}`, animation: `opsDashRowFade 0.25s ease ${0.03 * index}s both` }}
+            >
+              <div
+                style={{
+                  padding: '6px 8px 6px 4px',
+                  display: 'grid',
+                  gridTemplateColumns: isNarrow ? '1fr' : unclaimedGridTemplate,
+                  alignItems: 'center',
+                  gap: 0,
+                  transition: 'background 0.15s ease',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = hoverBg; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+              >
+                {/* AoW dot */}
+                <span style={{ display: 'flex', justifyContent: 'center', opacity: 0.55 }} title={item.aow || 'Unknown'}>
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: aowColor(item.aow), display: 'inline-block' }} />
+                </span>
+
+                {/* Date — relative age primary, short date secondary */}
+                <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: 24 }}>
+                  <span style={{ fontSize: 9, color: ageTone, fontWeight: item.ageDays >= 7 ? 700 : 400, lineHeight: 1.05, whiteSpace: 'nowrap' }}>{ageLabel}</span>
+                  <span style={{ fontSize: 8, color: muted, opacity: 0.9, whiteSpace: 'nowrap', lineHeight: 1.05 }}>{formatShortDate(item.date)}</span>
+                </div>
+
+                {/* Prospect name + email / fallback subtitle */}
+                <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 2, overflow: 'hidden' }}>
+                  <span style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.highlight, lineHeight: 1.15, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>
+                    {item.name}
+                  </span>
+                  <span style={{ fontSize: 9, color: muted, whiteSpace: 'nowrap', lineHeight: 1.1, overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>
+                    {item.email || `${item.aow}${item.value > 0 ? ` · ${fmt.currency(item.value)}` : ''}`}
+                  </span>
+                </div>
+
+                {/* Claim button */}
+                {canClaimUnclaimed ? (
+                  <div style={{ display: 'flex', justifyContent: 'center' }}>
+                    <button
+                      type="button"
+                      onClick={() => handleClaimUnclaimed(item)}
+                      disabled={isClaimingUnclaimed || !userEmail}
+                      style={{
+                        border: `1px solid ${colours.cta}`,
+                        background: isClaimingRow ? colours.cta : 'transparent',
+                        color: isClaimingRow ? '#fff' : colours.cta,
+                        padding: '5px 10px',
+                        fontSize: 10,
+                        fontWeight: 700,
+                        cursor: isClaimingUnclaimed && !isClaimingRow ? 'default' : 'pointer',
+                        opacity: isClaimingUnclaimed && !isClaimingRow ? 0.45 : 1,
+                        transition: 'background 0.15s ease, color 0.15s ease, opacity 0.15s ease',
+                      }}
+                    >
+                      {isClaimingRow ? 'Claiming…' : 'Claim'}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          );
+        })
+      ) : (
+        <div style={{ padding: '16px 8px', fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151', textAlign: 'center' }}>
+          Nothing waiting to be picked up.
+        </div>
+      )}
+    </div>
+    );
+  }, [accent, canClaimUnclaimed, cardBorder, claimingItemId, fmt, handleClaimUnclaimed, hoverBg, isClaimingUnclaimed, isDarkMode, isNarrow, ledgerUnclaimedItems, muted, rowBorder, sharedDateColumnWidth, sharedDotColumnWidth, tabActiveBg, text, theadBg, theadText, unclaimedClaimFeedback, unclaimedRange, userEmail, visibleUnclaimedRanges]);
 
   React.useEffect(() => {
     const handleOpenHomeCclReview = (event: Event) => {
@@ -3994,13 +4002,23 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
     />
   );
 
-  const renderSectionSkeleton = (
-    title: string,
-    detail: string,
-    opts: { rows?: number; minHeight?: number; columns?: number } = {},
-  ) => {
-    const rows = opts.rows ?? 3;
-    const columns = opts.columns ?? 1;
+  const renderConversionSkeleton = () => {
+    const conversionTabs = (visibleConversionRows.length > 0
+      ? visibleConversionRows.map((row) => row.key)
+      : ['today', 'week-vs-last', 'month-vs-last', 'quarter-vs-last']).slice(0, 4);
+    const selectedTab = conversionTabs.includes(selectedConversionKey) ? selectedConversionKey : conversionTabs[0];
+    const chartTicks = selectedTab === 'today'
+      ? ['8', '9', '10', '11', '12', '1', '2', '3', '4', '5', '6']
+      : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+    const chartWidth = 240;
+    const chartHeight = isNarrow ? 96 : 144;
+    const currentLine = selectedTab === 'today'
+      ? '10,70 32,62 54,66 76,54 98,50 120,44 142,52 164,42 186,38 208,46 230,40'
+      : '12,82 66,62 120,56 174,46 228,34';
+    const previousLine = selectedTab === 'today'
+      ? '10,78 32,74 54,70 76,68 98,60 120,58 142,62 164,54 186,50 208,56 230,52'
+      : '12,88 66,78 120,70 174,66 228,58';
+
     return (
       <div
         style={{
@@ -4009,24 +4027,230 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
           boxShadow: cardShadow,
           display: 'flex',
           flexDirection: 'column',
-          minHeight: opts.minHeight ?? 0,
+          minHeight: primaryRailMinHeight,
         }}
       >
-        <div style={{ padding: '11px 14px 10px', borderBottom: `1px solid ${rowBorder}`, background: isDarkMode ? 'rgba(255,255,255,0.015)' : 'rgba(13,47,96,0.025)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <FiRefreshCw size={11} style={{ color: accent, animation: 'opsDashSpin 1s linear infinite', flexShrink: 0 }} />
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: text }}>{title}</div>
-              <div style={{ fontSize: 10, color: muted, marginTop: 2 }}>{detail}</div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '10px 12px', borderBottom: `1px solid ${rowBorder}` }}>
+          {conversionTabs.map((key, index) => {
+            const isSelected = key === selectedTab;
+            const label = key === 'week-vs-last'
+              ? 'Week'
+              : key === 'month-vs-last'
+                ? 'Month'
+                : key === 'quarter-vs-last'
+                  ? 'Quarter'
+                  : 'Today';
+            return (
+              <div
+                key={`conversion-skeleton-tab-${key}`}
+                style={{
+                  width: label === 'Today' ? 56 : 64,
+                  height: 21,
+                  background: isSelected ? skeletonSoft : skeletonTint,
+                  border: `1px solid ${isSelected ? skeletonStrong : skeletonTint}`,
+                  animation: 'opsDashPulse 1.5s ease-in-out infinite',
+                  animationDelay: `${index * 0.08}s`,
+                }}
+                title={label}
+              />
+            );
+          })}
+        </div>
+
+        <div style={{ padding: '14px 14px 12px', display: 'grid', gap: 12, flex: 1, alignContent: 'start' }}>
+          <div style={{ display: 'grid', gap: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                {skeletonBlock(92, 36, { background: skeletonStrong })}
+                {skeletonBlock(42, 10, { background: skeletonSoft })}
+              </div>
+              {skeletonBlock(104, 9, { background: skeletonTint })}
+            </div>
+            {skeletonBlock('76%', 11, { background: skeletonSoft })}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+              {Array.from({ length: 2 }).map((_, index) => (
+                <div
+                  key={`conversion-skeleton-stat-${index}`}
+                  style={{
+                    display: 'grid',
+                    gap: 4,
+                    padding: '7px 9px',
+                    border: `1px solid ${rowBorder}`,
+                    background: index === 0 ? skeletonTint : skeletonSoft,
+                  }}
+                >
+                  {skeletonBlock(index === 0 ? '34%' : '40%', 8, { background: skeletonStrong })}
+                  {skeletonBlock('70%', 10, { background: skeletonTint })}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gap: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                {Array.from({ length: 2 }).map((_, index) => (
+                  <div key={`conversion-skeleton-legend-${index}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                      <span style={{ width: 10, height: 0, borderTop: `1.8px solid ${index === 0 ? skeletonStrong : skeletonSoft}`, display: 'inline-block' }} />
+                      <span style={{ width: 10, height: index === 0 ? 0 : 8, borderTop: index === 0 ? 'none' : `1px dashed ${skeletonTint}`, display: 'inline-block' }} />
+                    </span>
+                    {skeletonBlock(56, 8, { background: skeletonTint })}
+                  </div>
+                ))}
+              </div>
+              {skeletonBlock(selectedTab === 'today' ? 56 : 80, 8, { background: skeletonTint })}
+            </div>
+            <div
+              style={{
+                height: chartHeight,
+                border: `1px solid ${rowBorder}`,
+                background: `linear-gradient(180deg, ${skeletonTint} 0%, transparent 100%)`,
+                padding: '10px 12px 12px',
+                display: 'grid',
+                gap: 8,
+              }}
+            >
+              <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} width="100%" height="100%" preserveAspectRatio="none" aria-hidden="true">
+                <line x1="10" y1={chartHeight - 12} x2={chartWidth - 10} y2={chartHeight - 12} stroke={skeletonTint} strokeWidth="1" />
+                {[24, 48, 72].map((y) => (
+                  <line key={y} x1="10" y1={y} x2={chartWidth - 10} y2={y} stroke={skeletonTint} strokeWidth="1" />
+                ))}
+                <polyline points={previousLine} fill="none" stroke={skeletonSoft} strokeWidth="1.6" strokeDasharray="4 4" strokeLinecap="round" strokeLinejoin="round" />
+                <polyline points={currentLine} fill="none" stroke={skeletonStrong} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              <div style={{ display: 'grid', gridTemplateColumns: `repeat(${chartTicks.length}, minmax(0, 1fr))`, gap: 4 }}>
+                {chartTicks.map((tick, index) => (
+                  <div key={`conversion-skeleton-tick-${tick}-${index}`} style={{ display: 'grid', justifyItems: 'center' }}>
+                    {skeletonBlock(index % 2 === 0 ? 16 : 12, 7, { background: skeletonTint })}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div style={{ padding: '8px 0 2px', borderTop: `1px solid ${rowBorder}`, display: 'grid', gap: 6 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              {skeletonBlock(68, 8, { background: skeletonStrong })}
+              {skeletonBlock(74, 8, { background: skeletonTint })}
+            </div>
+            <div style={{ width: '100%', minHeight: 8, border: `1px solid ${rowBorder}`, background: skeletonTint, overflow: 'hidden', display: 'flex' }}>
+              {[22, 24, 18, 14, 22].map((width, index) => (
+                <div key={`conversion-skeleton-mix-${index}`} style={{ width: `${width}%`, minHeight: 8, background: index % 2 === 0 ? skeletonStrong : skeletonSoft, animation: 'opsDashPulse 1.5s ease-in-out infinite', animationDelay: `${index * 0.06}s` }} />
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              {Array.from({ length: 3 }).map((_, index) => (
+                <div key={`conversion-skeleton-chip-${index}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: index === 1 ? skeletonSoft : skeletonStrong, animation: 'opsDashPulse 1.5s ease-in-out infinite', animationDelay: `${index * 0.08}s` }} />
+                  {skeletonBlock(index === 0 ? 58 : 48, 8, { background: skeletonTint })}
+                </div>
+              ))}
             </div>
           </div>
         </div>
-        <div style={{ padding: '12px 14px', display: 'grid', gridTemplateColumns: columns > 1 ? `repeat(${columns}, minmax(0, 1fr))` : '1fr', gap: 10, flex: 1 }}>
-          {Array.from({ length: rows }).map((_, index) => (
-            <div key={index} style={{ display: 'flex', flexDirection: 'column', gap: 7, minWidth: 0 }}>
-              {skeletonBlock(index % 2 === 0 ? '36%' : '28%', 9, { animationDelay: `${index * 0.08}s` })}
-              {skeletonBlock('100%', index === 0 ? 18 : 12, { animationDelay: `${index * 0.1}s`, background: skeletonSoft })}
-              {skeletonBlock(index % 2 === 0 ? '62%' : '48%', 8, { animationDelay: `${index * 0.12}s`, background: skeletonTint })}
+      </div>
+    );
+  };
+
+  const renderPipelineSkeletonCard = (variant: 'activity' | 'matters') => {
+    const isActivity = variant === 'activity';
+    const rowCount = isActivity ? activityVisibleCount : matterVisibleCount;
+    const actionGridTemplate = isActivity ? enquiryActionGridTemplate : matterActionGridTemplate;
+    const stepCount = isActivity
+      ? HOME_ENQUIRY_STEP_HEADER_LABELS.length
+      : (showInlineMatterSteps ? HOME_MATTER_STEP_HEADER_LABELS.length : (matterActionLabelWidth > 0 ? 1 : 0));
+
+    return (
+      <div
+        style={{
+          background: cardBg,
+          border: `1px solid ${cardBorder}`,
+          boxShadow: cardShadow,
+          display: 'flex',
+          flexDirection: 'column',
+          minHeight: isNarrow ? 220 : pipelineCardHeight ?? 0,
+        }}
+      >
+        {isActivity ? (
+          <div style={{ display: 'flex', borderBottom: `1px solid ${cardBorder}` }}>
+            {['Enquiries', 'Unclaimed'].map((label, index) => (
+              <div
+                key={`pipeline-skeleton-tab-${label}`}
+                style={{
+                  flex: 1,
+                  padding: '9px 6px 7px',
+                  textAlign: 'center',
+                  background: index === 0 ? tabActiveBg : 'transparent',
+                  borderBottom: index === 0 ? `2px solid ${accent}` : '2px solid transparent',
+                }}
+              >
+                {skeletonBlock(index === 0 ? 70 : 62, 9, { background: index === 0 ? skeletonStrong : skeletonSoft, margin: '0 auto' })}
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        <div style={{ display: 'grid', gridTemplateColumns: matterGridTemplate, alignItems: 'center', gap: 0, padding: '7px 8px 5px 4px', background: theadBg, borderBottom: `1px solid ${cardBorder}` }}>
+          <span style={{ display: 'flex', justifyContent: 'center' }}>{skeletonBlock(10, 8, { background: skeletonSoft })}</span>
+          {skeletonBlock(34, 8, { background: skeletonSoft })}
+          {skeletonBlock(isActivity ? 54 : 44, 8, { background: skeletonSoft })}
+          <div style={{ display: 'grid', gridTemplateColumns: actionGridTemplate, alignItems: 'center', justifyContent: 'end', gap: 0, minWidth: 0, width: '100%' }}>
+            {isActivity ? <span aria-hidden="true" style={{ width: '100%', display: 'block' }} /> : null}
+            {skeletonBlock(26, 8, { background: skeletonSoft })}
+            {matterActionLabelWidth > 0 || isActivity ? <span aria-hidden="true" style={{ display: 'flex', justifyContent: 'center' }}>{skeletonBlock(6, 8, { background: skeletonTint })}</span> : null}
+            {stepCount > 0 ? (
+              <div style={{ display: 'grid', gridTemplateColumns: `repeat(${stepCount}, minmax(0, 1fr))`, alignItems: 'center', gap: 6, width: '100%', minWidth: 0 }}>
+                {Array.from({ length: stepCount }).map((_, index) => (
+                  <div key={`pipeline-skeleton-head-${variant}-${index}`} style={{ display: 'flex', justifyContent: 'center' }}>
+                    {skeletonBlock(isActivity ? 34 : (showInlineMatterSteps ? 28 : 24), 7, { background: skeletonSoft })}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div style={{ flex: 1, minHeight: 0 }}>
+          {Array.from({ length: rowCount }).map((_, index) => (
+            <div key={`pipeline-skeleton-row-${variant}-${index}`} style={{ display: 'grid', gridTemplateColumns: matterGridTemplate, alignItems: 'center', gap: 0, padding: '6px 8px 6px 4px', borderBottom: `1px solid ${rowBorder}` }}>
+              <span style={{ display: 'flex', justifyContent: 'center' }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: skeletonSoft, animation: 'opsDashPulse 1.5s ease-in-out infinite', animationDelay: `${index * 0.06}s` }} />
+              </span>
+              <div style={{ display: 'grid', gap: 2 }}>
+                {skeletonBlock(index % 2 === 0 ? 28 : 32, 8, { background: skeletonStrong })}
+                {skeletonBlock(index % 2 === 0 ? 18 : 24, 7, { background: skeletonTint })}
+              </div>
+              <div style={{ display: 'grid', gap: 3, minWidth: 0 }}>
+                {skeletonBlock(index % 2 === 0 ? '62%' : '54%', 9, { background: skeletonStrong })}
+                {skeletonBlock(index % 2 === 0 ? '44%' : '58%', 8, { background: skeletonTint })}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: actionGridTemplate, alignItems: 'center', justifyContent: 'end', gap: 0, minWidth: 0, width: '100%' }}>
+                {isActivity ? (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: HOME_ENQUIRY_NOTES_SLOT_WIDTH, height: 20 }}>
+                    <span style={{ width: 10, height: 10, borderRadius: 2, background: skeletonTint }} />
+                  </span>
+                ) : null}
+                <div style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
+                  {skeletonBlock(isActivity ? 22 : 26, 8, { background: skeletonStrong })}
+                </div>
+                {matterActionLabelWidth > 0 || isActivity ? <span aria-hidden="true" style={{ display: 'flex', justifyContent: 'center' }}>{skeletonBlock(6, 8, { background: skeletonTint })}</span> : null}
+                {stepCount > 0 ? (
+                  showInlineMatterSteps || isActivity ? (
+                    <div style={{ display: 'grid', gridTemplateColumns: `repeat(${stepCount}, minmax(0, 1fr))`, alignItems: 'center', gap: 6, width: '100%', minWidth: 0 }}>
+                      {Array.from({ length: stepCount }).map((__, stepIndex) => (
+                        <div key={`pipeline-skeleton-step-${variant}-${index}-${stepIndex}`} style={{ display: 'flex', justifyContent: 'center' }}>
+                          <span style={{ width: stepIndex % 2 === 0 ? 18 : 14, height: 8, background: stepIndex % 2 === 0 ? skeletonSoft : skeletonTint, animation: 'opsDashPulse 1.5s ease-in-out infinite', animationDelay: `${(index + stepIndex) * 0.04}s` }} />
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', alignItems: 'center', width: '100%' }}>
+                      {skeletonBlock(matterCollapsedCclWidth, 20, { background: skeletonSoft })}
+                    </div>
+                  )
+                ) : null}
+              </div>
             </div>
           ))}
         </div>
@@ -4034,84 +4258,132 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
     );
   };
 
-  const renderConversionSkeleton = () => (
-    renderSectionSkeleton(
-      'Conversion warming up',
-      showExperimentalConversionSkeleton
-        ? 'Comparing live enquiry and matter flow across the current period.'
-        : 'Calculating current conversion and unclaimed queue position.',
-      {
-        rows: showExperimentalConversionSkeleton ? 5 : 4,
-        minHeight: primaryRailMinHeight,
-        columns: showExperimentalConversionSkeleton ? 1 : 2,
-      },
-    )
-  );
-
-  const renderPipelineSkeletonCard = (variant: 'activity' | 'matters') => (
-    renderSectionSkeleton(
-      variant === 'activity' ? 'Recent activity' : 'Recent matters',
-      variant === 'activity'
-        ? 'Pulling live enquiry movement and stage updates.'
-        : 'Loading the latest opened matters and CCL status.',
-      {
-        rows: variant === 'activity' ? activityVisibleCount : matterVisibleCount,
-        minHeight: isNarrow ? 220 : pipelineCardHeight ?? 0,
-      },
-    )
-  );
-
   const renderConversionChart = (item: ConversionComparisonItem) => {
     if (item.chartMode === 'none' || item.buckets.length === 0) {
       return null;
     }
 
     const chartWidth = 240;
-    const chartHeight = 82;
+    const chartHeight = isNarrow ? 102 : 160;
     const buckets = item.buckets.map((bucket) => ({
       ...bucket,
+      currentEnquiries: Number(bucket.currentEnquiries ?? 0),
+      previousEnquiries: Number(bucket.previousEnquiries ?? 0),
       currentMatters: Number(bucket.currentMatters ?? 0),
       previousMatters: Number(bucket.previousMatters ?? 0),
+      currentAvailable: bucket.currentAvailable !== false,
+      isCurrentEndpoint: Boolean(bucket.isCurrentEndpoint),
     }));
+    const maxEnquiries = Math.max(
+      1,
+      ...buckets.flatMap((bucket) => [bucket.currentEnquiries, bucket.previousEnquiries]),
+    );
     const maxMatters = Math.max(
       1,
       ...buckets.flatMap((bucket) => [bucket.currentMatters, bucket.previousMatters]),
     );
     const padTop = 10;
-    const padBot = 18;
-    const padLeft = 18;
-    const padRight = 8;
+    const padBot = 22;
+    const padLeft = 5;
+    const padRight = 5;
     const drawWidth = chartWidth - padLeft - padRight;
     const bucketWidth = buckets.length > 0 ? drawWidth / buckets.length : drawWidth;
-    const groupWidth = Math.max(10, Math.min(24, bucketWidth * 0.7));
-    const barWidth = Math.max(4, Math.min(10, groupWidth / 2 - 1));
+    const groupWidth = Math.max(14, Math.min(30, bucketWidth * 0.78));
+    const barGap = Math.max(1.5, Math.min(3, bucketWidth * 0.08));
+    const barWidth = Math.max(5, Math.min(12, (groupWidth - barGap) / 2));
+    const separatorInset = Math.max(0.9, Math.min(1.8, barWidth * 0.14));
     const xAt = (index: number) => padLeft + bucketWidth * index + bucketWidth / 2;
+    const yAtEnquiry = (value: number) => chartHeight - padBot - (value / maxEnquiries) * (chartHeight - padTop - padBot);
     const yAtMatter = (value: number) => chartHeight - padBot - (value / maxMatters) * (chartHeight - padTop - padBot);
+    const buildLinePath = (values: Array<number | null>, mapY: (value: number) => number) => {
+      const segments: Array<Array<{ x: number; y: number }>> = [];
+      let currentSegment: Array<{ x: number; y: number }> = [];
+
+      values.forEach((value, index) => {
+        if (value == null) {
+          if (currentSegment.length > 0) {
+            segments.push(currentSegment);
+            currentSegment = [];
+          }
+          return;
+        }
+
+        currentSegment.push({ x: xAt(index), y: mapY(value) });
+      });
+
+      if (currentSegment.length > 0) {
+        segments.push(currentSegment);
+      }
+
+      return segments
+        .map((segment) => {
+          if (segment.length === 0) return '';
+          if (segment.length === 1) {
+            return `M ${segment[0].x.toFixed(2)} ${segment[0].y.toFixed(2)}`;
+          }
+
+          let path = `M ${segment[0].x.toFixed(2)} ${segment[0].y.toFixed(2)}`;
+          for (let index = 0; index < segment.length - 1; index += 1) {
+            const current = segment[index];
+            const next = segment[index + 1];
+            const controlX = ((current.x + next.x) / 2).toFixed(2);
+            path += ` C ${controlX} ${current.y.toFixed(2)}, ${controlX} ${next.y.toFixed(2)}, ${next.x.toFixed(2)} ${next.y.toFixed(2)}`;
+          }
+
+          return path;
+        })
+        .filter(Boolean)
+        .join(' ');
+    };
     const visibleAxisIndexes = new Set<number>(
-      buckets.length <= 5
-        ? buckets.map((_, index) => index)
-        : buckets.length <= 8
-          ? [0, Math.floor((buckets.length - 1) / 2), buckets.length - 1]
-          : [0, Math.floor((buckets.length - 1) / 3), Math.floor(((buckets.length - 1) * 2) / 3), buckets.length - 1],
+      item.chartMode === 'hourly'
+        ? [0, Math.min(4, buckets.length - 1), Math.min(8, buckets.length - 1), buckets.length - 1]
+        : buckets.length <= 5
+          ? buckets.map((_, index) => index)
+          : buckets.length <= 8
+            ? [0, Math.floor((buckets.length - 1) / 2), buckets.length - 1]
+            : [0, Math.floor((buckets.length - 1) / 3), Math.floor(((buckets.length - 1) * 2) / 3), buckets.length - 1],
     );
-    const currentFill = isDarkMode ? 'rgba(32,178,108,0.24)' : 'rgba(32,178,108,0.16)';
-    const previousFill = isDarkMode ? 'rgba(244,244,246,0.18)' : 'rgba(107,107,107,0.16)';
-    const currentStroke = colours.green;
-    const previousStroke = isDarkMode ? 'rgba(244,244,246,0.38)' : 'rgba(107,107,107,0.42)';
-    const chartGrid = isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(13,47,96,0.06)';
-    const axisText = isDarkMode ? 'rgba(244,244,246,0.42)' : 'rgba(6,23,51,0.42)';
-    const axisCaption = isDarkMode ? 'rgba(160,160,160,0.52)' : 'rgba(107,107,107,0.56)';
+    const currentFill = isDarkMode ? withAlpha(colours.highlight, 0.38) : withAlpha(colours.highlight, 0.28);
+    const previousFill = isDarkMode ? withAlpha(colours.highlight, 0.2) : colours.highlightBlue;
+    const currentMatterStroke = isDarkMode ? withAlpha(colours.highlight, 0.98) : withAlpha(colours.highlight, 0.94);
+    const previousMatterStroke = isDarkMode ? withAlpha(colours.highlightBlue, 0.9) : withAlpha(colours.highlight, 0.72);
+    const currentMatterSeparator = isDarkMode ? withAlpha(colours.light.background, 0.24) : withAlpha(colours.light.background, 0.52);
+    const previousMatterSeparator = isDarkMode ? withAlpha(colours.light.background, 0.14) : withAlpha(colours.highlight, 0.16);
+    const currentEnquiryStroke = isDarkMode ? withAlpha(colours.highlight, 0.98) : withAlpha(colours.highlight, 0.96);
+    const previousEnquiryStroke = isDarkMode ? withAlpha(colours.highlightBlue, 0.86) : withAlpha(colours.highlight, 0.72);
+    const chartGrid = isDarkMode ? 'rgba(255,255,255,0.045)' : 'rgba(13,47,96,0.05)';
+    const axisText = isDarkMode ? 'rgba(244,244,246,0.5)' : 'rgba(6,23,51,0.48)';
+    const axisCaption = isDarkMode ? 'rgba(160,160,160,0.48)' : 'rgba(107,107,107,0.52)';
+    const hoverGuideStroke = isDarkMode ? 'rgba(135,243,243,0.16)' : 'rgba(13,47,96,0.12)';
+    const hoverGuideFill = isDarkMode ? 'rgba(135,243,243,0.035)' : 'rgba(54,144,206,0.035)';
     const matterTicks = [maxMatters, Math.max(0, Math.round(maxMatters / 2)), 0];
+    const enquiryTicks = [maxEnquiries, Math.max(0, Math.round(maxEnquiries / 2)), 0];
     const xAxisY = chartHeight - padBot;
+    const currentEnquiryPath = buildLinePath(
+      buckets.map((bucket) => (bucket.currentAvailable ? bucket.currentEnquiries : null)),
+      yAtEnquiry,
+    );
+    const previousEnquiryPath = buildLinePath(buckets.map((bucket) => bucket.previousEnquiries), yAtEnquiry);
+    const buildMatterSeparators = (count: number, y: number, height: number) => {
+      if (count <= 1 || height < 11) return [] as number[];
+      const requestedLines = Math.min(count - 1, 4);
+      const maxLinesByHeight = Math.max(0, Math.floor(height / 10));
+      const lineCount = Math.min(requestedLines, maxLinesByHeight);
+      if (lineCount <= 0) return [] as number[];
+
+      const step = height / (lineCount + 1);
+      return Array.from({ length: lineCount }, (_, index) => y + step * (index + 1));
+    };
 
     return (
       <div style={{ display: 'grid', gap: 4 }}>
         <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} role="img" aria-hidden="true" style={{ display: 'block', width: '100%', height: 'auto' }}>
-          {matterTicks.map((tick, index) => {
-            const y = index === 0 ? padTop : index === 1 ? (padTop + xAxisY) / 2 : xAxisY;
+          {enquiryTicks.map((tick, index) => {
+            const y = yAtEnquiry(tick);
             const showTickLabel = index !== 1;
             return (
-              <g key={`${item.key}-matter-tick-${tick}-${index}`}>
+              <g key={`${item.key}-enquiry-tick-${tick}-${index}`}>
                 <line
                   x1={padLeft}
                   y1={y}
@@ -4123,10 +4395,10 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                 />
                 {showTickLabel ? (
                   <text
-                    x={padLeft - 4}
+                    x={padLeft + 2}
                     y={y + 3}
-                    textAnchor="end"
-                    fontSize="7"
+                    textAnchor="start"
+                    fontSize="8.5"
                     fontWeight="600"
                     fill={axisText}
                   >
@@ -4136,40 +4408,113 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
               </g>
             );
           })}
-          <line
-            x1={padLeft}
-            y1={xAxisY}
-            x2={chartWidth - padRight}
-            y2={xAxisY}
-            stroke={chartGrid}
-            strokeWidth="1"
-          />
+          {matterTicks.map((tick, index) => {
+            if (index === 1) return null;
+            const y = yAtMatter(tick);
+            return (
+              <text
+                key={`${item.key}-matter-tick-${tick}-${index}`}
+                x={chartWidth - 2}
+                y={y + 3}
+                textAnchor="end"
+                fontSize="8.5"
+                fontWeight="600"
+                fill={axisText}
+              >
+                {fmt.int(tick)}
+              </text>
+            );
+          })}
           {buckets.map((bucket, index) => {
             const centreX = xAt(index);
+            const currentX = centreX - groupWidth / 2;
+            const previousX = centreX - groupWidth / 2 + barWidth + barGap;
             const previousY = yAtMatter(bucket.previousMatters);
             const currentY = yAtMatter(bucket.currentMatters);
             const previousH = Math.max(0, xAxisY - previousY);
             const currentH = Math.max(0, xAxisY - currentY);
+            const currentSeparators = buildMatterSeparators(bucket.currentMatters, currentY, currentH);
+            const previousSeparators = buildMatterSeparators(bucket.previousMatters, previousY, previousH);
             return (
-              <g key={`${item.key}-${bucket.label}`} opacity={bucket.isFuture ? 0.45 : 1}>
+              <g key={`${item.key}-${bucket.label}`}>
+                {bucket.currentAvailable ? (
+                  <>
+                    <rect
+                      x={currentX}
+                      y={currentY}
+                      width={barWidth}
+                      height={currentH}
+                      fill={currentFill}
+                    />
+                    {currentSeparators.map((lineY, lineIndex) => (
+                      <line
+                        key={`${item.key}-${bucket.label}-current-sep-${lineIndex}`}
+                        x1={currentX + separatorInset}
+                        y1={lineY}
+                        x2={currentX + barWidth - separatorInset}
+                        y2={lineY}
+                        stroke={currentMatterSeparator}
+                        strokeWidth="1"
+                        strokeLinecap="round"
+                      />
+                    ))}
+                  </>
+                ) : null}
                 <rect
-                  x={centreX - barWidth - 1}
+                  x={previousX}
                   y={previousY}
                   width={barWidth}
                   height={previousH}
                   fill={previousFill}
-                  stroke={previousStroke}
-                  strokeWidth="1"
                 />
-                <rect
-                  x={centreX + 1}
-                  y={currentY}
-                  width={barWidth}
-                  height={currentH}
-                  fill={currentFill}
-                  stroke={currentStroke}
-                  strokeWidth="1"
-                />
+                {previousSeparators.map((lineY, lineIndex) => (
+                  <line
+                    key={`${item.key}-${bucket.label}-previous-sep-${lineIndex}`}
+                    x1={previousX + separatorInset}
+                    y1={lineY}
+                    x2={previousX + barWidth - separatorInset}
+                    y2={lineY}
+                    stroke={previousMatterSeparator}
+                    strokeWidth="1"
+                    strokeLinecap="round"
+                  />
+                ))}
+              </g>
+            );
+          })}
+          <path
+            d={previousEnquiryPath}
+            fill="none"
+            stroke={previousEnquiryStroke}
+            strokeWidth="1.32"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeDasharray="4 3"
+          />
+          <path
+            d={currentEnquiryPath}
+            fill="none"
+            stroke={currentEnquiryStroke}
+            strokeWidth="2.08"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          {buckets.map((bucket, index) => {
+            const centreX = xAt(index);
+            const currentY = yAtEnquiry(bucket.currentEnquiries);
+            const previousY = yAtEnquiry(bucket.previousEnquiries);
+            return (
+              <g key={`${item.key}-${bucket.label}-enquiry-points`}>
+                <circle cx={centreX} cy={previousY} r="1.7" fill={previousEnquiryStroke} />
+                {bucket.currentAvailable ? (
+                  <circle cx={centreX} cy={currentY} r={bucket.isCurrentEndpoint ? 2.5 : 2.1} fill={currentEnquiryStroke} />
+                ) : null}
+                {bucket.currentAvailable && bucket.isCurrentEndpoint ? (
+                  <g className="chart-current-endpoint" style={{ pointerEvents: 'none' }}>
+                    <circle className="chart-current-pulse" cx={centreX} cy={currentY} r="3.6" fill={withAlpha(colours.highlight, isDarkMode ? 0.24 : 0.18)} />
+                    <circle cx={centreX} cy={currentY} r="5.1" fill="none" stroke={withAlpha(colours.highlight, isDarkMode ? 0.38 : 0.26)} strokeWidth="1" />
+                  </g>
+                ) : null}
               </g>
             );
           })}
@@ -4177,19 +4522,83 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
             const centreX = xAt(index);
             const colW = bucketWidth;
             const colX = buckets.length > 1 ? Math.max(0, centreX - colW / 2) : 0;
-            const tip = `${bucket.label}\nMatters: ${bucket.currentMatters} (prior ${bucket.previousMatters})`;
+            const currentEnqY = bucket.currentAvailable ? yAtEnquiry(bucket.currentEnquiries) : null;
+            const previousEnqY = yAtEnquiry(bucket.previousEnquiries);
+            const bucketHoverKey = `${item.key}-${bucket.label}-${index}`;
+            const isHovered = hoveredConversionBucketKey === bucketHoverKey;
+            const enqLabelY = Math.min(...([previousEnqY, currentEnqY].filter((value): value is number => value != null))) - 5;
+            const matLabelY = xAxisY + 1;
+            const showCurrentHover = bucket.currentAvailable;
+            const showPreviousEnquiryHover = bucket.previousEnquiries > 0;
+            const showPreviousMatterHover = bucket.previousMatters > 0;
             return (
-              <rect
+              <g
                 key={`${item.key}-${bucket.label}-hit`}
-                x={colX}
-                y={0}
-                width={colW}
-                height={chartHeight}
-                fill="transparent"
-                  style={{ cursor: 'crosshair' }}
+                className="chart-hover-col"
+                style={{ cursor: selectedConversionInsightTarget ? 'pointer' : 'default' }}
+                onMouseEnter={() => setHoveredConversionBucketKey(bucketHoverKey)}
+                onMouseLeave={() => {
+                  setHoveredConversionBucketKey((current) => (current === bucketHoverKey ? null : current));
+                }}
               >
-                <title>{tip}</title>
-              </rect>
+                <rect
+                  x={colX}
+                  y={0}
+                  width={colW}
+                  height={chartHeight}
+                  fill={isHovered ? hoverGuideFill : 'transparent'}
+                />
+                {isHovered ? (
+                  <>
+                    <line
+                      className="chart-hover-guide"
+                      x1={centreX}
+                      y1={padTop}
+                      x2={centreX}
+                      y2={xAxisY}
+                      stroke={hoverGuideStroke}
+                      strokeWidth="0.8"
+                      strokeDasharray="2 2"
+                    />
+                    <text
+                      className="chart-hover-label"
+                      x={centreX}
+                      y={enqLabelY}
+                      textAnchor="middle"
+                      fontSize="7.5"
+                      fontWeight="600"
+                    >
+                      {showCurrentHover ? <tspan fill={currentEnquiryStroke}>{bucket.currentEnquiries}</tspan> : null}
+                      {showCurrentHover && showPreviousEnquiryHover ? (
+                        <>
+                          <tspan fill={isDarkMode ? 'rgba(244,244,246,0.36)' : 'rgba(107,107,107,0.42)'}> / </tspan>
+                          <tspan fill={previousEnquiryStroke}>{bucket.previousEnquiries}</tspan>
+                        </>
+                      ) : null}
+                      {!showCurrentHover && showPreviousEnquiryHover ? <tspan fill={previousEnquiryStroke}>{bucket.previousEnquiries}</tspan> : null}
+                    </text>
+                    {((showCurrentHover && bucket.currentMatters > 0) || showPreviousMatterHover) ? (
+                      <text
+                        className="chart-hover-label"
+                        x={centreX}
+                        y={matLabelY + 8}
+                        textAnchor="middle"
+                        fontSize="7"
+                        fontWeight="600"
+                      >
+                        {showCurrentHover ? <tspan fill={currentMatterStroke}>{bucket.currentMatters}</tspan> : null}
+                        {showCurrentHover && showPreviousMatterHover ? (
+                          <>
+                            <tspan fill={isDarkMode ? 'rgba(244,244,246,0.36)' : 'rgba(107,107,107,0.42)'}> / </tspan>
+                            <tspan fill={previousMatterStroke}>{bucket.previousMatters}</tspan>
+                          </>
+                        ) : null}
+                        {!showCurrentHover && showPreviousMatterHover ? <tspan fill={previousMatterStroke}>{bucket.previousMatters}</tspan> : null}
+                      </text>
+                    ) : null}
+                  </>
+                ) : null}
+              </g>
             );
           })}
         </svg>
@@ -4205,9 +4614,9 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                   position: 'absolute',
                   left: `${leftPercent}%`,
                   transform: 'translateX(-50%)',
-                  fontSize: 7,
+                  fontSize: 8.5,
                   color: axisCaption,
-                  letterSpacing: '0.08em',
+                  letterSpacing: '0.05em',
                   textAlign: 'center',
                   fontWeight: 600,
                   whiteSpace: 'nowrap',
@@ -4398,20 +4807,6 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
           background: ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'};
           border-radius: 2px;
         }
-        .ops-dash-scroll::-webkit-scrollbar-thumb:hover {
-          background: ${isDarkMode ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.15)'};
-        }
-        /* Hover-reveal email line in enquiry rows */
-        .ops-enquiry-row .ops-email-line {
-          opacity: 0;
-          max-height: 0;
-          overflow: hidden;
-          transition: opacity 0.15s ease, max-height 0.15s ease;
-        }
-        .ops-enquiry-row:hover .ops-email-line {
-          opacity: 1;
-          max-height: 16px;
-        }
         /* Hover-reveal copy button */
         .ops-copy-btn {
           opacity: 0;
@@ -4596,12 +4991,6 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                   onMouseEnter={cardHover.enter}
                   onMouseLeave={cardHover.leave}
                 >
-                  <div style={{ padding: '12px 14px 11px', borderBottom: `1px solid ${cardBorder}`, background: tabActiveBg, display: 'grid', gap: 4 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: text, letterSpacing: '-0.01em' }}>Enquiry conversion flow</span>
-                    </div>
-                  </div>
-
                   <div style={{ flex: 1 }}>
                     {useExperimentalConversion ? (
                       (() => {
@@ -4610,25 +4999,25 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
 
                         const hasCurrentBasis = item.currentEnquiries > 0;
                         const hasPreviousBasis = item.previousEnquiries > 0;
+                        const showPreviousComparison = item.key === 'today' || item.previousEnquiries > 0 || item.previousMatters > 0;
                         const currentPctLabel = hasCurrentBasis ? fmt.pct(item.currentPct) : '—';
-                        const previousPctLabel = hasPreviousBasis ? fmt.pct(item.previousPct) : '—';
+                        const previousPctLabel = showPreviousComparison ? fmt.pct(item.previousPct) : '—';
                         const deltaPoints = item.currentPct - item.previousPct;
-                        const deltaPointsLabel = hasCurrentBasis && hasPreviousBasis ? `${deltaPoints >= 0 ? '+' : ''}${deltaPoints.toFixed(1)} pts` : null;
-                        const enquiryDelta = hasCurrentBasis && hasPreviousBasis ? item.currentEnquiries - item.previousEnquiries : null;
-                        const matterDelta = hasCurrentBasis && hasPreviousBasis ? item.currentMatters - item.previousMatters : null;
+                        const deltaPointsLabel = hasCurrentBasis && hasPreviousBasis ? `${deltaPoints >= 0 ? '+' : ''}${deltaPoints.toFixed(1)}%` : null;
                         const hasChart = item.chartMode !== 'none' && item.buckets.length > 0;
                         const reserveChartWhitespace = item.key === 'today';
-                        const chartWhitespaceHeight = isNarrow ? 92 : 124;
-                        const comparisonCopy = hasCurrentBasis
-                          ? `${fmt.int(item.currentMatters)} matters from ${fmt.int(item.currentEnquiries)} enquiries`
-                          : 'No enquiries yet';
-                        const tabLabel = item.key === 'week-vs-last'
-                          ? 'Week'
-                          : item.key === 'month-vs-last'
-                            ? 'Month'
-                            : item.key === 'quarter-vs-last'
-                              ? 'Quarter'
-                              : 'Today';
+                        const chartWhitespaceHeight = isNarrow ? 92 : 148;
+                        const comparisonCopy = showPreviousComparison
+                          ? `${fmt.int(item.currentMatters)} from ${fmt.int(item.currentEnquiries)} · was ${fmt.int(item.previousMatters)} from ${fmt.int(item.previousEnquiries)}`
+                          : hasCurrentBasis
+                            ? `${fmt.int(item.currentMatters)} from ${fmt.int(item.currentEnquiries)}`
+                            : 'No enquiries yet';
+                        const comparisonMeta = showPreviousComparison
+                          ? `${item.comparisonLabel} ${previousPctLabel}`
+                          : item.comparisonLabel;
+                        const chartMetaLabel = item.chartMode === 'hourly'
+                          ? '8am-6pm'
+                          : `${item.currentLabel} / ${item.previousLabel}`;
 
                         return (
                           <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -4672,90 +5061,139 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                               onClick={selectedConversionInsightTarget ? () => openInsight(selectedConversionInsightTarget) : undefined}
                             >
                               {/* ── Hero KPI ── */}
-                              <div style={{ display: 'grid', gap: 4 }}>
-                                <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-                                  <span style={{ fontSize: 36, fontWeight: 700, color: text, letterSpacing: '-0.04em', lineHeight: 1 }}>{currentPctLabel}</span>
-                                  {deltaPointsLabel ? (
-                                    <span style={{ fontSize: 10, fontWeight: 700, color: deltaPoints >= 0 ? colours.green : colours.cta, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                                      {deltaPointsLabel}
-                                    </span>
-                                  ) : null}
+                              <div style={{ display: 'grid', gap: 8 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                                    <span style={{ fontSize: 36, fontWeight: 700, color: text, letterSpacing: '-0.04em', lineHeight: 1 }}>{currentPctLabel}</span>
+                                    {deltaPointsLabel ? (
+                                      <span style={{ fontSize: 9, fontWeight: 700, color: deltaPoints >= 0 ? colours.green : colours.cta, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                                        {deltaPointsLabel}
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                  <span style={{ fontSize: 9, color: muted, lineHeight: 1.35 }}>{comparisonMeta}</span>
                                 </div>
-                                <div style={{ fontSize: 11, color: isDarkMode ? '#d1d5db' : '#374151', lineHeight: 1.35, marginTop: 2 }}>{comparisonCopy}</div>
-                                <div style={{ fontSize: 9, color: muted, lineHeight: 1.35 }}>
-                                  {tabLabel} · {item.comparisonLabel.replace(/^vs\s+/i, '')} · {item.previousLabel} {hasPreviousBasis ? previousPctLabel : '—'}
-                                </div>
-                              </div>
-
-                              {/* ── Compact comparison strip ── */}
-                              <div style={{ display: 'grid', gap: 0, border: `1px solid ${rowBorder}`, background: isDarkMode ? 'rgba(255,255,255,0.015)' : 'rgba(13,47,96,0.015)' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 10px', gap: 8 }}>
-                                  <span style={{ fontSize: 9, fontWeight: 700, color: muted, letterSpacing: '0.1em', textTransform: 'uppercase', minWidth: 64 }}>{item.currentLabel}</span>
-                                  <span style={{ fontSize: 10, color: isDarkMode ? '#d1d5db' : '#374151' }}>{fmt.int(item.currentEnquiries)} enq</span>
-                                  <span style={{ fontSize: 10, color: isDarkMode ? '#d1d5db' : '#374151' }}>&middot;</span>
-                                  <span style={{ fontSize: 10, color: isDarkMode ? '#d1d5db' : '#374151' }}>{fmt.int(item.currentMatters)} mat</span>
-                                  {enquiryDelta != null && enquiryDelta !== 0 ? <span style={{ fontSize: 9, fontWeight: 700, color: enquiryDelta > 0 ? colours.green : colours.cta, marginLeft: 'auto' }}>{enquiryDelta > 0 ? '+' : ''}{enquiryDelta} enq</span> : <span style={{ marginLeft: 'auto' }} />}
-                                </div>
-                                <div style={{ height: 1, background: rowBorder }} />
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 10px', gap: 8, opacity: 0.7 }}>
-                                  <span style={{ fontSize: 9, fontWeight: 700, color: muted, letterSpacing: '0.1em', textTransform: 'uppercase', minWidth: 64 }}>{item.previousLabel}</span>
-                                  <span style={{ fontSize: 10, color: isDarkMode ? '#d1d5db' : '#374151' }}>{fmt.int(item.previousEnquiries)} enq</span>
-                                  <span style={{ fontSize: 10, color: isDarkMode ? '#d1d5db' : '#374151' }}>&middot;</span>
-                                  <span style={{ fontSize: 10, color: isDarkMode ? '#d1d5db' : '#374151' }}>{fmt.int(item.previousMatters)} mat</span>
-                                  {matterDelta != null && matterDelta !== 0 ? <span style={{ fontSize: 9, fontWeight: 700, color: matterDelta > 0 ? colours.green : colours.cta, marginLeft: 'auto' }}>{matterDelta > 0 ? '+' : ''}{matterDelta} mat</span> : <span style={{ marginLeft: 'auto' }} />}
-                                </div>
+                                <div style={{ fontSize: 11, color: isDarkMode ? '#d1d5db' : '#374151', lineHeight: 1.35 }}>{comparisonCopy}</div>
+                                {showPreviousComparison ? (
+                                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                                    <div style={{ display: 'grid', gap: 2, padding: '7px 9px', border: `1px solid ${rowBorder}`, background: isDarkMode ? 'rgba(255,255,255,0.015)' : 'rgba(13,47,96,0.015)' }}>
+                                      <span style={{ fontSize: 8, fontWeight: 700, color: muted, letterSpacing: '0.1em', textTransform: 'uppercase' }}>{item.currentLabel}</span>
+                                      <span style={{ fontSize: 10, color: text }}>{fmt.int(item.currentEnquiries)} enq · {fmt.int(item.currentMatters)} mat</span>
+                                    </div>
+                                    <div style={{ display: 'grid', gap: 2, padding: '7px 9px', border: `1px solid ${rowBorder}`, background: isDarkMode ? 'rgba(255,255,255,0.01)' : 'rgba(13,47,96,0.01)', opacity: 0.86 }}>
+                                      <span style={{ fontSize: 8, fontWeight: 700, color: muted, letterSpacing: '0.1em', textTransform: 'uppercase' }}>{item.previousLabel}</span>
+                                      <span style={{ fontSize: 10, color: text }}>{fmt.int(item.previousEnquiries)} enq · {fmt.int(item.previousMatters)} mat</span>
+                                    </div>
+                                  </div>
+                                ) : null}
                               </div>
 
                               {hasChart ? (
-                                <div style={{ display: 'grid', gap: 6 }}>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                                    <span style={{ fontSize: 8, fontWeight: 700, color: muted, letterSpacing: '0.14em', textTransform: 'uppercase' }}>Matters opened trend</span>
-                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                                      <span style={{ width: 8, height: 8, background: isDarkMode ? 'rgba(244,244,246,0.18)' : 'rgba(107,107,107,0.16)', border: `1px solid ${isDarkMode ? 'rgba(244,244,246,0.38)' : 'rgba(107,107,107,0.42)'}`, display: 'inline-block' }} />
-                                      <span style={{ fontSize: 8, color: muted }}>{item.previousLabel}</span>
-                                    </span>
-                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                                      <span style={{ width: 8, height: 8, background: isDarkMode ? 'rgba(32,178,108,0.24)' : 'rgba(32,178,108,0.16)', border: `1px solid ${colours.green}`, display: 'inline-block' }} />
-                                      <span style={{ fontSize: 8, color: muted }}>{item.currentLabel}</span>
-                                    </span>
+                                <div style={{
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  gap: 10,
+                                  flex: 1,
+                                  minHeight: 0,
+                                }}>
+                                  <div style={{ display: 'grid', gap: 6, minWidth: 0, alignSelf: 'stretch', flex: 1, minHeight: 0 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                                            <span style={{ width: 12, height: 0, borderTop: `2px solid ${isDarkMode ? 'rgba(54,144,206,0.96)' : 'rgba(54,144,206,0.96)'}`, display: 'inline-block' }} />
+                                            <span style={{ width: 12, height: 0, borderTop: `1.6px dashed ${isDarkMode ? 'rgba(135,190,229,0.74)' : 'rgba(107,161,209,0.9)'}`, display: 'inline-block' }} />
+                                          </span>
+                                          <span style={{ fontSize: 8.5, color: muted, letterSpacing: '0.04em' }}>Enquiries</span>
+                                        </span>
+                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                                            <span style={{ width: 9, height: 9, background: isDarkMode ? 'rgba(54,144,206,0.24)' : 'rgba(54,144,206,0.18)', display: 'inline-block' }} />
+                                            <span style={{ width: 9, height: 9, background: isDarkMode ? 'rgba(54,144,206,0.11)' : 'rgba(214,232,255,0.95)', display: 'inline-block' }} />
+                                          </span>
+                                          <span style={{ fontSize: 8.5, color: muted, letterSpacing: '0.04em' }}>Matters</span>
+                                        </span>
+                                      </div>
+                                          <span style={{ fontSize: 7.5, color: muted, opacity: 0.64, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{chartMetaLabel}</span>
+                                    </div>
+                                    <div style={{ width: '100%', flex: 1 }}>{renderConversionChart(item)}</div>
                                   </div>
-                                  <div style={{ width: '100%' }}>{renderConversionChart(item)}</div>
+
+                                  {!isNarrow && selectedConversionAowMix.length > 0 ? (() => {
+                                    const totalMixCount = selectedConversionAowMix.reduce((sum, mixItem) => sum + Number(mixItem.count || 0), 0);
+                                    return (
+                                      <div style={{
+                                        marginTop: 'auto',
+                                        paddingTop: 8,
+                                        borderTop: `1px solid ${rowBorder}`,
+                                        display: 'grid',
+                                        gap: 6,
+                                      }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                          <div style={{ fontSize: 8, fontWeight: 700, color: muted, letterSpacing: '0.14em', textTransform: 'uppercase', opacity: 0.72 }}>Enquiry mix</div>
+                                          <div style={{ fontSize: 8, color: muted }}>{fmt.int(totalMixCount)} enquiries</div>
+                                        </div>
+                                        <div style={{ display: 'flex', width: '100%', minHeight: 6, overflow: 'hidden', background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(13,47,96,0.05)' }}>
+                                          {selectedConversionAowMix.map((mixItem) => {
+                                            const pct = totalMixCount > 0 ? (mixItem.count / totalMixCount) * 100 : 0;
+                                            return (
+                                              <div
+                                                key={mixItem.key}
+                                                title={`${mixItem.key}: ${fmt.int(mixItem.count)} (${fmt.pct(pct)})`}
+                                                style={{ width: `${pct}%`, minWidth: pct > 0 ? 6 : 0, background: aowColor(mixItem.key), opacity: 0.95 }}
+                                              />
+                                            );
+                                          })}
+                                        </div>
+                                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                          {selectedConversionAowMix.slice(0, 4).map((mixItem) => {
+                                            const pct = totalMixCount > 0 ? (mixItem.count / totalMixCount) * 100 : 0;
+                                            return (
+                                              <div key={mixItem.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 8, color: muted }}>
+                                                <span style={{ width: 6, height: 6, borderRadius: '50%', background: aowColor(mixItem.key), display: 'inline-block', flexShrink: 0 }} />
+                                                <span style={{ color: text, textTransform: 'lowercase' }}>{mixItem.key}</span>
+                                                <span>{fmt.pct(pct)}</span>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      </div>
+                                    );
+                                  })() : null}
                                 </div>
                               ) : reserveChartWhitespace ? (
                                 <div style={{ minHeight: chartWhitespaceHeight }} />
                               ) : null}
                             </div>
 
-                            {selectedConversionAowMix.length > 0 && (() => {
-                              const totalMixCount = selectedConversionAowMix.reduce((sum, item) => sum + Number(item.count || 0), 0);
+                            {isNarrow && selectedConversionAowMix.length > 0 && (() => {
+                              const totalMixCount = selectedConversionAowMix.reduce((sum, mixItem) => sum + Number(mixItem.count || 0), 0);
                               return (
-                                <div style={{ padding: '10px 14px 12px', borderTop: `1px solid ${rowBorder}`, background: isDarkMode ? 'rgba(255,255,255,0.01)' : 'rgba(13,47,96,0.015)', display: 'grid', gap: 7 }}>
+                                <div style={{ padding: '8px 14px 10px', borderTop: `1px solid ${rowBorder}`, background: isDarkMode ? 'rgba(255,255,255,0.01)' : 'rgba(13,47,96,0.015)', display: 'grid', gap: 6 }}>
                                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                                    <div style={{ fontSize: 8, fontWeight: 700, color: muted, letterSpacing: '0.14em', textTransform: 'uppercase', opacity: 0.72 }}>Top enquiry mix</div>
+                                    <div style={{ fontSize: 8, fontWeight: 700, color: muted, letterSpacing: '0.14em', textTransform: 'uppercase', opacity: 0.72 }}>Enquiry mix</div>
                                     <div style={{ fontSize: 8, color: muted }}>{fmt.int(totalMixCount)} enquiries</div>
                                   </div>
-                                  <div style={{ display: 'flex', width: '100%', minHeight: 10, overflow: 'hidden', border: `1px solid ${rowBorder}`, background: isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(13,47,96,0.03)' }}>
-                                    {selectedConversionAowMix.map((aow) => {
-                                      const pct = totalMixCount > 0 ? (aow.count / totalMixCount) * 100 : 0;
+                                  <div style={{ display: 'flex', width: '100%', minHeight: 6, overflow: 'hidden', background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(13,47,96,0.05)' }}>
+                                    {selectedConversionAowMix.map((mixItem) => {
+                                      const pct = totalMixCount > 0 ? (mixItem.count / totalMixCount) * 100 : 0;
                                       return (
                                         <div
-                                          key={aow.key}
-                                          title={`${aow.key}: ${fmt.int(aow.count)} (${fmt.pct(pct)})`}
-                                          style={{ width: `${pct}%`, minWidth: pct > 0 ? 6 : 0, background: aowColor(aow.key), opacity: 0.95 }}
+                                          key={mixItem.key}
+                                          title={`${mixItem.key}: ${fmt.int(mixItem.count)} (${fmt.pct(pct)})`}
+                                          style={{ width: `${pct}%`, minWidth: pct > 0 ? 6 : 0, background: aowColor(mixItem.key), opacity: 0.95 }}
                                         />
                                       );
                                     })}
                                   </div>
-                                  <div style={{ display: 'grid', gridTemplateColumns: isNarrow ? '1fr' : 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
-                                    {selectedConversionAowMix.slice(0, 3).map((aow) => {
-                                      const pct = totalMixCount > 0 ? (aow.count / totalMixCount) * 100 : 0;
+                                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                    {selectedConversionAowMix.slice(0, 4).map((mixItem) => {
+                                      const pct = totalMixCount > 0 ? (mixItem.count / totalMixCount) * 100 : 0;
                                       return (
-                                        <div key={aow.key} style={{ display: 'grid', gap: 3 }}>
-                                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: aowColor(aow.key), display: 'inline-block', flexShrink: 0 }} />
-                                            <span style={{ fontSize: 9, color: text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{aow.key}</span>
-                                          </div>
-                                          <div style={{ fontSize: 8, color: muted }}>{fmt.int(aow.count)} · {fmt.pct(pct)}</div>
+                                        <div key={mixItem.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 8, color: muted }}>
+                                          <span style={{ width: 6, height: 6, borderRadius: '50%', background: aowColor(mixItem.key), display: 'inline-block', flexShrink: 0 }} />
+                                          <span style={{ color: text, textTransform: 'lowercase' }}>{mixItem.key}</span>
+                                          <span>{fmt.pct(pct)}</span>
                                         </div>
                                       );
                                     })}
@@ -4838,34 +5276,29 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
 
           {/* ── Right: Pipeline ── */}
           <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%' }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: muted, padding: '2px 132px 3px 0', letterSpacing: '0.2px', display: 'flex', alignItems: 'center', gap: 4, minHeight: 18, position: 'relative' }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: muted, padding: '2px 0 3px', letterSpacing: '0.2px', display: 'flex', alignItems: 'center', gap: 4, minHeight: 18 }}>
             <FiFilter size={10} style={{ color: accent, flexShrink: 0 }} />Pipeline
             <div
               title={enquiriesLiveRefreshInFlight ? 'Home is checking the live enquiries feed.' : enquiriesUsingSnapshot ? 'Home is showing cached data until the live feed settles.' : 'Home is showing the live enquiries feed.'}
               style={{
-                position: 'absolute',
-                right: 0,
-                top: '50%',
-                transform: 'translateY(-50%)',
+                marginLeft: 'auto',
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: 5,
-                padding: '2px 6px',
-                border: `1px solid ${pipelineSyncMeta.borderColor}`,
-                background: pipelineSyncMeta.background,
                 color: muted,
-                fontSize: 8,
+                fontSize: 7,
                 fontWeight: 600,
-                letterSpacing: '0.14px',
+                letterSpacing: '0.28px',
                 whiteSpace: 'nowrap',
                 lineHeight: 1,
-                maxWidth: isNarrow ? '56%' : 128,
+                maxWidth: isNarrow ? '56%' : 136,
                 overflow: 'hidden',
+                opacity: 0.8,
               }}
             >
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: pipelineSyncMeta.color, flexShrink: 0 }} />
-              <span style={{ color: text, opacity: 0.92 }}>{pipelineSyncMeta.label}</span>
-              {!isNarrow ? <span style={{ opacity: 0.72, overflow: 'hidden', textOverflow: 'ellipsis' }}>{pipelineSyncMeta.detail}</span> : null}
+              <span style={{ width: 5, height: 5, borderRadius: '50%', background: pipelineSyncMeta.color, flexShrink: 0, opacity: 0.9 }} />
+              <span style={{ color: text, opacity: 0.82 }}>{pipelineSyncMeta.label}</span>
+              {!isNarrow ? <span style={{ opacity: 0.64, overflow: 'hidden', textOverflow: 'ellipsis' }}>{pipelineSyncMeta.detail}</span> : null}
             </div>
           </div>
           {(!enquiryMetrics || enquiryMetrics.length === 0) ? (
@@ -4912,7 +5345,7 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                       fontWeight: 600,
                       letterSpacing: '0.3px',
                       textAlign: 'center',
-                      color: activityTab === key ? accent : muted,
+                      color: text,
                       borderBottom: activityTab === key ? `2px solid ${accent}` : '2px solid transparent',
                       cursor: 'pointer',
                       userSelect: 'none',
@@ -4950,38 +5383,54 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                       <span onClick={() => toggleSort('date')} style={{ fontSize: 8, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: sortKey === 'date' ? theadAccent : theadText, cursor: 'pointer', userSelect: 'none' }}>
                         Date{sortKey === 'date' ? (sortDesc ? ' ↓' : ' ↑') : ''}
                       </span>
-                      <span style={{ fontSize: 8, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: theadText, textAlign: 'left', whiteSpace: 'nowrap', paddingLeft: 2 }}>FE</span>
                       <span onClick={() => toggleSort('name')} style={{ fontSize: 8, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: sortKey === 'name' ? theadAccent : theadText, cursor: 'pointer', userSelect: 'none' }}>
                         Prospect{sortKey === 'name' ? (sortDesc ? ' ↓' : ' ↑') : ''}
                       </span>
                       <div
                         style={{
                           display: 'grid',
-                          gridTemplateColumns: `repeat(${HOME_ENQUIRY_STEP_HEADER_LABELS.length}, minmax(0, 1fr))`,
+                          gridTemplateColumns: enquiryActionGridTemplate,
                           alignItems: 'center',
+                          justifyContent: 'end',
                           gap: 0,
-                          textAlign: 'center',
+                          minWidth: 0,
+                          width: '100%',
                         }}
                       >
-                        {HOME_ENQUIRY_STEP_HEADER_LABELS.map((label) => (
-                          <span
-                            key={label}
-                            style={{
-                              fontSize: 7,
-                              fontWeight: 700,
-                              textTransform: 'uppercase',
-                              letterSpacing: '0.35px',
-                              color: theadText,
-                              opacity: 0.82,
-                              whiteSpace: 'nowrap',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                            }}
-                            title={label}
-                          >
-                            {label}
-                          </span>
-                        ))}
+                        <span aria-hidden="true" style={{ width: '100%', display: 'block' }} />
+                        <span style={{ fontSize: 8, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: theadText, textAlign: 'left', whiteSpace: 'nowrap', width: '100%', paddingLeft: 2 }}>FE</span>
+                        <span aria-hidden="true" style={{ fontSize: 8, lineHeight: 1, color: theadText, opacity: 0.32, display: 'flex', justifyContent: 'center' }}>|</span>
+                        <div
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: `repeat(${HOME_ENQUIRY_STEP_HEADER_LABELS.length}, minmax(0, 1fr))`,
+                            alignItems: 'center',
+                            gap: 0,
+                            textAlign: 'center',
+                            width: '100%',
+                            minWidth: 0,
+                          }}
+                        >
+                          {HOME_ENQUIRY_STEP_HEADER_LABELS.map((label) => (
+                            <span
+                              key={label}
+                              style={{
+                                fontSize: 7,
+                                fontWeight: 700,
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.35px',
+                                color: theadText,
+                                opacity: 0.82,
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                              }}
+                              title={label}
+                            >
+                              {label}
+                            </span>
+                          ))}
+                        </div>
                       </div>
                     </div>
                     {/* Data rows */}
@@ -4999,18 +5448,13 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                       const hasNotes = notesText.length > 0;
                       const notesExpanded = expandedRecentNoteIds.has(recordKey);
                       const selectedScenarioId = selectedPitchScenariosByRecord[recordKey] || getDefaultPitchScenarioForRecord(r);
-                      const rowHasPitchLookupInputs = Array.isArray(r.prospectIds)
-                        ? r.prospectIds.some((value) => String(value || '').trim().length > 0)
-                        : false;
-                      const rowHasLookupIdentity = rowHasPitchLookupInputs || String(r.email || '').trim().length > 0;
-                      const rowLifecycleProcessing = !isTeamWideEnquiryView
-                        && (detailsLoading || (!secondaryFetchesReady) || (rowHasLookupIdentity && pitchLookupLoading));
+                      const rowLifecycleProcessing = !hasSeededRecentEnquiryRecords && (detailsLoading || !pitchLookupHydrated);
                       const hasPitchEvidence = hasPitchEvidenceForRecord(r);
                       const hasInstruction = hasInstructionForRecord(r);
                       const hasCompletedPitch = hasCompletedPitchForRecord(r);
                       const followUpSummary = getFollowUpSummaryForRecord(r);
                       const followUpDueState = getFollowUpDueStateForRecord(r);
-                      const followUpCount = Number(followUpSummary?.totalCount || 0);
+                      const followUpAgeHours = hoursSince(r.pitchedAt || r.date);
                       const pitchedByDisplay = resolveFeeEarnerDisplay(r.pitchedBy);
                       const claimedBy = isClaimedLocally
                         ? (userInitials?.toUpperCase() || r.teamsClaimed || r.poc)
@@ -5019,76 +5463,51 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                       const isClaimingRecent = enquiryId.length > 0 && claimingRecentEnquiryId === enquiryId;
                       const enquiryDateParts = friendlyDateParts(r.date, liveNowMs);
                       const enquiryFe = resolveFeeEarnerDisplay(claimedBy);
-                      const canPitch = !hasPitchEvidence && effectiveLevel < 4;
-                      const lifecycleItems: CompactOptionStripItem<EnquiryLifecycleStepKey>[] = rowLifecycleProcessing ? [
-                        {
-                          key: 'claimed',
-                          label: 'Claimed',
-                          icon: <FiRefreshCw size={12} style={{ animation: 'opsDashSpin 1s linear infinite' }} />,
-                          tone: colours.subtleGrey,
-                          title: 'Checking live claim and pitch state…',
-                          state: 'default',
-                          disabled: true,
-                        },
+                      const followUpLabel = (() => {
+                        if (followUpSummary) return 'Follow';
+                        if (followUpDueState === 'late') {
+                          return followUpAgeHours >= 72
+                            ? `Follow ${Math.round((followUpAgeHours - 48) / 24)}d`
+                            : `Follow ${Math.round(followUpAgeHours - 48)}h`;
+                        }
+                        if (followUpDueState === 'due') return 'Follow due';
+                        if (followUpDueState === 'pending') return `Follow ${Math.max(1, Math.round(24 - followUpAgeHours))}h`;
+                        return 'Follow';
+                      })();
+                      const lifecycleItems: HomePipelineStripItem<EnquiryLifecycleStepKey>[] = rowLifecycleProcessing ? [
                         {
                           key: 'pitch',
                           label: 'Pitch',
-                          icon: <FiRefreshCw size={12} style={{ animation: 'opsDashSpin 1s linear infinite' }} />,
                           tone: colours.subtleGrey,
                           title: 'Checking live claim and pitch state…',
-                          state: 'default',
+                          state: 'loading',
                           disabled: true,
                         },
                         {
                           key: 'follow-up',
-                          label: 'Follow Up',
-                          icon: <FiRefreshCw size={12} style={{ animation: 'opsDashSpin 1s linear infinite' }} />,
+                          label: 'Follow',
                           tone: colours.subtleGrey,
                           title: 'Checking live claim and pitch state…',
-                          state: 'default',
+                          state: 'loading',
                           disabled: true,
                         },
                         {
                           key: 'instruction',
-                          label: 'Instruction',
-                          icon: <FiRefreshCw size={12} style={{ animation: 'opsDashSpin 1s linear infinite' }} />,
+                          label: 'Instruct',
                           tone: colours.subtleGrey,
                           title: 'Checking live claim and pitch state…',
-                          state: 'default',
+                          state: 'loading',
                           disabled: true,
                         },
                       ] : [
                         {
-                          key: 'claimed',
-                          label: 'Claimed',
-                          icon: <FiCheckCircle size={12} />,
-                          tone: colours.green,
-                          title: claimedBy ? `Claimed by ${enquiryFe.title || enquiryFe.label}` : 'Claim this enquiry',
-                          state: claimedBy ? 'done' : 'active',
-                        },
-                        {
                           key: 'pitch',
                           label: 'Pitch',
-                          icon: (() => {
-                            if (hasPitchEvidence || hasInstruction) {
-                              const resolvedId = r.pitchScenarioId || (String(r.pitchStatus || '').toUpperCase() === 'CHECKOUT_LINK' ? 'link-only' : undefined);
-                              if (resolvedId) return scenarioIcon(resolvedId) || <FiCheckCircle size={12} />;
-                              return <FiCheckCircle size={12} />;
-                            }
-                            const explicitScenario = selectedPitchScenariosByRecord[recordKey];
-                            if (explicitScenario) return scenarioIcon(explicitScenario) || <FiSend size={12} />;
-                            return <FiSend size={12} />;
-                          })(),
-                          tone: (() => {
-                            if (hasPitchEvidence || hasInstruction) {
-                              const resolvedId = r.pitchScenarioId || (String(r.pitchStatus || '').toUpperCase() === 'CHECKOUT_LINK' ? 'link-only' : undefined);
-                              if (resolvedId) return scenarioTone(resolvedId);
-                              return colours.green;
-                            }
-                            const explicitScenario = selectedPitchScenariosByRecord[recordKey];
-                            if (explicitScenario) return scenarioTone(explicitScenario);
-                            return colours.orange;
-                          })(),
+                          tone: hasCompletedPitch
+                            ? colours.green
+                            : claimedBy
+                              ? (isDarkMode ? colours.accent : colours.highlight)
+                              : colours.subtleGrey,
                           title: hasPitchEvidence
                             ? `Pitched${pitchedByDisplay.title ? ` by ${pitchedByDisplay.title}` : ''}${r.pitchedAt ? ` on ${friendlyDate(r.pitchedAt)}` : ''}`
                             : `Open ${HOME_PITCH_SCENARIO_STRIP_ITEMS.find((item) => item.key === selectedScenarioId)?.title || 'pitch builder'}`,
@@ -5097,11 +5516,8 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                         },
                         {
                           key: 'follow-up',
-                          label: followUpDueState === 'pending' && !followUpSummary ? 'Pending' : 'Follow Up',
-                          icon: followUpDueState === 'pending' && !followUpSummary
-                            ? <FiClock size={12} />
-                            : followUpSummary?.lastChannel === 'phone' ? <FiPhoneCall size={12} /> : <FiMail size={12} />,
-                          tone: followUpDueState === 'late' ? colours.cta : followUpDueState === 'pending' ? colours.subtleGrey : colours.orange,
+                          label: followUpLabel,
+                          tone: followUpDueState === 'pending' ? colours.subtleGrey : followUpDueState === 'late' ? colours.cta : colours.orange,
                           title: followUpSummary
                             ? `${followUpSummary.totalCount} follow-up attempt${followUpSummary.totalCount === 1 ? '' : 's'} recorded${followUpSummary.lastFollowUpAt ? `, last ${friendlyDate(followUpSummary.lastFollowUpAt)}` : ''}`
                             : followUpDueState === 'late'
@@ -5120,33 +5536,12 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                         },
                         {
                           key: 'instruction',
-                          label: 'Instruction',
-                          icon: <FiFolder size={12} />,
-                          tone: colours.green,
+                          label: 'Instruct',
+                          tone: hasInstruction ? colours.green : colours.subtleGrey,
                           title: hasInstruction ? 'Instruction received' : 'Instruction not yet received',
                           state: hasInstruction ? 'done' : 'default',
                         },
                       ];
-                      const selectedLifecycleKey: EnquiryLifecycleStepKey | null = rowLifecycleProcessing
-                        ? null
-                        : hasInstruction
-                        ? 'instruction'
-                        : (followUpSummary || followUpDueState === 'due' || followUpDueState === 'late')
-                          ? 'follow-up'
-                          : hasCompletedPitch
-                            ? 'pitch'
-                            : 'claimed';
-                      const followUpIndicatorText = rowLifecycleProcessing
-                        ? null
-                        : followUpSummary
-                        ? `FU ${followUpCount}`
-                        : followUpDueState === 'late'
-                          ? 'Follow up'
-                          : followUpDueState === 'due'
-                            ? 'Follow up soon'
-                            : followUpDueState === 'pending'
-                              ? 'Pending'
-                              : null;
                       return (
                         <div
                           key={i}
@@ -5173,103 +5568,16 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
 
                             {/* Date */}
                             <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: 24 }} title={r.date ? new Date(r.date).toLocaleString('en-GB') : undefined}>
-                              <span style={{ fontSize: 9, color: enquiryDateParts.isLive ? text : muted, lineHeight: 1.05, whiteSpace: 'nowrap' }}>
+                              <span style={{ fontSize: 9, color: enquiryDateParts.isToday ? text : muted, lineHeight: 1.05, whiteSpace: 'nowrap' }}>
                                 {enquiryDateParts.primary}
                               </span>
                               <span style={{ fontSize: 8, color: muted, opacity: enquiryDateParts.secondary ? 0.9 : 0.45, whiteSpace: 'nowrap', lineHeight: 1.05 }}>{enquiryDateParts.secondary || '—'}</span>
                             </div>
 
-                            {/* FE — Teams claimer indicator */}
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-start', minWidth: 0 }} title={rowLifecycleProcessing ? 'Checking live claim state…' : claimedBy ? `Claimed by ${enquiryFe.title || enquiryFe.label}` : 'Claim this enquiry'}>
-                              {rowLifecycleProcessing ? (
-                                <>
-                                  <span style={{ width: 20, display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 3, flexShrink: 0 }}>
-                                    <FiRefreshCw size={10} style={{ color: muted, animation: 'opsDashSpin 1s linear infinite', flexShrink: 0 }} />
-                                  </span>
-                                  <span style={{ fontSize: 8, fontWeight: 600, color: muted, letterSpacing: '0.3px', whiteSpace: 'nowrap' }}>
-                                    Checking…
-                                  </span>
-                                </>
-                              ) : claimedBy ? (
-                                <>
-                                  <span style={{ width: 20, display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 3, flexShrink: 0 }}>
-                                    {hasTeams ? (
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          window.open(r.teamsLink, '_blank');
-                                        }}
-                                        title={`Open in Teams · ${r.teamsChannel || 'Channel'}`}
-                                        style={{
-                                          display: 'inline-flex',
-                                          alignItems: 'center',
-                                          justifyContent: 'center',
-                                          padding: 0,
-                                          border: 'none',
-                                          background: 'transparent',
-                                          cursor: 'pointer',
-                                          lineHeight: 0,
-                                        }}
-                                      >
-                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" style={{ opacity: 0.98 }}>
-                                          <path d="M4 7.5A1.5 1.5 0 0 1 5.5 6h8A1.5 1.5 0 0 1 15 7.5v9a1.5 1.5 0 0 1-1.5 1.5h-8A1.5 1.5 0 0 1 4 16.5z" stroke={colours.green} strokeWidth="1.9" />
-                                          <path d="M8 10h3.5" stroke={colours.green} strokeWidth="1.9" strokeLinecap="round" />
-                                          <path d="M9.75 10v4.5" stroke={colours.green} strokeWidth="1.9" strokeLinecap="round" />
-                                          <path d="M15 9l3.8-1.5A1 1 0 0 1 20 8.43v7.14a1 1 0 0 1-1.2.98L15 15" stroke={colours.green} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
-                                        </svg>
-                                      </button>
-                                    ) : (
-                                      <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 0 }} title="Claimed. Teams card refresh pending.">
-                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" style={{ opacity: 0.72 }}>
-                                          <path d="M4 7.5A1.5 1.5 0 0 1 5.5 6h8A1.5 1.5 0 0 1 15 7.5v9a1.5 1.5 0 0 1-1.5 1.5h-8A1.5 1.5 0 0 1 4 16.5z" stroke={colours.green} strokeWidth="1.9" />
-                                          <path d="M8 10h3.5" stroke={colours.green} strokeWidth="1.9" strokeLinecap="round" />
-                                          <path d="M9.75 10v4.5" stroke={colours.green} strokeWidth="1.9" strokeLinecap="round" />
-                                          <path d="M15 9l3.8-1.5A1 1 0 0 1 20 8.43v7.14a1 1 0 0 1-1.2.98L15 15" stroke={colours.green} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
-                                        </svg>
-                                      </span>
-                                    )}
-                                    <svg width="8" height="8" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0 }}>
-                                      <circle cx="6" cy="6" r="5" fill={colours.green} opacity="0.18" />
-                                      <path d="M3 6.2 5 8.1 9 4" stroke={colours.green} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                                    </svg>
-                                  </span>
-                                  <span style={{ fontSize: 8, fontWeight: 700, color: colours.green, letterSpacing: '0.3px', whiteSpace: 'nowrap' }}>
-                                    {enquiryFe.label}
-                                  </span>
-                                </>
-                              ) : enquiryId ? (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleClaimRecentEnquiry(r);
-                                  }}
-                                  disabled={isClaimingRecentEnquiry && !isClaimingRecent}
-                                  style={{
-                                    border: `1px solid ${isDarkMode ? 'rgba(214,85,65,0.28)' : 'rgba(214,85,65,0.3)'}`,
-                                    background: isClaimingRecent ? colours.cta : (isDarkMode ? 'rgba(214,85,65,0.14)' : 'rgba(214,85,65,0.1)'),
-                                    color: isClaimingRecent ? '#fff' : colours.cta,
-                                    padding: '2px 6px',
-                                    fontSize: 8,
-                                    fontWeight: 700,
-                                    letterSpacing: '0.3px',
-                                    cursor: isClaimingRecentEnquiry && !isClaimingRecent ? 'default' : 'pointer',
-                                    opacity: isClaimingRecentEnquiry && !isClaimingRecent ? 0.45 : 1,
-                                    transition: 'background 0.15s ease, color 0.15s ease, opacity 0.15s ease',
-                                  }}
-                                >
-                                  {isClaimingRecent ? 'Claiming…' : 'Claim'}
-                                </button>
-                              ) : (
-                                <span style={{ fontSize: 8, fontWeight: 600, color: muted }}>—</span>
-                              )}
-                            </div>
-
-                            {/* Name + email on hover */}
-                            <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 1, overflow: 'hidden' }}>
+                            {/* Name + email */}
+                            <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 2, overflow: 'hidden' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
-                                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 10, fontWeight: 600, color: text }}>{r.name || '—'}</span>
+                                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 10, fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.highlight, lineHeight: 1.15 }}>{r.name || '—'}</span>
                                 {r.name && (
                                   <button
                                     className="ops-copy-btn"
@@ -5280,21 +5588,10 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={muted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" /></svg>
                                   </button>
                                 )}
-                                {followUpIndicatorText && (
-                                  <span style={{
-                                    fontSize: 8,
-                                    fontWeight: followUpDueState === 'late' ? 700 : 600,
-                                    letterSpacing: '0.2px',
-                                    color: followUpSummary ? colours.highlight : colours.orange,
-                                    opacity: followUpDueState === 'late' ? 1 : 0.78,
-                                    flexShrink: 0,
-                                  }}>
-                                    {followUpIndicatorText}
-                                  </span>
-                                )}
+
                               </div>
                               {r.email && (
-                                <div className="ops-email-line" style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
                                   <span style={{ fontSize: 9, color: muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.1 }}>{r.email}</span>
                                   <button
                                     className="ops-copy-btn"
@@ -5308,84 +5605,145 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                               )}
                             </div>
 
-                            {/* Pitch action */}
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', minWidth: 0 }}>
-                              <div style={{ display: 'flex', flexDirection: 'row-reverse', alignItems: 'center', justifyContent: 'flex-start', gap: 6, flexWrap: 'nowrap', minWidth: 0, width: '100%' }}>
-                                <span
-                                  style={{
-                                    width: 22,
-                                    height: 20,
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    flexShrink: 0,
-                                  }}
-                                >
-                                  {hasNotes ? (
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        toggleRecentNotesTray(recordKey);
-                                      }}
-                                      style={{
-                                        border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(13,47,96,0.14)'}`,
-                                        background: notesExpanded
-                                          ? (isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(13,47,96,0.08)')
-                                          : 'transparent',
-                                        width: 22,
-                                        height: 20,
-                                        padding: 0,
-                                        margin: 0,
-                                        fontSize: 8,
-                                        fontWeight: 700,
-                                        letterSpacing: '0.3px',
-                                        color: text,
-                                        cursor: 'pointer',
-                                        flexShrink: 0,
-                                        lineHeight: '14px',
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                      }}
-                                      title={notesExpanded ? 'Hide notes' : 'Reveal notes'}
-                                      aria-label={notesExpanded ? 'Hide notes' : 'Reveal notes'}
-                                    >
-                                      {notesExpanded ? <FiChevronUp size={10} /> : <FiChevronDown size={10} />}
-                                    </button>
-                                  ) : null}
-                                </span>
-                                <div
-                                  style={{ '--strip-columns': lifecycleItems.length, minWidth: 0, width: '100%' } as React.CSSProperties}
-                                  onClick={(e) => e.stopPropagation()}
-                                  title="Enquiry lifecycle"
-                                >
-                                  <CompactOptionStrip
-                                    items={lifecycleItems}
-                                    selectedKey={selectedLifecycleKey}
-                                    onSelect={(stepKey) => {
-                                      if (stepKey === 'claimed') {
-                                        if (!claimedBy && enquiryId) {
-                                          void handleClaimRecentEnquiry(r);
-                                          return;
-                                        }
-                                        openEnquiryRecord(r);
-                                        return;
-                                      }
-                                      if (stepKey === 'pitch') {
-                                        openPitchBuilderForRecord(r, selectedScenarioId);
-                                        return;
-                                      }
-                                      if (stepKey === 'follow-up') {
-                                        openEnquiryFollowUpModal(r);
-                                        return;
-                                      }
-                                      openEnquiryRecord(r);
+                            {/* Notes + FE + Pipeline */}
+                            <div style={{ display: 'grid', gridTemplateColumns: enquiryActionGridTemplate, alignItems: 'center', justifyContent: 'end', gap: 0, minWidth: 0, width: '100%' }}>
+                              <span
+                                style={{
+                                  width: HOME_ENQUIRY_NOTES_SLOT_WIDTH,
+                                  height: 20,
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  flexShrink: 0,
+                                }}
+                              >
+                                {hasNotes ? (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      toggleRecentNotesTray(recordKey);
                                     }}
-                                    ariaLabel="Enquiry lifecycle"
-                                    className="compact-option-strip--icon-grid"
-                                  />
-                                </div>
+                                    style={{
+                                      border: 'none',
+                                      background: notesExpanded
+                                        ? (isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(13,47,96,0.08)')
+                                        : 'transparent',
+                                      width: HOME_ENQUIRY_NOTES_SLOT_WIDTH,
+                                      height: 20,
+                                      padding: 0,
+                                      margin: 0,
+                                      fontSize: 8,
+                                      fontWeight: 700,
+                                      letterSpacing: '0.3px',
+                                      color: text,
+                                      cursor: 'pointer',
+                                      flexShrink: 0,
+                                      lineHeight: '14px',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                    }}
+                                    title={notesExpanded ? 'Hide notes' : 'Reveal notes'}
+                                    aria-label={notesExpanded ? 'Hide notes' : 'Reveal notes'}
+                                  >
+                                    {notesExpanded ? <FiChevronUp size={10} /> : <FiChevronDown size={10} />}
+                                  </button>
+                                ) : null}
+                              </span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-start', width: '100%', minWidth: 0 }} title={rowLifecycleProcessing ? 'Checking live claim state…' : claimedBy ? `Claimed by ${enquiryFe.title || enquiryFe.label}` : 'Claim this enquiry'}>
+                                {rowLifecycleProcessing ? (
+                                  <span style={{ width: 20, display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 3, flexShrink: 0 }}>
+                                    <FiRefreshCw size={10} style={{ color: muted, animation: 'opsDashSpin 1s linear infinite', flexShrink: 0 }} />
+                                  </span>
+                                ) : claimedBy ? (
+                                  <>
+                                    <span style={{ width: 20, display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 3, flexShrink: 0 }}>
+                                      {hasTeams ? (
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            window.open(r.teamsLink, '_blank');
+                                          }}
+                                          title={`Open in Teams · ${r.teamsChannel || 'Channel'}`}
+                                          style={{
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            padding: 0,
+                                            border: 'none',
+                                            background: 'transparent',
+                                            cursor: 'pointer',
+                                            lineHeight: 0,
+                                          }}
+                                        >
+                                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" style={{ opacity: 0.98 }}>
+                                            <path d="M4 7.5A1.5 1.5 0 0 1 5.5 6h8A1.5 1.5 0 0 1 15 7.5v9a1.5 1.5 0 0 1-1.5 1.5h-8A1.5 1.5 0 0 1 4 16.5z" stroke={colours.green} strokeWidth="1.9" />
+                                            <path d="M8 10h3.5" stroke={colours.green} strokeWidth="1.9" strokeLinecap="round" />
+                                            <path d="M9.75 10v4.5" stroke={colours.green} strokeWidth="1.9" strokeLinecap="round" />
+                                            <path d="M15 9l3.8-1.5A1 1 0 0 1 20 8.43v7.14a1 1 0 0 1-1.2.98L15 15" stroke={colours.green} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+                                          </svg>
+                                        </button>
+                                      ) : (
+                                        <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 0 }} title="Claimed. Teams card refresh pending.">
+                                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" style={{ opacity: 0.72 }}>
+                                            <path d="M4 7.5A1.5 1.5 0 0 1 5.5 6h8A1.5 1.5 0 0 1 15 7.5v9a1.5 1.5 0 0 1-1.5 1.5h-8A1.5 1.5 0 0 1 4 16.5z" stroke={colours.green} strokeWidth="1.9" />
+                                            <path d="M8 10h3.5" stroke={colours.green} strokeWidth="1.9" strokeLinecap="round" />
+                                            <path d="M9.75 10v4.5" stroke={colours.green} strokeWidth="1.9" strokeLinecap="round" />
+                                            <path d="M15 9l3.8-1.5A1 1 0 0 1 20 8.43v7.14a1 1 0 0 1-1.2.98L15 15" stroke={colours.green} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+                                          </svg>
+                                        </span>
+                                      )}
+                                      <svg width="8" height="8" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0 }}>
+                                        <circle cx="6" cy="6" r="5" fill={colours.green} opacity="0.18" />
+                                        <path d="M3 6.2 5 8.1 9 4" stroke={colours.green} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                                      </svg>
+                                    </span>
+                                    <span style={{ fontSize: 8, fontWeight: 700, color: colours.green, letterSpacing: '0.3px', whiteSpace: 'nowrap' }}>
+                                      {enquiryFe.label}
+                                    </span>
+                                  </>
+                                ) : enquiryId ? (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleClaimRecentEnquiry(r);
+                                    }}
+                                    disabled={isClaimingRecentEnquiry && !isClaimingRecent}
+                                    style={{ '--home-pipeline-action-tone': colours.cta, opacity: isClaimingRecentEnquiry && !isClaimingRecent ? 0.45 : undefined } as React.CSSProperties}
+                                    className={isClaimingRecent ? 'home-pipeline-action home-pipeline-action--busy' : 'home-pipeline-action'}
+                                  >
+                                    {isClaimingRecent ? 'Claiming…' : 'Claim'}
+                                  </button>
+                                ) : (
+                                  <span style={{ fontSize: 8, fontWeight: 600, color: muted }}>—</span>
+                                )}
+                              </div>
+                              <span aria-hidden="true" style={{ fontSize: 8, lineHeight: 1, color: muted, opacity: 0.42, display: 'flex', justifyContent: 'center' }}>|</span>
+                              <div
+                                style={{ '--home-pipeline-columns': lifecycleItems.length, width: '100%', minWidth: 0 } as React.CSSProperties}
+                                onClick={(e) => e.stopPropagation()}
+                                title="Enquiry lifecycle"
+                              >
+                                <HomePipelineStrip
+                                  items={lifecycleItems}
+                                  onSelect={(stepKey) => {
+                                    if (stepKey === 'pitch') {
+                                      showToast({ type: 'info', message: 'Opening pitch builder…', duration: 1500 });
+                                      openPitchBuilderForRecord(r, selectedScenarioId);
+                                      return;
+                                    }
+                                    if (stepKey === 'follow-up') {
+                                      showToast({ type: 'info', message: 'Recording follow-up…', duration: 1500 });
+                                      openEnquiryFollowUpModal(r);
+                                      return;
+                                    }
+                                    openEnquiryRecord(r);
+                                  }}
+                                  ariaLabel="Enquiry lifecycle"
+                                />
                               </div>
                             </div>
                           </div>
@@ -5469,52 +5827,62 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                         <FiFolder size={9} style={{ color: matterSortKey === 'aow' ? theadAccent : theadText, opacity: 0.8 }} />
                       </span>
                       <span onClick={() => toggleMatterSort('date')} style={{ fontSize: 8, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: matterSortKey === 'date' ? theadAccent : theadText, flexShrink: 0, cursor: 'pointer', userSelect: 'none' }}>Date{matterSortKey === 'date' ? (matterSortDesc ? ' ↓' : ' ↑') : ''}</span>
-                      <span onClick={() => toggleMatterSort('fe')} style={{ fontSize: 8, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: matterSortKey === 'fe' ? theadAccent : theadText, flexShrink: 0, textAlign: 'left', paddingLeft: 2, cursor: 'pointer', userSelect: 'none' }}>FE{matterSortKey === 'fe' ? (matterSortDesc ? ' ↓' : ' ↑') : ''}</span>
                       <span onClick={() => toggleMatterSort('name')} style={{ fontSize: 8, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: matterSortKey === 'name' ? theadAccent : theadText, flex: 1, cursor: 'pointer', userSelect: 'none' }}>Matter{matterSortKey === 'name' ? (matterSortDesc ? ' ↓' : ' ↑') : ''}</span>
-                      <div
-                        style={{
-                          display: 'grid',
-                          gridTemplateColumns: `repeat(${HOME_MATTER_STEP_HEADER_LABELS.length}, minmax(0, 1fr))`,
-                          alignItems: 'center',
-                          gap: 0,
-                          textAlign: 'center',
-                          opacity: canSeeCcl && showInlineMatterSteps ? 1 : 0,
-                        }}
-                        title={canSeeCcl ? (showInlineMatterSteps ? 'CCL lifecycle' : 'CCL') : undefined}
-                      >
-                        {HOME_MATTER_STEP_HEADER_LABELS.map((label) => (
-                          <span
-                            key={label}
-                            style={{
-                              fontSize: 7,
-                              fontWeight: 700,
-                              textTransform: 'uppercase',
-                              letterSpacing: '0.35px',
-                              color: theadText,
-                              opacity: 0.82,
-                              whiteSpace: 'nowrap',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                            }}
-                            title={label}
-                          >
-                            {label}
-                          </span>
-                        ))}
+                      <div style={{ display: 'grid', gridTemplateColumns: matterActionGridTemplate, alignItems: 'center', justifyContent: 'end', gap: 0, minWidth: 0, width: '100%' }}>
+                        <span onClick={() => toggleMatterSort('fe')} style={{ fontSize: 8, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: matterSortKey === 'fe' ? theadAccent : theadText, textAlign: 'left', paddingLeft: 2, cursor: 'pointer', userSelect: 'none', width: '100%' }}>FE{matterSortKey === 'fe' ? (matterSortDesc ? ' ↓' : ' ↑') : ''}</span>
+                        {matterActionLabelWidth > 0 ? <span aria-hidden="true" style={{ fontSize: 8, lineHeight: 1, color: theadText, opacity: 0.32, display: 'flex', justifyContent: 'center' }}>|</span> : null}
+                        {matterActionLabelWidth > 0 ? (
+                          showInlineMatterSteps ? (
+                            <div
+                              style={{
+                                display: 'grid',
+                                gridTemplateColumns: `repeat(${HOME_MATTER_STEP_HEADER_LABELS.length}, minmax(0, 1fr))`,
+                                alignItems: 'center',
+                                gap: 0,
+                                textAlign: 'center',
+                                width: '100%',
+                                minWidth: 0,
+                                opacity: canSeeCcl ? 1 : 0.42,
+                              }}
+                              title={canSeeCcl ? 'CCL lifecycle' : 'CCL lifecycle (view only)'}
+                            >
+                              {HOME_MATTER_STEP_HEADER_LABELS.map((label) => (
+                                <span
+                                  key={label}
+                                  style={{
+                                    fontSize: 7,
+                                    fontWeight: 700,
+                                    textTransform: 'uppercase',
+                                    letterSpacing: '0.35px',
+                                    color: theadText,
+                                    opacity: 0.82,
+                                    whiteSpace: 'nowrap',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                  }}
+                                  title={label}
+                                >
+                                  {label}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span style={{ fontSize: 8, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: theadText, textAlign: 'left', width: '100%', paddingLeft: 2 }} title={canSeeCcl ? 'CCL' : undefined}>CCL</span>
+                          )
+                        ) : null}
                       </div>
                     </div>
                     {displayMatters.map((m, i) => {
-                      const ccl = canSeeCcl ? (cclMap[m.matterId] || null) : null;
+                      const ccl = cclMap[m.matterId] || null;
                       const matterDateParts = friendlyDateParts(m.openDate, liveNowMs);
-                      const matterOpenTime = friendlyTime(m.openDate);
                       const matterResponsible = resolveFeeEarnerDisplay(m.responsibleSolicitor);
                       const matterOriginating = resolveFeeEarnerDisplay(m.originatingSolicitor);
                       const normalizedResponsible = (m.responsibleSolicitor || '').trim().toLowerCase();
                       const normalizedOriginating = (m.originatingSolicitor || '').trim().toLowerCase();
                       const showOriginating = Boolean(normalizedOriginating) && normalizedOriginating !== normalizedResponsible;
-                      const isCclStatusResolving = canSeeCcl && !!cclStatusResolvingByMatter[m.matterId];
-                      const hasResolvedCclStatus = canSeeCcl && !!cclStatusResolvedByMatter[m.matterId];
-                      const showCclStatusResolving = canSeeCcl && (!hasResolvedCclStatus || isCclStatusResolving);
+                      const isCclStatusResolving = !!cclStatusResolvingByMatter[m.matterId];
+                      const hasResolvedCclStatus = !!cclStatusResolvedByMatter[m.matterId];
+                      const showCclStatusResolving = (canSeeCcl || showInlineMatterSteps) && (!hasResolvedCclStatus || isCclStatusResolving);
                       const isExp = canSeeCcl && !showInlineMatterSteps && expandedCcl === m.matterId;
                       const isDemo = String(m.matterId || '').toUpperCase().startsWith('DEMO-');
                       const clioUrl = m.matterId && !isDemo ? `https://eu.app.clio.com/nc/#/matters/${m.matterId}` : undefined;
@@ -5563,52 +5931,57 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                         event.stopPropagation();
                         openCclWorkflowModal(m.matterId);
                       };
-                      const matterStepItems: CompactOptionStripItem<HomeMatterStepKey>[] = [
+                      const activeMatterTone = isDarkMode ? colours.accent : colours.highlight;
+                      const matterStepsReadOnly = !canSeeCcl;
+                      const readOnlyCclTitleSuffix = matterStepsReadOnly ? ' (view only)' : '';
+                      const matterStepItems: HomePipelineStripItem<HomeMatterStepKey>[] = [
                         {
                           key: 'compile',
-                          label: compileDone ? 'Compiled' : 'Compile',
+                          label: 'Compile',
                           state: compileDone ? 'done' : (activeMatterStepKey === 'compile' ? 'active' : 'default'),
-                          title: compileDone ? 'Compilation Results' : 'Compile context and evidence',
-                          tone: compileDone ? colours.green : (isDarkMode ? colours.accent : colours.highlight),
-                          disabled: !compileDone,
-                          icon: compileDone ? <FiCheckCircle size={12} /> : <FiInbox size={12} />,
+                          title: `${compileDone ? 'Compilation Results' : 'Compile context and evidence'}${readOnlyCclTitleSuffix}`,
+                          tone: compileDone ? colours.green : activeMatterTone,
+                          disabled: matterStepsReadOnly || !compileDone,
                         },
                         {
                           key: 'generate',
-                          label: genDone ? 'Generated' : genActive ? 'Generating' : 'Generate',
-                          state: genDone ? 'done' : (activeMatterStepKey === 'generate' ? 'active' : 'default'),
-                          title: genDone ? 'Open generated CCL draft' : genActive ? 'Generating CCL draft' : 'Generate CCL draft',
-                          tone: genDone ? colours.green : (isDarkMode ? colours.accent : colours.highlight),
-                          disabled: genActive,
-                          icon: genDone ? <FiCheckCircle size={12} /> : <FiSend size={12} />,
+                          label: genActive ? 'Drafting' : 'Draft',
+                          state: genDone ? 'done' : (genActive ? 'loading' : (activeMatterStepKey === 'generate' ? 'active' : 'default')),
+                          title: `${genDone ? 'Open generated CCL draft' : genActive ? 'Generating CCL draft' : 'Generate CCL draft'}${readOnlyCclTitleSuffix}`,
+                          tone: genDone ? colours.green : activeMatterTone,
+                          disabled: matterStepsReadOnly || genActive,
                         },
                         {
                           key: 'pressure',
-                          label: pressureDone ? 'Results' : pressureActive ? 'Testing' : 'Test',
-                          state: pressureDone ? 'done' : (activeMatterStepKey === 'pressure' ? 'active' : 'default'),
-                          title: pressureDone ? 'Pressure Test Results' : genDone ? 'Run Pressure Test' : 'Generate draft before Pressure Test',
-                          tone: pressureDone ? colours.green : (pressureActive ? (isDarkMode ? colours.accent : colours.highlight) : colours.orange),
-                          disabled: !genDone,
-                          icon: <FiRefreshCw size={12} />,
+                          label: pressureActive ? 'Testing' : 'Test',
+                          state: pressureDone ? 'done' : (pressureActive ? 'loading' : (activeMatterStepKey === 'pressure' ? 'active' : 'default')),
+                          title: `${pressureDone ? 'Pressure Test Results' : genDone ? 'Run Pressure Test' : 'Generate draft before Pressure Test'}${readOnlyCclTitleSuffix}`,
+                          tone: pressureDone ? colours.green : activeMatterTone,
+                          disabled: matterStepsReadOnly || !genDone,
                         },
                         {
                           key: 'review',
-                          label: reviewDone ? 'Reviewed' : reviewActive ? 'Review' : 'Review',
+                          label: 'Review',
                           state: reviewDone ? 'done' : (activeMatterStepKey === 'review' ? 'active' : 'default'),
-                          title: reviewDone ? 'Open reviewed CCL' : hasDraft ? 'Review CCL draft' : 'Draft required before review',
-                          tone: reviewDone ? colours.green : (reviewActive ? (isDarkMode ? colours.accent : colours.highlight) : colours.orange),
-                          disabled: !hasDraft,
-                          icon: <FiCheckCircle size={12} />,
+                          title: `${reviewDone ? 'Open reviewed CCL' : hasDraft ? 'Review CCL draft' : 'Draft required before review'}${readOnlyCclTitleSuffix}`,
+                          tone: reviewDone ? colours.green : activeMatterTone,
+                          disabled: matterStepsReadOnly || !hasDraft,
                         },
                         {
                           key: 'nd',
-                          label: ndDone ? 'Uploaded' : 'Upload',
+                          label: 'Upload',
                           state: ndDone ? 'done' : (activeMatterStepKey === 'nd' ? 'active' : 'default'),
-                          title: ndDone ? 'CCL is in NetDocuments' : reviewDone ? 'Open CCL to finish NetDocuments delivery' : 'Review required before NetDocuments',
-                          tone: ndDone ? colours.green : (reviewDone ? colours.highlight : colours.greyText),
-                          disabled: !reviewDone && !ndDone,
-                          icon: <FiFolder size={12} />,
+                          title: `${ndDone ? 'CCL is in NetDocuments' : reviewDone ? 'Open CCL to finish NetDocuments delivery' : 'Review required before NetDocuments'}${readOnlyCclTitleSuffix}`,
+                          tone: ndDone ? colours.green : activeMatterTone,
+                          disabled: matterStepsReadOnly || (!reviewDone && !ndDone),
                         },
+                      ];
+                      const matterLoadingItems: HomePipelineStripItem<HomeMatterStepKey>[] = [
+                        { key: 'compile', label: 'Compile', state: 'loading', tone: colours.subtleGrey, title: 'Resolving CCL status', disabled: true },
+                        { key: 'generate', label: 'Draft', state: 'loading', tone: colours.subtleGrey, title: 'Resolving CCL status', disabled: true },
+                        { key: 'pressure', label: 'Test', state: 'loading', tone: colours.subtleGrey, title: 'Resolving CCL status', disabled: true },
+                        { key: 'review', label: 'Review', state: 'loading', tone: colours.subtleGrey, title: 'Resolving CCL status', disabled: true },
+                        { key: 'nd', label: 'Upload', state: 'loading', tone: colours.subtleGrey, title: 'Resolving CCL status', disabled: true },
                       ];
                       const cclDotColor = !ccl
                         ? (isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.10)')
@@ -5677,37 +6050,12 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
 
                             {/* Date */}
                             <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: 24 }} title={m.openDate ? new Date(m.openDate).toLocaleString('en-GB') : undefined}>
-                              <span style={{ fontSize: 9, color: matterDateParts.isLive ? text : muted, lineHeight: 1.05, whiteSpace: 'nowrap' }}>
+                              <span style={{ fontSize: 9, color: matterDateParts.isToday ? text : muted, lineHeight: 1.05, whiteSpace: 'nowrap' }}>
                                 {matterDateParts.primary}
                               </span>
-                              {matterDateParts.isLive ? (
-                                <span style={{ fontSize: 8, color: muted, opacity: 0.9, whiteSpace: 'nowrap', lineHeight: 1.05 }}>
-                                  {matterOpenTime ? `ago ${matterOpenTime}` : (matterDateParts.secondary || 'ago')}
-                                </span>
-                              ) : (
-                                <span style={{ fontSize: 8, color: muted, opacity: matterDateParts.secondary ? 0.9 : 0.45, whiteSpace: 'nowrap', lineHeight: 1.05 }}>
-                                  {matterDateParts.secondary || matterOpenTime || '—'}
-                                </span>
-                              )}
-                            </div>
-
-                            {/* FE initials */}
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-start', minWidth: 0 }} title={showOriginating
-                              ? `Responsible: ${matterResponsible.title || '—'} · Originating: ${matterOriginating.title || '—'}`
-                              : (matterResponsible.title || undefined)}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 3, minWidth: 0, whiteSpace: 'nowrap' }}>
-                                <span style={{ fontSize: 8, fontWeight: 700, color: matterResponsible.label !== '—' ? colours.green : muted, letterSpacing: '0.3px', whiteSpace: 'nowrap' }}>
-                                  {matterResponsible.label}
-                                </span>
-                                {showOriginating && (
-                                  <>
-                                    <span style={{ fontSize: 8, color: muted, opacity: 0.55, lineHeight: 1 }}>·</span>
-                                    <span style={{ fontSize: 8, fontWeight: 700, color: matterOriginating.label !== '—' ? (isDarkMode ? colours.accent : colours.highlight) : muted, letterSpacing: '0.3px', whiteSpace: 'nowrap' }}>
-                                      {matterOriginating.label}
-                                    </span>
-                                  </>
-                                )}
-                              </div>
+                              <span style={{ fontSize: 8, color: muted, opacity: matterDateParts.secondary ? 0.9 : 0.45, whiteSpace: 'nowrap', lineHeight: 1.05 }}>
+                                {matterDateParts.secondary || '—'}
+                              </span>
                             </div>
 
                             {/* Ref + client */}
@@ -5735,37 +6083,50 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                               <span style={{ fontSize: 9, color: muted, lineHeight: 1.1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.clientName || '—'}</span>
                             </div>
 
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', minWidth: 0 }}>
-                              {canSeeCcl && (
+                            <div style={{ display: 'grid', gridTemplateColumns: matterActionGridTemplate, alignItems: 'center', justifyContent: 'end', gap: 0, minWidth: 0, width: '100%' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-start', width: '100%', minWidth: 0 }} title={showOriginating
+                                ? `Responsible: ${matterResponsible.title || '—'} · Originating: ${matterOriginating.title || '—'}`
+                                : (matterResponsible.title || undefined)}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 3, minWidth: 0, whiteSpace: 'nowrap' }}>
+                                  <span style={{ fontSize: 8, fontWeight: 700, color: matterResponsible.label !== '—' ? colours.green : muted, letterSpacing: '0.3px', whiteSpace: 'nowrap' }}>
+                                    {matterResponsible.label}
+                                  </span>
+                                  {showOriginating && (
+                                    <>
+                                      <span style={{ fontSize: 8, color: muted, opacity: 0.55, lineHeight: 1 }}>·</span>
+                                      <span style={{ fontSize: 8, fontWeight: 700, color: matterOriginating.label !== '—' ? (isDarkMode ? colours.accent : colours.highlight) : muted, letterSpacing: '0.3px', whiteSpace: 'nowrap' }}>
+                                        {matterOriginating.label}
+                                      </span>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                              {matterActionLabelWidth > 0 ? <span aria-hidden="true" style={{ fontSize: 8, lineHeight: 1, color: muted, opacity: canSeeCcl ? 0.42 : 0.26, display: 'flex', justifyContent: 'center' }}>|</span> : null}
+                              {matterActionLabelWidth > 0 ? (
                                 showCclStatusResolving ? (
                                   <div
-                                    style={{
-                                      border: `1px solid ${isDarkMode ? 'rgba(75,85,99,0.3)' : 'rgba(75,85,99,0.16)'}`,
-                                      background: isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(6,23,51,0.03)',
-                                      color: muted,
-                                      padding: alignStackedColumns ? '3px 6px' : '2px 4px',
-                                      width: alignStackedColumns ? 78 : 62,
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      justifyContent: 'center',
-                                      lineHeight: 1.1,
-                                      flexShrink: 0,
-                                      opacity: 0.9,
-                                    }}
-                                    title="Resolving CCL status"
+                                    style={{ '--home-pipeline-columns': matterLoadingItems.length, width: '100%', minWidth: 0, overflow: 'hidden' } as React.CSSProperties}
+                                    onClick={(event) => event.stopPropagation()}
+                                    title={matterStepsReadOnly ? 'Resolving CCL status (view only)' : 'Resolving CCL status'}
                                   >
-                                    <FiRefreshCw size={alignStackedColumns ? 11 : 10} style={{ color: muted, animation: 'opsDashSpin 1s linear infinite', flexShrink: 0 }} />
+                                    <HomePipelineStrip
+                                      items={matterLoadingItems}
+                                      onSelect={() => undefined}
+                                      className={matterStepsReadOnly ? 'home-pipeline-strip--readonly' : undefined}
+                                      ariaLabel="Matter CCL steps loading"
+                                    />
                                   </div>
                                 ) : showInlineMatterSteps ? (
                                   <div
-                                    style={{ '--strip-columns': matterStepItems.length, minWidth: 150, width: '100%', overflow: 'hidden' } as React.CSSProperties}
+                                    style={{ '--home-pipeline-columns': matterStepItems.length, width: '100%', minWidth: 0, overflow: 'hidden' } as React.CSSProperties}
                                     onClick={(event) => event.stopPropagation()}
-                                    title={`CCL ${getCanonicalCclLabel(ccl?.stage || ccl?.status, ccl?.label)}${ccl?.version ? ` · v${ccl.version}` : ''}`}
+                                    title={`${matterStepsReadOnly ? 'CCL lifecycle (view only)' : 'CCL'}${ccl ? ` · ${getCanonicalCclLabel(ccl?.stage || ccl?.status, ccl?.label)}${ccl?.version ? ` · v${ccl.version}` : ''}` : ''}`}
                                   >
-                                    <CompactOptionStrip
+                                    <HomePipelineStrip
                                       items={matterStepItems}
-                                      selectedKey={activeMatterStepKey}
                                       onSelect={(stepKey) => {
+                                        if (!canSeeCcl) return;
+
                                         if (stepKey === 'compile' && compileDone) {
                                           openCclWorkflowModal(m.matterId);
                                           return;
@@ -5802,85 +6163,87 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                                           openCclWorkflowModal(m.matterId);
                                         }
                                       }}
+                                      className={matterStepsReadOnly ? 'home-pipeline-strip--readonly' : undefined}
                                       ariaLabel="Matter CCL steps"
-                                      className="compact-option-strip--icon-grid"
                                     />
                                   </div>
                                 ) : (
-                                  <button
-                                    type="button"
-                                    onClick={collapsedCta ? collapsedCta.onClick : (event) => { event.stopPropagation(); setExpandedCcl(prev => prev === m.matterId ? null : m.matterId); }}
-                                    style={{
-                                      border: `1px solid ${collapsedCta
-                                        ? collapsedCta.tone === 'action'
-                                          ? (isDarkMode ? 'rgba(135,243,243,0.18)' : 'rgba(54,144,206,0.18)')
-                                          : collapsedCta.tone === 'done'
-                                            ? 'rgba(32,178,108,0.18)'
-                                            : 'rgba(255,255,255,0.06)'
-                                        : 'transparent'}`,
-                                      background: collapsedCta
-                                        ? collapsedCta.tone === 'action'
-                                          ? (isDarkMode ? 'rgba(135,243,243,0.08)' : 'rgba(54,144,206,0.08)')
-                                          : collapsedCta.tone === 'done'
-                                            ? 'rgba(32,178,108,0.08)'
-                                            : 'rgba(255,255,255,0.025)'
-                                        : 'transparent',
-                                      color: collapsedCta
-                                        ? collapsedCta.tone === 'action'
-                                          ? accent
-                                          : collapsedCta.tone === 'done'
-                                            ? colours.green
-                                            : muted
-                                        : muted,
-                                      padding: alignStackedColumns ? '3px 6px' : '2px 4px',
-                                      width: alignStackedColumns ? 78 : 62,
-                                      display: 'grid',
-                                      gridTemplateColumns: '6px minmax(0, 1fr) 10px',
-                                      alignItems: 'center',
-                                      columnGap: 5,
-                                      fontSize: alignStackedColumns ? 8 : 7,
-                                      fontWeight: 700,
-                                      letterSpacing: '0.04em',
-                                      textTransform: 'uppercase',
-                                      cursor: 'pointer',
-                                      lineHeight: 1.1,
-                                      whiteSpace: 'nowrap',
-                                      overflow: 'hidden',
-                                      textOverflow: 'ellipsis',
-                                      fontFamily: "'Raleway', Arial, Helvetica, sans-serif",
-                                      flexShrink: 0,
-                                      transition: 'background 0.15s ease, border-color 0.15s ease',
-                                    }}
-                                    title={collapsedCta ? collapsedCta.title : (ccl ? `CCL ${getCanonicalCclLabel(ccl?.stage || ccl?.status, ccl?.label)} · v${ccl.version}` : 'Open CCL details')}
-                                  >
-                                    <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: cclDotColor }} />
-                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{collapsedCta ? collapsedCta.label : 'CCL'}</span>
-                                    <span
+                                  <div style={{ display: 'flex', alignItems: 'center', width: '100%' }}>
+                                    <button
+                                      type="button"
+                                      onClick={collapsedCta ? collapsedCta.onClick : (event) => { event.stopPropagation(); setExpandedCcl(prev => prev === m.matterId ? null : m.matterId); }}
                                       style={{
-                                        width: 10,
-                                        height: 10,
-                                        display: 'inline-flex',
+                                        border: `1px solid ${collapsedCta
+                                          ? collapsedCta.tone === 'action'
+                                            ? (isDarkMode ? 'rgba(135,243,243,0.18)' : 'rgba(54,144,206,0.18)')
+                                            : collapsedCta.tone === 'done'
+                                              ? 'rgba(32,178,108,0.18)'
+                                              : 'rgba(255,255,255,0.06)'
+                                          : 'transparent'}`,
+                                        background: collapsedCta
+                                          ? collapsedCta.tone === 'action'
+                                            ? (isDarkMode ? 'rgba(135,243,243,0.08)' : 'rgba(54,144,206,0.08)')
+                                            : collapsedCta.tone === 'done'
+                                              ? 'rgba(32,178,108,0.08)'
+                                              : 'rgba(255,255,255,0.025)'
+                                          : 'transparent',
+                                        color: collapsedCta
+                                          ? collapsedCta.tone === 'action'
+                                            ? accent
+                                            : collapsedCta.tone === 'done'
+                                              ? colours.green
+                                              : muted
+                                          : muted,
+                                        padding: alignStackedColumns ? '3px 6px' : '2px 4px',
+                                        width: matterCollapsedCclWidth,
+                                        display: 'grid',
+                                        gridTemplateColumns: '6px minmax(0, 1fr) 10px',
                                         alignItems: 'center',
-                                        justifyContent: 'center',
-                                        color: isExp ? (isDarkMode ? colours.accent : colours.highlight) : 'currentColor',
-                                        transition: 'transform 0.18s ease, color 0.18s ease',
-                                        transform: isExp ? 'rotate(90deg)' : 'rotate(0deg)',
+                                        columnGap: 5,
+                                        fontSize: alignStackedColumns ? 8 : 7,
+                                        fontWeight: 700,
+                                        letterSpacing: '0.04em',
+                                        textTransform: 'uppercase',
+                                        cursor: 'pointer',
+                                        lineHeight: 1.1,
+                                        whiteSpace: 'nowrap',
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis',
+                                        fontFamily: "'Raleway', Arial, Helvetica, sans-serif",
+                                        flexShrink: 0,
+                                        transition: 'background 0.15s ease, border-color 0.15s ease',
                                       }}
-                                      aria-hidden="true"
+                                      title={collapsedCta ? collapsedCta.title : (ccl ? `CCL ${getCanonicalCclLabel(ccl?.stage || ccl?.status, ccl?.label)} · v${ccl.version}` : 'Open CCL details')}
                                     >
-                                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style={{ display: 'block' }}>
-                                        <path
-                                          d="M3.25 2.1L6.55 5L3.25 7.9"
-                                          stroke="currentColor"
-                                          strokeWidth="1.45"
-                                          strokeLinecap="round"
-                                          strokeLinejoin="round"
-                                        />
-                                      </svg>
-                                    </span>
-                                  </button>
+                                      <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: cclDotColor }} />
+                                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{collapsedCta ? collapsedCta.label : 'CCL'}</span>
+                                      <span
+                                        style={{
+                                          width: 10,
+                                          height: 10,
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                          color: isExp ? (isDarkMode ? colours.accent : colours.highlight) : 'currentColor',
+                                          transition: 'transform 0.18s ease, color 0.18s ease',
+                                          transform: isExp ? 'rotate(90deg)' : 'rotate(0deg)',
+                                        }}
+                                        aria-hidden="true"
+                                      >
+                                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style={{ display: 'block' }}>
+                                          <path
+                                            d="M3.25 2.1L6.55 5L3.25 7.9"
+                                            stroke="currentColor"
+                                            strokeWidth="1.45"
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                          />
+                                        </svg>
+                                      </span>
+                                    </button>
+                                  </div>
                                 )
-                              )}
+                              ) : null}
                             </div>
                           </div>
 
@@ -6073,7 +6436,7 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
       )}
 
         {/* ── Calls & Attendance Notes ── */}
-        <CallsAndNotes isDarkMode={isDarkMode} userInitials={userInitials || ''} userEmail={userEmail} isNarrow={callsAndNotesNarrow} isActive={isActive} />
+        <CallsAndNotes isDarkMode={isDarkMode} userInitials={userInitials || ''} userEmail={userEmail} isNarrow={callsAndNotesNarrow} demoModeEnabled={demoModeEnabled} isActive={isActive} />
 
         {/* ── Enquiry Follow-Up Modal ── */}
         {enquiryFollowUpModal && (() => {
@@ -6114,8 +6477,8 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 14 }}>
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: followUpDueState === 'late' ? colours.cta : colours.orange, flexShrink: 0 }} />
-                      <span style={{ fontSize: 11, fontWeight: 700, color: followUpDueState === 'late' ? colours.cta : colours.orange, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: colours.orange, flexShrink: 0 }} />
+                      <span style={{ fontSize: 11, fontWeight: 700, color: colours.orange, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                         Enquiry Follow Up
                       </span>
                     </div>
@@ -9996,5 +10359,7 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
   </div>
   );
 };
+
+const OperationsDashboard = React.memo(OperationsDashboardInner);
 
 export default OperationsDashboard;

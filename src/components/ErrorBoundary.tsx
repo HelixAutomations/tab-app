@@ -1,4 +1,5 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
+import { colours } from '../app/styles/colours';
 import { ErrorCollector } from './ErrorTracker';
 
 interface Props {
@@ -143,7 +144,7 @@ class ErrorBoundary extends Component<Props, State> {
               maxWidth: '600px',
               padding: '40px',
               backgroundColor: 'white',
-              borderRadius: '8px',
+              borderRadius: 0,
               boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
               textAlign: 'center',
             }}
@@ -160,7 +161,7 @@ class ErrorBoundary extends Component<Props, State> {
                   marginBottom: '24px',
                   padding: '12px 16px',
                   backgroundColor: '#f9f9f9',
-                  borderRadius: '6px',
+                  borderRadius: 0,
                   border: '1px solid #e5e5e5',
                   color: '#333',
                   fontSize: '15px',
@@ -187,7 +188,7 @@ class ErrorBoundary extends Component<Props, State> {
                   textAlign: 'left',
                   padding: '16px',
                   backgroundColor: '#f9f9f9',
-                  borderRadius: '4px',
+                  borderRadius: 0,
                   fontSize: '14px',
                 }}
               >
@@ -224,17 +225,17 @@ class ErrorBoundary extends Component<Props, State> {
                 onClick={this.handleReload}
                 style={{
                   padding: '12px 24px',
-                  backgroundColor: '#0078d4',
+                  backgroundColor: colours.highlight,
                   color: 'white',
                   border: 'none',
-                  borderRadius: '4px',
+                  borderRadius: 0,
                   fontSize: '16px',
                   fontWeight: '600',
                   cursor: 'pointer',
                   fontFamily: 'Raleway, sans-serif',
                 }}
-                onMouseOver={(e) => (e.currentTarget.style.backgroundColor = '#106ebe')}
-                onMouseOut={(e) => (e.currentTarget.style.backgroundColor = '#0078d4')}
+                onMouseOver={(e) => (e.currentTarget.style.backgroundColor = colours.helixBlue)}
+                onMouseOut={(e) => (e.currentTarget.style.backgroundColor = colours.highlight)}
               >
                 Reload
               </button>
@@ -243,9 +244,9 @@ class ErrorBoundary extends Component<Props, State> {
                 style={{
                   padding: '12px 24px',
                   backgroundColor: 'white',
-                  color: '#0078d4',
-                  border: '2px solid #0078d4',
-                  borderRadius: '4px',
+                  color: colours.highlight,
+                  border: `2px solid ${colours.highlight}`,
+                  borderRadius: 0,
                   fontSize: '16px',
                   fontWeight: '600',
                   cursor: 'pointer',

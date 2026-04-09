@@ -230,10 +230,6 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
   onUnconfirmAttendance,
   onShowToast,
 }) => {
-  const [hoveredPerson, setHoveredPerson] = useState<string | null>(null);
-  const [panelHovered, setPanelHovered] = useState(false);
-  const [attSectionHovered, setAttSectionHovered] = useState(false);
-  const [leaveSectionHovered, setLeaveSectionHovered] = useState(false);
   const [attendanceExpanded, setAttendanceExpanded] = useState(false);
   const [leaveExpanded, setLeaveExpanded] = useState(false);
   const [selectedPeople, setSelectedPeople] = useState<Set<string>>(new Set());
@@ -680,43 +676,44 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
 
   return (
     <div
-      className="team-panel"
-      onMouseEnter={() => setPanelHovered(true)}
-      onMouseLeave={() => setPanelHovered(false)}
+      className="team-panel home-team-panel"
       style={{
         width: '100%',
         display: 'flex',
         flexDirection: 'column',
         gap: 0,
         padding: 0,
-        background: panelHovered ? panelBgHov : panelBg,
+        background: panelBg,
         border: `1px solid ${panelBorder}`,
         fontFamily: 'var(--font-primary)',
         transition: 'background var(--transition-base), border-color var(--transition-fast)',
-      }}
+        ['--home-team-panel-hover-bg' as string]: panelBgHov,
+      } as React.CSSProperties}
     >
       {/* ════════════════════════════════════════════════════
        * SECTION A: ATTENDANCE
        * ════════════════════════════════════════════════════ */}
       <div
+        className={`home-team-section${attendanceExpanded ? ' is-expanded' : ''}`}
         role="button"
         tabIndex={0}
         onClick={() => setAttendanceExpanded(prev => !prev)}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setAttendanceExpanded(prev => !prev); }}
-        onMouseEnter={() => setAttSectionHovered(true)}
-        onMouseLeave={() => setAttSectionHovered(false)}
         style={{
           display: 'flex',
           flexDirection: 'column',
           gap: isLoadingAttendance ? '12px' : (buckets.length > 0 ? '12px' : 0),
           padding: '14px 16px',
           cursor: 'pointer',
-          background: attSectionHovered ? sectionHoverBg : 'transparent',
-          boxShadow: attSectionHovered ? sectionHoverShadow : 'none',
-          outline: attSectionHovered ? `1px solid ${sectionHoverRing}` : '1px solid transparent',
+          background: 'transparent',
+          boxShadow: 'none',
+          outline: '1px solid transparent',
           outlineOffset: '-1px',
           transition: 'background var(--transition-fast), box-shadow var(--transition-fast), outline-color var(--transition-fast)',
-        }}
+          ['--home-team-section-hover-bg' as string]: sectionHoverBg,
+          ['--home-team-section-hover-shadow' as string]: sectionHoverShadow,
+          ['--home-team-section-hover-ring' as string]: sectionHoverRing,
+        } as React.CSSProperties}
       >
         {/* Header */}
         <div style={{
@@ -741,15 +738,16 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
             )}
           </div>
 
-          <span className="team-toggle" style={{
+          <span className="team-toggle home-team-toggle" style={{
             display: 'inline-flex',
             alignItems: 'center',
             gap: '3px',
             fontSize: 'var(--text-xs)',
             fontWeight: 600,
-            color: attSectionHovered || attendanceExpanded ? accentColor : textMuted,
+            color: attendanceExpanded ? accentColor : textMuted,
             transition: 'color var(--transition-fast)',
-          }}>
+            ['--home-team-toggle-active' as string]: accentColor,
+          } as React.CSSProperties}>
             {attendanceExpanded ? 'Collapse' : todayLabel}
             <FiChevronRight style={{
               fontSize: 10,
@@ -802,12 +800,11 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
                   <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
                     {bucket.people.map(person => {
                       const sel = isSelected(person.initials);
-                      const isHov = hoveredPerson === person.initials;
                       const isConfirming = confirmingPerson === person.initials;
                       return (
                         <div
                           key={person.initials}
-                          className="team-avatar"
+                          className={`team-avatar home-team-avatar${sel ? ' is-selected' : ''}`}
                           title={`${person.firstName} — ${STATUS_META[person.todayStatus].label}${!person.confirmed ? ' (unconfirmed)' : ''} — click to update${sel ? ' (filtered)' : ''}`}
                           onClick={(e) => {
                             if (onConfirmAttendance) {
@@ -816,16 +813,14 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
                               togglePerson(person.initials, e);
                             }
                           }}
-                          onMouseEnter={() => setHoveredPerson(person.initials)}
-                          onMouseLeave={() => setHoveredPerson(null)}
                           style={{
                             width: 24, height: 24,
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            background: sel ? selectedBg : (isHov ? tileBgHov : badgeBg),
-                            border: `1.5px solid ${sel ? selectedBorder : (isHov ? tileBdrHov : tileBorder)}`,
+                            background: sel ? selectedBg : badgeBg,
+                            border: `1.5px solid ${sel ? selectedBorder : tileBorder}`,
                             borderRadius: '50%',
                             fontSize: 8, fontWeight: 800,
-                            color: sel ? accentColor : (isHov ? accentColor : textBody),
+                            color: sel ? accentColor : textBody,
                             letterSpacing: '0.3px',
                             cursor: 'pointer',
                             transition: 'all var(--transition-fast)',
@@ -833,7 +828,10 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
                             flexShrink: 0,
                             position: 'relative',
                             animation: isConfirming ? 'teamPulse 0.8s ease-in-out infinite' : undefined,
-                          }}
+                            ['--home-team-avatar-hover-bg' as string]: tileBgHov,
+                            ['--home-team-avatar-hover-border' as string]: tileBdrHov,
+                            ['--home-team-avatar-hover-colour' as string]: accentColor,
+                          } as React.CSSProperties}
                         >
                           {person.initials}
                           {/* Status dot */}
@@ -982,26 +980,27 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
                           }}
                         >
                           {cell.length > 0 ? (cell.map(gp => {
-                            const gpHov = hoveredPerson === gp.initials;
                             return (
                               <div
                                 key={gp.initials}
+                                className="home-team-grid-chip"
                                 title={gp.firstName}
-                                onMouseEnter={() => setHoveredPerson(gp.initials)}
-                                onMouseLeave={() => setHoveredPerson(null)}
                                 style={{
                                   width: 18, height: 18,
                                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                  background: gpHov ? tileBgHov : badgeBg,
-                                  border: `0.5px solid ${gpHov ? selectedBorder : (isDarkMode ? 'rgba(55, 65, 81, 0.55)' : 'rgba(6, 23, 51, 0.12)')}`,
+                                  background: badgeBg,
+                                  border: `0.5px solid ${isDarkMode ? 'rgba(55, 65, 81, 0.55)' : 'rgba(6, 23, 51, 0.12)'}`,
                                   boxShadow: isDarkMode ? '0 1px 2px rgba(0,0,0,0.3)' : '0 1px 2px rgba(6, 23, 51, 0.06)',
                                   fontSize: 7, fontWeight: 800,
-                                  color: gpHov ? accentColor : (isDarkMode ? '#f3f4f6' : '#0D2F60'),
+                                  color: isDarkMode ? '#f3f4f6' : '#0D2F60',
                                   letterSpacing: '0.2px',
                                   flexShrink: 0,
                                   transition: 'all var(--transition-fast)',
                                   cursor: 'default',
-                                }}
+                                  ['--home-team-grid-chip-hover-bg' as string]: tileBgHov,
+                                  ['--home-team-grid-chip-hover-border' as string]: selectedBorder,
+                                  ['--home-team-grid-chip-hover-colour' as string]: accentColor,
+                                } as React.CSSProperties}
                               >
                                 {gp.initials}
                               </div>
@@ -1036,24 +1035,26 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
        * SECTION B: LEAVE
        * ════════════════════════════════════════════════════ */}
       <div
+        className={`home-team-section${leaveExpanded ? ' is-expanded' : ''}`}
         role="button"
         tabIndex={0}
         onClick={() => setLeaveExpanded(prev => !prev)}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setLeaveExpanded(prev => !prev); }}
-        onMouseEnter={() => setLeaveSectionHovered(true)}
-        onMouseLeave={() => setLeaveSectionHovered(false)}
         style={{
           display: 'flex',
           flexDirection: 'column',
           gap: (leaveCount > 0 || isLoadingLeave) ? '12px' : 0,
           padding: '14px 16px',
           cursor: 'pointer',
-          background: leaveSectionHovered ? sectionHoverBg : 'transparent',
-          boxShadow: leaveSectionHovered ? sectionHoverShadow : 'none',
-          outline: leaveSectionHovered ? `1px solid ${sectionHoverRing}` : '1px solid transparent',
+          background: 'transparent',
+          boxShadow: 'none',
+          outline: '1px solid transparent',
           outlineOffset: '-1px',
           transition: 'background var(--transition-fast), box-shadow var(--transition-fast), outline-color var(--transition-fast)',
-        }}
+          ['--home-team-section-hover-bg' as string]: sectionHoverBg,
+          ['--home-team-section-hover-shadow' as string]: sectionHoverShadow,
+          ['--home-team-section-hover-ring' as string]: sectionHoverRing,
+        } as React.CSSProperties}
       >
         {/* Header */}
         <div style={{
@@ -1081,15 +1082,16 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
             )}
           </div>
 
-          <span className="team-toggle" style={{
+          <span className="team-toggle home-team-toggle" style={{
             display: 'inline-flex',
             alignItems: 'center',
             gap: '3px',
             fontSize: 'var(--text-xs)',
             fontWeight: 600,
-            color: leaveSectionHovered || leaveExpanded ? accentColor : textMuted,
+            color: leaveExpanded ? accentColor : textMuted,
             transition: 'color var(--transition-fast)',
-          }}>
+            ['--home-team-toggle-active' as string]: accentColor,
+          } as React.CSSProperties}>
             {leaveExpanded ? 'Collapse' : 'Upcoming leave'}
             <FiChevronRight style={{
               fontSize: 10,
@@ -1143,28 +1145,27 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
                   <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                     {seg.entries.map(entry => {
                       const sel = isSelected(entry.initials);
-                      const isHovered = hoveredPerson === entry.initials;
                       const dimmed = hasFilter && !sel;
                       return (
                         <div
                           key={entry.initials}
-                          className="team-tile"
+                          className={`team-tile home-team-leave-tile${sel ? ' is-selected' : ''}`}
                           title={`${entry.firstName}: ${entry.rangeLabel}, ${entry.returnLabel}`}
                           onClick={(e) => togglePerson(entry.initials, e)}
-                          onMouseEnter={() => setHoveredPerson(entry.initials)}
-                          onMouseLeave={() => setHoveredPerson(null)}
                           style={{
                             display: 'inline-flex',
                             alignItems: 'center',
                             gap: '6px',
                             padding: '3px 10px 3px 4px',
-                            background: sel ? selectedBg : (isHovered ? tileBgHov : tileBg),
-                            border: `1px solid ${sel ? selectedBorder : (isHovered ? tileBdrHov : tileBorder)}`,
+                            background: sel ? selectedBg : tileBg,
+                            border: `1px solid ${sel ? selectedBorder : tileBorder}`,
                             transition: 'border-color var(--transition-fast), background var(--transition-fast), opacity var(--transition-fast)',
                             flexShrink: 0,
                             cursor: 'pointer',
                             opacity: dimmed ? 0.4 : 1,
-                          }}
+                            ['--home-team-leave-hover-bg' as string]: tileBgHov,
+                            ['--home-team-leave-hover-border' as string]: tileBdrHov,
+                          } as React.CSSProperties}
                         >
                           <div style={{
                             width: 22, height: 22,
@@ -1252,21 +1253,20 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
               .filter(person => !hasFilter || selectedPeople.has(person.initials))
               .map(person => {
                 const dayKeys = calendarData.days.map(d => d.key);
-                const rowHov = hoveredPerson === person.initials;
                 return (
                   <div
                     key={person.initials}
-                    onMouseEnter={() => setHoveredPerson(person.initials)}
-                    onMouseLeave={() => setHoveredPerson(null)}
+                    className="home-team-swimlane-row"
                     style={{
                       display: 'grid',
                       gridTemplateColumns: `56px repeat(${calendarData.days.length}, 1fr)`,
                       gap: 0,
                       alignItems: 'center',
                       minHeight: 22,
-                      background: rowHov ? (isDarkMode ? 'rgba(135, 243, 243, 0.04)' : 'rgba(54, 144, 206, 0.04)') : 'transparent',
+                      background: 'transparent',
                       transition: 'background var(--transition-fast)',
-                    }}
+                      ['--home-team-row-hover-bg' as string]: isDarkMode ? 'rgba(135, 243, 243, 0.04)' : 'rgba(54, 144, 206, 0.04)',
+                    } as React.CSSProperties}
                   >
                     <div style={{
                       display: 'flex', alignItems: 'center', gap: 4,

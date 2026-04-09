@@ -53,11 +53,101 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Conversion chart — hover data labels */
+.chart-hover-col .chart-hover-label,
+.chart-hover-col .chart-hover-guide {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+}
+.chart-hover-col:hover .chart-hover-label,
+.chart-hover-col:hover .chart-hover-guide {
+  opacity: 1;
+}
+
+.chart-current-pulse {
+  animation: chartCurrentPulse 1.8s ease-out infinite;
+  transform-origin: center;
+  transform-box: fill-box;
+}
+
+@keyframes chartCurrentPulse {
+  0% {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+  70% {
+    opacity: 0;
+    transform: scale(2.1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(2.1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chart-current-pulse {
+    animation: none;
+    opacity: 0.22;
+  }
+}
+
 .app-scroll-region {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
+}
+
+.app-scroll-region::-webkit-scrollbar,
+.app-root::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.app-scroll-region::-webkit-scrollbar-track,
+.app-root::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.app-scroll-region::-webkit-scrollbar-thumb,
+.app-root::-webkit-scrollbar-thumb {
+  background: var(--helix-grey);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
+  min-height: 36px;
+}
+
+.app-scroll-region::-webkit-scrollbar-thumb:hover,
+.app-root::-webkit-scrollbar-thumb:hover {
+  background: var(--helix-grey);
+  background-clip: padding-box;
+}
+
+[data-theme="dark"] .app-scroll-region::-webkit-scrollbar-track,
+[data-theme="dark"] .app-root::-webkit-scrollbar-track,
+[data-theme="contrast"] .app-scroll-region::-webkit-scrollbar-track,
+[data-theme="contrast"] .app-root::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+[data-theme="dark"] .app-scroll-region::-webkit-scrollbar-thumb,
+[data-theme="dark"] .app-root::-webkit-scrollbar-thumb,
+[data-theme="contrast"] .app-scroll-region::-webkit-scrollbar-thumb,
+[data-theme="contrast"] .app-root::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+[data-theme="dark"] .app-scroll-region::-webkit-scrollbar-thumb:hover,
+[data-theme="dark"] .app-root::-webkit-scrollbar-thumb:hover,
+[data-theme="contrast"] .app-scroll-region::-webkit-scrollbar-thumb:hover,
+[data-theme="contrast"] .app-root::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
+  background-clip: padding-box;
 }
 
 /* Hard stop for Home dark-mode back-layer artefacts from runtime-generated classes */

@@ -13,6 +13,7 @@ import { debugLog } from "./utils/debug";
 import { isDevOwner } from "./app/admin";
 import { appendDefaultEnquiryProcessingParams, enquiryReferencesId } from "./app/functionality/enquiryProcessingModel";
 import { trackBootStage, trackBootSummary, trackClientError, trackClientEvent } from "./utils/telemetry";
+import actionLog from "./utils/actionLog";
 
 import "./utils/callLogger";
 import { initializeIcons } from '@fluentui/react/lib/Icons';
@@ -81,6 +82,8 @@ const dismissStaticLoader = () => {
 const inTeams = isInTeams();
 const useLocalData =
   process.env.REACT_APP_USE_LOCAL_DATA === "true" || !inTeams;
+
+actionLog('App boot', inTeams ? 'Teams' : 'local dev');
 
 // Surface any unhandled promise rejections so they don't fail silently
 if (typeof window !== "undefined") {
@@ -243,6 +246,20 @@ function setMemoryCachedData(key: string, data: any): void {
       inMemoryCache.delete(firstKey);
     }
   }
+}
+
+function scheduleDeferredBootTask(task: () => void, delayMs = 900, idleTimeoutMs = 2500): void {
+  const runTask = () => {
+    if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+      (window as typeof window & {
+        requestIdleCallback: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
+      }).requestIdleCallback(() => task(), { timeout: idleTimeoutMs });
+      return;
+    }
+    globalThis.setTimeout(task, 0);
+  };
+
+  globalThis.setTimeout(runTask, delayMs);
 }
 
 /**
@@ -937,6 +954,7 @@ const AppWithContext: React.FC = () => {
     
     const runRefresh = async () => {
       setEnquiriesLiveRefreshInFlight(true);
+      actionLog.start('Enquiries refresh');
 
       try {
         // Flush server-side enquiries cache before fetching fresh data
@@ -967,8 +985,10 @@ const AppWithContext: React.FC = () => {
         setEnquiries(enquiriesRes);
         setLastEnquiriesLiveSyncAt(Date.now());
         setEnquiriesUsingSnapshot(false);
+        actionLog.end('Enquiries refresh', `${enquiriesRes.length} rows`);
       } catch (error) {
         console.error('❌ Error refreshing enquiries:', error);
+        actionLog.warn('Enquiries refresh failed');
       } finally {
         refreshEnquiriesInFlightRef.current = null;
         setEnquiriesLiveRefreshInFlight(false);
@@ -983,6 +1003,71 @@ const AppWithContext: React.FC = () => {
     refreshEnquiriesInFlightRef.current = refreshPromise;
     return refreshPromise;
   };
+
+    const scheduleBootEnquiriesLiveRefresh = (options: {
+      stage: 'teams' | 'gate' | 'local';
+      entry: string;
+      email: string;
+      initials: string;
+      userAow: string;
+      fetchAll: boolean;
+      dateFrom: string;
+      dateTo: string;
+      restoredSnapshot?: boolean;
+      restoredCache?: boolean;
+    }) => {
+      scheduleDeferredBootTask(() => {
+        const startedAt = performance.now();
+        setEnquiriesLiveRefreshInFlight(true);
+        trackBootStage(options.stage, 'enquiries-live', 'started', {
+          entry: options.entry,
+          restoredSnapshot: Boolean(options.restoredSnapshot),
+          restoredCache: Boolean(options.restoredCache),
+          fetchAll: options.fetchAll,
+        });
+
+        void fetchEnquiries(
+          options.email,
+          options.dateFrom,
+          options.dateTo,
+          options.userAow,
+          options.initials,
+          options.fetchAll,
+          true,
+        )
+          .then((res) => {
+            const durationMs = Math.round(performance.now() - startedAt);
+            setEnquiries(res);
+            setLastEnquiriesLiveSyncAt(Date.now());
+            setEnquiriesUsingSnapshot(false);
+            trackBootStage(options.stage, 'enquiries-live', 'completed', {
+              entry: options.entry,
+              restoredSnapshot: Boolean(options.restoredSnapshot),
+              restoredCache: Boolean(options.restoredCache),
+              fetchAll: options.fetchAll,
+              enquiriesCount: Array.isArray(res) ? res.length : 0,
+            }, {
+              duration: durationMs,
+            });
+          })
+          .catch((error) => {
+            const durationMs = Math.round(performance.now() - startedAt);
+            console.warn(`[Boot:${options.entry}] Deferred live enquiries refresh failed:`, error);
+            trackBootStage(options.stage, 'enquiries-live', 'failed', {
+              entry: options.entry,
+              restoredSnapshot: Boolean(options.restoredSnapshot),
+              restoredCache: Boolean(options.restoredCache),
+              fetchAll: options.fetchAll,
+            }, {
+              duration: durationMs,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          })
+          .finally(() => {
+            setEnquiriesLiveRefreshInFlight(false);
+          });
+      });
+    };
 
   /**
    * Optimistically update a claimed enquiry in local state.
@@ -1142,6 +1227,7 @@ const AppWithContext: React.FC = () => {
     try {
       eventSource = new EventSource('/api/enquiries-unified/stream');
       eventSource.addEventListener('enquiries.changed', onChangedEvent as EventListener);
+      actionLog('SSE connected', 'enquiries realtime stream');
       eventSource.onerror = () => {
         // Browser will auto-retry; keep handler light.
         trackClientEvent('AppShell', 'enquiries-stream-error', { readyState: eventSource?.readyState ?? -1 }, {
@@ -1186,6 +1272,7 @@ const AppWithContext: React.FC = () => {
   // Refresh matters function - clears local caches and fetches normalized matters for current user
   const refreshMatters = async () => {
     if (!userData || !userData[0]) return;
+    actionLog.start('Matters refresh');
 
     try {
       // Clear localStorage caches related to matters
@@ -1205,8 +1292,10 @@ const AppWithContext: React.FC = () => {
       const queryName = isDevOwner(userData[0]) ? '' : effectiveUser.fullName;
       const normalized = await fetchAllMatterSources(effectiveUser.fullName, queryName);
       setMatters(normalized);
+      actionLog.end('Matters refresh', `${normalized.length} rows`);
     } catch (err) {
       console.error('❌ Error refreshing matters:', err);
+      actionLog.warn('Matters refresh failed');
     }
   };
 
@@ -1244,6 +1333,7 @@ const AppWithContext: React.FC = () => {
 
   // Allow switching user in production for specific users
   const switchUser = async (newUser: UserData) => {
+    actionLog.start('User switch', `→ ${newUser.Initials || newUser.First || 'unknown'}`);
     setLoading(true);
 
     const normalized: UserData = {
@@ -1318,7 +1408,9 @@ const AppWithContext: React.FC = () => {
       
     } catch (err) {
       console.error('Error fetching data for switched user:', err);
+      actionLog.warn('User switch failed');
     } finally {
+      actionLog.end('User switch');
       setLoading(false);
     }
   };
@@ -1413,33 +1505,39 @@ const AppWithContext: React.FC = () => {
       const effectiveUser = resolveEffectiveDatasetUser(initialUserData[0] as UserData, teamUserData);
 
       const gateBoot = performance.now();
+      const userInitials = effectiveUser.initials;
+      const enquiriesEmail = effectiveUser.email;
+      const deferLiveEnquiriesRefresh = restoredGateSnapshot || restoredGateCache;
       try {
         console.info('[Boot:Gate] Starting core data fetch');
+        actionLog.start('Boot: core data');
         trackBootStage('gate', 'core-home', 'started', {
           entry: 'passcode',
           restoredSnapshot: restoredGateSnapshot,
           restoredCache: restoredGateCache,
         });
-        const userInitials = effectiveUser.initials;
-        const enquiriesEmail = effectiveUser.email;
         setEnquiriesLiveRefreshInFlight(true);
 
-        const enquiriesRes = await fetchEnquiries(enquiriesEmail, dateFrom, dateTo, initialUserData[0].AOW || "", userInitials, isDevOwner(initialUserData[0] as UserData), true)
+        const enquiriesRes = await fetchEnquiries(enquiriesEmail, dateFrom, dateTo, initialUserData[0].AOW || "", userInitials, isDevOwner(initialUserData[0] as UserData), false)
           .catch(err => {
             console.warn('⚠️ Enquiries API failed, using fallback:', err);
             return import('./tabs/home/Home').then(m => m.getLiveLocalEnquiries(initialUserData[0].Email) as Enquiry[]);
           });
 
         setEnquiries(enquiriesRes);
-        setLastEnquiriesLiveSyncAt(Date.now());
-        setEnquiriesUsingSnapshot(false);
+        if (!deferLiveEnquiriesRefresh) {
+          setLastEnquiriesLiveSyncAt(Date.now());
+          setEnquiriesUsingSnapshot(false);
+        }
         const coreHomeMs = Math.round(performance.now() - gateBoot);
         console.info(`[Boot:Gate] Core Home data ready in ${coreHomeMs}ms`);
+        actionLog.end('Boot: core data', `${Array.isArray(enquiriesRes) ? enquiriesRes.length : 0} enquiries`);
         trackBootStage('gate', 'core-home', 'completed', {
           entry: 'passcode',
           enquiriesCount: Array.isArray(enquiriesRes) ? enquiriesRes.length : 0,
           restoredSnapshot: restoredGateSnapshot,
           restoredCache: restoredGateCache,
+          deliveryMode: deferLiveEnquiriesRefresh ? 'cached-first' : 'direct',
         }, {
           duration: coreHomeMs,
         });
@@ -1449,6 +1547,7 @@ const AppWithContext: React.FC = () => {
           enquiriesCount: Array.isArray(enquiriesRes) ? enquiriesRes.length : 0,
           restoredSnapshot: restoredGateSnapshot,
           restoredCache: restoredGateCache,
+          liveRefreshDeferred: deferLiveEnquiriesRefresh,
         }, {
           duration: coreHomeMs,
         });
@@ -1467,6 +1566,20 @@ const AppWithContext: React.FC = () => {
         setEnquiriesUsingSnapshot(false);
       } finally {
         setEnquiriesLiveRefreshInFlight(false);
+        if (deferLiveEnquiriesRefresh) {
+          scheduleBootEnquiriesLiveRefresh({
+            stage: 'gate',
+            entry: 'passcode',
+            email: enquiriesEmail,
+            initials: userInitials,
+            userAow: initialUserData[0].AOW || '',
+            fetchAll: isDevOwner(initialUserData[0] as UserData),
+            dateFrom,
+            dateTo,
+            restoredSnapshot: restoredGateSnapshot,
+            restoredCache: restoredGateCache,
+          });
+        }
       }
     } catch (error) {
       console.error('❌ Error setting up user:', error);
@@ -1557,6 +1670,7 @@ const AppWithContext: React.FC = () => {
             }
             const primeStart = performance.now();
             console.info('[Boot:Teams] Priming user-dependent data (parallel)');
+            actionLog.start('Boot: priming data');
             trackBootStage('teams', 'prime-user-dependent', 'started', {
               entry: 'teams',
               restoredSnapshot: restoredShellSnapshot,
@@ -1569,9 +1683,11 @@ const AppWithContext: React.FC = () => {
             // Use actual user's email and initials - no overrides
             const userInitials = primaryUser.Initials || "";
             const enquiriesEmail = primaryUser.Email || "";
+            const deferLiveEnquiriesRefresh = restoredShellSnapshot;
 
             const t0Enq = performance.now();
             setEnquiriesLiveRefreshInFlight(true);
+            actionLog.start('Boot: enquiries');
             trackBootStage('teams', 'enquiries', 'started', {
               entry: 'teams',
               restoredSnapshot: restoredShellSnapshot,
@@ -1584,18 +1700,22 @@ const AppWithContext: React.FC = () => {
               "", // Empty AOW - frontend will apply AOW logic for Claimable state only
               userInitials,
               isDevOwner(primaryUser),
-              true,
+              false,
             ).then(res => {
               const enquiriesMs = Math.round(performance.now() - t0Enq);
               console.info(`[Boot:Teams] Enquiries: ${enquiriesMs}ms (${res.length} rows)`);
+              actionLog.end('Boot: enquiries', `${res.length} rows`);
               setEnquiries(res);
-              setLastEnquiriesLiveSyncAt(Date.now());
-              setEnquiriesUsingSnapshot(false);
+              if (!deferLiveEnquiriesRefresh) {
+                setLastEnquiriesLiveSyncAt(Date.now());
+                setEnquiriesUsingSnapshot(false);
+              }
               trackBootStage('teams', 'enquiries', 'completed', {
                 entry: 'teams',
                 restoredSnapshot: restoredShellSnapshot,
                 fetchAll: isDevOwner(primaryUser),
                 enquiriesCount: res.length,
+                deliveryMode: deferLiveEnquiriesRefresh ? 'cached-first' : 'direct',
               }, {
                 duration: enquiriesMs,
               });
@@ -1606,6 +1726,7 @@ const AppWithContext: React.FC = () => {
                 coreHomeMs: Math.round(performance.now() - primeStart),
                 enquiriesMs,
                 enquiriesCount: res.length,
+                liveRefreshDeferred: deferLiveEnquiriesRefresh,
               }, {
                 duration: Math.round(performance.now() - primeStart),
               });
@@ -1622,6 +1743,19 @@ const AppWithContext: React.FC = () => {
               });
             }).finally(() => {
               setEnquiriesLiveRefreshInFlight(false);
+              if (deferLiveEnquiriesRefresh) {
+                scheduleBootEnquiriesLiveRefresh({
+                  stage: 'teams',
+                  entry: 'teams',
+                  email: enquiriesEmail,
+                  initials: userInitials,
+                  userAow: '',
+                  fetchAll: isDevOwner(primaryUser),
+                  dateFrom,
+                  dateTo,
+                  restoredSnapshot: restoredShellSnapshot,
+                });
+              }
               if (isDevOwner(primaryUser)) {
                 trackBootStage('teams', 'matters', 'skipped', {
                   entry: 'teams',
@@ -1672,11 +1806,13 @@ const AppWithContext: React.FC = () => {
           // Fire team-data alongside user-data — it's a global dataset with no user dependency.
           // This saves ~400ms by overlapping with user-data instead of waiting for it.
           const t0Team = performance.now();
+          actionLog.start('Boot: team data');
           trackBootStage('teams', 'team-data', 'started', { entry: 'teams' });
           fetchTeamData()
             .then(res => {
               const teamMs = Math.round(performance.now() - t0Team);
               console.info(`[Boot:Teams] TeamData: ${teamMs}ms`);
+              actionLog.end('Boot: team data');
               setTeamData(res);
               trackBootStage('teams', 'team-data', 'completed', {
                 entry: 'teams',
@@ -1688,6 +1824,7 @@ const AppWithContext: React.FC = () => {
             .catch(err => {
               const teamMs = Math.round(performance.now() - t0Team);
               console.warn(`[Boot:Teams] TeamData failed (${teamMs}ms):`, err);
+              actionLog.warn('Boot: team data failed');
               trackBootStage('teams', 'team-data', 'failed', {
                 entry: 'teams',
               }, {
@@ -1808,6 +1945,7 @@ const AppWithContext: React.FC = () => {
               const { dateFrom, dateTo } = getDateRange();
               const bootStart = performance.now();
               console.info('[Boot] Starting core data fetch');
+              actionLog.start('Boot: core data');
               trackBootStage('local', 'core-home', 'started', {
                 entry: 'local-dev',
                 restoredSnapshot: Boolean(localSnapshot),
@@ -1846,11 +1984,13 @@ const AppWithContext: React.FC = () => {
                 }
 
                 const t0Team = performance.now();
+                actionLog.start('Boot: team data');
                 trackBootStage('local', 'team-data', 'started', { entry: 'local-dev' });
                 const liveTeamPromise = fetchTeamData()
                   .then((liveTeam) => {
                     const teamMs = Math.round(performance.now() - t0Team);
                     console.info(`[Boot] TeamData: ${teamMs}ms`);
+                    actionLog.end('Boot: team data');
                     setTeamData(liveTeam);
                     trackBootStage('local', 'team-data', 'completed', {
                       entry: 'local-dev',
@@ -1898,11 +2038,13 @@ const AppWithContext: React.FC = () => {
                     );
                     const enquiriesMs = Math.round(performance.now() - t0);
                     console.info(`[Boot] Enquiries: ${enquiriesMs}ms (${res.length} rows)`);
+                    actionLog.end('Boot: enquiries', `${res.length} rows`);
                     setEnquiries(res);
                     setLastEnquiriesLiveSyncAt(Date.now());
                     setEnquiriesUsingSnapshot(false);
                     const coreHomeMs = Math.round(performance.now() - bootStart);
                     console.info(`[Boot] Core Home data ready in ${coreHomeMs}ms`);
+                    actionLog.end('Boot: core data', `${res.length} enquiries`);
                     trackBootStage('local', 'enquiries', 'completed', {
                       entry: 'local-dev',
                       fetchAll,
@@ -2078,9 +2220,14 @@ const AppWithContext: React.FC = () => {
 const root = document.getElementById('root');
 const appRoot = createRoot(root!);
 
+// StrictMode double-mounts every component in dev, doubling all API calls, SSE connections,
+// and poll timers. Disable in dev for a clean request waterfall. Production builds ignore
+// StrictMode anyway (it's a dev-only diagnostic).
+const Wrapper = process.env.NODE_ENV === 'production' ? React.StrictMode : React.Fragment;
+
 if (window.location.pathname === '/data') {
   appRoot.render(
-    <React.StrictMode>
+    <Wrapper>
       <ErrorBoundary>
         <ThemeProvider theme={customTheme}>
           <Suspense
@@ -2100,18 +2247,18 @@ if (window.location.pathname === '/data') {
           </Suspense>
         </ThemeProvider>
       </ErrorBoundary>
-    </React.StrictMode>
+    </Wrapper>
   );
   dismissStaticLoader();
 } else {
   appRoot.render(
-    <React.StrictMode>
+    <Wrapper>
       <ErrorBoundary>
         <ThemeProvider theme={customTheme}>
           <AppWithContext />
         </ThemeProvider>
       </ErrorBoundary>
-    </React.StrictMode>
+    </Wrapper>
   );
   dismissStaticLoader();
 }

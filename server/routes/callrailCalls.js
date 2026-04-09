@@ -1,16 +1,10 @@
 /* eslint-disable no-console */
 const express = require('express');
-const { DefaultAzureCredential } = require('@azure/identity');
-const { SecretClient } = require('@azure/keyvault-secrets');
 const { randomUUID } = require('crypto');
 const opLog = require('../utils/opLog');
+const { getSecret } = require('../utils/getSecret');
 
 const router = express.Router();
-
-// Key Vault setup
-const credential = new DefaultAzureCredential({ additionallyAllowedTenants: ['*'] });
-const vaultUrl = process.env.KEY_VAULT_URL || 'https://helix-keys.vault.azure.net/';
-const secretClient = new SecretClient(vaultUrl, credential);
 
 // Secret name for CallRail API token
 const CALLRAIL_TOKEN_SECRET = 'callrail-teamhub';
@@ -26,9 +20,9 @@ async function getCallRailToken() {
   if (cachedToken.token && now - cachedToken.ts < 30 * 60 * 1000) {
     return cachedToken.token;
   }
-  const secret = await secretClient.getSecret(CALLRAIL_TOKEN_SECRET);
-  cachedToken = { token: secret.value, ts: now };
-  return secret.value;
+  const token = await getSecret(CALLRAIL_TOKEN_SECRET);
+  cachedToken = { token, ts: now };
+  return token;
 }
 
 // Format phone number like the Python code does

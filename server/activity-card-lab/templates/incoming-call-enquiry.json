@@ -1,0 +1,220 @@
+{
+  "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+  "type": "AdaptiveCard",
+  "version": "1.4",
+  "body": [
+    {
+      "type": "Container",
+      "style": "emphasis",
+      "bleed": true,
+      "items": [
+        {
+          "type": "ColumnSet",
+          "columns": [
+            {
+              "type": "Column",
+              "width": "stretch",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "**NEW ENQUIRY** — Sarah Mitchell",
+                  "size": "Medium",
+                  "weight": "Bolder",
+                  "wrap": true,
+                  "spacing": "None"
+                },
+                {
+                  "type": "ColumnSet",
+                  "spacing": "Small",
+                  "columns": [
+                    {
+                      "type": "Column",
+                      "width": "auto",
+                      "items": [
+                        {
+                          "type": "TextBlock",
+                          "text": "sarah.mitchell@example.com",
+                          "size": "Small",
+                          "isSubtle": true,
+                          "wrap": true,
+                          "spacing": "None"
+                        }
+                      ],
+                      "verticalContentAlignment": "Center"
+                    },
+                    {
+                      "type": "Column",
+                      "width": "auto",
+                      "items": [
+                        {
+                          "type": "TextBlock",
+                          "text": "+44 7700 900123",
+                          "size": "Small",
+                          "isSubtle": true,
+                          "wrap": true,
+                          "spacing": "None"
+                        }
+                      ],
+                      "verticalContentAlignment": "Center"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "Container",
+      "spacing": "Small",
+      "items": [
+        {
+          "type": "TextBlock",
+          "text": "Value",
+          "weight": "Bolder",
+          "color": "Accent",
+          "wrap": true,
+          "spacing": "None"
+        },
+        {
+          "type": "TextBlock",
+          "text": "£10k - £50k",
+          "wrap": true,
+          "spacing": "Small"
+        }
+      ]
+    },
+    {
+      "type": "Container",
+      "spacing": "Medium",
+      "items": [
+        {
+          "type": "TextBlock",
+          "text": "Call notes",
+          "weight": "Bolder",
+          "color": "Accent",
+          "wrap": true,
+          "spacing": "None"
+        },
+        {
+          "type": "TextBlock",
+          "text": "Tenant having issues with landlord regarding property repairs and deposit return. Property is a 2-bed flat in Manchester. Landlord has been unresponsive for 3 months. Deposit of £1,500 held. Multiple repairs needed including boiler and damp issues.",
+          "wrap": true,
+          "spacing": "Small"
+        }
+      ]
+    },
+    {
+      "type": "ActionSet",
+      "id": "insightActions",
+      "spacing": "Small",
+      "actions": [
+        {
+          "type": "Action.ToggleVisibility",
+          "title": "Summary",
+          "targetElements": [
+            "summaryContainer"
+          ]
+        },
+        {
+          "type": "Action.ToggleVisibility",
+          "title": "Transcript",
+          "targetElements": [
+            "transcriptionContainer"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "Container",
+      "id": "summaryContainer",
+      "isVisible": false,
+      "items": [
+        {
+          "type": "TextBlock",
+          "text": "Summary",
+          "weight": "Bolder",
+          "color": "Accent",
+          "wrap": true,
+          "spacing": "Small"
+        },
+        {
+          "type": "TextBlock",
+          "text": "Tenant reporting disrepair and deposit issues; needs advice on next steps.",
+          "wrap": true,
+          "spacing": "Small"
+        }
+      ]
+    },
+    {
+      "type": "Container",
+      "id": "transcriptionContainer",
+      "isVisible": false,
+      "items": [
+        {
+          "type": "TextBlock",
+          "text": "Transcript",
+          "weight": "Bolder",
+          "color": "Accent",
+          "wrap": true,
+          "spacing": "Small"
+        },
+        {
+          "type": "TextBlock",
+          "text": "Caller: I have been chasing my landlord for repairs and my deposit.",
+          "color": "Attention",
+          "wrap": true,
+          "spacing": "Small"
+        },
+        {
+          "type": "TextBlock",
+          "text": "Agent: We can help. Let me take a few details and connect you.",
+          "color": "Good",
+          "wrap": true,
+          "spacing": "Small"
+        }
+      ]
+    },
+    {
+      "type": "Container",
+      "id": "formIdFooter",
+      "separator": true,
+      "spacing": "Medium",
+      "items": [
+        {
+          "type": "ColumnSet",
+          "columns": [
+            {
+              "type": "Column",
+              "width": "stretch",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "⤷ Call Hub",
+                  "size": "Small",
+                  "isSubtle": true,
+                  "spacing": "None"
+                }
+              ]
+            },
+            {
+              "type": "Column",
+              "width": "auto",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "14:23 · #CALL-2026-5678",
+                  "size": "Small",
+                  "isSubtle": true,
+                  "horizontalAlignment": "Right",
+                  "spacing": "None"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

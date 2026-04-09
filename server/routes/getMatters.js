@@ -1,6 +1,6 @@
 const express = require('express');
 const { withRequest, sql } = require('../utils/db');
-const { DefaultAzureCredential } = require('@azure/identity');
+const { getCredential } = require('../utils/getSecret');
 const { SecretClient } = require('@azure/keyvault-secrets');
 
 const router = express.Router();
@@ -29,7 +29,7 @@ async function resolveSqlConnectionString() {
         const vaultUri = process.env.KEY_VAULT_URI;
         const secretName = process.env.SQL_CONNECTION_SECRET_NAME || 'SqlConnectionString';
         if (vaultUri) {
-            const credential = new DefaultAzureCredential({ additionallyAllowedTenants: ['*'] });
+            const credential = getCredential();
             const client = new SecretClient(vaultUri, credential);
             const secret = await client.getSecret(secretName);
             if (secret && secret.value) {

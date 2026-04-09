@@ -1,18 +1,14 @@
 /* eslint-disable no-console */
 const express = require('express');
-const { DefaultAzureCredential } = require('@azure/identity');
-const { SecretClient } = require('@azure/keyvault-secrets');
 const { randomUUID } = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const opLog = require('../utils/opLog');
+const { getSecret } = require('../utils/getSecret');
+const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
+const { recordHomeJourneyEmailEvent } = require('./home-journey');
 
 const router = express.Router();
-
-// Key Vault setup (reuse same vault as the rest of the server)
-const credential = new DefaultAzureCredential({ additionallyAllowedTenants: ['*'] });
-const vaultUrl = process.env.KEY_VAULT_URL || 'https://helix-keys.vault.azure.net/';
-const secretClient = new SecretClient(vaultUrl, credential);
 
 // Secret names for Graph client credentials
 const GRAPH_CLIENT_ID_SECRET = 'graph-pitchbuilderemailprovider-clientid';
@@ -29,12 +25,12 @@ async function getGraphSecrets() {
   if (cachedSecrets.id && cachedSecrets.secret && now - cachedSecrets.ts < 30 * 60 * 1000) {
     return { clientId: cachedSecrets.id, clientSecret: cachedSecrets.secret };
   }
-  const [id, secret] = await Promise.all([
-    secretClient.getSecret(GRAPH_CLIENT_ID_SECRET),
-    secretClient.getSecret(GRAPH_CLIENT_SECRET_SECRET),
+  const [clientId, clientSecret] = await Promise.all([
+    getSecret(GRAPH_CLIENT_ID_SECRET),
+    getSecret(GRAPH_CLIENT_SECRET_SECRET),
   ]);
-  cachedSecrets = { id: id.value, secret: secret.value, ts: now };
-  return { clientId: id.value, clientSecret: secret.value };
+  cachedSecrets = { id: clientId, secret: clientSecret, ts: now };
+  return { clientId, clientSecret };
 }
 
 async function getGraphToken() {
@@ -270,6 +266,40 @@ function appendSignature(bodyHtml, signatureHtml) {
   return `${body}<br />${sig}`;
 }
 
+function pickEmailSource(body, req) {
+  const explicit = body.source || body.email_source || body.stream_source || body.context || null;
+  if (explicit) return String(explicit).slice(0, 100);
+
+  const referer = String(req.get('referer') || '');
+  if (referer.includes('/instructions')) return 'instructions-ui';
+  if (referer.includes('/enquiries')) return 'enquiries-ui';
+  if (referer.includes('/home')) return 'home-ui';
+  return 'manual-send';
+}
+
+function pickEmailContextLabel(body) {
+  const candidates = [
+    body.contextLabel,
+    body.template_name,
+    body.templateName,
+    body.supportCategory,
+    body.subject,
+  ];
+  const value = candidates.find((candidate) => String(candidate || '').trim());
+  return value ? String(value).slice(0, 200) : null;
+}
+
+function buildEmailEventMetadata(body, req) {
+  const metadata = {
+    referer: req.get('referer') || null,
+    templateName: body.template_name || body.templateName || null,
+    recipientDetails: body.recipient_details || null,
+    saveToSentItems: body.saveToSentItems === true,
+  };
+
+  return Object.values(metadata).some(Boolean) ? metadata : null;
+}
+
 router.post('/sendEmail', async (req, res) => {
   try {
     const reqId = randomUUID();
@@ -317,6 +347,14 @@ router.post('/sendEmail', async (req, res) => {
     const bccList = normalizeEmails([body.bcc_emails, body.bcc_email].filter(Boolean));
     const replyToList = normalizeEmails(body.reply_to || body.replyTo || body['reply-to']);
     const saveToSentItems = typeof body.saveToSentItems === 'boolean' ? body.saveToSentItems : false;
+    trackEvent('Email.Send.Started', {
+      operation: 'send',
+      requestId: reqId,
+      from: fromEmail,
+      ccCount: String(ccList.length),
+      bccCount: String(bccList.length),
+      saveToSentItems: String(saveToSentItems),
+    });
 
     // Always write an ops log entry for observability
     opLog.append({
@@ -439,16 +477,76 @@ router.post('/sendEmail', async (req, res) => {
     });
 
     if (graphRes.status === 202) {
+      const graphRequestId = graphRes.headers.get('request-id') || graphRes.headers.get('x-ms-request-id') || null;
+      try {
+        await recordHomeJourneyEmailEvent({
+          sentAt: new Date().toISOString(),
+          senderEmail: fromEmail,
+          senderInitials: String(body.signature_initials || req.user?.initials || '').trim().toUpperCase() || null,
+          toRecipients: normalizeEmails(to),
+          ccRecipients: ccList,
+          bccRecipients: bccList,
+          subject,
+          source: pickEmailSource(body, req),
+          contextLabel: pickEmailContextLabel(body),
+          enquiryRef: body.enquiryId || body.enquiry_id || body.enquiryRef || null,
+          instructionRef: body.instructionRef || body.instruction_ref || null,
+          matterRef: body.matterRef || body.matter_ref || null,
+          clientRequestId: reqId,
+          graphRequestId,
+          metadata: buildEmailEventMetadata(body, req),
+        });
+      } catch (persistError) {
+        trackException(persistError, {
+          component: 'Email',
+          operation: 'PersistJourneyEvent',
+          requestId: reqId,
+        });
+      }
+
+      trackEvent('Email.Send.Completed', {
+        operation: 'send',
+        requestId: reqId,
+        from: fromEmail,
+        status: '202',
+        graphRequestId: graphRequestId || '',
+        durationMs: String(durationMs),
+      });
+      trackMetric('Email.Send.Duration', durationMs, {
+        operation: 'send',
+        from: fromEmail,
+      });
       res.setHeader('X-Email-Request-Id', reqId);
-      res.setHeader('X-Graph-Request-Id', graphRes.headers.get('request-id') || graphRes.headers.get('x-ms-request-id') || '');
+      res.setHeader('X-Graph-Request-Id', graphRequestId || '');
       return res.status(200).send('Email sent');
     }
+    trackEvent('Email.Send.Failed', {
+      operation: 'send',
+      requestId: reqId,
+      from: fromEmail,
+      status: String(graphRes.status),
+      durationMs: String(durationMs),
+    });
+    trackMetric('Email.Send.Duration', durationMs, {
+      operation: 'send',
+      status: 'failed',
+    });
     res.setHeader('X-Email-Request-Id', reqId);
     res.setHeader('X-Graph-Request-Id', graphRes.headers.get('request-id') || graphRes.headers.get('x-ms-request-id') || '');
     return res.status(500).send(respText || `Unexpected status ${graphRes.status}`);
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error('server sendEmail error:', err);
+    trackException(err, {
+      component: 'Email',
+      operation: 'send',
+      phase: 'route',
+    });
+    trackEvent('Email.Send.Failed', {
+      operation: 'send',
+      status: 'exception',
+      error: String(err?.message || err),
+    });
     try {
       opLog.append({ type: 'email.send.error', route: 'server:/api/sendEmail', reason: 'unhandled', error: String(err?.message || err), status: 500 });
     } catch { /* ignore logging errors */ }

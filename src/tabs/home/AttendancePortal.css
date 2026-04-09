@@ -73,6 +73,13 @@
 
 .ap-overview {
   animation: ap-riseIn 0.4s cubic-bezier(0.22, 1, 0.36, 1) 0.05s both;
+  transition: opacity 0.22s ease, transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.ap-portal[data-detail-transition='true'] .ap-overview {
+  opacity: 0.72;
+  transform: translateY(4px);
+  pointer-events: none;
 }
 
 .ap-overview-header {
@@ -1084,6 +1091,14 @@
     gap: 6px;
   }
 
+
+@media (prefers-reduced-motion: reduce) {
+  .ap-overview,
+  .ap-portal[data-detail-transition='true'] .ap-overview {
+    transition: none;
+    transform: none;
+  }
+}
   .ap-leave-status-col {
     margin-left: 30px;
   }

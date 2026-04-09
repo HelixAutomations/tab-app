@@ -10,9 +10,8 @@ import LoadingDebugModal from './debug/LoadingDebugModal';
 import { ErrorTracker } from './ErrorTracker';
 import RefreshDataModal from './RefreshDataModal';
 import LegacyMigrationTool from './LegacyMigrationTool';
-import AdminControlsSection from './command-centre/AdminControlsSection';
-import LocalDevSection from './command-centre/LocalDevSection';
-import SystemStatusSection from './command-centre/SystemStatusSection';
+import CommandDeck from './command-centre/CommandDeck';
+import ErrorScreenPreview from './command-centre/ErrorScreenPreview';
 import { BubbleToastTone, CommandCentreTokens } from './command-centre/types';
 
 interface HubToolsChipProps {
@@ -91,6 +90,7 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
     const [showLoadingDebug, setShowLoadingDebug] = useState(false);
     const [showErrorTracker, setShowErrorTracker] = useState(false);
     const [showMigrationTool, setShowMigrationTool] = useState(false);
+    const [showErrorPreview, setShowErrorPreview] = useState(false);
     const [toast, setToast] = useState<{ message: string; tone: BubbleToastTone } | null>(null);
     const [sessionElapsed, setSessionElapsed] = useState('');
     const [healthData, setHealthData] = useState<HealthData | null>(null);
@@ -379,8 +379,8 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
         showToast,
     }), [isDarkMode, bg, bgHover, controlRowBg, borderLight, borderMedium, textPrimary, textBody, textMuted, accentPrimary, ctaPrimary, shadowSm, rowBaseBackground, rowHoverBackground, rowBaseShadow, rowHoverShadow, showToast]);
 
-    const isAdminEligible = isAdminUser(user) || isLocalDev;
-    const canSwitchUser = isAdminUser(user);
+    const isAdminEligible = isAdminUser(user) || isLocalDev || !!originalAdminUser;
+    const canSwitchUser = isAdminUser(user) || !!originalAdminUser;
     const openHome = useCallback(() => {
         window.dispatchEvent(new CustomEvent('navigateToHome'));
     }, []);
@@ -639,248 +639,44 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
             </div>
 
             {open && typeof document !== 'undefined' && createPortal(
-                <>
-                    <div
-                        onClick={() => closePanel()}
-                        style={{
-                            position: 'fixed',
-                            inset: 0,
-                            zIndex: 2098,
-                            background: 'transparent'
-                        }}
-                    />
-                    <div
-                        ref={panelRef}
-                        id={panelId}
-                        role="dialog"
-                        aria-modal="true"
-                        tabIndex={-1}
-                        style={{
-                            position: 'fixed',
-                            right: 18,
-                            bottom: panelBottom,
-                            zIndex: 2099,
-                            width: 'min(380px, calc(100vw - 24px))',
-                            maxHeight: 'min(78vh, 760px)',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            background: bg,
-                            border: `1px solid ${borderLight}`,
-                            borderRadius: '2px',
-                            boxShadow: isDarkMode
-                                ? '0 28px 56px rgba(0, 3, 25, 0.62), 0 0 0 1px rgba(54, 144, 206, 0.08)'
-                                : '0 24px 48px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.04)',
-                            overflow: 'hidden'
-                        }}
-                    >
-                        {toast && (
-                            <div className={`user-bubble-toast user-bubble-toast-${toast.tone}`} role="status" aria-live="polite">
-                                {toast.message}
-                            </div>
-                        )}
-
-                        <div style={{
-                            padding: '12px 14px 10px 14px',
-                            borderBottom: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : borderLight}`,
-                            background: isDarkMode ? colours.websiteBlue : colours.grey,
-                            display: 'grid',
-                            gap: 8,
-                            flexShrink: 0
-                        }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                <div style={{
-                                    width: 24,
-                                    height: 24,
-                                    borderRadius: 999,
-                                    background: isDarkMode ? 'rgba(135, 243, 243, 0.14)' : 'rgba(54, 144, 206, 0.08)',
-                                    border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.24)' : 'rgba(54, 144, 206, 0.14)'}`,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    color: environmentColour,
-                                    flexShrink: 0
-                                }}>
-                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-                                        <path d="M12 15v2"/><path d="M12 7v4"/><path d="M5 12h2"/><path d="M17 12h2"/><path d="M7.8 7.8l1.4 1.4"/><path d="M14.8 14.8l1.4 1.4"/><path d="M16.2 7.8l-1.4 1.4"/><path d="M9.2 14.8l-1.4 1.4"/>
-                                    </svg>
-                                </div>
-                                <div style={{ flex: 1, minWidth: 0 }}>
-                                    <div style={{ fontSize: 12, fontWeight: 700, color: textPrimary }}>Private hub controls</div>
-                                    <div style={{ fontSize: 10, color: textMuted, marginTop: 2 }}>Visible only to Luke, Alex, and local dev.</div>
-                                </div>
-                                <button
-                                    onClick={() => closePanel()}
-                                    style={{
-                                        background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : colours.grey,
-                                        border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.34)' : borderMedium}`,
-                                        borderRadius: '2px',
-                                        color: textPrimary,
-                                        cursor: 'pointer',
-                                        padding: '6px',
-                                        minWidth: 28,
-                                        minHeight: 28,
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center'
-                                    }}
-                                    aria-label="Close"
-                                >
-                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.75">
-                                        <path d="M18 6L6 18M6 6l12 12"/>
-                                    </svg>
-                                </button>
-                            </div>
-
-                            <div style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 8,
-                                fontSize: 9,
-                                fontWeight: 600,
-                                color: textMuted,
-                                letterSpacing: '0.3px'
-                            }}>
-                                <span style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: 4,
-                                    padding: '2px 6px',
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.04)',
-                                    border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(54, 144, 206, 0.10)'}`,
-                                    color: environmentColour,
-                                    borderRadius: '2px',
-                                    textTransform: 'uppercase'
-                                }}>
-                                    <span style={{ width: 4, height: 4, borderRadius: 999, background: environmentColour }} />
-                                    {environment}
-                                </span>
-                                <span style={{ opacity: 0.45, fontSize: 8 }}>{typeof window !== 'undefined' ? window.location.host : ''}</span>
-                                <span style={{ marginLeft: 'auto', opacity: 0.4, fontSize: 8 }}>{sessionElapsed}</span>
-                            </div>
-                        </div>
-
-                        <div style={{ flex: 1, overflowY: 'auto', padding: '14px' }}>
-                            {isAdminEligible && (
-                                <AdminControlsSection
-                                    tokens={tokens}
-                                    user={user}
-                                    canSwitchUser={canSwitchUser}
-                                    onUserChange={onUserChange}
-                                    availableUsers={availableUsers}
-                                    onToggleDemoMode={onToggleDemoMode}
-                                    demoModeEnabled={demoModeEnabled}
-                                    onOpenReleaseNotesModal={onOpenReleaseNotesModal}
-                                    closePopover={() => closePanel()}
-                                />
-                            )}
-
-                            <SystemStatusSection
-                                tokens={tokens}
-                                healthData={healthData}
-                                healthLoading={healthLoading}
-                                routeResults={routeResults}
-                                onRefreshRoutes={runRouteProbes}
-                                enquiriesLiveRefreshInFlight={enquiriesLiveRefreshInFlight}
-                                enquiriesUsingSnapshot={enquiriesUsingSnapshot}
-                                enquiriesLastLiveSyncAt={enquiriesLastLiveSyncAt}
-                            />
-
-                            <LocalDevSection
-                                    tokens={tokens}
-                                    onFeatureToggle={onFeatureToggle}
-                                    featureToggles={featureToggles}
-                                    onDevDashboard={() => { setShowDevDashboard(true); closePanel(false); }}
-                                    onLoadingDebug={() => setShowLoadingDebug(true)}
-                                    onErrorTracker={() => setShowErrorTracker(true)}
-                                    onDemoPrompts={() => { setShowDemoPrompts(true); closePanel(); }}
-                                    onMigrationTool={() => { setShowMigrationTool(true); closePanel(false); }}
-                                    closePopover={() => closePanel()}
-                                    onOpenDemoMatter={onOpenDemoMatter ? (showCcl) => { onOpenDemoMatter(showCcl); closePanel(); } : undefined}
-                                />
-
-                            <div style={{ height: 1, background: borderLight, marginBottom: 8 }} />
-
-                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                                <button
-                                    onClick={() => openReportingUtility('logMonitor')}
-                                    style={{ ...tokens.actionBtn, flex: 1, justifyContent: 'center', minWidth: 0 }}
-                                    onMouseEnter={(e) => {
-                                        e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.03)';
-                                    }}
-                                    onMouseLeave={(e) => {
-                                        e.currentTarget.style.background = tokens.actionBtn.background as string;
-                                    }}
-                                >
-                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <path d="M3 4h18v12H3z"/>
-                                        <path d="M7 20h10"/>
-                                        <path d="M9 8h6"/>
-                                        <path d="M9 12h3"/>
-                                    </svg>
-                                    Activity
-                                </button>
-
-                                <button
-                                    onClick={() => openReportingUtility('dataCentre')}
-                                    style={{ ...tokens.actionBtn, flex: 1, justifyContent: 'center', minWidth: 0 }}
-                                    onMouseEnter={(e) => {
-                                        e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.03)';
-                                    }}
-                                    onMouseLeave={(e) => {
-                                        e.currentTarget.style.background = tokens.actionBtn.background as string;
-                                    }}
-                                >
-                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <path d="M4 4h16v4H4z"/>
-                                        <path d="M4 12h7v8H4z"/>
-                                        <path d="M13 12h7v3h-7z"/>
-                                        <path d="M13 17h7v3h-7z"/>
-                                    </svg>
-                                    Data
-                                </button>
-
-                                <button
-                                    onClick={() => setShowRefreshModal(true)}
-                                    style={{ ...tokens.actionBtn, flex: 1, justifyContent: 'center', minWidth: 0 }}
-                                    onMouseEnter={(e) => {
-                                        e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.03)';
-                                    }}
-                                    onMouseLeave={(e) => {
-                                        e.currentTarget.style.background = tokens.actionBtn.background as string;
-                                    }}
-                                >
-                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-                                    </svg>
-                                    Refresh
-                                </button>
-
-                                {originalAdminUser && onReturnToAdmin && (
-                                    <button
-                                        onClick={() => {
-                                            onReturnToAdmin();
-                                            closePanel();
-                                        }}
-                                        style={{
-                                            ...tokens.actionBtn,
-                                            flex: 1,
-                                            justifyContent: 'center',
-                                            minWidth: 0,
-                                            background: ctaPrimary,
-                                            color: '#fff',
-                                            border: `1px solid ${ctaPrimary}`
-                                        }}
-                                    >
-                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                            <path d="M19 12H5M12 19l-7-7 7-7"/>
-                                        </svg>
-                                        Return
-                                    </button>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                </>,
+                <CommandDeck
+                    panelRef={panelRef}
+                    panelBottom={panelBottom}
+                    healthData={healthData}
+                    healthLoading={healthLoading}
+                    routeResults={routeResults}
+                    onRefreshRoutes={runRouteProbes}
+                    enquiriesLiveRefreshInFlight={enquiriesLiveRefreshInFlight}
+                    enquiriesUsingSnapshot={enquiriesUsingSnapshot}
+                    enquiriesLastLiveSyncAt={enquiriesLastLiveSyncAt}
+                    featureToggles={featureToggles}
+                    onFeatureToggle={onFeatureToggle}
+                    demoModeEnabled={demoModeEnabled}
+                    onToggleDemoMode={onToggleDemoMode}
+                    isAdminEligible={isAdminEligible}
+                    canSwitchUser={canSwitchUser}
+                    onUserChange={onUserChange}
+                    availableUsers={availableUsers}
+                    onReturnToAdmin={onReturnToAdmin}
+                    originalAdminUser={originalAdminUser}
+                    onDevDashboard={() => { setShowDevDashboard(true); closePanel(false); }}
+                    onErrorTracker={() => { setShowErrorTracker(true); closePanel(false); }}
+                    onErrorPreview={() => { setShowErrorPreview(true); closePanel(false); }}
+                    onLoadingDebug={() => { setShowLoadingDebug(true); closePanel(false); }}
+                    onDemoPrompts={() => { setShowDemoPrompts(true); closePanel(); }}
+                    onMigrationTool={() => { setShowMigrationTool(true); closePanel(false); }}
+                    onOpenDemoMatter={onOpenDemoMatter ? (showCcl) => { onOpenDemoMatter(showCcl); closePanel(); } : undefined}
+                    onOpenReleaseNotesModal={onOpenReleaseNotesModal}
+                    openReportingUtility={openReportingUtility}
+                    setShowRefreshModal={setShowRefreshModal}
+                    isDarkMode={isDarkMode}
+                    environment={environment}
+                    environmentColour={environmentColour}
+                    sessionElapsed={sessionElapsed}
+                    onClose={() => closePanel()}
+                    showToast={showToast}
+                    tokens={tokens}
+                />,
                 document.body
             )}
 
@@ -889,6 +685,7 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
             {showLoadingDebug && <LoadingDebugModal isOpen={showLoadingDebug} onClose={() => setShowLoadingDebug(false)} />}
             {showErrorTracker && <ErrorTracker onClose={() => setShowErrorTracker(false)} />}
             {showMigrationTool && <LegacyMigrationTool isOpen={showMigrationTool} onClose={() => setShowMigrationTool(false)} onToast={showToast} />}
+            {showErrorPreview && <ErrorScreenPreview onClose={() => setShowErrorPreview(false)} />}
         </>
     );
 };

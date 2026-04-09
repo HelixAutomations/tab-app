@@ -1499,4 +1499,4 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
   }
 };
 
-export default Matters;
+export default React.memo(Matters);

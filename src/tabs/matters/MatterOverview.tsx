@@ -13,6 +13,14 @@ import CCLEditor from './ccl/CCLEditor';
 import NextStepChip from './components/NextStepChip';
 import { ADMIN_USERS, isCclUser } from '../../app/admin';
 import { buildPortalLaunchModel } from '../../utils/portalLaunch';
+import { deriveWorkbenchStageStatuses } from '../../utils/workbenchStatusDerivation';
+import type {
+  WorkbenchContextStage,
+  WorkbenchItem,
+  WorkbenchJourneyStatus,
+  WorkbenchTab,
+  WorkbenchStageStatus,
+} from '../../utils/workbenchTypes';
 import { normaliseId, resolveEnquiryKeys } from './utils/enquiryMatching';
 import { appendDefaultEnquiryProcessingParams } from '../../app/functionality/enquiryProcessingModel';
 import { fmt, fmtDate, fmtCurrency, safeNumber, get, formatLongDate, formatAddress, parseInstructionRef } from './utils/formatters';
@@ -163,11 +171,11 @@ type DetailViewMode = 'all' | 'clio' | 'nd';
    just reflected here read-only.
 ------------------------------------------------------------------ */
 
-type WorkbenchTabKeyType = 'details' | 'identity' | 'payment' | 'risk' | 'matter' | 'documents' | 'pitch';
-type ContextStageKeyType = 'enquiry' | 'instructed';
+type WorkbenchTabKeyType = WorkbenchTab;
+type ContextStageKeyType = WorkbenchContextStage;
 
 interface PipelineSectionProps {
-  derivedWorkbenchItem: any;
+  derivedWorkbenchItem: WorkbenchItem;
   isDarkMode: boolean;
   teamData?: TeamData[] | null;
   demoModeEnabled: boolean;
@@ -370,26 +378,31 @@ const PipelineSection: React.FC<PipelineSectionProps> = ({
     || (matters.length > 0
       ? (matters[0]?.['Display Number'] || matters[0]?.DisplayNumber || matters[0]?.displayNumber || matters[0]?.display_number || matters[0]?.MatterRef || matters[0]?.id)
       : null);
-  const hasCcl = Boolean(matterDisplayId && item?.matter?.cclDate);
-  const hasCclDraft = Boolean(item?.matter?.hasCclDraft);
+  const matterRecord = item?.matter ?? null;
+  const hasCcl = Boolean(matterDisplayId && matterRecord?.cclDate);
+  const hasCclDraft = Boolean(matterRecord?.hasCclDraft);
   const hasDocs = documents.length > 0;
   const docCount = documents.length;
 
   const hasEnquiry = !!matchedEnquiry;
   const hasPitch = Boolean(instructedDate); // If instructed, pitch happened
 
-  const identityStatus = stageStatuses?.id || (
-    eidStatus === 'verified' || eidStatus === 'completed' || eidStatus === 'skipped'
-      ? 'complete'
-      : eidStatus === 'failed' || eidStatus === 'review'
-      ? 'review'
-      : 'pending'
-  );
-  const paymentStatus = stageStatuses?.payment || (hasSuccessfulPayment ? 'complete' : hasFailedPayment ? 'review' : 'pending');
-  const riskStatus = stageStatuses?.risk || (riskComplete ? ((isHighRisk || isMediumRisk) ? 'review' : 'complete') : 'pending');
-  const matterStageStatus = stageStatuses?.matter || (hasMatter ? 'complete' : 'pending');
+  const derivedStageStatuses = deriveWorkbenchStageStatuses({
+    instruction,
+    payments,
+    risk,
+    eid,
+    matters,
+    documents,
+    stageStatuses,
+  }, { mediumRiskStatus: 'warning' });
+
+  const identityStatus = derivedStageStatuses.id;
+  const paymentStatus = derivedStageStatuses.payment;
+  const riskStatus = derivedStageStatuses.risk;
+  const matterStageStatus = derivedStageStatuses.matter;
   const cclStageStatus = hasCcl ? 'complete' : hasCclDraft ? 'review' : hasMatter ? 'current' : 'disabled';
-  const documentStatus = stageStatuses?.documents || (hasDocs ? 'complete' : 'neutral');
+  const documentStatus = derivedStageStatuses.documents;
 
   const instructionDate = instructedDate ? new Date(instructedDate) : null;
 
@@ -399,7 +412,7 @@ const PipelineSection: React.FC<PipelineSectionProps> = ({
     label: string;
     shortLabel: string;
     icon: React.ReactNode;
-    status: 'complete' | 'current' | 'review' | 'pending' | 'processing' | 'neutral' | 'disabled';
+    status: WorkbenchJourneyStatus;
     date: Date | null;
     detail?: string;
   }> = [
@@ -483,10 +496,11 @@ const PipelineSection: React.FC<PipelineSectionProps> = ({
   const stageTabs = visibleStages.map((stage) => {
     const isCompleted = stage.status === 'complete';
     const isCurrent = stage.status === 'current';
-    const hasIssue = stage.status === 'review';
+    const hasIssue = stage.status === 'review' || stage.status === 'warning';
 
     const statusColor = isCompleted ? colours.highlight
-      : hasIssue ? (stage.key === 'risk' && isMediumRisk ? colours.orange : colours.cta)
+      : stage.status === 'warning' ? colours.orange
+      : hasIssue ? colours.cta
       : isCurrent ? colours.highlight
       : (isDarkMode ? colours.subtleGrey : colours.greyText);
 
@@ -516,7 +530,7 @@ const PipelineSection: React.FC<PipelineSectionProps> = ({
       isActive,
       statusColor,
       hasIssue,
-      toneColor: stage.key === 'risk' && isMediumRisk ? colours.orange : undefined,
+      toneColor: stage.status === 'warning' || (stage.key === 'risk' && isMediumRisk) ? colours.orange : undefined,
     };
   });
 
@@ -991,10 +1005,8 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
   }, [loadNetDocumentsFolder, netDocumentsBreadcrumbs]);
 
   // ─── Pipeline pill bar state (mirrors EnquiryTimeline) ───
-  type WorkbenchTabKey = 'details' | 'identity' | 'payment' | 'risk' | 'matter' | 'documents' | 'pitch';
-  type ContextStageKey = 'enquiry' | 'instructed';
-  const [selectedWorkbenchTab, setSelectedWorkbenchTab] = useState<WorkbenchTabKey>('details');
-  const [selectedContextStage, setSelectedContextStage] = useState<ContextStageKey | null>('enquiry');
+  const [selectedWorkbenchTab, setSelectedWorkbenchTab] = useState<WorkbenchTabKeyType>('details');
+  const [selectedContextStage, setSelectedContextStage] = useState<ContextStageKeyType | null>('enquiry');
   const [selectedMatterStage, setSelectedMatterStage] = useState<'ccl' | null>(null);
   const [workbenchExpanded, setWorkbenchExpanded] = useState(false);
 
@@ -1285,7 +1297,7 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
     return null;
   }, [baseWorkbenchItem, directEnquiry, enquiries, enquiryProspectId, matter.clientEmail, matter.clientName, pipelineInstruction, pipelineLink.instructionRef, pipelineLink.prospectId, pipelinePrimaryClient]);
 
-  const derivedWorkbenchItem = React.useMemo<any | null>(() => {
+  const derivedWorkbenchItem = React.useMemo<WorkbenchItem | null>(() => {
     if (!baseWorkbenchItem) return null;
     return matchedEnquiry
       ? { ...baseWorkbenchItem, enquiry: matchedEnquiry }
@@ -1465,8 +1477,11 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
   const billablePct = totalAmount > 0 ? Math.round((billableAmount / totalAmount) * 100) : 0;
   const totalHours = billableHours + nonBillableHours;
 
-  const workbenchMatter = Array.isArray(derivedWorkbenchItem?.matters)
-    ? derivedWorkbenchItem.matters[0]
+  const derivedWorkbenchMatters = Array.isArray(derivedWorkbenchItem?.matters)
+    ? derivedWorkbenchItem?.matters ?? []
+    : [];
+  const workbenchMatter = derivedWorkbenchMatters.length > 0
+    ? derivedWorkbenchMatters[0]
     : null;
   const workbenchMatterId =
     workbenchMatter?.MatterId || workbenchMatter?.MatterID || workbenchMatter?.id || null;
@@ -1520,7 +1535,7 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
   const showNextSteps = isAdmin && !showCCLEditor;
   const [isPortalLaunchOpen, setIsPortalLaunchOpen] = useState(false);
   const instructionPayments = Array.isArray(derivedWorkbenchItem?.payments)
-    ? derivedWorkbenchItem.payments
+    ? derivedWorkbenchItem?.payments ?? []
     : [];
   const instructionPaymentReceived = instructionPayments.some((payment: any) =>
     payment?.payment_status === 'succeeded' || payment?.payment_status === 'confirmed'

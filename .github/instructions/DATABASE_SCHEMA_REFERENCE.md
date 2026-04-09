@@ -80,6 +80,18 @@ This document describes the key database tables, their relationships, and import
 
 **Key rule**: `Deals.ProspectId` is the ActiveCampaign contact ID. For new-space records, this maps to `acid`, NOT `id`.
 
+**POC field contract (CRITICAL — unclaimed detection)**
+
+The "point of contact" field has different names per DB:
+| DB | Field name | Example values |
+|----|-----------|----------------|
+| Legacy (Core Data) | `Point_of_Contact` | `team@helix-law.com`, `lz@helix-law.com` |
+| New space (Instructions) | `poc` | `team@helix-law.com`, `team`, `''`, `null` |
+
+An enquiry is **unclaimed** when POC is any of: `null`, `''` (empty), `'team@helix-law.com'`, `'team'`, or `'team inbox'`.
+This definition lives server-side in `server/routes/enquiries-unified.js` (~line 427/518/733).
+Client-side filters MUST match the same set — always read **both** `e.poc` and `e.Point_of_Contact` (fallback chain) and test all variants.
+
 ---
 
 ## Quick lookup templates (ESM-safe)

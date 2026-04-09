@@ -9,10 +9,3 @@
   min-width: 0;
   box-sizing: border-box;
 }
-
-.immediate-action-chip {
-  background: var(--chip-background, rgba(148, 163, 184, 0.12)) !important;
-  color: var(--chip-text, inherit) !important;
-  border: var(--chip-border-spec, 1px solid rgba(148, 163, 184, 0.28)) !important;
-  box-shadow: var(--chip-shadow, 0 4px 14px rgba(6, 16, 33, 0.28)) !important;
-}

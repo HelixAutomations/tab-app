@@ -6,6 +6,8 @@ import { colours } from '../../app/styles/colours';
 import { renderAreaOfWorkGlyph } from '../../components/filter/areaGlyphs';
 import { TeamData } from '../../app/functionality/types';
 import { groupInstructionsByClient } from '../../utils/tableGrouping';
+import { deriveWorkbenchStageStatuses } from '../../utils/workbenchStatusDerivation';
+import type { WorkbenchStageStatus, WorkbenchStageStatuses, WorkbenchTab } from '../../utils/workbenchTypes';
 import InlineExpansionChevron from '../../components/InlineExpansionChevron';
 import InlineWorkbench from './InlineWorkbench';
 import { FaCreditCard, FaShieldAlt, FaIdCard, FaPoundSign, FaBuilding, FaFileAlt, FaRegFileAlt, FaFolder, FaRegFolder } from 'react-icons/fa';
@@ -65,95 +67,20 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   
   // Track which tab to open when expanding via pipeline chip click
-  type WorkbenchTab = 'identity' | 'payment' | 'documents' | 'risk' | 'matter';
-  type StageStatus = 'pending' | 'review' | 'complete' | 'processing' | 'neutral';
-  interface StageStatuses {
-    id: StageStatus;
-    payment: StageStatus;
-    risk: StageStatus;
-    matter: StageStatus;
-    documents: StageStatus;
-  }
   const [initialWorkbenchTabs, setInitialWorkbenchTabs] = useState<Map<string, WorkbenchTab>>(new Map());
   
   // Helper to calculate stage statuses from item data - matches pipeline chip logic
-  const getStageStatuses = useCallback((item: any): StageStatuses => {
-    const inst = item?.rawData?.instruction || item?.instruction;
-    const risk = item?.rawData?.risk || item?.risk;
-    const eid = item?.rawData?.eid || item?.eid;
-    const eids = item?.rawData?.eids || item?.eids;
-    const payments = item?.rawData?.payments || inst?.payments || [];
-    const documents = item?.rawData?.documents || inst?.documents || [];
-    
-    // ID Verification status
-    const eidResult = (eid?.EIDOverallResult || eids?.[0]?.EIDOverallResult || inst?.EIDOverallResult)?.toLowerCase() ?? "";
-    const eidStatusVal = (eid?.EIDStatus || eids?.[0]?.EIDStatus)?.toLowerCase() ?? "";
-    const poidPassed = eidResult === 'passed' || eidResult === 'approved' || eidResult === 'verified' || eidResult === 'pass';
-    const stageLower = ((inst?.Stage || inst?.stage || '') + '').trim().toLowerCase();
-    const stageComplete = stageLower === 'proof-of-id-complete';
-    const isInstructedOrLater = stageLower === 'proof-of-id-complete' || stageLower === 'completed';
-    
-    let idStatus: StageStatus = 'pending';
-    if (stageComplete) {
-      if (eidResult === 'review') {
-        idStatus = 'review';
-      } else if (eidResult === 'failed' || eidResult === 'rejected' || eidResult === 'fail') {
-        idStatus = 'review';
-      } else if (poidPassed || eidResult === 'passed') {
-        idStatus = 'complete';
-      } else {
-        idStatus = 'review';
-      }
-    } else if ((!eid && !eids?.length) || eidStatusVal === 'pending') {
-      const hasEidAttempt = Boolean(eid || (eids && eids.length > 0));
-      const hasProofOfId = Boolean(inst?.PassportNumber || inst?.DriversLicenseNumber);
-      idStatus = hasProofOfId && hasEidAttempt ? 'review' : 'pending';
-    } else if (poidPassed) {
-      idStatus = 'complete';
-    } else {
-      idStatus = 'review';
-    }
-    
-    if (isInstructedOrLater && idStatus === 'pending') {
-      idStatus = 'review';
-    }
-    
-    // Payment status
-    let paymentStatus: StageStatus = 'pending';
-    if (inst?.InternalStatus === 'paid') {
-      paymentStatus = 'complete';
-    } else if (payments && payments.length > 0) {
-      const latest = payments[0];
-      if ((latest.payment_status === 'succeeded' || latest.payment_status === 'confirmed') && 
-          (latest.internal_status === 'completed' || latest.internal_status === 'paid')) {
-        paymentStatus = 'complete';
-      } else if (latest.internal_status === 'completed' || latest.internal_status === 'paid') {
-        paymentStatus = 'complete';
-      } else if (latest.payment_status === 'processing') {
-        paymentStatus = 'processing';
-      }
-    }
-    
-    // Risk status
-    const riskResultRaw = risk?.RiskAssessmentResult?.toString().toLowerCase() ?? "";
-    const riskStatus: StageStatus = riskResultRaw
-      ? ['low', 'low risk', 'pass', 'approved'].includes(riskResultRaw) ? 'complete' : 'review'
-      : 'pending';
-    
-    // Matter status
-    const matterStatus: StageStatus = (inst?.MatterId || (inst as any)?.matters?.length > 0) ? 'complete' : 'pending';
-    
-    // Documents status
-    const docCount = documents.length;
-    const docStatus: StageStatus = docCount > 0 ? 'complete' : 'neutral';
-    
-    return {
-      id: idStatus,
-      payment: paymentStatus,
-      risk: riskStatus,
-      matter: matterStatus,
-      documents: docStatus,
-    };
+  const getStageStatuses = useCallback((item: any): Required<WorkbenchStageStatuses> => {
+    const instruction = item?.rawData?.instruction || item?.instruction;
+    return deriveWorkbenchStageStatuses({
+      instruction,
+      risk: item?.rawData?.risk || item?.risk,
+      eid: item?.rawData?.eid || item?.eid,
+      eids: item?.rawData?.eids || item?.eids,
+      payments: item?.rawData?.payments || instruction?.payments || [],
+      matters: item?.rawData?.matters || instruction?.matters || [],
+      documents: item?.rawData?.documents || instruction?.documents || [],
+    }, { mediumRiskStatus: 'review' });
   }, []);
   
   // Fee earner reassignment state

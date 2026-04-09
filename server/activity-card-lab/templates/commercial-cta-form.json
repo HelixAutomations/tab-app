@@ -1,0 +1,208 @@
+{
+  "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+  "type": "AdaptiveCard",
+  "version": "1.4",
+  "body": [
+    {
+      "type": "Container",
+      "style": "emphasis",
+      "bleed": true,
+      "items": [
+        {
+          "type": "ColumnSet",
+          "columns": [
+            {
+              "type": "Column",
+              "width": "stretch",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "**NEW ENQUIRY** — Commercial Test",
+                  "size": "Medium",
+                  "weight": "Bolder",
+                  "wrap": true,
+                  "spacing": "None"
+                },
+                {
+                  "type": "TextBlock",
+                  "text": "Commercial • Web Form • 09:15",
+                  "size": "Small",
+                  "isSubtle": true,
+                  "wrap": true,
+                  "spacing": "None"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "Container",
+      "separator": true,
+      "spacing": "Medium",
+      "items": [
+        {
+          "type": "TextBlock",
+          "text": "Which best describes you?",
+          "weight": "Bolder",
+          "spacing": "None"
+        },
+        {
+          "type": "TextBlock",
+          "text": "Not specified",
+          "wrap": true,
+          "spacing": "Small"
+        }
+      ]
+    },
+    {
+      "type": "Container",
+      "separator": true,
+      "spacing": "Medium",
+      "items": [
+        {
+          "type": "TextBlock",
+          "text": "Approximate value in dispute",
+          "weight": "Bolder",
+          "spacing": "None"
+        },
+        {
+          "type": "TextBlock",
+          "text": "Not specified",
+          "wrap": true,
+          "spacing": "Small"
+        }
+      ]
+    },
+    {
+      "type": "Container",
+      "separator": true,
+      "spacing": "Medium",
+      "items": [
+        {
+          "type": "TextBlock",
+          "text": "Urgent assistance required?",
+          "weight": "Bolder",
+          "spacing": "None"
+        },
+        {
+          "type": "TextBlock",
+          "text": "No",
+          "wrap": true,
+          "spacing": "Small"
+        }
+      ]
+    },
+    {
+      "type": "Container",
+      "separator": true,
+      "spacing": "Medium",
+      "items": [
+        {
+          "type": "TextBlock",
+          "text": "Enquiry Notes",
+          "weight": "Bolder",
+          "spacing": "None"
+        },
+        {
+          "type": "TextBlock",
+          "text": "No additional notes provided",
+          "wrap": true,
+          "spacing": "Small"
+        }
+      ]
+    },
+    {
+      "type": "ActionSet",
+      "spacing": "Medium",
+      "actions": [
+        {
+          "type": "Action.Submit",
+          "title": "Claim and Respond",
+          "style": "positive",
+          "data": {
+            "action": "claim"
+          }
+        }
+      ]
+    },
+    {
+      "type": "ActionSet",
+      "spacing": "Small",
+      "actions": [
+        {
+          "type": "Action.ToggleVisibility",
+          "title": "Contact Details",
+          "targetElements": [
+            "contactDetails"
+          ]
+        },
+        {
+          "type": "Action.ToggleVisibility",
+          "title": "Form Details",
+          "targetElements": [
+            "formDetails"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "Container",
+      "id": "contactDetails",
+      "isVisible": false,
+      "items": [
+        {
+          "type": "FactSet",
+          "facts": [
+            {
+              "title": "Name",
+              "value": "Commercial Test"
+            },
+            {
+              "title": "Email",
+              "value": "commercial.test@example.com"
+            },
+            {
+              "title": "Phone",
+              "value": "+44 20 1234 5678"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "Container",
+      "id": "formDetails",
+      "isVisible": false,
+      "items": [
+        {
+          "type": "FactSet",
+          "facts": [
+            {
+              "title": "Form ID",
+              "value": "commercial-001"
+            },
+            {
+              "title": "Source",
+              "value": "Organic Search"
+            },
+            {
+              "title": "Form URL",
+              "value": "https://helix-law.com/commercial-law"
+            },
+            {
+              "title": "Documents",
+              "value": "2 files uploaded"
+            },
+            {
+              "title": "Privacy Accepted",
+              "value": "Yes"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "actions": []
+}

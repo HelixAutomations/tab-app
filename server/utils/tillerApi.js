@@ -1,11 +1,10 @@
 const axios = require('axios');
-const { DefaultAzureCredential } = require('@azure/identity');
 const { SecretClient } = require('@azure/keyvault-secrets');
+const { getCredential } = require('./getSecret');
 
 const keyVaultName = process.env.KEY_VAULT_NAME || 'helixlaw-instructions';
 const vaultUrl = `https://${keyVaultName}.vault.azure.net`;
-const credential = new DefaultAzureCredential({ additionallyAllowedTenants: ['*'] });
-const secretClient = new SecretClient(vaultUrl, credential);
+const secretClient = new SecretClient(vaultUrl, getCredential());
 
 let cachedClientId;
 let cachedClientSecret;

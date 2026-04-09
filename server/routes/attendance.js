@@ -1,8 +1,7 @@
 const express = require('express');
 const { sql, withRequest } = require('../utils/db');
 const axios = require('axios');
-const { DefaultAzureCredential } = require('@azure/identity');
-const { SecretClient } = require('@azure/keyvault-secrets');
+const { getClient } = require('../utils/getSecret');
 const { getRedisClient, generateCacheKey, cacheWrapper, deleteCachePattern, deleteCache } = require('../utils/redisClient');
 const { attachAnnualLeaveStream, broadcastAnnualLeaveChanged } = require('../utils/annual-leave-stream');
 const { attachAttendanceStream, broadcastAttendanceChanged } = require('../utils/attendance-stream');
@@ -832,9 +831,7 @@ async function getSqlPassword() {
       }
 
       // Fetch from Key Vault
-      const kvUri = "https://helix-keys.vault.azure.net/";
-      const credential = new DefaultAzureCredential({ additionallyAllowedTenants: ['*'] });
-      const secretClient = new SecretClient(kvUri, credential);
+      const secretClient = getClient();
       const secret = await secretClient.getSecret("sql-databaseserver-password");
       cachedSqlPassword = secret.value;
       sqlPasswordExpiry = Date.now() + 60 * 60 * 1000; // 1 hour cache
@@ -865,9 +862,7 @@ async function getSqlPassword() {
 // Helper function to get Clio secrets from Key Vault
 async function getClioSecrets() {
   try {
-    const kvUri = "https://helix-keys.vault.azure.net/";
-    const credential = new DefaultAzureCredential({ additionallyAllowedTenants: ['*'] });
-    const secretClient = new SecretClient(kvUri, credential);
+    const secretClient = getClient();
     
     const [clientIdSecret, clientSecretObj, refreshTokenSecret] = await Promise.all([
       secretClient.getSecret("clio-calendars-clientid"),
@@ -923,9 +918,7 @@ async function getGraphSecrets() {
   }
 
   try {
-    const kvUri = "https://helix-keys.vault.azure.net/";
-    const credential = new DefaultAzureCredential({ additionallyAllowedTenants: ['*'] });
-    const secretClient = new SecretClient(kvUri, credential);
+    const secretClient = getClient();
 
     const [clientIdSecret, clientSecretSecret] = await Promise.all([
       secretClient.getSecret('graph-aidenteams-clientid'),

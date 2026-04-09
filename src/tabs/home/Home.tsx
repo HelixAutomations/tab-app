@@ -6,12 +6,13 @@ import React, {
   useEffect,
   useMemo,
   useCallback,
+  useDeferredValue,
   ReactNode,
   useRef, // ADDED
   lazy,
   Suspense,
 } from 'react';
-import type { ConversionComparisonPayload, UnclaimedSummaryPayload } from '../../components/modern/OperationsDashboard';
+import type { ConversionComparisonBucket, ConversionComparisonPayload, UnclaimedSummaryPayload } from '../../components/modern/OperationsDashboard';
 import { createPortal } from 'react-dom';
 import { debugLog, debugWarn } from '../../utils/debug';
 import { safeSetItem, safeGetItem, cleanupLocalStorage, logStorageUsage } from '../../utils/storageUtils';
@@ -562,6 +563,10 @@ const formatWeekFragment = (date: Date): string => {
   return `${date.getFullYear()}-W${String(isoWeek).padStart(2, '0')}`;
 };
 
+const formatHourFragment = (date: Date): string => (
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}T${String(date.getHours()).padStart(2, '0')}`
+);
+
 // Robust date parser matching ManagementDashboard behaviour
 const parseDateValue = (input: unknown): Date | null => {
   if (input instanceof Date) {
@@ -571,13 +576,13 @@ const parseDateValue = (input: unknown): Date | null => {
   const trimmed = input.trim();
   const normalised = trimmed.includes('/') && !trimmed.includes('T')
     ? (() => {
-        // Convert dd/mm/yyyy -> yyyy-mm-dd
-        const parts = trimmed.split('/');
-        if (parts.length === 3) {
-          const [dd, mm, yyyy] = parts;
-          return `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
+        const slashMatch = trimmed.match(/^\s*(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ T](\d{1,2})(?::(\d{2}))?(?::(\d{2}))?)?\s*$/);
+        if (!slashMatch) {
+          return trimmed;
         }
-        return trimmed;
+
+        const [, dd, mm, yyyy, hours = '00', minutes = '00', seconds = '00'] = slashMatch;
+        return `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}T${hours.padStart(2, '0')}:${minutes.padStart(2, '0')}:${seconds.padStart(2, '0')}`;
       })()
     : trimmed;
   const candidate = new Date(normalised);
@@ -689,6 +694,37 @@ interface HomeMetricsSnapshot {
   futureLeaveRecords?: AnnualLeaveRecord[] | null;
 }
 
+function sanitizeSavedConversionComparison(
+  payload: ConversionComparisonPayload | null | undefined,
+): ConversionComparisonPayload | null {
+  if (!payload || !Array.isArray(payload.items) || payload.items.length === 0) {
+    return null;
+  }
+
+  const todayItem = payload.items.find((item) => item?.key === 'today');
+  if (!todayItem) {
+    return null;
+  }
+
+  if (todayItem.chartMode !== 'hourly') {
+    return null;
+  }
+
+  return Array.isArray(todayItem.buckets) && todayItem.buckets.length > 0 ? payload : null;
+}
+
+function useActiveSnapshot<T>(value: T, isActive: boolean): T {
+  const snapshotRef = useRef(value);
+
+  useEffect(() => {
+    if (isActive) {
+      snapshotRef.current = value;
+    }
+  }, [isActive, value]);
+
+  return isActive ? value : snapshotRef.current;
+}
+
 function readHomeMetricsSnapshot(userKey: string | null): HomeMetricsSnapshot | null {
   if (!userKey) return null;
 
@@ -701,6 +737,8 @@ function readHomeMetricsSnapshot(userKey: string | null): HomeMetricsSnapshot | 
     if (typeof parsed.savedAt !== 'number') return null;
     if (Date.now() - parsed.savedAt > HOME_METRICS_SNAPSHOT_TTL_MS) return null;
 
+    const parsedEnquiryMetrics = parsed.enquiryMetrics ?? null;
+
     return {
       userKey,
       savedAt: parsed.savedAt,
@@ -710,7 +748,10 @@ function readHomeMetricsSnapshot(userKey: string | null): HomeMetricsSnapshot | 
       recoveredHours: parsed.recoveredHours ?? null,
       prevRecoveredHours: parsed.prevRecoveredHours ?? null,
       recentEnquiryRecords: Array.isArray(parsed.recentEnquiryRecords) ? parsed.recentEnquiryRecords : [],
-      enquiryMetrics: parsed.enquiryMetrics ?? null,
+      enquiryMetrics: parsedEnquiryMetrics ? {
+        ...parsedEnquiryMetrics,
+        conversionComparison: sanitizeSavedConversionComparison(parsedEnquiryMetrics.conversionComparison ?? null),
+      } : null,
       attendanceData: parsed.attendanceData ?? null,
       annualLeaveRecords: parsed.annualLeaveRecords ?? null,
       futureLeaveRecords: parsed.futureLeaveRecords ?? null,
@@ -794,6 +835,12 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
   const useLocalData =
     process.env.REACT_APP_USE_LOCAL_DATA === 'true';
   const [secondaryPanelsReady, setSecondaryPanelsReady] = useState(false);
+  const activeEnquiries = useActiveSnapshot(enquiries, isActive);
+  const activeProvidedMatters = useActiveSnapshot(providedMatters, isActive);
+  const activeTeamData = useActiveSnapshot(teamData, isActive);
+  const deferredEnquiries = useDeferredValue(activeEnquiries);
+  const deferredProvidedMatters = useDeferredValue(activeProvidedMatters);
+  const deferredTeamData = useDeferredValue(activeTeamData);
   
   // Component mounted successfully
 
@@ -801,7 +848,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
   const [annualLeaveTeam, setAnnualLeaveTeam] = useState<any[]>([]);
   // Transform teamData into our lite TeamMember type
   const transformedTeamData = useMemo<TeamMember[]>(() => {
-    const data: TeamData[] = teamData ?? attendanceTeam ?? [];
+    const data: TeamData[] = deferredTeamData ?? attendanceTeam ?? [];
 
     const entitlementByInitials = new Map<string, number>();
     for (const row of annualLeaveTeam || []) {
@@ -826,7 +873,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
         Nickname: member.Nickname ?? member.First ?? '',
         holiday_entitlement: entitlementByInitials.get(String(member.Initials ?? '').trim().toUpperCase()),
       }));
-  }, [teamData, attendanceTeam, annualLeaveTeam]);
+  }, [deferredTeamData, attendanceTeam, annualLeaveTeam]);
 
   // Enrich userData with holiday_entitlement from annualLeaveTeam
   const enrichedUserData = useMemo(() => {
@@ -1061,7 +1108,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
 
   // Consider immediate actions 'ready' only after we've actually started the parallel fetch.
   // This avoids an initial "All caught up" flash before attendance-derived actions appear.
-  const immediateActionsReady = hasStartedParallelFetch && !isLoadingAttendance && !isLoadingAnnualLeave;
   const homePrimaryReady = hasStartedParallelFetch;
 
   // SAFETY: In rare error paths isActionsLoading might never be cleared; ensure it flips off
@@ -1133,6 +1179,11 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
   const [pendingDocActions, setPendingDocActions] = useState<PendingDocAction[]>([]);
   const [pendingDocActionsLoading, setPendingDocActionsLoading] = useState<boolean>(true);
 
+  const immediateActionsReady = hasStartedParallelFetch
+    && !isActionsLoading
+    && !isLoadingAttendance
+    && !isLoadingAnnualLeave;
+
   useEffect(() => {
     if (!homePrimaryReady) {
       setSecondaryPanelsReady(false);
@@ -1140,6 +1191,45 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
     }
     setSecondaryPanelsReady(true);
   }, [homePrimaryReady]);
+
+  // ── Boot monitor event emitter (dev-only) ──
+  const bootMonitorPrevRef = useRef<Record<string, string>>({});
+  useEffect(() => {
+    if (process.env.NODE_ENV !== 'development') return;
+    const sources: Record<string, 'pending' | 'loading' | 'done'> = {
+      enquiries: enquiries != null ? 'done' : 'pending',
+      matters: providedMatters != null ? 'done' : 'pending',
+      instructionData: propInstructionData != null ? 'done' : 'pending',
+      teamData: teamData != null ? 'done' : 'pending',
+      attendance: isLoadingAttendance ? 'loading' : hasStartedParallelFetch ? 'done' : 'pending',
+      annualLeave: isLoadingAnnualLeave ? 'loading' : hasStartedParallelFetch ? 'done' : 'pending',
+      wipClio: isLoadingWipClio ? 'loading' : 'done',
+      enquiryMetrics: isLoadingEnquiryMetrics ? 'loading' : 'done',
+      recoveredFees: isLoadingRecovered ? 'loading' : 'done',
+      allMatters: isLoadingAllMatters ? 'loading' : allMatters != null ? 'done' : 'pending',
+      pendingDocActions: pendingDocActionsLoading ? 'loading' : 'done',
+      parallelFetch: hasStartedParallelFetch ? 'done' : 'pending',
+      homePrimaryReady: homePrimaryReady ? 'done' : 'pending',
+      secondaryPanelsReady: secondaryPanelsReady ? 'done' : 'pending',
+      immediateActionsReady: immediateActionsReady ? 'done' : 'pending',
+    };
+    const prev = bootMonitorPrevRef.current;
+    const now = performance.now();
+    for (const [source, status] of Object.entries(sources)) {
+      if (prev[source] !== status) {
+        window.dispatchEvent(new CustomEvent('homeBootEvent', {
+          detail: { source, status, timestamp: now },
+        }));
+      }
+    }
+    bootMonitorPrevRef.current = { ...sources };
+  }, [
+    enquiries, providedMatters, propInstructionData, teamData,
+    isLoadingAttendance, isLoadingAnnualLeave, isLoadingWipClio,
+    isLoadingRecovered, isLoadingEnquiryMetrics, isLoadingAllMatters,
+    pendingDocActionsLoading, hasStartedParallelFetch, homePrimaryReady,
+    secondaryPanelsReady, immediateActionsReady, allMatters,
+  ]);
 
   useEffect(() => {
     if (useLocalData) return;
@@ -1268,12 +1358,15 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
   }, []);
 
   // List of unclaimed enquiries for quick access panel
+  // POC field: new DB uses `poc`, legacy uses `Point_of_Contact`.
+  // Unclaimed variants must match server definition (enquiries-unified.js).
   const unclaimedEnquiries = useMemo(
     () =>
-      (enquiries || []).filter(
-        (e: Enquiry) => (e.Point_of_Contact || '').toLowerCase() === 'team@helix-law.com'
-      ),
-    [enquiries]
+      (deferredEnquiries || []).filter((e: any) => {
+        const poc = (e.Point_of_Contact || e.poc || '').toLowerCase().trim();
+        return !poc || poc === 'team@helix-law.com' || poc === 'team' || poc === 'team inbox';
+      }),
+    [deferredEnquiries]
   );
 
   const unclaimedSummary = useMemo<UnclaimedSummaryPayload>(() => {
@@ -1306,6 +1399,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
         return {
           id: String(enquiry.ID || enquiry.id || `${parsedDate.toISOString()}-${fullName || enquiry.Email || 'unclaimed'}`),
           name: String(fullName || enquiry.Company || enquiry.Email || 'Unnamed enquiry').trim(),
+          email: String(enquiry.Email || enquiry.email || '').trim(),
           aow: String(enquiry.Area_of_Work || enquiry.aow || 'Other').trim() || 'Other',
           date: parsedDate.toISOString(),
           ageDays: Math.max(0, Math.floor((todayStart.getTime() - new Date(parsedDate.getFullYear(), parsedDate.getMonth(), parsedDate.getDate()).getTime()) / 86400000)),
@@ -1423,29 +1517,28 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
     fetchEditsAndBlocks();
   }, []);
 
-  // Check for active matter opening every 2 seconds
+  // Check for active matter opening / pitch builder — event-driven (no polling)
   useEffect(() => {
-    const checkActiveMatter = () => {
+    if (!isActive) return;
+
+    const checkBoth = () => {
       setHasActiveMatter(hasActiveMatterOpening(isInMatterOpeningWorkflow));
-    };
-
-    // Initial check
-    checkActiveMatter();
-
-    // Set up polling
-    const interval = setInterval(checkActiveMatter, 2000);
-
-    return () => clearInterval(interval);
-  }, [isInMatterOpeningWorkflow]);
-
-  useEffect(() => {
-    const checkActivePitch = () => {
       setHasActivePitch(hasActivePitchBuilder());
     };
-    checkActivePitch();
-    const interval = setInterval(checkActivePitch, 2000);
-    return () => clearInterval(interval);
-  }, []);
+    checkBoth();
+
+    const onStorage = (e: StorageEvent) => {
+      if (e.key?.startsWith('matterOpeningDraft_') || e.key === 'pitchBuilderState') checkBoth();
+    };
+    const onVisibility = () => { if (document.visibilityState === 'visible') checkBoth(); };
+
+    window.addEventListener('storage', onStorage);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [isActive, isInMatterOpeningWorkflow]);
 
   const [localInstructionDataState, setLocalInstructionDataState] = useState<InstructionData[]>([]);
 
@@ -1517,6 +1610,10 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
 
   // Separate effect to fetch recovered fees — auto-refreshes every 2 min + on tab focus
   useEffect(() => {
+    if (!isActive) {
+      return;
+    }
+
     let isMounted = true;
     let intervalId: ReturnType<typeof setInterval> | null = null;
 
@@ -1619,7 +1716,8 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
       if (intervalId) clearInterval(intervalId);
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [teamData, userData?.[0]?.EntraID, userData?.[0]?.['Entra ID'], userData?.[0]?.Initials, userData?.[0]?.['Clio ID']]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isActive, userData?.[0]?.EntraID, userData?.[0]?.['Entra ID'], userData?.[0]?.Initials, userData?.[0]?.['Clio ID']]);
 
   // Refresh time metrics callback - clears cache and re-fetches WIP and recovered fees
   const handleRefreshTimeMetrics = useCallback(async () => {
@@ -1728,10 +1826,10 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
 
   // Use app-provided normalized matters when available; otherwise normalize local allMatters
   const normalizedMatters = useMemo<NormalizedMatter[]>(() => {
-    if (providedMatters && providedMatters.length > 0) return providedMatters;
+    if (deferredProvidedMatters && deferredProvidedMatters.length > 0) return deferredProvidedMatters;
     if (!allMatters) return [];
     return allMatters.map(matter => normalizeMatterData(matter, userFullName, 'legacy_all'));
-  }, [providedMatters, allMatters, userData, userFullName]);
+  }, [deferredProvidedMatters, allMatters, userData, userFullName]);
 
   const demoModeActive = useMemo(() => {
     if (demoModeEnabled) return true;
@@ -1764,7 +1862,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
     // On localhost the dev user's FullName (e.g. "Luke Dev") won't match real solicitor names
     const userInitials = (userData?.[0]?.Initials || '').trim().toUpperCase();
 
-    const teamRecord = teamData?.find(
+    const teamRecord = deferredTeamData?.find(
       (t: any) => (t?.Initials || '').trim().toUpperCase() === userInitials
     );
     const resolvedName = teamRecord?.['Full Name'] || teamRecord?.['Nickname'] || userFullName || '';
@@ -1840,7 +1938,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
       },
       ...mapped,
     ].slice(0, 15);
-  }, [normalizedMatters, demoModeActive, userFullName, userData, teamData]);
+  }, [normalizedMatters, demoModeActive, userFullName, userData, deferredTeamData]);
 
   const [reviewedInstructionIds, setReviewedInstructionIds] = useState<string>(() =>
     sessionStorage.getItem('reviewedInstructionIds') || ''
@@ -1993,7 +2091,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
 
   // Realtime: when annual leave changes (approved/edited/created), refresh so other users' approvals update.
   useEffect(() => {
-    if (!userInitials) return;
+    if (!userInitials || !isActive) return;
 
     let eventSource: EventSource | null = null;
     let refreshTimer: number | null = null;
@@ -2032,11 +2130,11 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
         // ignore
       }
     };
-  }, [userInitials]);
+  }, [isActive, userInitials]);
 
   // Realtime: when data-ops sync completes (collectedTime or WIP), refresh time metrics.
   useEffect(() => {
-    if (!userInitials) return;
+    if (!userInitials || !isActive) return;
 
     let eventSource: EventSource | null = null;
     let refreshTimer: number | null = null;
@@ -2072,11 +2170,11 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
         // ignore
       }
     };
-  }, [userInitials, handleRefreshTimeMetrics]);
+  }, [isActive, userInitials, handleRefreshTimeMetrics]);
 
   // Realtime: when attendance changes (someone confirms), refresh team attendance view.
   useEffect(() => {
-    if (!userInitials) return;
+    if (!userInitials || !isActive) return;
 
     let eventSource: EventSource | null = null;
     let refreshTimer: number | null = null;
@@ -2101,7 +2199,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
 
       refreshTimer = window.setTimeout(async () => {
         try {
-          const response = await fetch('/api/attendance/getAttendance?forceRefresh=true', {
+          const response = await fetch('/api/attendance/getAttendance', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
           });
@@ -2157,11 +2255,11 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
         // ignore
       }
     };
-  }, [userInitials]);
+  }, [isActive, userInitials]);
 
   // Realtime: when future bookings change, refresh bookings so other users see updates.
   useEffect(() => {
-    if (!userInitials) return;
+    if (!userInitials || !isActive) return;
 
     let eventSource: EventSource | null = null;
     let refreshTimer: number | null = null;
@@ -2195,7 +2293,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
 
       refreshTimer = window.setTimeout(async () => {
         try {
-          const response = await fetch('/api/future-bookings?forceRefresh=true');
+          const response = await fetch('/api/future-bookings');
           if (!response.ok) return;
           const data = await response.json();
           setFutureBookings(data);
@@ -2227,7 +2325,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
         // ignore
       }
     };
-  }, [userInitials]);
+  }, [isActive, userInitials]);
 
   // Quick Actions bar ready state - show skeletons until user data is available
   const quickActionsReady = hasStartedParallelFetch && Boolean(userInitials);
@@ -2936,178 +3034,8 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
       });
       return;
     }
-    // Parallel fetch effect now handles all live data fetching
-    // This effect only restores cache and handles local data
-    // Only fetch if no cached data exists
-    if (!cachedAttendance && !cachedAttendanceError && !userData?.[0]) {
-      // Skipping fetch - parallel effect will handle it
-      return;
-    }
-    if (cachedAttendance || userData?.[0]) {
-      // Cache already loaded or parallel fetch in progress
-      return;
-    }
-    if (!cachedAttendance && !cachedAttendanceError) {
-      const fetchData = async () => {
-        try {
-          setIsLoadingAttendance(true);
-          const attendanceResponse = await fetch('/api/attendance/getAttendance', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
-          });
-          
-          if (!attendanceResponse.ok) {
-            throw new Error(`Failed to fetch attendance: ${attendanceResponse.status}`);
-          }
-          
-          const attendanceResult = await attendanceResponse.json();
-          
-          if (attendanceResult.success) {
-            // API returns:
-            // - attendance: [{ First, Initials, Status, Week_Start, ... }] (new format)
-            // - team: [{ First, Initials, Nickname, Status }]
-            // The attendance array already has the data we need in the new format
-            
-            // Transform attendance records
-            const transformedAttendance: any[] = [];
-            (attendanceResult.attendance || []).forEach((member: any) => {
-              // New format - member already has First, Initials, Status, Week_Start, etc.
-              transformedAttendance.push({
-                Attendance_ID: 0,
-                Entry_ID: 0,
-                First_Name: member.First || member.name || '',
-                Initials: member.Initials || '',
-                Nickname: member.Nickname || member.First || '',
-                Level: member.Level || '',
-                Week_Start: member.Week_Start ? new Date(member.Week_Start).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-                Week_End: member.Week_End ? new Date(member.Week_End).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-                ISO_Week: typeof member.iso === 'number' ? member.iso : 0,
-                Attendance_Days: member.Status || '',
-                Confirmed_At: member.Confirmed_At ?? null,
-                status: member.Status || '',
-                isConfirmed: Boolean(member.Confirmed_At),
-                isOnLeave: member.IsOnLeave === 1 || member.IsOnLeave === true
-              });
-            });
-            
-            const transformedData = {
-              attendance: transformedAttendance,
-              team: attendanceResult.team || []
-            };
-            
-            cachedAttendance = transformedData;
-            setAttendanceRecords(transformedData.attendance);
-            setAttendanceTeam(transformedData.team);
-          } else {
-            throw new Error(attendanceResult.error || 'Failed to fetch attendance');
-          }
-        } catch (error: any) {
-          console.error('Error fetching attendance:', error);
-          cachedAttendanceError = error.message || 'Unknown error occurred.';
-          setAttendanceError(error.message || 'Unknown error occurred.');
-          setAttendanceRecords([]);
-          setAttendanceTeam([]);
-        } finally {
-          setIsLoadingAttendance(false);
-        }
-  
-        try {
-          setIsLoadingAnnualLeave(true);
-          const annualLeaveResponse = await fetch(
-            `/api/attendance/getAnnualLeave`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ userInitials: userData[0]?.Initials || '' }),
-            }
-          );
-          if (!annualLeaveResponse.ok)
-            throw new Error(`Failed to fetch annual leave: ${annualLeaveResponse.status}`);
-          const annualLeaveData = await annualLeaveResponse.json();
-          if (annualLeaveData) {
-            // Handle annual leave records
-            if (Array.isArray(annualLeaveData.annual_leave)) {
-              const mappedAnnualLeave: AnnualLeaveRecord[] = annualLeaveData.annual_leave.map(
-                (rec: any) => ({
-                  person: rec.person,
-                  start_date: rec.start_date,
-                  end_date: rec.end_date,
-                  reason: rec.reason,
-                  status: rec.status,
-                  id: rec.request_id ? String(rec.request_id) : rec.id || `temp-${rec.start_date}-${rec.end_date}`,
-                  days_taken: typeof rec.days_taken === 'number' ? rec.days_taken : undefined,
-                  leave_type: rec.leave_type || undefined,
-                  rejection_notes: rec.rejection_notes || undefined,
-                  approvers: rec.approvers || [],
-                  hearing_confirmation: rec.hearing_confirmation,
-                  hearing_details: rec.hearing_details || undefined,
-                })
-              );
-              cachedAnnualLeave = mappedAnnualLeave;
-              setAnnualLeaveRecords(mappedAnnualLeave);
-            } else {
-              // No annual leave records, set empty array
-              setAnnualLeaveRecords([]);
-            }
-  
-            // Handle future leave records  
-            if (Array.isArray(annualLeaveData.future_leave)) {
-              const mappedFutureLeave: AnnualLeaveRecord[] = annualLeaveData.future_leave.map(
-                (rec: any) => ({
-                  person: rec.person,
-                  start_date: rec.start_date,
-                  end_date: rec.end_date,
-                  reason: rec.reason,
-                  status: rec.status,
-                  id: rec.request_id ? String(rec.request_id) : rec.id || `temp-${rec.start_date}-${rec.end_date}`,
-                  days_taken: typeof rec.days_taken === 'number' ? rec.days_taken : undefined,
-                  leave_type: rec.leave_type || undefined,
-                  rejection_notes: rec.rejection_notes || undefined,
-                  approvers: rec.approvers || [],
-                  hearing_confirmation: rec.hearing_confirmation,
-                  hearing_details: rec.hearing_details || undefined,
-                })
-              );
-              cachedFutureLeaveRecords = mappedFutureLeave;
-              setFutureLeaveRecords(mappedFutureLeave);
-            } else {
-              // No future leave records, set empty array
-              setFutureLeaveRecords([]);
-            }
-  
-            // Handle optional data
-            if (annualLeaveData.user_details && annualLeaveData.user_details.totals) {
-              setAnnualLeaveTotals(annualLeaveData.user_details.totals);
-            }
-            // Use all_data (all team members) instead of user_leave (only current user)
-            if (annualLeaveData.all_data) {
-              setAnnualLeaveAllData(mapAnnualLeaveArray(annualLeaveData.all_data));
-            }
-
-            // Store team entitlement data (Initials + holiday_entitlement)
-            if (Array.isArray(annualLeaveData.team)) {
-              setAnnualLeaveTeam(annualLeaveData.team);
-            } else {
-              setAnnualLeaveTeam([]);
-            }
-          } else {
-            // Handle null/undefined response by setting empty arrays
-            debugWarn('No annual leave data returned from API');
-            setAnnualLeaveRecords([]);
-            setFutureLeaveRecords([]);
-          }
-        } catch (error: any) {
-          console.error('Error fetching annual leave:', error);
-          cachedAnnualLeaveError = error.message || 'Unknown error occurred.';
-          setAnnualLeaveError(error.message || 'Unknown error occurred.');
-          setAnnualLeaveRecords([]);
-        } finally {
-          setIsLoadingAnnualLeave(false);
-          setIsActionsLoading(false);
-        }
-      };
-      fetchData();
-    }
+    // Parallel fetch effect now handles all live data fetching.
+    // Legacy duplicate fetch removed — parallel effect at L2615 is the single source.
   }, [userData]);
 
   // Dedicated /api/home-wip route for Home time metrics (isolated from heavy reporting route)
@@ -3486,6 +3414,27 @@ const handleAttendanceUpdated = (updatedRecords: AttendanceRecord[]) => {
     return;
   }
 
+  // Capture previous value for rollback before optimistic update
+  const prevRecord = attendanceRecords.find(
+    (r: any) => r.Initials === initials && (r.Week_Start || '').substring(0, 10) === weekStart.substring(0, 10)
+  );
+  const prevDays = prevRecord?.Attendance_Days ?? '';
+
+  // Build optimistic record and apply immediately (instant UI)
+  const optimisticRecord: AttendanceRecord = {
+    Attendance_ID: prevRecord?.Attendance_ID ?? 0,
+    Entry_ID: prevRecord?.Entry_ID ?? 0,
+    First_Name: firstName,
+    Initials: initials,
+    Level: (attendanceTeam.find((t: any) => t.Initials === initials)?.Level) || '',
+    Week_Start: weekStart,
+    Week_End: new Date(new Date(weekStart).setDate(new Date(weekStart).getDate() + 6)).toISOString().split('T')[0],
+    ISO_Week: getISOWeek(new Date(weekStart)),
+    Attendance_Days: attendanceDays,
+    Confirmed_At: new Date().toISOString(),
+  };
+  handleAttendanceUpdated([optimisticRecord]);
+
   try {
     const url = `/api/attendance/updateAttendance`;
     const payload = { initials, weekStart, attendanceDays };
@@ -3505,6 +3454,7 @@ const handleAttendanceUpdated = (updatedRecords: AttendanceRecord[]) => {
     if (!json || json.success !== true || !json.record) {
       throw new Error('Unexpected response from updateAttendance');
     }
+    // Reconcile with server response (updates IDs, timestamps)
     const rec = json.record;
     const mapped: AttendanceRecord = {
       Attendance_ID: rec.Attendance_ID ?? 0,
@@ -3519,28 +3469,20 @@ const handleAttendanceUpdated = (updatedRecords: AttendanceRecord[]) => {
       Confirmed_At: rec.Confirmed_At || new Date().toISOString(),
     };
     handleAttendanceUpdated([mapped]);
-    // Note: Toast is shown by PersonalAttendanceConfirm after all weeks are saved
   } catch (err) {
     console.error('Error saving attendance (home):', err);
-    // Optional local fallback for testing
-    const fallbackLocal = process.env.REACT_APP_ATTENDANCE_FALLBACK_LOCAL === 'true';
-    if (fallbackLocal) {
-      debugWarn('⚠️ Falling back to local attendance update');
-      const newRecord: AttendanceRecord = {
-        Attendance_ID: 0,
-        Entry_ID: 0,
-        First_Name: firstName,
-        Initials: initials,
-        Level: (attendanceTeam.find((t: any) => t.Initials === initials)?.Level) || '',
-        Week_Start: weekStart,
-        Week_End: new Date(new Date(weekStart).setDate(new Date(weekStart).getDate() + 6)).toISOString().split('T')[0],
-        ISO_Week: getISOWeek(new Date(weekStart)),
-        Attendance_Days: attendanceDays,
-        Confirmed_At: new Date().toISOString(),
-      };
-      handleAttendanceUpdated([newRecord]);
-      return; // treat as success in UI
-    }
+    // Rollback optimistic update
+    const rollback: AttendanceRecord = {
+      Attendance_ID: prevRecord?.Attendance_ID ?? 0, Entry_ID: prevRecord?.Entry_ID ?? 0,
+      First_Name: firstName, Initials: initials,
+      Level: (attendanceTeam.find((t: any) => t.Initials === initials)?.Level) || '',
+      Week_Start: weekStart,
+      Week_End: new Date(new Date(weekStart).setDate(new Date(weekStart).getDate() + 6)).toISOString().split('T')[0],
+      ISO_Week: getISOWeek(new Date(weekStart)),
+      Attendance_Days: prevDays,
+      Confirmed_At: prevRecord?.Confirmed_At ?? null,
+    };
+    handleAttendanceUpdated([rollback]);
     // Show error toast immediately on failure
     showToast('Failed to save attendance', 'error', err instanceof Error ? err.message : 'Please try again');
     // Bubble error so caller can show inline feedback
@@ -3888,7 +3830,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     const mattersResolvedForConversion = Array.isArray(providedMatters) || allMatters !== null || !!allMattersError;
 
     const liveConversionComparison = useMemo<ConversionComparisonPayload | null>(() => {
-      if (!Array.isArray(enquiries) || enquiries.length === 0) return null;
+      if (!Array.isArray(deferredEnquiries) || deferredEnquiries.length === 0) return null;
       if (!mattersResolvedForConversion) return null;
 
       let effectiveEmail = String(userData?.[0]?.Email || currentUserEmail || '').toLowerCase().trim();
@@ -3907,7 +3849,25 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
 
       const now = new Date();
       const today = startOfDay(now);
-      const yesterday = addDays(today, -1);
+      const dayOfWeek = today.getDay(); // 0=Sun, 6=Sat
+      // Skip weekends: on Mon compare vs Fri; on Sat/Sun show Fri vs Thu
+      const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+      const lastWorkingDay = startOfDay(
+        dayOfWeek === 1 ? addDays(today, -3) // Monday → Friday
+        : dayOfWeek === 0 ? addDays(today, -2) // Sunday → Friday
+        : dayOfWeek === 6 ? addDays(today, -1) // Saturday → Friday
+        : addDays(today, -1) // Tue-Fri → previous calendar day
+      );
+      const prevWorkingDay = startOfDay(
+        lastWorkingDay.getDay() === 1 ? addDays(lastWorkingDay, -3) // Mon → Fri
+        : addDays(lastWorkingDay, -1) // otherwise → previous calendar day
+      );
+      // Effective "current" and "previous" days for the Today card
+      const todayEffective = isWeekend ? lastWorkingDay : today;
+      const comparisonDay = isWeekend ? prevWorkingDay : lastWorkingDay;
+      const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      const todayCardLabel = isWeekend ? dayNames[todayEffective.getDay()] : 'Today';
+      const comparisonDayLabel = isWeekend || dayOfWeek === 1 ? dayNames[comparisonDay.getDay()] : 'Yesterday';
       const todayWeekIndex = (today.getDay() + 6) % 7;
       const startOfWeek = addDays(today, -todayWeekIndex);
       const prevWeekStart = addDays(startOfWeek, -7);
@@ -3917,7 +3877,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
       const startOfQuarter = new Date(today.getFullYear(), currentQuarterMonth, 1);
       const prevQuarterStart = new Date(today.getFullYear(), currentQuarterMonth - 3, 1);
 
-      const normalizedEnquiries = enquiries.map((enquiry: any) => ({
+      const normalizedEnquiries = deferredEnquiries.map((enquiry: any) => ({
         ...enquiry,
         ID: enquiry.ID || enquiry.id?.toString(),
         Touchpoint_Date: enquiry.Touchpoint_Date || enquiry.datetime || enquiry.Date_Created,
@@ -3944,24 +3904,29 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
             date: parsedDate,
             dayKey: parsedDate.toISOString().slice(0, 10),
             weekKey: formatWeekFragment(parsedDate),
+            hourKey: formatHourFragment(parsedDate),
             name: `${String(enquiry.First_Name || '').trim()} ${String(enquiry.Last_Name || '').trim()}`.trim() || String(enquiry.Email || '').trim() || '—',
             poc: String(enquiry.Point_of_Contact || '').trim(),
             aow: String(enquiry.Area_of_Work || enquiry.aow || 'Other').trim() || 'Other',
           };
         })
-        .filter(Boolean) as Array<{ id: string; date: Date; dayKey: string; weekKey: string; name: string; poc: string; aow: string }>;
+        .filter(Boolean) as Array<{ id: string; date: Date; dayKey: string; weekKey: string; hourKey: string; name: string; poc: string; aow: string }>;
 
       const userMatters = (normalizedMatters || []).filter((matter) => godMode || namesMatchForOutstanding(matter.responsibleSolicitor, userResponsibleName));
 
-      const countEnquiriesInRange = (rangeStart: Date, rangeEnd: Date, granularity: 'day' | 'week') => {
-        const startBoundary = startOfDay(rangeStart);
-        const endBoundary = endOfDay(rangeEnd);
+      const countEnquiriesInRange = (rangeStart: Date, rangeEnd: Date, granularity: 'day' | 'week' | 'hour') => {
+        const startBoundary = granularity === 'hour' ? rangeStart : startOfDay(rangeStart);
+        const endBoundary = granularity === 'hour' ? rangeEnd : endOfDay(rangeEnd);
         const seen = new Set<string>();
         let total = 0;
 
         for (const enquiry of userEnquiries) {
           if (enquiry.date < startBoundary || enquiry.date > endBoundary) continue;
-          const suffix = granularity === 'week' ? enquiry.weekKey : enquiry.dayKey;
+          const suffix = granularity === 'week'
+            ? enquiry.weekKey
+            : granularity === 'hour'
+              ? enquiry.hourKey
+              : enquiry.dayKey;
           const base = enquiry.id || `${enquiry.name}|${enquiry.poc}`;
           const key = `${base}|${suffix}`;
           if (seen.has(key)) continue;
@@ -3972,9 +3937,9 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         return total;
       };
 
-      const countMattersInRange = (rangeStart: Date, rangeEnd: Date) => {
-        const startBoundary = startOfDay(rangeStart);
-        const endBoundary = endOfDay(rangeEnd);
+      const countMattersInRange = (rangeStart: Date, rangeEnd: Date, granularity: 'day' | 'hour' = 'day') => {
+        const startBoundary = granularity === 'hour' ? rangeStart : startOfDay(rangeStart);
+        const endBoundary = granularity === 'hour' ? rangeEnd : endOfDay(rangeEnd);
         return userMatters.filter((matter) => {
           const openDate = parseOpenDate((matter as any).openDate);
           return openDate && openDate >= startBoundary && openDate <= endBoundary;
@@ -4018,10 +3983,48 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         ? Number(((matters / enquiryCount) * 100).toFixed(1))
         : 0;
 
-      const sumField = <T extends Record<string, number | string | boolean | undefined>>(items: T[], field: keyof T) =>
-        items.reduce((total, item) => total + Number(item[field] || 0), 0);
+      const sumField = <T, K extends keyof T>(items: T[], field: K) =>
+        items.reduce((total, item) => total + Number(item[field] ?? 0), 0);
+
+      const markCurrentEndpoint = (buckets: ConversionComparisonBucket[]): ConversionComparisonBucket[] => {
+        const lastCurrentIndex = buckets.reduce((lastIndex, bucket, index) => (
+          bucket.currentAvailable === false ? lastIndex : index
+        ), -1);
+
+        return buckets.map((bucket, index) => ({
+          ...bucket,
+          isCurrentEndpoint: lastCurrentIndex >= 0 && index === lastCurrentIndex,
+        }));
+      };
 
       const workingDayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+      const buildHourlyBuckets = (currentDayDate: Date, previousDayDate: Date) => (
+        Array.from({ length: 11 }, (_, index) => {
+          const hour = 8 + index;
+          const currentStart = new Date(currentDayDate.getFullYear(), currentDayDate.getMonth(), currentDayDate.getDate(), hour, 0, 0, 0);
+          const currentEnd = new Date(currentDayDate.getFullYear(), currentDayDate.getMonth(), currentDayDate.getDate(), hour, 59, 59, 999);
+          const previousStart = new Date(previousDayDate.getFullYear(), previousDayDate.getMonth(), previousDayDate.getDate(), hour, 0, 0, 0);
+          const previousEnd = new Date(previousDayDate.getFullYear(), previousDayDate.getMonth(), previousDayDate.getDate(), hour, 59, 59, 999);
+          const isFuture = currentStart > now;
+          const currentRangeEnd = currentEnd > now ? now : currentEnd;
+          const axisLabel = hour === 12
+            ? '12pm'
+            : hour < 12
+              ? `${hour}am`
+              : `${hour - 12}pm`;
+
+          return {
+            label: axisLabel,
+            axisLabel,
+            currentEnquiries: isFuture ? 0 : countEnquiriesInRange(currentStart, currentRangeEnd, 'hour'),
+            previousEnquiries: countEnquiriesInRange(previousStart, previousEnd, 'hour'),
+            currentMatters: isFuture ? 0 : countMattersInRange(currentStart, currentRangeEnd, 'hour'),
+            previousMatters: countMattersInRange(previousStart, previousEnd, 'hour'),
+            isFuture,
+            currentAvailable: !isFuture,
+          };
+        })
+      );
       const buildWorkingDayBuckets = (currentStart: Date, previousStart: Date, hideFuture = false) => (
         workingDayLabels.map((label, index) => {
           const currentDate = addDays(currentStart, index);
@@ -4036,6 +4039,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
             currentMatters: muteCurrent ? 0 : countMattersInRange(currentDate, currentDate),
             previousMatters: muteCurrent ? 0 : countMattersInRange(previousDate, previousDate),
             isFuture,
+            currentAvailable: !isFuture,
           };
         })
       );
@@ -4060,6 +4064,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
             currentMatters: isFuture ? 0 : countMattersInRange(currentStart, currentEnd > today ? today : currentEnd),
             previousMatters: countMattersInRange(previousStart, previousEnd),
             isFuture,
+            currentAvailable: !isFuture,
           };
         });
       };
@@ -4080,14 +4085,16 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
             currentMatters: isFuture ? 0 : countMattersInRange(currentStart, currentEnd > today ? today : currentEnd),
             previousMatters: countMattersInRange(previousStart, previousEnd),
             isFuture,
+            currentAvailable: !isFuture,
           };
         });
       };
 
-      const fullWeekBuckets = buildWorkingDayBuckets(startOfWeek, prevWeekStart, false);
-      const sameDaysWeekBuckets = buildWorkingDayBuckets(startOfWeek, prevWeekStart, true);
-      const monthBuckets = buildMonthBuckets(startOfMonth, prevMonthStart);
-      const quarterBuckets = buildQuarterBuckets(startOfQuarter, prevQuarterStart);
+  const todayHourlyBuckets = markCurrentEndpoint(buildHourlyBuckets(todayEffective, comparisonDay));
+  const fullWeekBuckets = markCurrentEndpoint(buildWorkingDayBuckets(startOfWeek, prevWeekStart, false));
+      const sameDaysWeekBuckets = markCurrentEndpoint(buildWorkingDayBuckets(startOfWeek, prevWeekStart, true));
+      const monthBuckets = markCurrentEndpoint(buildMonthBuckets(startOfMonth, prevMonthStart));
+      const quarterBuckets = markCurrentEndpoint(buildQuarterBuckets(startOfQuarter, prevQuarterStart));
       const monthRanges = monthBuckets.map((bucket, index) => {
         const daysInMonth = new Date(startOfMonth.getFullYear(), startOfMonth.getMonth() + 1, 0).getDate();
         const bucketSize = Math.ceil(daysInMonth / 4);
@@ -4101,10 +4108,10 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         return { start, end: rawEnd > today ? today : rawEnd, isFuture: bucket.isFuture };
       });
 
-      const todayEnquiries = countEnquiriesInRange(today, today, 'day');
-      const yesterdayEnquiries = countEnquiriesInRange(yesterday, yesterday, 'day');
-      const todayMatters = countMattersInRange(today, today);
-      const yesterdayMatters = countMattersInRange(yesterday, yesterday);
+      const todayEnquiries = countEnquiriesInRange(todayEffective, todayEffective, 'day');
+      const comparisonEnquiries = countEnquiriesInRange(comparisonDay, comparisonDay, 'day');
+      const todayMatters = countMattersInRange(todayEffective, todayEffective);
+      const comparisonMatters = countMattersInRange(comparisonDay, comparisonDay);
       const thisWeekEnquiries = sumField(fullWeekBuckets, 'currentEnquiries');
       const lastWeekEnquiries = sumField(fullWeekBuckets, 'previousEnquiries');
       const thisWeekMatters = sumField(fullWeekBuckets, 'currentMatters');
@@ -4121,7 +4128,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
       const lastQuarterEnquiries = sumField(quarterBuckets, 'previousEnquiries');
       const thisQuarterMatters = sumField(quarterBuckets, 'currentMatters');
       const lastQuarterMatters = sumField(quarterBuckets, 'previousMatters');
-      const todayAowMix = countAowMixInRange(today, today, 'day');
+      const todayAowMix = countAowMixInRange(todayEffective, todayEffective, 'day');
       const thisWeekAowMix = countAowMixInRange(startOfWeek, today, 'week');
       const thisMonthAowMix = mergeAowMixes(monthRanges.map((range) => {
         if (range.isFuture || range.end < range.start) return [];
@@ -4136,18 +4143,18 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         items: [
           {
             key: 'today',
-            title: 'Today',
-            comparisonLabel: 'vs yesterday',
-            currentLabel: 'Today',
-            previousLabel: 'Yesterday',
+            title: isWeekend ? todayCardLabel : 'Today',
+            comparisonLabel: `vs ${comparisonDayLabel.toLowerCase()}`,
+            currentLabel: todayCardLabel,
+            previousLabel: comparisonDayLabel,
             currentEnquiries: todayEnquiries,
-            previousEnquiries: yesterdayEnquiries,
+            previousEnquiries: comparisonEnquiries,
             currentMatters: todayMatters,
-            previousMatters: yesterdayMatters,
+            previousMatters: comparisonMatters,
             currentPct: pctFromCounts(todayMatters, todayEnquiries),
-            previousPct: pctFromCounts(yesterdayMatters, yesterdayEnquiries),
-            chartMode: 'none',
-            buckets: [],
+            previousPct: pctFromCounts(comparisonMatters, comparisonEnquiries),
+            chartMode: 'hourly',
+            buckets: todayHourlyBuckets,
             currentAowMix: todayAowMix,
           },
           {
@@ -4201,7 +4208,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
           },
         ],
       };
-    }, [currentUserEmail, enquiries, mattersResolvedForConversion, normalizedMatters, teamData, userData, userResponsibleName]);
+    }, [currentUserEmail, deferredEnquiries, mattersResolvedForConversion, normalizedMatters, deferredTeamData, userData, userResponsibleName]);
 
   // Removed no-op effect that could trigger unnecessary renders
   // useEffect(() => {}, [userMatterIDs, outstandingBalancesData]);
@@ -4531,22 +4538,44 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     }),
     []
   );
-  const demoConversionComparison = useMemo<ConversionComparisonPayload>(() => ({
+  const demoConversionComparison = useMemo<ConversionComparisonPayload>(() => {
+    const demoNow = new Date();
+    const demoDow = demoNow.getDay();
+    const demoIsWeekend = demoDow === 0 || demoDow === 6;
+    const demoNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const demoCurrentLabel = demoIsWeekend ? 'Friday' : 'Today';
+    const demoPrevLabel = (demoIsWeekend || demoDow === 1)
+      ? demoNames[demoDow === 1 ? 5 : 4] // Mon→Fri→Thu; Sat/Sun→Fri→Thu
+      : 'Yesterday';
+    const demoTitle = demoIsWeekend ? 'Friday' : 'Today';
+    return {
     items: [
       {
         key: 'today',
-        title: 'Today',
-        comparisonLabel: 'vs yesterday',
-        currentLabel: 'Today',
-        previousLabel: 'Yesterday',
+        title: demoTitle,
+        comparisonLabel: `vs ${demoPrevLabel.toLowerCase()}`,
+        currentLabel: demoCurrentLabel,
+        previousLabel: demoPrevLabel,
         currentEnquiries: 6,
         previousEnquiries: 5,
         currentMatters: 2,
         previousMatters: 1,
         currentPct: 33.3,
         previousPct: 20,
-        chartMode: 'none',
-        buckets: [],
+        chartMode: 'hourly',
+        buckets: [
+          { label: '8am', axisLabel: '8am', currentEnquiries: 0, previousEnquiries: 0, currentMatters: 0, previousMatters: 0 },
+          { label: '9am', axisLabel: '9am', currentEnquiries: 1, previousEnquiries: 1, currentMatters: 0, previousMatters: 0 },
+          { label: '10am', axisLabel: '10am', currentEnquiries: 0, previousEnquiries: 1, currentMatters: 0, previousMatters: 0 },
+          { label: '11am', axisLabel: '11am', currentEnquiries: 1, previousEnquiries: 0, currentMatters: 0, previousMatters: 0 },
+          { label: '12pm', axisLabel: '12pm', currentEnquiries: 1, previousEnquiries: 1, currentMatters: 1, previousMatters: 0 },
+          { label: '1pm', axisLabel: '1pm', currentEnquiries: 0, previousEnquiries: 0, currentMatters: 0, previousMatters: 0 },
+          { label: '2pm', axisLabel: '2pm', currentEnquiries: 1, previousEnquiries: 1, currentMatters: 0, previousMatters: 0 },
+          { label: '3pm', axisLabel: '3pm', currentEnquiries: 1, previousEnquiries: 0, currentMatters: 0, previousMatters: 0 },
+          { label: '4pm', axisLabel: '4pm', currentEnquiries: 1, previousEnquiries: 1, currentMatters: 1, previousMatters: 1 },
+          { label: '5pm', axisLabel: '5pm', currentEnquiries: 0, previousEnquiries: 1, currentMatters: 0, previousMatters: 0 },
+          { label: '6pm', axisLabel: '6pm', currentEnquiries: 0, previousEnquiries: 0, currentMatters: 0, previousMatters: 0 },
+        ],
         currentAowMix: [
           { key: 'Construction', count: 3 },
           { key: 'Commercial', count: 2 },
@@ -4643,7 +4672,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         ],
       },
     ],
-  }), []);
+  }; }, []);
 
   const displayTimeMetrics = demoModeEnabled ? demoTimeMetrics : timeMetrics;
   const displayEnquiriesToday = demoModeEnabled ? demoEnquiryMetrics.today : enquiriesToday;
@@ -4658,12 +4687,16 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
   const displayPitchedEnquiriesWeekToDate = demoModeEnabled ? 0 : pitchedEnquiriesWeekToDate;
   const displayPitchedEnquiriesMonthToDate = demoModeEnabled ? 0 : pitchedEnquiriesMonthToDate;
   const displayMattersOpenedCount = demoModeEnabled ? demoEnquiryMetrics.mattersOpened : mattersOpenedCount;
+  const compatibleSavedConversionComparison = useMemo(
+    () => sanitizeSavedConversionComparison(savedConversionComparison),
+    [savedConversionComparison],
+  );
   const resolvedConversionComparison = demoModeEnabled
     ? demoConversionComparison
     : mattersResolvedForConversion
-      ? (liveConversionComparison ?? savedConversionComparison)
+      ? (liveConversionComparison ?? compatibleSavedConversionComparison)
       : null;
-  const showExperimentalConversionComparison = isLocalhost;
+  const showExperimentalConversionComparison = true;
   const isResolvingConversionComparison = showExperimentalConversionComparison
     && !demoModeEnabled
     && !mattersResolvedForConversion;
@@ -4682,7 +4715,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
   const recentEnquiryRecords = useMemo(() => {
     const effectiveEmail = String(effectiveDashboardIdentity.email || '').toLowerCase().trim();
     const effectiveInitials = String(effectiveDashboardIdentity.initials || '').toUpperCase().trim();
-    if (!Array.isArray(enquiries) || enquiries.length === 0 || !effectiveEmail) return [];
+    if (!Array.isArray(deferredEnquiries) || deferredEnquiries.length === 0 || !effectiveEmail) return [];
     const isAdmin = isFirmWideDashboard;
     const uniqueStrings = (values: unknown[]): string[] => Array.from(new Set(
       values
@@ -4725,7 +4758,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
       return normalizedStages.sort((left, right) => scoreStage(right) - scoreStage(left))[0] || 'enquiry';
     };
 
-    const mappedRecentEnquiries = enquiries
+    const mappedRecentEnquiries = deferredEnquiries
       .map((enq: any) => ({
         ...enq,
         ID: enq.ID || enq.id?.toString(),
@@ -4781,7 +4814,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
 
     if (isAdmin) return mappedRecentEnquiries;
     return mappedRecentEnquiries.slice(0, 500);
-  }, [effectiveDashboardIdentity.email, effectiveDashboardIdentity.initials, enquiries, isFirmWideDashboard]);
+  }, [effectiveDashboardIdentity.email, effectiveDashboardIdentity.initials, deferredEnquiries, isFirmWideDashboard]);
 
   // Prune snapshot records when live data excludes rows (e.g. after a delete via SSE)
   useEffect(() => {
@@ -5732,16 +5765,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
       });
     }
 
-    // Demo mode: surface CCL review action when a draft exists for the demo matter
-    if (demoModeEnabled && demoCclDraftExists) {
-      actions.push({
-        title: 'Review CCL',
-        subtitle: 'HELIX01-01',
-        icon: 'CCL',
-        onClick: () => openHomeCclReview('DEMO-3311402'),
-        category: 'standard' as ImmediateActionCategory,
-      });
-    }
+    // Demo mode: CCL review chip removed — real CCL actions surface inline via CclOpsPanel
 
     // Normalize titles (strip count suffix like " (3)") when sorting
     const sortKey = (title: string) => {
@@ -5765,8 +5789,6 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     isLocalhost,
     pendingDocActions,
     enquiries,
-    demoCclDraftExists,
-    openHomeCclReview,
   ]);
 
   // Notify parent component when immediate actions state changes
@@ -5919,6 +5941,32 @@ const conversionRate = displayEnquiriesMonthToDate
   ? Number(((displayMattersOpenedCount / displayEnquiriesMonthToDate) * 100).toFixed(2))
   : 0;
 
+  // ── Memoised heavy props for OperationsDashboard (React.memo) ──
+  const memoEnquiryMetrics = useMemo(() => [
+    { title: 'Enquiries Today', count: displayEnquiriesToday, prevCount: displayPrevEnquiriesToday, pitchedCount: displayPitchedEnquiriesToday },
+    { title: 'Enquiries This Week', count: displayEnquiriesWeekToDate, prevCount: displayPrevEnquiriesWeekFull, elapsedPrevCount: displayPrevEnquiriesWeekToDate, pitchedCount: displayPitchedEnquiriesWeekToDate },
+    { title: 'Enquiries This Month', count: displayEnquiriesMonthToDate, prevCount: displayPrevEnquiriesMonthFull, elapsedPrevCount: displayPrevEnquiriesMonthToDate, pitchedCount: displayPitchedEnquiriesMonthToDate },
+    { title: 'Matters Opened This Month', count: displayMattersOpenedCount },
+    { title: 'Conversion Rate', percentage: conversionRate, isPercentage: true, showTrend: false, context: { enquiriesMonthToDate: displayEnquiriesMonthToDate, mattersOpenedMonthToDate: displayMattersOpenedCount, prevEnquiriesMonthToDate: displayPrevEnquiriesMonthToDate } },
+  ], [displayEnquiriesToday, displayPrevEnquiriesToday, displayPitchedEnquiriesToday, displayEnquiriesWeekToDate, displayPrevEnquiriesWeekFull, displayPrevEnquiriesWeekToDate, displayPitchedEnquiriesWeekToDate, displayEnquiriesMonthToDate, displayPrevEnquiriesMonthFull, displayPrevEnquiriesMonthToDate, displayPitchedEnquiriesMonthToDate, displayMattersOpenedCount, conversionRate]);
+
+  const memoWipDailyData = useMemo(() => {
+    if (!wipClioData) return undefined;
+    const mapDaily = (src: Record<string, any>) => Object.fromEntries(
+      Object.entries(src || {}).map(([k, v]: [string, any]) => [k, {
+        hours: Number(v?.total_hours) || 0,
+        value: Number(v?.total_amount) || 0,
+        entries: Array.isArray(v?.entries) ? v.entries.map((e: any) => ({ hours: Number(e?.hours) || 0, value: Number(e?.value) || 0, type: e?.type || undefined, note: e?.note || undefined, matter: e?.matter || undefined, matterDesc: e?.matterDesc || undefined, activity: e?.activity || undefined })) : undefined,
+      }])
+    );
+    return { currentWeek: mapDaily(wipClioData?.current_week?.daily_data || {}), lastWeek: mapDaily(wipClioData?.last_week?.daily_data || {}) };
+  }, [wipClioData]);
+
+  const handleOpenOutstandingBreakdown = useCallback(() => {
+    setShowOnlyMine(false);
+    setIsOutstandingPanelOpen(true);
+  }, []);
+
   // Portal for app-level immediate actions
   const appLevelImmediateActions = (
     <ImmediateActionsBar
@@ -6006,51 +6054,85 @@ const conversionRate = displayEnquiriesMonthToDate
                 <div>
                   <div style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? colours.subtleGrey : colours.greyText, padding: '2px 0 3px', letterSpacing: '0.2px' }}>Conversion</div>
                   <div style={{ background: isDarkMode ? 'rgba(6, 23, 51, 0.55)' : '#fff', border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(160,160,160,0.12)'}`, minHeight: 520, display: 'flex', flexDirection: 'column' }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderBottom: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(160,160,160,0.12)'}` }}>
-                      {[0,1].map(i => (
-                        <div key={i} style={{ padding: '10px 14px 8px', textAlign: 'center', borderBottom: i === 0 ? `2px solid ${isDarkMode ? colours.accent : colours.highlight}` : '2px solid transparent', background: i === 0 ? (isDarkMode ? 'rgba(6,23,51,0.75)' : 'rgba(13,47,96,0.04)') : 'transparent' }}>
-                          <div style={{ width: 74, height: 10, margin: '0 auto', background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(54,144,206,0.06)', borderRadius: 2, animation: 'homeSkelPulse 1.5s ease-in-out infinite', animationDelay: `${0.08 * i}s` }} />
-                        </div>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '10px 12px', borderBottom: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(160,160,160,0.12)'}` }}>
+                      {[
+                        { key: 'today', width: 56, active: true },
+                        { key: 'week', width: 62, active: false },
+                        { key: 'month', width: 62, active: false },
+                        { key: 'quarter', width: 68, active: false },
+                      ].map((tab, index) => (
+                        <div key={tab.key} style={{ width: tab.width, height: 21, border: `1px solid ${tab.active ? (isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(54,144,206,0.10)') : 'transparent'}`, background: tab.active ? (isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(54,144,206,0.06)') : (isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(13,47,96,0.03)'), animation: 'homeSkelPulse 1.5s ease-in-out infinite', animationDelay: `${index * 0.08}s` }} />
                       ))}
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderBottom: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(160,160,160,0.12)'}` }}>
-                      {[0,1].map(i => (
-                        <div key={i} style={{ padding: '14px 14px 10px', borderRight: i === 0 ? `1px solid ${isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(160,160,160,0.08)'}` : 'none' }}>
-                          <div style={{ width: 44, height: 20, background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(54,144,206,0.06)', borderRadius: 2, animation: 'homeSkelPulse 1.5s ease-in-out infinite', animationDelay: `${(i + 2) * 0.12}s` }} />
-                          <div style={{ width: 58, height: 9, marginTop: 4, background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)', borderRadius: 2 }} />
-                          <div style={{ width: 96, height: 8, marginTop: 4, background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)', borderRadius: 2 }} />
-                        </div>
-                      ))}
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderBottom: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(160,160,160,0.12)'}` }}>
-                      {[0,1].map(i => (
-                        <div key={i} style={{ padding: '10px 14px', borderRight: i === 0 ? `1px solid ${isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(160,160,160,0.08)'}` : 'none' }}>
-                          <div style={{ width: 38, height: 16, background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(54,144,206,0.06)', borderRadius: 2, animation: 'homeSkelPulse 1.5s ease-in-out infinite', animationDelay: `${(i + 4) * 0.12}s` }} />
-                          <div style={{ width: 62, height: 9, marginTop: 4, background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)', borderRadius: 2 }} />
-                        </div>
-                      ))}
-                    </div>
-                    <div style={{ padding: '10px 14px', borderBottom: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(160,160,160,0.12)'}`, background: isDarkMode ? 'rgba(135,243,243,0.02)' : 'rgba(13,47,96,0.02)' }}>
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 6 }}>
-                        <div style={{ width: 52, height: 18, background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(54,144,206,0.06)', borderRadius: 2, animation: 'homeSkelPulse 1.5s ease-in-out infinite' }} />
-                        <div style={{ width: 54, height: 10, background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)', borderRadius: 2 }} />
-                        <div style={{ width: 138, height: 10, marginLeft: 'auto', background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)', borderRadius: 2 }} />
-                      </div>
-                      <div style={{ position: 'relative', height: 4, background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)', overflow: 'hidden' }}>
-                        <div style={{ position: 'absolute', inset: 0, width: '42%', background: isDarkMode ? 'rgba(135,243,243,0.3)' : 'rgba(54,144,206,0.25)', animation: 'homeSkelPulse 1.5s ease-in-out infinite' }} />
-                      </div>
-                    </div>
-                    <div style={{ padding: '8px 14px 6px' }}>
-                      {[0,1,2,3].map(i => (
-                        <div key={i} style={{ marginBottom: 6 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
-                            <div style={{ width: 6, height: 6, borderRadius: '50%', background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(54,144,206,0.06)' }} />
-                            <div style={{ flex: 1, height: 9, background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)', borderRadius: 2, maxWidth: 86 }} />
-                            <div style={{ width: 20, height: 9, background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)', borderRadius: 2 }} />
+                    <div style={{ padding: '14px 14px 12px', display: 'grid', gap: 12, flex: 1, alignContent: 'start' }}>
+                      <div style={{ display: 'grid', gap: 8 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                            <div style={{ width: 94, height: 36, background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(54,144,206,0.06)', borderRadius: 2, animation: 'homeSkelPulse 1.5s ease-in-out infinite' }} />
+                            <div style={{ width: 42, height: 10, background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)', borderRadius: 2 }} />
                           </div>
-                          <div style={{ height: 2, background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)', borderRadius: 1 }} />
+                          <div style={{ width: 104, height: 9, background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)', borderRadius: 2 }} />
                         </div>
-                      ))}
+                        <div style={{ width: '76%', height: 11, background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)', borderRadius: 2 }} />
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                          {[0, 1].map(i => (
+                            <div key={i} style={{ padding: '7px 9px', border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(160,160,160,0.12)'}`, background: i === 0 ? (isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(13,47,96,0.02)') : (isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(13,47,96,0.03)'), display: 'grid', gap: 4 }}>
+                              <div style={{ width: i === 0 ? '34%' : '40%', height: 8, background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(54,144,206,0.06)', borderRadius: 2 }} />
+                              <div style={{ width: '70%', height: 10, background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)', borderRadius: 2 }} />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <div style={{ display: 'grid', gap: 6 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                            {[0, 1].map(i => (
+                              <div key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                                  <span style={{ width: 10, height: 0, borderTop: `1.8px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(54,144,206,0.10)'}`, display: 'inline-block' }} />
+                                  <span style={{ width: 10, height: i === 0 ? 0 : 8, borderTop: i === 0 ? 'none' : `1px dashed ${isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(13,47,96,0.05)'}`, display: 'inline-block' }} />
+                                </span>
+                                <div style={{ width: 56, height: 8, background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)', borderRadius: 2 }} />
+                              </div>
+                            ))}
+                          </div>
+                          <div style={{ width: 56, height: 8, background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)', borderRadius: 2 }} />
+                        </div>
+                        <div style={{ height: 144, border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(160,160,160,0.12)'}`, background: isDarkMode ? 'linear-gradient(180deg, rgba(255,255,255,0.02) 0%, transparent 100%)' : 'linear-gradient(180deg, rgba(13,47,96,0.025) 0%, transparent 100%)', padding: '10px 12px 12px', display: 'grid', gap: 8 }}>
+                          <svg viewBox="0 0 240 144" width="100%" height="100%" preserveAspectRatio="none" aria-hidden="true">
+                            <line x1="10" y1="132" x2="230" y2="132" stroke={isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(13,47,96,0.04)'} strokeWidth="1" />
+                            {[28, 56, 84].map(y => <line key={y} x1="10" y1={y} x2="230" y2={y} stroke={isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(13,47,96,0.04)'} strokeWidth="1" />)}
+                            <polyline points="10,78 32,74 54,70 76,68 98,60 120,58 142,62 164,54 186,50 208,56 230,52" fill="none" stroke={isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(13,47,96,0.05)'} strokeWidth="1.6" strokeDasharray="4 4" strokeLinecap="round" strokeLinejoin="round" />
+                            <polyline points="10,70 32,62 54,66 76,54 98,50 120,44 142,52 164,42 186,38 208,46 230,40" fill="none" stroke={isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(54,144,206,0.10)'} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(11, minmax(0, 1fr))', gap: 4 }}>
+                            {['8', '9', '10', '11', '12', '1', '2', '3', '4', '5', '6'].map((tick, index) => (
+                              <div key={tick} style={{ display: 'grid', justifyItems: 'center' }}>
+                                <div style={{ width: index % 2 === 0 ? 16 : 12, height: 7, background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)', borderRadius: 2 }} />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ paddingTop: 8, borderTop: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(160,160,160,0.12)'}`, display: 'grid', gap: 6 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                          <div style={{ width: 68, height: 8, background: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(54,144,206,0.06)', borderRadius: 2 }} />
+                          <div style={{ width: 74, height: 8, background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)', borderRadius: 2 }} />
+                        </div>
+                        <div style={{ width: '100%', minHeight: 8, border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(160,160,160,0.12)'}`, background: isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(13,47,96,0.02)', overflow: 'hidden', display: 'flex' }}>
+                          {[22, 24, 18, 14, 22].map((width, index) => (
+                            <div key={index} style={{ width: `${width}%`, minHeight: 8, background: index % 2 === 0 ? (isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(54,144,206,0.06)') : (isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(13,47,96,0.04)'), animation: 'homeSkelPulse 1.5s ease-in-out infinite', animationDelay: `${index * 0.06}s` }} />
+                          ))}
+                        </div>
+                        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                          {[0, 1, 2].map(index => (
+                            <div key={index} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                              <span style={{ width: 6, height: 6, borderRadius: '50%', background: index === 1 ? (isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(13,47,96,0.04)') : (isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(54,144,206,0.06)') }} />
+                              <div style={{ width: index === 0 ? 58 : 48, height: 8, background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)', borderRadius: 2 }} />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -6105,40 +6187,7 @@ const conversionRate = displayEnquiriesMonthToDate
             <div className="home-stable-shell-panel home-stable-shell-live">
               <OperationsDashboard
                 metrics={displayTimeMetrics}
-                enquiryMetrics={[
-                  {
-                    title: 'Enquiries Today',
-                    count: displayEnquiriesToday,
-                    prevCount: displayPrevEnquiriesToday,
-                    pitchedCount: displayPitchedEnquiriesToday,
-                  },
-                  {
-                    title: 'Enquiries This Week',
-                    count: displayEnquiriesWeekToDate,
-                    prevCount: displayPrevEnquiriesWeekFull,
-                    elapsedPrevCount: displayPrevEnquiriesWeekToDate,
-                    pitchedCount: displayPitchedEnquiriesWeekToDate,
-                  },
-                  {
-                    title: 'Enquiries This Month',
-                    count: displayEnquiriesMonthToDate,
-                    prevCount: displayPrevEnquiriesMonthFull,
-                    elapsedPrevCount: displayPrevEnquiriesMonthToDate,
-                    pitchedCount: displayPitchedEnquiriesMonthToDate,
-                  },
-                  { title: 'Matters Opened This Month', count: displayMattersOpenedCount },
-                  {
-                    title: 'Conversion Rate',
-                    percentage: conversionRate,
-                    isPercentage: true,
-                    showTrend: false,
-                    context: {
-                      enquiriesMonthToDate: displayEnquiriesMonthToDate,
-                      mattersOpenedMonthToDate: displayMattersOpenedCount,
-                      prevEnquiriesMonthToDate: displayPrevEnquiriesMonthToDate,
-                    },
-                  },
-                ]}
+                enquiryMetrics={memoEnquiryMetrics}
                 enquiryMetricsBreakdown={enquiryMetricsBreakdown}
                 conversionComparison={resolvedConversionComparison}
                 enableConversionComparison={showExperimentalConversionComparison}
@@ -6163,49 +6212,15 @@ const conversionRate = displayEnquiriesMonthToDate
                 recentMatters={recentMatters}
                 demoModeEnabled={demoModeEnabled}
                 isActive={isActive}
-                teamData={teamData ?? undefined}
-                wipDailyData={wipClioData ? {
-                  currentWeek: Object.fromEntries(
-                    Object.entries(wipClioData?.current_week?.daily_data || {}).map(([k, v]: [string, any]) => [k, {
-                      hours: Number(v?.total_hours) || 0,
-                      value: Number(v?.total_amount) || 0,
-                      entries: Array.isArray(v?.entries) ? v.entries.map((e: any) => ({
-                        hours: Number(e?.hours) || 0,
-                        value: Number(e?.value) || 0,
-                        type: e?.type || undefined,
-                        note: e?.note || undefined,
-                        matter: e?.matter || undefined,
-                        matterDesc: e?.matterDesc || undefined,
-                        activity: e?.activity || undefined,
-                      })) : undefined,
-                    }])
-                  ),
-                  lastWeek: Object.fromEntries(
-                    Object.entries(wipClioData?.last_week?.daily_data || {}).map(([k, v]: [string, any]) => [k, {
-                      hours: Number(v?.total_hours) || 0,
-                      value: Number(v?.total_amount) || 0,
-                      entries: Array.isArray(v?.entries) ? v.entries.map((e: any) => ({
-                        hours: Number(e?.hours) || 0,
-                        value: Number(e?.value) || 0,
-                        type: e?.type || undefined,
-                        note: e?.note || undefined,
-                        matter: e?.matter || undefined,
-                        matterDesc: e?.matterDesc || undefined,
-                        activity: e?.activity || undefined,
-                      })) : undefined,
-                    }])
-                  ),
-                } : undefined}
+                teamData={deferredTeamData ?? undefined}
+                wipDailyData={memoWipDailyData}
                 onRefresh={handleRefreshTimeMetrics}
                 isRefreshing={isRefreshingTimeMetrics}
                 isLoading={isLoadingWipClio}
                 isOutstandingLoading={!outstandingBalancesData?.data || outstandingTotal === null}
                 isLoadingEnquiryMetrics={isLoadingEnquiryMetrics}
                 hasOutstandingBreakdown={filteredBalancesForPanel.length > 0}
-                onOpenOutstandingBreakdown={() => {
-                  setShowOnlyMine(false);
-                  setIsOutstandingPanelOpen(true);
-                }}
+                onOpenOutstandingBreakdown={handleOpenOutstandingBreakdown}
               />
             </div>
           </Suspense>
@@ -6219,23 +6234,26 @@ const conversionRate = displayEnquiriesMonthToDate
           const userIsAdmin = isAdminUser(userData?.[0]) || isOpsRole;
           const showOpsQueue = featureToggles.showOpsQueue !== false && (isLzOrAc || featureToggles.forceShowOpsQueue);
           return showOpsQueue ? (
-            <div style={{ padding: '0 6px 6px 6px' }}>
-              <OperationsQueue
-                isDarkMode={isDarkMode}
-                userInitials={userInitials}
-                showToast={showToast}
-                demoModeEnabled={demoModeEnabled}
-                isAdmin={userIsAdmin || isLzOrAc}
-                isV2User={isLzOrAc}
-                isDevOwner={isDevOwner(userData?.[0])}
-                showHomeOpsCclDates={featureToggles.showHomeOpsCclDates === true}
-              />
+            <div className="home-cascade-2 home-stable-shell home-stable-shell-ops" style={{ padding: '0 6px 6px 6px' }}>
+              <div className="home-stable-shell-panel home-stable-shell-live">
+                <OperationsQueue
+                  isDarkMode={isDarkMode}
+                  userInitials={userInitials}
+                  showToast={showToast}
+                  demoModeEnabled={demoModeEnabled}
+                  isAdmin={userIsAdmin || isLzOrAc}
+                  isV2User={isLzOrAc}
+                  isDevOwner={isDevOwner(userData?.[0])}
+                  showHomeOpsCclDates={featureToggles.showHomeOpsCclDates === true}
+                  isActive={isActive}
+                />
+              </div>
             </div>
           ) : null;
         })()}
 
         {/* Team insight — attendance + leave in one panel */}
-        <div className="home-cascade-2 home-stable-shell home-stable-shell-team" style={{ padding: '0 6px 6px 6px' }}>
+        <div className="home-cascade-3 home-stable-shell home-stable-shell-team" style={{ padding: '0 6px 6px 6px' }}>
             <Suspense fallback={
               <div className="home-stable-shell-panel home-stable-shell-loading" style={{ padding: '12px 0' }}>
                 <div style={{
@@ -6543,4 +6561,4 @@ const conversionRate = displayEnquiriesMonthToDate
   );
 };
 
-export default Home;
+export default React.memo(Home);

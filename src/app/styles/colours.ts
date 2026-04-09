@@ -122,3 +122,18 @@ export const colours = {
     tableHeaderBackground: '#F4F4F6',
   },
 };
+
+/**
+ * Convert a hex colour token to an rgba() string with the given alpha.
+ * Accepts 3-, 4-, 6-, or 8-digit hex (with or without `#`).
+ */
+export const withAlpha = (hex: string, alpha: number): string => {
+  const h = hex.replace('#', '');
+  const full = h.length <= 4
+    ? [...h].map(c => c + c).join('').slice(0, 6)
+    : h.slice(0, 6);
+  const r = parseInt(full.slice(0, 2), 16);
+  const g = parseInt(full.slice(2, 4), 16);
+  const b = parseInt(full.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
