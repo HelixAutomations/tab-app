@@ -121,6 +121,16 @@ const handlers = {
     });
   },
 
+  'enquiry.posted': async (event, deps) => {
+    await deps.deleteCachePattern(`unified:enquiries:*`);
+    await deps.deleteCachePattern(`unified:data:*`);
+    deps.broadcastEnquiriesChanged({
+      changeType: 'posted',
+      enquiryId: event.EntityId,
+      source: event.Source,
+    });
+  },
+
   'enquiry.claimed': async (event, deps) => {
     await deps.deleteCachePattern(`unified:enquiries:*`);
     await deps.deleteCachePattern(`unified:data:*`);
