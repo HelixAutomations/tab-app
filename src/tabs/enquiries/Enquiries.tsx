@@ -133,6 +133,7 @@ import MiniPipelineChip, { MiniChipProps, renderPipelineIcon } from './component
 import { mergeInstructionOverrides, buildInlineWorkbenchMap } from './utils/buildInlineWorkbenchMap';
 import QueueLoadingSkeleton from './components/QueueLoadingSkeleton';
 import ClaimPromptChip from './components/ClaimPromptChip';
+import { usePipelineContactData } from './hooks/usePipelineContactData';
 
 
 interface EnquiriesProps {
@@ -702,6 +703,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   
   // Track visible enquiry IDs (only enrich what's in viewport)
   const [visibleEnquiryIds, setVisibleEnquiryIds] = useState<Set<string>>(new Set());
+
+  // Pipeline contact visibility data (response buckets, contacted, pitched from enq-proc)
+  const contactVisibilityMap = usePipelineContactData(visibleEnquiryIds);
   
   // Track enrichment progress for UI feedback
   const [isEnriching, setIsEnriching] = useState<boolean>(false);
@@ -5798,7 +5802,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     isUnclaimedPoc,
     getRatingChipMeta,
     combineDateAndTime,
-  }), [claimerMap, enrichmentMap, getEnquiryWorkbenchItem, isUnclaimedPoc, getRatingChipMeta, combineDateAndTime]);
+    contactVisibilityMap,
+  }), [claimerMap, enrichmentMap, getEnquiryWorkbenchItem, isUnclaimedPoc, getRatingChipMeta, combineDateAndTime, contactVisibilityMap]);
 
   const shouldShowBlockingProspectsOverlay = enquiries === null;
   const isAwaitingQueueDataset = (

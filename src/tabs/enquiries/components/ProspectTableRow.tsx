@@ -61,7 +61,7 @@ const ProspectTableRow: React.FC<ProspectTableRowProps> = ({
 
   const { setHoveredRowKey, setHoveredDayKey } = hoverHandlers;
   const { handleSelectEnquiry, handleCopyName, setExpandedNotesInTable: setExpandedNotes } = actionHandlers;
-  const { enrichmentMap, getEnquiryWorkbenchItem, isUnclaimedPoc, getRatingChipMeta, combineDateAndTime, claimerMap } = dataDeps;
+  const { enrichmentMap, getEnquiryWorkbenchItem, isUnclaimedPoc, getRatingChipMeta, combineDateAndTime, claimerMap, contactVisibilityMap } = dataDeps;
 
   const pocLower = (item.Point_of_Contact || '').toLowerCase();
   const isUnclaimed = isUnclaimedPoc(pocLower);
@@ -96,6 +96,7 @@ const ProspectTableRow: React.FC<ProspectTableRowProps> = ({
   const isNameCopied = copiedNameKey === nameCopyKey;
   const enrichmentDataKey = item.ID ?? (item as any).id ?? '';
   const enrichmentData = enrichmentDataKey ? enrichmentMap.get(String(enrichmentDataKey)) : undefined;
+  const contactVisibility = enrichmentDataKey && contactVisibilityMap ? contactVisibilityMap.get(String(enrichmentDataKey)) : undefined;
   const mainPocValue = (item.Point_of_Contact || (item as any).poc || '').toLowerCase();
   const isMainTeamInboxPoc = isUnclaimedPoc(mainPocValue);
   const mainShowClaimer = !!mainPocValue && activeState !== 'Triaged' && !isMainTeamInboxPoc;
@@ -426,6 +427,7 @@ const ProspectTableRow: React.FC<ProspectTableRowProps> = ({
             currentUserEmail={currentUserEmail}
             handlers={pipelineHandlers}
             dataDeps={pipelineCellDataDeps}
+            contactVisibility={contactVisibility}
           />
         )}
 

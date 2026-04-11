@@ -95,6 +95,7 @@ const normaliseOperationalStage = (raw) => {
   if (stage.includes('proof-of-id') || stage.includes('poid') || stage.includes('complete')) return 'complete';
   if (stage.includes('instruct') || stage.includes('instruction') || stage.includes('actioned')) return 'instructed';
   if (stage.includes('pitch')) return 'pitched';
+  if (stage.includes('contact') || stage.includes('engaged') || stage.includes('reached')) return 'contacted';
   if (stage.includes('claim') || stage.includes('follow up')) return 'claimed';
   if (stage.includes('new') || stage.includes('enquiry') || stage.includes('initial')) return 'enquiry';
   if (stage.includes('conflict') || stage.includes('closed') || stage.includes('rejected')) return 'closed';
@@ -109,6 +110,8 @@ const operationalStageRank = (raw) => {
       return 4;
     case 'pitched':
       return 3;
+    case 'contacted':
+      return 2.5;
     case 'claimed':
       return 2;
     case 'enquiry':

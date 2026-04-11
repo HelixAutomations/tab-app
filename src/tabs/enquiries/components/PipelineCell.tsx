@@ -12,6 +12,7 @@ import { colours } from '../../../app/styles/colours';
 import { MiniPipelineChip, renderPipelineIcon } from './pipeline';
 import type { Enquiry } from '../../../app/functionality/types';
 import type { EnquiryEnrichmentData } from '../../../app/functionality/enquiryEnrichment';
+import type { ContactVisibilityEntry } from '../../../app/functionality/pipelineContactData';
 import type { WorkbenchItem } from '../../../utils/workbenchTypes';
 import type { RowPipelineHandlers, RowDataDeps } from './rowTypes';
 
@@ -30,6 +31,7 @@ export interface PipelineCellProps {
   currentUserEmail: string;
   handlers: RowPipelineHandlers;
   dataDeps: Pick<RowDataDeps, 'claimerMap' | 'isUnclaimedPoc' | 'combineDateAndTime'>;
+  contactVisibility?: ContactVisibilityEntry;
 }
 
 const getPocInitialsLocal = (
@@ -62,6 +64,7 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
   currentUserEmail,
   handlers,
   dataDeps,
+  contactVisibility,
 }) => {
   const {
     showPipelineHover,
@@ -431,9 +434,69 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
     />
   );
 
+  // ─── Contact visibility badge helpers ─────────────────────
+  const responseBucket = contactVisibility?.responseBucket;
+  const hasContactedFE = Boolean(contactVisibility?.feeEarnerContact);
+  const responseBucketColor = (() => {
+    if (!responseBucket) return '';
+    if (responseBucket.includes('<1') || responseBucket.includes('< 1')) return colours.green;
+    if (responseBucket.includes('1-4') || responseBucket.includes('1–4')) return colours.highlight;
+    if (responseBucket.includes('4-24') || responseBucket.includes('4–24')) return colours.orange;
+    return colours.cta; // >24h
+  })();
+
   // ─── Render ─────────────────────────────────────────────────
   return (
     <div style={{ position: 'relative', height: '100%', width: '100%', minWidth: 0, overflow: 'hidden' }}>
+      {/* Contact visibility micro-badges — top-right overlay */}
+      {(responseBucket || hasContactedFE) && (
+        <div style={{
+          position: 'absolute',
+          top: 1,
+          right: pipelineNeedsCarousel ? 28 : 2,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4,
+          zIndex: 2,
+          pointerEvents: 'none',
+        }}>
+          {responseBucket && (
+            <span
+              title={`First response: ${responseBucket}`}
+              style={{
+                fontSize: 8,
+                fontWeight: 700,
+                lineHeight: 1,
+                padding: '1px 4px',
+                borderRadius: 0,
+                background: `${responseBucketColor}1a`,
+                color: responseBucketColor,
+                border: `1px solid ${responseBucketColor}33`,
+                letterSpacing: '0.2px',
+                whiteSpace: 'nowrap',
+                fontFamily: 'Raleway, sans-serif',
+              }}
+            >
+              {responseBucket}
+            </span>
+          )}
+          {hasContactedFE && (
+            <span
+              title={`Fee earner contacted${contactVisibility?.feeEarnerContactBucket ? ` (${contactVisibility.feeEarnerContactBucket})` : ''}`}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 6,
+                height: 6,
+                borderRadius: '50%',
+                background: colours.green,
+                flexShrink: 0,
+              }}
+            />
+          )}
+        </div>
+      )}
       <div
         style={{
           display: 'grid',

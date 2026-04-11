@@ -5,6 +5,7 @@
 
 import type { Enquiry } from '../../../app/functionality/types';
 import type { EnquiryEnrichmentData } from '../../../app/functionality/enquiryEnrichment';
+import type { ContactVisibilityEntry } from '../../../app/functionality/pipelineContactData';
 import type { PipelineHoverInfo } from './pipeline/types';
 
 // ─── State / Handler types passed from orchestrator ─────────────
@@ -80,6 +81,7 @@ export interface RowDataDeps {
     hoverBorderColor: string;
   };
   combineDateAndTime: (dateValue: unknown, timeValue?: unknown) => Date | null;
+  contactVisibilityMap?: Map<string, ContactVisibilityEntry>;
 }
 
 // ─── ProspectTableRow props ─────────────────────────────────────

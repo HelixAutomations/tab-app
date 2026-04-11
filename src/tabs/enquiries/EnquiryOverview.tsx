@@ -1,9 +1,13 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import { Icon } from '@fluentui/react/lib/Icon';
 import { TooltipHost } from '@fluentui/react/lib/Tooltip';
 import { Enquiry } from '../../app/functionality/types';
+import { UserData } from '../../app/functionality/types';
 import { colours } from '../../app/styles/colours';
 import { useTheme } from '../../app/functionality/ThemeContext';
+import { isAdminUser } from '../../app/admin';
+import PipelineActivityTimeline from './components/PipelineActivityTimeline';
+import AdminOverridePanel from './components/AdminOverridePanel';
 import './styles/ProspectOverview.css';
 
 interface EnquiryOverviewProps {
@@ -12,6 +16,7 @@ interface EnquiryOverviewProps {
   onEditNotes: () => void;
   allEnquiries?: Enquiry[];
   onSelectEnquiry?: (enquiry: Enquiry) => void;
+  userData?: UserData[] | null;
 }
 
 const EnquiryOverview: React.FC<EnquiryOverviewProps> = ({
@@ -20,8 +25,23 @@ const EnquiryOverview: React.FC<EnquiryOverviewProps> = ({
   onEditNotes,
   allEnquiries = [],
   onSelectEnquiry,
+  userData,
 }) => {
   const { isDarkMode } = useTheme();
+  const currentUser = userData?.[0] ?? null;
+  const isAdmin = isAdminUser(currentUser);
+  const [timelineKey, setTimelineKey] = useState(0);
+  const [scanning, setScanning] = useState(false);
+
+  const handleScan365 = useCallback(async () => {
+    if (!enquiry.ID) return;
+    setScanning(true);
+    try {
+      const res = await fetch(`/api/pipeline-activity/scan/${encodeURIComponent(String(enquiry.ID))}`, { method: 'POST' });
+      if (res.ok) setTimelineKey((k) => k + 1);
+    } catch { /* swallow */ }
+    setScanning(false);
+  }, [enquiry.ID]);
 
   const clientHistory = useMemo(() => {
     if (!allEnquiries || allEnquiries.length === 0) return [];
@@ -217,6 +237,18 @@ const EnquiryOverview: React.FC<EnquiryOverviewProps> = ({
               <Icon iconName="Edit" />
               <span>Edit notes</span>
             </button>
+            <TooltipHost content="Scan Microsoft 365 for recent contact activity">
+              <button
+                type="button"
+                className="prospect-overview-action"
+                onClick={handleScan365}
+                disabled={scanning}
+                style={{ opacity: scanning ? 0.5 : undefined }}
+              >
+                <Icon iconName={scanning ? 'ProgressRingDots' : 'SearchAndApps'} />
+                <span>{scanning ? 'Scanning…' : 'Scan 365'}</span>
+              </button>
+            </TooltipHost>
           </div>
 
           <TooltipHost content={enquiry.Rating ? `Edit rating: ${enquiry.Rating}` : 'Set rating'}>
@@ -281,6 +313,21 @@ const EnquiryOverview: React.FC<EnquiryOverviewProps> = ({
           </div>
         </section>
       </div>
+
+      {/* Pipeline activity timeline (TA-8) + admin override (TA-10) */}
+      {enquiry.ID && (
+        <div className="prospect-overview-enter" data-tier="1.5" style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+          <PipelineActivityTimeline key={timelineKey} enquiryId={String(enquiry.ID)} />
+          {isAdmin && (
+            <div style={{ paddingLeft: 16, paddingBottom: 8 }}>
+              <AdminOverridePanel
+                enquiryId={String(enquiry.ID)}
+                onInserted={() => setTimelineKey((k) => k + 1)}
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       {clientHistory.length > 0 && (
         <section className="helix-panel prospect-overview-panel prospect-overview-history prospect-overview-enter" data-tier="2">

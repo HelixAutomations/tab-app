@@ -6,6 +6,7 @@
 /** Stages that map 1-to-1 with pipeline chip columns. */
 export type EnquiryPipelineStage =
   | 'poc'
+  | 'contacted'
   | 'pitched'
   | 'instructed'
   | 'idcheck'
@@ -65,6 +66,7 @@ export interface MiniChipProps {
 /** Canonical stage UI entries — single source of truth. */
 export const PIPELINE_STAGE_UI: PipelineStageUiEntry[] = [
   { stage: 'poc', fullLabel: 'POC', shortLabel: 'POC', iconName: 'TeamsLogo' },
+  { stage: 'contacted', fullLabel: 'Contacted', shortLabel: 'Ctd', iconName: 'Mail' },
   { stage: 'pitched', fullLabel: 'Pitch', shortLabel: 'Pitch', iconName: 'Send' },
   { stage: 'instructed', fullLabel: 'Instructed', shortLabel: 'Instr', iconName: 'CheckMark' },
   { stage: 'idcheck', fullLabel: 'ID Check', shortLabel: 'ID', iconName: 'CheckMark' },

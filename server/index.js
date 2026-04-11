@@ -347,6 +347,8 @@ const pitchTrackingRouter = require('./routes/pitchTracking');
 const enquiryEnrichmentRouter = require('./routes/enquiryEnrichment');
 const peopleSearchRouter = require('./routes/people-search');
 const claimEnquiryRouter = require('./routes/claimEnquiry');
+const pipelineActivityRouter = require('./routes/pipelineActivity');
+const responseMetricsRouter = require('./routes/responseMetrics');
 const rateChangesRouter = require('./routes/rate-changes');
 const cclDateRouter = require('./routes/ccl-date');
 const cclOpsRouter = require('./routes/ccl-ops');
@@ -548,6 +550,8 @@ app.use('/api/home-enquiries', homeEnquiriesRouter);
 app.use('/api/home-journey', homeJourneyRouter);
 app.use('/api/updateEnquiryPOC', updateEnquiryPOCRouter);
 app.use('/api/claimEnquiry', claimEnquiryRouter);
+app.use('/api/pipeline-activity', pipelineActivityRouter);
+app.use('/api/response-metrics', responseMetricsRouter);
 app.use('/api/matters-unified', mattersUnifiedRouter);
 app.use('/api/ops', opsRouter);
 // Email route (server-based). Expose under both /api and / to match existing callers.
