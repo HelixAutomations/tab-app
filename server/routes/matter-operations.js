@@ -3,6 +3,7 @@ const router = express.Router();
 const sql = require('mssql');
 const { withRequest } = require('../utils/db');
 const { getSecret } = require('../utils/getSecret');
+const { notify } = require('../utils/hubNotifier');
 
 /**
  * Matter Operations API Routes
@@ -548,6 +549,16 @@ router.post('/create-clio-matter', async (req, res) => {
       message: 'Matter created in Clio and database updated successfully',
       clioMatter: matterResult.matter,
       matterId: clioMatterId
+    });
+
+    // Fire-and-forget DM notification
+    notify('matter.opened', {
+      displayNumber,
+      instructionRef,
+      description: description || '',
+      practiceArea: practiceArea || '',
+      responsibleSolicitor: responsibleSolicitor || '',
+      triggeredBy: req.user?.initials || '',
     });
     
   } catch (error) {

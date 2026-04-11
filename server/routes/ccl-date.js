@@ -201,66 +201,75 @@ router.post('/stream', requireAdminInitials, async (req, res) => {
     let skipped = 0;
     const errors = [];
 
-    for (let i = 0; i < matters.length; i++) {
-        const item = matters[i];
-        const matterId = item.matter_id;
-        const displayNumber = item.display_number || matterId;
-        const itemDateValue = item.date_value;
+    // Process matters in batches of 5 (parallelised Clio API calls)
+    const BATCH_SIZE = 5;
+    for (let batchStart = 0; batchStart < matters.length; batchStart += BATCH_SIZE) {
+        const batch = matters.slice(batchStart, batchStart + BATCH_SIZE);
+        const batchPromises = batch.map(async (item, batchIdx) => {
+            const i = batchStart + batchIdx;
+            const matterId = item.matter_id;
+            const displayNumber = item.display_number || matterId;
+            const itemDateValue = item.date_value;
 
-        sendEvent({ type: 'matter-start', index: i, matterId, displayNumber, total: matters.length });
+            sendEvent({ type: 'matter-start', index: i, matterId, displayNumber, total: matters.length });
 
-        const clioResult = await updateSingleMatterDateField(matterId, displayNumber, itemDateValue, accessToken, fieldId);
+            const clioResult = await updateSingleMatterDateField(matterId, displayNumber, itemDateValue, accessToken, fieldId);
 
-        // Always attempt SQL update if Clio succeeded or was skipped
-        let sqlError = null;
-        if (clioResult.success) {
-            try {
-                await updateLegacySqlCclDate(legacyConn, matterId, displayNumber, itemDateValue);
-            } catch (e) {
-                sqlError = e?.message || String(e);
+            // Always attempt SQL update if Clio succeeded or was skipped
+            let sqlError = null;
+            if (clioResult.success) {
+                try {
+                    await updateLegacySqlCclDate(legacyConn, matterId, displayNumber, itemDateValue);
+                } catch (e) {
+                    sqlError = e?.message || String(e);
+                }
             }
-        }
 
-        if (clioResult.success && !sqlError) {
-            if (clioResult.skipped) {
-                skipped++;
-                sendEvent({
-                    type: 'matter-complete',
-                    index: i,
-                    matterId,
-                    displayNumber,
-                    success: true,
-                    skipped: true,
-                    message: 'Not found in Clio (updated SQL only)',
-                    progress: { success, failed, skipped, total: matters.length },
-                });
+            if (clioResult.success && !sqlError) {
+                if (clioResult.skipped) {
+                    skipped++;
+                    sendEvent({
+                        type: 'matter-complete',
+                        index: i,
+                        matterId,
+                        displayNumber,
+                        success: true,
+                        skipped: true,
+                        message: 'Not found in Clio (updated SQL only)',
+                        progress: { success, failed, skipped, total: matters.length },
+                    });
+                } else {
+                    success++;
+                    sendEvent({
+                        type: 'matter-complete',
+                        index: i,
+                        matterId,
+                        displayNumber,
+                        success: true,
+                        progress: { success, failed, skipped, total: matters.length },
+                    });
+                }
             } else {
-                success++;
+                failed++;
+                const errMsg = sqlError ? `SQL update failed: ${sqlError}` : clioResult.error || 'Unknown error';
+                errors.push(`${displayNumber}: ${errMsg}`);
                 sendEvent({
                     type: 'matter-complete',
                     index: i,
                     matterId,
                     displayNumber,
-                    success: true,
+                    success: false,
+                    error: errMsg,
                     progress: { success, failed, skipped, total: matters.length },
                 });
             }
-        } else {
-            failed++;
-            const errMsg = sqlError ? `SQL update failed: ${sqlError}` : clioResult.error || 'Unknown error';
-            errors.push(`${displayNumber}: ${errMsg}`);
-            sendEvent({
-                type: 'matter-complete',
-                index: i,
-                matterId,
-                displayNumber,
-                success: false,
-                error: errMsg,
-                progress: { success, failed, skipped, total: matters.length },
-            });
-        }
+        });
 
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await Promise.all(batchPromises);
+        // Brief pause between batches to avoid Clio rate limits
+        if (batchStart + BATCH_SIZE < matters.length) {
+            await new Promise(resolve => setTimeout(resolve, 200));
+        }
     }
 
     sendEvent({ type: 'complete', success: true, clio_updates: { success, failed, skipped, errors } });

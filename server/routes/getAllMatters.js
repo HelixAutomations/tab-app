@@ -70,7 +70,7 @@ async function fetchLegacyMatters(bypassCache) {
     let pool;
     try {
         pool = await new sql.ConnectionPool(connectionString).connect();
-        const result = await pool.request().query('SELECT * FROM matters');
+        const result = await pool.request().query('SELECT TOP 10000 * FROM matters');
         const records = Array.isArray(result.recordset) ? result.recordset : [];
         mattersCache = { data: records, ts: now };
         return { records, cached: false };

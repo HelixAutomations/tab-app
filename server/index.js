@@ -18,7 +18,7 @@ trackEvent('Server.Boot.Started', {
 // 2. Add app.use('/api/your-path', yourRouter) in the route registration section
 // 3. Restart the server to pick up new routes
 //
-// Note: server/server.js is NOT the main server file - ignore it when adding routes!
+// Both dev and production use this file (deploy scripts copy it as server.js).
 //
 
 // Ensure `fetch` is available for route handlers when running on
@@ -31,6 +31,11 @@ if (typeof fetch === 'undefined') {
 
 // Load environment variables
 require('dotenv').config({ path: path.join(__dirname, '../.env'), override: false });
+
+// Validate env vars immediately after loading — crash fast in prod, warn in dev
+const { validateEnv } = require('./utils/envSchema');
+validateEnv();
+
 const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
@@ -42,7 +47,9 @@ const { init: initOpLog, append: opAppend, sessionId: opSessionId } = require('.
 const { getRedisClient } = require('./utils/redisClient');
 const { getPool } = require('./utils/db');
 const { getSecret } = require('./utils/getSecret');
-const { startDataOperationsScheduler } = require('./utils/dataOperationsScheduler');
+const { startDataOperationsScheduler, getSchedulerState } = require('./utils/dataOperationsScheduler');
+const { startEventPoller, POLL_INTERVAL_MS } = require('./utils/eventPoller');
+const { requestTrackerMiddleware } = require('./utils/requestTracker');
 const { setStatus: setServerStatus } = require('./utils/serverStatus');
 
 const isRedacted = (value) => typeof value === 'string' && value.includes('<REDACTED>');
@@ -241,7 +248,8 @@ async function warmupConnections() {
 }
 
 // Hydrate SQL secrets from Key Vault BEFORE accepting requests.
-// Stored as a module-level promise so app.listen() can await it.
+// Stored as a module-level promise so the readiness gate middleware can await it.
+let _hydrationDone = false;
 const _hydrationReady = (async () => {
     const startedAt = Date.now();
     try {
@@ -261,6 +269,8 @@ const _hydrationReady = (async () => {
         });
         trackMetric('Server.Boot.Secrets.Duration', durationMs, { status: 'failed' });
         warmupConnections();
+    } finally {
+        _hydrationDone = true;
     }
 })();
 const keysRouter = require('./routes/keys');
@@ -357,7 +367,9 @@ const formHealthCheckRouter = require('./routes/formHealthCheck');
 const teamsBotRouter = require('./routes/teamsBot');
 const teamsNotifyRouter = require('./routes/teamsNotify');
 const activityCardLabRouter = require('./routes/activity-card-lab');
+const { router: opsPulseRouter } = require('./routes/ops-pulse');
 const { userContextMiddleware } = require('./middleware/userContext');
+const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
 // Enable gzip compression if available, but skip SSE endpoints
@@ -365,7 +377,7 @@ if (compression) {
     const compress = compression();
     app.use((req, res, next) => {
         // Skip compression for Server-Sent Events to avoid buffering
-        if (req.path.startsWith('/api/reporting-stream') || req.path.startsWith('/api/home-metrics') || req.path.startsWith('/api/logs/stream') || req.path.startsWith('/api/ccl-date') || req.path.startsWith('/api/enquiries-unified/stream') || req.path.startsWith('/api/attendance/annual-leave/stream') || req.path.startsWith('/api/attendance/attendance/stream') || req.path.startsWith('/api/future-bookings/stream') || req.path.startsWith('/api/data-operations/stream')) {
+        if (req.path.startsWith('/api/reporting-stream') || req.path.startsWith('/api/home-metrics') || req.path.startsWith('/api/logs/stream') || req.path.startsWith('/api/ccl-date') || req.path.startsWith('/api/enquiries-unified/stream') || req.path.startsWith('/api/attendance/annual-leave/stream') || req.path.startsWith('/api/attendance/attendance/stream') || req.path.startsWith('/api/future-bookings/stream') || req.path.startsWith('/api/data-operations/stream') || req.path.startsWith('/api/ops-pulse')) {
             res.setHeader('Cache-Control', 'no-cache, no-transform');
             return next();
         }
@@ -373,6 +385,61 @@ if (compression) {
     });
 }
 const PORT = process.env.PORT || 8080;
+const isProd = process.env.NODE_ENV === 'production';
+
+// ── Hydration gate: 503 on /api/* until Key Vault secrets are ready ──
+// Lets the process listen immediately (Azure health probes see it alive)
+// while blocking real API traffic until connection strings are hydrated.
+app.use('/api', (req, res, next) => {
+    if (_hydrationDone) return next();
+    // Allow health/status probes through so Azure doesn't restart the container
+    if (req.path === '/health' || req.path === '/status') return next();
+    _hydrationReady.then(() => next()).catch(() => next());
+});
+
+// ── Security headers (helmet) ──
+const helmet = require('helmet');
+app.use(helmet({
+    // CSP in report-only — logs violations without breaking functionality.
+    // Teams embeds and inline scripts need 'unsafe-inline'; tighten later.
+    contentSecurityPolicy: false,
+    // HSTS is handled by IIS/Azure Front Door in production; avoid double-setting.
+    strictTransportSecurity: isProd ? { maxAge: 31536000, includeSubDomains: true } : false,
+}));
+
+// ── Rate limiting ──
+const rateLimit = require('express-rate-limit');
+if (isProd) {
+    const globalLimiter = rateLimit({
+        windowMs: 15 * 60 * 1000,       // 15 minutes
+        max: 300,                        // 300 requests per window
+        standardHeaders: true,
+        legacyHeaders: false,
+        // Skip SSE endpoints — they hold long-lived connections
+        skip: (req) => req.path.includes('/stream') || req.path === '/api/health',
+        handler: (req, res) => {
+            trackEvent('Security.RateLimit.Exceeded', { ip: req.ip, path: req.path });
+            res.status(429).json({ error: 'rate_limited', message: 'Too many requests — try again later.' });
+        },
+    });
+    app.use('/api/', globalLimiter);
+}
+
+// Stricter limit on AI/generation endpoints (expensive operations)
+if (isProd) {
+    const aiLimiter = rateLimit({
+        windowMs: 5 * 60 * 1000,        // 5 minutes
+        max: 20,                         // 20 AI calls per 5 min
+        standardHeaders: true,
+        legacyHeaders: false,
+        handler: (req, res) => {
+            trackEvent('Security.RateLimit.AI.Exceeded', { ip: req.ip, path: req.path, user: req.user?.initials });
+            res.status(429).json({ error: 'rate_limited', message: 'AI rate limit reached — try again in a few minutes.' });
+        },
+    });
+    app.use('/api/ccl-ai', aiLimiter);
+    app.use('/api/ai', aiLimiter);
+}
 
 // Initialize persistent operations log and add request logging middleware
 initOpLog();
@@ -389,7 +456,6 @@ app.use((req, res, next) => {
 // Enable CORS: allow localhost in dev; restrict in production.
 // IMPORTANT: SSE endpoints (e.g. /api/logs/stream) must work reliably behind proxies.
 // Some browsers include an Origin header even for same-origin EventSource requests.
-const isProd = process.env.NODE_ENV === 'production';
 const allowedOrigins = isProd
     ? (process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean) : [])
     : ['http://localhost:3000', 'http://127.0.0.1:3000'];
@@ -436,8 +502,15 @@ app.use('/api/stripe/webhook', stripeWebhookRouter);
 app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
+// Request tracker — lightweight ring-buffer for ops-pulse API heat view
+app.use(requestTrackerMiddleware);
+
 // User context middleware - enriches requests with user info and logs sessions
 app.use(userContextMiddleware);
+
+// Auth guard - rejects API requests with no resolved user (whitelist: health, stripe, telemetry)
+const requireUser = require('./middleware/requireUser');
+app.use(requireUser);
 
 app.use('/api/keys', keysRouter);
 app.use('/api/refresh', refreshRouter);
@@ -529,6 +602,7 @@ app.use('/api/ops-queue', opsQueueRouter);
 app.use('/api/messages', teamsBotRouter);
 app.use('/api/teams-notify', teamsNotifyRouter);
 app.use('/api/activity-card-lab', activityCardLabRouter);
+app.use('/api/ops-pulse', opsPulseRouter);
 
 // Rate change notification tracking (for Jan 2026 hourly rate increase)
 app.use('/api/rate-changes', rateChangesRouter);
@@ -612,11 +686,12 @@ app.use('/', proxyToAzureFunctionsRouter);
 // This ensures API requests don't get caught by the catch-all route
 
 // Prefer serving the latest CRA build output from the repo root.
-// Fallback to the packaged `server/static` directory if present.
+// Fallback to __dirname for flat deploy structure (frontend sits alongside server.js).
 const fs = require('fs');
 const rootBuildPath = path.resolve(__dirname, '..', 'build');
-const packagedBuildPath = path.join(__dirname, 'static');
-const buildPath = fs.existsSync(rootBuildPath) ? rootBuildPath : packagedBuildPath;
+const buildPath = fs.existsSync(path.join(rootBuildPath, 'index.html'))
+    ? rootBuildPath
+    : __dirname;
 
 // Only serve static files if the chosen directory exists
 if (fs.existsSync(buildPath)) {
@@ -651,49 +726,18 @@ if (fs.existsSync(buildPath)) {
 }
 
 // Error handling middleware (must be after all routes)
-// Ensures API callers get JSON rather than IIS/HTML error pages.
-app.use((error, req, res, next) => {
-    const arrLogId = req.get('x-arr-log-id');
-    const status = typeof error?.status === 'number' ? error.status : 500;
+// Centralised: logs, App Insights, DM notification for 500s, clean JSON responses.
+app.use(errorHandler);
 
-    // Common body-parser errors
-    const isTooLarge =
-        error?.type === 'entity.too.large' ||
-        error?.name === 'PayloadTooLargeError' ||
-        error?.statusCode === 413;
+// Listen immediately — the hydration gate middleware holds /api/* requests
+// until secrets are ready, but the process is reachable for health probes.
+app.listen(PORT, () => {
+    const bootDurationMs = Date.now() - serverBootStartedAt;
+    trackEvent('Server.Boot.ListenReady', { port: PORT, hydrated: _hydrationDone });
+    trackMetric('Server.Boot.Listen.Duration', bootDurationMs, { port: PORT });
 
-    const safeStatus = isTooLarge ? 413 : status;
-    const message = isTooLarge
-        ? 'Request body too large'
-        : (error?.message || 'Internal server error');
-
-    console.error('[server] Error:', {
-        method: req.method,
-        path: req.originalUrl,
-        status: safeStatus,
-        arrLogId,
-        name: error?.name,
-        type: error?.type,
-        message,
-    });
-
-    if (req.originalUrl?.startsWith('/api/')) {
-        return res.status(safeStatus).json({
-            error: isTooLarge ? 'payload_too_large' : 'internal_error',
-            message,
-            arrLogId,
-            timestamp: new Date().toISOString(),
-        });
-    }
-
-    return res.status(safeStatus).send(message);
-});
-
-// Wait for Key Vault secrets before accepting connections — eliminates
-// ELOGIN race where routes query SQL before credentials are hydrated.
-_hydrationReady.then(() => {
-    app.listen(PORT, () => {
-        const bootDurationMs = Date.now() - serverBootStartedAt;
+    // Defer scheduler + event poller until hydration completes
+    _hydrationReady.then(() => {
         banner({
             port: PORT,
             redis: _connStatus.redis,
@@ -701,11 +745,12 @@ _hydrationReady.then(() => {
             instructionsSql: _connStatus.instructionsSql,
             clio: _connStatus.clio,
             scheduler: true,
+            eventPoller: POLL_INTERVAL_MS / 1000,
         });
         setServerStatus('scheduler', true);
         startDataOperationsScheduler();
-        trackEvent('Server.Boot.ListenReady', { port: PORT });
-        trackMetric('Server.Boot.Listen.Duration', bootDurationMs, { port: PORT });
+        startEventPoller();
+        setServerStatus('eventPoller', true);
     });
 });
 

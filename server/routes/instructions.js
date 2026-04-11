@@ -233,7 +233,7 @@ router.get('/', async (req, res) => {
       instructions = instrResult.recordset || [];
     } else {
       const instrResult = await runQuery((request) =>
-        request.query('SELECT * FROM Instructions ORDER BY InstructionRef DESC')
+        request.query('SELECT TOP 5000 * FROM Instructions ORDER BY InstructionRef DESC')
       );
       instructions = instrResult.recordset || [];
     }

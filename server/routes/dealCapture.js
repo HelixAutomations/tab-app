@@ -1,5 +1,6 @@
 const sql = require('mssql');
 const { loggers } = require('../utils/logger');
+const { emitEvent } = require('../utils/eventEmitter');
 
 const log = loggers.payments.child('DealCapture');
 
@@ -264,7 +265,15 @@ module.exports = async (req, res) => {
 
     const baseInstructions = process.env.DEAL_INSTRUCTIONS_URL || 'https://instruct.helix-law.com/pitch';
     const instructionsUrl = `${baseInstructions.replace(/\/$/, '')}/${encodeURIComponent(passcode)}`;
-    
+
+    // Emit to shared Events table for realtime pipeline updates
+    emitEvent('deal.created', 'tab-app', instructionRef || String(dealId), 'deal', {
+      dealId,
+      amount,
+      areaOfWork,
+      passcode,
+    });
+
     res.json({ 
       success: true,
       ok: true,

@@ -835,6 +835,9 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
   const useLocalData =
     process.env.REACT_APP_USE_LOCAL_DATA === 'true';
   const [secondaryPanelsReady, setSecondaryPanelsReady] = useState(false);
+  // Coordinated reveal gate — true when minimum viable Home data is present.
+  // Sections stay as skeletons until this flips, then all reveal together.
+  const [homeDataReady, setHomeDataReady] = useState(false);
   const activeEnquiries = useActiveSnapshot(enquiries, isActive);
   const activeProvidedMatters = useActiveSnapshot(providedMatters, isActive);
   const activeTeamData = useActiveSnapshot(teamData, isActive);
@@ -970,6 +973,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
   const storedUserInitials = useRef<string | null>(null); // ADDED
   const attendanceRef = useRef<{ focusTable: () => void; setWeek: (week: 'current' | 'next') => void }>(null); // Add this line
   const recoveredFeesInitialized = useRef<boolean>(false); // Prevent infinite loop
+  const lastRecoveredFetchAt = useRef<number>(0); // Cooldown for visibility handler
 
   // State declarations...
   const [enquiriesToday, setEnquiriesToday] = useState<number>(0);
@@ -1192,6 +1196,21 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
     setSecondaryPanelsReady(true);
   }, [homePrimaryReady]);
 
+  // ── Coordinated reveal: flip once when the fast-loading parallel data is in ──
+  // Attendance + WIP are the minimum viable set for the dashboard to look complete.
+  // Once they're in, reveal everything together — late arrivals (outstanding, bookings)
+  // will fill into already-visible slots without layout shift.
+  useEffect(() => {
+    if (homeDataReady) return; // once flipped, never reset (avoids flicker on re-fetch)
+    if (
+      hasStartedParallelFetch &&
+      !isLoadingAttendance &&
+      !isLoadingWipClio
+    ) {
+      setHomeDataReady(true);
+    }
+  }, [hasStartedParallelFetch, isLoadingAttendance, isLoadingWipClio, homeDataReady]);
+
   // ── Boot monitor event emitter (dev-only) ──
   const bootMonitorPrevRef = useRef<Record<string, string>>({});
   useEffect(() => {
@@ -1212,6 +1231,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
       homePrimaryReady: homePrimaryReady ? 'done' : 'pending',
       secondaryPanelsReady: secondaryPanelsReady ? 'done' : 'pending',
       immediateActionsReady: immediateActionsReady ? 'done' : 'pending',
+      homeDataReady: homeDataReady ? 'done' : 'pending',
     };
     const prev = bootMonitorPrevRef.current;
     const now = performance.now();
@@ -1228,7 +1248,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
     isLoadingAttendance, isLoadingAnnualLeave, isLoadingWipClio,
     isLoadingRecovered, isLoadingEnquiryMetrics, isLoadingAllMatters,
     pendingDocActionsLoading, hasStartedParallelFetch, homePrimaryReady,
-    secondaryPanelsReady, immediateActionsReady, allMatters,
+    secondaryPanelsReady, immediateActionsReady, homeDataReady, allMatters,
   ]);
 
   useEffect(() => {
@@ -1682,6 +1702,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
           setPrevRecoveredHours(prevHrs);
         }
         recoveredFeesInitialized.current = true;
+        lastRecoveredFetchAt.current = Date.now();
       } catch (error) {
         console.error('❌ Error fetching recovered fees summary:', error);
       }
@@ -1698,14 +1719,14 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
     // Always fetch fresh on mount (bypassCache on subsequent loads)
     fetchRecoveredFeesSummary(recoveredFeesInitialized.current);
 
-    // Auto-refresh every 2 minutes with cache bypass
+    // 30 min safety net — primary refresh is via DataOps SSE subscription (dataOps.synced event)
     intervalId = setInterval(() => {
       fetchRecoveredFeesSummary(true);
-    }, 2 * 60 * 1000);
+    }, 30 * 60 * 1000);
 
-    // Refresh on tab visibility change (user returns to tab)
+    // Refresh on tab visibility change (user returns to tab) — 5s cooldown prevents double-fire at mount
     const handleVisibility = () => {
-      if (document.visibilityState === 'visible') {
+      if (document.visibilityState === 'visible' && Date.now() - lastRecoveredFetchAt.current > 5000) {
         fetchRecoveredFeesSummary(true);
       }
     };
@@ -3193,17 +3214,14 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
   // Future bookings: Stream handles this now (removed duplicate fetch)
 
   // Stream Home metrics progressively; update state as each arrives
+  // Transactions removed — Home doesn't render raw transactions (only in useLocalData dev mode).
+  // Fees Recovered uses /api/reporting/management-datasets instead.
   useHomeMetricsStream({
-    autoStart: !demoModeEnabled && homePrimaryReady && secondaryPanelsReady,
-    metrics: ['transactions', 'futureBookings', 'outstandingBalances'],
+    autoStart: !demoModeEnabled && homePrimaryReady,
+    metrics: ['futureBookings', 'outstandingBalances'],
     bypassCache: false,
     onMetric: (name, data) => {
       switch (name) {
-        case 'transactions':
-          cachedTransactions = data as any;
-          setTransactions(data as any);
-          onTransactionsFetched?.(data as any);
-          break;
         case 'futureBookings':
           setFutureBookings(data as any);
           onBoardroomBookingsFetched?.((data as any).boardroomBookings || []);
@@ -6029,7 +6047,7 @@ const conversionRate = displayEnquiriesMonthToDate
       {/* Operations hub — cohesive home surface (metrics + team availability) */}
       <div className={operationsHubStyle(isDarkMode)}>
         {/* OperationsDashboard — unified for all users */}
-        <div className="home-cascade-1 home-stable-shell home-stable-shell-dashboard">
+        <div className={`${homeDataReady ? 'home-cascade-1' : 'home-cascade-pending'} home-stable-shell home-stable-shell-dashboard`}>
           <Suspense fallback={
             <div className="home-stable-shell-panel home-stable-shell-loading" style={{ padding: '4px 8px 0' }}>
               {/* Billing skeleton */}
@@ -6234,7 +6252,7 @@ const conversionRate = displayEnquiriesMonthToDate
           const userIsAdmin = isAdminUser(userData?.[0]) || isOpsRole;
           const showOpsQueue = featureToggles.showOpsQueue !== false && (isLzOrAc || featureToggles.forceShowOpsQueue);
           return showOpsQueue ? (
-            <div className="home-cascade-2 home-stable-shell home-stable-shell-ops" style={{ padding: '0 6px 6px 6px' }}>
+            <div className={`${homeDataReady ? 'home-cascade-2' : 'home-cascade-pending'} home-stable-shell home-stable-shell-ops`} style={{ padding: '0 6px 6px 6px' }}>
               <div className="home-stable-shell-panel home-stable-shell-live">
                 <OperationsQueue
                   isDarkMode={isDarkMode}
@@ -6253,7 +6271,7 @@ const conversionRate = displayEnquiriesMonthToDate
         })()}
 
         {/* Team insight — attendance + leave in one panel */}
-        <div className="home-cascade-3 home-stable-shell home-stable-shell-team" style={{ padding: '0 6px 6px 6px' }}>
+        <div className={`${homeDataReady ? 'home-cascade-3' : 'home-cascade-pending'} home-stable-shell home-stable-shell-team`} style={{ padding: '0 6px 6px 6px' }}>
             <Suspense fallback={
               <div className="home-stable-shell-panel home-stable-shell-loading" style={{ padding: '12px 0' }}>
                 <div style={{

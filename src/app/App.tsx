@@ -17,6 +17,7 @@ import { normalizeMatterData } from '../utils/matterNormalization';
 import { getProxyBaseUrl } from '../utils/getProxyBaseUrl';
 import { ADMIN_USERS, isAdminUser, canSeePrivateHubControls, canSeeActivityTab } from './admin';
 import HubToolsChip from '../components/HubToolsChip';
+import DataFreshnessIndicator from '../components/DataFreshnessIndicator';
 import MaintenanceNotice from './MaintenanceNotice';
 import { useServiceHealthMonitor } from './functionality/useServiceHealthMonitor';
 import actionLog from '../utils/actionLog';
@@ -131,6 +132,9 @@ interface AppProps {
   onRefreshMatters?: () => Promise<void>;
   onOptimisticClaim?: (enquiryId: string, claimerEmail: string) => void;
   subscribeToEnquiryStream?: (listener: (event: { changeType: string; enquiryId: string; claimedBy?: string; claimedAt?: string | null; record?: Record<string, unknown> }) => void) => () => void;
+  subscribeToPipelineStream?: (listener: (event: { eventType: string; entityId: string; entityType: string; field: string; status: string; source: string; timestamp: string; data?: Record<string, unknown> }) => void) => () => void;
+  sseConnectionState?: 'connecting' | 'live' | 'error';
+  lastPipelineEventAt?: number | null;
 }
 
 type ReportingNavigationView = 'logMonitor' | 'dataCentre';
@@ -176,6 +180,9 @@ const App: React.FC<AppProps> = ({
   onRefreshMatters,
   onOptimisticClaim,
   subscribeToEnquiryStream,
+  subscribeToPipelineStream,
+  sseConnectionState,
+  lastPipelineEventAt,
 }) => {
   const [activeTab, setActiveTab] = useState('home');
   const [enquiriesEverVisited, setEnquiriesEverVisited] = useState(false);
@@ -1168,6 +1175,136 @@ const App: React.FC<AppProps> = ({
     instructionDataFetchedRef.current = false;
   }, [instructionRefreshTrigger]);
 
+  // ── Pipeline realtime subscription ──
+  // Listen for pipeline.changed SSE events and patch instructionData in-place.
+  React.useEffect(() => {
+    if (!subscribeToPipelineStream) return;
+
+    const unsubscribe = subscribeToPipelineStream((event) => {
+      const { entityId, field, status, eventType, data } = event;
+      if (!entityId) return;
+
+      // Helper: patch a matching InstructionData entry (by InstructionRef in instructions[])
+      const patchInstructionState = (setter: React.Dispatch<React.SetStateAction<InstructionData[]>>) => {
+        setter(prev => {
+          if (!prev || prev.length === 0) return prev;
+          let changed = false;
+          const next = prev.map(prospect => {
+            const matchesProspect = prospect.instructions?.some(
+              (inst: any) => inst.InstructionRef === entityId
+            );
+            if (!matchesProspect) return prospect;
+
+            changed = true;
+            // Deep-patch based on event type
+            if (field === 'matter' && (eventType === 'matter.opened')) {
+              const matterData = data || {};
+              const existingMatters = prospect.matters || [];
+              // Idempotent: skip if matter with same displayNumber or clioMatterId already exists
+              const mdn = (matterData as any).displayNumber || (matterData as any).display_number;
+              const mcid = (matterData as any).clioMatterId;
+              const alreadyExists = existingMatters.some((m: any) =>
+                (mdn && (m.displayNumber === mdn || m.display_number === mdn)) ||
+                (mcid && m.clioMatterId === mcid)
+              );
+              return {
+                ...prospect,
+                matters: alreadyExists ? existingMatters : [...existingMatters, matterData],
+                instructions: prospect.instructions?.map((inst: any) =>
+                  inst.InstructionRef === entityId
+                    ? { ...inst, MatterOpened: true, MatterStatus: status, ...(mdn ? { DisplayNumber: mdn } : {}) }
+                    : inst
+                ),
+              };
+            }
+
+            if (field === 'payment') {
+              return {
+                ...prospect,
+                instructions: prospect.instructions?.map((inst: any) =>
+                  inst.InstructionRef === entityId
+                    ? { ...inst, PaymentStatus: status, PaymentCompleted: status === 'paid' }
+                    : inst
+                ),
+              };
+            }
+
+            if (field === 'risk') {
+              const riskData = data || {};
+              const existingRisks = prospect.riskAssessments || [];
+              // Idempotent: skip if risk assessment for same entityId already exists
+              const alreadyExists = existingRisks.some((r: any) =>
+                r.InstructionRef === entityId || r.MatterId === entityId
+              );
+              return {
+                ...prospect,
+                riskAssessments: alreadyExists ? existingRisks : [...existingRisks, riskData],
+                instructions: prospect.instructions?.map((inst: any) =>
+                  inst.InstructionRef === entityId
+                    ? { ...inst, RiskAssessed: true, RiskAssessmentResult: (riskData as any).result || (riskData as any).riskAssessmentResult || status }
+                    : inst
+                ),
+              };
+            }
+
+            if (field === 'id_verification') {
+              const idData = data || {};
+              const existingEidChecks = prospect.electronicIDChecks || [];
+              const existingIdVerifs = prospect.idVerifications || [];
+              // Idempotent: skip if ID check for same entityId already exists
+              const alreadyExists = existingEidChecks.some((c: any) =>
+                c.InstructionRef === entityId || c.entityId === entityId
+              );
+              return {
+                ...prospect,
+                electronicIDChecks: alreadyExists ? existingEidChecks : [...existingEidChecks, idData],
+                idVerifications: alreadyExists ? existingIdVerifs : [...existingIdVerifs, idData],
+                instructions: prospect.instructions?.map((inst: any) =>
+                  inst.InstructionRef === entityId
+                    ? { ...inst, IdVerified: true }
+                    : inst
+                ),
+              };
+            }
+
+            if (field === 'instruction') {
+              return {
+                ...prospect,
+                instructions: prospect.instructions?.map((inst: any) =>
+                  inst.InstructionRef === entityId
+                    ? { ...inst, Stage: status === 'completed' ? 'Instructed' : (status || inst.Stage) }
+                    : inst
+                ),
+              };
+            }
+
+            if (field === 'deal') {
+              const dealData = data || {};
+              const existingDeals = prospect.deals || [];
+              // Idempotent: skip if deal with same dealId already exists
+              const did = (dealData as any).dealId;
+              const alreadyExists = did && existingDeals.some((d: any) => d.dealId === did);
+              return {
+                ...prospect,
+                deals: alreadyExists ? existingDeals : [...existingDeals, dealData],
+              };
+            }
+
+            // Generic fallback — mark something changed so downstream can re-render
+            return { ...prospect };
+          });
+          return changed ? next : prev;
+        });
+      };
+
+      // Patch both user-scoped and all-data views
+      patchInstructionState(setInstructionData);
+      patchInstructionState(setAllInstructionData);
+    });
+
+    return unsubscribe;
+  }, [subscribeToPipelineStream]);
+
   // Fetch instruction data when Instructions or Enquiries tab is active.
   // Enquiries needs workbench data (instruction/EID/payment/risk/matter) for pipeline chips.
   useEffect(() => {
@@ -1498,6 +1635,21 @@ const App: React.FC<AppProps> = ({
             } as React.CSSProperties}
           >
             <Navigator />
+            {/* Pipeline freshness indicator — dev preview (LZ/AC only) */}
+            {['LZ', 'AC'].includes(userInitials) && (
+              <div style={{ position: 'absolute', top: 6, right: 12, zIndex: 2 }}>
+                <DataFreshnessIndicator
+                  label="Pipeline"
+                  compact
+                  isRefreshing={sseConnectionState === 'connecting'}
+                  errorDetail={sseConnectionState === 'error' ? 'Stream interrupted' : null}
+                  lastLiveSyncAt={sseConnectionState === 'live' ? (lastPipelineEventAt ?? Date.now()) : lastPipelineEventAt}
+                  liveLabel="Live"
+                  syncingLabel="Connecting"
+                  errorLabel="Delayed"
+                />
+              </div>
+            )}
           </div>
           
           {/* App-level Immediate Actions Bar — always mounted, scroll-driven collapse */}

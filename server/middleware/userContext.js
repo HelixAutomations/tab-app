@@ -8,6 +8,27 @@ const { withRequest } = require('../utils/db');
 // In-memory cache for user lookups (refresh every 15 minutes)
 const userCache = new Map();
 const CACHE_TTL = 15 * 60 * 1000; // 15 minutes
+const CACHE_MAX_SIZE = 500;        // LRU cap — prevents unbounded growth
+
+/**
+ * Evict expired entries and enforce max size (oldest-first) when setting.
+ */
+function cacheSet(key, value) {
+    userCache.set(key, value);
+    // Evict expired entries first
+    if (userCache.size > CACHE_MAX_SIZE) {
+        for (const [k, v] of userCache) {
+            if (Date.now() - v.timestamp >= CACHE_TTL) {
+                userCache.delete(k);
+            }
+        }
+    }
+    // Still over cap? Drop oldest entries
+    while (userCache.size > CACHE_MAX_SIZE) {
+        const firstKey = userCache.keys().next().value;
+        userCache.delete(firstKey);
+    }
+}
 
 /**
  * Look up user details from database by Entra ID
@@ -43,7 +64,7 @@ async function getUserByEntraId(entraId) {
 
     // Cache the result
     if (result) {
-      userCache.set(entraId, {
+      cacheSet(entraId, {
         user: result,
         timestamp: Date.now()
       });
@@ -95,7 +116,7 @@ async function getUserByEmailOrInitials(email, initials) {
 
     // Cache by entraId if found
     if (result && result.entraId) {
-      userCache.set(result.entraId, {
+      cacheSet(result.entraId, {
         user: result,
         timestamp: Date.now()
       });

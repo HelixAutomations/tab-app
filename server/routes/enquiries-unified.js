@@ -3,6 +3,7 @@ const { withRequest, sql } = require('../utils/db');
 const { cacheUnified, generateCacheKey, CACHE_CONFIG, deleteCachePattern } = require('../utils/redisClient');
 const { loggers } = require('../utils/logger');
 const { attachEnquiriesStream, broadcastEnquiriesChanged } = require('../utils/enquiries-stream');
+const { emitEvent } = require('../utils/eventEmitter');
 const { VALID_SOURCE_BIASES, resolveSourceSelection, getDefaultSourceBiasForPolicy } = require('../utils/enquirySourcePolicy');
 const router = express.Router();
 const { annotate } = require('../utils/devConsole');
@@ -417,14 +418,14 @@ async function performUnifiedEnquiriesQuery(queryParams) {
             const pocConditions = [];
             if (email) {
               request.input('userEmail', sql.VarChar(255), email);
-              pocConditions.push("LOWER(LTRIM(RTRIM(Point_of_Contact))) = @userEmail");
+              pocConditions.push("Point_of_Contact = @userEmail");
             }
             if (initials) {
               request.input('userInitials', sql.VarChar(50), initials.replace(/\./g, ''));
               pocConditions.push("LOWER(REPLACE(REPLACE(LTRIM(RTRIM(Point_of_Contact)), ' ', ''), '.', '')) = @userInitials");
             }
             if (includeTeamInbox) {
-              pocConditions.push("LOWER(LTRIM(RTRIM(Point_of_Contact))) IN ('team@helix-law.com', 'team', 'team inbox')");
+              pocConditions.push("Point_of_Contact IN ('team@helix-law.com', 'team', 'team inbox')");
               pocConditions.push("Point_of_Contact IS NULL OR LTRIM(RTRIM(Point_of_Contact)) = ''");
             }
             if (pocConditions.length > 0) filters.push(`(${pocConditions.join(' OR ')})`);
@@ -505,7 +506,7 @@ async function performUnifiedEnquiriesQuery(queryParams) {
             const pocConditions = [];
             if (email) {
               request.input('userEmail', sql.VarChar(255), email);
-              pocConditions.push("LOWER(LTRIM(RTRIM(poc))) = @userEmail");
+              pocConditions.push("poc = @userEmail");
               if (hasInstructionsSharedWithColumn) {
                 pocConditions.push("(',' + LOWER(REPLACE(REPLACE(ISNULL(shared_with, ''), ' ', ''), ';', ',')) + ',') LIKE '%,' + @userEmail + ',%'");
               }
@@ -515,7 +516,7 @@ async function performUnifiedEnquiriesQuery(queryParams) {
               pocConditions.push("LOWER(REPLACE(REPLACE(LTRIM(RTRIM(poc)), ' ', ''), '.', '')) = @userInitials");
             }
             if (includeTeamInbox) {
-              pocConditions.push("LOWER(LTRIM(RTRIM(poc))) IN ('team@helix-law.com', 'team', 'team inbox')");
+              pocConditions.push("poc IN ('team@helix-law.com', 'team', 'team inbox')");
               pocConditions.push("poc IS NULL OR LTRIM(RTRIM(poc)) = ''");
             }
             if (pocConditions.length > 0) filters.push(`(${pocConditions.join(' OR ')})`);
@@ -1139,6 +1140,8 @@ router.post('/update', async (req, res) => {
       broadcastEnquiriesChanged({ changeType: 'update', enquiryId: displayEnquiryId || enquiryId, record: updates });
     } catch { /* non-blocking */ }
 
+    emitEvent('enquiry.stage_changed', 'tab-app', String(displayEnquiryId || enquiryId), 'enquiry', { updatedFields: Object.keys(updates) });
+
     res.status(200).json({
       success: true,
       message: 'Enquiry updated successfully',
@@ -1324,6 +1327,8 @@ router.post('/create', async (req, res) => {
     try {
       broadcastEnquiriesChanged({ changeType: 'create', enquiryId: String(newId), record: { id: newId, ...data } });
     } catch { /* non-blocking */ }
+
+    emitEvent('enquiry.created', 'tab-app', String(newId), 'enquiry', { firstName: data?.First_Name, lastName: data?.Last_Name });
 
     res.status(201).json({
       success: true,

@@ -319,7 +319,8 @@ router.post('/', async (req, res) => {
             results.push(companyResult);
         }
 
-        // Create valid person contacts
+        // Create valid person contacts (parallel — independent of each other)
+        const personPromises = [];
         for (const c of clients) {
             const hasName = !!(c.first_name || c.last_name || c.first || c.last);
             if (!hasName) {
@@ -336,12 +337,25 @@ router.post('/', async (req, res) => {
                     etag: companyResult.data.attributes?.etag
                 };
             }
-            results.push(await createOrUpdate(personPayload));
+            personPromises.push(createOrUpdate(personPayload));
+        }
+        const settled = await Promise.allSettled(personPromises);
+        const failed = [];
+        for (const r of settled) {
+            if (r.status === 'fulfilled') {
+                results.push(r.value);
+            } else {
+                failed.push(r.reason?.message || 'Unknown error');
+                log.fail('contact:person', r.reason, { instructionRef });
+            }
+        }
+        if (failed.length) {
+            trackEvent('MatterOpening.ClioContact.PartialFailure', { instructionRef, initials, failedCount: String(failed.length), errors: failed.join('; ') });
         }
 
         // Only return contact upsert results. Matter creation happens in /api/clio-matters step.
         const durationMs = Date.now() - startTime;
-        log.op('contacts:synced', { count: results.length, type });
+        log.op('contacts:synced', { count: results.length, type, failed: failed.length });
         trackEvent('MatterOpening.ClioContact.Completed', { instructionRef, initials, contactCount: String(results.length), clientType: type, durationMs: String(durationMs) });
         trackMetric('MatterOpening.ClioContact.Duration', durationMs, { instructionRef });
         res.json({ ok: true, results });

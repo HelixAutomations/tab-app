@@ -116,6 +116,20 @@ function writeEvent(res, { id, event, data }) {
   }
 }
 
+function broadcastPipelineChanged(payload) {
+  const id = ++seq;
+  const data = {
+    type: 'pipeline.changed',
+    ts: new Date().toISOString(),
+    ...payload,
+  };
+
+  for (const client of clients) {
+    const ok = writeEvent(client, { id, event: 'pipeline.changed', data });
+    if (!ok) clients.delete(client);
+  }
+}
+
 function broadcastEnquiriesChanged(payload) {
   const id = ++seq;
   const data = {
@@ -184,5 +198,7 @@ function attachEnquiriesStream(router) {
 module.exports = {
   attachEnquiriesStream,
   broadcastEnquiriesChanged,
+  broadcastPipelineChanged,
+  lastBroadcastClaimStateByEnquiryId,
   getSseClientCount: () => clients.size,
 };

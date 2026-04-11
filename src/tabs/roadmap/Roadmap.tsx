@@ -1,13 +1,20 @@
-// src/tabs/roadmap/Roadmap.tsx — Activity tab (auto-updated changelog view)
+// src/tabs/roadmap/Roadmap.tsx — Activity tab (auto-updated changelog view + Helix Eye ops dashboard)
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Spinner } from '@fluentui/react/lib/Spinner';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';
 import { UserData } from '../../app/functionality/types';
+import { isDevOwner } from '../../app/admin';
 import HomeBootMonitor from './HomeBootMonitor';
 import ActivityFeedSection from './parts/ActivityFeedSection';
 import ActivityCardLabPanel from './parts/ActivityCardLabPanel';
+import PlatformPulseStrip from './parts/PlatformPulseStrip';
+import SyncTimelineSection from './parts/SyncTimelineSection';
+import ErrorStreamSection from './parts/ErrorStreamSection';
+import SessionsPanel from './parts/SessionsPanel';
+import ApiHeatSection from './parts/ApiHeatSection';
+import { useOpsPulse } from './hooks/useOpsPulse';
 import { ActivityFeedItem } from './parts/types';
 
 interface ActivityProps {
@@ -237,8 +244,10 @@ const EntryRow: React.FC<{
   );
 };
 
-const Activity: React.FC<ActivityProps> = ({ showBootMonitor = false }) => {
+const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false }) => {
   const { isDarkMode } = useTheme();
+  const showHelixEye = isDevOwner(Array.isArray(userData) ? userData[0] : null);
+  const opsPulse = useOpsPulse(showHelixEye);
   const [content, setContent] = useState('');
   const [activityItems, setActivityItems] = useState<ActivityFeedItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -430,7 +439,45 @@ const Activity: React.FC<ActivityProps> = ({ showBootMonitor = false }) => {
 
       {showBootMonitor && <HomeBootMonitor />}
 
-      {!loading && !error && (
+      {/* ═══ Helix Eye — god mode ops dashboard (dev owner only) ═══ */}
+      {showHelixEye && (
+        <div style={{ marginBottom: 28 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+            <span style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: accentColour, fontFamily: 'Raleway, sans-serif' }}>
+              Helix Eye
+            </span>
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: opsPulse.connected ? colours.green : colours.cta, flexShrink: 0 }} />
+          </div>
+
+          <PlatformPulseStrip pulse={opsPulse.pulse} connected={opsPulse.connected} isDarkMode={isDarkMode} />
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            {/* Left column */}
+            <div>
+              <SyncTimelineSection scheduler={opsPulse.scheduler} isDarkMode={isDarkMode} />
+              <ErrorStreamSection errors={opsPulse.errors} isDarkMode={isDarkMode} />
+              <ApiHeatSection requests={opsPulse.requests} isDarkMode={isDarkMode} />
+            </div>
+            {/* Right column */}
+            <div>
+              <SessionsPanel sessions={opsPulse.sessions} isDarkMode={isDarkMode} />
+              {!loading && !error && (
+                <ActivityFeedSection
+                  items={activityItems}
+                  isDarkMode={isDarkMode}
+                  isRefreshing={activityFeedRefreshing}
+                  isSnapshot={activityFeedUsingSnapshot}
+                  lastLiveSyncAt={activityFeedLastSyncAt}
+                  error={activityError}
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ Standard activity feed (non-Eye users) ═══ */}
+      {!showHelixEye && !loading && !error && (
         <>
           <ActivityFeedSection
             items={activityItems}

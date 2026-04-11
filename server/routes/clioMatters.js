@@ -5,6 +5,7 @@ const path = require('path');
 const teamLookup = require('../utils/teamLookup');
 const createOrUpdate = require('../utils/createOrUpdate');
 const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
+const { emitEvent } = require('../utils/eventEmitter');
 
 const { PRACTICE_AREAS } = require('../utils/clioConstants');
 
@@ -689,6 +690,14 @@ router.post('/', async (req, res) => {
                 const matterDurationMs = Date.now() - matterStartTime;
                 trackEvent('MatterOpening.ClioMatter.Completed', { instructionRef, initials, displayNumber: matter.display_number || '', clioMatterId: String(matter.id), durationMs: String(matterDurationMs) });
                 trackMetric('MatterOpening.ClioMatter.Duration', matterDurationMs, { instructionRef });
+
+                // Emit to shared Events table for realtime pipeline updates
+                emitEvent('matter.opened', 'tab-app', instructionRef, 'matter', {
+                  clioMatterId: matter.id,
+                  displayNumber: matter.display_number || '',
+                  initials,
+                });
+
                 res.json({ ok: true, matter });
     } catch (e) {
         const matterDurationMs = Date.now() - matterStartTime;

@@ -17,17 +17,25 @@ router.get('/', async (req, res) => {
   }
 
   try {
-    // Generate cache key based on current date (transactions can be added throughout the day)
+    // Range param: 'all' returns full table, default scoped to 90 days for Home perf
+    const range = req.query.range || '90d';
+
+    // Generate cache key based on current date + range
     const today = new Date().toISOString().split('T')[0];
-    const cacheKey = generateCacheKey('metrics', 'transactions', today);
+    const cacheKey = generateCacheKey('metrics', 'transactions', today, range);
 
     const transactions = await cacheWrapper(
       cacheKey,
       async () => {
         const result = await withRequest(connectionString, async (request) => {
+          const dateFilter = range === 'all'
+            ? ''
+            : `WHERE transaction_date >= DATEADD(day, -90, GETDATE())`;
           const query = `
-            SELECT *
+            SELECT id, transaction_date, description, amount, type, status,
+                   matter_id, contact_name, payment_method, reference, created_at
             FROM transactions
+            ${dateFilter}
             ORDER BY transaction_date DESC
           `;
           return await request.query(query);
@@ -35,7 +43,7 @@ router.get('/', async (req, res) => {
 
         return result.recordset;
       },
-      1800 // 30 minutes TTL - transactions can be added during the day but not frequently
+      1800 // 30 minutes TTL
     );
 
     // Return the transactions

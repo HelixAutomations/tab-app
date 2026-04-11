@@ -1186,6 +1186,13 @@ router.post('/:matterId/approve', async (req, res) => {
             version: String(updated.Version), user, durationMs: String(durationMs),
         });
         trackMetric('CCL.Approve.Duration', durationMs, { matterId: String(matterId) });
+        // Fire-and-forget DM notification
+        const { notify } = require('../utils/hubNotifier');
+        notify('ccl.approved', {
+          matterId: String(matterId),
+          approvedBy: user,
+        });
+
         res.json({
             ok: true,
             status: updated.Status,

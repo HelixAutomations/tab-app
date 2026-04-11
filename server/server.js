@@ -1,11 +1,11 @@
 //
-// ⚠️  IMPORTANT: This file is the IISNode entry point for Azure App Service. ⚠️
-// 
-// When adding new routes, add them to BOTH files:
-// 1. server/index.js   (local dev server)
-// 2. server/server.js  (this file — Azure/IISNode entry point)
+// ⚠️  DEPRECATED: This file is no longer used. ⚠️
 //
-// web.config routes all traffic to this file in Azure.
+// Both dev and production now use server/index.js as the single source of truth.
+// Deploy scripts copy index.js as server.js for IISNode compatibility.
+//
+// This file is kept temporarily for reference. Do NOT add routes here.
+// Delete after confirming staging + production work on index.js.
 //
 const path = require('path');
 
@@ -93,6 +93,7 @@ const telemetryRouter = require('./routes/telemetry');
 const financialTaskRouter = require('./routes/financialTask');
 const { router: dataOperationsRouter } = require('./routes/dataOperations');
 const { startDataOperationsScheduler } = require('./utils/dataOperationsScheduler');
+const { startEventPoller } = require('./utils/eventPoller');
 const yoyComparisonRouter = require('./routes/yoy-comparison');
 const teamsBotRouter = require('./routes/teamsBot');
 const teamsNotifyRouter = require('./routes/teamsNotify');
@@ -339,4 +340,5 @@ app.listen(PORT, () => {
     console.log(`Server listening on port ${PORT}`);
     setServerStatus('scheduler', true);
     startDataOperationsScheduler();
+    startEventPoller();
 });

@@ -2,6 +2,7 @@ const express = require('express');
 const sql = require('mssql');
 const { v4: uuidv4 } = require('uuid');
 const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
+const { emitEvent } = require('../utils/eventEmitter');
 
 const router = express.Router();
 
@@ -123,6 +124,9 @@ router.post('/', async (req, res) => {
         const mrDurationMs = Date.now() - mrStartTime;
         trackEvent('MatterOpening.MatterRequest.Completed', { instructionRef, matterId, durationMs: String(mrDurationMs) });
         trackMetric('MatterOpening.MatterRequest.Duration', mrDurationMs, { instructionRef });
+
+        emitEvent('matter.requested', 'tab-app', instructionRef, 'matter', { matterId });
+
         res.status(201).json({ ok: true, matterId });
     } catch (err) {
         const mrDurationMs = Date.now() - mrStartTime;

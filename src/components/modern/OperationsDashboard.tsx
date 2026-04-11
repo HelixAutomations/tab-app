@@ -3444,6 +3444,10 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
       return;
     }
 
+    // 500ms settling delay — pitchLookupKey can change twice in quick succession
+    // (snapshot hydration → live data) so we wait for it to stabilise
+    const timer = setTimeout(() => {
+
     const lookupRecords = isTeamWideEnquiryView
       ? recentEnquiryRecords.filter((record) => recordFallsWithinPeriod(record.date, activityDetailsPeriod))
       : recentEnquiryRecords;
@@ -3454,7 +3458,6 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
       setPitchLookupHydrated(true);
       return;
     }
-    let active = true;
     const prospectIds = [...new Set(
       lookupRecords.flatMap((r) =>
         Array.isArray(r.prospectIds) ? r.prospectIds.map((v: string) => String(v || '').trim()).filter(Boolean) : [],
@@ -3476,10 +3479,12 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
       body: JSON.stringify({ prospectIds, emails }),
     })
       .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-      .then((data) => { if (active) setPitchLookup(data); })
+      .then((data) => { setPitchLookup(data); })
       .catch(() => {})
-      .finally(() => { if (active) { setPitchLookupLoading(false); setPitchLookupHydrated(true); } });
-    return () => { active = false; };
+      .finally(() => { setPitchLookupLoading(false); setPitchLookupHydrated(true); });
+
+    }, 500);
+    return () => { clearTimeout(timer); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pitchLookupKey, isActive]);
 
@@ -4344,8 +4349,8 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
             ? [0, Math.floor((buckets.length - 1) / 2), buckets.length - 1]
             : [0, Math.floor((buckets.length - 1) / 3), Math.floor(((buckets.length - 1) * 2) / 3), buckets.length - 1],
     );
-    const currentFill = isDarkMode ? withAlpha(colours.highlight, 0.38) : withAlpha(colours.highlight, 0.28);
-    const previousFill = isDarkMode ? withAlpha(colours.highlight, 0.2) : colours.highlightBlue;
+    const currentFill = isDarkMode ? withAlpha(colours.highlight, 0.62) : withAlpha(colours.highlight, 0.48);
+    const previousFill = isDarkMode ? withAlpha(colours.highlight, 0.18) : withAlpha(colours.highlight, 0.14);
     const currentMatterStroke = isDarkMode ? withAlpha(colours.highlight, 0.98) : withAlpha(colours.highlight, 0.94);
     const previousMatterStroke = isDarkMode ? withAlpha(colours.highlightBlue, 0.9) : withAlpha(colours.highlight, 0.72);
     const currentMatterSeparator = isDarkMode ? withAlpha(colours.light.background, 0.24) : withAlpha(colours.light.background, 0.52);
@@ -4983,7 +4988,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
           <div>
             <div style={{ fontSize: 11, fontWeight: 600, color: muted, padding: '2px 0 3px', letterSpacing: '0.2px', animation: 'opsDashFadeIn 0.25s ease both', display: 'flex', alignItems: 'center', gap: 4 }}><FiTrendingUp size={10} style={{ color: accent, flexShrink: 0 }} />Conversion</div>
             <div ref={conversionRailRef} style={{ minHeight: primaryRailMinHeight }}>
-              {(!enquiryMetrics || enquiryMetrics.length === 0 || showExperimentalConversionSkeleton) ? (
+              {(!enquiryMetrics || enquiryMetrics.length === 0 || showExperimentalConversionSkeleton || (enableConversionComparison && !useExperimentalConversion)) ? (
                 renderConversionSkeleton()
               ) : (
                 <div

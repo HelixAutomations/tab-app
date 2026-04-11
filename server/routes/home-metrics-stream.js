@@ -39,12 +39,13 @@ async function fetchJson(pathname) {
   return response.json();
 }
 
-// Default metric set for Home
-const DEFAULT_METRICS = ['transactions', 'futureBookings', 'outstandingBalances'];
+// Default metric set for Home — transactions removed (Home doesn't render raw
+// transactions; Fees Recovered uses /api/reporting/management-datasets instead)
+const DEFAULT_METRICS = ['futureBookings', 'outstandingBalances'];
 
 // TTLs (seconds)
 const METRIC_TTL = {
-  transactions: 1800,         // 30m
+  transactions: 1800,         // 30m — kept for explicit ?metrics=transactions requests
   futureBookings: 900,         // 15m
   outstandingBalances: 1800,   // 30m
 };

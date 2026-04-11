@@ -27,11 +27,13 @@
   100% { background-position: 200% 0; }
 }
 
-/* Cascade entrance — staggered fade-in-up for Home sections */
+/* Cascade entrance — coordinated reveal triggered by homeDataReady gate.
+   Sections stay in pending state (showing skeletons) until the data-ready
+   flag flips, then all animate in together with staggered delays. */
 @keyframes homeCascadeIn {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(6px);
   }
   to {
     opacity: 1;
@@ -39,16 +41,21 @@
   }
 }
 
+/* Pending state: section shell visible (for skeleton), content hidden */
+.home-cascade-pending {
+  opacity: 1;
+}
+
 .home-cascade-1 {
-  animation: homeCascadeIn 0.28s ease-out both;
+  animation: homeCascadeIn 0.32s ease-out both;
 }
 
 .home-cascade-2 {
-  animation: homeCascadeIn 0.28s ease-out 0.08s both;
+  animation: homeCascadeIn 0.32s ease-out 0.12s both;
 }
 
 .home-cascade-3 {
-  animation: homeCascadeIn 0.28s ease-out 0.16s both;
+  animation: homeCascadeIn 0.32s ease-out 0.22s both;
 }
 
 @keyframes homeStableReveal {
@@ -136,6 +143,7 @@
   .skeleton-shimmer {
     animation: none;
   }
+  .home-cascade-pending,
   .home-cascade-1,
   .home-cascade-2,
   .home-cascade-3 {

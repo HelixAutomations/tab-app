@@ -10,6 +10,7 @@ const _status = {
     instructionsSql: null,
     clio: null,
     scheduler: false,
+    eventPoller: false,
     startedAt: Date.now(),
 };
 

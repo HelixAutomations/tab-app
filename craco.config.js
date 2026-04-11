@@ -8,6 +8,14 @@ module.exports = {
   },
   webpack: {
     configure: (config) => {
+      // In dev, remove ForkTsCheckerWebpackPlugin — the IDE handles type checking
+      // and the plugin can delay webpack-dev-server responses.
+      if (isDev) {
+        config.plugins = config.plugins.filter(
+          (p) => !p.constructor.name.includes('ForkTsChecker')
+        );
+      }
+
       config.module.rules.push({
         test: /\.m?js/,
         resolve: {
@@ -16,29 +24,32 @@ module.exports = {
       });
 
       // Split vendor code into separate chunks for better caching.
-      // Vendor bundles rarely change, so browsers keep them cached across deploys.
-      config.optimization = {
-        ...config.optimization,
-        splitChunks: {
-          ...config.optimization?.splitChunks,
-          chunks: 'all',
-          cacheGroups: {
-            ...(config.optimization?.splitChunks?.cacheGroups || {}),
-            fluentui: {
-              test: /[\\/]node_modules[\\/]@fluentui[\\/]/,
-              name: 'vendor-fluentui',
-              chunks: 'all',
-              priority: 20,
-            },
-            vendor: {
-              test: /[\\/]node_modules[\\/]/,
-              name: 'vendor',
-              chunks: 'all',
-              priority: 10,
+      // Only in production — CRA dev uses a single 'bundle.js' filename
+      // that collides with named chunks (causes "Multiple chunks emit to same filename" error).
+      if (!isDev) {
+        config.optimization = {
+          ...config.optimization,
+          splitChunks: {
+            ...config.optimization?.splitChunks,
+            chunks: 'all',
+            cacheGroups: {
+              ...(config.optimization?.splitChunks?.cacheGroups || {}),
+              fluentui: {
+                test: /[\\/]node_modules[\\/]@fluentui[\\/]/,
+                name: 'vendor-fluentui',
+                chunks: 'all',
+                priority: 20,
+              },
+              vendor: {
+                test: /[\\/]node_modules[\\/]/,
+                name: 'vendor',
+                chunks: 'all',
+                priority: 10,
+              },
             },
           },
-        },
-      };
+        };
+      }
 
       if (process.env.ANALYZE === 'true') {
         config.plugins.push(new BundleAnalyzerPlugin({

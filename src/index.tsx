@@ -940,6 +940,31 @@ const AppWithContext: React.FC = () => {
     [],
   );
 
+  // Pipeline event distribution — instruction/deal/matter lifecycle events.
+  type PipelineRealtimeEvent = {
+    eventType: string;
+    entityId: string;
+    entityType: string;
+    field: string;
+    status: string;
+    source: string;
+    timestamp: string;
+    data?: Record<string, unknown>;
+  };
+  const pipelineEventListenersRef = React.useRef<Set<(event: PipelineRealtimeEvent) => void>>(new Set());
+  const pipelineEventDedupRef = React.useRef<Map<string, number>>(new Map());
+  const subscribeToPipelineStream = React.useCallback(
+    (listener: (event: PipelineRealtimeEvent) => void) => {
+      pipelineEventListenersRef.current.add(listener);
+      return () => { pipelineEventListenersRef.current.delete(listener); };
+    },
+    [],
+  );
+
+  // SSE connection state for freshness indicator
+  const [sseConnectionState, setSseConnectionState] = useState<'connecting' | 'live' | 'error'>('connecting');
+  const [lastPipelineEventAt, setLastPipelineEventAt] = useState<number | null>(null);
+
   // Local development state for area selection
   const [localSelectedAreas, setLocalSelectedAreas] = useState<string[]>(['Commercial', 'Construction', 'Property']);
 
@@ -1224,11 +1249,60 @@ const AppWithContext: React.FC = () => {
       scheduleBackgroundReconciliation(10000);
     };
 
+    // Pipeline event handler — instruction/deal/matter lifecycle events.
+    // Broadcasts to downstream subscribers (InstructionsTab, etc.) for instant UI patches.
+    const onPipelineEvent = (ev: Event) => {
+      let payload: PipelineRealtimeEvent | null = null;
+      try {
+        const messageEvent = ev as MessageEvent;
+        payload = typeof messageEvent?.data === 'string' ? JSON.parse(messageEvent.data) : null;
+      } catch {
+        payload = null;
+      }
+      if (!payload) return;
+
+      const event: PipelineRealtimeEvent = {
+        eventType: String(payload.eventType || ''),
+        entityId: String(payload.entityId || ''),
+        entityType: String(payload.entityType || ''),
+        field: String(payload.field || ''),
+        status: String(payload.status || ''),
+        source: String(payload.source || ''),
+        timestamp: String(payload.timestamp || payload.ts || ''),
+        data: payload.data && typeof payload.data === 'object' ? payload.data : undefined,
+      };
+
+      // Dedup: skip if we've already processed this exact event within 60s
+      const dedupKey = `${event.entityId}::${event.eventType}::${event.timestamp}`;
+      const dedupMap = pipelineEventDedupRef.current;
+      const now = Date.now();
+      if (dedupMap.has(dedupKey)) return;
+      dedupMap.set(dedupKey, now);
+      // Prune entries older than 60s
+      if (dedupMap.size > 50) {
+        const cutoff = now - 60000;
+        for (const [k, ts] of dedupMap) {
+          if (ts < cutoff) dedupMap.delete(k);
+        }
+      }
+
+      setLastPipelineEventAt(now);
+
+      pipelineEventListenersRef.current.forEach(fn => {
+        try { fn(event); } catch { /* ignore downstream errors */ }
+      });
+    };
+
     try {
       eventSource = new EventSource('/api/enquiries-unified/stream');
       eventSource.addEventListener('enquiries.changed', onChangedEvent as EventListener);
+      eventSource.addEventListener('pipeline.changed', onPipelineEvent as EventListener);
       actionLog('SSE connected', 'enquiries realtime stream');
+      eventSource.onopen = () => {
+        setSseConnectionState('live');
+      };
       eventSource.onerror = () => {
+        setSseConnectionState('error');
         // Browser will auto-retry; keep handler light.
         trackClientEvent('AppShell', 'enquiries-stream-error', { readyState: eventSource?.readyState ?? -1 }, {
           throttleKey: 'app:enquiries-stream-error',
@@ -1261,6 +1335,7 @@ const AppWithContext: React.FC = () => {
       try {
         if (eventSource) {
           eventSource.removeEventListener('enquiries.changed', onChangedEvent as EventListener);
+          eventSource.removeEventListener('pipeline.changed', onPipelineEvent as EventListener);
           eventSource.close();
         }
       } catch {
@@ -1298,6 +1373,87 @@ const AppWithContext: React.FC = () => {
       actionLog.warn('Matters refresh failed');
     }
   };
+
+  // Pipeline SSE → patch matters in-place (same pattern as instruction patching in App.tsx).
+  // Reacts to matter.opened / matter.closed events so the Matters tab updates without manual refresh.
+  React.useEffect(() => {
+    const unsubscribe = subscribeToPipelineStream((event) => {
+      const { entityId, field, eventType, status, data } = event;
+      if (!entityId || field !== 'matter') return;
+
+      setMatters(prev => {
+        if (!prev || prev.length === 0) return prev;
+
+        // Try to find and patch an existing matter
+        let changed = false;
+        const next = prev.map(matter => {
+          const matches =
+            matter.displayNumber === entityId ||
+            matter.instructionRef === entityId ||
+            matter.matterId === entityId;
+          if (!matches) return matter;
+
+          changed = true;
+
+          if (eventType === 'matter.opened') {
+            return {
+              ...matter,
+              status: 'active' as const,
+              originalStatus: status || 'Active',
+              openDate: (data as any)?.openDate || matter.openDate,
+            };
+          }
+
+          if (eventType === 'matter.closed') {
+            return {
+              ...matter,
+              status: 'closed' as const,
+              originalStatus: status || 'Closed',
+              closeDate: (data as any)?.closeDate || new Date().toISOString(),
+            };
+          }
+
+          // Generic status update
+          return {
+            ...matter,
+            originalStatus: status || matter.originalStatus,
+          };
+        });
+
+        // If no match found but it's a new matter opening, append it
+        if (!changed && eventType === 'matter.opened' && data) {
+          const matterData = data as Record<string, unknown>;
+          const displayNumber = String(matterData.displayNumber || matterData.display_number || entityId);
+          // Only append if we have enough data to render
+          if (displayNumber && matterData.clientName) {
+            const newMatter: NormalizedMatter = {
+              matterId: String(matterData.clioMatterId || matterData.matterId || ''),
+              matterName: String(matterData.description || ''),
+              displayNumber,
+              instructionRef: String(matterData.instructionRef || entityId),
+              openDate: String(matterData.openDate || new Date().toISOString()),
+              closeDate: null,
+              status: 'active',
+              originalStatus: status || 'Active',
+              clientId: String(matterData.clientId || ''),
+              clientName: String(matterData.clientName || ''),
+              description: String(matterData.description || ''),
+              practiceArea: String(matterData.practiceArea || ''),
+              responsibleSolicitor: String(matterData.responsibleSolicitor || ''),
+              originatingSolicitor: String(matterData.originatingSolicitor || ''),
+              role: 'none',
+              dataSource: 'vnet_direct',
+            };
+            return [...prev, newMatter];
+          }
+        }
+
+        return changed ? next : prev;
+      });
+    });
+
+    return unsubscribe;
+  }, [subscribeToPipelineStream]);
 
   // Update user data when local areas change
   const updateLocalUserData = (areas: string[]) => {
@@ -2205,6 +2361,9 @@ const AppWithContext: React.FC = () => {
         onRefreshMatters={refreshMatters}
         onOptimisticClaim={optimisticClaimEnquiry}
         subscribeToEnquiryStream={subscribeToEnquiryStream}
+        subscribeToPipelineStream={subscribeToPipelineStream}
+        sseConnectionState={sseConnectionState}
+        lastPipelineEventAt={lastPipelineEventAt}
       />
       <EntryGate
         isOpen={showEntryGate}

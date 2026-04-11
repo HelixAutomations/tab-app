@@ -3,6 +3,7 @@ require('dotenv').config({ path: path.join(__dirname, '../../.env'), override: f
 
 const express = require('express');
 const sql = require('mssql');
+const { emitEvent } = require('../utils/eventEmitter');
 const router = express.Router();
 
 /**
@@ -124,6 +125,12 @@ router.post('/', async (req, res) => {
             `);
 
         console.log(`[risk-assessments] Risk assessment saved successfully for ${InstructionRef || MatterId}`);
+
+        emitEvent('risk.assessed', 'tab-app', InstructionRef || MatterId, 'risk', {
+            riskScore: body.RiskScore,
+            riskAssessmentResult: body.RiskAssessmentResult,
+            riskAssessor: body.RiskAssessor,
+        });
         
         res.status(200).json({ 
             success: true, 

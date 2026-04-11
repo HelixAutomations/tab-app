@@ -193,7 +193,7 @@ function annotate(res, { source, note } = {}) {
 }
 
 // ── Startup banner ─────────────────────────────────────────────────
-function banner({ port, redis, sql, instructionsSql, clio, scheduler }) {
+function banner({ port, redis, sql, instructionsSql, clio, scheduler, eventPoller }) {
   if (!isDev) return;
 
   const line = '─'.repeat(58);
@@ -213,6 +213,9 @@ function banner({ port, redis, sql, instructionsSql, clio, scheduler }) {
   console.log(`  ${c.dim}Clio creds${c.reset}      ${dot(clio)} ${clio ? 'pre-warmed' : clio === false ? 'cold (first call ~3s)' : 'warming...'}`);
   if (scheduler !== undefined) {
     console.log(`  ${c.dim}Scheduler${c.reset}       ${dot(scheduler)} ${scheduler ? 'running' : 'off'}`);
+  }
+  if (eventPoller !== undefined) {
+    console.log(`  ${c.dim}Event poller${c.reset}    ${dot(eventPoller)} ${eventPoller ? `polling (${eventPoller}s)` : 'off'}`);
   }
   console.log(`${c.dim}${line}${c.reset}`);
   console.log(`  ${c.dim}Source badges:${c.reset} ${sourceBadge('memory')} memory  ${sourceBadge('redis')} redis  ${sourceBadge('sql')} sql  ${sourceBadge('clio')} clio`);

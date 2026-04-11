@@ -60,21 +60,32 @@ function toLogLine(startedAt, source, streamName, message) {
   return `${new Date().toISOString()} ${stamp(startedAt)} [${source}:${streamName}] ${message}`;
 }
 
+// Strip ANSI escape sequences so milestone matchers work on clean text
+const stripAnsi = (str) => str.replace(/\x1B\[[0-9;]*[A-Za-z]/g, '').replace(/\x1B\].*?\x07/g, '');
+
 function createLinePump(childStream, onLine) {
   let buffer = '';
 
   childStream.on('data', (chunk) => {
     buffer += chunk.toString();
-    const lines = buffer.split(/\r?\n/);
+    // react-scripts uses bare \r (carriage return) to overwrite lines in-place.
+    // Split on \r\n, \n, OR bare \r so we don't swallow "Compiled successfully".
+    const lines = buffer.split(/\r\n|\n|\r/);
     buffer = lines.pop() ?? '';
-    for (const line of lines) {
-      onLine(line);
+    for (const raw of lines) {
+      const line = stripAnsi(raw).trim();
+      if (line.length > 0) {
+        onLine(line);
+      }
     }
   });
 
   childStream.on('end', () => {
     if (buffer.length > 0) {
-      onLine(buffer);
+      const line = stripAnsi(buffer).trim();
+      if (line.length > 0) {
+        onLine(line);
+      }
       buffer = '';
     }
   });
@@ -274,6 +285,17 @@ async function main() {
   }
 
   spawnCommand(frontendItem);
+  announce('frontend spawned — webpack compiling (this takes ~60-90s)…');
+
+  // Watch for port 3000 to confirm frontend is ready (react-scripts' "Compiled
+  // successfully" message uses terminal control chars that get swallowed by pipes)
+  try {
+    await waitForPort(3000, '127.0.0.1', 180_000);
+    const readyMs = relMs(startedAtMs);
+    announce(`frontend ready on port 3000 (+${readyMs}ms) — open http://localhost:3000`, 'frontend');
+  } catch {
+    announce('frontend port 3000 wait timed out — check for compilation errors', 'error');
+  }
 }
 
 main().catch((error) => {

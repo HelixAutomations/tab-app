@@ -9,7 +9,7 @@ const DYNAMIC_CACHE_STRATEGY = {
     baseTTL: 300,     // 5 minutes
     conditions: [
       { condition: (count) => count > 1000, multiplier: 0.5 }, // Large datasets expire faster
-      { condition: (count, time) => time > 18 && time < 9, multiplier: 2 }, // Cache longer overnight
+      { condition: (count, time) => time > 18 || time < 9, multiplier: 2 }, // Cache longer overnight
     ]
   },
   

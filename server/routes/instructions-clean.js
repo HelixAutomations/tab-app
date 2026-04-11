@@ -102,10 +102,22 @@ router.get('/', async (req, res) => {
     console.log(`[${requestId}] Found ${instructions.length} instructions`);
     
     // Query enquiries from instructions database for ProspectId → acid/name lookup
+    // Only fetch rows matching the instructions' ProspectIds (avoids full table scan)
     console.log(`[${requestId}] Querying enquiries for name lookup...`);
-    const enquiriesQuery = `SELECT id, acid, first, last, email FROM enquiries`;
-    const enquiriesResult = await pool.request().query(enquiriesQuery);
-    const enquiries = enquiriesResult.recordset;
+    const prospectIds = [...new Set(instructions.map(i => i.ProspectId).filter(Boolean))];
+    let enquiries = [];
+    if (prospectIds.length > 0) {
+      // Batch into groups of 500 to stay within SQL parameter limits
+      const BATCH = 500;
+      for (let i = 0; i < prospectIds.length; i += BATCH) {
+        const batch = prospectIds.slice(i, i + BATCH);
+        const placeholders = batch.map((_, idx) => `@pid${i + idx}`).join(',');
+        const req = pool.request();
+        batch.forEach((pid, idx) => req.input(`pid${i + idx}`, sql.Int, pid));
+        const r = await req.query(`SELECT id, acid, first, last, email FROM enquiries WHERE id IN (${placeholders})`);
+        enquiries.push(...r.recordset);
+      }
+    }
     
     console.log(`[${requestId}] Found ${enquiries.length} enquiries for lookup`);
     

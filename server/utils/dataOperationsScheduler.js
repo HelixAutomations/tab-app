@@ -1,6 +1,7 @@
 const { syncCollectedTime, syncWip, logProgress } = require('../routes/dataOperations');
 const { createLogger } = require('./logger');
 const { trackEvent, trackException } = require('./appInsights');
+const { acquire, getState: getMutexState } = require('./syncMutex');
 
 const schedulerLogger = createLogger('DataOpsScheduler');
 
@@ -28,43 +29,63 @@ function formatSlotKey(date) {
   return `${yyyy}-${mm}-${dd} ${hh}:${min}`;
 }
 
+// ── Scheduler state — exposed via getSchedulerState() for ops-pulse ──
+const _tierState = {
+  collected: { hot: null, warm: null, cold: null, monthly: null },
+  wip:       { hot: null, warm: null, cold: null },
+};
+
+function recordTier(op, tier, status, slotKey, extra) {
+  _tierState[op][tier] = { status, slotKey, ts: Date.now(), ...extra };
+}
+
 /**
  * Overlapping-window scheduler for collected time AND WIP.
  *
- * Tier     | Frequency              | Window                   | Purpose
- * ---------|------------------------|--------------------------|------------------------------------------
- * Hot      | Every 60 min at :03    | Today+yesterday          | Catches entries finalised after last run
- * Warm     | Every 6h (00/06/12/18) | Rolling 3 days           | Catches delayed Clio report appearances
- * Cold     | Nightly at 23:03       | Full current month (1st→today) | Reconciles entire month, catches backdated entries & purges duplicates
- * Monthly  | 2nd of month at 02:03  | Full previous month      | Post-close reconciliation of last month
+ * Tier       | Collected          | WIP
+ * -----------|--------------------|-----------------------
+ * Hot        | Every 60 min at :03| Every 60 min at :20
+ * Warm       | Every 6h at :08    | Every 6h at :25
+ * Cold       | Nightly at 23:03   | Nightly at 23:20
+ * Monthly    | 2nd of month 02:03 | —
  *
+ * Warm is staggered 5 min after Hot to let Hot finish first.
+ * All tiers acquire the global sync mutex — only ONE sync runs at a time.
  * ~29 API calls/day per operation (24 hot + 4 warm + 1 cold) + 1 monthly.
- * Each tier has its own running guard + last-slot dedup.
- * WIP runs at :20 offset to avoid overlapping Clio API calls with collected.
- * WIP windows are wider than collected to catch delayed backfills in recent history.
  */
 function startDataOperationsScheduler() {
-  const state = {
-    // Collected
+  const dedup = {
     hotLastSlot: null,
-    hotRunning: false,
     warmLastSlot: null,
-    warmRunning: false,
     coldLastDate: null,
-    coldRunning: false,
     monthlyLastDate: null,
-    monthlyRunning: false,
-    // WIP
     wipHotLastSlot: null,
-    wipHotRunning: false,
     wipWarmLastSlot: null,
-    wipWarmRunning: false,
     wipColdLastDate: null,
-    wipColdRunning: false,
   };
 
-  schedulerLogger.info('Data operations scheduler started — Hot/Warm/Cold tiers for Collected + WIP (Europe/London)');
-  trackEvent('Scheduler.Started', { tiers: 'Hot/Warm/Cold', operations: 'CollectedTime,Wip' });
+  schedulerLogger.info('Data operations scheduler started — Hot/Warm/Cold tiers + sync mutex (Europe/London)');
+  trackEvent('Scheduler.Started', { tiers: 'Hot/Warm/Cold', operations: 'CollectedTime,Wip', mutex: true });
+
+  /** Wrap a sync op with the global mutex + telemetry */
+  async function runWithMutex(opName, tier, entity, slotKey, fn) {
+    recordTier(entity === 'CollectedTime' ? 'collected' : 'wip', tier, 'queued', slotKey);
+    const release = await acquire(opName);
+    recordTier(entity === 'CollectedTime' ? 'collected' : 'wip', tier, 'running', slotKey);
+    try {
+      await fn();
+      schedulerLogger.info(`${opName} completed (${slotKey})`);
+      trackEvent(`Scheduler.${entity}.${tier.charAt(0).toUpperCase() + tier.slice(1)}.Completed`, { slotKey });
+      recordTier(entity === 'CollectedTime' ? 'collected' : 'wip', tier, 'completed', slotKey);
+    } catch (error) {
+      schedulerLogger.error(`${opName} failed:`, error?.message || error);
+      trackException(error instanceof Error ? error : new Error(String(error?.message || error)), { tier, entity, slotKey });
+      trackEvent(`Scheduler.${entity}.${tier.charAt(0).toUpperCase() + tier.slice(1)}.Failed`, { slotKey, error: error?.message || String(error) });
+      recordTier(entity === 'CollectedTime' ? 'collected' : 'wip', tier, 'failed', slotKey, { error: error?.message });
+    } finally {
+      release();
+    }
+  }
 
   setInterval(async () => {
     const now = getLondonNow();
@@ -72,181 +93,145 @@ function startDataOperationsScheduler() {
     const hour = now.getHours();
 
     // ═══════════════════════════════════════════════
-    // COLLECTED TIME — runs at :03
+    // COLLECTED TIME
     // ═══════════════════════════════════════════════
 
     // ─── HOT: every 60 min at :03 — today + yesterday ───
     if (minute === 3) {
       const slotKey = formatSlotKey(now);
-      if (!state.hotRunning && state.hotLastSlot !== slotKey) {
-        state.hotRunning = true;
-        state.hotLastSlot = slotKey;
-        const opName = 'syncCollectedTimeHot';
-        logProgress(opName, `Hot sync triggered (${slotKey}) — today+yesterday`, { triggeredBy: 'scheduler' });
-        try {
-          await syncCollectedTime({ daysBack: 1, triggeredBy: 'scheduler' });
-          schedulerLogger.info(`Collected hot sync completed (${slotKey})`);
-          trackEvent('Scheduler.Collected.Hot.Completed', { slotKey });
-        } catch (error) {
-          schedulerLogger.error('Collected hot sync failed:', error?.message || error);
-          trackException(error instanceof Error ? error : new Error(String(error?.message || error)), { tier: 'hot', entity: 'CollectedTime', slotKey });
-          trackEvent('Scheduler.Collected.Hot.Failed', { slotKey, error: error?.message || String(error) });
-        } finally {
-          state.hotRunning = false;
-        }
+      if (dedup.hotLastSlot !== slotKey) {
+        dedup.hotLastSlot = slotKey;
+        logProgress('syncCollectedTimeHot', `Hot sync triggered (${slotKey}) — today+yesterday`, { triggeredBy: 'scheduler' });
+        runWithMutex('syncCollectedTimeHot', 'hot', 'CollectedTime', slotKey, () =>
+          syncCollectedTime({ daysBack: 1, triggeredBy: 'scheduler' })
+        );
       }
     }
 
-    // ─── WARM: every 6h at :03 (00:03, 06:03, 12:03, 18:03) — rolling 3 days ───
-    if (hour % 6 === 0 && minute === 3) {
+    // ─── WARM: every 6h at :08 (00:08, 06:08, 12:08, 18:08) — rolling 3 days ───
+    if (hour % 6 === 0 && minute === 8) {
       const slotKey = formatSlotKey(now);
-      if (!state.warmRunning && state.warmLastSlot !== slotKey) {
-        state.warmRunning = true;
-        state.warmLastSlot = slotKey;
-        const opName = 'syncCollectedTimeWarm';
-        logProgress(opName, `Warm sync triggered (${slotKey}) — rolling 3 days`, { triggeredBy: 'scheduler' });
-        try {
-          await syncCollectedTime({ daysBack: 3, triggeredBy: 'scheduler' });
-          schedulerLogger.info(`Collected warm sync completed (${slotKey})`);
-          trackEvent('Scheduler.Collected.Warm.Completed', { slotKey });
-        } catch (error) {
-          schedulerLogger.error('Collected warm sync failed:', error?.message || error);
-          trackException(error instanceof Error ? error : new Error(String(error?.message || error)), { tier: 'warm', entity: 'CollectedTime', slotKey });
-          trackEvent('Scheduler.Collected.Warm.Failed', { slotKey, error: error?.message || String(error) });
-        } finally {
-          state.warmRunning = false;
-        }
+      if (dedup.warmLastSlot !== slotKey) {
+        dedup.warmLastSlot = slotKey;
+        logProgress('syncCollectedTimeWarm', `Warm sync triggered (${slotKey}) — rolling 3 days`, { triggeredBy: 'scheduler' });
+        runWithMutex('syncCollectedTimeWarm', 'warm', 'CollectedTime', slotKey, () =>
+          syncCollectedTime({ daysBack: 3, triggeredBy: 'scheduler' })
+        );
       }
     }
 
     // ─── COLD: nightly at 23:03 — full current month (1st → today) ───
     if (hour === 23 && minute === 3) {
       const dateKey = formatDateKey(now);
-      if (!state.coldRunning && state.coldLastDate !== dateKey) {
-        state.coldRunning = true;
-        state.coldLastDate = dateKey;
-
-        // Full current month: 1st of month → today
+      if (dedup.coldLastDate !== dateKey) {
+        dedup.coldLastDate = dateKey;
         const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
         const startDate = formatDateKey(monthStart);
         const endDate = formatDateKey(now);
-
-        const opName = 'syncCollectedTimeCold';
-        logProgress(opName, `Cold sync triggered (${dateKey} 23:03) — full month ${startDate} → ${endDate}`, { triggeredBy: 'scheduler' });
-        try {
-          await syncCollectedTime({ startDate, endDate, triggeredBy: 'scheduler' });
-          schedulerLogger.info(`Collected cold sync completed (${dateKey}): ${startDate} → ${endDate}`);
-          trackEvent('Scheduler.Collected.Cold.Completed', { dateKey, startDate, endDate });
-        } catch (error) {
-          schedulerLogger.error('Collected cold sync failed:', error?.message || error);
-          trackException(error instanceof Error ? error : new Error(String(error?.message || error)), { tier: 'cold', entity: 'CollectedTime', dateKey });
-          trackEvent('Scheduler.Collected.Cold.Failed', { dateKey, error: error?.message || String(error) });
-        } finally {
-          state.coldRunning = false;
-        }
+        logProgress('syncCollectedTimeCold', `Cold sync triggered (${dateKey} 23:03) — full month ${startDate} → ${endDate}`, { triggeredBy: 'scheduler' });
+        runWithMutex('syncCollectedTimeCold', 'cold', 'CollectedTime', dateKey, () =>
+          syncCollectedTime({ startDate, endDate, triggeredBy: 'scheduler' })
+        );
       }
     }
 
     // ─── MONTHLY: 2nd of month at 02:03 — full previous month ───
     if (now.getDate() === 2 && hour === 2 && minute === 3) {
       const dateKey = formatDateKey(now);
-      if (!state.monthlyRunning && state.monthlyLastDate !== dateKey) {
-        state.monthlyRunning = true;
-        state.monthlyLastDate = dateKey;
-
+      if (dedup.monthlyLastDate !== dateKey) {
+        dedup.monthlyLastDate = dateKey;
         const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-        const prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0); // last day of prev month
+        const prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
         const startDate = formatDateKey(prevMonthStart);
         const endDate = formatDateKey(prevMonthEnd);
-
-        const opName = 'syncCollectedTimeMonthly';
-        logProgress(opName, `Monthly sweep triggered (${dateKey} 02:03) — previous month ${startDate} → ${endDate}`, { triggeredBy: 'scheduler' });
-        try {
-          await syncCollectedTime({ startDate, endDate, triggeredBy: 'scheduler' });
-          schedulerLogger.info(`Collected monthly sweep completed (${dateKey}): ${startDate} → ${endDate}`);
-          trackEvent('Scheduler.Collected.Monthly.Completed', { dateKey, startDate, endDate });
-        } catch (error) {
-          schedulerLogger.error('Collected monthly sweep failed:', error?.message || error);
-          trackException(error instanceof Error ? error : new Error(String(error?.message || error)), { tier: 'monthly', entity: 'CollectedTime', dateKey });
-          trackEvent('Scheduler.Collected.Monthly.Failed', { dateKey, error: error?.message || String(error) });
-        } finally {
-          state.monthlyRunning = false;
-        }
+        logProgress('syncCollectedTimeMonthly', `Monthly sweep triggered (${dateKey} 02:03) — previous month ${startDate} → ${endDate}`, { triggeredBy: 'scheduler' });
+        runWithMutex('syncCollectedTimeMonthly', 'monthly', 'CollectedTime', dateKey, () =>
+          syncCollectedTime({ startDate, endDate, triggeredBy: 'scheduler' })
+        );
       }
     }
 
     // ═══════════════════════════════════════════════
-    // WIP — runs at :20 (17 min offset from collected)
+    // WIP — offset from collected
     // ═══════════════════════════════════════════════
 
     // ─── HOT: every 60 min at :20 — rolling recent history ───
     if (minute === 20) {
       const slotKey = formatSlotKey(now);
-      if (!state.wipHotRunning && state.wipHotLastSlot !== slotKey) {
-        state.wipHotRunning = true;
-        state.wipHotLastSlot = slotKey;
-        const opName = 'syncWipHot';
-        logProgress(opName, `WIP hot sync triggered (${slotKey}) — rolling ${WIP_HOT_DAYS_BACK} days`, { triggeredBy: 'scheduler' });
-        try {
-          await syncWip({ daysBack: WIP_HOT_DAYS_BACK, triggeredBy: 'scheduler' });
-          schedulerLogger.info(`WIP hot sync completed (${slotKey})`);
-          trackEvent('Scheduler.Wip.Hot.Completed', { slotKey });
-        } catch (error) {
-          schedulerLogger.error('WIP hot sync failed:', error?.message || error);
-          trackException(error instanceof Error ? error : new Error(String(error?.message || error)), { tier: 'hot', entity: 'Wip', slotKey });
-          trackEvent('Scheduler.Wip.Hot.Failed', { slotKey, error: error?.message || String(error) });
-        } finally {
-          state.wipHotRunning = false;
-        }
+      if (dedup.wipHotLastSlot !== slotKey) {
+        dedup.wipHotLastSlot = slotKey;
+        logProgress('syncWipHot', `WIP hot sync triggered (${slotKey}) — rolling ${WIP_HOT_DAYS_BACK} days`, { triggeredBy: 'scheduler' });
+        runWithMutex('syncWipHot', 'hot', 'Wip', slotKey, () =>
+          syncWip({ daysBack: WIP_HOT_DAYS_BACK, triggeredBy: 'scheduler' })
+        );
       }
     }
 
-    // ─── WARM: every 6h at :20 (00:20, 06:20, 12:20, 18:20) — rolling medium history ───
-    if (hour % 6 === 0 && minute === 20) {
+    // ─── WARM: every 6h at :25 (00:25, 06:25, 12:25, 18:25) — rolling medium history ───
+    if (hour % 6 === 0 && minute === 25) {
       const slotKey = formatSlotKey(now);
-      if (!state.wipWarmRunning && state.wipWarmLastSlot !== slotKey) {
-        state.wipWarmRunning = true;
-        state.wipWarmLastSlot = slotKey;
-        const opName = 'syncWipWarm';
-        logProgress(opName, `WIP warm sync triggered (${slotKey}) — rolling ${WIP_WARM_DAYS_BACK} days`, { triggeredBy: 'scheduler' });
-        try {
-          await syncWip({ daysBack: WIP_WARM_DAYS_BACK, triggeredBy: 'scheduler' });
-          schedulerLogger.info(`WIP warm sync completed (${slotKey})`);
-          trackEvent('Scheduler.Wip.Warm.Completed', { slotKey });
-        } catch (error) {
-          schedulerLogger.error('WIP warm sync failed:', error?.message || error);
-          trackException(error instanceof Error ? error : new Error(String(error?.message || error)), { tier: 'warm', entity: 'Wip', slotKey });
-          trackEvent('Scheduler.Wip.Warm.Failed', { slotKey, error: error?.message || String(error) });
-        } finally {
-          state.wipWarmRunning = false;
-        }
+      if (dedup.wipWarmLastSlot !== slotKey) {
+        dedup.wipWarmLastSlot = slotKey;
+        logProgress('syncWipWarm', `WIP warm sync triggered (${slotKey}) — rolling ${WIP_WARM_DAYS_BACK} days`, { triggeredBy: 'scheduler' });
+        runWithMutex('syncWipWarm', 'warm', 'Wip', slotKey, () =>
+          syncWip({ daysBack: WIP_WARM_DAYS_BACK, triggeredBy: 'scheduler' })
+        );
       }
     }
 
     // ─── COLD: nightly at 23:20 — rolling deeper history ───
     if (hour === 23 && minute === 20) {
       const dateKey = formatDateKey(now);
-      if (!state.wipColdRunning && state.wipColdLastDate !== dateKey) {
-        state.wipColdRunning = true;
-        state.wipColdLastDate = dateKey;
-        const opName = 'syncWipCold';
-        logProgress(opName, `WIP cold sync triggered (${dateKey} 23:20) — rolling ${WIP_COLD_DAYS_BACK} days`, { triggeredBy: 'scheduler' });
-        try {
-          await syncWip({ daysBack: WIP_COLD_DAYS_BACK, triggeredBy: 'scheduler' });
-          schedulerLogger.info(`WIP cold sync completed (${dateKey})`);
-          trackEvent('Scheduler.Wip.Cold.Completed', { dateKey });
-        } catch (error) {
-          schedulerLogger.error('WIP cold sync failed:', error?.message || error);
-          trackException(error instanceof Error ? error : new Error(String(error?.message || error)), { tier: 'cold', entity: 'Wip', dateKey });
-          trackEvent('Scheduler.Wip.Cold.Failed', { dateKey, error: error?.message || String(error) });
-        } finally {
-          state.wipColdRunning = false;
-        }
+      if (dedup.wipColdLastDate !== dateKey) {
+        dedup.wipColdLastDate = dateKey;
+        logProgress('syncWipCold', `WIP cold sync triggered (${dateKey} 23:20) — rolling ${WIP_COLD_DAYS_BACK} days`, { triggeredBy: 'scheduler' });
+        runWithMutex('syncWipCold', 'cold', 'Wip', dateKey, () =>
+          syncWip({ daysBack: WIP_COLD_DAYS_BACK, triggeredBy: 'scheduler' })
+        );
       }
     }
   }, 30 * 1000);
 }
 
+/** Full scheduler + mutex state for ops-pulse dashboard */
+function getSchedulerState() {
+  const now = getLondonNow();
+  const hour = now.getHours();
+  const minute = now.getMinutes();
+
+  // Calculate next scheduled fire time for each tier
+  function minsUntil(targetMin, hourInterval) {
+    const nowMins = hour * 60 + minute;
+    if (hourInterval) {
+      // Find next hour that matches interval, at targetMin past
+      for (let h = hour; h < hour + 24; h++) {
+        const candidate = (h % 24) * 60 + targetMin;
+        const adjustedCandidate = candidate >= nowMins ? candidate : candidate + 24 * 60;
+        if ((h % 24) % hourInterval === 0 && adjustedCandidate > nowMins) {
+          return adjustedCandidate - nowMins;
+        }
+      }
+    }
+    // Simple: next occurrence of targetMin past any hour
+    const minsLeft = targetMin - minute;
+    return minsLeft > 0 ? minsLeft : 60 + minsLeft;
+  }
+
+  return {
+    tiers: _tierState,
+    mutex: getMutexState(),
+    nextFires: {
+      collectedHot:  { minsUntil: minsUntil(3), schedule: ':03 (1h)' },
+      collectedWarm: { minsUntil: minsUntil(8, 6), schedule: ':08 (6h)' },
+      collectedCold: { minsUntil: hour < 23 ? (23 - hour) * 60 + (3 - minute) : (3 - minute > 0 ? 3 - minute : 60), schedule: '23:03' },
+      wipHot:        { minsUntil: minsUntil(20), schedule: ':20 (1h)' },
+      wipWarm:       { minsUntil: minsUntil(25, 6), schedule: ':25 (6h)' },
+      wipCold:       { minsUntil: hour < 23 ? (23 - hour) * 60 + (20 - minute) : (20 - minute > 0 ? 20 - minute : 60), schedule: '23:20' },
+    },
+  };
+}
+
 module.exports = {
   startDataOperationsScheduler,
+  getSchedulerState,
 };

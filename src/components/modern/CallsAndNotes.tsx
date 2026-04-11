@@ -673,14 +673,50 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, isN
     if (demoModeActive || !panelActivated || !isDocumentVisible || !journeyLoadedKeyRef.current) return;
     const intervalId = window.setInterval(() => {
       void fetchJourney('delta');
-    }, 45000);
+    }, 600_000); // 10 min safety net — SSE push handles real-time updates
     return () => window.clearInterval(intervalId);
   }, [demoModeActive, fetchJourney, isDocumentVisible, panelActivated]);
 
+  // Realtime: when data-ops sync completes, fetch delta immediately instead of waiting for poll.
+  useEffect(() => {
+    if (demoModeActive || !panelActivated) return;
+
+    let eventSource: EventSource | null = null;
+    let refreshTimer: number | null = null;
+
+    const scheduleRefresh = () => {
+      if (refreshTimer) window.clearTimeout(refreshTimer);
+      refreshTimer = window.setTimeout(() => {
+        if (journeyLoadedKeyRef.current) {
+          void fetchJourney('delta');
+        }
+      }, 1000); // 1s debounce — let server finish writing sync rows
+    };
+
+    try {
+      eventSource = new EventSource('/api/data-operations/stream');
+      eventSource.addEventListener('dataOps.synced', scheduleRefresh as EventListener);
+      eventSource.onerror = () => {
+        // Browser auto-retries; keep handler light.
+      };
+    } catch (error) {
+      console.warn('[CallsAndNotes] Failed to connect data-ops realtime stream:', error);
+    }
+
+    return () => {
+      if (refreshTimer) window.clearTimeout(refreshTimer);
+      try { if (eventSource) eventSource.close(); } catch { /* ignore */ }
+    };
+  }, [demoModeActive, panelActivated, fetchJourney]);
+
+  // Re-fetch delta when tab/panel regains visibility (catch-up).
+  // journeyItems.length is a guard (don't delta before initial load) but NOT a dep —
+  // having it in deps created a feedback loop (fetch → items change → re-fetch → cache hit → stop).
   useEffect(() => {
     if (demoModeActive || !panelActivated || !isDocumentVisible || journeyItems.length === 0) return;
     void fetchJourney('delta');
-  }, [demoModeActive, fetchJourney, isDocumentVisible, panelActivated, journeyItems.length]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [demoModeActive, fetchJourney, isDocumentVisible, panelActivated]);
 
   // ── Fetch a single saved note for inline display ──
   const fetchSavedNote = useCallback(async (recordingId: string) => {

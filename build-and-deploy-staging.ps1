@@ -37,12 +37,17 @@ Copy-Item -Path "server\node_modules" -Destination "$deployDir\node_modules" -Re
 Write-Host "Copying server files to deploy directory"
 Copy-Item -Path "server\package.json" -Destination "$deployDir\package.json" -Force
 Copy-Item -Path "server\package-lock.json" -Destination "$deployDir\package-lock.json" -Force
-Copy-Item -Path "server\server.js" -Destination "$deployDir\server.js" -Force
+# Use index.js as production entry point (single source of truth for routes + middleware).
+# IISNode expects server.js — copy index.js under that name.
+Copy-Item -Path "server\index.js" -Destination "$deployDir\server.js" -Force
 Copy-Item -Path "server\routes" -Destination "$deployDir\routes" -Recurse -Force
 Copy-Item -Path "server\middleware" -Destination "$deployDir\middleware" -Recurse -Force
 Copy-Item -Path "server\utils" -Destination "$deployDir\utils" -Recurse -Force
 Copy-Item -Path "server\activity-card-lab" -Destination "$deployDir\activity-card-lab" -Recurse -Force
 Copy-Item -Path "server\web.config" -Destination "$deployDir\web.config" -Force
+if (Test-Path "server\prompts") {
+    Copy-Item -Path "server\prompts" -Destination "$deployDir\prompts" -Recurse -Force
+}
 
 Write-Host "Creating IISNode log directory"
 New-Item -ItemType Directory -Path "$deployDir\iisnode" -Force | Out-Null

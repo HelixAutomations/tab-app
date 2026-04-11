@@ -17,8 +17,7 @@ import OperationStatusToast from './pitch-builder/OperationStatusToast';
 import IconAreaFilter from '../../components/filter/IconAreaFilter';
 import { renderAreaOfWorkGlyph, getAreaGlyphMeta } from '../../components/filter/areaGlyphs';
 import PitchScenarioBadge, { getScenarioColor } from '../../components/PitchScenarioBadge';
-import { BiLogoMicrosoftTeams } from 'react-icons/bi';
-import { FaExchangeAlt, FaPoundSign, FaRegCreditCard } from 'react-icons/fa';
+
 import {
   BarChart,
   Bar,
@@ -63,7 +62,6 @@ import {
   enquiryReferencesId,
   resolveEnquiryProcessingIdentity,
 } from '../../app/functionality/enquiryProcessingModel';
-import { claimEnquiry } from '../../utils/claimEnquiry';
 import { normalizeEnquiry, detectSourceType } from '../../utils/normalizeEnquiry';
 import type { NormalizedEnquiry } from '../../utils/normalizeEnquiry';
 import { app } from '@microsoft/teams-js';
@@ -95,414 +93,47 @@ import type {
   RowHoverHandlers,
   RowDataDeps,
 } from './components';
+import {
+  toRgba,
+  getAreaOfWorkLineColor,
+  formatDateReceived,
+  formatFullDateTime,
+  timeAgo,
+  timeAgoLong,
+  getCompactTimeDisplay,
+  getStackedDateDisplay,
+  formatDaySeparatorLabel,
+  getStackedTimeParts,
+  formatClaimTime,
+  calculateTimeDifference,
+  getTimeDifferenceColors,
+} from './utils/enquiryFormatting';
+import {
+  DEMO_MODE_STORAGE_KEY,
+  ZERO_WIDTH_CHARACTERS_REGEX,
+  DIACRITIC_CHARACTERS_REGEX,
+  normalizeSearchValue,
+  normalizeSearchEmailArtifacts,
+  toDigitSearchValue,
+  parseSharedWithEmails,
+  serialiseSharedWithEmails,
+  isDemoEnquiryId,
+  findEnquiryForMutation,
+  buildEnquiryIdentityKey,
+  DEV_PREVIEW_TEST_ENQUIRY,
+  ALL_AREAS_OF_WORK,
+  getAreaSpecificChannelUrl,
+  combineDateAndTime,
+  helixWatermarkSvg,
+  injectEnquiryStyles,
+  MonthlyCount,
+} from './utils/enquiryHelpers';
+import StatusFilterWithScope, { EnquiriesActiveState } from './components/StatusFilterWithScope';
+import MiniPipelineChip, { MiniChipProps, renderPipelineIcon } from './components/MiniPipelineChip';
+import { mergeInstructionOverrides, buildInlineWorkbenchMap } from './utils/buildInlineWorkbenchMap';
+import QueueLoadingSkeleton from './components/QueueLoadingSkeleton';
+import ClaimPromptChip from './components/ClaimPromptChip';
 
-const DEMO_MODE_STORAGE_KEY = 'helix-hub-demo-enquiry-mode';
-
-const ZERO_WIDTH_CHARACTERS_REGEX = /[\u200B\u200C\u200D\uFEFF]/g;
-const DIACRITIC_CHARACTERS_REGEX = /[\u0300-\u036f]/g;
-
-const normalizeSearchValue = (value?: string | number | null): string => {
-  return String(value ?? '')
-    .normalize('NFKD')
-    .replace(DIACRITIC_CHARACTERS_REGEX, '')
-    .replace(ZERO_WIDTH_CHARACTERS_REGEX, '')
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .trim();
-};
-
-const normalizeSearchEmailArtifacts = (value?: string | number | null): string => {
-  return normalizeSearchValue(value)
-    .replace(/\s*@\s*/g, '@')
-    .replace(/\s*\.\s*/g, '.');
-};
-
-const toDigitSearchValue = (value?: string | number | null): string => {
-  return String(value ?? '').replace(/\D/g, '');
-};
-
-const parseSharedWithEmails = (value: unknown): string[] => {
-  return String(value ?? '')
-    .split(/[;,\n]/)
-    .map((entry) => entry.trim().toLowerCase())
-    .filter(Boolean);
-};
-
-const serialiseSharedWithEmails = (value: unknown): string => {
-  return Array.from(new Set(parseSharedWithEmails(value))).join(',');
-};
-
-const isDemoEnquiryId = (value: unknown): boolean => String(value ?? '').toUpperCase().startsWith('DEMO-ENQ-');
-
-const findEnquiryForMutation = (enquiries: Enquiry[], enquiryId: string): Enquiry | undefined => {
-  const normalisedEnquiryId = String(enquiryId ?? '').trim();
-  if (!normalisedEnquiryId) return undefined;
-
-  return enquiries.find((enquiry) => enquiryReferencesId(enquiry, normalisedEnquiryId));
-};
-
-// Synthetic demo enquiry for demos/testing - always available, not from database
-const DEV_PREVIEW_TEST_ENQUIRY: Enquiry = {
-  ID: 'DEMO-ENQ-0001',
-  Date_Created: '2026-01-01',
-  Touchpoint_Date: '2026-01-01',
-  Email: 'demo.prospect@helix-law.com',
-  Area_of_Work: 'Commercial',
-  Type_of_Work: 'Contract Dispute',
-  Method_of_Contact: 'Email',
-  Point_of_Contact: 'team@helix-law.com',
-  First_Name: 'Demo',
-  Last_Name: 'Prospect',
-  Phone_Number: '07000000000',
-  Rating: 'Neutral',
-  Value: '25000',
-  Ultimate_Source: 'Google Ads',
-  Initial_first_call_notes: 'Demo enquiry for testing. Client enquiring about a contract dispute with their supplier. They have been invoiced for goods they did not receive and are seeking advice on how to challenge the invoice and potentially recover costs. Urgent matter - supplier threatening legal action within 14 days.',
-};
-
-const shimmerStyle = `
-@keyframes shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
-}
-@keyframes prospect-detail-enter {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-@keyframes sse-reconnect-pulse {
-  0%, 100% { opacity: 0.6; }
-  50% { opacity: 1; }
-}
-.shimmer {
-  background: linear-gradient(90deg, rgba(255,255,255,0.05), rgba(255,255,255,0.15), rgba(255,255,255,0.05));
-  background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
-}
-`;
-
-const pipelineCarouselStyle = `
-.pipeline-carousel {
-  position: relative;
-  overflow: hidden;
-  width: 100%;
-}
-.pipeline-carousel-track {
-  display: flex;
-  transition: transform 0.2s ease-out;
-  height: 100%;
-}
-.pipeline-carousel-nav {
-  position: absolute;
-  right: 0;
-  top: 0;
-  bottom: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  z-index: 1;
-  opacity: 0.6;
-  transition: opacity 0.15s ease;
-}
-.pipeline-carousel-nav:hover {
-  opacity: 1;
-}
-.pipeline-chip {
-  transition: filter 0.1s ease;
-}
-.pipeline-chip-box {
-  display: inline-flex;
-  align-items: center;
-  gap: 0;
-  padding: 1px 4px;
-  border: 1px solid transparent;
-  border-radius: 2px;
-  transition: gap 0.25s ease, padding 0.25s ease, border-color 0.25s ease;
-  will-change: gap, padding, border-color;
-  overflow: visible;
-}
-.pipeline-chip-reveal:hover .pipeline-chip-box {
-  gap: 4px;
-  padding: 1px 6px 1px 4px;
-  border-color: rgba(107, 107, 107, 0.25);
-}
-.pipeline-chip-label {
-  display: inline-flex;
-  gap: 4px;
-  max-width: 0;
-  opacity: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  transition: max-width 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease;
-  transition-delay: 0ms;
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1.1;
-  letter-spacing: 0.2px;
-  will-change: max-width, opacity;
-}
-.pipeline-chip-reveal:hover .pipeline-chip-label,
-.pipeline-chip-reveal:focus-visible .pipeline-chip-label {
-  max-width: 80px !important;
-  opacity: 0.9 !important;
-}
-/* next-action-breathe animation removed — was distracting */
-.next-action-subtle-pulse,
-.next-action-subtle-pulse .pipeline-chip-box,
-.next-action-subtle-pulse > button,
-.next-action-subtle-pulse > div {
-  animation: none !important;
-}
-@keyframes pitch-cta-pulse {
-  0%, 100% {
-    border-color: rgba(255, 140, 0, 0.35);
-    background: rgba(255, 140, 0, 0.08);
-  }
-  50% {
-    border-color: rgba(255, 140, 0, 0.55);
-    background: rgba(255, 140, 0, 0.14);
-  }
-}
-@keyframes pipeline-cascade {
-  0% { opacity: 0; transform: translateY(-6px) scale(0.9); }
-  100% { opacity: 1; transform: translateY(0) scale(1); }
-}
-@keyframes pipeline-action-pulse {
-  0%, 100% { opacity: 0.45; transform: scale(0.9); }
-  50% { opacity: 1; transform: scale(1); }
-}
-`;
-
-// Inject the shimmer CSS into the document head if it doesn't exist
-if (typeof document !== 'undefined' && !document.querySelector('#shimmer-styles')) {
-  const style = document.createElement('style');
-  style.id = 'shimmer-styles';
-  style.textContent = shimmerStyle;
-  document.head.appendChild(style);
-}
-
-// Inject the pipeline carousel CSS
-if (typeof document !== 'undefined' && !document.querySelector('#pipeline-carousel-styles')) {
-  const style = document.createElement('style');
-  style.id = 'pipeline-carousel-styles';
-  style.textContent = pipelineCarouselStyle;
-  document.head.appendChild(style);
-}
-  // Subtle Helix watermark generator – three rounded ribbons rotated slightly
-  const helixWatermarkSvg = (dark: boolean) => {
-    const fill = dark ? '%23FFFFFF' : '%23061733';
-    const opacity = dark ? '0.06' : '0.035';
-    const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='900' height='900' viewBox='0 0 900 900'>
-      <g transform='rotate(-12 450 450)'>
-        <path d='M160 242 C160 226 176 210 200 210 L560 210 Q640 235 560 274 L200 274 C176 274 160 258 160 242 Z' fill='${fill}' fill-opacity='${opacity}'/>
-        <path d='M160 362 C160 346 176 330 200 330 L560 330 Q640 355 560 394 L200 394 C176 394 160 378 160 362 Z' fill='${fill}' fill-opacity='${opacity}'/>
-        <path d='M160 482 C160 466 176 450 200 450 L560 450 Q640 475 560 514 L200 514 C176 514 160 498 160 482 Z' fill='${fill}' fill-opacity='${opacity}'/>
-      </g>
-    </svg>`;
-    return `url("data:image/svg+xml,${svg}")`;
-  };
-
-// All available areas of work across the organization
-const ALL_AREAS_OF_WORK = [
-  'Commercial',
-  'Construction',
-  'Employment',
-  'Property',
-  'Other/Unsure'
-];
-
-// Teams channel configuration - area-specific fallback URLs
-const TEAM_INBOX_CHANNEL_FALLBACK_URL =
-  'https://teams.microsoft.com/l/channel/19%3a09c0d3669cd2464aab7db60520dd9180%40thread.tacv2/Team%20Inbox?groupId=b7d73ffb-70b5-45d6-9940-8f9cc7762135&tenantId=7fbc252f-3ce5-460f-9740-4e1cb8bf78b8';
-
-// Area-specific channel mapping (legacy channels from old Helix Law team)
-const getAreaSpecificChannelUrl = (areaOfWork: string | undefined): string => {
-  const channelMappings: { [key: string]: string } = {
-    commercial: 'https://teams.microsoft.com/l/channel/19%3A09c0d3669cd2464aab7db60520dd9180%40thread.tacv2/Commercial?groupId=b7d73ffb-70b5-45d6-9940-8f9cc7762135&tenantId=7fbc252f-3ce5-460f-9740-4e1cb8bf78b8',
-    construction: 'https://teams.microsoft.com/l/channel/19%3A2ba7d5a50540426da60196c3b2daf8e8%40thread.tacv2/Construction?groupId=b7d73ffb-70b5-45d6-9940-8f9cc7762135&tenantId=7fbc252f-3ce5-460f-9740-4e1cb8bf78b8',
-    employment: 'https://teams.microsoft.com/l/channel/19%3A9e1c8918bca747f5afc9ca5acbd89683%40thread.tacv2/Employment?groupId=b7d73ffb-70b5-45d6-9940-8f9cc7762135&tenantId=7fbc252f-3ce5-460f-9740-4e1cb8bf78b8',
-    property: 'https://teams.microsoft.com/l/channel/19%3A6d09477d15d548a6b56f88c59b674da6%40thread.tacv2/Property?groupId=b7d73ffb-70b5-45d6-9940-8f9cc7762135&tenantId=7fbc252f-3ce5-460f-9740-4e1cb8bf78b8'
-  };
-  
-  const normalizedArea = areaOfWork?.toLowerCase();
-  return channelMappings[normalizedArea || ''] || TEAM_INBOX_CHANNEL_FALLBACK_URL;
-};
-
-// Helper components for Pipeline Chips
-const renderPipelineIcon = (iconName: string, color: string, size: number = 14) => {
-  if (iconName === 'TeamsLogo') {
-    return <BiLogoMicrosoftTeams size={size} color={color} style={{ display: 'block', flexShrink: 0 }} />;
-  }
-
-  if (iconName === 'PaymentCard') {
-    return <FaRegCreditCard size={size - 1} color={color} style={{ display: 'block', flexShrink: 0 }} />;
-  }
-
-  if (iconName === 'Bank') {
-    return <FaExchangeAlt size={size - 2} color={color} style={{ display: 'block', flexShrink: 0 }} />;
-  }
-
-  if (iconName === 'CurrencyPound') {
-    return <FaPoundSign size={size - 1} color={color} style={{ display: 'block', flexShrink: 0 }} />;
-  }
-
-  return <Icon iconName={iconName === 'PitchScenario' ? 'Send' : iconName} styles={{ root: { fontSize: size, color } }} />;
-};
-
-const combineDateAndTime = (dateValue: unknown, timeValue?: unknown): Date | null => {
-  if (!dateValue) return null;
-  const base = new Date(dateValue as any);
-  if (isNaN(base.getTime())) return null;
-
-  if (!timeValue) return base;
-
-  let hours = 0;
-  let minutes = 0;
-  let seconds = 0;
-  let milliseconds = 0;
-
-  if (timeValue instanceof Date) {
-    hours = timeValue.getHours();
-    minutes = timeValue.getMinutes();
-    seconds = timeValue.getSeconds();
-    milliseconds = timeValue.getMilliseconds();
-  } else {
-    const timeString = String(timeValue);
-    const timeDate = new Date(timeString);
-    if (!isNaN(timeDate.getTime())) {
-      hours = timeDate.getHours();
-      minutes = timeDate.getMinutes();
-      seconds = timeDate.getSeconds();
-      milliseconds = timeDate.getMilliseconds();
-    } else {
-      const parts = timeString.split(':').map(v => Number(v));
-      if (Number.isFinite(parts[0])) hours = parts[0];
-      if (Number.isFinite(parts[1])) minutes = parts[1];
-      if (Number.isFinite(parts[2])) seconds = parts[2];
-    }
-  }
-
-  const combined = new Date(base);
-  combined.setHours(hours, minutes, seconds, milliseconds);
-  return combined;
-};
-
-interface MiniChipProps {
-  shortLabel: string;
-  fullLabel: string;
-  done: boolean;
-  inProgress?: boolean;
-  color: string;
-  title: string;
-  iconName: string;
-  statusText?: string;
-  subtitle?: string;
-  onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void;
-  isNextAction?: boolean;
-  details?: { label: string; value: string }[];
-  showConnector?: boolean;
-  prevDone?: boolean; // Whether the previous chip in the pipeline is done
-  // External deps
-  isDarkMode: boolean;
-  onMouseEnter: (e: React.MouseEvent) => void;
-  onMouseMove: (e: React.MouseEvent) => void;
-  onMouseLeave: (e: React.MouseEvent) => void;
-}
-
-const MiniPipelineChip = ({
-  shortLabel,
-  fullLabel,
-  done,
-  inProgress,
-  color,
-  title,
-  iconName,
-  statusText,
-  subtitle,
-  onClick,
-  isNextAction,
-  details,
-  showConnector,
-  prevDone,
-  isDarkMode,
-  onMouseEnter,
-  onMouseMove,
-  onMouseLeave
-}: MiniChipProps) => {
-  const isActiveChip = Boolean(done || inProgress || isNextAction);
-  const inactiveColor = isDarkMode ? 'rgba(160, 160, 160, 0.25)' : 'rgba(107, 107, 107, 0.2)';
-  // Use neutral grey for next-action and in-progress/pending (both get pulse effect)
-  const activeColor = (inProgress || isNextAction) ? colours.greyText : color;
-  const iconColor = (done || inProgress || isNextAction) ? activeColor : inactiveColor;
-  
-  // Connector state: done (green) if both prev and current are done
-  const connectorDone = prevDone && done;
-  const connectorClass = `pipeline-connector${connectorDone ? ' connector-done' : ''}`;
-
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`pipeline-chip pipeline-chip-reveal${(isNextAction || inProgress) ? ' next-action-subtle-pulse' : ''}`}
-      onMouseEnter={onMouseEnter}
-      onMouseMove={onMouseMove}
-      onMouseLeave={onMouseLeave}
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        width: '100%',
-        minHeight: 24,
-        height: 'auto',
-        padding: 0,
-        borderRadius: 0,
-        border: 'none',
-        background: 'transparent',
-        cursor: onClick ? 'pointer' : 'default',
-        fontFamily: 'inherit',
-        position: 'relative',
-        overflow: 'visible',
-      }}
-    >
-      {/* Subtle connector dot to previous chip */}
-      {showConnector && (
-        <span className={connectorClass} />
-      )}
-      <span className="pipeline-chip-box">
-        {renderPipelineIcon(iconName, iconColor, 14)}
-        <span
-          className="pipeline-chip-label"
-          style={{ color: iconColor }}
-        >
-          {shortLabel}
-        </span>
-      </span>
-    </button>
-  );
-};
-
-const buildEnquiryIdentityKey = (record: Partial<Enquiry> | any): string => {
-  const id = String(record?.ID ?? record?.id ?? '').trim();
-  const date = String(record?.Touchpoint_Date ?? record?.Date_Created ?? record?.datetime ?? '');
-  const poc = String(record?.Point_of_Contact ?? record?.poc ?? '').trim().toLowerCase();
-  const first = String(record?.First_Name ?? record?.first ?? '').trim().toLowerCase();
-  const last = String(record?.Last_Name ?? record?.last ?? '').trim().toLowerCase();
-  const notesSnippet = String(record?.Initial_first_call_notes ?? record?.notes ?? '')
-    .trim()
-    .slice(0, 24)
-    .toLowerCase();
-  return [id, date, poc, first, last, notesSnippet].join('|');
-};
-
-// Local types
-interface MonthlyCount {
-  month: string;
-  commercial: number;
-  construction: number;
-  employment: number;
-  property: number;
-  otherUnsure: number;
-}
 
 interface EnquiriesProps {
   context?: app.Context | null;
@@ -718,202 +349,6 @@ if (typeof document !== 'undefined' && !document.head.querySelector('style[data-
   document.head.appendChild(filterCss);
 }
 
-// ─── Filter icon helper (pure, no deps → stable module-level) ─────────
-const filterIconSvg = (k: string) => {
-  if (k === 'Claimed') {
-    return (
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-        <path d="M3 8.5L6.5 12L13 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-      </svg>
-    );
-  }
-  if (k === 'Unclaimed') {
-    return (
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-        <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.5" fill="none" />
-        <path d="M8 4V8.5L11 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-      </svg>
-    );
-  }
-  if (k === 'All') {
-    return (
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-        <circle cx="5.5" cy="5" r="2.5" stroke="currentColor" strokeWidth="1.5" fill="none" />
-        <path d="M1 13c0-2.2 2-4 4.5-4s4.5 1.8 4.5 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none" />
-        <circle cx="11.5" cy="5.5" r="2" stroke="currentColor" strokeWidth="1.3" fill="none" />
-        <path d="M15 12.5c0-1.7-1.5-3-3.5-3-.7 0-1.3.15-1.8.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" fill="none" />
-      </svg>
-    );
-  }
-  // Triaged
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-      <path d="M2 3h12l-4.5 5.5V13l-3 1.5V8.5L2 3z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-    </svg>
-  );
-};
-
-// ─── Extracted: StatusFilterWithScope ──────────────────────────────────
-// Defined at module level so React keeps a stable component identity across
-// re-renders of the parent useEffect that pushes JSX into NavigatorContext.
-type EnquiriesActiveState = '' | 'Claimed' | 'Claimable' | 'Triaged';
-
-interface StatusFilterWithScopeProps {
-  isDarkMode: boolean;
-  activeState: string;
-  showMineOnly: boolean;
-  scopeCounts: { mineCount: number; allCount: number | null };
-  isAdmin: boolean;
-  isBusy: boolean;
-  onSetActiveState: (key: EnquiriesActiveState) => void;
-  onSetShowMineOnly: (v: boolean) => void;
-}
-
-const StatusFilterWithScope = React.memo<StatusFilterWithScopeProps>(({
-  isDarkMode,
-  activeState,
-  showMineOnly,
-  scopeCounts,
-  isAdmin,
-  isBusy,
-  onSetActiveState,
-  onSetShowMineOnly,
-}) => {
-  const h = 30;
-  const currentState = activeState === 'Claimable' ? 'Unclaimed' : activeState;
-  const isClaimed = currentState === 'Claimed';
-  const claimedTone = isDarkMode ? colours.accent : colours.highlight;
-  const triagedTone = colours.orange;
-
-  const chipBg = (active: boolean, tone: string) =>
-    active
-      ? (tone === triagedTone
-          ? (isDarkMode ? 'rgba(255,140,0,0.10)' : 'rgba(255,140,0,0.07)')
-          : (isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(54, 144, 206, 0.07)'))
-      : 'transparent';
-
-  const chipStroke = (active: boolean, tone: string, admin?: boolean) =>
-    active
-      ? (isDarkMode && tone !== triagedTone ? 'rgba(135,243,243,0.34)' : tone)
-      : admin
-        ? (isDarkMode ? 'rgba(255,140,0,0.18)' : 'rgba(255,140,0,0.10)')
-        : (isDarkMode ? 'rgba(75,85,99,0.22)' : 'rgba(0,0,0,0.08)');
-
-  const chipColor = (active: boolean, tone: string) =>
-    active
-      ? tone
-      : (isDarkMode ? '#d1d5db' : colours.greyText);
-
-  const chipShadow = (active: boolean, tone: string, admin?: boolean) =>
-    `inset 0 0 0 1px ${chipStroke(active, tone, admin)}`;
-
-  const badgeBg = (active: boolean) =>
-    active
-      ? (isDarkMode ? 'rgba(54,144,206,0.22)' : 'rgba(54,144,206,0.14)')
-      : (isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(6,23,51,0.04)');
-
-  return (
-    <div
-      className="enq-filter-cluster enq-filter-constellation"
-      data-busy={isBusy ? 'true' : 'false'}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        minHeight: h,
-        padding: 0,
-        background: 'transparent',
-        borderRadius: 0,
-        gap: 8,
-        fontFamily: 'Raleway, sans-serif',
-        userSelect: 'none',
-      }}
-    >
-      <div className="enq-status-primary">
-        <button
-          type="button"
-          className="enq-scope-chip"
-          aria-pressed={isClaimed && showMineOnly}
-          onClick={() => { onSetActiveState('Claimed'); onSetShowMineOnly(true); }}
-          title={`My claimed (${scopeCounts.mineCount || 0})`}
-          style={{
-            minHeight: h,
-            background: chipBg(isClaimed && showMineOnly, claimedTone),
-            color: chipColor(isClaimed && showMineOnly, claimedTone),
-            boxShadow: chipShadow(isClaimed && showMineOnly, claimedTone),
-          }}
-        >
-          <span style={{ display: 'flex', alignItems: 'center' }}>{filterIconSvg('Claimed')}</span>
-          <span className="enq-chip-label">Mine</span>
-          <span className="enq-badge" key={`mine-${scopeCounts.mineCount}`} data-animate style={{ background: badgeBg(isClaimed && showMineOnly) }}>{scopeCounts.mineCount}</span>
-        </button>
-
-        <button
-          type="button"
-          className="enq-scope-chip"
-          aria-pressed={isClaimed && !showMineOnly}
-          onClick={() => { onSetActiveState('Claimed'); onSetShowMineOnly(false); }}
-          title={`All claimed${scopeCounts.allCount !== null ? ` (${scopeCounts.allCount})` : ''}`}
-          style={{
-            minHeight: h,
-            background: chipBg(isClaimed && !showMineOnly, claimedTone),
-            color: chipColor(isClaimed && !showMineOnly, claimedTone),
-            boxShadow: chipShadow(isClaimed && !showMineOnly, claimedTone),
-          }}
-        >
-          <span style={{ display: 'flex', alignItems: 'center' }}>{filterIconSvg('All')}</span>
-          <span className="enq-chip-label">All</span>
-          <span className="enq-badge" key={`all-${scopeCounts.allCount}`} data-animate style={{ background: badgeBg(isClaimed && !showMineOnly) }}>
-            {scopeCounts.allCount !== null ? (
-              <span style={{ display: 'inline-block' }}>{scopeCounts.allCount.toLocaleString()}</span>
-            ) : (
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, animation: 'badge-breathe 1.6s ease-in-out infinite' }}>
-                <span style={{ width: 3, height: 3, borderRadius: '50%', background: 'currentColor' }} />
-                <span style={{ width: 3, height: 3, borderRadius: '50%', background: 'currentColor' }} />
-              </span>
-            )}
-          </span>
-        </button>
-
-        <button
-          type="button"
-          className="enq-chip"
-          aria-pressed={currentState === 'Unclaimed'}
-          onClick={() => onSetActiveState('Claimable')}
-          style={{
-            height: h,
-            fontWeight: currentState === 'Unclaimed' ? 600 : 500,
-            background: chipBg(currentState === 'Unclaimed', claimedTone),
-            color: chipColor(currentState === 'Unclaimed', claimedTone),
-            boxShadow: chipShadow(currentState === 'Unclaimed', claimedTone),
-          }}
-        >
-          <span style={{ display: 'flex', alignItems: 'center' }}>{filterIconSvg('Unclaimed')}</span>
-          <span className="enq-chip-label">Unclaimed</span>
-        </button>
-
-        {isAdmin && (
-          <button
-            type="button"
-            className="enq-chip"
-            aria-pressed={currentState === 'Triaged'}
-            onClick={() => onSetActiveState('Triaged')}
-            title="Admin only"
-            style={{
-              height: h,
-              fontWeight: currentState === 'Triaged' ? 600 : 500,
-              background: chipBg(currentState === 'Triaged', triagedTone),
-              color: chipColor(currentState === 'Triaged', triagedTone),
-              boxShadow: chipShadow(currentState === 'Triaged', triagedTone, true),
-            }}
-          >
-            <span style={{ display: 'flex', alignItems: 'center' }}>{filterIconSvg('Triaged')}</span>
-            <span className="enq-chip-label">Triaged</span>
-          </button>
-        )}
-      </div>
-    </div>
-  );
-});
 
 const Enquiries: React.FC<EnquiriesProps> = ({
   context,
@@ -1020,426 +455,17 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const [instructionOverrides, setInstructionOverrides] = useState<Map<string, any>>(new Map());
 
   // Merge prop instructionData with local overrides so useMemo sees updates
-  const effectiveInstructionData = useMemo(() => {
-    if (!instructionData || instructionOverrides.size === 0) return instructionData;
-    return (instructionData as any[]).map((prospect: any) => {
-      const instructions = Array.isArray(prospect?.instructions) ? prospect.instructions : [];
-      const hasOverride = instructions.some((inst: any) =>
-        instructionOverrides.has(inst?.InstructionRef || inst?.instructionRef || '')
-      );
-      if (!hasOverride) return prospect;
-      return {
-        ...prospect,
-        instructions: instructions.map((inst: any) => {
-          const ref = inst?.InstructionRef || inst?.instructionRef || '';
-          const override = instructionOverrides.get(ref);
-          return override ? { ...inst, ...override } : inst;
-        }),
-        // Also merge idVerifications from override if present
-        idVerifications: (() => {
-          const overriddenInst = instructions.find((inst: any) =>
-            instructionOverrides.has(inst?.InstructionRef || inst?.instructionRef || '')
-          );
-          if (!overriddenInst) return prospect?.idVerifications;
-          const ref = overriddenInst?.InstructionRef || overriddenInst?.instructionRef || '';
-          const override = instructionOverrides.get(ref);
-          return override?.idVerifications ?? prospect?.idVerifications;
-        })(),
-        // Merge risk assessments from override when inline save occurs
-        riskAssessments: (() => {
-          const overriddenInst = instructions.find((inst: any) =>
-            instructionOverrides.has(inst?.InstructionRef || inst?.instructionRef || '')
-          );
-          if (!overriddenInst) return prospect?.riskAssessments;
-          const ref = overriddenInst?.InstructionRef || overriddenInst?.instructionRef || '';
-          const override = instructionOverrides.get(ref);
-          return override?.riskAssessments ?? prospect?.riskAssessments;
-        })(),
-      };
-    });
-  }, [instructionData, instructionOverrides]);
+  const effectiveInstructionData = useMemo(
+    () => mergeInstructionOverrides(instructionData, instructionOverrides),
+    [instructionData, instructionOverrides],
+  );
 
   // Map enquiry ID -> InlineWorkbench item (instruction + attached domains)
   // This is intentionally lightweight and read-only for the Prospects view.
-  const inlineWorkbenchByEnquiryId = useMemo(() => {
-    const result = new Map<string, WorkbenchItem>();
-    if (!effectiveInstructionData) return result;
-
-    const normaliseId = (value: unknown): string | null => {
-      const s = String(value ?? '').trim();
-      return s.length > 0 ? s : null;
-    };
-
-    // Global indexes (Deals are the join point: Deal.InstructionRef -> Instructions.InstructionRef)
-    const instructionByRef = new Map<string, any>();
-    const dealByRef = new Map<string, any>();
-    const dealsByProspectId = new Map<string, any[]>();
-
-    (effectiveInstructionData as any[]).forEach((prospect) => {
-      const instructions: any[] = Array.isArray(prospect?.instructions) ? prospect.instructions : [];
-      const deals: any[] = Array.isArray(prospect?.deals) ? prospect.deals : [];
-
-      instructions.forEach((inst) => {
-        const ref = normaliseId(inst?.InstructionRef ?? inst?.instructionRef);
-        if (ref && !instructionByRef.has(ref)) {
-          instructionByRef.set(ref, inst);
-        }
-      });
-
-      deals.forEach((deal) => {
-        const ref = normaliseId(deal?.InstructionRef ?? deal?.instructionRef);
-        if (ref && !dealByRef.has(ref)) {
-          dealByRef.set(ref, deal);
-        }
-        const pid = normaliseId(deal?.ProspectId ?? deal?.prospectId);
-        if (pid) {
-          const arr = dealsByProspectId.get(pid) || [];
-          arr.push(deal);
-          dealsByProspectId.set(pid, arr);
-        }
-      });
-    });
-
-    const scoreWorkbenchItem = (workbenchItem: WorkbenchItem): number => {
-      const inst = workbenchItem?.instruction;
-      const matters = workbenchItem?.matters;
-      const deal = workbenchItem?.deal;
-      const hasInstructionRef = Boolean(inst?.InstructionRef || inst?.instructionRef);
-      const hasMatter = Boolean(inst?.MatterId || inst?.matterId) || (Array.isArray(matters) && matters.length > 0);
-      const hasDeal = Boolean(deal);
-      let score = (hasMatter ? 4 : 0) + (hasInstructionRef ? 1 : 0) + (hasDeal ? 1 : 0);
-
-      // Prefer active/instructed deals over expired ones
-      const dealStatus = String(deal?.Status || deal?.status || '').toLowerCase();
-      if (dealStatus === 'instructed') score += 3;
-      else if (dealStatus === 'pitched' || dealStatus === 'accepted') score += 2;
-      else if (dealStatus === 'expired' || dealStatus === 'declined') score += 0;
-
-      // Prefer advanced pipeline stages (proof-of-id-complete > initialised)
-      const stage = String(inst?.Stage || '').toLowerCase();
-      if (stage.includes('matter') || stage.includes('complete')) score += 3;
-      else if (stage.includes('proof') || stage.includes('risk') || stage.includes('payment')) score += 2;
-      else if (stage === 'initialised' || stage === 'initialized') score += 0;
-      else if (stage) score += 1;
-
-      // Prefer instructions with personal identity data populated
-      if (inst?.DOB || inst?.DateOfBirth || inst?.PassportNumber || inst?.DriversLicenseNumber) score += 2;
-      if (inst?.HouseNumber || inst?.Street || inst?.Postcode) score += 1;
-
-      return score;
-    };
-
-    (effectiveInstructionData as any[]).forEach((prospect) => {
-      const instructions: any[] = Array.isArray(prospect?.instructions) ? prospect.instructions : [];
-      const deals: any[] = Array.isArray(prospect?.deals) ? prospect.deals : [];
-
-      const riskAssessments: any[] = Array.isArray(prospect?.riskAssessments)
-        ? prospect.riskAssessments
-        : (Array.isArray(prospect?.compliance) ? prospect.compliance : []);
-
-      const idVerifications: any[] = Array.isArray(prospect?.idVerifications)
-        ? prospect.idVerifications
-        : (Array.isArray(prospect?.electronicIDChecks) ? prospect.electronicIDChecks : []);
-
-      const registerForEnquiryId = (enquiryId: string, inst: any | null, dealOverride?: any | null) => {
-        if (!enquiryId) return;
-
-        const localDealByProspect = deals.find((d) => normaliseId(d?.ProspectId ?? d?.prospectId) === enquiryId) || null;
-        const globalDealsByProspect = dealsByProspectId.get(enquiryId) || [];
-
-        const matchingDeal =
-          dealOverride ||
-          localDealByProspect ||
-          globalDealsByProspect[0] ||
-          deals[0] ||
-          null;
-
-        const matchingDealRef = normaliseId(matchingDeal?.InstructionRef ?? matchingDeal?.instructionRef);
-        const matchingInstructionRef = normaliseId(inst?.InstructionRef ?? inst?.instructionRef);
-
-        const matchingInstruction =
-          inst ||
-          (matchingDealRef ? (instructionByRef.get(matchingDealRef) || null) : null) ||
-          (matchingInstructionRef ? (instructionByRef.get(matchingInstructionRef) || null) : null) ||
-          instructions[0] ||
-          null;
-
-        // If we found an instruction but not a deal yet, try the join path by InstructionRef
-        const instructionRef = normaliseId(matchingInstruction?.InstructionRef ?? matchingInstruction?.instructionRef);
-        const joinedDeal = !matchingDeal && instructionRef ? (dealByRef.get(instructionRef) || null) : null;
-        const finalDeal = matchingDeal || joinedDeal;
-
-        if (!matchingInstruction && !finalDeal) return;
-
-        const workbenchItem: WorkbenchItem = {
-          instruction: matchingInstruction,
-          deal: finalDeal,
-          clients: prospect?.jointClients || finalDeal?.jointClients || prospect?.clients || [],
-          documents: prospect?.documents || matchingInstruction?.documents || [],
-          payments: prospect?.payments || matchingInstruction?.payments || [],
-          eid: idVerifications[0] ?? null,
-          eids: idVerifications,
-          risk: riskAssessments[0] ?? null,
-          matters: prospect?.matters || matchingInstruction?.matters || [],
-          prospectId: enquiryId,
-          ProspectId: enquiryId,
-        };
-
-        const existing = result.get(enquiryId);
-        if (!existing || scoreWorkbenchItem(workbenchItem) > scoreWorkbenchItem(existing)) {
-          result.set(enquiryId, workbenchItem);
-        }
-      };
-
-      // Helper to extract ProspectId from InstructionRef pattern (HLX-{ProspectId}-{Passcode})
-      const extractProspectIdFromRef = (ref: unknown): string | null => {
-        if (typeof ref !== 'string') return null;
-        const match = ref.match(/^HLX-(\d+)-\d+$/);
-        return match ? match[1] : null;
-      };
-
-      // Preferred linkage: per-instruction ProspectId/prospectId
-      instructions.forEach((inst) => {
-        const enquiryId = normaliseId(inst?.ProspectId ?? inst?.prospectId) 
-          || extractProspectIdFromRef(inst?.InstructionRef ?? inst?.instructionRef);
-        if (!enquiryId) return;
-        registerForEnquiryId(enquiryId, inst);
-      });
-
-      // Also allow deal-only linkage (pitches)
-      deals.forEach((deal) => {
-        const enquiryId = normaliseId(deal?.ProspectId ?? deal?.prospectId)
-          || extractProspectIdFromRef(deal?.InstructionRef ?? deal?.instructionRef);
-        if (!enquiryId) return;
-        const matchingInst = (deal?.InstructionRef ? (instructionByRef.get(String(deal.InstructionRef)) || null) : null) || null;
-        registerForEnquiryId(enquiryId, matchingInst, deal);
-      });
-
-      // Fallback linkage: some datasets carry enquiry ID on the prospect wrapper itself
-      const wrapperId = normaliseId(prospect?.prospectId) 
-        || extractProspectIdFromRef(prospect?.prospectId);
-      if (wrapperId && (instructions.length > 0 || deals.length > 0)) {
-        registerForEnquiryId(wrapperId, instructions[0] ?? null, deals[0] ?? null);
-      }
-
-      // Email-based linkage for v2 enquiries (primary creation, not just copy).
-      // Enrichment matches pitches by email reliably; workbench must too.
-      // Instruction.Email → workbench item, keyed as "email:<normalised>".
-      instructions.forEach((inst) => {
-        const instEmail = String(inst?.Email ?? inst?.email ?? '').trim().toLowerCase();
-        if (!instEmail) return;
-        const emailKey = `email:${instEmail}`;
-        if (result.has(emailKey)) return; // don't overwrite a better match
-        // Prefer re-using the ProspectId-based entry if it succeeded
-        const enquiryId = normaliseId(inst?.ProspectId ?? inst?.prospectId)
-          || extractProspectIdFromRef(inst?.InstructionRef ?? inst?.instructionRef);
-        const existing = enquiryId ? result.get(enquiryId) : undefined;
-        if (existing) {
-          result.set(emailKey, existing);
-        } else {
-          // ProspectId match failed — create a primary entry from scratch
-          registerForEnquiryId(emailKey, inst);
-        }
-      });
-
-      // Deal-email fallback: Deals.LeadClientEmail may differ from Instruction.Email
-      deals.forEach((deal) => {
-        const dealEmail = String(deal?.LeadClientEmail ?? deal?.leadClientEmail ?? deal?.Email ?? deal?.email ?? '').trim().toLowerCase();
-        if (!dealEmail) return;
-        const emailKey = `email:${dealEmail}`;
-        if (result.has(emailKey)) return;
-        const dealRef = normaliseId(deal?.InstructionRef ?? deal?.instructionRef);
-        const matchingInst = dealRef ? (instructionByRef.get(dealRef) || null) : null;
-        registerForEnquiryId(emailKey, matchingInst, deal);
-      });
-    });
-
-    if (demoModeEnabled) {
-      const currentUserEmail = userData && userData[0] && userData[0].Email
-        ? userData[0].Email
-        : 'lz@helix-law.com';
-      const demoCases = [
-        {
-          id: 'DEMO-ENQ-0001',
-          instructionRef: 'HLX-DEMO-00001',
-          serviceDescription: 'Contract Dispute',
-          amount: 1500,
-          stage: 'enquiry',
-          eidStatus: 'pending',
-          eidResult: 'pending',
-          internalStatus: 'pending',
-          riskResult: null,          // No risk yet — early stage
-          hasMatter: false,
-          hasPayment: false,
-          documents: 0,
-        },
-        {
-          // Mid-pipeline demo: instructed, EID needs review, risk pending, no matter
-          // Use this to realistically test EID review (approve/request docs), risk assessment, and trigger flows
-          id: 'DEMO-ENQ-0002',
-          instructionRef: 'HLX-DEMO-0002-00001',
-          serviceDescription: 'Lease Renewal',
-          amount: 3200,
-          stage: 'proof-of-id',
-          eidStatus: 'complete',
-          eidResult: 'Refer',       // Triggers "needs review" action picker
-          pepResult: 'Review',      // PEP flagged for review
-          addressResult: 'Passed',
-          internalStatus: 'pending',
-          riskResult: null,          // No risk yet — pending assessment
-          hasMatter: false,
-          hasPayment: false,
-          documents: 1,
-        },
-        {
-          // Fully completed demo: everything done
-          id: 'DEMO-ENQ-0003',
-          instructionRef: 'HLX-DEMO-0003-00001',
-          serviceDescription: 'Employment Tribunal',
-          amount: 5000,
-          stage: 'matter-opened',
-          eidStatus: 'complete',
-          eidResult: 'Pass',
-          internalStatus: 'paid',
-          riskResult: null,
-          hasMatter: true,
-          hasPayment: true,
-          documents: 3,
-        },
-      ];
-
-      demoCases.forEach((demoCase) => {
-        const isIndividualClientDemo = demoCase.id === 'DEMO-ENQ-0002';
-        // Generate demo dates relative to now
-        const demoInstructionDate = new Date();
-        demoInstructionDate.setDate(demoInstructionDate.getDate() - 3); // 3 days ago
-        const demoEidDate = new Date();
-        demoEidDate.setDate(demoEidDate.getDate() - 2); // 2 days ago
-        
-        const instruction = demoCase.instructionRef ? {
-          InstructionRef: demoCase.instructionRef,
-          ProspectId: demoCase.id,
-          Stage: demoCase.stage,
-          SubmissionDate: demoInstructionDate.toISOString(),
-          SubmissionTime: demoInstructionDate.toISOString(),
-          EIDStatus: demoCase.eidStatus,
-          EIDOverallResult: demoCase.eidResult,
-          InternalStatus: demoCase.internalStatus,
-          MatterId: demoCase.hasMatter ? 'MAT-DEMO-001' : undefined,
-          // Fields used by InlineWorkbench identity tab
-          Forename: 'Demo',
-          Surname: 'Client',
-          FirstName: 'Demo',
-          LastName: 'Client',
-          Title: 'Mr',
-          Gender: 'Male',
-          Email: 'demo.client@helix-law.com',
-          Phone: '07700 900123',
-          CompanyName: isIndividualClientDemo ? '' : 'Demo Corp',
-          CompanyNumber: isIndividualClientDemo ? '' : '12345678',
-          ClientType: isIndividualClientDemo ? 'Individual' : 'Company',
-          AreaOfWork: demoCase.serviceDescription,
-          ServiceDescription: demoCase.serviceDescription,
-          FeeEarner: demoCase.id === 'DEMO-ENQ-0002' ? 'CB' : 'LZ',
-          HelixContact: demoCase.id === 'DEMO-ENQ-0002' ? 'CB' : 'LZ',
-          Passcode: `demo-${demoCase.id.toLowerCase()}`,
-          // Personal details — mimic production data for card rendering
-          Nationality: 'British',
-          DOB: '1985-06-15',
-          PassportNumber: 'DEMO12345678',
-          HouseNumber: '42',
-          Street: 'Demo Street',
-          City: 'Brighton',
-          County: 'East Sussex',
-          Postcode: 'BN1 1AA',
-          Country: 'United Kingdom',
-          // Company address (for company client type rendering)
-          CompanyHouseNumber: isIndividualClientDemo ? '' : '10',
-          CompanyStreet: isIndividualClientDemo ? '' : 'Enterprise Way',
-          CompanyCity: isIndividualClientDemo ? '' : 'London',
-          CompanyCounty: isIndividualClientDemo ? '' : 'Greater London',
-          CompanyPostcode: isIndividualClientDemo ? '' : 'EC1A 1BB',
-          CompanyCountry: isIndividualClientDemo ? '' : 'United Kingdom',
-          // PEP / Address verification from case config
-          PEPAndSanctionsCheckResult: (demoCase as any).pepResult || (demoCase.eidResult === 'Pass' ? 'Passed' : undefined),
-          AddressVerificationResult: (demoCase as any).addressResult || (demoCase.eidResult === 'Pass' ? 'Passed' : undefined),
-        } : undefined;
-        const deal = {
-          ProspectId: demoCase.id,
-          InstructionRef: demoCase.instructionRef,
-          Amount: demoCase.amount,
-          ServiceDescription: demoCase.serviceDescription,
-          DealStatus: demoCase.internalStatus,
-          Passcode: `demo-${demoCase.id.toLowerCase()}`,
-          PitchedBy: demoCase.id === 'DEMO-ENQ-0002' ? 'CB' : 'LZ',
-          PitchedDate: new Date(demoInstructionDate.getTime() - 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-          PitchedTime: new Date(demoInstructionDate.getTime() - 2 * 24 * 60 * 60 * 1000).toTimeString().split(' ')[0],
-        };
-        const payments = demoCase.hasPayment ? [{
-          payment_status: 'succeeded',
-          internal_status: 'completed',
-          amount: demoCase.amount * 100,
-          created_at: new Date().toISOString(),
-          payment_id: `pi_demo_${demoCase.id}`,
-        }] : [];
-        const riskAssessments = demoCase.riskResult
-          ? [{ RiskAssessmentResult: demoCase.riskResult, RiskScore: 12, RiskAssessor: currentUserEmail.split('@')[0], ComplianceDate: new Date().toISOString(), TransactionRiskLevel: 'Low' }]
-          : []; // Empty = risk pending
-        const documents = Array.from({ length: demoCase.documents }).map((_, idx) => ({
-          id: `demo-doc-${demoCase.id}-${idx + 1}`,
-          filename: idx === 0 ? 'Passport_Scan.pdf' : idx === 1 ? 'Engagement_Letter_Signed.pdf' : 'Demo_Contract.pdf',
-          FileName: idx === 0 ? 'Passport_Scan.pdf' : idx === 1 ? 'Engagement_Letter_Signed.pdf' : 'Demo_Contract.pdf',
-          DocumentType: idx === 0 ? 'ID' : idx === 1 ? 'Engagement' : 'Contract',
-          FileSizeBytes: idx === 0 ? 245000 : idx === 1 ? 182000 : 310000,
-          UploadedAt: new Date().toISOString(),
-        }));
-        const matters = demoCase.hasMatter ? [{ MatterId: 'MAT-DEMO-001', DisplayNumber: 'HELIX01-01' }] : [];
-
-        // Build EID record with realistic detail for demo testing
-        const eidRecord: Record<string, unknown> = {
-          EIDStatus: demoCase.eidStatus,
-          EIDOverallResult: demoCase.eidResult,
-          EIDCheckedDate: demoCase.eidStatus === 'complete' ? demoEidDate.toISOString() : undefined,
-          PEPResult: (demoCase as any).pepResult || (demoCase.eidResult === 'Pass' ? 'Passed' : undefined),
-          AddressVerification: (demoCase as any).addressResult || (demoCase.eidResult === 'Pass' ? 'Passed' : undefined),
-        };
-
-        result.set(demoCase.id, {
-          isDemo: true,
-          instruction,
-          deal,
-          clients: [{
-            Email: 'demo.client@helix-law.com',
-            ClientEmail: 'demo.client@helix-law.com',
-            FirstName: 'Demo',
-            LastName: 'Client',
-            Nationality: 'British',
-            DOB: '1985-06-15',
-            Phone: '07700 900123',
-            PassportNumber: 'DEMO12345678',
-            HouseNumber: '42',
-            Street: 'Demo Street',
-            City: 'Brighton',
-            County: 'East Sussex',
-            Postcode: 'BN1 1AA',
-            Country: 'United Kingdom',
-          }],
-          documents,
-          payments,
-          eid: demoCase.eidStatus !== 'pending' ? eidRecord : null,
-          eids: demoCase.eidStatus !== 'pending' ? [eidRecord] : [],
-          risk: riskAssessments[0] ?? null,
-          riskAssessments,
-          matters,
-          team: currentUserEmail,
-          prospectId: demoCase.id,
-          ProspectId: demoCase.id,
-        });
-      });
-    }
-
-    return result;
-  }, [effectiveInstructionData, demoModeEnabled, userData]);
+  const inlineWorkbenchByEnquiryId = useMemo(
+    () => buildInlineWorkbenchMap(effectiveInstructionData, demoModeEnabled, userData),
+    [effectiveInstructionData, demoModeEnabled, userData],
+  );
 
   // Legacy used ActiveCampaign ID as internal ID; new space stores it in ACID.
   // deal.ProspectId = ActiveCampaign ID = enquiry.ACID
@@ -1634,6 +660,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   // Track if we've already fetched all data to prevent duplicate calls
   const hasFetchedAllData = useRef<boolean>(false);
   const hasRetriedEmptyAllData = useRef<boolean>(false);
+  // In-flight promise dedup: if a fetchAllEnquiries is running, reuse its promise
+  const fetchAllInFlightRef = useRef<Promise<any[] | void> | null>(null);
   // Guard against render-loop fetches when shared IDs need team-wide history
   const hasTriggeredSharedHistoryFetch = useRef<boolean>(false);
 
@@ -2072,104 +1100,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   // Check if pipeline needs carousel navigation for a row
   const pipelineNeedsCarousel = visiblePipelineChipCount < 7;
   
-  // Helper: Render pipeline chips with carousel if needed
-  // This wraps chips in a scrollable container when width is constrained
-  const renderPipelineCarouselWrapper = useCallback((
-    enquiryId: string,
-    children: React.ReactNode[],
-    isDark: boolean
-  ) => {
-    const totalChips = 7;
-    const offset = getPipelineScrollOffset(enquiryId);
-    const showNav = pipelineNeedsCarousel;
-    const hasMoreChips = showNav && offset < totalChips - visiblePipelineChipCount;
-    const isAtStart = offset === 0;
-    
-    // Calculate which chips to show
-    const visibleStart = offset;
-    const visibleEnd = offset + visiblePipelineChipCount;
-    
-    const gridCols = `repeat(${showNav ? visiblePipelineChipCount : 7}, minmax(${PIPELINE_CHIP_MIN_WIDTH_PX}px, 1fr))`;
-    const pipelineGridPaddingRight = showNav ? 32 : 0;
-    
-    return (
-      <div style={{ position: 'relative', height: '100%', width: '100%', minWidth: 0, overflow: 'hidden' }}>
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: gridCols,
-            columnGap: 8,
-            alignItems: 'center',
-            width: '100%',
-            minWidth: 0,
-            height: '100%',
-            paddingRight: pipelineGridPaddingRight,
-            boxSizing: 'border-box',
-          }}
-        >
-          {showNav 
-            ? children.slice(visibleStart, visibleEnd)
-            : children}
-        </div>
-        {showNav ? (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              advancePipelineScroll(enquiryId, totalChips, visiblePipelineChipCount);
-            }}
-            title={hasMoreChips ? `View more stages (${totalChips - visibleEnd} hidden)` : 'Back to start'}
-            style={{
-              position: 'absolute',
-              top: '50%',
-              right: 0,
-              transform: 'translateY(-50%)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              width: 24,
-              height: 22,
-              padding: 0,
-              border: `1px solid ${isDark ? 'rgba(160, 160, 160, 0.25)' : 'rgba(107, 107, 107, 0.2)'}`,
-              borderRadius: 0,
-              background: hasMoreChips
-                ? (isDark ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)')
-                : (isDark ? 'rgba(160, 160, 160, 0.06)' : 'rgba(160, 160, 160, 0.04)'),
-              cursor: 'pointer',
-              transition: 'all 0.15s ease',
-              color: hasMoreChips
-                ? colours.blue
-                : (isDark ? 'rgba(160, 160, 160, 0.5)' : 'rgba(107, 107, 107, 0.4)'),
-            }}
-          >
-            <Icon
-              iconName={hasMoreChips ? 'ChevronRight' : 'Refresh'}
-              styles={{
-                root: {
-                  fontSize: hasMoreChips ? 12 : 10,
-                  color: 'inherit',
-                  opacity: hasMoreChips ? 1 : 0.7,
-                },
-              }}
-            />
-            {hasMoreChips && !isAtStart && (
-              <span style={{
-                position: 'absolute',
-                top: -2,
-                right: -2,
-                width: 6,
-                height: 6,
-                borderRadius: '50%',
-                background: colours.blue,
-                fontSize: 0,
-              }} />
-            )}
-          </button>
-        ) : null}
-      </div>
-    );
-  }, [pipelineNeedsCarousel, visiblePipelineChipCount, getPipelineScrollOffset, advancePipelineScroll]);
-  
   // Toggle day collapse
   const toggleDayCollapse = useCallback((dayKey: string) => {
     setCollapsedDays(prev => {
@@ -2192,7 +1122,12 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   // Function to fetch all enquiries (unfiltered) for "All" mode
   const fetchAllEnquiries = useCallback(async (options?: { bypassCache?: boolean }) => {
-    if (isLoadingAllData) {
+    // Dedup: if a non-bypass fetch is already in flight, reuse it
+    if (fetchAllInFlightRef.current && !options?.bypassCache) {
+      debugLog('🔄 Reusing in-flight fetchAllEnquiries promise');
+      return fetchAllInFlightRef.current;
+    }
+    if (isLoadingAllData && !options?.bypassCache) {
       debugLog('🔄 Already loading all data, skipping fetch');
       return;
     }
@@ -2203,6 +1138,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     });
     debugLog('🔄 Attempting to fetch all enquiries, hasFetched:', hasFetchedAllData.current);
     
+    const doFetch = async () => {
     try {
       setIsLoadingAllData(true);
 
@@ -2284,7 +1220,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       hasFetchedAllData.current = true;
       hasRetriedEmptyAllData.current = false;
       setLastRefreshTime(new Date());
-      setNextRefreshIn(60);
       onTeamWideEnquiriesLoaded?.(normalizedEnquiries as Enquiry[]);
       
       console.info('[Enquiries] fetchAllEnquiries:success', {
@@ -2303,10 +1238,16 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       return [];
     } finally {
       setIsLoadingAllData(false);
+      fetchAllInFlightRef.current = null;
       console.info('[Enquiries] fetchAllEnquiries:end', {
         reason: lastTeamWideFetchReasonRef.current || 'unknown',
       });
     }
+    };
+
+    const promise = doFetch();
+    fetchAllInFlightRef.current = promise;
+    return promise;
   }, [isLoadingAllData]);
 
   // ...existing code...
@@ -2437,13 +1378,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   // Deal Capture is always enabled by default now
   const showDealCapture = true;
   
-  // Auto-refresh state
+  // Auto-refresh state (pulse poller + SSE handle realtime refresh; manual button for on-demand)
   const [lastRefreshTime, setLastRefreshTime] = useState<Date>(() => enquiriesLastLiveSyncAt ? new Date(enquiriesLastLiveSyncAt) : new Date(0));
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
-  const [nextRefreshIn, setNextRefreshIn] = useState<number>(60); // 60 seconds
-  const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const handleManualRefreshRef = useRef<(() => Promise<void>) | null>(null);
   const lastActivationRefreshAtRef = useRef<number>(0);
   // Track recent updates to prevent overwriting with stale prop data
   const recentUpdatesRef = useRef<Map<string, { field: string; value: any; timestamp: number }>>(new Map());
@@ -2559,7 +1496,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     refreshRef.current()
       .then(() => {
         setLastRefreshTime(new Date());
-        setNextRefreshIn(60);
       })
       .catch((error) => {
         console.warn('[Enquiries] Active-tab live refresh failed:', error);
@@ -2947,147 +1883,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     }
   }, [safeCopyToClipboard]);
 
-  // Track claim operations in progress (keyed by enquiry ID)
-  const [claimingEnquiries, setClaimingEnquiries] = useState<Set<string>>(new Set());
   const [copiedNameKey, setCopiedNameKey] = useState<string | null>(null);
 
-  const renderClaimPromptChip = useCallback(
-    (options?: { 
-      size?: 'default' | 'compact'; 
-      teamsLink?: string | null; 
-      leadName?: string; 
-      areaOfWork?: string;
-      enquiryId?: string;
-      dataSource?: 'new' | 'legacy';
-      iconOnly?: boolean;
-    }) => {
-      const size = options?.size ?? 'default';
-      const iconOnly = options?.iconOnly ?? false;
-      const metrics = size === 'compact'
-        ? { padding: '4px 8px', fontSize: 9, iconSize: 10 }
-        : { padding: '4px 10px', fontSize: 10, iconSize: 11 };
-      const leadLabel = options?.leadName?.trim() || 'this lead';
-      const isClaiming = options?.enquiryId ? claimingEnquiries.has(options.enquiryId) : false;
-
-      const handleClick = async (e: React.MouseEvent<HTMLButtonElement>) => {
-        e.stopPropagation();
-        
-        // If we have enquiry ID and user email, perform the claim via API
-        const currentUserEmail = userData?.[0]?.Email;
-        if (options?.enquiryId && currentUserEmail) {
-          // Mark as claiming
-          setClaimingEnquiries(prev => new Set(prev).add(options.enquiryId!));
-          
-          // Optimistic update - immediately move enquiry to claimed state in UI
-          if (onOptimisticClaim) {
-            onOptimisticClaim(options.enquiryId, currentUserEmail);
-          }
-          
-          try {
-            const result = await claimEnquiry(
-              options.enquiryId, 
-              currentUserEmail, 
-              options.dataSource || 'new'
-            );
-            
-            if (result.success) {
-              // Toast confirmation — SSE will confirm the patch, no refetch needed
-              showToast('Enquiry claimed', 'success');
-            } else {
-              console.error('[Enquiries] Failed to claim enquiry:', result.error);
-              // Revert optimistic update by refreshing
-              if (onRefreshEnquiries) {
-                await onRefreshEnquiries();
-              }
-            }
-          } catch (err) {
-            console.error('[Enquiries] Error claiming enquiry:', err);
-            // Revert optimistic update by refreshing
-            if (onRefreshEnquiries) {
-              await onRefreshEnquiries();
-            }
-          } finally {
-            setClaimingEnquiries(prev => {
-              const next = new Set(prev);
-              next.delete(options.enquiryId!);
-              return next;
-            });
-          }
-        } else {
-          // Fallback: open Teams channel (legacy behavior)
-          const destination = (options?.teamsLink || '').trim() || getAreaSpecificChannelUrl(options?.areaOfWork);
-          if (typeof window !== 'undefined') {
-            window.open(destination, '_blank');
-          }
-        }
-      };
-
-      return (
-        <button
-          type="button"
-          onClick={handleClick}
-          disabled={isClaiming}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '4px',
-            padding: iconOnly ? '0 6px' : metrics.padding,
-            height: iconOnly ? 22 : 24,
-            boxSizing: 'border-box',
-            lineHeight: 1,
-            borderRadius: 0,
-            border: `1px solid ${isDarkMode ? 'rgba(255, 140, 0, 0.4)' : 'rgba(255, 140, 0, 0.35)'}`,
-            background: isDarkMode ? 'rgba(255, 140, 0, 0.10)' : 'rgba(255, 140, 0, 0.08)',
-            color: colours.orange,
-            textTransform: 'uppercase',
-            fontWeight: 600,
-            letterSpacing: '0.3px',
-            fontSize: `${metrics.fontSize}px`,
-            cursor: isClaiming ? 'wait' : 'pointer',
-            justifyContent: 'center',
-            transition: 'all 0.15s ease',
-            fontFamily: 'inherit',
-            opacity: isClaiming ? 0.6 : 1,
-            position: 'relative',
-            flexShrink: 0,
-          }}
-          onMouseEnter={(e) => {
-            if (!isClaiming) {
-              e.currentTarget.style.background = isDarkMode ? 'rgba(255, 140, 0, 0.18)' : 'rgba(255, 140, 0, 0.14)';
-              e.currentTarget.style.borderColor = isDarkMode ? 'rgba(255, 140, 0, 0.55)' : 'rgba(255, 140, 0, 0.5)';
-            }
-          }}
-          onMouseLeave={(e) => {
-            if (!isClaiming) {
-              e.currentTarget.style.background = isDarkMode ? 'rgba(255, 140, 0, 0.10)' : 'rgba(255, 140, 0, 0.08)';
-              e.currentTarget.style.borderColor = isDarkMode ? 'rgba(255, 140, 0, 0.4)' : 'rgba(255, 140, 0, 0.35)';
-            }
-          }}
-          title={isClaiming ? 'Claiming...' : (options?.enquiryId ? `Claim ${leadLabel}` : 'Open shared inbox channel in Teams')}
-        >
-          {/* Status dot indicator */}
-          {!isClaiming && (
-            <span
-              style={{
-                position: 'absolute',
-                top: '-3px',
-                right: '-3px',
-                width: '6px',
-                height: '6px',
-                borderRadius: '50%',
-                background: isDarkMode ? 'rgba(255, 140, 0, 0.9)' : 'rgba(255, 140, 0, 0.85)',
-                animation: 'status-breathe 2s ease-in-out infinite',
-              }}
-            />
-          )}
-          <Icon iconName={isClaiming ? 'Sync' : 'Contact'} styles={{ root: { fontSize: metrics.iconSize, color: 'inherit', animation: isClaiming ? 'spin 1s linear infinite' : 'none' } }} />
-          {!iconOnly && <span>{isClaiming ? 'Claiming...' : 'Claim'}</span>}
-        </button>
-      );
-    },
-    [isDarkMode, claimingEnquiries, userData, onRefreshEnquiries, onOptimisticClaim]
-  );
-  
   // Cleanup timeout on unmount
   useEffect(() => {
     return () => {
@@ -3742,400 +2539,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   // Memoize user email to prevent unnecessary effect triggers
   const userEmail = useMemo(() => userData?.[0]?.Email?.toLowerCase() || '', [userData]);
-
-  const toRgba = (color: string, alpha: number): string => {
-    if (!color) return `rgba(160, 160, 160, ${alpha})`;
-    if (color.startsWith('rgba(')) {
-      const match = color.match(/rgba\(([^)]+)\)/);
-      if (!match) return color;
-      const parts = match[1].split(',').map(p => p.trim());
-      if (parts.length < 3) return color;
-      return `rgba(${parts[0]}, ${parts[1]}, ${parts[2]}, ${alpha})`;
-    }
-    if (color.startsWith('rgb(')) {
-      return color.replace('rgb(', 'rgba(').replace(')', `, ${alpha})`);
-    }
-    if (color.startsWith('#')) {
-      const hex = color.replace('#', '');
-      if (hex.length >= 6) {
-        const r = parseInt(hex.slice(0, 2), 16);
-        const g = parseInt(hex.slice(2, 4), 16);
-        const b = parseInt(hex.slice(4, 6), 16);
-        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-      }
-    }
-    return color;
-  };
-
-  const getAreaOfWorkLineColor = (areaOfWork: string, isDarkMode: boolean, isHover = false): string => {
-    const area = (areaOfWork || '').toLowerCase().trim();
-    const alpha = isHover ? 0.85 : 0.55;
-
-    if (area.includes('commercial')) return toRgba(colours.blue, alpha);
-    if (area.includes('construction')) return toRgba(colours.orange, alpha);
-    if (area.includes('property')) return toRgba(colours.green, alpha);
-    if (area.includes('employment')) return toRgba(colours.yellow, alpha);
-    if (area.includes('other') || area.includes('unsure')) return toRgba(colours.greyText, isDarkMode ? 0.5 : 0.45);
-
-    return toRgba(colours.greyText, isDarkMode ? 0.5 : 0.45);
-  };
-
-  // Format date received display
-  const formatDateReceived = (dateStr: string | null, isFromInstructions: boolean): string => {
-    if (!dateStr) return '--';
-    
-    const date = new Date(dateStr);
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-    const dateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-    
-    const isToday = dateOnly.getTime() === today.getTime();
-    const isYesterday = dateOnly.getTime() === yesterday.getTime();
-    const isSameYear = date.getFullYear() === now.getFullYear();
-    
-    // Show time only for v2/instructions enquiries
-    if (isFromInstructions) {
-      const time = format(date, 'HH:mm');
-      
-      // If today, just show time
-      if (isToday) {
-        return time;
-      }
-      
-      // If yesterday, show "Yesterday"
-      if (isYesterday) {
-        return 'Yesterday';
-      }
-      
-      // For dates older than yesterday, show day and date
-      const dayName = format(date, 'EEE');
-      const dateFormat = isSameYear ? 'd MMM' : 'd MMM yyyy';
-      return `${dayName}, ${format(date, dateFormat)}`;
-    }
-    
-    // For legacy enquiries (no time) - use same format
-    if (isToday) {
-      // Even for legacy, show time if available, otherwise show "Today"
-      const hasTime = date.getHours() !== 0 || date.getMinutes() !== 0;
-      if (hasTime) {
-        return format(date, 'HH:mm');
-      }
-      return 'Today';
-    } else if (isYesterday) {
-      return 'Yesterday';
-    } else {
-      const dayName = format(date, 'EEE');
-      const dateFormat = isSameYear ? 'd MMM' : 'd MMM yyyy';
-      return `${dayName}, ${format(date, dateFormat)}`;
-    }
-  };
-
-  const formatFullDateTime = (dateStr: string | null): string => {
-    if (!dateStr) {
-      return 'Timestamp unavailable';
-    }
-
-    const date = new Date(dateStr);
-    if (isNaN(date.getTime())) {
-      return 'Timestamp unavailable';
-    }
-
-    return date.toLocaleString('en-GB', {
-      weekday: 'short',
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-      timeZone: 'Europe/London',
-      timeZoneName: 'short',
-    });
-  };
-
-  // Time ago helper for stacked display
-  const timeAgo = (dateStr: string | null): string => {
-    if (!dateStr) return '';
-    const now = new Date();
-    const then = new Date(dateStr);
-    if (isNaN(then.getTime())) return '';
-    const seconds = Math.floor((now.getTime() - then.getTime()) / 1000);
-    
-    if (seconds < 60) return `${seconds}s ago`;
-    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
-    return `${Math.floor(seconds / 86400)}d ago`;
-  };
-
-  const timeAgoLong = (dateStr: string | null): string => {
-    if (!dateStr) return '';
-    const now = new Date();
-    const then = new Date(dateStr);
-    if (isNaN(then.getTime())) return '';
-    let seconds = Math.floor((now.getTime() - then.getTime()) / 1000);
-
-    if (seconds <= 0) return 'Just now';
-
-    // < 1 minute: seconds only
-    if (seconds < 60) return `${seconds}s ago`;
-
-    // < 10 minutes: minutes + seconds (m/s)
-    if (seconds < 600) {
-      const minutes = Math.floor(seconds / 60);
-      const remSeconds = seconds % 60;
-      return remSeconds > 0 ? `${minutes}m ${remSeconds}s ago` : `${minutes}m ago`;
-    }
-
-    // < 1 hour: minutes only
-    if (seconds < 3600) {
-      const minutes = Math.floor(seconds / 60);
-      return `${minutes}m ago`;
-    }
-
-    // < 1 day: hours + minutes (h/m)
-    if (seconds < 86400) {
-      const hours = Math.floor(seconds / 3600);
-      const remMinutes = Math.floor((seconds % 3600) / 60);
-      return remMinutes > 0 ? `${hours}h ${remMinutes}m ago` : `${hours}h ago`;
-    }
-
-    const days = Math.floor(seconds / 86400);
-    const remHours = Math.floor((seconds % 86400) / 3600);
-
-    // < 1 week: days + hours (d/h)
-    if (days < 7) {
-      return remHours > 0 ? `${days}d ${remHours}h ago` : `${days}d ago`;
-    }
-
-    // < ~1 month: weeks + days (w/d)
-    if (days < 30) {
-      const weeks = Math.floor(days / 7);
-      const remDays = days % 7;
-      return remDays > 0 ? `${weeks}w ${remDays}d ago` : `${weeks}w ago`;
-    }
-
-    // < 1 year: months + weeks (m/w), month ≈ 30d
-    if (days < 365) {
-      const months = Math.floor(days / 30);
-      const remDays2 = days % 30;
-      const weeks = Math.floor(remDays2 / 7);
-      return weeks > 0 ? `${months}m ${weeks}w ago` : `${months}m ago`;
-    }
-
-    // years + months (y/m), year ≈ 365d
-    const years = Math.floor(days / 365);
-    const remDays3 = days % 365;
-    const months = Math.floor(remDays3 / 30);
-    return months > 0 ? `${years}y ${months}m ago` : `${years}y ago`;
-  };
-
-  // Get compact time display - single line format
-  const getCompactTimeDisplay = (dateStr: string | null): string => {
-    if (!dateStr) return '-';
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return '-';
-    
-    const now = new Date();
-    const diffMs = now.getTime() - d.getTime();
-    const diffHours = diffMs / (1000 * 60 * 60);
-    const diffDays = diffMs / (1000 * 60 * 60 * 24);
-    
-    const timePart = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
-    const isLegacyPlaceholder = timePart === '00:00';
-    
-    // Today: show time + relative (e.g. "14:32 · 2h")
-    if (d.toDateString() === now.toDateString()) {
-      if (isLegacyPlaceholder) return 'Today';
-      if (diffHours < 1) return `${Math.floor(diffMs / 60000)}m ago`;
-      return `${timePart}`;
-    }
-    
-    // Yesterday
-    const yesterday = new Date(now);
-    yesterday.setDate(yesterday.getDate() - 1);
-    if (d.toDateString() === yesterday.toDateString()) {
-      return isLegacyPlaceholder ? 'Yesterday' : `Yest ${timePart}`;
-    }
-    
-    // Within 7 days: show day name + time
-    if (diffDays < 7) {
-      const dayName = d.toLocaleDateString('en-GB', { weekday: 'short' });
-      return isLegacyPlaceholder ? dayName : `${dayName} ${timePart}`;
-    }
-    
-    // Older: show date
-    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-  };
-
-  const getStackedDateDisplay = (dateStr: string | null): { top: string; middle: string; bottom: string } => {
-    if (!dateStr) return { top: '-', middle: '', bottom: '' };
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return { top: '-', middle: '', bottom: '' };
-
-    const now = new Date();
-    const londonDate = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Europe/London',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    });
-    const todayKey = londonDate.format(now);
-    const yesterday = new Date(now);
-    yesterday.setDate(yesterday.getDate() - 1);
-    const dateKey = londonDate.format(d);
-    const yesterdayKey = londonDate.format(yesterday);
-
-    const timePart = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Europe/London' });
-    const hasTime = timePart !== '00:00';
-
-    if (dateKey === todayKey) {
-      return { top: hasTime ? `Today ${timePart}` : 'Today', middle: '', bottom: '' };
-    }
-
-    if (dateKey === yesterdayKey) {
-      return { top: hasTime ? `Yest ${timePart}` : 'Yesterday', middle: '', bottom: '' };
-    }
-
-    const datePart = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Europe/London' });
-    return { top: datePart, middle: '', bottom: '' };
-  };
-  
-  // Format day separator label (compact by default, full on hover; include year only if not current)
-  const formatDaySeparatorLabel = (dayKey: string, isHovered: boolean): string => {
-    if (!dayKey) return '';
-    const d = new Date(dayKey + 'T12:00:00'); // Use noon to avoid timezone issues
-    if (isNaN(d.getTime())) return dayKey;
-
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-    const dayOnly = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-    const isSameYear = d.getFullYear() === now.getFullYear();
-    const isToday = dayOnly.getTime() === today.getTime();
-    const isYesterday = dayOnly.getTime() === yesterday.getTime();
-
-    if (isHovered) {
-      if (isToday) return 'Today';
-      if (isYesterday) return 'Yesterday';
-      return isSameYear
-        ? format(d, 'EEEE d MMMM')
-        : format(d, 'EEEE d MMMM yyyy');
-    }
-
-    if (isToday) return 'Today';
-    if (isYesterday) return 'Yesterday';
-    return isSameYear ? format(d, 'd MMM') : format(d, 'd MMM yyyy');
-  };
-  
-  // Legacy helper - keep for compatibility but redirect to compact
-  const getStackedTimeParts = (dateStr: string | null): { datePart: string; timePart: string; relative: string } => {
-    const compact = getCompactTimeDisplay(dateStr);
-    return { datePart: compact, timePart: '', relative: '' };
-  };
-
-  // Format claim time display
-  const formatClaimTime = (claimDate: string | null, pocEmail: string, isFromInstructions: boolean): string => {
-    if (!claimDate) {
-      const isUnclaimed = (pocEmail || '').toLowerCase() === 'team@helix-law.com';
-      return isUnclaimed ? 'Unclaimed' : '--';
-    }
-    
-    // For legacy enquiries, just show --
-    if (!isFromInstructions) {
-      return '--';
-    }
-    
-    // For v2/instructions enquiries, show relative time
-    const date = new Date(claimDate);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / (1000 * 60));
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-    
-    if (diffMins < 60) {
-      return `${diffMins}m ago`;
-    } else if (diffHours < 24) {
-      return `${diffHours}h ago`;
-    } else {
-      return `${diffDays}d ago`;
-    }
-  };
-
-  // Calculate time difference between enquiry received and claim time for v2 enquiries
-  const calculateTimeDifference = (dateReceived: string | null, claimDate: string | null, isFromInstructions: boolean): string => {
-    if (!dateReceived || !claimDate || !isFromInstructions) {
-      return '';
-    }
-    
-    const receivedDate = new Date(dateReceived);
-    const claimedDate = new Date(claimDate);
-    
-    if (isNaN(receivedDate.getTime()) || isNaN(claimedDate.getTime())) {
-      return '';
-    }
-    
-    const diffMs = claimedDate.getTime() - receivedDate.getTime();
-    const diffMins = Math.floor(diffMs / (1000 * 60));
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-    
-    if (diffMs < 0) {
-      return ''; // Don't show if claim time is before received time
-    }
-    
-    if (diffMins < 60) {
-      return `${diffMins}m`;
-    } else if (diffHours < 24) {
-      return `${diffHours}h`;
-    } else if (diffDays === 1) {
-      return `1d`;
-    } else {
-      return `${diffDays}d`;
-    }
-  };
-
-  // Calculate gradient colors for time difference badges based on claim speed (0-60 minutes, 1h = max/worst)
-  const getTimeDifferenceColors = (dateReceived: string | null, claimDate: string | null, isFromInstructions: boolean, isDarkMode: boolean) => {
-    if (!dateReceived || !claimDate || !isFromInstructions) {
-      return {
-        background: isDarkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
-        color: isDarkMode ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.4)',
-        border: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.06)'
-      };
-    }
-    
-    const receivedDate = new Date(dateReceived);
-    const claimedDate = new Date(claimDate);
-    
-    if (isNaN(receivedDate.getTime()) || isNaN(claimedDate.getTime())) {
-      return {
-        background: isDarkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
-        color: isDarkMode ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.4)',
-        border: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.06)'
-      };
-    }
-    
-    const diffMs = claimedDate.getTime() - receivedDate.getTime();
-    const diffMins = Math.max(0, Math.floor(diffMs / (1000 * 60)));
-    
-    // Calculate gradient: 0 minutes = green (best), 60+ minutes = red (worst)
-    const ratio = Math.min(diffMins / 60, 1); // Clamp to 0-1 range
-    
-    // RGB values: Green (34, 197, 94) to Red (248, 113, 113)
-    const red = Math.floor(34 + (248 - 34) * ratio);
-    const green = Math.floor(197 + (113 - 197) * ratio);
-    const blue = Math.floor(94 + (113 - 94) * ratio);
-    
-    return {
-      background: `rgba(${red}, ${green}, ${blue}, ${isDarkMode ? 0.15 : 0.1})`,
-      color: `rgb(${Math.floor(red * 0.8)}, ${Math.floor(green * 0.8)}, ${Math.floor(blue * 0.8)})`,
-      border: `rgba(${red}, ${green}, ${blue}, ${isDarkMode ? 0.3 : 0.25})`
-    };
-  };
 
   // Fetch all enquiries when switching to "All" mode, Claimable, or Triaged
   // Mine+Claimed uses prop data (user's own claimed items are already there)
@@ -5026,7 +3429,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     try {
       await onRefreshEnquiries();
       setLastRefreshTime(new Date());
-      setNextRefreshIn(60); // Reset to 60 seconds
       debugLog('✅ Refresh completed successfully');
     } catch (error) {
       console.error('❌ Failed to refresh enquiries:', error);
@@ -5037,43 +3439,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     }
   }, [isRefreshing, onRefreshEnquiries]);
 
-  // Keep ref updated with latest handleManualRefresh function
-  useEffect(() => {
-    handleManualRefreshRef.current = handleManualRefresh;
-  }, [handleManualRefresh]);
-
-  // Auto-refresh timer (60 seconds) - uses ref to avoid interval reset on function recreation
-  useEffect(() => {
-    // Clear existing intervals
-    if (refreshIntervalRef.current) clearInterval(refreshIntervalRef.current);
-    if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
-
-    // Set up 60-second auto-refresh
-    refreshIntervalRef.current = setInterval(() => {
-      debugLog('⏰ Auto-refresh timer fired');
-      if (handleManualRefreshRef.current) {
-        handleManualRefreshRef.current();
-      }
-    }, 60 * 1000); // 60 seconds
-
-    // Tick every second for smooth countdown display
-    countdownIntervalRef.current = setInterval(() => {
-      setNextRefreshIn(prev => {
-        const newValue = prev - 1;
-        if (newValue <= 0) {
-          return 60;
-        }
-        return newValue;
-      });
-    }, 1000);
-
-    debugLog('🕐 Auto-refresh intervals initialized');
-
-    return () => {
-      if (refreshIntervalRef.current) clearInterval(refreshIntervalRef.current);
-      if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
-    };
-  }, []); // Empty deps - only run once on mount
+  // Auto-refresh timer removed — pulse poller (60s) + SSE stream provide
+  // realtime change detection. Manual refresh button (handleManualRefresh)
+  // remains for on-demand use.
 
 
   const handleRate = useCallback((id: string) => {
@@ -5405,16 +3773,20 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
     setIsShareModalSaving(true);
 
-    try {
-      const candidateIds = new Set<string>([
-        enquiryId,
-        String((enquiry as any).pitchEnquiryId || ''),
-      ].filter(Boolean));
+    const candidateIds = new Set<string>([
+      enquiryId,
+      String((enquiry as any).pitchEnquiryId || ''),
+    ].filter(Boolean));
 
-      const applySharedUpdate = (record: NormalizedEnquiry): NormalizedEnquiry => {
-        if (!candidateIds.has(String(record.ID || (record as any).id || ''))) return record;
-        return { ...record, shared_with: nextShared, Shared_With: nextShared };
-      };
+    const applySharedUpdate = (record: NormalizedEnquiry): NormalizedEnquiry => {
+      if (!candidateIds.has(String(record.ID || (record as any).id || ''))) return record;
+      return { ...record, shared_with: nextShared, Shared_With: nextShared };
+    };
+
+    // Capture previous shared value for rollback on failure
+    const previousShared = String((enquiry as any).shared_with ?? (enquiry as any).Shared_With ?? '');
+
+    try {
 
       if (demoModeEnabled && isDemoEnquiryId(enquiryId)) {
         const counterpartDemoId = enquiryId === 'DEMO-ENQ-0001'
@@ -5469,6 +3841,18 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         return;
       }
 
+      // Optimistic update — patch local state and close modal before API call.
+      setAllEnquiries((prev) => prev.map(applySharedUpdate));
+      setDisplayEnquiries((prev) => prev.map(applySharedUpdate));
+      setTeamWideEnquiries((prev) => prev.map(applySharedUpdate));
+
+      showToast('Sharing updated', 'success', nextShared ? `Shared with: ${nextShared}` : 'Removed all shared access');
+      setShareModalEnquiry(null);
+      setShareModalSelectedEmails([]);
+      setShareModalExternalEmails([]);
+      setShareModalSearch('');
+
+      // Background API call — revert on failure
       const response = await fetch('/api/enquiries-unified/update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -5488,21 +3872,25 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         String((enquiry as any).pitchEnquiryId || ''),
       ].filter(Boolean));
 
-      const applyResponseSharedUpdate = (record: NormalizedEnquiry): NormalizedEnquiry => {
-        if (!responseCandidateIds.has(String(record.ID || (record as any).id || ''))) return record;
-        return { ...record, shared_with: nextShared, Shared_With: nextShared };
-      };
-
-      setAllEnquiries((prev) => prev.map(applyResponseSharedUpdate));
-      setDisplayEnquiries((prev) => prev.map(applyResponseSharedUpdate));
-      setTeamWideEnquiries((prev) => prev.map(applyResponseSharedUpdate));
-
-      showToast('Sharing updated', 'success', nextShared ? `Shared with: ${nextShared}` : 'Removed all shared access');
-      setShareModalEnquiry(null);
-      setShareModalSelectedEmails([]);
-      setShareModalExternalEmails([]);
-      setShareModalSearch('');
+      // Reconcile with server-confirmed IDs (may include cross-DB IDs)
+      if (responseCandidateIds.size > candidateIds.size) {
+        const applyResponseSharedUpdate = (record: NormalizedEnquiry): NormalizedEnquiry => {
+          if (!responseCandidateIds.has(String(record.ID || (record as any).id || ''))) return record;
+          return { ...record, shared_with: nextShared, Shared_With: nextShared };
+        };
+        setAllEnquiries((prev) => prev.map(applyResponseSharedUpdate));
+        setDisplayEnquiries((prev) => prev.map(applyResponseSharedUpdate));
+        setTeamWideEnquiries((prev) => prev.map(applyResponseSharedUpdate));
+      }
     } catch (error) {
+      // Revert optimistic update
+      const revertSharedUpdate = (record: NormalizedEnquiry): NormalizedEnquiry => {
+        if (!candidateIds.has(String(record.ID || (record as any).id || ''))) return record;
+        return { ...record, shared_with: previousShared, Shared_With: previousShared };
+      };
+      setAllEnquiries((prev) => prev.map(revertSharedUpdate));
+      setDisplayEnquiries((prev) => prev.map(revertSharedUpdate));
+      setTeamWideEnquiries((prev) => prev.map(revertSharedUpdate));
       showToast('Failed to update sharing', 'error', error instanceof Error ? error.message : 'Unknown error', 5000);
     } finally {
       setIsShareModalSaving(false);
@@ -7253,8 +5641,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           refresh={{
             onRefresh: handleManualRefresh,
             isLoading: navigatorRefreshLoading,
-            progressPercentage: Math.round((nextRefreshIn / 60) * 100),
-            countdownLabel: `0:${nextRefreshIn < 10 ? '0' : ''}${nextRefreshIn}`,
           }}
         >
           {selectedPersonInitials && (
@@ -7318,7 +5704,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     isLocalhost,
     navigatorRefreshLoading,
     handleManualRefresh,
-    nextRefreshIn,
     manualFilterTransitioning,
     selectedPersonInitials,
     devOwnerMineOverrideEmail,
@@ -7334,6 +5719,34 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   }, [setContent]);
 
   // ─── Prop bundles for <ProspectTableRow /> ──────────────────
+  const renderClaimPromptChip = useCallback(
+    (options?: {
+      size?: 'default' | 'compact';
+      teamsLink?: string | null;
+      leadName?: string;
+      areaOfWork?: string;
+      enquiryId?: string;
+      dataSource?: 'new' | 'legacy';
+      iconOnly?: boolean;
+    }) => (
+      <ClaimPromptChip
+        size={options?.size}
+        teamsLink={options?.teamsLink}
+        leadName={options?.leadName}
+        areaOfWork={options?.areaOfWork}
+        enquiryId={options?.enquiryId}
+        dataSource={options?.dataSource}
+        iconOnly={options?.iconOnly}
+        isDarkMode={isDarkMode}
+        currentUserEmail={userData?.[0]?.Email}
+        onOptimisticClaim={onOptimisticClaim}
+        onRefreshEnquiries={onRefreshEnquiries}
+        showToast={showToast}
+      />
+    ),
+    [isDarkMode, userData, onOptimisticClaim, onRefreshEnquiries, showToast],
+  );
+
   const rowPipelineHandlers: RowPipelineHandlers = useMemo(() => ({
     showPipelineHover,
     movePipelineHover,
@@ -7408,118 +5821,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         : isLoadingAllData
           ? 'Loading all prospects…'
           : 'Updating view...';
-
-  const renderQueueLoadingSkeleton = (variant: 'blocking' | 'inline') => {
-    const rowCount = variant === 'blocking' ? 8 : 6;
-    const skeletonBase = isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(6,23,51,0.04)';
-    const skeletonStrong = isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(6,23,51,0.08)';
-    const shimmerTone = isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(6,23,51,0.06)';
-    const lineColor = isDarkMode ? 'rgba(135,243,243,0.25)' : 'rgba(54,144,206,0.18)';
-    const rowBorderColor = isDarkMode ? 'rgba(75, 85, 99, 0.18)' : 'rgba(0, 0, 0, 0.05)';
-    // Match the real grid: Timeline | Date | ID/Value | Contact | Pipeline | Actions
-    const skeletonGridColumns = `clamp(16px, 3vw, 28px) minmax(clamp(28px, 5vw, 64px), 0.5fr) minmax(clamp(56px, 9vw, 112px), 0.95fr) minmax(clamp(50px, 10vw, 160px), 1.3fr) minmax(clamp(60px, 15vw, 260px), 3.1fr) clamp(32px, 4vw, 56px)`;
-
-    const sBlock = (w: number | string, h: number, delay: number, strong?: boolean): React.CSSProperties => ({
-      width: w,
-      height: h,
-      background: `linear-gradient(90deg, ${strong ? skeletonStrong : skeletonBase} 0%, ${shimmerTone} 50%, ${strong ? skeletonStrong : skeletonBase} 100%)`,
-      backgroundSize: '220% 100%',
-      animation: `enq-skeleton-breathe 2.4s ease-in-out infinite`,
-      animationDelay: `${delay}s`,
-    });
-
-    // Vary widths per row so skeletons look organic, not stamped
-    const nameWidths = ['72%', '58%', '65%', '80%', '52%', '70%', '62%', '48%'];
-    const idWidths = [48, 42, 52, 38, 46, 50, 40, 44];
-    const chipCounts = [3, 2, 4, 2, 3, 1, 3, 2];
-
-    return (
-      <div style={{
-        width: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        padding: variant === 'blocking' ? '0 16px' : '0',
-      }}>
-        {/* Skeleton header — mirrors the real sticky header */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: skeletonGridColumns,
-          gap: 8,
-          padding: '0 16px',
-          height: 44,
-          alignItems: 'center',
-          background: isDarkMode ? colours.darkBlue : colours.light.cardBackground,
-          borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)'}`,
-        }}>
-          <div style={sBlock(12, 12, 0)} />
-          <div style={sBlock(32, 8, 0.05)} />
-          <div style={sBlock(28, 8, 0.1)} />
-          <div style={sBlock(44, 8, 0.15)} />
-          <div style={sBlock(48, 8, 0.2)} />
-          <div />
-        </div>
-
-        {/* Skeleton rows — same grid, padding, height as real prospect-row */}
-        {Array.from({ length: rowCount }, (_, idx) => {
-          const isLastInGroup = idx === 2 || idx === 5;
-          const rowDelay = idx * 0.06;
-          return (
-            <div
-              key={`${variant}-skel-${idx}`}
-              style={{
-                display: 'grid',
-                gridTemplateColumns: skeletonGridColumns,
-                gap: 'clamp(4px, 0.8vw, 8px)',
-                padding: 'clamp(6px, 0.8vw, 8px) clamp(8px, 1.2vw, 14px)',
-                alignItems: 'center',
-                borderBottom: isLastInGroup
-                  ? `1px solid ${isDarkMode ? 'rgba(75,85,99,0.35)' : 'rgba(0,0,0,0.09)'}`
-                  : `0.5px solid ${rowBorderColor}`,
-                opacity: Math.max(0.4, 1 - idx * 0.08),
-                animation: 'fadeIn 0.2s ease both',
-                animationDelay: `${rowDelay}s`,
-              }}
-            >
-              {/* Col 1: Timeline line */}
-              <div style={{ display: 'flex', justifyContent: 'center', height: '100%', minHeight: 36 }}>
-                <div style={{ width: 1, height: '100%', background: lineColor, opacity: 0.7 + (idx % 3) * 0.1 }} />
-              </div>
-
-              {/* Col 2: Date (stacked day + time) */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 3, justifyContent: 'center' }}>
-                <div style={sBlock(idx % 2 === 0 ? 28 : 24, 11, rowDelay + 0.04, true)} />
-                <div style={sBlock(idx % 2 === 0 ? 32 : 26, 9, rowDelay + 0.08)} />
-              </div>
-
-              {/* Col 3: ID + AoW icon */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <div style={{ ...sBlock(14, 14, rowDelay + 0.06), borderRadius: '50%' }} />
-                <div style={sBlock(idWidths[idx % idWidths.length], 10, rowDelay + 0.1)} />
-              </div>
-
-              {/* Col 4: Contact name */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
-                <div style={sBlock(nameWidths[idx % nameWidths.length], 13, rowDelay + 0.12, true)} />
-                {idx % 3 === 0 && <div style={sBlock('40%', 9, rowDelay + 0.16)} />}
-              </div>
-
-              {/* Col 5: Pipeline chips */}
-              <div style={{ display: 'flex', gap: 6, minWidth: 0, overflow: 'hidden' }}>
-                {Array.from({ length: chipCounts[idx % chipCounts.length] }, (_, ci) => (
-                  <div key={ci} style={sBlock(ci === 0 ? 52 : 34, 18, rowDelay + 0.14 + ci * 0.04)} />
-                ))}
-              </div>
-
-              {/* Col 6: Actions placeholder */}
-              <div style={{ display: 'flex', justifyContent: 'center' }}>
-                <div style={sBlock(20, 20, rowDelay + 0.2)} />
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    );
-  };
 
   return (
     <div className={containerStyle(isDarkMode)}>
@@ -7630,7 +5931,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           pointerEvents: 'none',
         }}>
           <div style={{ maxWidth: 1200, width: '100%', margin: '0 auto' }}>
-            {renderQueueLoadingSkeleton('blocking')}
+            <QueueLoadingSkeleton variant="blocking" isDarkMode={isDarkMode} />
           </div>
         </div>
       )}
@@ -7697,10 +5998,13 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                       }
                     />
                   ) : isAwaitingQueueDataset ? (
-                    renderQueueLoadingSkeleton('inline')
-                  ) : filteredEnquiries.length === 0 && (enquiriesLiveRefreshInFlight || enquiriesUsingSnapshot) && !hasActiveUserFilters ? (
-                    /* Still awaiting first live data — show skeleton, not empty state */
-                    renderQueueLoadingSkeleton('inline')
+                    <QueueLoadingSkeleton variant="inline" isDarkMode={isDarkMode} />
+                  ) : filteredEnquiries.length === 0 && (
+                    ((enquiriesLiveRefreshInFlight || enquiriesUsingSnapshot) && !hasActiveUserFilters)
+                    || (enquiries !== null && enquiries.length > 0 && displayEnquiries.length === 0)
+                  ) ? (
+                    /* Still awaiting first live data or prop normalisation pipeline — show skeleton, not empty state */
+                    <QueueLoadingSkeleton variant="inline" isDarkMode={isDarkMode} />
                   ) :filteredEnquiries.length === 0 ? (
                     <EmptyState
                       title={
@@ -9317,15 +7621,22 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                             if (isUnclaimed) {
                                               const processingIdentity = resolveEnquiryProcessingIdentity(childEnquiry as any);
                                               // Unclaimed - show subtle claim prompt
-                                              return renderClaimPromptChip({
-                                                size: 'compact',
-                                                teamsLink: childTeamsLink,
-                                                leadName: childContactName,
-                                                areaOfWork: childEnquiry['Area_of_Work'],
-                                                enquiryId: processingIdentity.enquiryId,
-                                                dataSource: processingIdentity.source,
-                                                iconOnly: true,
-                                              });
+                                              return (
+                                                <ClaimPromptChip
+                                                  size="compact"
+                                                  teamsLink={childTeamsLink}
+                                                  leadName={childContactName}
+                                                  areaOfWork={childEnquiry['Area_of_Work']}
+                                                  enquiryId={processingIdentity.enquiryId}
+                                                  dataSource={processingIdentity.source}
+                                                  iconOnly
+                                                  isDarkMode={isDarkMode}
+                                                  currentUserEmail={userData?.[0]?.Email}
+                                                  onOptimisticClaim={onOptimisticClaim}
+                                                  onRefreshEnquiries={onRefreshEnquiries}
+                                                  showToast={showToast}
+                                                />
+                                              );
                                             }
                                             
                                             // Claimed - show initials + Teams icon reveal on hover

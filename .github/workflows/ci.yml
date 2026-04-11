@@ -1,0 +1,36 @@
+name: CI Check Gate
+
+on:
+  pull_request:
+    branches: [main, staging]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Lint · Test · Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Server tests
+        run: npm run test:server -- --silent
+
+      - name: Build
+        run: npm run build
+        env:
+          CI: true
+          # CRA treats warnings as errors with CI=true.
+          # Set to false if legacy warnings are acceptable:
+          # CI: false

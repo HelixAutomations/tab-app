@@ -3,6 +3,7 @@ const { getSecret } = require('../utils/getSecret');
 const { append, redact } = require('../utils/opLog');
 const { CACHE_CONFIG, deleteCachePattern } = require('../utils/redisClient');
 const { broadcastEnquiriesChanged } = require('../utils/enquiries-stream');
+const { emitEvent } = require('../utils/eventEmitter');
 
 const router = express.Router();
 
@@ -125,6 +126,9 @@ router.post('/', async (req, res) => {
                 claimedAt: new Date().toISOString(),
             });
         } catch { /* non-blocking */ }
+
+        // Emit to shared Events table for cross-app visibility
+        emitEvent('enquiry.claimed', 'tab-app', String(enquiryId), 'enquiry', { claimedBy: userEmail });
 
         res.json({
             success: true,

@@ -16,6 +16,7 @@ const {
   DEFAULT_SQL_RETRIES,
   isTransientSqlError
 } = require('../utils/sqlHelpers');
+const { notify } = require('../utils/hubNotifier');
 
 const runInstructionQuery = createEnvBasedQueryRunner('INSTRUCTIONS_SQL_CONNECTION_STRING', {
   defaultRetries: Number(process.env.SQL_INSTRUCTIONS_MAX_RETRIES || DEFAULT_SQL_RETRIES)
@@ -165,6 +166,16 @@ router.post('/', async (req, res) => {
     } catch (e) {
       console.warn('[verify-id] Cache invalidation failed (submit):', e?.message || e);
     }
+
+    // Fire-and-forget DM notification
+    notify('eid.completed', {
+      instructionRef,
+      name: `${instructionData?.FirstName || ''} ${instructionData?.LastName || ''}`.trim(),
+      overall: riskData?.overall || 'unknown',
+      pep: riskData?.pep || 'unknown',
+      address: riskData?.address || 'unknown',
+      triggeredBy: req.user?.initials || '',
+    });
 
     return res.status(200).json({
       success: true,

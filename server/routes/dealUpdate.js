@@ -3,6 +3,7 @@ const { getSecret } = require('../utils/getSecret');
 const sql = require('mssql');
 const { loggers } = require('../utils/logger');
 
+const { emitEvent } = require('../utils/eventEmitter');
 const router = express.Router();
 const log = loggers.payments.child('DealUpdate');
 
@@ -92,6 +93,8 @@ router.post('/close-by-instruction', async (req, res) => {
     }
     
     log.op('deal:closed', { instructionRef });
+
+    emitEvent('deal.updated', 'tab-app', instructionRef, 'deal', { action: 'closed' });
     
     res.json({
       success: true,
@@ -157,6 +160,8 @@ router.put('/:dealId', async (req, res) => {
       .query(updatedDealQuery);
     
     log.op('deal:updated', { dealId, ServiceDescription, Amount });
+
+    emitEvent('deal.updated', 'tab-app', String(dealId), 'deal', { dealId, serviceDescription: ServiceDescription, amount: Amount });
     
     res.json({
       success: true,

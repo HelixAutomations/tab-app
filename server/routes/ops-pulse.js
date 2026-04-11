@@ -1,0 +1,168 @@
+/**
+ * Ops Pulse — SSE stream + REST snapshot for the Helix Eye dashboard.
+ *
+ * Provides 5 event types:
+ *   pulse     – heartbeat with uptime, connections, request stats
+ *   scheduler – sync tier states, mutex, next fires
+ *   errors    – recent error ring buffer
+ *   sessions  – active SSE sessions
+ *   requests  – recent API request log
+ *
+ * Gated to dev owner (LZ) only. SSE excluded from compression + rate limiting.
+ */
+
+const express = require('express');
+const EventEmitter = require('events');
+const { createLogger } = require('../utils/logger');
+const { getStatus } = require('../utils/serverStatus');
+const { getSchedulerState } = require('../utils/dataOperationsScheduler');
+const { getRecentRequests, getRequestStats } = require('../utils/requestTracker');
+const { getActiveSessions, getSessionStats } = require('../utils/sessionTracker');
+
+const router = express.Router();
+const log = createLogger('OpsPulse');
+
+// ── Error bus — other modules emit here, we collect + broadcast ──
+const errorBus = new EventEmitter();
+errorBus.setMaxListeners(20);
+
+const ERROR_BUFFER_SIZE = 50;
+const _errors = [];
+
+/** Push an error to the ring buffer. Called by errorHandler + hubNotifier. */
+function pushError(entry) {
+  _errors.push({
+    ts: Date.now(),
+    message: entry.message || 'Unknown error',
+    path: entry.path || null,
+    status: entry.status || 500,
+    user: entry.user || null,
+    stack: entry.stack ? entry.stack.split('\n').slice(0, 3).join('\n') : null,
+  });
+  if (_errors.length > ERROR_BUFFER_SIZE) _errors.shift();
+  errorBus.emit('app-error', _errors[_errors.length - 1]);
+}
+
+function getRecentErrors(limit = 50) {
+  return _errors.slice(-limit).reverse();
+}
+
+/** Dev owner gate — LZ only */
+function isDevOwner(req) {
+  const initials = req.user?.initials || req.query?.initials;
+  return initials === 'LZ';
+}
+
+// ── REST snapshot (for initial load) ──
+router.get('/snapshot', (req, res) => {
+  if (!isDevOwner(req)) return res.status(403).json({ error: 'forbidden' });
+
+  const serverStatus = getStatus();
+  const schedulerState = getSchedulerState();
+  const requestStats = getRequestStats();
+  const sessionStats = getSessionStats();
+
+  res.json({
+    pulse: {
+      uptimeSeconds: serverStatus.uptimeSeconds,
+      startedAt: serverStatus.startedAt,
+      connections: serverStatus,
+      requests: requestStats,
+    },
+    scheduler: schedulerState,
+    errors: getRecentErrors(50),
+    sessions: {
+      ...sessionStats,
+      list: getActiveSessions(),
+    },
+    requests: getRecentRequests(50),
+  });
+});
+
+// ── SSE stream (real-time updates) ──
+router.get('/stream', (req, res) => {
+  if (!isDevOwner(req)) return res.status(403).json({ error: 'forbidden' });
+
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+
+  if (typeof res.flushHeaders === 'function') {
+    try { res.flushHeaders(); } catch { /* ignore */ }
+  }
+
+  let alive = true;
+
+  function writeSse(event, data) {
+    if (!alive || res.writableEnded || res.destroyed) return;
+    try {
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      if (typeof res.flush === 'function') res.flush();
+    } catch { /* connection closed */ }
+  }
+
+  // Send initial snapshot immediately
+  const serverStatus = getStatus();
+  writeSse('pulse', {
+    uptimeSeconds: serverStatus.uptimeSeconds,
+    startedAt: serverStatus.startedAt,
+    connections: serverStatus,
+    requests: getRequestStats(),
+  });
+  writeSse('scheduler', getSchedulerState());
+  writeSse('errors', getRecentErrors(50));
+  writeSse('sessions', { ...getSessionStats(), list: getActiveSessions() });
+  writeSse('requests', getRecentRequests(50));
+
+  // ── Periodic broadcasts ──
+
+  // Pulse + scheduler every 5s
+  const pulseInterval = setInterval(() => {
+    const status = getStatus();
+    writeSse('pulse', {
+      uptimeSeconds: status.uptimeSeconds,
+      startedAt: status.startedAt,
+      connections: status,
+      requests: getRequestStats(),
+    });
+    writeSse('scheduler', getSchedulerState());
+  }, 5000);
+
+  // Sessions every 10s
+  const sessionInterval = setInterval(() => {
+    writeSse('sessions', { ...getSessionStats(), list: getActiveSessions() });
+  }, 10000);
+
+  // Request log every 3s
+  const requestInterval = setInterval(() => {
+    writeSse('requests', getRecentRequests(30));
+  }, 3000);
+
+  // Error bus — push immediately when an error occurs
+  const onError = (err) => writeSse('error', err);
+  errorBus.on('app-error', onError);
+
+  // Heartbeat every 15s
+  const heartbeat = setInterval(() => {
+    if (!alive || res.writableEnded || res.destroyed) return;
+    try { res.write(': heartbeat\n\n'); } catch { /* ignore */ }
+  }, 15000);
+
+  // Cleanup on disconnect
+  req.on('close', () => {
+    alive = false;
+    clearInterval(pulseInterval);
+    clearInterval(sessionInterval);
+    clearInterval(requestInterval);
+    clearInterval(heartbeat);
+    errorBus.removeListener('app-error', onError);
+    log.info('[OpsPulse] Client disconnected');
+  });
+
+  log.info('[OpsPulse] Client connected');
+});
+
+module.exports = { router, pushError, errorBus };

@@ -158,7 +158,7 @@ router.post('/discover', async (req, res) => {
         }
       }
       request.input('q', sql.NVarChar, `%${q}%`);
-      return (await request.query(`SELECT * FROM Instructions WHERE FirstName LIKE @q OR LastName LIKE @q OR CompanyName LIKE @q`)).recordset;
+      return (await request.query(`SELECT TOP 100 * FROM Instructions WHERE FirstName LIKE @q OR LastName LIKE @q OR CompanyName LIKE @q`)).recordset;
     });
 
     // ── Instructions DB: Deals ──
