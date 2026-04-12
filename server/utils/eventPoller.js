@@ -26,6 +26,32 @@ let cleanupTimer = null;
 let isPolling = false; // Simple mutex — one tick at a time
 let lastProcessedEventId = 0;
 
+// Adaptive polling (TA-14): back off when idle, snap back on events
+const BASE_INTERVAL_MS = POLL_INTERVAL_MS;
+const BACKOFF_INTERVAL_MS = 15000;
+const BACKOFF_THRESHOLD = Math.ceil((2 * 60 * 1000) / BASE_INTERVAL_MS); // ~40 ticks at 3s = 2 min
+let noEventStreak = 0;
+let currentIntervalMs = BASE_INTERVAL_MS;
+
+function rebuildPollInterval(newIntervalMs) {
+  if (newIntervalMs === currentIntervalMs) return;
+  const from = currentIntervalMs;
+  currentIntervalMs = newIntervalMs;
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = setInterval(() => {
+      pollTick().catch(() => {});
+    }, currentIntervalMs);
+    if (typeof pollTimer.unref === 'function') pollTimer.unref();
+  }
+  trackEvent('EventPoller.IntervalChanged', {
+    from: String(from),
+    to: String(newIntervalMs),
+    noEventStreak: String(noEventStreak),
+  });
+  devStatus('Event poller', true, `polling every ${newIntervalMs / 1000}s (adapted)`);
+}
+
 // ── Dependencies injected into handlers for testability ──
 const deps = {
   broadcastEnquiriesChanged,
@@ -64,7 +90,20 @@ async function pollTick() {
     `);
 
     const events = result.recordset || [];
-    if (events.length === 0) return;
+    if (events.length === 0) {
+      // Adaptive polling: no events this tick
+      noEventStreak++;
+      if (noEventStreak >= BACKOFF_THRESHOLD && currentIntervalMs !== BACKOFF_INTERVAL_MS) {
+        rebuildPollInterval(BACKOFF_INTERVAL_MS);
+      }
+      return;
+    }
+
+    // Events found — reset streak and snap back to fast polling if backed off
+    if (noEventStreak >= BACKOFF_THRESHOLD && currentIntervalMs !== BASE_INTERVAL_MS) {
+      rebuildPollInterval(BASE_INTERVAL_MS);
+    }
+    noEventStreak = 0;
 
     // Process each event through the routing map
     const processedIds = [];
@@ -197,9 +236,11 @@ function startEventPoller() {
   });
 
   // Poll timer
+  currentIntervalMs = BASE_INTERVAL_MS;
+  noEventStreak = 0;
   pollTimer = setInterval(() => {
     pollTick().catch(() => { /* logged inside pollTick */ });
-  }, POLL_INTERVAL_MS);
+  }, currentIntervalMs);
   if (typeof pollTimer.unref === 'function') pollTimer.unref();
 
   // Cleanup timer
@@ -226,6 +267,8 @@ function stopEventPoller() {
   }
   lastProcessedEventId = 0;
   isPolling = false;
+  noEventStreak = 0;
+  currentIntervalMs = BASE_INTERVAL_MS;
   log.info('Event poller stopped');
 }
 

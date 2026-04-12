@@ -2,6 +2,8 @@
 // Intentionally payload-light: clients should refresh via existing API endpoints.
 
 const { withRequest, sql } = require('./db');
+const { trackEvent } = require('./appInsights');
+const { trackEvent } = require('./appInsights');
 
 // Store connected clients (http.ServerResponse)
 const clients = new Set();
@@ -11,12 +13,49 @@ let seq = 0;
 // This makes the Enquiries UI feel realtime even when changes don't flow through Hub routes.
 let teamsClaimWatcherTimer = null;
 let lastTeamsClaimUpdatedAt = null;
+// Claim cache: stores { key: string, ts: number } per enquiryId.
+// TTL: 30 minutes. Size cap: 500 entries.
+const CLAIM_CACHE_TTL_MS = 30 * 60 * 1000;
+const CLAIM_CACHE_MAX_SIZE = 500;
+// Claim cache: stores { key: string, ts: number } per enquiryId.
+// TTL: 30 minutes. Size cap: 500 entries.
+const CLAIM_CACHE_TTL_MS = 30 * 60 * 1000;
+const CLAIM_CACHE_MAX_SIZE = 500;
 const lastBroadcastClaimStateByEnquiryId = new Map();
+
+// Adaptive polling state for claim watcher (TA-14)
+const CLAIM_BASE_INTERVAL_MS = 5000;
+const CLAIM_BACKOFF_INTERVAL_MS = 15000;
+const CLAIM_BACKOFF_THRESHOLD = Math.ceil((2 * 60 * 1000) / CLAIM_BASE_INTERVAL_MS); // ~24 ticks = 2 min
+let claimNoEventStreak = 0;
+let claimCurrentIntervalMs = CLAIM_BASE_INTERVAL_MS;
+
+function pruneClaimCache() {
+  const now = Date.now();
+  // TTL eviction
+  for (const [key, entry] of lastBroadcastClaimStateByEnquiryId) {
+    if (now - entry.ts > CLAIM_CACHE_TTL_MS) {
+      lastBroadcastClaimStateByEnquiryId.delete(key);
+    }
+  }
+  // Size cap: evict oldest entries until <= max
+  if (lastBroadcastClaimStateByEnquiryId.size > CLAIM_CACHE_MAX_SIZE) {
+    const sorted = [...lastBroadcastClaimStateByEnquiryId.entries()]
+      .sort((a, b) => a[1].ts - b[1].ts);
+    const toRemove = sorted.length - CLAIM_CACHE_MAX_SIZE;
+    for (let i = 0; i < toRemove; i++) {
+      lastBroadcastClaimStateByEnquiryId.delete(sorted[i][0]);
+    }
+  }
+}
 
 async function pollTeamsClaimsOnce() {
   const connectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING || process.env.SQL_CONNECTION_STRING;
   if (!connectionString) return;
   if (clients.size === 0) return;
+
+  // Prune stale cache entries before each poll
+  pruneClaimCache();
 
   const since = lastTeamsClaimUpdatedAt || new Date(Date.now() - 60 * 1000);
 
@@ -60,10 +99,10 @@ async function pollTeamsClaimsOnce() {
 
       const prev = lastBroadcastClaimStateByEnquiryId.get(enquiryId);
       const nextKey = `${claimedBy}::${claimedAt || ''}`;
-      if (prev === nextKey) {
+      if (prev?.key === nextKey) {
         continue;
       }
-      lastBroadcastClaimStateByEnquiryId.set(enquiryId, nextKey);
+      lastBroadcastClaimStateByEnquiryId.set(enquiryId, { key: nextKey, ts: Date.now() });
 
       // Treat both claim + unclaim as claim-type changes; UI can patch either direction.
       broadcastEnquiriesChanged({
@@ -74,18 +113,88 @@ async function pollTeamsClaimsOnce() {
         source: 'teamsActivityTracking',
       });
     }
+
+    // Adaptive polling: track whether any changes were broadcast
+    const hadChanges = latestByEnquiryId.size > 0;
+    if (hadChanges) {
+      if (claimNoEventStreak >= CLAIM_BACKOFF_THRESHOLD && claimCurrentIntervalMs !== CLAIM_BASE_INTERVAL_MS) {
+        // Snap back to fast polling
+        claimCurrentIntervalMs = CLAIM_BASE_INTERVAL_MS;
+        if (teamsClaimWatcherTimer) {
+          clearInterval(teamsClaimWatcherTimer);
+          teamsClaimWatcherTimer = setInterval(() => {
+            pollTeamsClaimsOnce().catch(() => {});
+          }, claimCurrentIntervalMs);
+          if (typeof teamsClaimWatcherTimer.unref === 'function') teamsClaimWatcherTimer.unref();
+        }
+        trackEvent('ClaimWatcher.IntervalChanged', { from: String(CLAIM_BACKOFF_INTERVAL_MS), to: String(CLAIM_BASE_INTERVAL_MS), reason: 'eventReceived' });
+      }
+      claimNoEventStreak = 0;
+    } else {
+      claimNoEventStreak++;
+      if (claimNoEventStreak === CLAIM_BACKOFF_THRESHOLD && claimCurrentIntervalMs !== CLAIM_BACKOFF_INTERVAL_MS) {
+        claimCurrentIntervalMs = CLAIM_BACKOFF_INTERVAL_MS;
+        if (teamsClaimWatcherTimer) {
+          clearInterval(teamsClaimWatcherTimer);
+          teamsClaimWatcherTimer = setInterval(() => {
+            pollTeamsClaimsOnce().catch(() => {});
+          }, claimCurrentIntervalMs);
+          if (typeof teamsClaimWatcherTimer.unref === 'function') teamsClaimWatcherTimer.unref();
+        }
+        trackEvent('ClaimWatcher.IntervalChanged', { from: String(CLAIM_BASE_INTERVAL_MS), to: String(CLAIM_BACKOFF_INTERVAL_MS), reason: 'noEventsFor2Min' });
+      }
+    }
+
+    // Adaptive polling: track whether any changes were broadcast
+    const hadChanges = latestByEnquiryId.size > 0;
+    if (hadChanges) {
+      if (claimNoEventStreak >= CLAIM_BACKOFF_THRESHOLD && claimCurrentIntervalMs !== CLAIM_BASE_INTERVAL_MS) {
+        // Snap back to fast polling
+        claimCurrentIntervalMs = CLAIM_BASE_INTERVAL_MS;
+        if (teamsClaimWatcherTimer) {
+          clearInterval(teamsClaimWatcherTimer);
+          teamsClaimWatcherTimer = setInterval(() => {
+            pollTeamsClaimsOnce().catch(() => {});
+          }, claimCurrentIntervalMs);
+          if (typeof teamsClaimWatcherTimer.unref === 'function') teamsClaimWatcherTimer.unref();
+        }
+        trackEvent('ClaimWatcher.IntervalChanged', { from: String(CLAIM_BACKOFF_INTERVAL_MS), to: String(CLAIM_BASE_INTERVAL_MS), reason: 'eventReceived' });
+      }
+      claimNoEventStreak = 0;
+    } else {
+      claimNoEventStreak++;
+      if (claimNoEventStreak === CLAIM_BACKOFF_THRESHOLD && claimCurrentIntervalMs !== CLAIM_BACKOFF_INTERVAL_MS) {
+        claimCurrentIntervalMs = CLAIM_BACKOFF_INTERVAL_MS;
+        if (teamsClaimWatcherTimer) {
+          clearInterval(teamsClaimWatcherTimer);
+          teamsClaimWatcherTimer = setInterval(() => {
+            pollTeamsClaimsOnce().catch(() => {});
+          }, claimCurrentIntervalMs);
+          if (typeof teamsClaimWatcherTimer.unref === 'function') teamsClaimWatcherTimer.unref();
+        }
+        trackEvent('ClaimWatcher.IntervalChanged', { from: String(CLAIM_BASE_INTERVAL_MS), to: String(CLAIM_BACKOFF_INTERVAL_MS), reason: 'noEventsFor2Min' });
+      }
+    }
   } catch {
     // Non-blocking: failures should not take down SSE.
   }
 }
 
 function startTeamsClaimWatcher() {
+  // TA-4: Feature-flag — allow disabling when enquiry.claimed events flow reliably from enq-proc
+  if (process.env.DISABLE_TEAMS_CLAIM_WATCHER === '1') {
+    console.log('[ClaimWatcher] Disabled via DISABLE_TEAMS_CLAIM_WATCHER');
+    trackEvent('ClaimWatcher.Disabled', { reason: 'envFlag' });
+    return;
+  }
   if (teamsClaimWatcherTimer) return;
   // Initialise watermark slightly in the past so a freshly-opened tab doesn't miss just-written claims.
   lastTeamsClaimUpdatedAt = new Date(Date.now() - 30 * 1000);
+  claimNoEventStreak = 0;
+  claimCurrentIntervalMs = CLAIM_BASE_INTERVAL_MS;
   teamsClaimWatcherTimer = setInterval(() => {
     pollTeamsClaimsOnce().catch(() => { /* ignore */ });
-  }, 5000);
+  }, CLAIM_BASE_INTERVAL_MS);
   if (typeof teamsClaimWatcherTimer.unref === 'function') {
     teamsClaimWatcherTimer.unref();
   }
@@ -98,6 +207,8 @@ function stopTeamsClaimWatcherIfIdle() {
   teamsClaimWatcherTimer = null;
   lastTeamsClaimUpdatedAt = null;
   lastBroadcastClaimStateByEnquiryId.clear();
+  claimNoEventStreak = 0;
+  claimCurrentIntervalMs = CLAIM_BASE_INTERVAL_MS;
 }
 
 function writeEvent(res, { id, event, data }) {

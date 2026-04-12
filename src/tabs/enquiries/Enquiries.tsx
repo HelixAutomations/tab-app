@@ -4913,30 +4913,25 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       if (enquiryIds.length === 0) return;
       
       try {
-        // TODO: Enable when backend API is implemented
-        // const response = await fetch('/api/prospect-documents/counts', {
-        //   method: 'POST',
-        //   headers: { 'Content-Type': 'application/json' },
-        //   body: JSON.stringify({ enquiryIds })
-        // });
-        // 
-        // if (response.ok) {
-        //   const data = await response.json();
-        //   setDocumentCounts(prev => ({ ...prev, ...data.counts }));
-        // }
-        
-        // For now, initialize with zeros to prevent re-fetching
-        // BUT inject synthetic counts for the dev preview test record
-        setDocumentCounts((prev: Record<string, number>) => {
-          const newCounts = { ...prev };
-          enquiryIds.forEach(id => {
-            if (!(id in newCounts)) {
-              // Inject document count for dev preview test record
-              newCounts[id] = id === 'DEV-PREVIEW-99999' ? 3 : 0;
-            }
-          });
-          return newCounts;
+        const response = await fetch('/api/prospect-documents/counts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enquiryIds })
         });
+
+        if (response.ok) {
+          const data = await response.json();
+          setDocumentCounts((prev: Record<string, number>) => ({ ...prev, ...data.counts }));
+        } else {
+          // Initialise with zeros to prevent re-fetching on failure
+          setDocumentCounts((prev: Record<string, number>) => {
+            const newCounts = { ...prev };
+            enquiryIds.forEach(id => {
+              if (!(id in newCounts)) newCounts[id] = 0;
+            });
+            return newCounts;
+          });
+        }
       } catch (error) {
         console.error('[Enquiries] Failed to fetch document counts:', error);
       }

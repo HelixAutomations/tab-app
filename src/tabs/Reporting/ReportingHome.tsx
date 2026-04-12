@@ -28,6 +28,7 @@ import LogMonitor from './LogMonitor';
 import CacheMonitor from './CacheMonitor';
 import AgedDebtsReport from './AgedDebtsReport';
 import DataCentre from './DataCentre';
+import ResponseTimeReport from './ResponseTimeReport';
 import { useStreamingDatasets } from '../../hooks/useStreamingDatasets';
 import { fetchWithRetry, fetchJSON } from '../../utils/fetchUtils';
 import { isAdminUser, isPowerUser, canSeePrivateHubControls, isDevOwner } from '../../app/admin';
@@ -1432,8 +1433,9 @@ const REPORT_NAV_TABS: { key: typeof ACTIVE_VIEW_TYPE; label: string; draft?: bo
   { key: 'seoReport' as const, label: 'SEO', draft: true },
   { key: 'agedDebts' as const, label: 'Debts', draft: true },
   { key: 'calls' as const, label: 'Calls', draft: true },
+  { key: 'responseTime' as const, label: 'Response Time', draft: true },
 ];
-type ActiveViewType = 'overview' | 'dashboard' | 'annualLeave' | 'enquiries' | 'enquiryLedger' | 'metaMetrics' | 'seoReport' | 'ppcReport' | 'matters' | 'logMonitor' | 'dataCentre' | 'cacheMonitor' | 'agedDebts' | 'calls';
+type ActiveViewType = 'overview' | 'dashboard' | 'annualLeave' | 'enquiries' | 'enquiryLedger' | 'metaMetrics' | 'seoReport' | 'ppcReport' | 'matters' | 'logMonitor' | 'dataCentre' | 'cacheMonitor' | 'agedDebts' | 'calls' | 'responseTime';
 const ACTIVE_VIEW_TYPE: ActiveViewType = 'overview';
 
 interface ReportingNavigationRequest {
@@ -6050,6 +6052,16 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
           datasets={datasetSummariesSorted}
           userName={propUserData?.[0]?.FullName || propUserData?.[0]?.Initials}
         />
+      </div>
+    );
+  }
+
+  if (activeView === 'responseTime') {
+    return (
+      <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
+        <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
+          <ResponseTimeReport enquiries={datasetData.enquiries} />
+        </div>
       </div>
     );
   }
