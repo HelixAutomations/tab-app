@@ -8,6 +8,7 @@
  *   matter.opened   – matter successfully created in Clio + DB
  *   eid.completed   – ID verification submitted via Tiller
  *   ccl.approved    – CCL approved for a matter
+ *   sync.completed  – collected time or WIP sync finished
  *   error.critical  – unhandled 500 on an API route
  */
 
@@ -42,6 +43,7 @@ const ACCENT_COLOURS = {
   'matter.opened':  'good',      // green
   'eid.completed':  'accent',    // blue
   'ccl.approved':   'good',      // green
+  'sync.completed': 'accent',    // blue
   'error.critical': 'attention', // red
 };
 
@@ -49,6 +51,7 @@ const TITLES = {
   'matter.opened':  'Matter Opened',
   'eid.completed':  'ID Check Completed',
   'ccl.approved':   'CCL Approved',
+  'sync.completed': 'Data Sync',
   'error.critical': 'Error',
 };
 
@@ -56,6 +59,7 @@ const ICONS = {
   'matter.opened':  '\u2705',  // ✅
   'eid.completed':  '\uD83D\uDCCB',  // 📋
   'ccl.approved':   '\uD83D\uDCDD',  // 📝
+  'sync.completed': '\uD83D\uDD04',  // 🔄
   'error.critical': '\u26A0\uFE0F',  // ⚠️
 };
 
@@ -84,6 +88,13 @@ function buildCard(type, data) {
     if (data.matterId) facts.push({ title: 'Matter', value: String(data.matterId) });
     if (data.instructionRef) facts.push({ title: 'Ref', value: data.instructionRef });
     if (data.approvedBy) facts.push({ title: 'Approved by', value: data.approvedBy });
+  }
+
+  if (type === 'sync.completed') {
+    if (data.entity) facts.push({ title: 'Entity', value: data.entity });
+    if (data.tier) facts.push({ title: 'Tier', value: data.tier });
+    if (data.durationMs) facts.push({ title: 'Duration', value: `${(Number(data.durationMs) / 1000).toFixed(1)}s` });
+    if (data.triggeredBy) facts.push({ title: 'Trigger', value: data.triggeredBy });
   }
 
   if (type === 'error.critical') {
@@ -138,12 +149,12 @@ function truncate(str, max) {
 
 /**
  * Send a notification card to the Dev channel.
- * @param {'matter.opened'|'eid.completed'|'ccl.approved'|'error.critical'} type
+ * @param {'matter.opened'|'eid.completed'|'ccl.approved'|'sync.completed'|'error.critical'} type
  * @param {Record<string, string>} data - Event-specific key/value pairs
  */
 async function notify(type, data = {}) {
   try {
-    const key = `${type}:${data.instructionRef || data.matterId || data.path || 'global'}`;
+    const key = `${type}:${data.entity || data.instructionRef || data.matterId || data.path || 'global'}:${data.tier || ''}`;
 
     if (!shouldSend(key)) {
       log.debug(`[HubNotifier] Rate-limited: ${key}`);

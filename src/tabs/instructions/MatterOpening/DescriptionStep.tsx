@@ -170,7 +170,7 @@ const DescriptionStep: React.FC<DescriptionStepProps> = ({
                         onClick={onContinue}
                         styles={{
                             root: {
-                                background: `linear-gradient(135deg, ${themeColours.focusColor} 0%, #2563EB 100%)`,
+                                background: `linear-gradient(135deg, ${themeColours.focusColor} 0%, ${colours.highlight} 100%)`,
                                 border: 'none',
                                 borderRadius: 10,
                                 height: 44,
@@ -179,7 +179,7 @@ const DescriptionStep: React.FC<DescriptionStepProps> = ({
                                 boxShadow: themeColours.shadow,
                                 transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                                 ':hover': {
-                                    background: 'linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%)',
+                                    background: `linear-gradient(135deg, ${colours.highlight} 0%, ${colours.highlight} 100%)`,
                                     transform: 'translateY(-1px)',
                                     boxShadow: '0 6px 12px rgba(0, 0, 0, 0.15)'
                                 },

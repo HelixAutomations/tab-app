@@ -303,13 +303,13 @@ const RiskAssessmentPage: React.FC<RiskAssessmentPageProps> = ({ onBack, instruc
                                     }}>
                                         <polyline 
                                             points="20,6 9,17 4,12" 
-                                            stroke="#16a34a" 
+                                            stroke="#20b26c" 
                                             strokeWidth="2" 
                                             strokeLinecap="round" 
                                             strokeLinejoin="round"
                                         />
                                     </svg>
-                                    <span style={{ fontSize: 11, fontWeight: 600, color: '#16a34a' }}>Saved</span>
+                                    <span style={{ fontSize: 11, fontWeight: 600, color: colours.green }}>Saved</span>
                                 </>
                             ) : (
                                 <>

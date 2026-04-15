@@ -2,6 +2,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const sql = require('mssql');
+const { getPool } = require('../utils/db');
 const { generateWordFromJson } = require('../utils/wordGenerator.js');
 const {
     saveCclContent,
@@ -318,22 +319,17 @@ async function saveDraftToDb(matterId, json) {
         console.warn('[ccl] INSTRUCTIONS_SQL_CONNECTION_STRING not configured, skipping DB save');
         return;
     }
-    let pool;
-    try {
-        pool = await sql.connect(connectionString);
-        if (!(await ensureCclDraftsTable(pool))) return;
-        await pool.request()
-            .input('MatterId', sql.NVarChar(50), matterId)
-            .input('DraftJson', sql.NVarChar(sql.MAX), JSON.stringify(json))
-            .query(`MERGE CclDrafts AS target
-                USING (SELECT @MatterId AS MatterId) AS src
-                ON target.MatterId = src.MatterId
-                WHEN MATCHED THEN UPDATE SET DraftJson = @DraftJson, UpdatedAt = SYSDATETIME()
-                WHEN NOT MATCHED THEN INSERT (MatterId, DraftJson, UpdatedAt)
-                VALUES (@MatterId, @DraftJson, SYSDATETIME());`);
-    } finally {
-        if (pool) await pool.close();
-    }
+    const pool = await getPool(connectionString);
+    if (!(await ensureCclDraftsTable(pool))) return;
+    await pool.request()
+        .input('MatterId', sql.NVarChar(50), matterId)
+        .input('DraftJson', sql.NVarChar(sql.MAX), JSON.stringify(json))
+        .query(`MERGE CclDrafts AS target
+            USING (SELECT @MatterId AS MatterId) AS src
+            ON target.MatterId = src.MatterId
+            WHEN MATCHED THEN UPDATE SET DraftJson = @DraftJson, UpdatedAt = SYSDATETIME()
+            WHEN NOT MATCHED THEN INSERT (MatterId, DraftJson, UpdatedAt)
+            VALUES (@MatterId, @DraftJson, SYSDATETIME());`);
 }
 
 async function fetchDraftFromDb(matterId) {
@@ -342,18 +338,13 @@ async function fetchDraftFromDb(matterId) {
         console.warn('[ccl] INSTRUCTIONS_SQL_CONNECTION_STRING not configured');
         return null;
     }
-    let pool;
-    try {
-        pool = await sql.connect(connectionString);
-        if (!(await ensureCclDraftsTable(pool))) return null;
-        const result = await pool.request()
-            .input('MatterId', sql.NVarChar(50), matterId)
-            .query('SELECT DraftJson FROM CclDrafts WHERE MatterId = @MatterId');
-        const row = result.recordset[0];
-        return row ? JSON.parse(row.DraftJson) : null;
-    } finally {
-        if (pool) await pool.close();
-    }
+    const pool = await getPool(connectionString);
+    if (!(await ensureCclDraftsTable(pool))) return null;
+    const result = await pool.request()
+        .input('MatterId', sql.NVarChar(50), matterId)
+        .query('SELECT DraftJson FROM CclDrafts WHERE MatterId = @MatterId');
+    const row = result.recordset[0];
+    return row ? JSON.parse(row.DraftJson) : null;
 }
 
 function saveDraftToFileCache(matterId, json) {
@@ -1222,9 +1213,8 @@ router.post('/batch-status', async (req, res) => {
     if (!connectionString) {
         return res.json({ ok: true, results: {} });
     }
-    let pool;
     try {
-        pool = await sql.connect(connectionString);
+        const pool = await getPool(connectionString);
         // Check table exists first
         const check = await pool.request().query(
             `SELECT CASE WHEN OBJECT_ID(N'CclContent', N'U') IS NOT NULL THEN 1 ELSE 0 END AS F`
@@ -1337,8 +1327,6 @@ router.post('/batch-status', async (req, res) => {
         console.error('[ccl] batch-status failed:', err.message);
         trackException(err, { operation: 'CCL.BatchStatus' });
         return res.json({ ok: true, results: {} }); // non-fatal
-    } finally {
-        if (pool) await pool.close();
     }
 });
 

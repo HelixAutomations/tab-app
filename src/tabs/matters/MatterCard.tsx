@@ -235,9 +235,10 @@ const MatterCard: React.FC<MatterCardProps> = ({
         };
       case 'instruction':
         return {
-          background: isDarkMode ? 'rgba(34, 197, 94, 0.18)' : 'rgba(16, 185, 129, 0.12)',
-          border: `1px solid ${isDarkMode ? 'rgba(74, 222, 128, 0.45)' : 'rgba(34, 197, 94, 0.4)'}`,
-          color: isDarkMode ? '#86efac' : '#065f46',
+          background: isDarkMode ? 'rgba(32, 178, 108, 0.18)' : 'rgba(32, 178, 108, 0.12)',
+          border: `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.45)' : 'rgba(32, 178, 108, 0.4)'}`,
+
+          color: colours.green,
           padding: '2px 6px',
           borderRadius: 999,
           fontSize: 10,

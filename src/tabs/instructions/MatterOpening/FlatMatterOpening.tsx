@@ -88,7 +88,6 @@ interface FlatMatterOpeningProps {
     preselectedPoidIds?: string[];
     instructionPhone?: string;
     instructionRecords?: unknown[];
-    onDraftCclNow?: (matterId: string) => void;
     onBack?: () => void;
     onMatterSuccess?: (matterId: string) => void;
     onRunIdCheck?: () => void;
@@ -112,7 +111,6 @@ const FlatMatterOpening: React.FC<FlatMatterOpeningProps> = ({
     preselectedPoidIds = [],
     instructionPhone,
     instructionRecords,
-    onDraftCclNow,
     onBack,
     onMatterSuccess,
     onRunIdCheck,
@@ -2521,7 +2519,7 @@ ${JSON.stringify(debugInfo, null, 2)}
                                 height: '28px'
                             }}
                             onMouseEnter={(e) => {
-                                e.currentTarget.style.backgroundColor = '#fef2f2';
+                                e.currentTarget.style.backgroundColor = 'rgba(214, 85, 65, 0.06)';
                                 e.currentTarget.style.borderColor = '#D65541';
                             }}
                             onMouseLeave={(e) => {
@@ -2919,7 +2917,7 @@ ${JSON.stringify(debugInfo, null, 2)}
                                         }}
                                         onMouseEnter={(e) => {
                                             if (clientsStepComplete) {
-                                                e.currentTarget.style.backgroundColor = '#2563EB';
+                                                e.currentTarget.style.backgroundColor = colours.highlight;
                                             }
                                         }}
                                         onMouseLeave={(e) => {
@@ -2967,7 +2965,7 @@ ${JSON.stringify(debugInfo, null, 2)}
                                     {/* ...-- TEAM ...-- */}
                                     <div style={{ fontSize: 9, fontWeight: 700, color: isDarkMode ? '#9CA3AF' : '#475569', textTransform: 'uppercase' as const, letterSpacing: '0.8px', marginBottom: 10 }}>Team</div>
                                     {solicitorOptions.length === 0 && (
-                                        <div style={{ fontSize: 11, color: isDarkMode ? '#F59E0B' : '#D97706', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                        <div style={{ fontSize: 11, color: colours.orange, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
                                             <i className="ms-Icon ms-Icon--Warning" style={{ fontSize: 12 }} />
                                             {!teamData ? 'Loading team data...' : 'No active team members found'}
                                         </div>
@@ -3251,7 +3249,7 @@ ${JSON.stringify(debugInfo, null, 2)}
                                             opacity: matterStepComplete ? 1 : 0.7,
                                         }}
                                             title={!matterStepComplete ? 'Complete all required fields (area of work, practice area, description, date, team) before reviewing' : undefined}
-                                            onMouseEnter={(e) => { if (matterStepComplete) e.currentTarget.style.backgroundColor = '#2563EB'; }}
+                                            onMouseEnter={(e) => { if (matterStepComplete) e.currentTarget.style.backgroundColor = colours.highlight; }}
                                             onMouseLeave={(e) => { if (matterStepComplete) e.currentTarget.style.backgroundColor = colours.highlight; }}
                                         >
                                             Review
@@ -3279,10 +3277,10 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                 background: isDarkMode ? 'rgba(214,85,65,0.1)' : 'rgba(214,85,65,0.06)',
                                                 borderBottom: debugAdvancedOpen ? (isDarkMode ? '1px solid rgba(214,85,65,0.2)' : '1px solid rgba(214,85,65,0.12)') : 'none',
                                             }}>
-                                                <i className="ms-Icon ms-Icon--Medical" style={{ fontSize: 12, color: failureSummary ? '#ef4444' : '#10b981' }} />
+                                                <i className="ms-Icon ms-Icon--Medical" style={{ fontSize: 12, color: failureSummary ? colours.cta : colours.green }} />
                                                 <span style={{
                                                     fontSize: 11, fontWeight: 600, flex: 1,
-                                                    color: failureSummary ? (isDarkMode ? '#FCA5A5' : '#b91c1c') : (isDarkMode ? '#86EFAC' : '#166534'),
+                                                    color: failureSummary ? colours.cta : colours.green,
                                                     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const
                                                 }}>
                                                     {failureSummary || 'No issues detected'}
@@ -3324,8 +3322,8 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                             ? (isDarkMode ? '1px solid rgba(16,185,129,0.3)' : '1px solid rgba(16,185,129,0.2)')
                                                             : (isDarkMode ? '1px solid rgba(214,85,65,0.3)' : '1px solid rgba(214,85,65,0.2)'),
                                                         color: reportDelivered
-                                                            ? '#10b981'
-                                                            : (isDarkMode ? '#FCA5A5' : '#b91c1c'),
+                                                            ? colours.green
+                                                            : colours.cta,
                                                         cursor: reportDelivered ? 'default' : (supportSending ? 'wait' : 'pointer'),
                                                         display: 'flex', alignItems: 'center', gap: 4,
                                                         transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
@@ -3376,7 +3374,7 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                                     <span style={{
                                                                         fontSize: 8, fontWeight: 700, padding: '1px 4px', borderRadius: 2,
                                                                         background: step.status === 'success' ? 'rgba(16,185,129,0.12)' : step.status === 'error' ? 'rgba(239,68,68,0.12)' : 'rgba(148,163,184,0.1)',
-                                                                        color: step.status === 'success' ? '#10b981' : step.status === 'error' ? '#ef4444' : '#9CA3AF'
+                                                                        color: step.status === 'success' ? colours.green : step.status === 'error' ? colours.cta : colours.subtleGrey
                                                                     }}>
                                                                         {step.status === 'success' ? 'OK' : step.status === 'error' ? 'ERR' : '\u2014'}
                                                                     </span>
@@ -3493,11 +3491,11 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                                                     <div style={{
                                                         width: 6, height: 6, borderRadius: '50%',
-                                                        background: (selectedPoidIds && selectedPoidIds.length > 0) ? '#20b26c' : '#f59e0b'
+                                                        background: (selectedPoidIds && selectedPoidIds.length > 0) ? colours.green : colours.orange
                                                     }} />
                                                     <span style={{
                                                         fontSize: 10, fontWeight: 700,
-                                                        color: isDarkMode ? '#9CA3AF' : '#64748B',
+                                                        color: isDarkMode ? colours.subtleGrey : colours.greyText,
                                                         textTransform: 'uppercase' as const,
                                                         letterSpacing: '0.08em'
                                                     }}>
@@ -3654,7 +3652,7 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                                 const lc = (c.value || '').toLowerCase();
                                                                 const pass = c.passWords.includes(lc);
                                                                 const fail = lc === 'fail' || lc === 'failed';
-                                                                const dotColor = pass ? '#10b981' : fail ? '#ef4444' : '#f59e0b';
+                                                                const dotColor = pass ? colours.green : fail ? colours.cta : colours.orange;
                                                                 return (
                                                                     <span key={c.label} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: mutedColor, fontWeight: 600 }}>
                                                                         <span style={{ width: 6, height: 6, borderRadius: '50%', background: dotColor, flexShrink: 0 }} />
@@ -3804,7 +3802,7 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                                                     <div style={{
                                                         width: 6, height: 6, borderRadius: '50%',
-                                                        background: (areaOfWork && teamMember) ? '#20b26c' : '#f59e0b'
+                                                        background: (areaOfWork && teamMember) ? '#20b26c' : colours.orange
                                                     }} />
                                                     <span style={{
                                                         fontSize: 10, fontWeight: 700,
@@ -4132,7 +4130,7 @@ ${JSON.stringify(debugInfo, null, 2)}
                                             const statusDot = (val: string | null, passValues: string[]) => {
                                                 if (!val) return '#6B7280';
                                                 const low = String(val).toLowerCase();
-                                                return passValues.some(p => low.includes(p)) ? '#10b981' : '#f59e0b';
+                                                return passValues.some(p => low.includes(p)) ? colours.green : colours.orange;
                                             };
 
                                             return (
@@ -4140,7 +4138,7 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8 }}>
                                                         <div style={{
                                                             width: 6, height: 6, borderRadius: '50%',
-                                                            background: (noConflict && eidResult) ? '#20b26c' : '#f59e0b'
+                                                            background: (noConflict && eidResult) ? '#20b26c' : colours.orange
                                                         }} />
                                                         <span style={{
                                                             fontSize: 10, fontWeight: 700,
@@ -4170,7 +4168,7 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                                     <span style={{
                                                                         padding: '1px 8px', borderRadius: 3, fontSize: 9, fontWeight: 700,
                                                                         background: noConflict ? 'rgba(16,185,129,0.12)' : 'rgba(245,158,11,0.12)',
-                                                                        color: noConflict ? '#10b981' : '#f59e0b',
+                                                                        color: noConflict ? colours.green : colours.orange,
                                                                         border: noConflict ? '1px solid rgba(16,185,129,0.3)' : '1px solid rgba(245,158,11,0.3)',
                                                                         letterSpacing: '0.04em'
                                                                     }}>
@@ -4185,7 +4183,7 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                                             <span style={{
                                                                                 fontSize: 12, fontWeight: 600,
                                                                                 color: String(riskResult).toLowerCase() === 'standard' || String(riskResult).toLowerCase() === 'low'
-                                                                                    ? '#10b981' : '#f59e0b'
+                                                                                    ? colours.green : colours.orange
                                                                             }}>
                                                                                 {riskResult}
                                                                             </span>
@@ -4208,7 +4206,7 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                                             {paymentStatus && (
                                                                                 <span style={{
                                                                                     padding: '1px 6px', borderRadius: 3, fontSize: 9, fontWeight: 700,
-                                                                                    background: 'rgba(16,185,129,0.12)', color: '#10b981',
+                                                                                    background: 'rgba(16,185,129,0.12)', color: colours.green,
                                                                                     border: '1px solid rgba(16,185,129,0.3)', letterSpacing: '0.04em'
                                                                                 }}>
                                                                                     {paymentStatus.toUpperCase()}
@@ -4388,14 +4386,14 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                     background: isDarkMode ? 'rgba(59,130,246,0.08)' : 'rgba(59,130,246,0.06)',
                                                     borderBottom: isDarkMode ? '1px solid rgba(59,130,246,0.2)' : '1px solid rgba(59,130,246,0.15)',
                                                     fontSize: 12,
-                                                    color: isDarkMode ? '#93C5FD' : '#1e40af',
+                                                    color: isDarkMode ? colours.accent : colours.highlight,
                                                     display: 'flex',
                                                     alignItems: 'center',
                                                     gap: 8
                                                 }}>
                                                     <div style={{
                                                         width: 6, height: 6, borderRadius: '50%',
-                                                        background: isDarkMode ? '#93C5FD' : '#3B82F6',
+                                                        background: isDarkMode ? colours.accent : colours.highlight,
                                                         animation: 'pulse 1.5s ease-in-out infinite'
                                                     }} />
                                                     Loading your profile data...
@@ -4407,7 +4405,7 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                     background: isDarkMode ? 'rgba(59,130,246,0.06)' : 'rgba(59,130,246,0.04)',
                                                     borderBottom: isDarkMode ? '1px solid rgba(59,130,246,0.15)' : '1px solid rgba(59,130,246,0.1)',
                                                     fontSize: 12,
-                                                    color: isDarkMode ? '#93C5FD' : '#1e40af',
+                                                    color: isDarkMode ? colours.accent : colours.highlight,
                                                     display: 'flex',
                                                     alignItems: 'center',
                                                     gap: 8
@@ -4436,7 +4434,7 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                     display: 'flex', alignItems: 'center', justifyContent: 'center'
                                                 }}>
                                                     <i className={`ms-Icon ms-Icon--${noConflict ? 'CheckMark' : 'Warning'}`}
-                                                       style={{ fontSize: 13, color: noConflict ? '#10b981' : '#f87171' }} />
+                                                       style={{ fontSize: 13, color: noConflict ? colours.green : colours.cta }} />
                                                 </div>
 
                                                 {/* Checkbox + text */}
@@ -4497,7 +4495,7 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                     background: isDarkMode ? 'rgba(59,130,246,0.04)' : 'rgba(59,130,246,0.03)',
                                                     display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap'
                                                 }}>
-                                                    <span style={{ fontSize: 10, fontWeight: 700, color: isDarkMode ? '#60A5FA' : '#3B82F6', textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>
+                                                    <span style={{ fontSize: 10, fontWeight: 700, color: isDarkMode ? colours.accent : colours.highlight, textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>
                                                         Demo Outcome
                                                     </span>
                                                     {([
@@ -4517,7 +4515,7 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                                     ? (opt.key === 'success' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.12)')
                                                                     : (isDarkMode ? 'rgba(75,85,99,0.15)' : '#F8FAFC'),
                                                                 color: demoProcessingOutcome === opt.key
-                                                                    ? (opt.key === 'success' ? '#10b981' : '#ef4444')
+                                                                    ? (opt.key === 'success' ? colours.green : colours.cta)
                                                                     : (isDarkMode ? '#6B7280' : '#94A3B8'),
                                                                 border: demoProcessingOutcome === opt.key
                                                                     ? (opt.key === 'success' ? '1px solid rgba(16,185,129,0.3)' : '1px solid rgba(239,68,68,0.25)')
@@ -4621,7 +4619,7 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                 const pct = total > 0 ? Math.round((done / total) * 100) : 0;
                                                 const isComplete = done === total && total > 0;
                                                 const hasFailed = failed > 0;
-                                                const statusColor = hasFailed ? '#ef4444' : (isComplete ? '#20b26c' : aowColor);
+                                                const statusColor = hasFailed ? colours.cta : (isComplete ? '#20b26c' : aowColor);
 
                                                 return (
                                                     <>
@@ -4764,14 +4762,14 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                                             }}>
                                                                                 <div style={{
                                                                                     width: 6, height: 6, borderRadius: '50%',
-                                                                                    background: phaseDone ? '#20b26c' : phaseFailed ? '#ef4444' : phaseActive ? aowColor : (isDarkMode ? '#374151' : '#CBD5E1'),
+                                                                                    background: phaseDone ? '#20b26c' : phaseFailed ? colours.cta : phaseActive ? aowColor : (isDarkMode ? '#374151' : '#CBD5E1'),
                                                                                     boxShadow: phaseActive ? `0 0 6px ${aowColor}60` : 'none',
                                                                                     transition: 'all 0.3s',
                                                                                 }} />
                                                                                 <span style={{
                                                                                     fontSize: 9, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: 0.8,
-                                                                                    color: phaseDone ? (isDarkMode ? '#86EFAC' : '#15803d')
-                                                                                        : phaseFailed ? (isDarkMode ? '#FCA5A5' : '#dc2626')
+                                                                                    color: phaseDone ? colours.green
+                                                                                        : phaseFailed ? colours.cta
                                                                                         : phaseActive ? (isDarkMode ? '#E5E7EB' : '#1E293B')
                                                                                         : (isDarkMode ? '#4B5563' : '#9CA3AF'),
                                                                                 }}>
@@ -4829,7 +4827,7 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                                                                 {grpDone ? (
                                                                                                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none"><polyline points="20,6 9,17 4,12" stroke="#20b26c" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/></svg>
                                                                                                 ) : grpFailed ? (
-                                                                                                    <i className="ms-Icon ms-Icon--ErrorBadge" style={{ fontSize: 10, color: '#ef4444' }} />
+                                                                                                    <i className="ms-Icon ms-Icon--ErrorBadge" style={{ fontSize: 10, color: colours.cta }} />
                                                                                                 ) : grpActive ? (
                                                                                                     <div style={{ width: 8, height: 8, borderRadius: '50%', border: `2px solid ${aowColor}60`, borderTopColor: aowColor, animation: 'spin 0.8s linear infinite' }} />
                                                                                                 ) : (
@@ -4839,8 +4837,8 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                                                             <span style={{
                                                                                                 fontSize: 12, flex: 1,
                                                                                                 fontWeight: grpActive ? 600 : 400,
-                                                                                                color: grpDone ? (isDarkMode ? '#86EFAC' : '#15803d')
-                                                                                                    : grpFailed ? (isDarkMode ? '#FCA5A5' : '#dc2626')
+                                                                                                color: grpDone ? colours.green
+                                                                                                    : grpFailed ? colours.cta
                                                                                                     : grpActive ? (isDarkMode ? '#E5E7EB' : '#1E293B')
                                                                                                     : (isDarkMode ? '#6B7280' : '#9CA3AF'),
                                                                                                 transition: 'color 0.3s ease'
@@ -4849,7 +4847,7 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                                                                 {grpActive && !grpDone && <span style={{ fontSize: 10, color: isDarkMode ? '#4B5563' : '#CBD5E1', marginLeft: 6 }}>{grpDoneCount}/{grpSteps.length}</span>}
                                                                                             </span>
                                                                                             {grpFailed && failedStep && (
-                                                                                                <span style={{ fontSize: 10, color: isDarkMode ? '#FCA5A5' : '#dc2626', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{failedStep.message}</span>
+                                                                                                <span style={{ fontSize: 10, color: colours.cta, maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{failedStep.message}</span>
                                                                                             )}
                                                                                             {grpActive && (
                                                                                                 <div style={{ width: 5, height: 5, borderRadius: '50%', background: aowColor, boxShadow: `0 0 6px ${aowColor}`, animation: 'pulse 1.5s ease-in-out infinite' }} />
@@ -4889,7 +4887,7 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                                                     <polyline points="20,6 9,17 4,12" stroke="#20b26c" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
                                                                                 </svg>
                                                                             ) : step.status === 'error' ? (
-                                                                                <i className="ms-Icon ms-Icon--ErrorBadge" style={{ fontSize: 10, color: '#ef4444' }} />
+                                                                                <i className="ms-Icon ms-Icon--ErrorBadge" style={{ fontSize: 10, color: colours.cta }} />
                                                                             ) : isActive ? (
                                                                                 <div style={{
                                                                                     width: 8, height: 8, borderRadius: '50%',
@@ -4920,9 +4918,9 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                                             fontSize: 12, flex: 1,
                                                                             fontWeight: isActive ? 600 : 400,
                                                                             color: step.status === 'success'
-                                                                                ? (isDarkMode ? '#86EFAC' : '#15803d')
+                                                                                ? colours.green
                                                                                 : step.status === 'error'
-                                                                                    ? (isDarkMode ? '#FCA5A5' : '#dc2626')
+                                                                                    ? colours.cta
                                                                                     : isActive
                                                                                         ? (isDarkMode ? '#E5E7EB' : '#1E293B')
                                                                                         : (isDarkMode ? '#6B7280' : '#9CA3AF'),
@@ -4961,10 +4959,10 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                             <div style={{
                                                                 display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 12,
                                                             }}>
-                                                                <i className="ms-Icon ms-Icon--ErrorBadge" style={{ fontSize: 14, color: '#ef4444', flexShrink: 0, marginTop: 1 }} />
+                                                                <i className="ms-Icon ms-Icon--ErrorBadge" style={{ fontSize: 14, color: colours.cta, flexShrink: 0, marginTop: 1 }} />
                                                                 <div style={{
                                                                     fontSize: 12, fontWeight: 600, lineHeight: 1.5,
-                                                                    color: isDarkMode ? '#FCA5A5' : '#991b1b',
+                                                                    color: colours.cta,
                                                                     wordBreak: 'break-word' as const,
                                                                 }}>
                                                                     {failureSummary}
@@ -5008,7 +5006,7 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                                     <div style={{
                                                                         fontSize: 11, fontWeight: 600,
                                                                         color: reportDelivered
-                                                                            ? (isDarkMode ? '#86EFAC' : '#166534')
+                                                                            ? colours.green
                                                                             : (isDarkMode ? '#9CA3AF' : '#64748B'),
                                                                         transition: 'color 0.3s ease',
                                                                     }}>
@@ -5029,7 +5027,7 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                                         fontSize: 9, fontWeight: 700, padding: '2px 6px',
                                                                         borderRadius: 4,
                                                                         background: isDarkMode ? 'rgba(16,185,129,0.12)' : 'rgba(16,185,129,0.08)',
-                                                                        color: '#10b981',
+                                                                        color: colours.green,
                                                                         letterSpacing: '0.04em',
                                                                     }}>SENT</span>
                                                                 )}
@@ -5083,7 +5081,7 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                                 <div style={{ flex: 1, minWidth: 0 }}>
                                                                     <div style={{
                                                                         fontSize: 13, fontWeight: 700,
-                                                                        color: isDarkMode ? '#86EFAC' : '#166534',
+                                                                        color: colours.green,
                                                                     }}>
                                                                         Matter is ready
                                                                     </div>
@@ -5256,9 +5254,9 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                                         width: 8,
                                                                         height: 8,
                                                                         borderRadius: '50%',
-                                                                        background: '#ef4444'
+                                                                        background: colours.cta
                                                                     }}></div>
-                                                                    <span style={{ fontSize: 11, color: '#ef4444' }}>Failed: {failed}</span>
+                                                                    <span style={{ fontSize: 11, color: colours.cta }}>Failed: {failed}</span>
                                                                 </div>
                                                             )}
                                                         </div>
@@ -5274,7 +5272,7 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                             <div 
                                                                 style={{ 
                                                                     height: '100%', 
-                                                                    background: failed > 0 ? '#ef4444' : 'linear-gradient(90deg, #20b26c 0%, #16a34a 100%)', 
+                                                                    background: failed > 0 ? colours.cta : `linear-gradient(90deg, ${colours.green} 0%, ${colours.green} 100%)`, 
                                                                     width: `${pct}%`,
                                                                     transition: 'width 0.3s ease'
                                                                 }}
@@ -5296,11 +5294,11 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                                         alignItems: 'center',
                                                                         gap: 8,
                                                                         padding: '6px 8px',
-                                                                        background: step.status === 'error' ? '#fef2f2' : 
-                                                                                   step.status === 'pending' ? '#eff6ff' : '#f9fafb',
+                                                                        background: step.status === 'error' ? 'rgba(214, 85, 65, 0.06)' : 
+                                                                                   step.status === 'pending' ? 'rgba(54, 144, 206, 0.06)' : '#f9fafb',
                                                                         border: step.status === 'success' ? '1px solid #e5e7eb' : 
-                                                                               step.status === 'error' ? '1px solid #fecaca' : 
-                                                                               step.status === 'pending' ? '1px solid #bfdbfe' : '1px solid #e5e7eb',
+                                                                               step.status === 'error' ? `1px solid rgba(214, 85, 65, 0.25)` : 
+                                                                               step.status === 'pending' ? `1px solid rgba(54, 144, 206, 0.25)` : '1px solid #e5e7eb',
                                                                         borderRadius: 6,
                                                                         fontSize: 10,
                                                                         transition: 'all 0.2s ease'
@@ -5323,15 +5321,15 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                                             }`} 
                                                                             style={{ 
                                                                                 fontSize: 10,
-                                                                                color: step.status === 'success' ? '#16a34a' : 
-                                                                                       step.status === 'error' ? '#dc2626' : '#9ca3af'
+                                                                                color: step.status === 'success' ? colours.green : 
+                                                                                       step.status === 'error' ? colours.cta : colours.subtleGrey
                                                                             }} 
                                                                         />
                                                                     )}
                                                                     <span style={{
-                                                                        color: step.status === 'success' ? '#15803d' : 
-                                                                               step.status === 'error' ? '#dc2626' : 
-                                                                               step.status === 'pending' ? '#1d4ed8' : '#6b7280',
+                                                                        color: step.status === 'success' ? colours.green : 
+                                                                               step.status === 'error' ? colours.cta : 
+                                                                               step.status === 'pending' ? colours.highlight : colours.greyText,
                                                                         fontWeight: step.status === 'pending' ? 600 : 500,
                                                                         fontSize: 10
                                                                     }}>

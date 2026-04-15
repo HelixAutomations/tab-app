@@ -122,7 +122,7 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
           {!isHovered && (
             <span
               style={{
-                background: isDarkMode ? '#10b981' : '#059669',
+                background: colours.green,
                 color: '#fff',
                 borderRadius: '8px',
                 padding: '1px 4px',
@@ -616,7 +616,7 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
                         border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.25)'}`,
                         fontSize: 11,
                         fontWeight: 600,
-                        color: isDarkMode ? 'rgba(96, 165, 250, 0.9)' : 'rgba(37, 99, 235, 0.9)',
+                        color: isDarkMode ? 'rgba(54, 144, 206, 0.9)' : 'rgba(54, 144, 206, 0.9)',
                         letterSpacing: 0.3,
                         textTransform: 'uppercase' as const,
                         whiteSpace: 'nowrap' as const,
@@ -640,7 +640,7 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
                         styles={{ 
                           root: { 
                             fontSize: 13, 
-                            color: isDarkMode ? 'rgba(96, 165, 250, 0.9)' : 'rgba(37, 99, 235, 0.9)'
+                            color: isDarkMode ? 'rgba(54, 144, 206, 0.9)' : 'rgba(54, 144, 206, 0.9)'
                           } 
                         }}
                       />
@@ -651,7 +651,7 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
                             width: '8px',
                             height: '8px',
                             border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.2)'}`,
-                            borderTop: `1px solid ${isDarkMode ? '#60a5fa' : '#3b82f6'}`,
+                            borderTop: `1px solid ${colours.highlight}`,
                             borderRadius: '50%',
                             animation: 'spin 1s linear infinite',
                           }}
@@ -678,11 +678,11 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
                           width: 8,
                           height: 8,
                           borderRadius: '50%',
-                          background: isDarkMode ? '#10b981' : '#059669',
+                          background: colours.green,
                           border: `2px solid ${isDarkMode ? 'rgba(15, 23, 42, 0.85)' : 'rgba(255, 255, 255, 0.92)'}`,
                           boxShadow: isDarkMode 
-                            ? '0 0 0 1px rgba(96, 165, 250, 0.3)' 
-                            : '0 0 0 1px rgba(59, 130, 246, 0.3)',
+                            ? '0 0 0 1px rgba(54, 144, 206, 0.3)' 
+                            : '0 0 0 1px rgba(54, 144, 206, 0.3)',
                           animation: 'pulse 2s infinite',
                         }}
                       />
@@ -1104,7 +1104,7 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
                   transition: 'all 0.2s ease',
                   fontSize: '11px',
                   color: copiedEmail 
-                    ? (isDarkMode ? '#4ade80' : '#16a34a')
+                    ? colours.green
                     : (isDarkMode ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)'),
                   fontFamily: 'Consolas, Monaco, monospace',
                   padding: '3px 0',
@@ -1147,7 +1147,7 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
               transition: 'all 0.2s ease',
               fontSize: '11px',
               color: copiedPhone
-                ? (isDarkMode ? '#4ade80' : '#16a34a')
+                ? colours.green
                 : (isDarkMode ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)'),
               fontFamily: 'Consolas, Monaco, monospace',
               padding: '3px 0',
@@ -1444,7 +1444,7 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
                     ? (isDarkMode ? 'rgba(76, 175, 80, 0.25)' : 'rgba(76, 175, 80, 0.15)') 
                     : colours.highlight,
                   color: promotionStatus === 'instruction' 
-                    ? (isDarkMode ? '#4ade80' : '#16a34a') 
+                    ? colours.green 
                     : '#fff',
                   border: `1px solid ${promotionStatus === 'instruction'
                     ? (isDarkMode ? 'rgba(76, 175, 80, 0.3)' : 'rgba(76, 175, 80, 0.25)')
@@ -1520,14 +1520,14 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
                           : (hasNoRating ? 'rgba(54, 144, 206, 0.06)' : 'transparent')),
                     color: isPitch 
                       ? (hasPitchData 
-                          ? (isDarkMode ? '#10b981' : '#059669')
+                          ? colours.green
                           : '#fff')
                       : (localRating && isRate
                           ? ratingColor
                           : (hasNoRating ? 'rgba(54, 144, 206, 0.75)' : (isDarkMode ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.35)'))),
                     border: `1px solid ${isPitch 
                       ? (hasPitchData
-                          ? (isDarkMode ? 'rgba(16, 185, 129, 0.6)' : 'rgba(16, 185, 129, 0.5)')
+                          ? (isDarkMode ? 'rgba(32, 178, 108, 0.6)' : 'rgba(32, 178, 108, 0.5)')
                           : colours.highlight)
                       : (localRating && isRate
                           ? `${ratingColor}40`
@@ -1636,9 +1636,9 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
                         {!isPitchHovered && (
                           <span
                             style={{
-                              background: isDarkMode ? 'rgba(16, 185, 129, 0.1)' : 'rgba(16, 185, 129, 0.08)',
-                              color: isDarkMode ? '#10b981' : '#059669',
-                              border: `1px solid ${isDarkMode ? 'rgba(16, 185, 129, 0.3)' : 'rgba(16, 185, 129, 0.25)'}`,
+                              background: isDarkMode ? 'rgba(32, 178, 108, 0.1)' : 'rgba(32, 178, 108, 0.08)',
+                              color: colours.green,
+                              border: `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.3)' : 'rgba(32, 178, 108, 0.25)'}`,
                               borderRadius: '12px',
                               padding: '1px 6px',
                               fontSize: '9px',

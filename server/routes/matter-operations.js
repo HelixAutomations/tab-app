@@ -93,12 +93,14 @@ router.post('/create-matter', async (req, res) => {
       });
     }
     
-    const pool = await sql.connect(dbConfig);
-    
+    const connStr = getInstrConnStr();
+
     // Check if matter already exists
-    const existingResult = await pool.request()
-      .input('instructionRef', sql.NVarChar, instructionRef)
-      .query('SELECT MatterID FROM matters WHERE InstructionRef = @instructionRef');
+    const existingResult = await withRequest(connStr, async (request) => {
+      return request
+        .input('instructionRef', sql.NVarChar, instructionRef)
+        .query('SELECT MatterID FROM matters WHERE InstructionRef = @instructionRef');
+    });
       
     if (existingResult.recordset.length > 0) {
       return res.status(409).json({ 
@@ -112,8 +114,9 @@ router.post('/create-matter', async (req, res) => {
     const displayNumber = `ITEM${timestamp}-${String(Math.floor(Math.random() * 10000)).padStart(5, '0')}`;
     
     // Create new matter record
-    const insertResult = await pool.request()
-      .input('matterID', sql.NVarChar, clioMatterId || `temp_${Date.now()}`)
+    await withRequest(connStr, async (request) => {
+      return request
+        .input('matterID', sql.NVarChar, clioMatterId || `temp_${Date.now()}`)
       .input('instructionRef', sql.NVarChar, instructionRef)
       .input('status', sql.NVarChar, 'Open')
       .input('openDate', sql.Date, new Date())
@@ -154,6 +157,7 @@ router.post('/create-matter', async (req, res) => {
           @source
         )
       `);
+    });
     
     res.json({
       success: true,
@@ -192,46 +196,29 @@ router.put('/matter/:matterId', async (req, res) => {
       approxValue,
       closeDate 
     } = req.body;
-    
-    const pool = await sql.connect(dbConfig);
-    
+
     const updateFields = [];
-    const request = pool.request().input('matterID', sql.NVarChar, matterId);
-    
-    if (status) {
-      updateFields.push('Status = @status');
-      request.input('status', sql.NVarChar, status);
-    }
-    if (description) {
-      updateFields.push('Description = @description');
-      request.input('description', sql.NVarChar, description);
-    }
-    if (practiceArea) {
-      updateFields.push('PracticeArea = @practiceArea');
-      request.input('practiceArea', sql.NVarChar, practiceArea);
-    }
-    if (responsibleSolicitor) {
-      updateFields.push('ResponsibleSolicitor = @responsibleSolicitor');
-      request.input('responsibleSolicitor', sql.NVarChar, responsibleSolicitor);
-    }
-    if (approxValue) {
-      updateFields.push('ApproxValue = @approxValue');
-      request.input('approxValue', sql.NVarChar, approxValue);
-    }
-    if (closeDate) {
-      updateFields.push('CloseDate = @closeDate');
-      request.input('closeDate', sql.Date, new Date(closeDate));
-    }
-    
+    const inputs = [['matterID', sql.NVarChar, matterId]];
+
+    if (status) { updateFields.push('Status = @status'); inputs.push(['status', sql.NVarChar, status]); }
+    if (description) { updateFields.push('Description = @description'); inputs.push(['description', sql.NVarChar, description]); }
+    if (practiceArea) { updateFields.push('PracticeArea = @practiceArea'); inputs.push(['practiceArea', sql.NVarChar, practiceArea]); }
+    if (responsibleSolicitor) { updateFields.push('ResponsibleSolicitor = @responsibleSolicitor'); inputs.push(['responsibleSolicitor', sql.NVarChar, responsibleSolicitor]); }
+    if (approxValue) { updateFields.push('ApproxValue = @approxValue'); inputs.push(['approxValue', sql.NVarChar, approxValue]); }
+    if (closeDate) { updateFields.push('CloseDate = @closeDate'); inputs.push(['closeDate', sql.Date, new Date(closeDate)]); }
+
     if (updateFields.length === 0) {
       return res.status(400).json({ error: 'No fields to update' });
     }
     
-    const result = await request.query(`
-      UPDATE matters 
-      SET ${updateFields.join(', ')}
-      WHERE MatterID = @matterID
-    `);
+    const result = await withRequest(getInstrConnStr(), async (request) => {
+      for (const [name, type, val] of inputs) request.input(name, type, val);
+      return request.query(`
+        UPDATE matters 
+        SET ${updateFields.join(', ')}
+        WHERE MatterID = @matterID
+      `);
+    });
     
     if (result.rowsAffected[0] === 0) {
       return res.status(404).json({ error: 'Matter not found' });
@@ -265,17 +252,17 @@ router.post('/link-client', async (req, res) => {
       });
     }
     
-    const pool = await sql.connect(dbConfig);
-    
-    const result = await pool.request()
-      .input('matterID', sql.NVarChar, matterId)
-      .input('clientID', sql.NVarChar, clientId)
-      .input('clientName', sql.NVarChar, clientName || 'Unknown Client')
-      .query(`
-        UPDATE matters 
-        SET ClientID = @clientID, ClientName = @clientName
-        WHERE MatterID = @matterID
-      `);
+    const result = await withRequest(getInstrConnStr(), async (request) => {
+      return request
+        .input('matterID', sql.NVarChar, matterId)
+        .input('clientID', sql.NVarChar, clientId)
+        .input('clientName', sql.NVarChar, clientName || 'Unknown Client')
+        .query(`
+          UPDATE matters 
+          SET ClientID = @clientID, ClientName = @clientName
+          WHERE MatterID = @matterID
+        `);
+    });
     
     if (result.rowsAffected[0] === 0) {
       return res.status(404).json({ error: 'Matter not found' });
@@ -302,39 +289,39 @@ router.post('/link-client', async (req, res) => {
  */
 router.get('/statistics', async (req, res) => {
   try {
-    const pool = await sql.connect(dbConfig);
-    
-    const result = await pool.request().query(`
-      SELECT 
-        COUNT(*) as TotalMatters,
-        COUNT(CASE WHEN Status = 'Open' THEN 1 END) as OpenMatters,
-        COUNT(CASE WHEN Status = 'MatterRequest' THEN 1 END) as MatterRequests,
-        COUNT(CASE WHEN Status = 'Closed' THEN 1 END) as ClosedMatters,
-        COUNT(CASE WHEN ClientID IS NOT NULL THEN 1 END) as LinkedMatters,
-        COUNT(CASE WHEN ClientID IS NULL THEN 1 END) as UnlinkedMatters,
-        COUNT(CASE WHEN OpenDate >= DATEADD(day, -30, GETDATE()) THEN 1 END) as RecentMatters
-      FROM matters
-    `);
-    
-    const practiceAreaResult = await pool.request().query(`
-      SELECT 
-        PracticeArea,
-        COUNT(*) as Count
-      FROM matters 
-      WHERE PracticeArea IS NOT NULL
-      GROUP BY PracticeArea
-      ORDER BY Count DESC
-    `);
-    
-    const solicitorResult = await pool.request().query(`
-      SELECT 
-        ResponsibleSolicitor,
-        COUNT(*) as Count
-      FROM matters 
-      WHERE ResponsibleSolicitor IS NOT NULL
-      GROUP BY ResponsibleSolicitor
-      ORDER BY Count DESC
-    `);
+    const connStr = getInstrConnStr();
+
+    const [result, practiceAreaResult, solicitorResult] = await Promise.all([
+      withRequest(connStr, (request) => request.query(`
+        SELECT 
+          COUNT(*) as TotalMatters,
+          COUNT(CASE WHEN Status = 'Open' THEN 1 END) as OpenMatters,
+          COUNT(CASE WHEN Status = 'MatterRequest' THEN 1 END) as MatterRequests,
+          COUNT(CASE WHEN Status = 'Closed' THEN 1 END) as ClosedMatters,
+          COUNT(CASE WHEN ClientID IS NOT NULL THEN 1 END) as LinkedMatters,
+          COUNT(CASE WHEN ClientID IS NULL THEN 1 END) as UnlinkedMatters,
+          COUNT(CASE WHEN OpenDate >= DATEADD(day, -30, GETDATE()) THEN 1 END) as RecentMatters
+        FROM matters
+      `)),
+      withRequest(connStr, (request) => request.query(`
+        SELECT 
+          PracticeArea,
+          COUNT(*) as Count
+        FROM matters 
+        WHERE PracticeArea IS NOT NULL
+        GROUP BY PracticeArea
+        ORDER BY Count DESC
+      `)),
+      withRequest(connStr, (request) => request.query(`
+        SELECT 
+          ResponsibleSolicitor,
+          COUNT(*) as Count
+        FROM matters 
+        WHERE ResponsibleSolicitor IS NOT NULL
+        GROUP BY ResponsibleSolicitor
+        ORDER BY Count DESC
+      `)),
+    ]);
     
     res.json({
       success: true,
@@ -365,10 +352,10 @@ router.get('/search', async (req, res) => {
       limit = 50 
     } = req.query;
     
-    const pool = await sql.connect(dbConfig);
-    let request = pool.request()
-      .input('searchTerm', sql.NVarChar, `%${term}%`)
-      .input('limit', sql.Int, parseInt(limit));
+    const inputs = [
+      ['searchTerm', sql.NVarChar, `%${term}%`],
+      ['limit', sql.Int, parseInt(limit)],
+    ];
     
     let whereClause = '1=1';
     
@@ -383,21 +370,23 @@ router.get('/search', async (req, res) => {
     
     if (status) {
       whereClause += ' AND Status = @status';
-      request = request.input('status', sql.NVarChar, status);
+      inputs.push(['status', sql.NVarChar, status]);
     }
     
     if (practiceArea) {
       whereClause += ' AND PracticeArea = @practiceArea';
-      request = request.input('practiceArea', sql.NVarChar, practiceArea);
+      inputs.push(['practiceArea', sql.NVarChar, practiceArea]);
     }
     
     if (solicitor) {
       whereClause += ' AND ResponsibleSolicitor = @solicitor';
-      request = request.input('solicitor', sql.NVarChar, solicitor);
+      inputs.push(['solicitor', sql.NVarChar, solicitor]);
     }
     
-    const result = await request.query(`
-      SELECT TOP (@limit)
+    const result = await withRequest(getInstrConnStr(), async (request) => {
+      for (const [name, type, val] of inputs) request.input(name, type, val);
+      return request.query(`
+        SELECT TOP (@limit)
         MatterID,
         InstructionRef,
         Status,
@@ -411,6 +400,7 @@ router.get('/search', async (req, res) => {
       WHERE ${whereClause}
       ORDER BY OpenDate DESC
     `);
+    });
     
     res.json({
       success: true,
@@ -508,9 +498,9 @@ router.post('/create-clio-matter', async (req, res) => {
     const clioMatterId = matterResult.matter.id;
     
     // Update database with real Clio matter ID
-    const pool = await sql.connect(dbConfig);
-    await pool.request()
-      .input('matterID', sql.NVarChar, clioMatterId.toString())
+    await withRequest(getInstrConnStr(), async (request) => {
+      return request
+        .input('matterID', sql.NVarChar, clioMatterId.toString())
       .input('instructionRef', sql.NVarChar, instructionRef)
       .input('displayNumber', sql.NVarChar, displayNumber)
       .input('status', sql.NVarChar, 'Open')
@@ -543,6 +533,7 @@ router.post('/create-clio-matter', async (req, res) => {
           )
         END
       `);
+    });
     
     res.json({
       success: true,

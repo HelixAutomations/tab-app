@@ -81,7 +81,7 @@ body[data-theme="dark"] .reporting-hero {
   font-size: 11px;
   letter-spacing: 0.4px;
   text-transform: uppercase;
-  background: rgba(37, 99, 235, 0.12);
+  background: rgba(54, 144, 206, 0.12);
   color: #0d2f60;
   font-weight: 600;
 }
@@ -236,13 +236,13 @@ body[data-theme="dark"] .report-card:hover {
 }
 
 .report-status.live {
-  background: rgba(34, 197, 94, 0.16);
-  color: #15803d;
+  background: rgba(32, 178, 108, 0.16);
+  color: #20b26c;
 }
 
 body[data-theme="dark"] .report-status.live {
-  background: rgba(34, 197, 94, 0.28);
-  color: #4ade80;
+  background: rgba(32, 178, 108, 0.28);
+  color: #20b26c;
 }
 
 .report-description {
@@ -314,7 +314,7 @@ body[data-theme="dark"] .status-badge {
   padding: 14px 16px;
   border-radius: 12px;
   background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
-  border: 1px solid rgba(59, 130, 246, 0.18);
+  border: 1px solid rgba(54, 144, 206, 0.18);
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.07);
 }
 

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
+﻿import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import type { CSSProperties } from 'react';
 import { ActionButton, DefaultButton, PrimaryButton, IconButton } from '@fluentui/react/lib/Button';
 import { Modal } from '@fluentui/react/lib/Modal';
@@ -28,10 +28,11 @@ import LogMonitor from './LogMonitor';
 import CacheMonitor from './CacheMonitor';
 import AgedDebtsReport from './AgedDebtsReport';
 import DataCentre from './DataCentre';
+import SyncHistory from './SyncHistory';
 import ResponseTimeReport from './ResponseTimeReport';
 import { useStreamingDatasets } from '../../hooks/useStreamingDatasets';
 import { fetchWithRetry, fetchJSON } from '../../utils/fetchUtils';
-import { isAdminUser, isPowerUser, canSeePrivateHubControls, isDevOwner } from '../../app/admin';
+import { isAdminUser, canAccessReports, canSeePrivateHubControls, isDevOwner } from '../../app/admin';
 import markWhite from '../../assets/markwhite.svg';
 import type { PpcIncomeMetrics } from './PpcReport';
 import { useToast } from '../../components/feedback/ToastProvider';
@@ -40,6 +41,7 @@ import { reportingPanelBackground, reportingPanelBorder } from './styles/reporti
 import NavigatorDetailBar from '../../components/NavigatorDetailBar';
 import CallsReport from './CallsReport';
 import EnquiryLedgerReport from './EnquiryLedgerReport';
+import ReportCard from './ReportCard';
 
 // Add spinner animation CSS
 const spinnerStyle = `
@@ -728,7 +730,7 @@ const AVAILABLE_REPORTS: AvailableReport[] = [
     requiredDatasets: ['dubberCalls', 'teamData'],
     development: true,
   },
-  // logMonitor is not a report — rendered separately as a utility strip below the reports grid
+  // logMonitor is not a report â€” rendered separately as a utility strip below the reports grid
 ];
 
 const REPORT_DATASET_REQUIREMENTS = AVAILABLE_REPORTS.reduce<Record<string, DatasetKey[]>>((acc, report) => {
@@ -771,8 +773,8 @@ const STATUS_BADGE_COLOURS: Record<DatasetStatusValue, {
 }> = {
   ready: {
     lightBg: 'rgba(13, 47, 96, 0.22)',
-    darkBg: 'rgba(34, 197, 94, 0.28)',
-    dot: '#22c55e',
+    darkBg: 'rgba(32, 178, 108, 0.28)',
+    dot: colours.green,
     label: 'Ready',
     icon: 'CheckMark',
   },
@@ -821,7 +823,7 @@ const subtleStroke = (isDarkMode: boolean): string => (
   isDarkMode ? 'rgba(75, 85, 99, 0.28)' : 'rgba(6, 23, 51, 0.06)'
 );
 
-/** Frosted glass surface — matches nav bar language */
+/** Frosted glass surface â€” matches nav bar language */
 const glassSurface = (isDarkMode: boolean): CSSProperties => ({
   backdropFilter: 'blur(20px) saturate(1.5)',
   WebkitBackdropFilter: 'blur(20px) saturate(1.5)',
@@ -1024,7 +1026,7 @@ const REPORT_CARD_STATE_TOKENS: Record<ReportVisualState, {
     darkBadgeBg: 'rgba(32, 178, 108, 0.28)',
   },
   warming: {
-    label: 'Fetching…',
+    label: 'Fetching...',
     accent: colours.blue,
     lightBadgeBg: 'rgba(54, 144, 206, 0.15)',
     darkBadgeBg: 'rgba(54, 144, 206, 0.28)',
@@ -1086,7 +1088,7 @@ const formatPreviewRow = (row: unknown): string => {
     };
     const text = JSON.stringify(row, replacer, 2);
     // Truncate long strings
-    return text.length > 320 ? text.slice(0, 320) + '…' : text;
+    return text.length > 320 ? text.slice(0, 320) + '...' : text;
   } catch {
     return String(row);
   }
@@ -1269,7 +1271,7 @@ const conditionalButtonStyles = (isDarkMode: boolean, state: ButtonState): IButt
     background: (() => {
       switch (state) {
         case 'ready':
-          return isDarkMode ? 'rgba(34, 197, 94, 0.15)' : 'rgba(13, 47, 96, 0.22)'; // Darker for light mode
+          return isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(13, 47, 96, 0.22)'; // Darker for light mode
         case 'warming':
           return isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(13, 47, 96, 0.16)';
         case 'neutral':
@@ -1280,7 +1282,7 @@ const conditionalButtonStyles = (isDarkMode: boolean, state: ButtonState): IButt
     color: (() => {
       switch (state) {
         case 'ready':
-          return isDarkMode ? '#86efac' : '#0d2f60'; // Using dark blue for light mode
+          return isDarkMode ? colours.green : colours.helixBlue; // Using dark blue for light mode
         case 'warming':
           return isDarkMode ? colours.blue : '#0d2f60';
         case 'neutral':
@@ -1291,7 +1293,7 @@ const conditionalButtonStyles = (isDarkMode: boolean, state: ButtonState): IButt
     border: (() => {
       switch (state) {
         case 'ready':
-          return `0.5px solid ${isDarkMode ? 'rgba(34, 197, 94, 0.25)' : 'rgba(13, 47, 96, 0.16)'}`;
+          return `0.5px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.25)' : 'rgba(13, 47, 96, 0.16)'}`;
         case 'warming':
           return `0.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.22)' : 'rgba(13, 47, 96, 0.16)'}`;
         case 'neutral':
@@ -1308,7 +1310,7 @@ const conditionalButtonStyles = (isDarkMode: boolean, state: ButtonState): IButt
     background: (() => {
       switch (state) {
         case 'ready':
-          return isDarkMode ? 'rgba(34, 197, 94, 0.2)' : 'rgba(13, 47, 96, 0.28)'; // Darker for light mode
+          return isDarkMode ? 'rgba(32, 178, 108, 0.2)' : 'rgba(13, 47, 96, 0.28)'; // Darker for light mode
         case 'warming':
           return isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(13, 47, 96, 0.16)';
         case 'neutral':
@@ -1319,7 +1321,7 @@ const conditionalButtonStyles = (isDarkMode: boolean, state: ButtonState): IButt
     color: (() => {
       switch (state) {
         case 'ready':
-          return isDarkMode ? '#86efac' : '#0d2f60';
+          return isDarkMode ? colours.green : colours.helixBlue;
         case 'warming':
           return isDarkMode ? colours.blue : '#0d2f60';
         case 'neutral':
@@ -1330,7 +1332,7 @@ const conditionalButtonStyles = (isDarkMode: boolean, state: ButtonState): IButt
     borderColor: (() => {
       switch (state) {
         case 'ready':
-          return isDarkMode ? 'rgba(34, 197, 94, 0.4)' : 'rgba(13, 47, 96, 0.3)';
+          return isDarkMode ? 'rgba(32, 178, 108, 0.4)' : 'rgba(13, 47, 96, 0.3)';
         case 'warming':
           return isDarkMode ? 'rgba(54, 144, 206, 0.36)' : 'rgba(13, 47, 96, 0.3)';
         case 'neutral':
@@ -1343,7 +1345,7 @@ const conditionalButtonStyles = (isDarkMode: boolean, state: ButtonState): IButt
     background: (() => {
       switch (state) {
         case 'ready':
-          return isDarkMode ? 'rgba(34, 197, 94, 0.25)' : 'rgba(13, 47, 96, 0.32)'; // Darker for light mode
+          return isDarkMode ? 'rgba(32, 178, 108, 0.25)' : 'rgba(13, 47, 96, 0.32)'; // Darker for light mode
         case 'warming':
           return isDarkMode ? 'rgba(54, 144, 206, 0.22)' : 'rgba(13, 47, 96, 0.2)';
         case 'neutral':
@@ -1418,16 +1420,16 @@ const subtleButtonStyles = (isDarkMode: boolean): IButtonStyles => ({
   },
 });
 
-/** Navigator tabs for report sub-views — matches Matters/Enquiries pivot pattern.
+/** Navigator tabs for report sub-views â€” matches Matters/Enquiries pivot pattern.
  *  `draft` tabs are visually muted but still clickable (work-in-progress reports). */
 const REPORT_NAV_TABS: { key: typeof ACTIVE_VIEW_TYPE; label: string; draft?: boolean }[] = [
-  // ── Prod ─────────────────────────────────────────
+  // â”€â”€ Prod â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   { key: 'dashboard' as const, label: 'Dashboard' },
   { key: 'enquiries' as const, label: 'Enquiries' },
   { key: 'enquiryLedger' as const, label: 'Ledger', draft: true },
   { key: 'annualLeave' as const, label: 'Leave', draft: true },
   { key: 'metaMetrics' as const, label: 'Meta', draft: true },
-  // ── Draft (visually muted) ──────────────────────
+  // â”€â”€ Draft (visually muted) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   { key: 'matters' as const, label: 'Matters', draft: true },
   { key: 'ppcReport' as const, label: 'PPC', draft: true },
   { key: 'seoReport' as const, label: 'SEO', draft: true },
@@ -1435,7 +1437,7 @@ const REPORT_NAV_TABS: { key: typeof ACTIVE_VIEW_TYPE; label: string; draft?: bo
   { key: 'calls' as const, label: 'Calls', draft: true },
   { key: 'responseTime' as const, label: 'Response Time', draft: true },
 ];
-type ActiveViewType = 'overview' | 'dashboard' | 'annualLeave' | 'enquiries' | 'enquiryLedger' | 'metaMetrics' | 'seoReport' | 'ppcReport' | 'matters' | 'logMonitor' | 'dataCentre' | 'cacheMonitor' | 'agedDebts' | 'calls' | 'responseTime';
+type ActiveViewType = 'overview' | 'dashboard' | 'annualLeave' | 'enquiries' | 'enquiryLedger' | 'metaMetrics' | 'seoReport' | 'ppcReport' | 'matters' | 'logMonitor' | 'syncHistory' | 'dataCentre' | 'cacheMonitor' | 'agedDebts' | 'calls' | 'responseTime';
 const ACTIVE_VIEW_TYPE: ActiveViewType = 'overview';
 
 interface ReportingNavigationRequest {
@@ -1443,7 +1445,7 @@ interface ReportingNavigationRequest {
   requestedAt: number;
 }
 
-// reportNavigatorBackStyles removed — now shared via NavigatorDetailBar
+// reportNavigatorBackStyles removed â€” now shared via NavigatorDetailBar
 
 const formatRelativeTime = (timestamp: number): string => {
   const diff = Date.now() - timestamp;
@@ -1512,10 +1514,10 @@ const formatElapsedTime = (ms: number): string => {
 };
 
 const REFRESH_PHASES: Array<{ thresholdMs: number; label: string }> = [
-  { thresholdMs: 15000, label: 'Connecting to reporting data sources…' },
-  { thresholdMs: 45000, label: 'Pulling the latest matters and enquiries…' },
-  { thresholdMs: 90000, label: 'Crunching reporting metrics…' },
-  { thresholdMs: Number.POSITIVE_INFINITY, label: 'Finalising dashboard views…' },
+  { thresholdMs: 15000, label: 'Connecting to reporting data sources...' },
+  { thresholdMs: 45000, label: 'Pulling the latest matters and enquiries...' },
+  { thresholdMs: 90000, label: 'Crunching reporting metrics...' },
+  { thresholdMs: Number.POSITIVE_INFINITY, label: 'Finalising dashboard views...' },
 ];
 
 const formatCurrency = (amount: number): string => {
@@ -1753,7 +1755,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     [primaryUser],
   );
   const canAccessReportingOps = useMemo(
-    () => Boolean(primaryUser) && (isAdminUser(primaryUser) || isPowerUser(primaryUser)),
+    () => Boolean(primaryUser) && canAccessReports(primaryUser),
     [primaryUser]
   );
 
@@ -2669,7 +2671,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       <NavigatorDetailBar
         onBack={handleBackToOverview}
         backLabel="Back"
-        tabs={isTabView ? visibleTabs.map(t => ({ key: t.key, label: t.draft ? `${t.label} ᴰ` : t.label, draft: t.draft })) : undefined}
+        tabs={isTabView ? visibleTabs.map(t => ({ key: t.key, label: t.draft ? `${t.label} á´°` : t.label, draft: t.draft })) : undefined}
         activeTab={activeView}
         onTabChange={(key) => setActiveView(key as ActiveViewType)}
         staticLabel={!isTabView ? (utilityLabels[activeView] || activeView) : undefined}
@@ -2705,7 +2707,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
 
     if (!response.ok) {
       const text = await response.text().catch(() => '');
-      throw new Error(`Annual leave fetch failed: ${response.status} ${response.statusText}${text ? ` – ${text.slice(0, 160)}` : ''}`);
+      throw new Error(`Annual leave fetch failed: ${response.status} ${response.statusText}${text ? ` â€“ ${text.slice(0, 160)}` : ''}`);
     }
 
     let payload: unknown;
@@ -2816,8 +2818,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     });
 
     try {
-      debugLog('🌊 Starting streaming with datasets:', streamingTargets);
-      debugLog('🌊 EntraID for streaming:', propUserData?.[0]?.EntraID);
+      debugLog('ðŸŒŠ Starting streaming with datasets:', streamingTargets);
+      debugLog('ðŸŒŠ EntraID for streaming:', propUserData?.[0]?.EntraID);
       startStreamingWithMemo({
         datasets: streamingTargets,
         ...(forceRefresh ? { bypassCache: true } : {}),
@@ -2995,8 +2997,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
   ]);
 
   // Data is NOT auto-fetched on entry. Users trigger loads via:
-  // 1. Clicking a report card → handleReportCardClick lazy-loads that report's datasets
-  // 2. Clicking "Refresh all" → refreshDatasetsWithStreaming
+  // 1. Clicking a report card â†’ handleReportCardClick lazy-loads that report's datasets
+  // 2. Clicking "Refresh all" â†’ refreshDatasetsWithStreaming
   // This avoids unnecessary compute and network traffic on every tab visit.
 
 
@@ -3081,7 +3083,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     }
     setActiveView('dataCentre');
     showToast({
-      message: 'Refreshing collected time data…',
+      message: 'Refreshing collected time data...',
       type: 'info',
       duration: 4000,
     });
@@ -3505,7 +3507,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
             : (dbCurrentActivities && dbCurrentActivities.length > 0 ? dbCurrentActivities : []);
 
           // eslint-disable-next-line no-console
-          console.info('📊 WIP merge diagnosis:', {
+          console.info('ðŸ“Š WIP merge diagnosis:', {
             baseWipCount: baseWip.length,
             clioStatus: clioState?.status ?? 'absent',
             clioActivitiesCount: clioActivities?.length ?? 0,
@@ -3557,7 +3559,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
           if (datasetName === 'recoveredFees') {
             const feesData = Array.isArray(datasetState.data) ? datasetState.data : [];
             const latestDates = feesData.slice(0, 10).map((f: any) => f.payment_date);
-            console.log('💰 recoveredFees received:', {
+            console.log('ðŸ’° recoveredFees received:', {
               count: feesData.length,
               latestPaymentDates: latestDates,
             });
@@ -3656,7 +3658,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
         return prev; // no change
       }
       // eslint-disable-next-line no-console
-      debugLog('🔗 Merged current-week activities into WIP (streaming):', {
+      debugLog('ðŸ”— Merged current-week activities into WIP (streaming):', {
         base: baseWip.length,
         added: merged.length - baseWip.length,
         total: merged.length,
@@ -3715,7 +3717,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
 
     const timeout = setTimeout(() => {
       const elapsed = Date.now() - refreshStartedAt;
-      const maxWait = 3 * 60 * 1000; // 3 minutes (was 10 — too long for non-streaming fetch failures)
+      const maxWait = 3 * 60 * 1000; // 3 minutes (was 10 â€” too long for non-streaming fetch failures)
       
       if (elapsed > maxWait) {
         debugWarn('ReportingHome: Refresh timeout exceeded (3 minutes). Forcing clear of loading state.');
@@ -3813,12 +3815,12 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
 
     if (!needsFreshData) {
       const cacheAgeSeconds = cacheState.lastCacheTime ? Math.round((now - cacheState.lastCacheTime) / 1000) : 0;
-      debugLog(`✅ Using cached data (${cacheAgeSeconds}s old, <30min) - instant load`);
+      debugLog(`âœ… Using cached data (${cacheAgeSeconds}s old, <30min) - instant load`);
       return;
     }
 
     if (preheatInFlightRef.current) {
-      debugLog('🔄 Cache preheat already running, skipping duplicate preheat request');
+      debugLog('ðŸ”„ Cache preheat already running, skipping duplicate preheat request');
       return;
     }
 
@@ -3826,13 +3828,13 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     if (lastPreheatTs && (now - lastPreheatTs) < CACHE_PREHEAT_INTERVAL) {
       const elapsedSeconds = Math.round((now - lastPreheatTs) / 1000);
       const remainingSeconds = Math.max(0, Math.round((CACHE_PREHEAT_INTERVAL - (now - lastPreheatTs)) / 1000));
-      debugLog(`⏳ Cache preheated ${elapsedSeconds}s ago, skipping background load (retry in ${remainingSeconds}s)`);
+      debugLog(`â³ Cache preheated ${elapsedSeconds}s ago, skipping background load (retry in ${remainingSeconds}s)`);
       return;
     }
 
     const commonDatasets = ['teamData', 'userData', 'enquiries', 'allMatters'];
     const cacheAgeSeconds = cacheState.lastCacheTime ? Math.round((now - cacheState.lastCacheTime) / 1000) : null;
-    debugLog(`🔄 Cache refresh needed: ${!hasFetchedOnce ? 'first load' : `cache age: ${cacheAgeSeconds}s (>30min)`}`);
+    debugLog(`ðŸ”„ Cache refresh needed: ${!hasFetchedOnce ? 'first load' : `cache age: ${cacheAgeSeconds}s (>30min)`}`);
     debugLog('ReportingHome: Preloading common reporting datasets on tab access:', commonDatasets);
 
     preheatInFlightRef.current = true;
@@ -4092,7 +4094,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
           
           if (elapsedMs > timeoutMs) {
             const timeoutSec = Math.round(timeoutMs / 1000);
-            console.warn(`⚠️ Dataset ${summary.definition.key} stuck loading for ${Math.round(elapsedMs / 1000)}s (timeout: ${timeoutSec}s) - marking as error`);
+            console.warn(`âš ï¸ Dataset ${summary.definition.key} stuck loading for ${Math.round(elapsedMs / 1000)}s (timeout: ${timeoutSec}s) - marking as error`);
             setDatasetStatus(prev => ({
               ...prev,
               [summary.definition.key]: {
@@ -4121,7 +4123,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       return null;
     }
     const phase = REFRESH_PHASES.find((candidate) => refreshElapsedMs < candidate.thresholdMs);
-    return phase?.label ?? 'Finalising reporting data…';
+    return phase?.label ?? 'Finalising reporting data...';
   }, [isFetching, refreshElapsedMs, refreshStartedAt]);
 
   // Memoize expensive calculations that depend on arrays or complex objects
@@ -4150,7 +4152,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     [isFetching, isStreamingConnected, refreshStartedAt, isStreamingComplete]
   );
   
-  // Reports are always clickable — handleReportCardClick lazy-loads datasets on demand
+  // Reports are always clickable â€” handleReportCardClick lazy-loads datasets on demand
   const canUseReports = true;
 
   // Function to handle report card clicks with loading feedback
@@ -4162,7 +4164,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     }
 
     // Check if data needs to be refreshed
-    // 'loading' is NOT treated as needing a new refresh — it means a fetch is already in progress.
+    // 'loading' is NOT treated as needing a new refresh â€” it means a fetch is already in progress.
     // Only 'idle', 'error', or missing status triggers a fresh load.
     const needsRefresh = dependencies.some(dep => {
       const status = datasetStatus[dep as keyof typeof datasetStatus];
@@ -4331,12 +4333,12 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
   // Memoize progress detail text to prevent string concatenation on every render
   const progressDetailText = useMemo(() => {
     if (refreshStartedAt && !isStreamingConnected) {
-      return `Elapsed ${formatDurationMs(refreshElapsedMs)}${refreshPhaseLabel ? ` • ${refreshPhaseLabel}` : ''}`;
+      return `Elapsed ${formatDurationMs(refreshElapsedMs)}${refreshPhaseLabel ? ` | ${refreshPhaseLabel}` : ''}`;
     }
     if (isStreamingConnected) {
-      return `Elapsed ${formatDurationMs(refreshElapsedMs)} • Progress: ${Math.round(streamingProgress.percentage)}% • Redis caching active`;
+      return `Elapsed ${formatDurationMs(refreshElapsedMs)} | Progress: ${Math.round(streamingProgress.percentage)}% | Redis caching active`;
     }
-    return 'Preparing data sources…';
+    return 'Preparing data sources...';
   }, [refreshStartedAt, isStreamingConnected, refreshElapsedMs, refreshPhaseLabel, streamingProgress.percentage]);
 
   // Memoize hero subtitle to prevent frequent updates
@@ -4352,7 +4354,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
 
   // Memoize hero meta items to prevent array recreation on every render
   const heroMetaItems = useMemo(() => [
-    `${formattedDate} • ${formattedTime}`,
+    `${formattedDate} | ${formattedTime}`,
     heroSubtitle,
     `${readyCount}/${datasetSummaries.length} data feeds`,
   ], [formattedDate, formattedTime, heroSubtitle, readyCount, datasetSummaries.length]);
@@ -4376,12 +4378,55 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
         return null;
       })
       .filter((value): value is string => Boolean(value));
-    return initials.length > 0 ? initials.join(' • ') : null;
+    return initials.length > 0 ? initials.join(' | ') : null;
   }, [datasetData.userData]);
 
   const renderAvailableReportCards = () => {
     const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
     const PROD_REPORT_KEYS = ['dashboard', 'enquiries', 'calls'];
+
+    const rcProps = {
+      isDarkMode,
+      testMode,
+      expandedReportCards,
+      activePrimaryCard,
+      reportProgressStates,
+      reportLoadingStates,
+      isActivelyLoading,
+      onExpandedCardsChange: setExpandedReportCards,
+      onActivePrimaryCardChange: setActivePrimaryCard,
+      onOpenDashboard: handleOpenDashboard,
+      onNavigateToReport: navigateToReport as (view: string) => void,
+      onCardClick: handleReportCardClick,
+      refreshDatasetsWithStreaming,
+      refreshAnnualLeaveOnly,
+      refreshMattersScoped,
+      refreshEnquiriesScoped,
+      refreshMetaMetricsOnly,
+      refreshGoogleAnalyticsOnly,
+      refreshGoogleAdsOnly,
+      managementSliderValue,
+      managementSliderHasPendingChange,
+      managementRangeIsRefreshing,
+      onManagementSliderChange: handleManagementSliderValueChange,
+      onApplyManagementRange: handleApplyManagementRange,
+      mattersWipRangeKey,
+      pendingMattersRangeKey,
+      mattersRangeSliderValue,
+      sliderHasPendingChange,
+      wipRangeIsRefreshing,
+      onMattersSliderChange: handleMattersSliderValueChange,
+      onApplyPendingMattersRange: handleApplyPendingMattersRange,
+      enquiriesRangeKey,
+      pendingEnquiriesRangeKey,
+      enquiriesRangeSliderValue,
+      enquiriesSliderHasPendingChange,
+      enquiriesRangeIsRefreshing,
+      onEnquiriesSliderChange: handleEnquiriesSliderValueChange,
+      onApplyPendingEnquiriesRange: handleApplyPendingEnquiriesRange,
+      describeRangeKey,
+      describeMattersRange,
+    };
 
     const visibleCards = reportCards.filter((card) => {
       if (card.key === 'enquiryLedger') {
@@ -4405,7 +4450,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     
     return (
       <>
-        {/* ── Hero: Management Dashboard ── */}
+        {/* â”€â”€ Hero: Management Dashboard â”€â”€ */}
         {heroCard && (
           <div style={{ marginBottom: 22 }}>
             <div
@@ -4439,12 +4484,12 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
               display: 'grid',
               gridTemplateColumns: '1fr',
             }}>
-              {renderReportCard(heroCard, true, 0)}
+              <ReportCard card={heroCard} isPrimary animationIndex={0} {...rcProps} />
             </div>
           </div>
         )}
 
-        {/* ── Active reports ── */}
+        {/* â”€â”€ Active reports â”€â”€ */}
         {activeCards.length > 0 && (
           <div style={{
             position: 'relative' as const,
@@ -4475,12 +4520,12 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
                 gap: 10,
               }}
             >
-              {activeCards.map((card, index) => renderReportCard(card, false, index + 1))}
+              {activeCards.map((card, index) => <ReportCard key={card.key} card={card} animationIndex={index + 1} {...rcProps} />)}
             </div>
           </div>
         )}
 
-        {/* ── Development ── */}
+        {/* â”€â”€ Development â”€â”€ */}
         {developmentCards.length > 0 && (
           <div style={{
             position: 'relative' as const,
@@ -4523,14 +4568,14 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
             >
               {developmentCards.map((card, index) => (
                 <div key={card.key} style={isGreyedOut(card.key) ? { opacity: 0.4, pointerEvents: 'none', filter: 'grayscale(0.6)' } : undefined}>
-                  {renderReportCard(card, false, activeCards.length + index + 1)}
+                  <ReportCard card={card} animationIndex={activeCards.length + index + 1} {...rcProps} />
                 </div>
               ))}
             </div>
           </div>
         )}
 
-        {/* ── Disabled / coming soon ── */}
+        {/* â”€â”€ Disabled / coming soon â”€â”€ */}
         {disabledCards.length > 0 && (
           <div style={{
             position: 'relative' as const,
@@ -4564,7 +4609,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
             >
               {disabledCards.map((card, index) => (
                 <div key={card.key} style={isGreyedOut(card.key) ? { opacity: 0.4, pointerEvents: 'none', filter: 'grayscale(0.6)' } : undefined}>
-                  {renderReportCard(card, false, activeCards.length + index + 1)}
+                  <ReportCard card={card} animationIndex={activeCards.length + index + 1} {...rcProps} />
                 </div>
               ))}
             </div>
@@ -4572,954 +4617,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
         )}
       </>
     );
-  };
-
-  const renderReportCard = (card: ReportCard, isPrimary: boolean = false, animationIndex: number = 0) => {
-        const { readiness, dependencies, readyDependencies, totalDependencies, ...report } = card;
-        const visualState: ReportVisualState = (report.disabled && !testMode) ? 'disabled' : readiness;
-        const isReportReady = readiness === 'ready' || testMode;
-        const stateTokens = REPORT_CARD_STATE_TOKENS[visualState];
-        
-        // For primary cards: show expanded if any primary is expanded, highlight if active
-        const isPrimaryRow = isPrimary && (expandedReportCards.some(key => ['dashboard', 'enquiries', 'matters'].includes(key)));
-        const isActive = isPrimary && activePrimaryCard === report.key;
-        const isExpanded = isPrimary ? isPrimaryRow : expandedReportCards.includes(report.key);
-        
-        const readinessSummary = totalDependencies === 0
-          ? 'No feeds required'
-          : `${readyDependencies}/${totalDependencies} feeds ready`;
-        const resolvePrimaryButtonLabel = (readyLabel: string) => {
-          if (visualState === 'disabled') {
-            return report.status || 'Disabled';
-          }
-          if (isReportReady) {
-            return readyLabel;
-          }
-          if (visualState === 'warming') {
-            return 'Refreshing…';
-          }
-          return 'Refresh data to unlock';
-        };
-
-        const getReportIcon = () => {
-          switch (report.key) {
-            case 'dashboard':
-              return <FaChartLine size={18} />;
-            case 'enquiries':
-              return <FaInbox size={18} />;
-            case 'enquiryLedger':
-              return <FaClipboardList size={18} />;
-            case 'annualLeave':
-              return <FaClipboardList size={18} />;
-            case 'matters':
-              return <FaFolderOpen size={18} />;
-            default:
-              return <FaChartLine size={18} />;
-          }
-        };
-
-        return (
-          <div
-            key={report.key}
-            onClick={() => {
-              // For primary cards: if row is already expanded, clicking anywhere switches active card
-              if (isPrimary && isExpanded) {
-                setActivePrimaryCard(report.key);
-              }
-            }}
-            style={{
-              padding: 0,
-              borderRadius: 0,
-              background: isDarkMode ? 'rgba(6, 23, 51, 0.45)' : 'rgba(255, 255, 255, 0.6)',
-              border: `0.5px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.18)' : 'rgba(6, 23, 51, 0.06)'}`,
-              overflow: 'hidden',
-              transition: 'all 0.2s ease',
-              opacity: visualState === 'disabled' ? 0.38 : 1,
-              filter: visualState === 'disabled' ? 'grayscale(100%)' : 'none',
-              cursor: isPrimary && isExpanded ? 'pointer' : 'default',
-              animation: 'fadeInUp 0.35s ease forwards',
-              animationDelay: `${animationIndex * 0.06}s`,
-            }}
-          >
-            <div
-              onClick={() => {
-                if (report.action && (!report.disabled || testMode)) {
-                  const action = report.action === 'dashboard' ? handleOpenDashboard : () => navigateToReport(report.action!);
-                  handleReportCardClick(report.key, action, dependencies.map(d => d.key));
-                }
-              }}
-              style={{
-                padding: '16px 18px',
-                cursor: (report.action && (!report.disabled || testMode)) ? 
-                  (reportProgressStates[report.key]?.isLoading ? 'wait' : 'pointer') : 'default',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: 14,
-                background: reportProgressStates[report.key]?.isLoading
-                  ? (isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.04)')
-                  : (isPrimary && isActive && isExpanded)
-                  ? (isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.03)')
-                  : 'transparent',
-                transition: 'all 0.2s ease',
-                boxShadow: 'none',
-                position: 'relative' as const,
-                zIndex: 1,
-              }}
-              onMouseEnter={(e) => {
-                if (report.action && (!report.disabled || testMode) && !reportProgressStates[report.key]?.isLoading) {
-                  e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.04)' : 'rgba(54, 144, 206, 0.03)';
-                }
-              }}
-              onMouseLeave={(e) => {
-                const currentProgress = reportProgressStates[report.key];
-                e.currentTarget.style.background = currentProgress?.isLoading
-                  ? (isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.04)')
-                  : (isPrimary && isActive && isExpanded)
-                  ? (isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.03)')
-                  : 'transparent';
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1 }}>
-                <div style={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: 0,
-                  background: isReportReady
-                    ? (isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.06)')
-                    : (isDarkMode ? 'rgba(75, 85, 99, 0.15)' : 'rgba(160, 160, 160, 0.08)'),
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  border: `0.5px solid ${isReportReady ? (isDarkMode ? 'rgba(135, 243, 243, 0.2)' : 'rgba(54, 144, 206, 0.18)') : (isDarkMode ? 'rgba(75, 85, 99, 0.25)' : 'rgba(107, 107, 107, 0.12)')}`,
-                  color: isReportReady ? stateTokens.accent : (isDarkMode ? colours.subtleGrey : colours.greyText),
-                  flexShrink: 0,
-                }}>
-                  {getReportIcon()}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{
-                    fontSize: 14,
-                    fontWeight: 600,
-                    color: isDarkMode ? colours.dark.text : colours.light.text,
-                    marginBottom: 6,
-                    fontFamily: 'Raleway, sans-serif',
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                  }}>
-                    {report.name}
-                  </div>
-                  <div style={{
-                    fontSize: 11,
-                    color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                    fontWeight: 500,
-                    minHeight: 24,
-                    display: 'flex',
-                    alignItems: 'center',
-                    overflow: 'visible',
-                  }}>
-                    {reportProgressStates[report.key]?.isLoading ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span>{reportProgressStates[report.key]?.stage || 'Loading...'}</span>
-                          <div style={{
-                            width: 8,
-                            height: 8,
-                            border: `2px solid ${colours.highlight}`,
-                            borderTop: '2px solid transparent',
-                            borderRadius: '50%',
-                            animation: 'spin 1s linear infinite',
-                          }} />
-                        </div>
-                        {reportProgressStates[report.key]?.estimatedTimeRemaining && (
-                          <span style={{ fontSize: 10, opacity: 0.8 }}>
-                            ~{Math.ceil((reportProgressStates[report.key]?.estimatedTimeRemaining || 0) / 1000)}s remaining
-                          </span>
-                        )}
-                      </div>
-                    ) : (
-                      <span style={{
-                        fontSize: 10,
-                        fontWeight: 600,
-                        padding: '4px 10px',
-                        borderRadius: 2,
-                        background: reportProgressStates[report.key]?.isLoading
-                          ? (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)')
-                          : isReportReady
-                          ? (isDarkMode ? 'rgba(135, 243, 243, 0.1)' : `${stateTokens.accent}12`)
-                          : (isDarkMode ? 'rgba(75, 85, 99, 0.15)' : 'rgba(160, 160, 160, 0.08)'),
-                        color: reportProgressStates[report.key]?.isLoading
-                          ? colours.blue
-                          : isReportReady ? stateTokens.accent : (isDarkMode ? colours.subtleGrey : colours.greyText),
-                        border: `0.5px solid ${reportProgressStates[report.key]?.isLoading
-                          ? (isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.18)')
-                          : isReportReady ? (isDarkMode ? 'rgba(135, 243, 243, 0.18)' : `${stateTokens.accent}20`) : (isDarkMode ? 'rgba(75, 85, 99, 0.25)' : 'rgba(107, 107, 107, 0.1)')}`,
-                        whiteSpace: 'nowrap',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.06em',
-                        position: 'relative',
-                        overflow: 'hidden',
-                      }}>
-                        {reportProgressStates[report.key]?.isLoading ? (
-                          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            LOADING
-                            <span style={{
-                              fontSize: 10,
-                              opacity: 0.8,
-                              fontWeight: 400,
-                            }}>
-                              {Math.round(reportProgressStates[report.key]?.progress || 0)}%
-                            </span>
-                          </span>
-                        ) : (
-                          visualState === 'disabled' ? (report.status || stateTokens.label) : 
-                          (stateTokens.label === 'Not loaded' ? `Ready (${describeRangeKey(enquiriesRangeKey)})` : stateTokens.label)
-                        )}
-                        
-                        {/* Progress bar overlay */}
-                        {reportProgressStates[report.key]?.isLoading && (
-                          <div style={{
-                            position: 'absolute',
-                            bottom: 0,
-                            left: 0,
-                            height: 2,
-                            width: `${reportProgressStates[report.key]?.progress || 0}%`,
-                            background: colours.highlight,
-                            transition: 'width 0.3s ease',
-                            borderRadius: '0 0 2px 2px',
-                          }} />
-                        )}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                {(dependencies.length > 0 || report.action) && (
-                  <FontIcon
-                    iconName={isExpanded ? 'ChevronUp' : 'ChevronDown'}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (isPrimary) {
-                        // For primary cards: toggle all primary cards expanded, set as active
-                        if (isExpanded) {
-                          setExpandedReportCards((prev) => prev.filter((key) => !['dashboard', 'enquiries', 'matters'].includes(key)));
-                          setActivePrimaryCard(null);
-                        } else {
-                          setExpandedReportCards((prev) => {
-                            const withoutPrimary = prev.filter((key) => !['dashboard', 'enquiries', 'matters'].includes(key));
-                            return [...withoutPrimary, report.key];
-                          });
-                          setActivePrimaryCard(report.key);
-                        }
-                      } else {
-                        // For secondary cards: toggle normally
-                        setExpandedReportCards((prev) => {
-                          if (isExpanded) {
-                            return prev.filter((key) => key !== report.key);
-                          }
-                          return [...prev, report.key];
-                        });
-                      }
-                    }}
-                    style={{
-                      fontSize: 14,
-                      color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                      cursor: 'pointer',
-                      padding: 8,
-                      borderRadius: 0,
-                      transition: 'all 0.2s ease',
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = 'transparent';
-                    }}
-                  />
-                )}
-              </div>
-            </div>
-
-            {!isExpanded && dependencies.length > 0 && (
-              <div style={{
-                padding: '10px 28px 14px',
-                borderTop: `0.5px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.12)' : 'rgba(6, 23, 51, 0.03)'}`,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                opacity: (isPrimary && !isActive && isExpanded) ? 0.5 : 0.85,
-                animation: 'fadeInSlideDown 0.3s ease 0.1s forwards',
-                transition: 'opacity 0.2s ease',
-              }}>
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  flex: 1,
-                }}>
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    flex: 1,
-                    overflow: 'visible',
-                    minHeight: 20,
-                  }}>
-                    {dependencies.slice(0, 8).map((dependency, index) => {
-                      const palette = STATUS_BADGE_COLOURS[dependency.status];
-                      const dotColour = dependency.status === 'ready'
-                        ? colours.green
-                        : palette.dot;
-                      return (
-                        <div
-                          key={`${report.key}-dot-${dependency.key}`}
-                          title={`${dependency.name}: ${palette.label}${dependency.range ? ` (${dependency.range})` : ''}`}
-                          style={{
-                            width: 8,
-                            height: 8,
-                            borderRadius: '50%',
-                            backgroundColor: dotColour,
-                            flexShrink: 0,
-                            opacity: dependency.status === 'ready' ? 1 : 0.7,
-                            transform: 'scale(0)',
-                            animation: `dotFadeIn 0.3s ease ${0.1 + (index * 0.05)}s forwards`,
-                          }}
-                        />
-                      );
-                    })}
-                    {dependencies.length > 8 && (
-                      <span style={{
-                        fontSize: 10,
-                        color: isDarkMode ? colours.greyText : colours.subtleGrey,
-                        fontWeight: 500,
-                        marginLeft: 2,
-                        opacity: 0,
-                        animation: `fadeIn 0.3s ease ${0.1 + (Math.min(8, dependencies.length) * 0.05)}s forwards`,
-                      }}>
-                        +{dependencies.length - 8}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {isExpanded && (
-              <div style={{
-                padding: '0 28px 24px',
-                borderTop: `0.5px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.18)' : 'rgba(6, 23, 51, 0.04)'}`,
-                background: isDarkMode ? 'rgba(6, 23, 51, 0.4)' : 'rgba(244, 244, 246, 0.35)',
-                opacity: (isPrimary && !isActive) ? 0.5 : 1,
-                transition: 'opacity 0.2s ease',
-              }}>
-                <div style={{ paddingTop: 20, display: 'flex', flexDirection: 'column', gap: 20 }}>
-                  {dependencies.length > 0 ? (
-                    <div>
-                      <div style={{
-                        fontSize: 12,
-                        fontWeight: 600,
-                        color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                        marginBottom: 12,
-                        textTransform: 'uppercase',
-                        letterSpacing: 0.5,
-                      }}>
-                        Data Feeds ({readyDependencies}/{totalDependencies} ready)
-                      </div>
-                      <div style={dependencyChipsWrapStyle}>
-                        {dependencies.map((dependency) => {
-                          const palette = STATUS_BADGE_COLOURS[dependency.status];
-                          const dotColour = dependency.status === 'ready'
-                            ? (isDarkMode ? '#4ade80' : '#15803d')
-                            : palette.dot;
-                          return (
-                            <span
-                              key={`${report.key}-${dependency.key}`}
-                              style={dependencyChipStyle(isDarkMode)}
-                              title={dependency.range ? `Typical coverage: ${dependency.range}` : undefined}
-                            >
-                              <span style={dependencyDotStyle(dotColour)} />
-                              <span style={{ fontWeight: 600 }}>{dependency.name}</span>
-                              <span style={{ fontSize: 10, opacity: 0.7 }}>
-                                {palette.label === 'Not loaded'
-                                  ? dependency.range || describeRangeKey(enquiriesRangeKey)
-                                  : palette.label}
-                              </span>
-                            </span>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ) : (
-                    <div style={{ fontSize: 12, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
-                      No datasets required
-                    </div>
-                  )}
-
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                    {report.action === 'dashboard' && (
-                      <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 12 }}>
-                        {!managementRangeIsRefreshing && (
-                          <div
-                            style={{
-                              width: '100%',
-                              borderRadius: 0,
-                              padding: 12,
-                              background: isDarkMode ? 'rgba(10, 28, 50, 0.5)' : 'rgba(241, 248, 255, 0.6)',
-                              border: `0.5px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.22)' : 'rgba(54, 144, 206, 0.18)'}`,
-                            }}
-                          >
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                              <div style={{ fontSize: 13, fontWeight: 600 }}>Management data window</div>
-                              <div style={{ fontSize: 12, fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                                {managementRangeIsRefreshing
-                                  ? 'Refreshing…'
-                                  : managementSliderHasPendingChange
-                                    ? `Pending: ${describeRangeKey(pendingEnquiriesRangeKey)}`
-                                    : `Active: ${describeRangeKey(enquiriesRangeKey)}`}
-                              </div>
-                            </div>
-                            <Slider
-                              min={0}
-                              max={REPORT_RANGE_OPTIONS.length - 1}
-                              step={1}
-                              value={managementSliderValue}
-                              onChange={handleManagementSliderValueChange}
-                              showValue={false}
-                              styles={{
-                                root: { margin: '8px 4px' },
-                                activeSection: { background: colours.highlight },
-                                thumb: { borderColor: colours.highlight },
-                              }}
-                            />
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
-                              {REPORT_RANGE_OPTIONS.map((option, index) => (
-                                <span
-                                  key={`${report.key}-mgmt-${option.key}`}
-                                  style={{
-                                    fontSize: 10,
-                                    fontWeight: index === managementSliderValue ? 700 : 500,
-                                    color: index === managementSliderValue
-                                      ? colours.highlight
-                                      : (isDarkMode ? colours.subtleGrey : colours.greyText),
-                                    transition: 'color 0.2s ease',
-                                  }}
-                                >
-                                  {option.label}
-                                </span>
-                              ))}
-                            </div>
-                            {managementSliderHasPendingChange && (
-                              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
-                                <DefaultButton
-                                  text={`Apply ${describeRangeKey(pendingEnquiriesRangeKey)}`}
-                                  onClick={handleApplyManagementRange}
-                                  styles={subtleButtonStyles(isDarkMode)}
-                                  disabled={managementRangeIsRefreshing}
-                                  iconProps={{ iconName: 'Play' }}
-                                />
-                              </div>
-                            )}
-                            {managementSliderHasPendingChange && (
-                              <div
-                                style={{
-                                  marginTop: 8,
-                                  padding: 8,
-                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)',
-                                  borderRadius: 0,
-                                  fontSize: 12,
-                                  color: isDarkMode ? colours.dark.text : colours.greyText,
-                                  fontWeight: 500,
-                                }}
-                              >
-                                Refreshes management dashboard datasets only
-                              </div>
-                            )}
-                          </div>
-                        )}
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                          <PrimaryButton
-                            text={resolvePrimaryButtonLabel('Open dashboard')}
-                            onClick={() => {
-                              if (isReportReady) handleOpenDashboard();
-                            }}
-                            styles={isReportReady
-                              ? primaryButtonStyles(isDarkMode)
-                              : {
-                                  root: {
-                                    borderRadius: 0,
-                                    padding: '0 16px',
-                                    height: 36,
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.07)',
-                                    color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                                    border: `0.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)'}`,
-                                    fontWeight: 600,
-                                    boxShadow: 'none',
-                                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                                    fontFamily: 'Raleway, sans-serif',
-                                  },
-                                  rootHovered: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(54, 144, 206, 0.1)',
-                                  },
-                                  rootPressed: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)',
-                                  },
-                                  rootDisabled: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.07)',
-                                    color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                                    border: `0.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)'}`,
-                                  },
-                                }}
-                            disabled={!isReportReady}
-                          />
-                          <DefaultButton
-                            text="Refresh All Datasets"
-                            onClick={refreshDatasetsWithStreaming}
-                            styles={subtleButtonStyles(isDarkMode)}
-                            disabled={reportLoadingStates.dashboard}
-                            iconProps={{ iconName: 'Refresh' }}
-                          />
-                        </div>
-                      </div>
-                    )}
-                    {report.action === 'annualLeave' && (
-                      <>
-                        <PrimaryButton
-                          text={resolvePrimaryButtonLabel('Open annual leave')}
-                          onClick={() => {
-                            if (isReportReady) navigateToReport('annualLeave');
-                          }}
-                          styles={isReportReady
-                            ? primaryButtonStyles(isDarkMode)
-                            : {
-                                root: {
-                                  borderRadius: 0,
-                                  padding: '0 16px',
-                                  height: 36,
-                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.07)',
-                                  color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                                  border: `0.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)'}`,
-                                  fontWeight: 600,
-                                  boxShadow: 'none',
-                                  transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                                  fontFamily: 'Raleway, sans-serif',
-                                },
-                                rootHovered: {
-                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(54, 144, 206, 0.1)',
-                                },
-                                rootPressed: {
-                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)',
-                                },
-                                rootDisabled: {
-                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.07)',
-                                  color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                                  border: `0.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)'}`,
-                                },
-                              }}
-                          disabled={!isReportReady}
-                        />
-                        <DefaultButton
-                          text="Refresh leave data"
-                          onClick={refreshAnnualLeaveOnly}
-                          styles={subtleButtonStyles(isDarkMode)}
-                          disabled={reportLoadingStates.annualLeave}
-                          iconProps={{ iconName: 'Refresh' }}
-                        />
-                      </>
-                    )}
-                    {report.action === 'matters' && (
-                      <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 12 }}>
-                        {!isActivelyLoading && (
-                        <div
-                          style={{
-                            width: '100%',
-                            borderRadius: 0,
-                            padding: 12,
-                            background: isDarkMode ? 'rgba(10, 28, 50, 0.5)' : 'rgba(241, 248, 255, 0.6)',
-                            border: `0.5px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.22)' : 'rgba(54, 144, 206, 0.18)'}`,
-                          }}
-                        >
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                            <div style={{ fontSize: 13, fontWeight: 600 }}>Matters data window</div>
-                            <div style={{ fontSize: 12, fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                              {wipRangeIsRefreshing
-                                ? 'Refreshing…'
-                                : sliderHasPendingChange
-                                  ? `Pending: ${describeMattersRange(pendingMattersRangeKey)}`
-                                  : `Active: ${describeMattersRange(mattersWipRangeKey)}`}
-                            </div>
-                          </div>
-                          <Slider
-                            min={0}
-                            max={MATTERS_WIP_RANGE_OPTIONS.length - 1}
-                            step={1}
-                            value={mattersRangeSliderValue}
-                            onChange={handleMattersSliderValueChange}
-                            showValue={false}
-                            disabled={report.disabled && !testMode}
-                            styles={{
-                              root: { margin: '8px 4px' },
-                              activeSection: { background: colours.highlight },
-                              thumb: { borderColor: colours.highlight },
-                            }}
-                          />
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
-                            {MATTERS_WIP_RANGE_OPTIONS.map((option, index) => (
-                              <span
-                                key={option.key}
-                                style={{
-                                  fontSize: 10,
-                                  fontWeight: index === mattersRangeSliderValue ? 700 : 500,
-                                  color: index === mattersRangeSliderValue
-                                    ? colours.highlight
-                                    : (isDarkMode ? colours.subtleGrey : colours.greyText),
-                                  transition: 'color 0.2s ease',
-                                }}
-                              >
-                                {option.label}
-                              </span>
-                            ))}
-                          </div>
-                          {sliderHasPendingChange && (
-                            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
-                              <DefaultButton
-                                text={`Apply ${describeMattersRange(pendingMattersRangeKey)}`}
-                                onClick={handleApplyPendingMattersRange}
-                                styles={subtleButtonStyles(isDarkMode)}
-                                disabled={wipRangeIsRefreshing || (report.disabled && !testMode)}
-                                iconProps={{ iconName: 'Play' }}
-                              />
-                            </div>
-                          )}
-                          {sliderHasPendingChange && (
-                            <div style={{ 
-                              marginTop: 8, 
-                              padding: 8, 
-                              background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)',
-                              borderRadius: 0,
-                              fontSize: 12,
-                              color: isDarkMode ? colours.dark.text : colours.greyText,
-                              fontWeight: 500
-                            }}>
-                              Will cover: {describeMattersRange(pendingMattersRangeKey)}
-                            </div>
-                          )}
-                        </div>
-                        )}
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                          <PrimaryButton
-                            text={resolvePrimaryButtonLabel('Open matters report')}
-                            onClick={() => {
-                              if ((!report.disabled || testMode) && isReportReady) navigateToReport('matters');
-                            }}
-                            styles={isReportReady && (!report.disabled || testMode)
-                              ? primaryButtonStyles(isDarkMode)
-                              : {
-                                  root: {
-                                    borderRadius: 0,
-                                    padding: '0 16px',
-                                    height: 36,
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.07)',
-                                    color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                                    border: `0.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)'}`,
-                                    fontWeight: 600,
-                                    boxShadow: 'none',
-                                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                                    fontFamily: 'Raleway, sans-serif',
-                                  },
-                                  rootHovered: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(54, 144, 206, 0.1)',
-                                  },
-                                  rootPressed: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)',
-                                  },
-                                  rootDisabled: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.07)',
-                                    color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                                    border: `0.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)'}`,
-                                  },
-                                }}
-                            disabled={!isReportReady || (report.disabled && !testMode)}
-                          />
-                          <DefaultButton
-                            text="Refresh"
-                            onClick={refreshMattersScoped}
-                            styles={subtleButtonStyles(isDarkMode)}
-                            disabled={reportLoadingStates.matters || (report.disabled && !testMode)}
-                            iconProps={{ iconName: 'Refresh' }}
-                          />
-                        </div>
-                      </div>
-                    )}
-                    {report.action === 'enquiries' && (
-                      <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 12 }}>
-                        {!isActivelyLoading && (
-                        <div
-                          style={{
-                            width: '100%',
-                            borderRadius: 0,
-                            padding: 12,
-                            background: isDarkMode ? 'rgba(10, 28, 50, 0.5)' : 'rgba(241, 248, 255, 0.6)',
-                            border: `0.5px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.22)' : 'rgba(54, 144, 206, 0.18)'}`,
-                          }}
-                        >
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <div style={{ fontSize: 13, fontWeight: 600 }}>Enquiries & marketing window</div>
-                            </div>
-                            <div style={{ fontSize: 12, fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                              {enquiriesRangeIsRefreshing
-                                ? 'Refreshing…'
-                                : enquiriesSliderHasPendingChange
-                                  ? `Pending: ${describeRangeKey(pendingEnquiriesRangeKey)}`
-                                  : `Active: ${describeRangeKey(enquiriesRangeKey)}`}
-                            </div>
-                          </div>
-                          <Slider
-                            min={0}
-                            max={REPORT_RANGE_OPTIONS.length - 1}
-                            step={1}
-                            value={enquiriesRangeSliderValue}
-                            onChange={handleEnquiriesSliderValueChange}
-                            showValue={false}
-                            disabled={report.disabled && !testMode}
-                            styles={{
-                              root: { margin: '8px 4px' },
-                              activeSection: { background: colours.highlight },
-                              thumb: { borderColor: colours.highlight },
-                            }}
-                          />
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
-                            {REPORT_RANGE_OPTIONS.map((option, index) => (
-                              <span
-                                key={option.key}
-                                style={{
-                                  fontSize: 10,
-                                  fontWeight: index === enquiriesRangeSliderValue ? 700 : 500,
-                                  color: index === enquiriesRangeSliderValue
-                                    ? colours.highlight
-                                    : (isDarkMode ? colours.subtleGrey : colours.greyText),
-                                  transition: 'color 0.2s ease',
-                                }}
-                              >
-                                {option.label}
-                              </span>
-                            ))}
-                          </div>
-
-                          {enquiriesSliderHasPendingChange && (
-                            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
-                              <DefaultButton
-                                text={`Apply ${describeRangeKey(pendingEnquiriesRangeKey)}`}
-                                onClick={handleApplyPendingEnquiriesRange}
-                                styles={subtleButtonStyles(isDarkMode)}
-                                disabled={enquiriesRangeIsRefreshing || (report.disabled && !testMode)}
-                                iconProps={{ iconName: 'Play' }}
-                              />
-                            </div>
-                          )}
-                          {enquiriesSliderHasPendingChange && (
-                            <div style={{ 
-                              marginTop: 8, 
-                              padding: 8, 
-                              background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)',
-                              borderRadius: 0,
-                              fontSize: 12,
-                              color: isDarkMode ? colours.dark.text : colours.greyText,
-                              fontWeight: 500
-                            }}>
-                              Will cover: {describeRangeKey(pendingEnquiriesRangeKey)}
-                            </div>
-                          )}
-                        </div>
-                        )}
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                          <PrimaryButton
-                            text={resolvePrimaryButtonLabel('Open enquiries report')}
-                            onClick={() => {
-                              if (isReportReady) navigateToReport('enquiries');
-                            }}
-                            styles={isReportReady
-                              ? primaryButtonStyles(isDarkMode)
-                              : {
-                                  root: {
-                                    borderRadius: 0,
-                                    padding: '0 16px',
-                                    height: 36,
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.07)',
-                                    color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                                    border: `0.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)'}`,
-                                    fontWeight: 600,
-                                    boxShadow: 'none',
-                                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                                    fontFamily: 'Raleway, sans-serif',
-                                  },
-                                  rootHovered: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(54, 144, 206, 0.1)',
-                                  },
-                                  rootPressed: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)',
-                                  },
-                                  rootDisabled: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.07)',
-                                    color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                                    border: `0.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)'}`,
-                                  },
-                                }}
-                            disabled={!isReportReady}
-                          />
-                          <DefaultButton
-                            text="Refresh enquiries data"
-                            onClick={refreshEnquiriesScoped}
-                            styles={subtleButtonStyles(isDarkMode)}
-                            disabled={reportLoadingStates.enquiries}
-                            iconProps={{ iconName: 'Refresh' }}
-                          />
-                        </div>
-                      </div>
-                    )}
-                    {report.action === 'metaMetrics' && (
-                      <>
-                        <PrimaryButton
-                          text={resolvePrimaryButtonLabel('Open Meta ads')}
-                          onClick={() => {
-                            if (isReportReady) navigateToReport('metaMetrics');
-                          }}
-                          styles={isReportReady
-                            ? primaryButtonStyles(isDarkMode)
-                            : {
-                                root: {
-                                  borderRadius: 0,
-                                  padding: '0 16px',
-                                  height: 36,
-                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.07)',
-                                  color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                                  border: `0.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)'}`,
-                                  fontWeight: 600,
-                                  boxShadow: 'none',
-                                  transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                                  fontFamily: 'Raleway, sans-serif',
-                                },
-                                rootHovered: {
-                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(54, 144, 206, 0.1)',
-                                },
-                                rootPressed: {
-                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)',
-                                },
-                                rootDisabled: {
-                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.07)',
-                                  color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                                  border: `0.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)'}`,
-                                },
-                              }}
-                          disabled={!isReportReady}
-                        />
-                        <DefaultButton
-                          text="Refresh Meta data"
-                          onClick={refreshMetaMetricsOnly}
-                          styles={subtleButtonStyles(isDarkMode)}
-                          disabled={reportLoadingStates.metaMetrics}
-                          iconProps={{ iconName: 'Refresh' }}
-                        />
-                      </>
-                    )}
-                    {report.action === 'seoReport' && (
-                      <>
-                        <PrimaryButton
-                          text={resolvePrimaryButtonLabel('Open SEO report')}
-                          onClick={() => {
-                            if ((!report.disabled || testMode) && isReportReady) navigateToReport('seoReport');
-                          }}
-                          styles={isReportReady && (!report.disabled || testMode)
-                            ? primaryButtonStyles(isDarkMode)
-                            : {
-                                root: {
-                                  borderRadius: 0,
-                                  padding: '0 16px',
-                                  height: 36,
-                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.07)',
-                                  color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                                  border: `0.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)'}`,
-                                  fontWeight: 600,
-                                  boxShadow: 'none',
-                                  transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                                  fontFamily: 'Raleway, sans-serif',
-                                },
-                                rootHovered: {
-                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(54, 144, 206, 0.1)',
-                                },
-                                rootPressed: {
-                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)',
-                                },
-                                rootDisabled: {
-                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.07)',
-                                  color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                                  border: `0.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)'}`,
-                                },
-                              }}
-                          disabled={(report.disabled && !testMode) || !isReportReady}
-                        />
-                        <DefaultButton
-                          text={reportLoadingStates.seoReport ? 'Refreshing…' : 'Refresh'}
-                          onClick={refreshGoogleAnalyticsOnly}
-                          styles={subtleButtonStyles(isDarkMode)}
-                          disabled={reportLoadingStates.seoReport}
-                          iconProps={{ iconName: 'Refresh' }}
-                        />
-                      </>
-                    )}
-                    {report.action === 'ppcReport' && (
-                      <>
-                        <PrimaryButton
-                          text={resolvePrimaryButtonLabel('Open PPC report')}
-                          onClick={() => {
-                            if ((!report.disabled || testMode) && isReportReady) navigateToReport('ppcReport');
-                          }}
-                          styles={isReportReady && (!report.disabled || testMode)
-                            ? primaryButtonStyles(isDarkMode)
-                            : {
-                                root: {
-                                  borderRadius: 0,
-                                  padding: '0 16px',
-                                  height: 36,
-                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.07)',
-                                  color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                                  border: `0.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)'}`,
-                                  fontWeight: 600,
-                                  boxShadow: 'none',
-                                  transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                                  fontFamily: 'Raleway, sans-serif',
-                                },
-                                rootHovered: {
-                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(54, 144, 206, 0.1)',
-                                },
-                                rootPressed: {
-                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)',
-                                },
-                                rootDisabled: {
-                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.07)',
-                                  color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                                  border: `0.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)'}`,
-                                },
-                              }}
-                          disabled={(report.disabled && !testMode) || !isReportReady}
-                        />
-                        <DefaultButton
-                          text={reportLoadingStates.ppcReport ? 'Refreshing…' : 'Refresh'}
-                          onClick={refreshGoogleAdsOnly}
-                          styles={subtleButtonStyles(isDarkMode)}
-                          disabled={report.disabled || reportLoadingStates.ppcReport}
-                          iconProps={{ iconName: 'Refresh' }}
-                        />
-                      </>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        );
   };
 
   const handleLaunchDashboard = useCallback(() => {
@@ -6006,6 +5103,14 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     );
   }
 
+  if (activeView === 'syncHistory') {
+    return (
+      <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
+        <SyncHistory onBack={handleBackToOverview} />
+      </div>
+    );
+  }
+
   if (activeView === 'cacheMonitor') {
     return (
       <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
@@ -6120,7 +5225,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
                 iconProps={{ iconName: 'Forward' }}
               />
 
-              {/* Utility toolbar — icon-only with tooltips */}
+              {/* Utility toolbar â€” icon-only with tooltips */}
               <div style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -6128,7 +5233,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
                 borderLeft: `0.5px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.2)' : 'rgba(6, 23, 51, 0.05)'}`,
                 paddingLeft: 8,
               }}>
-                <TooltipHost content={isActivelyLoading ? 'Refreshing…' : 'Refresh all datasets'}>
+                <TooltipHost content={isActivelyLoading ? 'Refreshing...' : 'Refresh all datasets'}>
                   <IconButton
                     ariaLabel="Refresh all datasets"
                     iconProps={{ iconName: 'Sync' }}
@@ -6414,7 +5519,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
             </div>
           )}
 
-          {/* ── Data Hub status strip ── */}
+          {/* â”€â”€ Data Hub status strip â”€â”€ */}
           <div
             onClick={() => navigateToReport('dataCentre')}
             role="button"
@@ -6510,10 +5615,10 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
                   transition: 'opacity 0.2s ease, max-height 0.2s ease',
                 }}>
                   {isActivelyLoading
-                    ? `${refreshPhaseLabel ?? 'Streaming'} · ${Math.round(streamingProgress.percentage)}% · ${formatDurationMs(refreshElapsedMs)}`
+                    ? `${refreshPhaseLabel ?? 'Streaming'} Â· ${Math.round(streamingProgress.percentage)}% Â· ${formatDurationMs(refreshElapsedMs)}`
                     : (lastRefreshTimestamp
-                      ? `${readyCount}/${datasetSummaries.length} feeds · Updated ${formatRelativeTime(lastRefreshTimestamp)}`
-                      : `${readyCount}/${datasetSummaries.length} feeds · Not refreshed yet`)}
+                      ? `${readyCount}/${datasetSummaries.length} feeds Â· Updated ${formatRelativeTime(lastRefreshTimestamp)}`
+                      : `${readyCount}/${datasetSummaries.length} feeds Â· Not refreshed yet`)}
                 </span>
               </div>
             </div>
@@ -6575,7 +5680,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
             </div>
           </div>
 
-          {/* Feed breakdown — visible during refresh or on hover */}
+          {/* Feed breakdown â€” visible during refresh or on hover */}
           {isActivelyLoading && (
             <div style={{
               display: 'flex',
@@ -6623,7 +5728,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
                       transition: 'all 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
                     }}
                   >
-                    {/* Status dot — spins when loading, pops when ready */}
+                    {/* Status dot â€” spins when loading, pops when ready */}
                     <span style={{
                       position: 'relative',
                       width: 8,
@@ -6645,7 +5750,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
                           : 'none',
                         transition: 'background 0.3s ease, border 0.3s ease',
                       }} />
-                      {/* Tick SVG — only visible when ready */}
+                      {/* Tick SVG â€” only visible when ready */}
                       {isReady && (
                         <svg
                           width="8"
@@ -6681,7 +5786,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
 
           {renderAvailableReportCards()}
 
-          {/* ── Activity Monitor — not a report, a utility tool ── */}
+          {/* â”€â”€ Activity Monitor â€” not a report, a utility tool â”€â”€ */}
           {canAccessReportingOps && (
             <div
               onClick={() => navigateToReport('logMonitor')}
@@ -6731,7 +5836,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
                     color: isDarkMode ? 'rgba(75, 85, 99, 0.7)' : 'rgba(107, 107, 107, 0.8)',
                     marginLeft: 10,
                   }}>
-                    Real-time hub logs · Application Insights level
+                    Real-time hub logs Â· Application Insights level
                   </span>
                 </div>
               </div>
@@ -6745,7 +5850,71 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
             </div>
           )}
 
-          {/* ── Cache Monitor — only for LZ/AC in prod, everyone locally ── */}
+          {/* â”€â”€ Sync History â€” scheduler tier timeline â”€â”€ */}
+          {canAccessReportingOps && (
+            <div
+              onClick={() => navigateToReport('syncHistory')}
+              style={{
+                marginTop: 8,
+                padding: '10px 14px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                cursor: 'pointer',
+                borderRadius: 0,
+                border: `0.5px solid ${subtleStroke(isDarkMode)}`,
+                background: isDarkMode ? 'rgba(10, 28, 50, 0.35)' : 'rgba(244, 244, 246, 0.35)',
+                backdropFilter: 'blur(12px) saturate(1.3)',
+                transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                opacity: 0.78,
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.opacity = '1';
+                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(75, 85, 99, 0.36)' : 'rgba(6, 23, 51, 0.1)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.opacity = '0.78';
+                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(75, 85, 99, 0.28)' : 'rgba(6, 23, 51, 0.06)';
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{
+                  fontSize: 14,
+                  color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                  display: 'flex',
+                  alignItems: 'center',
+                }}>
+                  <FontIcon iconName="Sync" style={{ fontSize: 14 }} />
+                </span>
+                <div>
+                  <span style={{
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                    fontFamily: 'Raleway, sans-serif',
+                  }}>
+                    Sync history
+                  </span>
+                  <span style={{
+                    fontSize: 10,
+                    color: isDarkMode ? 'rgba(75, 85, 99, 0.7)' : 'rgba(107, 107, 107, 0.8)',
+                    marginLeft: 10,
+                  }}>
+                    Scheduler tiers Â· last runs Â· next fires
+                  </span>
+                </div>
+              </div>
+              <FontIcon
+                iconName="ChevronRight"
+                style={{
+                  fontSize: 10,
+                  color: isDarkMode ? colours.greyText : colours.subtleGrey,
+                }}
+              />
+            </div>
+          )}
+
+          {/* â”€â”€ Cache Monitor â€” only for LZ/AC in prod, everyone locally â”€â”€ */}
           {(() => {
             const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
             const canSeeCacheMonitor = isLocal || canSeePrivateHubControls(primaryUser);
@@ -6799,7 +5968,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
                       color: isDarkMode ? 'rgba(75, 85, 99, 0.7)' : 'rgba(107, 107, 107, 0.8)',
                       marginLeft: 10,
                     }}>
-                      Redis state · TTL · hit rates · staleness
+                      Redis state Â· TTL Â· hit rates Â· staleness
                     </span>
                   </div>
                 </div>
@@ -6865,7 +6034,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
             }}>
               {reportingOpsRows.length === 0 && (
                 <span style={{ fontSize: 12, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
-                  {isFetching ? 'Waiting for reporting activity…' : 'No recent reporting activity.'}
+                  {isFetching ? 'Waiting for reporting activity...' : 'No recent reporting activity.'}
                 </span>
               )}
               {reportingOpsRows.map((entry) => (
@@ -6875,7 +6044,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
                   </span>
                   <span style={{ color: isDarkMode ? 'rgba(243, 244, 246, 0.92)' : 'rgba(6, 23, 51, 0.9)', wordBreak: 'break-word' }}>
                     {entry.status.toUpperCase()}
-                    {entry.updatedAt ? ` • ${new Date(entry.updatedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : ''}
+                    {entry.updatedAt ? ` | ${new Date(entry.updatedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : ''}
                   </span>
                 </div>
               ))}

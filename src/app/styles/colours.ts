@@ -40,25 +40,25 @@ export const colours = {
   highlightYellow: '#ffefc1',  // Placeholder highlighting in pitch emails
   highlightNeutral: '#e1e1e1', // Neutral borders, light-mode backgrounds
 
-  // ── Dark-mode surface depth ladder (215° hue) ──────────────
+  // ── Dark-mode surface depth ladder ──────────────────────────
   //
   //  Level   Token               Hex       Lightness
   //  0       dark.background     #020617   ~5%    Page canvas
-  //  1       dark.sectionBg      #051525   ~8%    Section containers
-  //  2       dark.cardBg         #081c30   ~11%   Card surfaces
-  //  3       dark.cardHover      #0c2440   ~14%   Hover lift
+  //  1       dark.sectionBg      #061733   ~9%    Section containers (= darkBlue, neutral)
+  //  2       dark.cardBg         #0a2040   ~12%   Card surfaces
+  //  3       dark.cardHover      #0d2850   ~15%   Hover lift
   //
-  //  Interactive controls should use darkBlue (#061733) as resting surface,
-  //  not dark.cardBackground, to avoid greenish tint on certain displays.
+  //  All levels derived from darkBlue (#061733) with white-alpha lifts.
+  //  Aligned 1:1 with design-tokens.css --surface-* tokens.
 
   dark: {
     background: '#020617',
-    sectionBackground: '#051525',
+    sectionBackground: '#061733',
     text: '#f3f4f6',
     subText: '#3690CE',
     border: '#374151',
-    cardBackground: '#081c30',
-    cardHover: '#0c2440',
+    cardBackground: '#0a2040',
+    cardHover: '#0d2850',
     iconColor: '#f3f4f6',
     inputBackground: '#374151',
     previewBackground: '#374151',

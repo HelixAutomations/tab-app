@@ -172,6 +172,11 @@ const ActivityCardLabPanel: React.FC<ActivityCardLabPanelProps> = ({ recentItems
     }
   }, [renderPreview, routes, templates]);
 
+  // Ref breaks the dependency cycle: useEffect must not depend on loadTemplate
+  // (loadTemplate depends on templates/routes which loadCatalog sets → infinite loop).
+  const loadTemplateRef = useRef(loadTemplate);
+  loadTemplateRef.current = loadTemplate;
+
   useEffect(() => {
     let disposed = false;
 
@@ -189,7 +194,7 @@ const ActivityCardLabPanel: React.FC<ActivityCardLabPanelProps> = ({ recentItems
 
         const firstTemplateId = nextTemplates[0]?.id || '';
         if (firstTemplateId) {
-          await loadTemplate(firstTemplateId, nextTemplates, nextRoutes);
+          await loadTemplateRef.current(firstTemplateId, nextTemplates, nextRoutes);
         }
       } catch (error) {
         if (!disposed) {
@@ -210,7 +215,8 @@ const ActivityCardLabPanel: React.FC<ActivityCardLabPanelProps> = ({ recentItems
     return () => {
       disposed = true;
     };
-  }, [loadTemplate]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const host = previewHostRef.current;

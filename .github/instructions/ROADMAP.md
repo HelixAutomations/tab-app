@@ -585,6 +585,10 @@ Fee earner's read surface shows "Payment confirmed · £2,400 · 23 Mar"
 - [ ] **Consistent naming conventions** — snake_case vs camelCase inconsistency.
 - [ ] **Remove unused routes** — Grep server route registrations against actual frontend `fetch()` calls to identify dead endpoints.
 - [ ] **Submodule header CSS compat warning** — `-webkit-overflow-scrolling: touch;` in `submodules/enquiry-processing-v2/wwwroot/components/header.html` triggers Edge Tools compat warning; fix upstream.
+- [ ] **Command centre CSS class extraction** — 15+ inline hover patterns (`rgba(54,144,206,0.06)`) across AppearanceSection, LocalDevSection, ProfileSection, SystemStatusSection could be `.cmd-section-hover` CSS class. Also: collapsible header pattern (5 sections), card surface pattern (8 occurrences). See April 2026 audit.
+- [ ] **Command centre StatusDot component** — ~20 inline `<span style={{ width: 4, height: 4, borderRadius: 999 }}>` across CommandDeck and SystemStatusSection. Extract to reusable `<StatusDot colour size aria />`.
+- [ ] **LocalDevSection keyboard accessibility** — Mouse-only toggle interactions. Convert `onMouseEnter/onMouseLeave` style mutations to CSS `:hover`/`:focus-within` classes with `role="switch"` and `aria-checked`.
+- [ ] **Full command-centre WCAG 2.1 AA pass** — 10+ interactive elements missing `aria-label`, focus order not managed, no keyboard nav in some sections. Schedule with axe-core or Wave audit.
 
 ---
 

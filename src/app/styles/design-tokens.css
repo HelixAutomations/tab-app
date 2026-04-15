@@ -45,10 +45,19 @@
   --surface-card: #ffffff;
   --surface-card-hover: #f0f5fa;
   --surface-input: #F4F4F6;
+  --surface-nav: #FFFFFF;
+  --nav-border: rgba(0, 0, 0, 0.06);
+  --nav-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 
   /* Borders */
   --border-base: #F4F4F6;
   --border-strong: #e1e1e1;
+
+  /* Semantic status colours */
+  --status-success: #20b26c;
+  --status-error: #D65541;
+  --status-warning: #FF8C00;
+  --status-info: #3690CE;
 
   /* Typography */
   --font-primary: 'Raleway', sans-serif;
@@ -73,6 +82,8 @@
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
   --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.06);
   --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.12);
+  --shadow-overlay: 0 8px 32px rgba(13, 47, 96, 0.15);
+  --shadow-overlay-lg: 0 24px 64px rgba(0, 0, 0, 0.25);
 
   /* Transitions */
   --transition-fast: 150ms ease;
@@ -105,12 +116,15 @@
   --cta-rgb: 214, 85, 65;
   --green-rgb: 32, 178, 108;
 
-  /* Surfaces */
+  /* Surfaces — darkBlue (#061733) base, white-alpha lifts for depth */
   --surface-page: #020617;
-  --surface-section: #051525;
-  --surface-card: #081c30;
-  --surface-card-hover: #0c2440;
+  --surface-section: #061733;
+  --surface-card: #0a2040;
+  --surface-card-hover: #0d2850;
   --surface-input: #374151;
+  --surface-nav: #000319;
+  --nav-border: rgba(255, 255, 255, 0.06);
+  --nav-shadow: 0 1px 0 rgba(255, 255, 255, 0.03);
 
   /* Borders */
   --border-base: #374151;
@@ -120,6 +134,8 @@
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.2);
   --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.25);
   --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.4);
+  --shadow-overlay: 0 8px 32px rgba(0, 0, 0, 0.5);
+  --shadow-overlay-lg: 0 24px 64px rgba(0, 0, 0, 0.45);
 }
 
 /* ─── High contrast ─── */

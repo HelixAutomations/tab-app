@@ -350,10 +350,10 @@ const PeopleSearchPanel: React.FC<PeopleSearchPanelProps> = ({ isOpen, onDismiss
                         fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5,
                         padding: '1px 6px', borderRadius: 8,
                         background: group.latestStage === 'claimed'
-                          ? (isDarkMode ? 'rgba(76,175,80,0.15)' : 'rgba(76,175,80,0.1)')
+                          ? (isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(32, 178, 108, 0.1)')
                           : highlightBg,
                         color: group.latestStage === 'claimed'
-                          ? (isDarkMode ? '#81c784' : '#388e3c')
+                          ? colours.green
                           : colours.highlight,
                       }}>
                         {group.latestStage}
@@ -435,7 +435,7 @@ const PeopleSearchPanel: React.FC<PeopleSearchPanelProps> = ({ isOpen, onDismiss
                         style={{
                           width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
                           background: tp._src === 'instructions'
-                            ? (isDarkMode ? '#81c784' : '#4caf50')
+                            ? colours.green
                             : (isDarkMode ? '#666' : '#bbb'),
                         }}
                       />
@@ -471,7 +471,7 @@ const PeopleSearchPanel: React.FC<PeopleSearchPanelProps> = ({ isOpen, onDismiss
           <span>{groups.length} {groups.length === 1 ? 'person' : 'people'} · {results.length} {results.length === 1 ? 'record' : 'records'}</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: isDarkMode ? '#81c784' : '#4caf50', display: 'inline-block' }} />
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: colours.green, display: 'inline-block' }} />
               Current
             </span>
             <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>

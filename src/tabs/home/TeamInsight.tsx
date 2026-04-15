@@ -2,6 +2,7 @@ import React, { useMemo, useState, useCallback } from 'react';
 import { FiUsers, FiMonitor, FiChevronRight, FiCheck, FiX } from 'react-icons/fi';
 import type { AnnualLeaveRecord } from '../../app/functionality/types';
 import { colours } from '../../app/styles/colours';
+import './home-tokens.css';
 
 /**
  * TeamInsight — unified "who's where + who's off" panel for the Home page.
@@ -291,28 +292,28 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
     }
   }, [modalPerson, onConfirmAttendance, currentWeekStart, nextWeekStartStr, modalThisWeek, modalNextWeek, onShowToast]);
 
-  /* —— palette (shared) —— */
-  const panelBg      = isDarkMode ? 'rgba(6, 23, 51, 0.55)' : '#FFFFFF';
-  const panelBgHov   = isDarkMode ? 'rgba(12, 36, 64, 0.72)' : 'rgba(13, 47, 96, 0.03)';
-  const panelBorder  = isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(13, 47, 96, 0.08)';
+  /* —— palette (shared — home-tokens.css) —— */
+  const panelBg      = 'var(--home-card-bg)';
+  const panelBgHov   = isDarkMode ? 'rgba(12, 36, 64, 0.72)' : 'var(--home-row-hover-bg)';
+  const panelBorder  = 'var(--home-card-border)';
 
-  // Tiles & badges — brand navy fills + highlight blue borders (no teal accent washes)
-  const tileBg       = isDarkMode ? 'rgba(8, 28, 48, 0.72)' : 'rgba(13, 47, 96, 0.03)';
-  const tileBgHov    = isDarkMode ? 'rgba(12, 36, 64, 0.82)' : 'rgba(54, 144, 206, 0.06)';
-  const tileBorder   = isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(13, 47, 96, 0.08)';
-  const tileBdrHov   = isDarkMode ? 'rgba(54, 144, 206, 0.45)' : 'rgba(54, 144, 206, 0.3)';
+  // Tiles & badges — shared CSS vars (home-tokens.css) for dark/light/high-contrast
+  const tileBg       = 'var(--home-tile-bg)';
+  const tileBgHov    = 'var(--home-tile-bg-hover)';
+  const tileBorder   = 'var(--home-tile-border)';
+  const tileBdrHov   = 'var(--home-tile-border-hover)';
   // Initials squares — solid brand surface (EnquiriesReport pattern)
-  const badgeBg      = isDarkMode ? 'rgba(8, 28, 48, 0.92)' : '#F4F4F6';
+  const badgeBg      = 'var(--home-badge-bg)';
 
-  const textLabel    = isDarkMode ? colours.dark.text : 'var(--text-primary)';
-  const textBody     = isDarkMode ? '#d1d5db' : 'var(--text-body)';
-  const textMuted    = isDarkMode ? colours.subtleGrey : 'var(--text-muted)';
+  const textLabel    = 'var(--text-primary)';
+  const textBody     = 'var(--text-body)';
+  const textMuted    = 'var(--text-muted)';
   const accentColor  = 'var(--text-accent)';
-  const sectionDivider = isDarkMode ? 'rgba(255, 255, 255, 0.04)' : 'rgba(13, 47, 96, 0.05)';
-  const skeletonStrong = isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(13, 47, 96, 0.07)';
-  const skeletonSoft = isDarkMode ? 'rgba(255, 255, 255, 0.04)' : 'rgba(13, 47, 96, 0.05)';
-  const skeletonTileBg = isDarkMode ? 'rgba(8, 28, 48, 0.8)' : 'rgba(13, 47, 96, 0.05)';
-  const skeletonTileBorder = isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(13, 47, 96, 0.08)';
+  const sectionDivider = 'var(--home-section-divider)';
+  const skeletonStrong = 'var(--home-skel-fill)';
+  const skeletonSoft = 'var(--home-skel-fill-weak)';
+  const skeletonTileBg = 'var(--home-tile-bg)';
+  const skeletonTileBorder = 'var(--home-tile-border)';
 
   const renderSkeletonLine = (width: number | string, height: number, delay = 0) => (
     <div
@@ -727,14 +728,14 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
             <span style={{
               fontSize: 'var(--text-xs)',
               fontWeight: 600,
-              color: isDarkMode ? '#ffffff' : '#061733',
+              color: 'var(--text-primary)',
               letterSpacing: '0.02em',
             }}>
               {attendanceHeadingLabel}
             </span>
 
             {!isLoadingAttendance && totalActive === 0 && (
-              <span style={{ fontSize: 11, fontWeight: 600, color: textBody }}>No data</span>
+              <span style={{ fontSize: 10, fontWeight: 600, color: textMuted, letterSpacing: '0.02em' }}>— no team data</span>
             )}
           </div>
 
@@ -883,7 +884,8 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
           marginTop: attendanceExpanded ? '10px' : '0',
         }}>
           {weekGrid.length === 0 ? (
-            <div style={{ padding: '8px 2px', color: textMuted, fontSize: 13 }}>
+            <div style={{ padding: '10px 6px', color: textMuted, fontSize: 11, fontWeight: 600, letterSpacing: '0.02em', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 10 }}>—</span>
               {hasFilter ? 'No attendance data for selected people.' : 'No attendance data for this week yet.'}
             </div>
           ) : (
@@ -1068,7 +1070,7 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
             <span style={{
               fontSize: 'var(--text-xs)',
               fontWeight: 600,
-              color: isDarkMode ? '#ffffff' : '#061733',
+              color: 'var(--text-primary)',
               letterSpacing: '0.02em',
             }}>
               Team Leave
@@ -1205,7 +1207,8 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
           marginTop: leaveExpanded ? '10px' : '0',
         }}>
           {(hasFilter ? calendarData.people.filter(p => selectedPeople.has(p.initials)).length === 0 : calendarData.people.length === 0) ? (
-            <div style={{ padding: '8px 2px', color: textMuted, fontSize: 13 }}>
+            <div style={{ padding: '10px 6px', color: textMuted, fontSize: 11, fontWeight: 600, letterSpacing: '0.02em', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 10 }}>—</span>
               {hasFilter ? 'No leave data for selected people.' : 'No upcoming leave booked.'}
             </div>
           ) : (
@@ -1228,7 +1231,7 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
                       alignItems: 'center',
                       gap: 0,
                       borderLeft: d.isMonday && i > 0
-                        ? `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(148, 163, 184, 0.15)'}`
+                        ? `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(75, 85, 99, 0.15)'}`
                         : 'none',
                       paddingLeft: d.isMonday && i > 0 ? 1 : 0,
                     }}
@@ -1299,7 +1302,7 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
                             display: 'flex',
                             alignItems: 'center',
                             borderLeft: weekBreak
-                              ? `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(148, 163, 184, 0.15)'}`
+                              ? `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(75, 85, 99, 0.15)'}`
                               : 'none',
                             paddingLeft: weekBreak ? 1 : 0,
                           }}
@@ -1384,9 +1387,9 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
             onClick={e => e.stopPropagation()}
             style={{
               width: 340,
-              background: isDarkMode ? '#061733' : '#fff',
+              background: isDarkMode ? colours.darkBlue : colours.grey,
               border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.18)' : 'rgba(6,23,51,0.12)'}`,
-              boxShadow: isDarkMode ? '0 8px 32px rgba(0,0,0,0.5)' : '0 8px 32px rgba(6,23,51,0.12)',
+              boxShadow: isDarkMode ? '0 8px 32px rgba(0,0,0,0.5)' : 'var(--shadow-lg)',
               borderRadius: 0,
               padding: '20px 22px',
               display: 'flex', flexDirection: 'column', gap: 16,
@@ -1525,7 +1528,7 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
                 style={{
                   padding: '6px 16px', fontSize: 11, fontWeight: 700,
                   background: 'var(--helix-highlight)',
-                  color: '#fff', border: 'none',
+                  color: colours.dark.text, border: 'none',
                   borderRadius: 0, cursor: modalSaving ? 'wait' : 'pointer',
                   opacity: modalSaving ? 0.6 : 1,
                   display: 'flex', alignItems: 'center', gap: 5,

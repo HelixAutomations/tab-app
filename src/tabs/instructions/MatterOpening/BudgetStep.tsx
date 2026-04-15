@@ -2,6 +2,7 @@ import React from 'react';
 import { Stack } from '@fluentui/react/lib/Stack';
 import { TextField } from '@fluentui/react/lib/TextField';
 import ModernMultiSelect from './ModernMultiSelect';
+import { colours } from '../../../app/styles/colours';
 
 // Shared light/dark aware colours (fallbacks if global theme not injected)
 const light = {
@@ -10,8 +11,8 @@ const light = {
     border: '#E2E8F0',
     label: '#334155',
     text: '#0F172A',
-    subtle: '#64748B',
-    focus: '#2563EB',
+    subtle: colours.greyText,
+    focus: colours.highlight,
 };
 const dark = {
     bg: 'linear-gradient(135deg,#1E293B 0%,#0F172A 100%)',
@@ -20,7 +21,7 @@ const dark = {
     label: '#CBD5E1',
     text: '#F1F5F9',
     subtle: '#94A3B8',
-    focus: '#3B82F6',
+    focus: colours.highlight,
 };
 
 function useColourMode() {

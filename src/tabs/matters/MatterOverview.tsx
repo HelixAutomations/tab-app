@@ -2615,7 +2615,7 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
                     }}
                   >
                     <Icon iconName="OpenInNewWindow" styles={{ root: { fontSize: 11, color: colours.highlight } }} />
-                    {cclServiceSummary.needsAttention || hasCclDraft ? 'Open CCL Workbench' : 'View CCL Workbench'}
+                    {cclServiceSummary.needsAttention || hasCclDraft ? 'Open CCL Editor' : 'View CCL Editor'}
                   </button>
                 )}
               </div>

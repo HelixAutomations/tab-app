@@ -1,5 +1,6 @@
 import React from 'react';
 import DataTable, { TableColumn, TableConfig } from './DataTable';
+import { colours } from '../../app/styles/colours';
 
 // Example usage of the DataTable component following enquiries table pattern
 
@@ -39,9 +40,9 @@ const exampleConfig: TableConfig<ExampleRecord> = {
       width: '40px',
       render: (item) => {
         const statusColors = {
-          active: '#10b981',
-          pending: '#f59e0b',
-          completed: '#6b7280'
+          active: colours.green,
+          pending: colours.orange,
+          completed: colours.greyText
         };
         return (
           <div

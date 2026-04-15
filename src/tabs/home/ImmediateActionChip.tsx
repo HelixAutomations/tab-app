@@ -24,6 +24,7 @@ import {
 import { Icon } from '@fluentui/react/lib/Icon';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours, withAlpha } from '../../app/styles/colours';
+import './home-tokens.css';
 
 // Category types for immediate action styling
 export type ImmediateActionCategory = 'critical' | 'standard' | 'success' | 'warning';
@@ -170,13 +171,13 @@ export const ImmediateActionChip: React.FC<ImmediateActionChipProps> = ({
         transition: 'color 0.2s ease',
         marginTop: 0,
       }}>
-        <ChipIcon style={{ fontSize: 8 }} />
+        <ChipIcon style={{ fontSize: 10 }} />
       </div>
 
       {/* Title */}
       <div style={{ flex: fillWidth ? 1 : '0 1 auto', minWidth: 0, overflow: 'hidden' }}>
         <div style={{
-          fontSize: dense ? 10 : 11,
+          fontSize: dense ? 11 : 11,
           fontWeight: 600,
           lineHeight: allowWrap ? 1.25 : 1.2,
           overflow: 'hidden',
@@ -196,7 +197,7 @@ export const ImmediateActionChip: React.FC<ImmediateActionChipProps> = ({
               padding: '0 5px',
               background: withAlpha(categoryAccent, isDark ? 0.07 : 0.06),
               color: categoryAccent,
-              fontSize: 6,
+              fontSize: 9,
               fontWeight: 700,
               display: 'inline-flex',
               alignItems: 'center',

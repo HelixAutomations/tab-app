@@ -3,7 +3,6 @@
 
 const { withRequest, sql } = require('./db');
 const { trackEvent } = require('./appInsights');
-const { trackEvent } = require('./appInsights');
 
 // Store connected clients (http.ServerResponse)
 const clients = new Set();
@@ -13,10 +12,6 @@ let seq = 0;
 // This makes the Enquiries UI feel realtime even when changes don't flow through Hub routes.
 let teamsClaimWatcherTimer = null;
 let lastTeamsClaimUpdatedAt = null;
-// Claim cache: stores { key: string, ts: number } per enquiryId.
-// TTL: 30 minutes. Size cap: 500 entries.
-const CLAIM_CACHE_TTL_MS = 30 * 60 * 1000;
-const CLAIM_CACHE_MAX_SIZE = 500;
 // Claim cache: stores { key: string, ts: number } per enquiryId.
 // TTL: 30 minutes. Size cap: 500 entries.
 const CLAIM_CACHE_TTL_MS = 30 * 60 * 1000;
@@ -112,37 +107,6 @@ async function pollTeamsClaimsOnce() {
         claimedAt,
         source: 'teamsActivityTracking',
       });
-    }
-
-    // Adaptive polling: track whether any changes were broadcast
-    const hadChanges = latestByEnquiryId.size > 0;
-    if (hadChanges) {
-      if (claimNoEventStreak >= CLAIM_BACKOFF_THRESHOLD && claimCurrentIntervalMs !== CLAIM_BASE_INTERVAL_MS) {
-        // Snap back to fast polling
-        claimCurrentIntervalMs = CLAIM_BASE_INTERVAL_MS;
-        if (teamsClaimWatcherTimer) {
-          clearInterval(teamsClaimWatcherTimer);
-          teamsClaimWatcherTimer = setInterval(() => {
-            pollTeamsClaimsOnce().catch(() => {});
-          }, claimCurrentIntervalMs);
-          if (typeof teamsClaimWatcherTimer.unref === 'function') teamsClaimWatcherTimer.unref();
-        }
-        trackEvent('ClaimWatcher.IntervalChanged', { from: String(CLAIM_BACKOFF_INTERVAL_MS), to: String(CLAIM_BASE_INTERVAL_MS), reason: 'eventReceived' });
-      }
-      claimNoEventStreak = 0;
-    } else {
-      claimNoEventStreak++;
-      if (claimNoEventStreak === CLAIM_BACKOFF_THRESHOLD && claimCurrentIntervalMs !== CLAIM_BACKOFF_INTERVAL_MS) {
-        claimCurrentIntervalMs = CLAIM_BACKOFF_INTERVAL_MS;
-        if (teamsClaimWatcherTimer) {
-          clearInterval(teamsClaimWatcherTimer);
-          teamsClaimWatcherTimer = setInterval(() => {
-            pollTeamsClaimsOnce().catch(() => {});
-          }, claimCurrentIntervalMs);
-          if (typeof teamsClaimWatcherTimer.unref === 'function') teamsClaimWatcherTimer.unref();
-        }
-        trackEvent('ClaimWatcher.IntervalChanged', { from: String(CLAIM_BASE_INTERVAL_MS), to: String(CLAIM_BACKOFF_INTERVAL_MS), reason: 'noEventsFor2Min' });
-      }
     }
 
     // Adaptive polling: track whether any changes were broadcast

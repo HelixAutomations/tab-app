@@ -1,3 +1,4 @@
+import { colours } from '../styles/colours';
 import { getProxyBaseUrl } from '../../utils/getProxyBaseUrl';
 
 export interface TeamsActivityData {
@@ -121,13 +122,13 @@ export function getTeamsActivityForEnquiry(enquiryId: string, activityData: Team
  */
 export function getActivityStatusColor(stage: string, isDarkMode: boolean): string {
   const stageColors = {
-    new: isDarkMode ? '#60a5fa' : '#3b82f6', // Blue
-    claimed: isDarkMode ? '#34d399' : '#10b981', // Green  
-    active: isDarkMode ? '#fbbf24' : '#f59e0b', // Yellow
-    redirected: isDarkMode ? '#a78bfa' : '#8b5cf6', // Purple
-    removed: isDarkMode ? '#f87171' : '#ef4444', // Red
+    new: isDarkMode ? colours.accent : colours.highlight, // Blue
+    claimed: colours.green, // Green
+    active: colours.yellow, // Yellow
+    redirected: isDarkMode ? colours.helixBlue : colours.blue, // Accent
+    removed: colours.cta, // Red
     archived: isDarkMode ? '#9ca3af' : '#6b7280', // Gray
-    'out-of-scope': isDarkMode ? '#fb7185' : '#f43f5e', // Rose
+    'out-of-scope': colours.cta, // Rose
   };
 
   const normalizedStage = stage?.toLowerCase();

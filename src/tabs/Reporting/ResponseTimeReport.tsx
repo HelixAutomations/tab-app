@@ -251,4 +251,4 @@ const ResponseTimeReport: React.FC<Props> = ({ enquiries }) => {
   );
 };
 
-export default ResponseTimeReport;
+export default React.memo(ResponseTimeReport);

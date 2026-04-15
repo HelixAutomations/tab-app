@@ -17,13 +17,17 @@ import { Link } from '@fluentui/react/lib/Link';
 import { getProxyBaseUrl } from '../utils/getProxyBaseUrl';
 import { UserData } from '../app/functionality/types';
 import { useTheme } from '../app/functionality/ThemeContext';
+import { colours } from '../app/styles/colours';
 import { practiceAreasByArea } from '../tabs/instructions/MatterOpening/config';
 import {
   getFormContainerStyle,
   getFormScrollContainerStyle,
   getFormCardStyle,
   getFormHeaderStyle,
+  getFormHeaderTitleStyle,
   getFormDefaultButtonStyles,
+  getDropdownStyles,
+  getMessageBarStyle,
   formAccentColors
 } from './shared/formStyles';
 
@@ -58,9 +62,9 @@ interface Counsel {
 
 const priceTierBadge = (tier: string, isDarkMode: boolean): React.CSSProperties => {
   const colors: Record<string, { bg: string; bgDark: string; text: string }> = {
-    cheap: { bg: 'rgba(34, 197, 94, 0.1)', bgDark: 'rgba(34, 197, 94, 0.2)', text: '#22c55e' },
-    mid: { bg: 'rgba(59, 130, 246, 0.1)', bgDark: 'rgba(59, 130, 246, 0.2)', text: '#3b82f6' },
-    expensive: { bg: 'rgba(168, 85, 247, 0.1)', bgDark: 'rgba(168, 85, 247, 0.2)', text: '#a855f7' },
+    cheap: { bg: 'rgba(32, 178, 108, 0.1)', bgDark: 'rgba(32, 178, 108, 0.2)', text: colours.green },
+    mid: { bg: 'rgba(54, 144, 206, 0.1)', bgDark: 'rgba(54, 144, 206, 0.2)', text: '#3690CE' },
+    expensive: { bg: 'rgba(13, 47, 96, 0.1)', bgDark: 'rgba(13, 47, 96, 0.2)', text: '#0D2F60' },
   };
   const { bg, bgDark, text } = colors[tier] || colors.mid;
   return {
@@ -92,7 +96,7 @@ const CounselDirectoryContent: React.FC<CounselDirectoryProps> = ({ onBack }) =>
   const defaultButtonStyles = getFormDefaultButtonStyles(isDarkMode);
 
   const filterSectionStyle: React.CSSProperties = {
-    background: isDarkMode ? 'rgba(30, 41, 59, 0.3)' : '#f8fafc',
+    background: isDarkMode ? 'rgba(6, 23, 51, 0.3)' : '#F4F4F6',
     border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}`,
     borderLeft: `3px solid ${accentColor}`,
     padding: '16px 20px',
@@ -185,7 +189,7 @@ const CounselDirectoryContent: React.FC<CounselDirectoryProps> = ({ onBack }) =>
       minWidth: 150,
       maxWidth: 200,
       onRender: (item: Counsel) => (
-        <Text style={{ fontWeight: 500, color: isDarkMode ? '#e2e8f0' : '#374151' }}>
+        <Text style={{ fontWeight: 500, color: isDarkMode ? '#f3f4f6' : '#374151' }}>
           {item.prefix ? `${item.prefix} ` : ''}{item.first_name} {item.last_name}
         </Text>
       ),
@@ -196,7 +200,7 @@ const CounselDirectoryContent: React.FC<CounselDirectoryProps> = ({ onBack }) =>
       minWidth: 150,
       maxWidth: 200,
       onRender: (item: Counsel) => (
-        <Text style={{ color: isDarkMode ? '#94a3b8' : '#6b7280' }}>
+        <Text style={{ color: isDarkMode ? '#A0A0A0' : '#6B6B6B' }}>
           {item.chambers_name || '-'}
         </Text>
       ),
@@ -207,7 +211,7 @@ const CounselDirectoryContent: React.FC<CounselDirectoryProps> = ({ onBack }) =>
       minWidth: 100,
       maxWidth: 150,
       onRender: (item: Counsel) => (
-        <Text style={{ color: isDarkMode ? '#94a3b8' : '#6b7280' }}>
+        <Text style={{ color: isDarkMode ? '#A0A0A0' : '#6B6B6B' }}>
           {item.area_of_work || '-'}
         </Text>
       ),
@@ -218,7 +222,7 @@ const CounselDirectoryContent: React.FC<CounselDirectoryProps> = ({ onBack }) =>
       minWidth: 100,
       maxWidth: 150,
       onRender: (item: Counsel) => (
-        <Text style={{ color: isDarkMode ? '#94a3b8' : '#6b7280' }}>
+        <Text style={{ color: isDarkMode ? '#A0A0A0' : '#6B6B6B' }}>
           {item.worktype || '-'}
         </Text>
       ),
@@ -247,7 +251,7 @@ const CounselDirectoryContent: React.FC<CounselDirectoryProps> = ({ onBack }) =>
             </Link>
           )}
           {item.clerks_email && (
-            <Text variant="small" style={{ color: isDarkMode ? '#64748b' : '#9ca3af' }}>
+            <Text variant="small" style={{ color: isDarkMode ? '#6B6B6B' : '#A0A0A0' }}>
               Clerks: <Link href={`mailto:${item.clerks_email}`} style={{ color: accentColor }}>{item.clerks_email}</Link>
             </Text>
           )}
@@ -260,7 +264,7 @@ const CounselDirectoryContent: React.FC<CounselDirectoryProps> = ({ onBack }) =>
       minWidth: 100,
       maxWidth: 150,
       onRender: (item: Counsel) => (
-        <Text style={{ color: isDarkMode ? '#94a3b8' : '#6b7280' }}>
+        <Text style={{ color: isDarkMode ? '#A0A0A0' : '#6B6B6B' }}>
           {item.source || '-'}
         </Text>
       ),
@@ -278,7 +282,7 @@ const CounselDirectoryContent: React.FC<CounselDirectoryProps> = ({ onBack }) =>
               title="Website"
               onClick={() => window.open(item.website, '_blank')}
               styles={{
-                root: { color: isDarkMode ? '#94a3b8' : '#6b7280' },
+                root: { color: isDarkMode ? '#A0A0A0' : '#6B6B6B' },
                 rootHovered: { color: accentColor },
               }}
             />
@@ -289,7 +293,7 @@ const CounselDirectoryContent: React.FC<CounselDirectoryProps> = ({ onBack }) =>
               title="View CV"
               onClick={() => window.open(item.cv_url, '_blank')}
               styles={{
-                root: { color: isDarkMode ? '#94a3b8' : '#6b7280' },
+                root: { color: isDarkMode ? '#A0A0A0' : '#6B6B6B' },
                 rootHovered: { color: accentColor },
               }}
             />
@@ -309,16 +313,10 @@ const CounselDirectoryContent: React.FC<CounselDirectoryProps> = ({ onBack }) =>
               <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 12 }}>
                 <Icon iconName="ContactList" style={{ fontSize: 20, color: accentColor }} />
                 <div>
-                  <Text style={{ 
-                    fontSize: '18px', 
-                    fontWeight: 700, 
-                    color: isDarkMode ? '#f1f5f9' : '#1e293b',
-                    display: 'block',
-                    marginBottom: '2px'
-                  }}>
+                  <Text style={getFormHeaderTitleStyle(isDarkMode)}>
                     Counsel Directory
                   </Text>
-                  <Text style={{ fontSize: '13px', color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+                  <Text style={{ fontSize: '13px', color: isDarkMode ? '#A0A0A0' : '#6B6B6B', display: 'block', marginTop: '2px' }}>
                     {filteredCounsel.length} barristers found
                   </Text>
                 </div>
@@ -348,7 +346,7 @@ const CounselDirectoryContent: React.FC<CounselDirectoryProps> = ({ onBack }) =>
               <MessageBar
                 messageBarType={MessageBarType.error}
                 onDismiss={() => setError(null)}
-                style={{ marginBottom: '16px' }}
+                style={getMessageBarStyle(isDarkMode)}
               >
                 {error}
               </MessageBar>
@@ -359,17 +357,19 @@ const CounselDirectoryContent: React.FC<CounselDirectoryProps> = ({ onBack }) =>
               <Stack horizontal tokens={{ childrenGap: 16 }} verticalAlign="end" wrap>
                 <Stack.Item grow>
                   <SearchBox
-                    placeholder="Search by name, chambers, email, or work type..."
+                    placeholder="Search by name, chambers, email, or work type"
                     value={searchText}
                     onChange={(_, val) => setSearchText(val || '')}
                     styles={{
                       root: { 
                         minWidth: 280,
                         border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
-                        background: isDarkMode ? 'rgba(30,41,59,0.5)' : '#ffffff',
+                        background: isDarkMode ? 'rgba(6, 23, 51, 0.5)' : '#ffffff',
+                        borderRadius: 0,
                       },
                       field: {
-                        color: isDarkMode ? '#e2e8f0' : '#374151',
+                        color: isDarkMode ? '#f3f4f6' : '#374151',
+                        fontFamily: "'Raleway', 'Segoe UI', sans-serif",
                       },
                     }}
                   />
@@ -380,18 +380,8 @@ const CounselDirectoryContent: React.FC<CounselDirectoryProps> = ({ onBack }) =>
                   selectedKey={areaFilter}
                   onChange={(_, opt) => setAreaFilter(opt?.key as string || '')}
                   styles={{
-                    dropdown: { 
-                      minWidth: 160,
-                      border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
-                      background: isDarkMode ? 'rgba(30,41,59,0.5)' : '#ffffff',
-                    },
-                    label: {
-                      color: isDarkMode ? '#e2e8f0' : '#374151',
-                      fontWeight: 600,
-                    },
-                    title: {
-                      color: isDarkMode ? '#e2e8f0' : '#374151',
-                    },
+                    ...getDropdownStyles(isDarkMode),
+                    dropdown: { ...((getDropdownStyles(isDarkMode) as any).dropdown || {}), minWidth: 160 },
                   }}
                 />
                 <Dropdown
@@ -400,18 +390,8 @@ const CounselDirectoryContent: React.FC<CounselDirectoryProps> = ({ onBack }) =>
                   selectedKey={priceTierFilter}
                   onChange={(_, opt) => setPriceTierFilter(opt?.key as string || '')}
                   styles={{
-                    dropdown: { 
-                      minWidth: 140,
-                      border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
-                      background: isDarkMode ? 'rgba(30,41,59,0.5)' : '#ffffff',
-                    },
-                    label: {
-                      color: isDarkMode ? '#e2e8f0' : '#374151',
-                      fontWeight: 600,
-                    },
-                    title: {
-                      color: isDarkMode ? '#e2e8f0' : '#374151',
-                    },
+                    ...getDropdownStyles(isDarkMode),
+                    dropdown: { ...((getDropdownStyles(isDarkMode) as any).dropdown || {}), minWidth: 140 },
                   }}
                 />
                 <DefaultButton
@@ -435,11 +415,11 @@ const CounselDirectoryContent: React.FC<CounselDirectoryProps> = ({ onBack }) =>
                   iconName="SearchData" 
                   style={{ 
                     fontSize: 48, 
-                    color: isDarkMode ? '#64748b' : '#9CA3AF', 
+                    color: isDarkMode ? '#6B6B6B' : '#A0A0A0', 
                     marginBottom: '16px' 
                   }} 
                 />
-                <Text style={{ color: isDarkMode ? '#94a3b8' : '#6B7280' }}>
+                <Text style={{ color: isDarkMode ? '#A0A0A0' : '#6B6B6B' }}>
                   No counsel found matching your criteria.
                 </Text>
               </Stack>
@@ -451,18 +431,18 @@ const CounselDirectoryContent: React.FC<CounselDirectoryProps> = ({ onBack }) =>
                 selectionMode={SelectionMode.none}
                 styles={{
                   root: {
-                    background: isDarkMode ? 'rgba(30, 41, 59, 0.3)' : '#ffffff',
+                    background: isDarkMode ? 'rgba(6, 23, 51, 0.3)' : '#ffffff',
                     border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}`,
                     overflow: 'hidden',
                   },
                   headerWrapper: {
                     selectors: {
                       '.ms-DetailsHeader': {
-                        background: isDarkMode ? 'rgba(30, 41, 59, 0.5)' : '#f8fafc',
+                        background: isDarkMode ? 'rgba(6, 23, 51, 0.5)' : '#F4F4F6',
                         borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}`,
                       },
                       '.ms-DetailsHeader-cell': {
-                        color: isDarkMode ? '#e2e8f0' : '#374151',
+                        color: isDarkMode ? '#f3f4f6' : '#374151',
                         fontWeight: 600,
                       },
                     },

@@ -159,12 +159,12 @@ const getRiskColor = (riskLevel: string) => {
         return '#20b26c';
     }
     if (level?.includes('medium') || level === 'review') {
-        return '#FFB900';
+        return colours.orange;
     }
     if (level?.includes('high') || level === 'fail' || level === 'failed' || level === 'rejected') {
         return colours.red;
     }
-    return '#666';
+    return colours.greyText;
 };
 
 const getVerificationStatus = (verifications: any[]) => {
@@ -314,13 +314,13 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                 alignItems: 'center',
                 fontSize: '1rem',
                 fontWeight: 600,
-                color: '#24292f',
+                color: colours.light.text,
                 marginBottom: '8px',
                 borderBottom: '1px solid rgba(0,0,0,0.1)',
                 paddingBottom: '6px'
             }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <FaShieldAlt style={{ fontSize: '14px', color: '#666' }} />
+                    <FaShieldAlt style={{ fontSize: '14px', color: colours.greyText }} />
                     <span style={{
                         fontSize: '1rem',
                         fontWeight: 600,
@@ -332,7 +332,7 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                     <span>{instructionTitle}</span>
                     {isMultiClient && (
-                        <FaUsers style={{ fontSize: '12px', color: '#666', marginLeft: '4px' }} />
+                        <FaUsers style={{ fontSize: '12px', color: colours.greyText, marginLeft: '4px' }} />
                     )}
                 </div>
             </div>
@@ -396,7 +396,7 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                 }}>
                     {/* Risk Status */}
                     <div>
-                        <div style={{ fontSize: '0.7rem', color: '#666', marginBottom: '2px' }}>Status</div>
+                        <div style={{ fontSize: '0.7rem', color: colours.greyText, marginBottom: '2px' }}>Status</div>
                         <div style={{
                             fontSize: '0.8rem',
                             fontWeight: 600,
@@ -420,7 +420,7 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                     {/* Risk Score */}
                     {primaryRisk?.RiskScore && (
                         <div>
-                            <div style={{ fontSize: '0.7rem', color: '#666', marginBottom: '2px' }}>Score</div>
+                            <div style={{ fontSize: '0.7rem', color: colours.greyText, marginBottom: '2px' }}>Score</div>
                             <div style={{ fontSize: '0.8rem', fontWeight: 600 }}>
                                 {primaryRisk.RiskScore}
                             </div>
@@ -430,7 +430,7 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                     {/* Assessor */}
                     {primaryRisk?.RiskAssessor && (
                         <div>
-                            <div style={{ fontSize: '0.7rem', color: '#666', marginBottom: '2px' }}>Assessor</div>
+                            <div style={{ fontSize: '0.7rem', color: colours.greyText, marginBottom: '2px' }}>Assessor</div>
                             <div style={{ fontSize: '0.8rem', fontWeight: 600 }}>
                                 {primaryRisk.RiskAssessor}
                             </div>
@@ -440,7 +440,7 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                     {/* Assessment Date */}
                     {primaryRisk?.ComplianceDate && (
                         <div>
-                            <div style={{ fontSize: '0.7rem', color: '#666', marginBottom: '2px' }}>Assessed</div>
+                            <div style={{ fontSize: '0.7rem', color: colours.greyText, marginBottom: '2px' }}>Assessed</div>
                             <div style={{ fontSize: '0.8rem', fontWeight: 600 }}>
                                 {format(new Date(primaryRisk.ComplianceDate), 'd MMM yyyy')}
                             </div>
@@ -457,7 +457,7 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                         <div style={{
                             fontSize: '0.75rem',
                             fontWeight: 600,
-                            color: '#666',
+                            color: colours.greyText,
                             marginBottom: '6px'
                         }}>
                             Risk Factor Details
@@ -472,10 +472,10 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                             {/* Client Type */}
                             {primaryRisk.ClientType && (
                                 <div style={{ marginBottom: '4px' }}>
-                                    <span style={{ color: '#666', fontWeight: 500 }}>Client Type:</span>
-                                    <div style={{ color: '#24292f', fontWeight: 500, fontSize: '0.75rem' }}>
+                                    <span style={{ color: colours.greyText, fontWeight: 500 }}>Client Type:</span>
+                                    <div style={{ color: colours.light.text, fontWeight: 500, fontSize: '0.75rem' }}>
                                         {primaryRisk.ClientType} 
-                                        <span style={{ color: '#666', fontSize: '0.65rem', marginLeft: '4px' }}>
+                                        <span style={{ color: colours.greyText, fontSize: '0.65rem', marginLeft: '4px' }}>
                                             ({primaryRisk.ClientType_Value}/3)
                                         </span>
                                     </div>
@@ -485,10 +485,10 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                             {/* Value of Instruction */}
                             {primaryRisk.ValueOfInstruction && (
                                 <div style={{ marginBottom: '4px' }}>
-                                    <span style={{ color: '#666', fontWeight: 500 }}>Value:</span>
-                                    <div style={{ color: '#24292f', fontWeight: 500, fontSize: '0.75rem' }}>
+                                    <span style={{ color: colours.greyText, fontWeight: 500 }}>Value:</span>
+                                    <div style={{ color: colours.light.text, fontWeight: 500, fontSize: '0.75rem' }}>
                                         {primaryRisk.ValueOfInstruction}
-                                        <span style={{ color: '#666', fontSize: '0.65rem', marginLeft: '4px' }}>
+                                        <span style={{ color: colours.greyText, fontSize: '0.65rem', marginLeft: '4px' }}>
                                             ({primaryRisk.ValueOfInstruction_Value}/3)
                                         </span>
                                     </div>
@@ -498,10 +498,10 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                             {/* Source of Funds */}
                             {primaryRisk.SourceOfFunds && (
                                 <div style={{ marginBottom: '4px' }}>
-                                    <span style={{ color: '#666', fontWeight: 500 }}>Source of Funds:</span>
-                                    <div style={{ color: '#24292f', fontWeight: 500, fontSize: '0.75rem' }}>
+                                    <span style={{ color: colours.greyText, fontWeight: 500 }}>Source of Funds:</span>
+                                    <div style={{ color: colours.light.text, fontWeight: 500, fontSize: '0.75rem' }}>
                                         {primaryRisk.SourceOfFunds}
-                                        <span style={{ color: '#666', fontSize: '0.65rem', marginLeft: '4px' }}>
+                                        <span style={{ color: colours.greyText, fontSize: '0.65rem', marginLeft: '4px' }}>
                                             ({primaryRisk.SourceOfFunds_Value}/3)
                                         </span>
                                     </div>
@@ -511,10 +511,10 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                             {/* Destination of Funds */}
                             {primaryRisk.DestinationOfFunds && (
                                 <div style={{ marginBottom: '4px' }}>
-                                    <span style={{ color: '#666', fontWeight: 500 }}>Destination:</span>
-                                    <div style={{ color: '#24292f', fontWeight: 500, fontSize: '0.75rem' }}>
+                                    <span style={{ color: colours.greyText, fontWeight: 500 }}>Destination:</span>
+                                    <div style={{ color: colours.light.text, fontWeight: 500, fontSize: '0.75rem' }}>
                                         {primaryRisk.DestinationOfFunds}
-                                        <span style={{ color: '#666', fontSize: '0.65rem', marginLeft: '4px' }}>
+                                        <span style={{ color: colours.greyText, fontSize: '0.65rem', marginLeft: '4px' }}>
                                             ({primaryRisk.DestinationOfFunds_Value}/3)
                                         </span>
                                     </div>
@@ -524,10 +524,10 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                             {/* Funds Type */}
                             {primaryRisk.FundsType && (
                                 <div style={{ marginBottom: '4px' }}>
-                                    <span style={{ color: '#666', fontWeight: 500 }}>Funds Type:</span>
-                                    <div style={{ color: '#24292f', fontWeight: 500, fontSize: '0.75rem' }}>
+                                    <span style={{ color: colours.greyText, fontWeight: 500 }}>Funds Type:</span>
+                                    <div style={{ color: colours.light.text, fontWeight: 500, fontSize: '0.75rem' }}>
                                         {primaryRisk.FundsType}
-                                        <span style={{ color: '#666', fontSize: '0.65rem', marginLeft: '4px' }}>
+                                        <span style={{ color: colours.greyText, fontSize: '0.65rem', marginLeft: '4px' }}>
                                             ({primaryRisk.FundsType_Value}/3)
                                         </span>
                                     </div>
@@ -537,10 +537,10 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                             {/* Client Introduction */}
                             {primaryRisk.HowWasClientIntroduced && (
                                 <div style={{ marginBottom: '4px' }}>
-                                    <span style={{ color: '#666', fontWeight: 500 }}>Introduction:</span>
-                                    <div style={{ color: '#24292f', fontWeight: 500, fontSize: '0.75rem' }}>
+                                    <span style={{ color: colours.greyText, fontWeight: 500 }}>Introduction:</span>
+                                    <div style={{ color: colours.light.text, fontWeight: 500, fontSize: '0.75rem' }}>
                                         {primaryRisk.HowWasClientIntroduced}
-                                        <span style={{ color: '#666', fontSize: '0.65rem', marginLeft: '4px' }}>
+                                        <span style={{ color: colours.greyText, fontSize: '0.65rem', marginLeft: '4px' }}>
                                             ({primaryRisk.HowWasClientIntroduced_Value}/3)
                                         </span>
                                     </div>
@@ -550,15 +550,15 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                             {/* Limitation */}
                             {primaryRisk.Limitation && (
                                 <div style={{ marginBottom: '4px' }}>
-                                    <span style={{ color: '#666', fontWeight: 500 }}>Limitation:</span>
+                                    <span style={{ color: colours.greyText, fontWeight: 500 }}>Limitation:</span>
                                     <div style={{ 
-                                        color: primaryRisk.Limitation_Value === 3 ? '#d13438' : '#24292f', 
+                                        color: primaryRisk.Limitation_Value === 3 ? colours.cta : colours.light.text, 
                                         fontWeight: primaryRisk.Limitation_Value === 3 ? 600 : 500, 
                                         fontSize: '0.75rem' 
                                     }}>
                                         {primaryRisk.Limitation}
                                         <span style={{ 
-                                            color: primaryRisk.Limitation_Value === 3 ? '#d13438' : '#666', 
+                                            color: primaryRisk.Limitation_Value === 3 ? colours.cta : colours.greyText, 
                                             fontSize: '0.65rem', 
                                             marginLeft: '4px',
                                             fontWeight: primaryRisk.Limitation_Value === 3 ? 600 : 400
@@ -572,7 +572,7 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                             {/* Transaction Risk Level */}
                             {primaryRisk.TransactionRiskLevel && (
                                 <div style={{ marginBottom: '4px' }}>
-                                    <span style={{ color: '#666', fontWeight: 500 }}>Transaction Risk:</span>
+                                    <span style={{ color: colours.greyText, fontWeight: 500 }}>Transaction Risk:</span>
                                     <div style={{ 
                                         color: getRiskColor(primaryRisk.RiskAssessmentResult), 
                                         fontWeight: 500, 
@@ -600,11 +600,11 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                     width: '6px',
                                     height: '6px',
                                     borderRadius: '50%',
-                                    backgroundColor: primaryRisk.ClientRiskFactorsConsidered ? '#20b26c' : '#d13438'
+                                    backgroundColor: primaryRisk.ClientRiskFactorsConsidered ? '#20b26c' : colours.cta
                                 }} />
-                                <span style={{ color: '#666', fontWeight: 500 }}>Client Risk Factors:</span>
+                                <span style={{ color: colours.greyText, fontWeight: 500 }}>Client Risk Factors:</span>
                                 <span style={{ 
-                                    color: primaryRisk.ClientRiskFactorsConsidered ? '#20b26c' : '#d13438',
+                                    color: primaryRisk.ClientRiskFactorsConsidered ? '#20b26c' : colours.cta,
                                     fontWeight: 600 
                                 }}>
                                     {primaryRisk.ClientRiskFactorsConsidered ? 'Considered' : 'Not Considered'}
@@ -617,11 +617,11 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                     width: '6px',
                                     height: '6px',
                                     borderRadius: '50%',
-                                    backgroundColor: primaryRisk.TransactionRiskFactorsConsidered ? '#20b26c' : '#d13438'
+                                    backgroundColor: primaryRisk.TransactionRiskFactorsConsidered ? '#20b26c' : colours.cta
                                 }} />
-                                <span style={{ color: '#666', fontWeight: 500 }}>Transaction Risk:</span>
+                                <span style={{ color: colours.greyText, fontWeight: 500 }}>Transaction Risk:</span>
                                 <span style={{ 
-                                    color: primaryRisk.TransactionRiskFactorsConsidered ? '#20b26c' : '#d13438',
+                                    color: primaryRisk.TransactionRiskFactorsConsidered ? '#20b26c' : colours.cta,
                                     fontWeight: 600 
                                 }}>
                                     {primaryRisk.TransactionRiskFactorsConsidered ? 'Considered' : 'Not Considered'}
@@ -634,11 +634,11 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                     width: '6px',
                                     height: '6px',
                                     borderRadius: '50%',
-                                    backgroundColor: primaryRisk.FirmWideAMLPolicyConsidered ? '#20b26c' : '#d13438'
+                                    backgroundColor: primaryRisk.FirmWideAMLPolicyConsidered ? '#20b26c' : colours.cta
                                 }} />
-                                <span style={{ color: '#666', fontWeight: 500 }}>AML Policy:</span>
+                                <span style={{ color: colours.greyText, fontWeight: 500 }}>AML Policy:</span>
                                 <span style={{ 
-                                    color: primaryRisk.FirmWideAMLPolicyConsidered ? '#20b26c' : '#d13438',
+                                    color: primaryRisk.FirmWideAMLPolicyConsidered ? '#20b26c' : colours.cta,
                                     fontWeight: 600 
                                 }}>
                                     {primaryRisk.FirmWideAMLPolicyConsidered ? 'Considered' : 'Not Considered'}
@@ -651,11 +651,11 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                     width: '6px',
                                     height: '6px',
                                     borderRadius: '50%',
-                                    backgroundColor: primaryRisk.FirmWideSanctionsRiskConsidered ? '#20b26c' : '#d13438'
+                                    backgroundColor: primaryRisk.FirmWideSanctionsRiskConsidered ? '#20b26c' : colours.cta
                                 }} />
-                                <span style={{ color: '#666', fontWeight: 500 }}>Sanctions Risk:</span>
+                                <span style={{ color: colours.greyText, fontWeight: 500 }}>Sanctions Risk:</span>
                                 <span style={{ 
-                                    color: primaryRisk.FirmWideSanctionsRiskConsidered ? '#20b26c' : '#d13438',
+                                    color: primaryRisk.FirmWideSanctionsRiskConsidered ? '#20b26c' : colours.cta,
                                     fontWeight: 600 
                                 }}>
                                     {primaryRisk.FirmWideSanctionsRiskConsidered ? 'Considered' : 'Not Considered'}
@@ -668,13 +668,13 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                             <div style={{
                                 marginTop: '8px',
                                 padding: '6px 8px',
-                                backgroundColor: new Date(primaryRisk.ComplianceExpiry) < new Date() ? '#fff5f5' : '#f0f9ff',
-                                border: `1px solid ${new Date(primaryRisk.ComplianceExpiry) < new Date() ? '#fecaca' : '#bfdbfe'}`,
+                                backgroundColor: new Date(primaryRisk.ComplianceExpiry) < new Date() ? 'rgba(214, 85, 65, 0.06)' : 'rgba(54, 144, 206, 0.06)',
+                                border: `1px solid ${new Date(primaryRisk.ComplianceExpiry) < new Date() ? 'rgba(214, 85, 65, 0.25)' : 'rgba(54, 144, 206, 0.25)'}`,
                                 borderRadius: '2px',
                                 fontSize: '0.7rem'
                             }}>
                                 <span style={{ 
-                                    color: new Date(primaryRisk.ComplianceExpiry) < new Date() ? '#dc2626' : '#3690CE',
+                                    color: new Date(primaryRisk.ComplianceExpiry) < new Date() ? colours.cta : colours.highlight,
                                     fontWeight: 500 
                                 }}>
                                     Expires: {format(new Date(primaryRisk.ComplianceExpiry), 'd MMM yyyy')}
@@ -787,8 +787,8 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                 fontWeight: 600,
                                 color: getClientVerificationStatus(leadClient) === 'complete' ? '#20b26c' :
                                        getClientVerificationStatus(leadClient) === 'failed' ? colours.red :
-                                       getClientVerificationStatus(leadClient) === 'review' ? '#FFB900' :
-                                       getClientVerificationStatus(leadClient) === 'in-progress' ? '#3690CE' : '#666',
+                                       getClientVerificationStatus(leadClient) === 'review' ? colours.orange :
+                                       getClientVerificationStatus(leadClient) === 'in-progress' ? '#3690CE' : colours.greyText,
                                 display: 'flex',
                                 alignItems: 'center',
                                 gap: '4px',
@@ -800,8 +800,8 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                     borderRadius: '50%',
                                     backgroundColor: getClientVerificationStatus(leadClient) === 'complete' ? '#20b26c' :
                                                    getClientVerificationStatus(leadClient) === 'failed' ? colours.red :
-                                                   getClientVerificationStatus(leadClient) === 'review' ? '#FFB900' :
-                                                   getClientVerificationStatus(leadClient) === 'in-progress' ? '#3690CE' : '#ccc'
+                                                   getClientVerificationStatus(leadClient) === 'review' ? colours.orange :
+                                                   getClientVerificationStatus(leadClient) === 'in-progress' ? '#3690CE' : colours.subtleGrey
                                 }} />
                                 ID Verification: {getClientVerificationStatus(leadClient) === 'complete' ? 'Verified' :
                                                  getClientVerificationStatus(leadClient) === 'failed' ? 'Failed' :
@@ -836,7 +836,7 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                     }}>
                                         {leadClient.idVerification.EIDOverallResult && (
                                             <div>
-                                                <span style={{ color: '#666', fontWeight: 500 }}>Overall Result:</span>
+                                                <span style={{ color: colours.greyText, fontWeight: 500 }}>Overall Result:</span>
                                                 <div style={{ 
                                                     color: getRiskColor(leadClient.idVerification.EIDOverallResult || ''),
                                                     fontWeight: 600,
@@ -849,7 +849,7 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                                     <span>{leadClient.idVerification.EIDOverallResult}</span>
                                                     {(leadClient.idVerification.PEPAndSanctionsCheckResult || leadClient.idVerification.AddressVerificationResult) && (
                                                         <>
-                                                            <span style={{ color: '#ccc' }}>|</span>
+                                                            <span style={{ color: colours.subtleGrey }}>|</span>
                                                             <div style={{ display: 'flex', gap: '4px', fontSize: '0.65rem' }}>
                                                                 {leadClient.idVerification.PEPAndSanctionsCheckResult && (
                                                                     <span style={{ 
@@ -884,11 +884,11 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                         
                                         {leadClient.idVerification.EIDCheckedDate && (
                                             <div>
-                                                <span style={{ color: '#666', fontWeight: 500 }}>Check Date:</span>
-                                                <div style={{ color: '#24292f', fontWeight: 500, fontSize: '0.75rem', marginTop: '2px' }}>
+                                                <span style={{ color: colours.greyText, fontWeight: 500 }}>Check Date:</span>
+                                                <div style={{ color: colours.light.text, fontWeight: 500, fontSize: '0.75rem', marginTop: '2px' }}>
                                                     {new Date(leadClient.idVerification.EIDCheckedDate).toLocaleDateString()}
                                                     {leadClient.idVerification.EIDCheckedTime && (
-                                                        <span style={{ color: '#666', fontWeight: 400, marginLeft: '4px' }}>
+                                                        <span style={{ color: colours.greyText, fontWeight: 400, marginLeft: '4px' }}>
                                                             <FaClock style={{ fontSize: '9px', marginRight: '2px' }} />
                                                             {leadClient.idVerification.EIDCheckedTime.substring(0, 5)}
                                                         </span>
@@ -899,8 +899,8 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                         
                                         {leadClient.idVerification.CheckExpiry && (
                                             <div>
-                                                <span style={{ color: '#666', fontWeight: 500 }}>Check Expires:</span>
-                                                <div style={{ color: '#24292f', fontWeight: 500, fontSize: '0.75rem', marginTop: '2px' }}>
+                                                <span style={{ color: colours.greyText, fontWeight: 500 }}>Check Expires:</span>
+                                                <div style={{ color: colours.light.text, fontWeight: 500, fontSize: '0.75rem', marginTop: '2px' }}>
                                                     {new Date(leadClient.idVerification.CheckExpiry).toLocaleDateString()}
                                                 </div>
                                             </div>
@@ -908,8 +908,8 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                         
                                         {leadClient.idVerification.EIDProvider && (
                                             <div>
-                                                <span style={{ color: '#666', fontWeight: 500 }}>Provider:</span>
-                                                <div style={{ color: '#24292f', fontWeight: 500, fontSize: '0.75rem', marginTop: '2px', textTransform: 'capitalize' }}>
+                                                <span style={{ color: colours.greyText, fontWeight: 500 }}>Provider:</span>
+                                                <div style={{ color: colours.light.text, fontWeight: 500, fontSize: '0.75rem', marginTop: '2px', textTransform: 'capitalize' }}>
                                                     {leadClient.idVerification.EIDProvider}
                                                 </div>
                                             </div>
@@ -962,8 +962,8 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                                                 color: '#3690CE',
                                                                 flexShrink: 0
                                                             }} />
-                                                            <span style={{ color: '#666' }}>Phone:</span>
-                                                            <span style={{ fontWeight: 500, color: '#24292f' }}>{phone}</span>
+                                                            <span style={{ color: colours.greyText }}>Phone:</span>
+                                                            <span style={{ fontWeight: 500, color: colours.light.text }}>{phone}</span>
                                                         </div>
                                                     )}
                                                     
@@ -978,10 +978,10 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                                                 color: '#3690CE',
                                                                 flexShrink: 0
                                                             }} />
-                                                            <span style={{ color: '#666' }}>Passport:</span>
+                                                            <span style={{ color: colours.greyText }}>Passport:</span>
                                                             <span style={{ 
                                                                 fontWeight: 500, 
-                                                                color: '#24292f',
+                                                                color: colours.light.text,
                                                                 fontFamily: 'monospace',
                                                                 fontSize: '0.6rem',
                                                                 letterSpacing: '0.5px'
@@ -1002,10 +1002,10 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                                                 color: '#3690CE',
                                                                 flexShrink: 0
                                                             }} />
-                                                            <span style={{ color: '#666' }}>License:</span>
+                                                            <span style={{ color: colours.greyText }}>License:</span>
                                                             <span style={{ 
                                                                 fontWeight: 500, 
-                                                                color: '#24292f',
+                                                                color: colours.light.text,
                                                                 fontFamily: 'monospace',
                                                                 fontSize: '0.6rem',
                                                                 letterSpacing: '0.5px'
@@ -1030,10 +1030,10 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                                             marginTop: '1px'
                                                         }} />
                                                         <div>
-                                                            <div style={{ color: '#666', marginBottom: '2px' }}>Address:</div>
+                                                            <div style={{ color: colours.greyText, marginBottom: '2px' }}>Address:</div>
                                                             <div style={{ 
                                                                 fontWeight: 500, 
-                                                                color: '#24292f',
+                                                                color: colours.light.text,
                                                                 lineHeight: '1.3',
                                                                 fontSize: '0.6rem'
                                                             }}>
@@ -1071,8 +1071,8 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                             }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                                                     <FaBuilding style={{ fontSize: '9px', color: '#3690CE' }} />
-                                                    <span style={{ color: '#666' }}>Company:</span>
-                                                    <span style={{ fontWeight: 500, color: '#24292f' }}>{leadClient.CompanyName}</span>
+                                                    <span style={{ color: colours.greyText }}>Company:</span>
+                                                    <span style={{ fontWeight: 500, color: colours.light.text }}>{leadClient.CompanyName}</span>
                                                 </div>
                                                 
                                                 {(() => {
@@ -1085,8 +1085,8 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                                     return companyNumber ? (
                                                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                                                             <FaIdCard style={{ fontSize: '9px', color: '#3690CE' }} />
-                                                            <span style={{ color: '#666' }}>Company No:</span>
-                                                            <span style={{ fontWeight: 500, color: '#24292f', fontFamily: 'monospace' }}>{companyNumber}</span>
+                                                            <span style={{ color: colours.greyText }}>Company No:</span>
+                                                            <span style={{ fontWeight: 500, color: colours.light.text, fontFamily: 'monospace' }}>{companyNumber}</span>
                                                         </div>
                                                     ) : null;
                                                 })()}
@@ -1114,7 +1114,7 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                             </div>
                                             <div style={{
                                                 fontSize: '0.7rem',
-                                                color: '#24292f',
+                                                color: colours.light.text,
                                                 lineHeight: '1.4',
                                                 fontFamily: 'Raleway, sans-serif'
                                             }}>
@@ -1146,7 +1146,7 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                                 ) : (
                                                     // No address data available - show placeholder
                                                     <div style={{
-                                                        color: '#666',
+                                                        color: colours.greyText,
                                                         fontStyle: 'italic',
                                                         fontSize: '0.65rem',
                                                         fontFamily: 'Raleway, sans-serif'
@@ -1176,7 +1176,7 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                             paddingTop: '8px',
                                             borderTop: '1px solid rgba(54, 144, 206, 0.1)',
                                             fontSize: '0.65rem',
-                                            color: '#888',
+                                            color: colours.subtleGrey,
                                             fontFamily: 'monospace',
                                             letterSpacing: '0.5px'
                                         }}>
@@ -1228,7 +1228,7 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                     gap: '8px',
                                     marginBottom: '4px'
                                 }}>
-                                    <FaUser style={{ fontSize: '12px', color: '#666' }} />
+                                    <FaUser style={{ fontSize: '12px', color: colours.greyText }} />
                                     <span style={{ 
                                         fontSize: '0.85rem', 
                                         fontWeight: 500
@@ -1292,8 +1292,8 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                     fontWeight: 600,
                                     color: clientVerificationStatus === 'complete' ? '#20b26c' :
                                            clientVerificationStatus === 'failed' ? colours.red :
-                                           clientVerificationStatus === 'review' ? '#FFB900' :
-                                           clientVerificationStatus === 'in-progress' ? '#3690CE' : '#666',
+                                           clientVerificationStatus === 'review' ? colours.orange :
+                                           clientVerificationStatus === 'in-progress' ? '#3690CE' : colours.greyText,
                                     display: 'flex',
                                     alignItems: 'center',
                                     gap: '4px',
@@ -1305,8 +1305,8 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                         borderRadius: '50%',
                                         backgroundColor: clientVerificationStatus === 'complete' ? '#20b26c' :
                                                        clientVerificationStatus === 'failed' ? colours.red :
-                                                       clientVerificationStatus === 'review' ? '#FFB900' :
-                                                       clientVerificationStatus === 'in-progress' ? '#3690CE' : '#ccc'
+                                                       clientVerificationStatus === 'review' ? colours.orange :
+                                                       clientVerificationStatus === 'in-progress' ? '#3690CE' : colours.subtleGrey
                                     }} />
                                     ID Verification: {clientVerificationStatus === 'complete' ? 'Verified' :
                                                      clientVerificationStatus === 'failed' ? 'Failed' :
@@ -1327,7 +1327,7 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                         <div style={{
                                             fontSize: '0.75rem',
                                             fontWeight: 600,
-                                            color: '#666',
+                                            color: colours.greyText,
                                             marginBottom: '8px'
                                         }}>
                                             ID Verification Details
@@ -1341,7 +1341,7 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                         }}>
                                             {client.idVerification.EIDOverallResult && (
                                                 <div>
-                                                    <span style={{ color: '#666', fontWeight: 500 }}>Overall Result:</span>
+                                                    <span style={{ color: colours.greyText, fontWeight: 500 }}>Overall Result:</span>
                                                     <div style={{ 
                                                         color: getRiskColor(client.idVerification.EIDOverallResult || ''),
                                                         fontWeight: 600,
@@ -1354,7 +1354,7 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                                         <span>{client.idVerification.EIDOverallResult}</span>
                                                         {(client.idVerification.PEPAndSanctionsCheckResult || client.idVerification.AddressVerificationResult) && (
                                                             <>
-                                                                <span style={{ color: '#ccc' }}>|</span>
+                                                                <span style={{ color: colours.subtleGrey }}>|</span>
                                                                 <div style={{ display: 'flex', gap: '4px', fontSize: '0.65rem' }}>
                                                                     {client.idVerification.PEPAndSanctionsCheckResult && (
                                                                         <span style={{ 
@@ -1389,11 +1389,11 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                             
                                             {client.idVerification.EIDCheckedDate && (
                                                 <div>
-                                                    <span style={{ color: '#666', fontWeight: 500 }}>Check Date:</span>
-                                                    <div style={{ color: '#24292f', fontWeight: 500, fontSize: '0.75rem', marginTop: '2px' }}>
+                                                    <span style={{ color: colours.greyText, fontWeight: 500 }}>Check Date:</span>
+                                                    <div style={{ color: colours.light.text, fontWeight: 500, fontSize: '0.75rem', marginTop: '2px' }}>
                                                         {new Date(client.idVerification.EIDCheckedDate).toLocaleDateString()}
                                                         {client.idVerification.EIDCheckedTime && (
-                                                            <span style={{ color: '#666', fontWeight: 400, marginLeft: '4px' }}>
+                                                            <span style={{ color: colours.greyText, fontWeight: 400, marginLeft: '4px' }}>
                                                                 <FaClock style={{ fontSize: '9px', marginRight: '2px' }} />
                                                                 {client.idVerification.EIDCheckedTime.substring(0, 5)}
                                                             </span>
@@ -1404,8 +1404,8 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                             
                                             {client.idVerification.CheckExpiry && (
                                                 <div>
-                                                    <span style={{ color: '#666', fontWeight: 500 }}>Check Expires:</span>
-                                                    <div style={{ color: '#24292f', fontWeight: 500, fontSize: '0.75rem', marginTop: '2px' }}>
+                                                    <span style={{ color: colours.greyText, fontWeight: 500 }}>Check Expires:</span>
+                                                    <div style={{ color: colours.light.text, fontWeight: 500, fontSize: '0.75rem', marginTop: '2px' }}>
                                                         {new Date(client.idVerification.CheckExpiry).toLocaleDateString()}
                                                     </div>
                                                 </div>
@@ -1413,8 +1413,8 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                             
                                             {client.idVerification.EIDProvider && (
                                                 <div>
-                                                    <span style={{ color: '#666', fontWeight: 500 }}>Provider:</span>
-                                                    <div style={{ color: '#24292f', fontWeight: 500, fontSize: '0.75rem', marginTop: '2px', textTransform: 'capitalize' }}>
+                                                    <span style={{ color: colours.greyText, fontWeight: 500 }}>Provider:</span>
+                                                    <div style={{ color: colours.light.text, fontWeight: 500, fontSize: '0.75rem', marginTop: '2px', textTransform: 'capitalize' }}>
                                                         {client.idVerification.EIDProvider}
                                                     </div>
                                                 </div>
@@ -1464,11 +1464,11 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                                             }}>
                                                                 <FaPhone style={{ 
                                                                     fontSize: '9px', 
-                                                                    color: '#666',
+                                                                    color: colours.greyText,
                                                                     flexShrink: 0
                                                                 }} />
-                                                                <span style={{ color: '#666' }}>Phone:</span>
-                                                                <span style={{ fontWeight: 500, color: '#24292f' }}>{phone}</span>
+                                                                <span style={{ color: colours.greyText }}>Phone:</span>
+                                                                <span style={{ fontWeight: 500, color: colours.light.text }}>{phone}</span>
                                                             </div>
                                                         )}
                                                         
@@ -1480,13 +1480,13 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                                             }}>
                                                                 <FaIdCard style={{ 
                                                                     fontSize: '9px', 
-                                                                    color: '#666',
+                                                                    color: colours.greyText,
                                                                     flexShrink: 0
                                                                 }} />
-                                                                <span style={{ color: '#666' }}>Passport:</span>
+                                                                <span style={{ color: colours.greyText }}>Passport:</span>
                                                                 <span style={{ 
                                                                     fontWeight: 500, 
-                                                                    color: '#24292f',
+                                                                    color: colours.light.text,
                                                                     fontFamily: 'monospace',
                                                                     fontSize: '0.6rem',
                                                                     letterSpacing: '0.5px'
@@ -1504,13 +1504,13 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                                             }}>
                                                                 <FaIdCard style={{ 
                                                                     fontSize: '9px', 
-                                                                    color: '#666',
+                                                                    color: colours.greyText,
                                                                     flexShrink: 0
                                                                 }} />
-                                                                <span style={{ color: '#666' }}>License:</span>
+                                                                <span style={{ color: colours.greyText }}>License:</span>
                                                                 <span style={{ 
                                                                     fontWeight: 500, 
-                                                                    color: '#24292f',
+                                                                    color: colours.light.text,
                                                                     fontFamily: 'monospace',
                                                                     fontSize: '0.6rem',
                                                                     letterSpacing: '0.5px'
@@ -1530,15 +1530,15 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                                         }}>
                                                             <FaMapMarkerAlt style={{ 
                                                                 fontSize: '9px', 
-                                                                color: '#666',
+                                                                color: colours.greyText,
                                                                 flexShrink: 0,
                                                                 marginTop: '1px'
                                                             }} />
                                                             <div>
-                                                                <div style={{ color: '#666', marginBottom: '2px' }}>Address:</div>
+                                                                <div style={{ color: colours.greyText, marginBottom: '2px' }}>Address:</div>
                                                                 <div style={{ 
                                                                     fontWeight: 500, 
-                                                                    color: '#24292f',
+                                                                    color: colours.light.text,
                                                                     lineHeight: '1.3',
                                                                     fontSize: '0.6rem'
                                                                 }}>
@@ -1561,7 +1561,7 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                                 <div style={{
                                                     fontSize: '0.7rem',
                                                     fontWeight: 600,
-                                                    color: '#666',
+                                                    color: colours.greyText,
                                                     marginBottom: '6px',
                                                     fontFamily: 'Raleway, sans-serif'
                                                 }}>
@@ -1575,9 +1575,9 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                                     fontSize: '0.65rem'
                                                 }}>
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                        <FaBuilding style={{ fontSize: '9px', color: '#666' }} />
-                                                        <span style={{ color: '#666' }}>Company:</span>
-                                                        <span style={{ fontWeight: 500, color: '#24292f' }}>{client.CompanyName}</span>
+                                                        <FaBuilding style={{ fontSize: '9px', color: colours.greyText }} />
+                                                        <span style={{ color: colours.greyText }}>Company:</span>
+                                                        <span style={{ fontWeight: 500, color: colours.light.text }}>{client.CompanyName}</span>
                                                     </div>
                                                     
                                                     {(() => {
@@ -1589,9 +1589,9 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                                         
                                                         return companyNumber ? (
                                                             <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                                <FaIdCard style={{ fontSize: '9px', color: '#666' }} />
-                                                                <span style={{ color: '#666' }}>Company No:</span>
-                                                                <span style={{ fontWeight: 500, color: '#24292f', fontFamily: 'monospace' }}>{companyNumber}</span>
+                                                                <FaIdCard style={{ fontSize: '9px', color: colours.greyText }} />
+                                                                <span style={{ color: colours.greyText }}>Company No:</span>
+                                                                <span style={{ fontWeight: 500, color: colours.light.text, fontFamily: 'monospace' }}>{companyNumber}</span>
                                                             </div>
                                                         ) : null;
                                                     })()}
@@ -1611,7 +1611,7 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                                 <div style={{
                                                     fontSize: '0.7rem',
                                                     fontWeight: 600,
-                                                    color: '#666',
+                                                    color: colours.greyText,
                                                     marginBottom: '6px',
                                                     fontFamily: 'Raleway, sans-serif'
                                                 }}>
@@ -1619,7 +1619,7 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                                 </div>
                                                 <div style={{
                                                     fontSize: '0.7rem',
-                                                    color: '#24292f',
+                                                    color: colours.light.text,
                                                     lineHeight: '1.4',
                                                     fontFamily: 'Raleway, sans-serif'
                                                 }}>
@@ -1651,7 +1651,7 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                                     ) : (
                                                         // No address data available - show placeholder
                                                         <div style={{
-                                                            color: '#666',
+                                                            color: colours.greyText,
                                                             fontStyle: 'italic',
                                                             fontSize: '0.65rem',
                                                             fontFamily: 'Raleway, sans-serif'
@@ -1681,7 +1681,7 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                                 paddingTop: '8px',
                                                 borderTop: '1px solid rgba(102, 102, 102, 0.1)',
                                                 fontSize: '0.65rem',
-                                                color: '#888',
+                                                color: colours.subtleGrey,
                                                 fontFamily: 'monospace',
                                                 letterSpacing: '0.5px'
                                             }}>
@@ -1753,7 +1753,7 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                             return (
                                 <div style={{
                                     fontSize: '0.75rem',
-                                    color: '#666',
+                                    color: colours.greyText,
                                     fontStyle: 'italic',
                                     textAlign: 'center',
                                     padding: '8px'
@@ -1796,13 +1796,13 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                             <div>
                                                 <div style={{
                                                     fontWeight: 500,
-                                                    color: '#24292f',
+                                                    color: colours.light.text,
                                                     marginBottom: '2px'
                                                 }}>
                                                     {doc.FileName || 'Unnamed document'}
                                                 </div>
                                                 <div style={{
-                                                    color: '#666',
+                                                    color: colours.greyText,
                                                     fontSize: '0.7rem',
                                                     display: 'flex',
                                                     flexDirection: 'column',
@@ -1828,7 +1828,7 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                                         handleCopyUrl(doc);
                                                     }}
                                                     style={{
-                                                        color: '#666',
+                                                        color: colours.greyText,
                                                         backgroundColor: 'transparent',
                                                         border: 'none',
                                                         cursor: 'pointer',
@@ -1846,7 +1846,7 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                                                     }}
                                                     onMouseOut={(e) => {
                                                         e.currentTarget.style.backgroundColor = 'transparent';
-                                                        e.currentTarget.style.color = '#666';
+                                                        e.currentTarget.style.color = colours.greyText;
                                                     }}
                                                     title="Copy document URL"
                                                 >
@@ -1908,7 +1908,7 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                 }}>
                     {/* Overall Compliance Status */}
                     <div>
-                        <div style={{ fontSize: '0.7rem', color: '#666', marginBottom: '2px' }}>Overall Status</div>
+                        <div style={{ fontSize: '0.7rem', color: colours.greyText, marginBottom: '2px' }}>Overall Status</div>
                         <div style={{
                             fontSize: '0.8rem',
                             fontWeight: 600,
@@ -1930,7 +1930,7 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
                     {/* Total Clients */}
                     {isMultiClient && (
                         <div>
-                            <div style={{ fontSize: '0.7rem', color: '#666', marginBottom: '2px' }}>Total Clients</div>
+                            <div style={{ fontSize: '0.7rem', color: colours.greyText, marginBottom: '2px' }}>Total Clients</div>
                             <div style={{ fontSize: '0.8rem', fontWeight: 600 }}>
                                 {data.clients.length} ({leadClient ? '1 Lead + ' : ''}{jointClients.length} Joint)
                             </div>
@@ -1939,7 +1939,7 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
 
                     {/* Verifications Complete */}
                     <div>
-                        <div style={{ fontSize: '0.7rem', color: '#666', marginBottom: '2px' }}>ID Verified</div>
+                        <div style={{ fontSize: '0.7rem', color: colours.greyText, marginBottom: '2px' }}>ID Verified</div>
                         <div style={{ fontSize: '0.8rem', fontWeight: 600 }}>
                             {data.clients ? 
                                 data.clients.filter(c => getClientVerificationStatus(c) === 'complete').length 
@@ -1949,7 +1949,7 @@ const RiskComplianceCard: React.FC<RiskComplianceCardProps> = ({
 
                     {/* Risk Level */}
                     <div>
-                        <div style={{ fontSize: '0.7rem', color: '#666', marginBottom: '2px' }}>Risk Level</div>
+                        <div style={{ fontSize: '0.7rem', color: colours.greyText, marginBottom: '2px' }}>Risk Level</div>
                         <div style={{
                             fontSize: '0.8rem',
                             fontWeight: 600,

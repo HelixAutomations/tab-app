@@ -1337,7 +1337,7 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                                 ...actionButtonStyles,
                                 icon: { 
                                     ...actionButtonStyles.icon, 
-                                    color: selectedIsFavorite ? '#eab308' : actionButtonStyles.icon.color 
+                                    color: selectedIsFavorite ? colours.orange : actionButtonStyles.icon.color 
                                 }
                             }}
                         />
@@ -1386,10 +1386,10 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                                         styles={{ root: { height: 24, padding: '0 8px' }, label: { fontSize: 11 } }}
                                     />
                                     {netDocumentsUserResult && (
-                                        <Text style={{ fontSize: 11, color: '#10b981' }}>Membership loaded</Text>
+                                        <Text style={{ fontSize: 11, color: colours.green }}>Membership loaded</Text>
                                     )}
                                     {netDocumentsUserError && (
-                                        <Text style={{ fontSize: 11, color: '#ef4444' }}>{netDocumentsUserError}</Text>
+                                        <Text style={{ fontSize: 11, color: colours.cta }}>{netDocumentsUserError}</Text>
                                     )}
                                 </div>
                             </div>
@@ -1458,8 +1458,8 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                             </div>
 
                             {netDocumentsWorkspaceError && (
-                                <div style={{ padding: '8px 12px', borderRadius: 0, background: isDarkMode ? 'rgba(248,113,113,0.1)' : '#fef2f2', marginBottom: 12 }}>
-                                    <Text style={{ fontSize: 12, color: isDarkMode ? 'rgba(248,113,113,0.9)' : '#b91c1c' }}>
+                                <div style={{ padding: '8px 12px', borderRadius: 0, background: isDarkMode ? 'rgba(214,85,65,0.1)' : 'rgba(214, 85, 65, 0.06)', marginBottom: 12 }}>
+                                    <Text style={{ fontSize: 12, color: isDarkMode ? `rgba(214,85,65,0.9)` : colours.cta }}>
                                         {netDocumentsWorkspaceError}
                                     </Text>
                                 </div>
@@ -1485,7 +1485,7 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                                     }}>
                                         {/* Breadcrumbs */}
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden', whiteSpace: 'nowrap' }}>
-                                            <Icon iconName="FabricFolder" style={{ color: isDarkMode ? '#93c5fd' : '#2563eb', fontSize: 14 }} />
+                                            <Icon iconName="FabricFolder" style={{ color: isDarkMode ? colours.accent : colours.highlight, fontSize: 14 }} />
                                             {netDocumentsWorkspaceResult && !netDocumentsBreadcrumbs.length && (
                                                 <span 
                                                     style={{ fontSize: 12, fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}
@@ -1533,7 +1533,7 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                                             ))}
                                             {netDocumentsWorkspaceResult && !netDocumentsBreadcrumbs.length && (
                                                 <span 
-                                                    style={{ fontSize: 10, color: '#93c5fd', cursor: 'pointer', marginLeft: 8 }}
+                                                    style={{ fontSize: 10, color: colours.accent, cursor: 'pointer', marginLeft: 8 }}
                                                     onClick={() => {
                                                         if (netDocumentsWorkspaceResult.clientId && netDocumentsWorkspaceResult.matterKey) {
                                                             setNetDocumentsBreadcrumbs([{ id: netDocumentsWorkspaceResult.id || '', name: netDocumentsWorkspaceResult.name || 'Workspace', type: 'workspace' }]);
@@ -1642,7 +1642,7 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                                                         iconName={item.type === 'container' ? 'FolderHorizontal' : 'Page'} 
                                                         style={{ 
                                                             fontSize: 16, 
-                                                            color: item.type === 'container' ? (isDarkMode ? '#fbbf24' : '#d97706') : (isDarkMode ? '#d1d5db' : '#374151') 
+                                                            color: item.type === 'container' ? colours.orange : (isDarkMode ? '#d1d5db' : '#374151') 
                                                         }} 
                                                     />
                                                     <div style={{ minWidth: 0 }}>
@@ -1706,7 +1706,7 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                         <div style={cardStyle}>
                             <Text style={sectionTitleStyle}>Overview</Text>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                                <Icon iconName="Link" style={{ color: isDarkMode ? '#93c5fd' : '#2563eb' }} />
+                                <Icon iconName="Link" style={{ color: isDarkMode ? colours.accent : colours.highlight }} />
                                 <Text style={{ fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151' }}>
                                     {resource.url}
                                 </Text>
@@ -1742,7 +1742,7 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                                     />
                                 </div>
                                 {azureUserError && (
-                                    <Text style={{ fontSize: 12, marginTop: 8, color: isDarkMode ? 'rgba(248,113,113,0.9)' : '#b91c1c' }}>
+                                    <Text style={{ fontSize: 12, marginTop: 8, color: colours.cta }}>
                                         {azureUserError}
                                     </Text>
                                 )}
@@ -1790,7 +1790,7 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                                         />
                                     </div>
                                     {clioContactError && (
-                                        <Text style={{ fontSize: 12, color: isDarkMode ? 'rgba(248,113,113,0.9)' : '#b91c1c' }}>
+                                        <Text style={{ fontSize: 12, color: colours.cta }}>
                                             {clioContactError}
                                         </Text>
                                     )}
@@ -1833,7 +1833,7 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                                         />
                                     </div>
                                     {clioMatterError && (
-                                        <Text style={{ fontSize: 12, color: isDarkMode ? 'rgba(248,113,113,0.9)' : '#b91c1c' }}>
+                                        <Text style={{ fontSize: 12, color: colours.cta }}>
                                             {clioMatterError}
                                         </Text>
                                     )}

@@ -156,7 +156,7 @@ const DealCard: React.FC<DealCardProps> = ({
                             <span style={{
                                 fontSize: '1rem',
                                 fontWeight: 600,
-                                color: selected || isHovered ? '#3690CE' : '#24292f',
+                                color: selected || isHovered ? colours.highlight : colours.light.text,
                                 transition: 'color 0.3s ease'
                             }}>
                                 {fullName || 'Client Name'}
@@ -169,7 +169,7 @@ const DealCard: React.FC<DealCardProps> = ({
                                 fontSize: '0.75rem',
                                 fontFamily: 'monospace',
                                 fontWeight: 600,
-                                color: '#24292f',
+                                color: colours.light.text,
                                 backgroundColor: 'rgba(0,0,0,0.03)',
                                 padding: '2px 6px',
                                 borderRadius: '3px',

@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours, withAlpha } from '../../app/styles/colours';
 import { ImmediateActionChip } from './ImmediateActionChip';
+import './home-tokens.css';
 import type { HomeImmediateAction } from './ImmediateActionModel';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -389,9 +390,10 @@ const Section: React.FC<{ isDark: boolean; seamless?: boolean; highlighted?: boo
   <section style={{
     padding: compact ? '2px 0 2px' : '4px 0 6px',
     minHeight: compact ? 'auto' : quiet ? 40 : 56,
-    background: isDark ? colours.darkBlue : colours.sectionBackground,
+    fontFamily: 'var(--font-primary)',
+    background: 'var(--home-strip-bg)',
     border: 'none',
-    borderBottom: `1px solid ${isDark ? withAlpha(colours.blue, 0.08) : withAlpha(colours.helixBlue, 0.08)}`,
+    borderBottom: '1px solid var(--home-strip-border)',
     boxShadow: highlighted
       ? `inset 0 1px 0 ${isDark ? withAlpha(colours.accent, 0.1) : withAlpha(colours.highlight, 0.1)}`
       : 'none',
@@ -424,7 +426,7 @@ const SectionLabel: React.FC<{ isDark: boolean }> = ({ isDark }) => (
     height: 22,
     padding: '0 7px 0 5px',
     color: isDark ? colours.dark.text : colours.light.text,
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: 600,
     whiteSpace: 'nowrap',
     letterSpacing: '0.04em',

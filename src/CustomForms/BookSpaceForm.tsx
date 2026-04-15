@@ -92,14 +92,14 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
       backgroundColor: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
       color: isDarkMode ? colours.dark.text : colours.light.text,
       borderRadius: 0,
-      border: isDarkMode ? '1px solid rgba(148, 163, 184, 0.15)' : '1px solid rgba(15, 23, 42, 0.08)',
+      border: isDarkMode ? '1px solid rgba(160, 160, 160, 0.15)' : '1px solid rgba(0, 3, 25, 0.08)',
     },
     '& .ms-Dialog-title': {
       color: isDarkMode ? colours.dark.text : colours.light.text,
       fontWeight: 600,
     },
     '& .ms-Dialog-subText': {
-      color: isDarkMode ? 'rgba(148, 163, 184, 0.9)' : 'rgba(100, 116, 139, 0.95)',
+      color: isDarkMode ? 'rgba(160, 160, 160, 0.9)' : 'rgba(107, 107, 107, 0.95)',
     },
   });
 
@@ -508,10 +508,10 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
                   position: 'absolute',
                   width: '100%',
                   zIndex: 1,
-                  backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.5)' : '#ffffff',
+                  backgroundColor: isDarkMode ? 'rgba(6, 23, 51, 0.5)' : '#ffffff',
                   padding: '12px',
                   borderRadius: 0,
-                  borderLeft: '3px solid #22c55e',
+                  borderLeft: `3px solid ${colours.green}`,
                   boxShadow: isDarkMode ? '0 4px 12px rgba(0,0,0,0.25)' : '0 4px 12px rgba(0,0,0,0.08)',
                 },
               }}
@@ -526,7 +526,7 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
           )}
           {submissionError && (
             <Stack horizontalAlign="center" styles={{ root: { position: 'absolute', width: '100%', zIndex: 1 } }}>
-              <Text variant="large" styles={{ root: { color: 'red' } }}>
+              <Text variant="large" styles={{ root: { color: colours.cta } }}>
                 {submissionError}
               </Text>
             </Stack>
@@ -581,7 +581,7 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
                     <Text variant="smallPlus" styles={{ root: { fontWeight: 600, minWidth: '100px', color: isDarkMode ? colours.accent : colours.blue, fontSize: '11px' } }}>
                       {formatBookingTime(b)}
                     </Text>
-                    <Text variant="smallPlus" styles={{ root: { color: isDarkMode ? 'rgba(148, 163, 184, 0.9)' : 'rgba(100, 116, 139, 0.95)', fontSize: '11px', flex: 1 } }}>
+                    <Text variant="smallPlus" styles={{ root: { color: isDarkMode ? 'rgba(160, 160, 160, 0.9)' : 'rgba(107, 107, 107, 0.95)', fontSize: '11px', flex: 1 } }}>
                       {b.reason} <span style={{ fontWeight: 300 }}>(by {b.fee_earner})</span>
                     </Text>
                   </div>
@@ -604,7 +604,7 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
                   {getDisplayedBookings().map(([date, bookings]) => (
                     <Stack key={date} tokens={{ childrenGap: 6 }}>
                       <Text
-                        styles={{ root: { fontWeight: 600, color: isDarkMode ? 'rgba(148, 163, 184, 0.9)' : 'rgba(100, 116, 139, 0.95)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.5px' } }}
+                        styles={{ root: { fontWeight: 600, color: isDarkMode ? 'rgba(160, 160, 160, 0.9)' : 'rgba(107, 107, 107, 0.95)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.5px' } }}
                       >
                         {new Date(date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                       </Text>
@@ -636,7 +636,7 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
                               <Text variant="smallPlus" styles={{ root: { fontWeight: 600, minWidth: '100px', color: isDarkMode ? colours.accent : colours.blue, fontSize: '11px' } }}>
                                 {formatBookingTime(b)}
                               </Text>
-                              <Text variant="smallPlus" styles={{ root: { color: isDarkMode ? 'rgba(148, 163, 184, 0.9)' : 'rgba(100, 116, 139, 0.95)', fontSize: '11px', flex: 1 } }}>
+                              <Text variant="smallPlus" styles={{ root: { color: isDarkMode ? 'rgba(160, 160, 160, 0.9)' : 'rgba(107, 107, 107, 0.95)', fontSize: '11px', flex: 1 } }}>
                                 {b.reason} <span style={{ fontWeight: 300 }}>(by {b.fee_earner})</span>
                               </Text>
                               <TooltipHost content="Delete">
@@ -647,14 +647,14 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
                                     root: {
                                       width: 22,
                                       height: 22,
-                                      background: isDarkMode ? 'rgba(248, 113, 113, 0.12)' : 'rgba(248, 113, 113, 0.08)',
-                                      border: `1px solid ${isDarkMode ? 'rgba(248, 113, 113, 0.35)' : 'rgba(248, 113, 113, 0.25)'}`,
+                                      background: isDarkMode ? 'rgba(214, 85, 65, 0.12)' : 'rgba(214, 85, 65, 0.08)',
+                                      border: `1px solid ${isDarkMode ? 'rgba(214, 85, 65, 0.35)' : 'rgba(214, 85, 65, 0.25)'}`,
                                       borderRadius: 0,
                                       transition: 'background 0.15s, border-color 0.15s, color 0.15s'
                                     },
                                     rootHovered: {
-                                      background: isDarkMode ? 'rgba(248, 113, 113, 0.2)' : 'rgba(248, 113, 113, 0.14)',
-                                      borderColor: isDarkMode ? 'rgba(248, 113, 113, 0.5)' : 'rgba(248, 113, 113, 0.4)'
+                                      background: isDarkMode ? 'rgba(214, 85, 65, 0.2)' : 'rgba(214, 85, 65, 0.14)',
+                                      borderColor: isDarkMode ? 'rgba(214, 85, 65, 0.5)' : 'rgba(214, 85, 65, 0.4)'
                                     },
                                     icon: { color: '#D65541' }
                                   }}
@@ -698,18 +698,19 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
           gap: '10px',
           padding: '12px 20px',
           backgroundColor: isDarkMode
-            ? (toast.type === 'success' ? 'rgba(74, 222, 128, 0.15)' : 'rgba(248, 113, 113, 0.15)')
-            : (toast.type === 'success' ? 'rgba(74, 222, 128, 0.1)' : 'rgba(248, 113, 113, 0.1)'),
+            ? (toast.type === 'success' ? 'rgba(32, 178, 108, 0.15)' : 'rgba(214, 85, 65, 0.15)')
+            : (toast.type === 'success' ? 'rgba(32, 178, 108, 0.1)' : 'rgba(214, 85, 65, 0.1)'),
           border: `1px solid ${toast.type === 'success'
-            ? (isDarkMode ? 'rgba(74, 222, 128, 0.4)' : 'rgba(74, 222, 128, 0.3)')
-            : (isDarkMode ? 'rgba(248, 113, 113, 0.4)' : 'rgba(248, 113, 113, 0.3)')}`,
+            ? (isDarkMode ? 'rgba(32, 178, 108, 0.4)' : 'rgba(32, 178, 108, 0.3)')
+            : (isDarkMode ? 'rgba(214, 85, 65, 0.4)' : 'rgba(214, 85, 65, 0.3)')}`,
           borderRadius: 0,
           boxShadow: isDarkMode ? '0 8px 24px rgba(0,0,0,0.4)' : '0 8px 24px rgba(0,0,0,0.12)',
           color: toast.type === 'success'
-            ? (isDarkMode ? '#4ade80' : '#15803d')
-            : (isDarkMode ? '#f87171' : '#b91c1c'),
+            ? colours.green
+            : (isDarkMode ? '#D65541' : '#D65541'),
           fontSize: '13px',
           fontWeight: 500,
+          fontFamily: "'Raleway', 'Segoe UI', sans-serif",
         }}>
           <Icon iconName={toast.type === 'success' ? 'CheckMark' : 'ErrorBadge'} />
           {toast.message}
@@ -735,7 +736,7 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
               backgroundColor: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
               color: isDarkMode ? colours.dark.text : colours.light.text,
               borderRadius: 0,
-              border: isDarkMode ? '1px solid rgba(148, 163, 184, 0.15)' : '1px solid rgba(15, 23, 42, 0.08)',
+              border: isDarkMode ? '1px solid rgba(160, 160, 160, 0.15)' : '1px solid rgba(0, 3, 25, 0.08)',
             },
           },
         }}
@@ -770,13 +771,13 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
             disabled={isDeleting}
             styles={{
               root: {
-                backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(15, 23, 42, 0.04)',
-                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(15, 23, 42, 0.12)'}`,
+                backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0, 3, 25, 0.04)',
+                border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.25)' : 'rgba(0, 3, 25, 0.12)'}`,
                 borderRadius: 0,
                 color: isDarkMode ? colours.dark.text : colours.light.text,
               },
               rootHovered: {
-                backgroundColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(15, 23, 42, 0.08)',
+                backgroundColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0, 3, 25, 0.08)',
               },
             }}
           />

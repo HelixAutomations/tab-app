@@ -1,5 +1,6 @@
 const express = require('express');
 const sql = require('mssql');
+const { withRequest } = require('../utils/db');
 const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
 
 const router = express.Router();
@@ -15,37 +16,37 @@ router.get('/by-matter/:matterId', async (req, res) => {
         return res.status(500).json({ error: 'INSTRUCTIONS_SQL_CONNECTION_STRING not configured' });
     }
 
-    let pool;
     try {
-        pool = await sql.connect(connectionString);
-        const result = await pool.request()
-            .input('matterId', sql.NVarChar(255), matterId)
-            .query(`
-                SELECT
-                    m.OpponentID,
-                    m.OpponentSolicitorID,
-                    opp.*,
-                    sol.OpponentID AS SolOpponentID,
-                    sol.PartyRole AS SolPartyRole,
-                    sol.IsCompany AS SolIsCompany,
-                    sol.Title AS SolTitle,
-                    sol.FirstName AS SolFirstName,
-                    sol.LastName AS SolLastName,
-                    sol.CompanyName AS SolCompanyName,
-                    sol.CompanyNumber AS SolCompanyNumber,
-                    sol.Email AS SolEmail,
-                    sol.Phone AS SolPhone,
-                    sol.HouseNumber AS SolHouseNumber,
-                    sol.Street AS SolStreet,
-                    sol.City AS SolCity,
-                    sol.County AS SolCounty,
-                    sol.Postcode AS SolPostcode,
-                    sol.Country AS SolCountry
-                FROM Matters m
-                LEFT JOIN Opponents opp ON m.OpponentID = opp.OpponentID
-                LEFT JOIN Opponents sol ON m.OpponentSolicitorID = sol.OpponentID
-                WHERE m.MatterID = @matterId
-            `);
+        const result = await withRequest(connectionString, async (request) => {
+            return request
+                .input('matterId', sql.NVarChar(255), matterId)
+                .query(`
+                    SELECT
+                        m.OpponentID,
+                        m.OpponentSolicitorID,
+                        opp.*,
+                        sol.OpponentID AS SolOpponentID,
+                        sol.PartyRole AS SolPartyRole,
+                        sol.IsCompany AS SolIsCompany,
+                        sol.Title AS SolTitle,
+                        sol.FirstName AS SolFirstName,
+                        sol.LastName AS SolLastName,
+                        sol.CompanyName AS SolCompanyName,
+                        sol.CompanyNumber AS SolCompanyNumber,
+                        sol.Email AS SolEmail,
+                        sol.Phone AS SolPhone,
+                        sol.HouseNumber AS SolHouseNumber,
+                        sol.Street AS SolStreet,
+                        sol.City AS SolCity,
+                        sol.County AS SolCounty,
+                        sol.Postcode AS SolPostcode,
+                        sol.Country AS SolCountry
+                    FROM Matters m
+                    LEFT JOIN Opponents opp ON m.OpponentID = opp.OpponentID
+                    LEFT JOIN Opponents sol ON m.OpponentSolicitorID = sol.OpponentID
+                    WHERE m.MatterID = @matterId
+                `);
+        });
 
         if (result.recordset.length === 0) {
             return res.status(404).json({ error: 'Matter not found or no opponents linked' });
@@ -95,8 +96,6 @@ router.get('/by-matter/:matterId', async (req, res) => {
         console.error('[opponents] by-matter error:', err);
         trackException(err, { component: 'Opponents', operation: 'GetByMatter', matterId });
         res.status(500).json({ error: 'Failed to fetch opponents', detail: err.message });
-    } finally {
-        if (pool) await pool.close();
     }
 });
 
@@ -124,14 +123,12 @@ router.post('/', async (req, res) => {
         return res.status(500).json({ error: 'INSTRUCTIONS_SQL_CONNECTION_STRING not configured' });
     }
 
-    let pool;
     try {
-        pool = await sql.connect(connectionString);
-
-        let opponentId = null;
-        if (body.opponent) {
-            const op = body.opponent;
-            const opRes = await pool.request()
+        const { opponentId: insertedOpponentId, solicitorId: insertedSolicitorId } = await withRequest(connectionString, async (request) => {
+            let opponentId = null;
+            if (body.opponent) {
+                const op = body.opponent;
+                const opRes = await request
                 .input('PartyRole', sql.NVarChar(50), 'Opponent')
                 .input('IsCompany', sql.Bit, op.is_company ? 1 : 0)
                 .input('Title', sql.NVarChar(20), op.title || null)
@@ -154,13 +151,13 @@ router.post('/', async (req, res) => {
                     VALUES (
                     @PartyRole, @IsCompany, @Title, @FirstName, @LastName, @CompanyName, @CompanyNumber,
                     @Email, @Phone, @HouseNumber, @Street, @City, @County, @Postcode, @Country)`);
-            opponentId = opRes.recordset[0].OpponentID;
-        }
+                opponentId = opRes.recordset[0].OpponentID;
+            }
 
-        let solicitorId = null;
-        if (body.solicitor) {
-            const sol = body.solicitor;
-            const solRes = await pool.request()
+            let solicitorId = null;
+            if (body.solicitor) {
+                const sol = body.solicitor;
+                const solRes = await new sql.Request(request.parent)
                 .input('PartyRole', sql.NVarChar(50), 'Opponent Solicitor')
                 .input('IsCompany', sql.Bit, sol.is_company ? 1 : 0)
                 .input('Title', sql.NVarChar(20), sol.title || null)
@@ -183,20 +180,21 @@ router.post('/', async (req, res) => {
                     VALUES (
                     @PartyRole, @IsCompany, @Title, @FirstName, @LastName, @CompanyName, @CompanyNumber,
                     @Email, @Phone, @HouseNumber, @Street, @City, @County, @Postcode, @Country)`);
-            solicitorId = solRes.recordset[0].OpponentID;
-        }
+                solicitorId = solRes.recordset[0].OpponentID;
+            }
+
+            return { opponentId, solicitorId };
+        });
 
         const durationMs = Date.now() - startTime;
-        trackEvent('MatterOpening.Opponents.Completed', { opponentId: opponentId || '', solicitorId: solicitorId || '', hasOpponent: String(!!body.opponent), hasSolicitor: String(!!body.solicitor), durationMs: String(durationMs), traceId: String(traceId || '') });
+        trackEvent('MatterOpening.Opponents.Completed', { opponentId: insertedOpponentId || '', solicitorId: insertedSolicitorId || '', hasOpponent: String(!!body.opponent), hasSolicitor: String(!!body.solicitor), durationMs: String(durationMs), traceId: String(traceId || '') });
         trackMetric('MatterOpening.Opponents.Duration', durationMs, {});
-        res.json({ opponentId, solicitorId });
+        res.json({ opponentId: insertedOpponentId, solicitorId: insertedSolicitorId });
     } catch (err) {
         console.error('[opponents] Error:', err);
         trackException(err, { component: 'MatterOpening', operation: 'Opponents', phase: 'insert', traceId: String(traceId || '') });
         trackEvent('MatterOpening.Opponents.Failed', { error: err.message, durationMs: String(Date.now() - startTime), traceId: String(traceId || '') });
         res.status(500).json({ error: 'Failed to insert opponents', detail: err.message });
-    } finally {
-        if (pool) await pool.close();
     }
 });
 
@@ -213,12 +211,12 @@ router.get('/:opponentId', async (req, res) => {
         return res.status(500).json({ error: 'INSTRUCTIONS_SQL_CONNECTION_STRING not configured' });
     }
 
-    let pool;
     try {
-        pool = await sql.connect(connectionString);
-        const result = await pool.request()
-            .input('opponentId', sql.UniqueIdentifier, opponentId)
-            .query('SELECT * FROM Opponents WHERE OpponentID = @opponentId');
+        const result = await withRequest(connectionString, async (request) => {
+            return request
+                .input('opponentId', sql.UniqueIdentifier, opponentId)
+                .query('SELECT * FROM Opponents WHERE OpponentID = @opponentId');
+        });
 
         if (result.recordset.length === 0) {
             return res.status(404).json({ error: 'Opponent not found' });
@@ -231,8 +229,6 @@ router.get('/:opponentId', async (req, res) => {
         console.error('[opponents] Get error:', err);
         trackException(err, { component: 'Opponents', operation: 'Get', opponentId });
         res.status(500).json({ error: 'Failed to fetch opponent', detail: err.message });
-    } finally {
-        if (pool) await pool.close();
     }
 });
 
@@ -275,20 +271,19 @@ router.put('/:opponentId', async (req, res) => {
         return res.status(400).json({ error: 'No fields to update' });
     }
 
-    let pool;
     try {
-        pool = await sql.connect(connectionString);
-        const request = pool.request();
-        request.input('opponentId', sql.UniqueIdentifier, opponentId);
+        const result = await withRequest(connectionString, async (request) => {
+            request.input('opponentId', sql.UniqueIdentifier, opponentId);
 
         const setClauses = updates.map(([key, { col, type, val }]) => {
             request.input(key, type, val);
             return `${col} = @${key}`;
         });
 
-        const result = await request.query(
-            `UPDATE Opponents SET ${setClauses.join(', ')} WHERE OpponentID = @opponentId`
-        );
+            return request.query(
+                `UPDATE Opponents SET ${setClauses.join(', ')} WHERE OpponentID = @opponentId`
+            );
+        });
 
         if (!result.rowsAffected || result.rowsAffected[0] === 0) {
             return res.status(404).json({ error: 'Opponent not found' });
@@ -303,8 +298,6 @@ router.put('/:opponentId', async (req, res) => {
         trackException(err, { component: 'Opponents', operation: 'Update', opponentId });
         trackEvent('Opponents.Update.Failed', { opponentId, error: err.message, durationMs: String(Date.now() - startTime) });
         res.status(500).json({ error: 'Failed to update opponent', detail: err.message });
-    } finally {
-        if (pool) await pool.close();
     }
 });
 

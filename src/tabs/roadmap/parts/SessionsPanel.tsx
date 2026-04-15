@@ -17,18 +17,17 @@ function formatDuration(ms: number): string {
 }
 
 const SessionsPanel: React.FC<Props> = ({ sessions, isDarkMode }) => {
-  const bg = isDarkMode ? colours.dark.cardBackground : '#ffffff';
+  const bg = isDarkMode ? colours.darkBlue : colours.light.sectionBackground;
   const borderCol = isDarkMode ? colours.dark.border : colours.light.border;
-  const sectionAccent = isDarkMode ? colours.accent : colours.highlight;
 
   return (
     <div style={{ padding: '14px 16px', background: bg, border: `1px solid ${borderCol}`, borderRadius: 0, marginBottom: 8 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-        <span style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: sectionAccent, fontFamily: 'Raleway, sans-serif' }}>
+        <span style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: isDarkMode ? colours.dark.text : colours.light.text, fontFamily: 'Raleway, sans-serif' }}>
           Sessions
         </span>
         {sessions && (
-          <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 0, background: `${colours.green}18`, color: colours.green, fontFamily: 'monospace' }}>
+          <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 0, background: `${colours.green}30`, color: colours.green, fontFamily: 'monospace' }}>
             {sessions.totalConnections} conn · {sessions.uniqueUsers} users
           </span>
         )}
@@ -49,7 +48,7 @@ const SessionsPanel: React.FC<Props> = ({ sessions, isDarkMode }) => {
                   key={user}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px',
-                    background: isDarkMode ? colours.dark.sectionBackground : colours.grey,
+                    background: isDarkMode ? 'rgba(255,255,255,0.04)' : colours.grey,
                     border: `1px solid ${borderCol}`, borderRadius: 0,
                   }}
                 >
@@ -68,7 +67,7 @@ const SessionsPanel: React.FC<Props> = ({ sessions, isDarkMode }) => {
             {sessions.list.map((s) => (
               <div
                 key={s.id}
-                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 6px', fontSize: 11, color: isDarkMode ? '#d1d5db' : '#374151', fontFamily: 'Raleway, sans-serif' }}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 6px', fontSize: 11, color: isDarkMode ? colours.subtleGrey : colours.greyText, fontFamily: 'Raleway, sans-serif' }}
               >
                 <span style={{ fontWeight: 600, width: 30 }}>{s.user}</span>
                 <span style={{ color: isDarkMode ? colours.accent : colours.highlight, fontFamily: 'monospace', fontSize: 10, flex: 1 }}>

@@ -214,15 +214,15 @@ const ToastItem: React.FC<ToastItemProps> = ({ toast, onDismiss, isDarkMode }) =
         icon: <FaCheck />,
       },
       error: {
-        accent: '#ef4444', // Red
-        bg: 'rgba(239, 68, 68, 0.12)',
-        border: 'rgba(239, 68, 68, 0.3)',
+        accent: colours.cta,
+        bg: 'rgba(214, 85, 65, 0.12)',
+        border: 'rgba(214, 85, 65, 0.3)',
         icon: <FaTimes />,
       },
       warning: {
-        accent: '#f59e0b', // Amber
-        bg: 'rgba(245, 158, 11, 0.12)',
-        border: 'rgba(245, 158, 11, 0.3)',
+        accent: colours.orange,
+        bg: 'rgba(255, 140, 0, 0.12)',
+        border: 'rgba(255, 140, 0, 0.3)',
         icon: <FaExclamationTriangle />,
       },
       info: {
@@ -347,7 +347,7 @@ const ToastItem: React.FC<ToastItemProps> = ({ toast, onDismiss, isDarkMode }) =
       borderRadius: '50%',
       backgroundColor:
         status === 'error'
-          ? '#ef4444'
+          ? colours.cta
           : status === 'done'
             ? 'rgba(148, 163, 184, 0.7)'
             : scheme.accent,

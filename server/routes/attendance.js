@@ -525,21 +525,21 @@ const getAttendanceHandler = async (req, res) => {
           ORDER BY Initials
         `));
 
-        // Get team roster data from the correct team table
-        const teamResult = await attendanceQuery(coreDataConnStr, (req) => req.query(`
-          SELECT 
-            [First],
-            [Initials],
-            [Entra ID],
-            [Nickname]
-          FROM [dbo].[team]
-          WHERE [status] <> 'inactive'
-          ORDER BY [First]
-        `));
-
-          // Check who's on annual leave
-        const peopleOnLeaveList = await checkAnnualLeave({ forceRefresh });
-  const peopleOnLeave = new Set(Array.isArray(peopleOnLeaveList) ? peopleOnLeaveList : []);
+        // Get team roster data + annual leave in parallel (saves 1-2s)
+        const [teamResult, peopleOnLeaveList] = await Promise.all([
+          attendanceQuery(coreDataConnStr, (req) => req.query(`
+            SELECT 
+              [First],
+              [Initials],
+              [Entra ID],
+              [Nickname]
+            FROM [dbo].[team]
+            WHERE [status] <> 'inactive'
+            ORDER BY [First]
+          `)),
+          checkAnnualLeave({ forceRefresh }),
+        ]);
+        const peopleOnLeave = new Set(Array.isArray(peopleOnLeaveList) ? peopleOnLeaveList : []);
         
         // Transform attendance results to include leave status
         const attendanceWithLeave = result.recordset.map(record => {

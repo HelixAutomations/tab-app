@@ -375,7 +375,7 @@ const DocumentEditorPage: React.FC<DocumentEditorPageProps> = ({
                                                 {allPlaceholdersFilled && (
                                                     <FontIcon 
                                                         iconName="CheckMark" 
-                                                        style={{ marginLeft: 6, color: '#107c10' }} 
+                                                        style={{ marginLeft: 6, color: colours.green }} 
                                                     />
                                                 )}
                                             </Label>

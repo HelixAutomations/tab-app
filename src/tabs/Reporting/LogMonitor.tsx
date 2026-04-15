@@ -60,7 +60,7 @@ const LogMonitor: React.FC<LogMonitorProps> = ({ onBack }) => {
     } else {
       switch (level) {
         case 'error': return { ...base, color: colours.cta };
-        case 'warn': return { ...base, color: '#b45309' };
+        case 'warn': return { ...base, color: colours.orange };
         case 'info': return { ...base, color: colours.highlight };
         default: return { ...base, color: 'rgba(6, 23, 51, 0.6)' };
       }
@@ -580,4 +580,4 @@ const LogMonitor: React.FC<LogMonitorProps> = ({ onBack }) => {
   );
 };
 
-export default LogMonitor;
+export default React.memo(LogMonitor);

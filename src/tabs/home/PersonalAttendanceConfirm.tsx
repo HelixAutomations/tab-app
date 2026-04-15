@@ -550,7 +550,7 @@ const PersonalAttendanceConfirm = forwardRef<
                             fontWeight: 700,
                             textTransform: 'uppercase',
                             letterSpacing: '0.5px',
-                            color: isDarkMode ? '#FFB74D' : '#E65100',
+                            color: colours.orange,
                         }}>
                             <Icon iconName="Shield" style={{ fontSize: '10px' }} />
                             Admin

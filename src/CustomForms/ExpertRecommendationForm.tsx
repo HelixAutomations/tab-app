@@ -28,6 +28,8 @@ import {
   getFormPrimaryButtonStyles,
   getFormDefaultButtonStyles,
   getMessageBarStyle,
+  getFormTextareaStyles,
+  formFieldTokens,
   formAccentColors,
 } from './shared/formStyles';
 
@@ -386,8 +388,8 @@ const ExpertRecommendationFormContent: React.FC<ExpertRecommendationFormProps> =
                 onChange={(_, val) => handleFieldChange('notes', val || '')}
                 multiline
                 rows={3}
-                placeholder="Any additional notes about this expert..."
-                styles={getInputStyles(isDarkMode)}
+                placeholder="Any additional notes about this expert"
+                styles={getFormTextareaStyles(isDarkMode, 3)}
               />
             </Stack>
           </div>

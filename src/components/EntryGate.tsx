@@ -46,7 +46,7 @@ const InitialsAvatar: React.FC<{
   isDarkMode: boolean;
   size?: number;
 }> = ({ initials, selected, isDarkMode, size = 40 }) => {
-  const accent = isDarkMode ? '#7DD3FC' : '#3690CE';
+  const accent = isDarkMode ? colours.accent : colours.highlight;
   return (
   <div style={{
     width: size,
@@ -211,12 +211,12 @@ const EntryGate: React.FC<EntryGateProps> = ({ isOpen, onUserSelected }) => {
   const cardBg = isDarkMode
     ? 'rgba(11, 30, 55, 0.95)'
     : 'rgba(255, 255, 255, 0.95)';
-  const textColor = isDarkMode ? '#F1F5F9' : '#1E293B';
-  const subTextColor = isDarkMode ? '#94A3B8' : '#64748B';
+  const textColor = isDarkMode ? colours.dark.text : colours.light.text;
+  const subTextColor = isDarkMode ? colours.subtleGrey : colours.greyText;
   const borderColor = isDarkMode ? 'rgba(125,211,252,0.2)' : 'rgba(148,163,184,0.25)';
   const innerBorder = isDarkMode ? 'rgba(125,211,252,0.12)' : 'rgba(148,163,184,0.18)';
-  const surfaceBg = isDarkMode ? 'rgba(15, 23, 42, 0.5)' : '#F8FAFC';
-  const accent = isDarkMode ? '#7DD3FC' : '#3690CE';
+  const surfaceBg = isDarkMode ? 'rgba(15, 23, 42, 0.5)' : colours.grey;
+  const accent = isDarkMode ? colours.accent : colours.highlight;
   const inputBg = isDarkMode ? 'rgba(15, 23, 42, 0.8)' : 'rgba(244, 244, 246, 0.8)';
 
   // ─── Render ────────────────────────────────────────────────────────
@@ -290,7 +290,7 @@ const EntryGate: React.FC<EntryGateProps> = ({ isOpen, onUserSelected }) => {
             border: `1px solid ${innerBorder}`,
             flexShrink: 0,
           }}>
-            <HelixMark color={isDarkMode ? '#e2e8f0' : '#061733'} size={20} />
+            <HelixMark color={isDarkMode ? colours.dark.text : colours.light.text} size={20} />
           </div>
           <div>
             <div style={{
@@ -331,7 +331,7 @@ const EntryGate: React.FC<EntryGateProps> = ({ isOpen, onUserSelected }) => {
                   ? accent
                   : (step === 'user-select' && s === 'passcode')
                     ? accent
-                    : isDarkMode ? '#334155' : '#cbd5e1',
+                    : isDarkMode ? colours.dark.border : '#cbd5e1',
                 opacity: step === s ? 1 : 0.5,
                 transition: 'all 0.2s ease',
               }} />
@@ -341,7 +341,7 @@ const EntryGate: React.FC<EntryGateProps> = ({ isOpen, onUserSelected }) => {
                   height: 1,
                   background: step === 'user-select'
                     ? accent
-                    : isDarkMode ? '#334155' : '#cbd5e1',
+                    : isDarkMode ? colours.dark.border : '#cbd5e1',
                   opacity: step === 'user-select' ? 0.5 : 0.2,
                   transition: 'all 0.2s ease',
                 }} />
@@ -445,7 +445,7 @@ const EntryGate: React.FC<EntryGateProps> = ({ isOpen, onUserSelected }) => {
                   cursor: passcode ? 'pointer' : 'default',
                   background: passcode
                     ? accent
-                    : isDarkMode ? '#1e293b' : '#e2e8f0',
+                    : isDarkMode ? colours.darkBlue : '#e2e8f0',
                   color: passcode ? '#fff' : subTextColor,
                   transition: 'all 0.12s ease',
                   opacity: passcode ? 1 : 0.5,
@@ -535,7 +535,7 @@ const EntryGate: React.FC<EntryGateProps> = ({ isOpen, onUserSelected }) => {
                   <div style={{
                     width: 16,
                     height: 16,
-                    border: `2px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`,
+                    border: `2px solid ${isDarkMode ? colours.dark.border : '#e2e8f0'}`,
                     borderTopColor: colours.blue,
                     borderRadius: '50%',
                     animation: 'entrySpin 0.8s linear infinite',
@@ -574,7 +574,7 @@ const EntryGate: React.FC<EntryGateProps> = ({ isOpen, onUserSelected }) => {
                   maxHeight: 360,
                   // Custom scrollbar
                   scrollbarWidth: 'thin',
-                  scrollbarColor: isDarkMode ? '#334155 transparent' : '#cbd5e1 transparent',
+                  scrollbarColor: isDarkMode ? `${colours.dark.border} transparent` : '#cbd5e1 transparent',
                 }}>
                   {filteredUsers.length === 0 && (
                     <div style={{
@@ -672,13 +672,13 @@ const EntryGate: React.FC<EntryGateProps> = ({ isOpen, onUserSelected }) => {
                                   width: 3,
                                   height: 3,
                                   borderRadius: '50%',
-                                  background: isDarkMode ? '#475569' : '#cbd5e1',
+                                  background: isDarkMode ? colours.dark.borderColor : '#cbd5e1',
                                   flexShrink: 0,
                                 }} />
                                 <span style={{
                                   fontSize: 10,
                                   fontWeight: 500,
-                                  color: isDarkMode ? '#475569' : '#94a3b8',
+                                  color: isDarkMode ? colours.dark.borderColor : colours.subtleGrey,
                                   whiteSpace: 'nowrap',
                                   overflow: 'hidden',
                                   textOverflow: 'ellipsis',
@@ -765,7 +765,7 @@ const EntryGate: React.FC<EntryGateProps> = ({ isOpen, onUserSelected }) => {
                     cursor: selectedUserKey ? 'pointer' : 'default',
                     background: selectedUserKey
                       ? accent
-                      : isDarkMode ? '#1e293b' : '#e2e8f0',
+                      : isDarkMode ? colours.darkBlue : '#e2e8f0',
                     color: selectedUserKey ? '#fff' : subTextColor,
                     transition: 'all 0.12s ease',
                     opacity: selectedUserKey ? 1 : 0.5,
@@ -805,7 +805,7 @@ const EntryGate: React.FC<EntryGateProps> = ({ isOpen, onUserSelected }) => {
           <span style={{
             fontSize: 10,
             fontWeight: 500,
-            color: isDarkMode ? '#1e293b' : '#e2e8f0',
+            color: isDarkMode ? colours.darkBlue : '#e2e8f0',
             fontFamily: "'SF Mono', 'Consolas', monospace",
           }}>
             v1.0

@@ -142,11 +142,11 @@ const EnhancedPitchBuilderFeatures: React.FC<EnhancedPitchBuilderFeaturesProps> 
   const dangerButtonStyles: IButtonStyles = {
     ...toolbarButtonStyles,
     rootHovered: {
-      backgroundColor: '#d13438',
+      backgroundColor: colours.cta,
       color: '#ffffff',
     },
     rootPressed: {
-      backgroundColor: '#a4262c',
+      backgroundColor: colours.cta,
       color: '#ffffff',
     },
   };
@@ -196,8 +196,8 @@ const EnhancedPitchBuilderFeatures: React.FC<EnhancedPitchBuilderFeaturesProps> 
                 height: 32,
                 padding: '0 8px',
                 backgroundColor: isDarkMode ? colours.dark.grey : colours.light.grey,
-                color: validationErrors.length > 0 ? '#d13438' : 
-                       validationWarnings.length > 0 ? '#ff8c00' : '#107c10',
+                color: validationErrors.length > 0 ? colours.cta : 
+                       validationWarnings.length > 0 ? colours.orange : colours.green,
                 border: 'none',
               },
               rootHovered: toolbarButtonStyles.rootHovered,
@@ -293,11 +293,11 @@ const EnhancedPitchBuilderFeatures: React.FC<EnhancedPitchBuilderFeaturesProps> 
             
             {validationErrors.length > 0 && (
               <Stack tokens={{ childrenGap: 4 }}>
-                <Text variant="small" style={{ color: '#d13438', fontWeight: 600 }}>
+                <Text variant="small" style={{ color: colours.cta, fontWeight: 600 }}>
                   Errors:
                 </Text>
                 {validationErrors.map((error, index) => (
-                  <Text key={index} variant="small" style={{ color: '#d13438' }}>
+                  <Text key={index} variant="small" style={{ color: colours.cta }}>
                     • {error}
                   </Text>
                 ))}
@@ -318,7 +318,7 @@ const EnhancedPitchBuilderFeatures: React.FC<EnhancedPitchBuilderFeaturesProps> 
             )}
             
             {validationErrors.length === 0 && validationWarnings.length === 0 && (
-              <Text variant="small" style={{ color: '#107c10' }}>
+              <Text variant="small" style={{ color: colours.green }}>
                 ✓ Content validation passed
               </Text>
             )}

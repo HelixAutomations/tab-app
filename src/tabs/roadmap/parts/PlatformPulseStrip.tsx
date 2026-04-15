@@ -24,7 +24,7 @@ function StatusDot({ ok, label, isDarkMode }: { ok: boolean | null; label: strin
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
       <div style={{ width: 8, height: 8, borderRadius: '50%', background: colour, flexShrink: 0 }} />
-      <span style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? '#d1d5db' : '#374151', fontFamily: 'Raleway, sans-serif' }}>
+      <span style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? colours.subtleGrey : colours.greyText, fontFamily: 'Raleway, sans-serif' }}>
         {label}
       </span>
     </div>
@@ -45,7 +45,7 @@ function MetricCell({ label, value, isDarkMode, accent }: { label: string; value
 }
 
 const PlatformPulseStrip: React.FC<Props> = ({ pulse, connected, isDarkMode }) => {
-  const bg = isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground;
+  const bg = isDarkMode ? colours.darkBlue : colours.light.sectionBackground;
   const borderCol = isDarkMode ? colours.dark.border : colours.light.border;
 
   if (!pulse) {
@@ -84,7 +84,7 @@ const PlatformPulseStrip: React.FC<Props> = ({ pulse, connected, isDarkMode }) =
       {/* Right: scheduler badge */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <div style={{ width: 8, height: 8, borderRadius: '50%', background: connections.scheduler ? colours.green : colours.subtleGrey }} />
-        <span style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? '#d1d5db' : '#374151', fontFamily: 'Raleway, sans-serif' }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? colours.subtleGrey : colours.greyText, fontFamily: 'Raleway, sans-serif' }}>
           Scheduler
         </span>
       </div>

@@ -223,11 +223,11 @@ const SmartTemplateSuggestions: React.FC<SmartTemplateSuggestionsProps> = ({
 
   const getCategoryColor = (category: string) => {
     switch (category) {
-      case 'grammar': return '#d13438';
-      case 'style': return '#ff8c00';
-      case 'content': return '#0078d4';
-      case 'structure': return '#107c10';
-      default: return '#6b69d6';
+      case 'grammar': return colours.cta;
+      case 'style': return colours.orange;
+      case 'content': return colours.highlight;
+      case 'structure': return colours.green;
+      default: return colours.greyText;
     }
   };
 
@@ -314,7 +314,7 @@ const SmartTemplateSuggestions: React.FC<SmartTemplateSuggestionsProps> = ({
 
             {suggestions.length === 0 && !isAnalyzing && (
               <Stack horizontalAlign="center" tokens={{ childrenGap: 8 }}>
-                <Text variant="medium" style={{ color: '#107c10' }}>
+                <Text variant="medium" style={{ color: colours.green }}>
                   ✓ No suggestions at this time
                 </Text>
                 <Text variant="small" style={{ textAlign: 'center' }}>
@@ -361,10 +361,10 @@ const SmartTemplateSuggestions: React.FC<SmartTemplateSuggestionsProps> = ({
                             root: { 
                               minWidth: 20, 
                               height: 20,
-                              color: '#107c10',
+                              color: colours.green,
                             },
                             rootHovered: {
-                              backgroundColor: '#107c1020',
+                              backgroundColor: `${colours.green}20`,
                             },
                           }}
                         />
@@ -376,10 +376,10 @@ const SmartTemplateSuggestions: React.FC<SmartTemplateSuggestionsProps> = ({
                             root: { 
                               minWidth: 20, 
                               height: 20,
-                              color: '#d13438',
+                              color: colours.cta,
                             },
                             rootHovered: {
-                              backgroundColor: '#d1343820',
+                              backgroundColor: `${colours.cta}20`,
                             },
                           }}
                         />

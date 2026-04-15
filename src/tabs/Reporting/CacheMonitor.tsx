@@ -288,4 +288,4 @@ const KeyRow: React.FC<{ item: CacheKey; isDarkMode: boolean }> = ({ item, isDar
   );
 };
 
-export default CacheMonitor;
+export default React.memo(CacheMonitor);

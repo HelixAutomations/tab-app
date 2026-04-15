@@ -570,7 +570,7 @@ async function fetchClioActivities({ initials, showAll, limit }) {
     if (clioId) params.set('user_id', String(clioId));
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
+    const timeout = setTimeout(() => controller.abort(), 8000);
     try {
       const response = await fetch(`${CLIO_API_BASE}/activities.json?${params.toString()}`, {
         headers: {
@@ -585,6 +585,8 @@ async function fetchClioActivities({ initials, showAll, limit }) {
 
       const data = await response.json();
       if (Array.isArray(data.data)) {
+        // First page empty → Clio has nothing in range, skip pagination
+        if (offset === 0 && data.data.length === 0) break;
         const remaining = limit - activities.length;
         if (remaining > 0) activities.push(...data.data.slice(0, remaining));
       }

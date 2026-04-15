@@ -11,7 +11,7 @@ import type { IDropdownOption } from '@fluentui/react/lib/Dropdown';
 import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { colours } from '../app/styles/colours';
 import { componentTokens } from '../app/styles/componentTokens';
-import { getFormPrimaryButtonStyles, getFormDefaultButtonStyles, getDropdownStyles } from './shared/formStyles';
+import { getFormPrimaryButtonStyles, getFormDefaultButtonStyles, getDropdownStyles, formFont } from './shared/formStyles';
 import { NormalizedMatter } from '../app/functionality/types';
 import { useTheme } from '../app/functionality/ThemeContext';
 import '../app/styles/MultiSelect.css';
@@ -21,10 +21,10 @@ export const INPUT_HEIGHT = 44;
 export const formContainerStyle = mergeStyles({
   marginTop: '10px',
   padding: '1.5rem',
-  backgroundColor: '#ffffff',
+  backgroundColor: 'var(--surface-card)',
   borderRadius: 0,
-  border: '1px solid rgba(0, 0, 0, 0.06)',
-  boxShadow: '0 4px 16px rgba(0, 0, 0, 0.04)',
+  border: '1px solid var(--home-card-border)',
+  boxShadow: 'var(--home-card-shadow)',
   display: 'flex',
   flexDirection: 'column',
   gap: '12px',
@@ -35,14 +35,14 @@ export const formContainerStyle = mergeStyles({
 export const inputFieldStyle = mergeStyles({
   height: `${INPUT_HEIGHT}px`,
   padding: '0 12px',
-  border: '1px solid rgba(0, 0, 0, 0.1)',
+  border: '1px solid var(--home-tile-border)',
   borderRadius: 0,
-  backgroundColor: '#ffffff',
+  backgroundColor: 'var(--surface-card)',
   boxSizing: 'border-box',
   fontSize: '14px',
   selectors: {
     ':hover': {
-      borderColor: 'rgba(0, 0, 0, 0.15)',
+      borderColor: 'var(--home-tile-border-hover)',
     },
     ':focus': {
       borderColor: colours.highlight,
@@ -57,9 +57,9 @@ export const inputFieldStyle = mergeStyles({
 export const dropdownStyle = mergeStyles({
   width: '100%',
   height: `${INPUT_HEIGHT}px`,
-  border: '1px solid rgba(0, 0, 0, 0.1)',
+  border: '1px solid var(--home-tile-border)',
   borderRadius: 0,
-  backgroundColor: '#ffffff',
+  backgroundColor: 'var(--surface-card)',
   display: 'flex',
   alignItems: 'center',
   padding: '0 12px',
@@ -67,7 +67,7 @@ export const dropdownStyle = mergeStyles({
   fontSize: '14px',
   selectors: {
     ':hover': {
-      borderColor: 'rgba(0, 0, 0, 0.15)',
+      borderColor: 'var(--home-tile-border-hover)',
     },
     ':focus-within': {
       borderColor: colours.highlight,
@@ -110,14 +110,14 @@ export const prefixStyle = (isDarkMode: boolean) => mergeStyles({
   justifyContent: 'center',
   width: '50px',
   height: '100%',
-  backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.5)' : '#f8fafc',
-  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
+  backgroundColor: isDarkMode ? 'var(--home-tile-bg)' : 'var(--home-surface-alt)',
+  border: '1px solid var(--home-tile-border)',
   borderRight: 'none',
   borderTopLeftRadius: 0,
   borderBottomLeftRadius: 0,
   fontWeight: 600,
   padding: '0 8px',
-  color: isDarkMode ? '#f1f5f9' : '#374151',
+  color: 'var(--text-primary)',
   fontSize: '14px',
 });
 
@@ -126,17 +126,17 @@ export const amountInputStyle = (hasPrefix: boolean, isDarkMode: boolean) =>
     flexGrow: 1,
     width: '100%',
     height: '100%',
-    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
+    border: '1px solid var(--home-tile-border)',
     borderRadius: 0,
     padding: '0 12px',
-    backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : '#ffffff',
-    color: isDarkMode ? '#f1f5f9' : '#1e293b',
+    backgroundColor: 'var(--surface-card)',
+    color: 'var(--text-primary)',
     boxSizing: 'border-box',
     appearance: 'textfield',
     fontSize: '14px',
     selectors: {
       ':hover': {
-        borderColor: isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(0, 0, 0, 0.15)',
+        borderColor: 'var(--home-tile-border-hover)',
       },
       ':focus': {
         borderColor: colours.highlight,
@@ -154,14 +154,14 @@ export const amountInputStyle = (hasPrefix: boolean, isDarkMode: boolean) =>
 
 export const toggleStyle = (isDarkMode: boolean) => mergeStyles({
   height: `${INPUT_HEIGHT}px`,
-  backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : '#ffffff',
-  color: isDarkMode ? '#f1f5f9' : '#1e293b',
-  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
+  backgroundColor: 'var(--surface-card)',
+  color: 'var(--text-primary)',
+  border: '1px solid var(--home-tile-border)',
   borderRadius: 0,
   padding: '0 12px',
   selectors: {
     ':hover': {
-      backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.5)' : '#f8fafc',
+      backgroundColor: 'var(--home-tile-bg-hover)',
     },
   },
 });
@@ -336,11 +336,11 @@ const MatterReferenceDropdown: React.FC<MatterReferenceDropdownProps> = ({
           height: `${INPUT_HEIGHT}px`,
           lineHeight: `${INPUT_HEIGHT}px`,
           padding: '0 32px 0 12px',
-          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
+          border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
           borderRadius: 0,
           fontSize: '14px',
-          backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : '#ffffff',
-          color: isDarkMode ? '#f1f5f9' : '#1e293b',
+          backgroundColor: isDarkMode ? 'rgba(0, 3, 25, 0.5)' : '#ffffff',
+          color: isDarkMode ? '#f3f4f6' : '#061733',
           boxSizing: 'border-box',
           backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='${isDarkMode ? '%2394a3b8' : '%2364748b'}' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
           backgroundRepeat: 'no-repeat',
@@ -356,8 +356,8 @@ const MatterReferenceDropdown: React.FC<MatterReferenceDropdownProps> = ({
             left: 0,
             right: 0,
             zIndex: 1000,
-            background: isDarkMode ? '#1e293b' : '#ffffff',
-            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
+            background: isDarkMode ? '#061733' : '#ffffff',
+            border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
             borderTop: 'none',
             boxShadow: isDarkMode
               ? '0 8px 24px rgba(0, 0, 0, 0.4)'
@@ -373,12 +373,12 @@ const MatterReferenceDropdown: React.FC<MatterReferenceDropdownProps> = ({
               style={{
                 padding: '10px 12px',
                 cursor: 'pointer',
-                borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
+                borderBottom: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
                 transition: 'background-color 0.1s ease',
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.backgroundColor = isDarkMode
-                  ? 'rgba(148, 163, 184, 0.15)'
+                  ? 'rgba(160, 160, 160, 0.15)'
                   : 'rgba(0, 0, 0, 0.04)';
               }}
               onMouseLeave={(e) => {
@@ -389,7 +389,7 @@ const MatterReferenceDropdown: React.FC<MatterReferenceDropdownProps> = ({
               <div style={{
                 fontWeight: 600,
                 fontSize: '14px',
-                color: isDarkMode ? '#e2e8f0' : '#374151',
+                color: isDarkMode ? '#f3f4f6' : '#374151',
                 marginBottom: '2px',
               }}>
                 {opt.displayNumber}
@@ -398,7 +398,7 @@ const MatterReferenceDropdown: React.FC<MatterReferenceDropdownProps> = ({
               {opt.clientName && (
                 <div style={{
                   fontSize: '13px',
-                  color: isDarkMode ? '#94a3b8' : '#6b7280',
+                  color: isDarkMode ? '#A0A0A0' : '#6B6B6B',
                 }}>
                   {opt.clientName}
                 </div>
@@ -407,7 +407,7 @@ const MatterReferenceDropdown: React.FC<MatterReferenceDropdownProps> = ({
               {opt.description && (
                 <div style={{
                   fontSize: '12px',
-                  color: isDarkMode ? '#64748b' : '#9ca3af',
+                  color: isDarkMode ? '#6B6B6B' : '#A0A0A0',
                   marginTop: '2px',
                 }}>
                   {opt.description.length > 60 ? opt.description.substring(0, 60) + '...' : opt.description}
@@ -504,12 +504,10 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
         style={{
           marginTop: '10px',
           padding: '1.5rem',
-          background: isDarkMode ? 'rgba(30, 41, 59, 0.5)' : '#ffffff',
+          background: 'var(--surface-card)',
           borderRadius: 0,
-          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(0, 0, 0, 0.06)'}`,
-          boxShadow: isDarkMode
-            ? '0 4px 16px rgba(0, 0, 0, 0.25)'
-            : '0 4px 16px rgba(0, 0, 0, 0.04)',
+          border: '1px solid var(--home-card-border)',
+          boxShadow: 'var(--home-card-shadow)',
           display: 'flex',
           flexDirection: 'column',
           gap: '12px',
@@ -642,8 +640,8 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                         padding: '10px 12px',
                         background: isChecked 
                           ? (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)')
-                          : (isDarkMode ? 'rgba(30, 41, 59, 0.6)' : 'rgba(0, 0, 0, 0.02)'),
-                        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(0, 0, 0, 0.1)'}`,
+                          : (isDarkMode ? 'rgba(6, 23, 51, 0.6)' : 'rgba(0, 0, 0, 0.02)'),
+                        border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.15)' : 'rgba(0, 0, 0, 0.1)'}`,
                         cursor: isSubmitting ? 'not-allowed' : 'pointer',
                         transition: '0.15s',
                         opacity: isSubmitting ? 0.6 : 1,
@@ -652,11 +650,11 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                     >
                       <div>
                         <div style={{ 
-                          fontSize: '12px', 
+                          fontSize: '13px', 
                           fontWeight: 500, 
                           color: isChecked 
                             ? (isDarkMode ? colours.highlight : colours.highlight)
-                            : (isDarkMode ? '#e2e8f0' : '#374151'),
+                            : (isDarkMode ? '#f3f4f6' : '#374151'),
                           display: 'flex',
                           alignItems: 'center',
                           gap: '6px',
@@ -675,7 +673,7 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                         {field.helpText && (
                           <div style={{ 
                             fontSize: '10px', 
-                            color: isDarkMode ? '#94a3b8' : '#6b7280', 
+                            color: isDarkMode ? '#A0A0A0' : '#6B6B6B', 
                             marginTop: '2px' 
                           }}>
                             {field.helpText}
@@ -684,9 +682,9 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                       </div>
                       <div
                         style={{
-                          width: '36px',
-                          height: '18px',
-                          background: isChecked ? colours.highlight : (isDarkMode ? '#475569' : '#d1d5db'),
+                          width: '40px',
+                          height: '20px',
+                          background: isChecked ? colours.highlight : (isDarkMode ? '#6B6B6B' : '#d1d5db'),
                           position: 'relative',
                           transition: '0.2s',
                           flexShrink: 0,
@@ -694,12 +692,12 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                       >
                         <div
                           style={{
-                            width: '14px',
-                            height: '14px',
+                            width: '16px',
+                            height: '16px',
                             background: '#ffffff',
                             position: 'absolute',
                             top: '2px',
-                            left: isChecked ? '20px' : '2px',
+                            left: isChecked ? '22px' : '2px',
                             transition: '0.2s',
                             boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
                           }}
@@ -727,13 +725,14 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                       style={{
                         width: '100%',
                         minHeight: '80px',
-                        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
+                        border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
                         borderRadius: 0,
                         padding: '10px 12px',
                         boxSizing: 'border-box',
-                        backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : '#ffffff',
-                        color: isDarkMode ? '#f1f5f9' : '#1e293b',
+                        backgroundColor: isDarkMode ? 'rgba(0, 3, 25, 0.5)' : '#ffffff',
+                        color: isDarkMode ? '#f3f4f6' : '#061733',
                         fontSize: '14px',
+                        fontFamily: formFont,
                       }}
                     />
                     {field.helpText && (
@@ -769,13 +768,14 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                       style={{
                         width: '100%',
                         height: `${INPUT_HEIGHT}px`,
-                        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
+                        border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
                         borderRadius: 0,
                         padding: '0 12px',
                         boxSizing: 'border-box',
-                        backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : '#ffffff',
-                        color: isDarkMode ? '#f1f5f9' : '#1e293b',
+                        backgroundColor: isDarkMode ? 'rgba(0, 3, 25, 0.5)' : '#ffffff',
+                        color: isDarkMode ? '#f3f4f6' : '#061733',
                         fontSize: '14px',
+                        fontFamily: formFont,
                       }}
                     />
                     {field.helpText && (
@@ -814,15 +814,16 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                           style={{
                             width: '100%',
                             height: '100%',
-                            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
+                            border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
                             borderTopRightRadius: 0,
                             borderBottomRightRadius: 0,
                             borderLeft: 'none',
                             padding: '0 12px',
                             boxSizing: 'border-box',
-                            backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : '#ffffff',
-                            color: isDarkMode ? '#f1f5f9' : '#1e293b',
+                            backgroundColor: isDarkMode ? 'rgba(0, 3, 25, 0.5)' : '#ffffff',
+                            color: isDarkMode ? '#f3f4f6' : '#061733',
                             fontSize: '14px',
+                            fontFamily: formFont,
                           }}
                         />
                       </div>
@@ -839,13 +840,14 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                         style={{
                           width: '100%',
                           height: `${INPUT_HEIGHT}px`,
-                          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
+                          border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
                           borderRadius: 0,
                           padding: '0 12px',
                           boxSizing: 'border-box',
-                          backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : '#ffffff',
-                          color: isDarkMode ? '#f1f5f9' : '#1e293b',
+                          backgroundColor: isDarkMode ? 'rgba(0, 3, 25, 0.5)' : '#ffffff',
+                          color: isDarkMode ? '#f3f4f6' : '#061733',
                           fontSize: '14px',
+                          fontFamily: formFont,
                         }}
                       />
                     )}
@@ -933,17 +935,17 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                         marginTop: 8,
                         padding: '16px',
                         minHeight: 90,
-                        border: `2px dashed ${isDragging ? colours.highlight : (isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)')}`,
+                        border: `2px dashed ${isDragging ? colours.highlight : (isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(0, 0, 0, 0.1)')}`,
                         borderRadius: 0,
                         background: isDarkMode 
-                          ? 'rgba(15, 23, 42, 0.5)'
+                          ? 'rgba(0, 3, 25, 0.5)'
                           : '#ffffff',
                         cursor: 'pointer',
                         transition: 'all 0.2s ease',
                         boxShadow: isDragging 
                           ? (isDarkMode ? '0 4px 12px rgba(54, 144, 206, 0.2)' : '0 4px 12px rgba(54, 144, 206, 0.15)')
                           : 'none',
-                        color: isDarkMode ? '#94a3b8' : '#6b7280',
+                        color: isDarkMode ? '#A0A0A0' : '#6B6B6B',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',

@@ -383,7 +383,7 @@ const EnquiryDataInspector: React.FC<EnquiryDataInspectorProps> = ({ enquiries, 
   const tabStyle = (isActive: boolean) => ({
     padding: '8px 16px',
     border: 'none',
-    background: isActive ? (isDarkMode ? '#1f2937' : '#2563eb') : 'transparent',
+    background: isActive ? (isDarkMode ? colours.dark.cardBackground : colours.highlight) : 'transparent',
     color: isActive ? 'white' : (isDarkMode ? '#d1d5db' : '#6b7280'),
     cursor: 'pointer',
     borderRadius: '4px 4px 0 0',
@@ -715,8 +715,8 @@ const EnquiryDataInspector: React.FC<EnquiryDataInspectorProps> = ({ enquiries, 
                         padding: '16px',
                         marginBottom: '12px',
                         backgroundColor: test.status === 'success' ? 
-                          (isDarkMode ? '#0d4f3c' : '#d1fae5') : 
-                          (isDarkMode ? '#4c1d1d' : '#fee2e2'),
+                          (isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(32, 178, 108, 0.08)') : 
+                          (isDarkMode ? 'rgba(214, 85, 65, 0.15)' : 'rgba(214, 85, 65, 0.08)'),
                         borderRadius: '8px',
                         border: `1px solid ${test.status === 'success' ? colours.green : colours.red}`
                       }}

@@ -38,7 +38,7 @@ const mutedText = (dark: boolean): string => (
 );
 
 const accentBlue = (dark: boolean): string => (
-  dark ? 'rgba(96, 165, 250, 0.75)' : '#2563EB'
+  dark ? 'rgba(54, 144, 206, 0.75)' : colours.highlight
 );
 
 const OverridePills: React.FC<OverridePillsProps> = ({
@@ -321,7 +321,7 @@ const OverridePills: React.FC<OverridePillsProps> = ({
                           cursor: isCurrentlyUpdating ? 'not-allowed' : 'pointer',
                           textTransform: 'uppercase',
                           letterSpacing: '0.5px',
-                          boxShadow: isDarkMode ? '0 4px 12px rgba(59, 130, 246, 0.35)' : '0 6px 16px rgba(37, 99, 235, 0.25)',
+                          boxShadow: isDarkMode ? '0 4px 12px rgba(54, 144, 206, 0.35)' : '0 6px 16px rgba(54, 144, 206, 0.25)',
                           transition: 'transform 0.2s ease'
                       }}
                     >

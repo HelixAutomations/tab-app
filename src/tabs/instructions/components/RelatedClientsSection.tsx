@@ -381,7 +381,7 @@ const RelatedClientsSection: React.FC<RelatedClientsSectionProps> = ({
                     root: {
                       color: isDarkMode ? 'rgba(226, 232, 240, 0.72)' : colours.greyText,
                       ':hover': {
-                        color: '#dc2626',
+                        color: colours.cta,
                         backgroundColor: isDarkMode ? '#334155' : '#f8f9fa'
                       }
                     }
@@ -946,7 +946,7 @@ const RelatedClientsSection: React.FC<RelatedClientsSectionProps> = ({
           <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 6 }}>
             <FontIcon
               iconName="Link"
-              style={{ fontSize: '12px', color: isDarkMode ? '#38bdf8' : colours.blue }}
+              style={{ fontSize: '12px', color: isDarkMode ? colours.accent : colours.blue }}
             />
             <Text
               variant="small"

@@ -21,12 +21,15 @@ const { attachDataOpsStream, broadcastDataOpsChanged } = require('../utils/dataO
 const opsLogger = createLogger('DataOps');
 
 const fmtMoneyBE = (v) => v == null ? '—' : `£${Number(v).toFixed(2)}`;
+const RECONCILIATION_MONEY_TOLERANCE = 0.01;
+const RECONCILIATION_HOURS_TOLERANCE = 0.05;
 
 // ─────────────────────────────────────────────────────────────
 // In-memory operation log (persists for server lifetime)
 // ─────────────────────────────────────────────────────────────
 const operationLog = [];
 const MAX_LOG_ENTRIES = 100;
+let latestReconciliationSnapshot = null;
 
 // Job Cancellation Map
 const activeJobs = new Map();
@@ -141,6 +144,778 @@ function logOperation(entry) {
 
 function logProgress(operation, message, extra = {}) {
   return logOperation({ operation, status: 'progress', message, ...extra });
+}
+
+function readBooleanToggle(name, defaultValue = false) {
+  const raw = String(process.env[name] ?? '').trim().toLowerCase();
+  if (!raw) return defaultValue;
+  if (raw === 'true' || raw === '1' || raw === 'on') return true;
+  if (raw === 'false' || raw === '0' || raw === 'off') return false;
+  return defaultValue;
+}
+
+function getReconciliationControlState() {
+  const backgroundChecksEnabled = readBooleanToggle('REPORTING_RECONCILIATION_AUTO_CHECKS', false);
+  const autoRepairEnabled = readBooleanToggle('REPORTING_RECONCILIATION_AUTO_REPAIR', false);
+  const bootCatchUpEnabled = readBooleanToggle('DATAOPS_BOOT_CATCHUP', true);
+
+  return {
+    mode: 'manual-only',
+    backgroundChecksEnabled,
+    autoRepairEnabled,
+    schedulerEnabled: true,
+    bootCatchUpEnabled,
+    tracking: {
+      primarySurface: 'Data Centre',
+      auditStore: 'dataOpsLog',
+      note: 'Reconciliation snapshots only run when triggered manually from Data Centre.',
+    },
+    automatedProcesses: [
+      {
+        key: 'dataops-scheduler',
+        label: 'Collected/WIP scheduler',
+        mode: 'automatic',
+        enabled: true,
+        description: 'Hot/Warm/Cold data operations cadence for collected time and WIP.',
+      },
+      {
+        key: 'dataops-boot-catchup',
+        label: 'Boot catch-up',
+        mode: bootCatchUpEnabled ? 'automatic-on-restart' : 'disabled',
+        enabled: bootCatchUpEnabled,
+        description: 'Startup catch-up run for scheduler data operations.',
+      },
+      {
+        key: 'reporting-reconciliation-checks',
+        label: 'Reporting reconciliation checks',
+        mode: backgroundChecksEnabled ? 'background-enabled' : 'manual-only',
+        enabled: backgroundChecksEnabled,
+        description: backgroundChecksEnabled
+          ? 'Background reconciliation checks are enabled explicitly.'
+          : 'No reconciliation checks run automatically; use Data Centre to trigger snapshots.',
+      },
+      {
+        key: 'reporting-reconciliation-repair',
+        label: 'Automatic repair',
+        mode: autoRepairEnabled ? 'enabled' : 'disabled',
+        enabled: autoRepairEnabled,
+        description: autoRepairEnabled
+          ? 'Automatic repair has been explicitly enabled.'
+          : 'Automatic data repair is disabled. All reconciliation work is read-only by default.',
+      },
+    ],
+  };
+}
+
+async function getRecentReconciliationActivity(limit = 8) {
+  const normalizedLimit = Math.max(1, Math.min(Number(limit) || 8, 20));
+  const fallback = operationLog
+    .filter((entry) => (entry.operation || '').toLowerCase().startsWith('reconciliation'))
+    .slice(0, normalizedLimit);
+
+  try {
+    const pool = await getLogPool();
+    if (!pool) return fallback;
+
+    const result = await pool.request()
+      .input('limit', normalizedLimit)
+      .input('pattern', 'reconciliation%')
+      .query(`
+        SELECT TOP (@limit)
+          ts,
+          operation,
+          status,
+          message,
+          startDate,
+          endDate,
+          triggeredBy,
+          invokedBy,
+          changedRows,
+          durationMs
+        FROM dataOpsLog
+        WHERE operation LIKE @pattern
+        ORDER BY ts DESC
+      `);
+
+    return result.recordset.map((entry, index) => ({
+      id: `reconciliation-${index}-${new Date(entry.ts).getTime()}`,
+      ts: new Date(entry.ts).getTime(),
+      operation: entry.operation,
+      status: entry.status,
+      message: entry.message,
+      startDate: entry.startDate,
+      endDate: entry.endDate,
+      triggeredBy: entry.triggeredBy,
+      invokedBy: entry.invokedBy,
+      changedRows: entry.changedRows,
+      durationMs: entry.durationMs,
+    }));
+  } catch {
+    return fallback;
+  }
+}
+
+const RECONCILIATION_SCOPES = {
+  pipeline: {
+    key: 'pipeline',
+    label: 'Pipeline',
+    description: 'Checks deals and instructions for broken links and missing keys.',
+  },
+  collected: {
+    key: 'collected',
+    label: 'Collected',
+    description: 'Checks collected-time freshness and recent sync coverage.',
+  },
+  wip: {
+    key: 'wip',
+    label: 'WIP',
+    description: 'Checks historical WIP freshness and current-week reporting fallback state.',
+  },
+  all: {
+    key: 'all',
+    label: 'All',
+    description: 'Runs pipeline, collected, and WIP checks together.',
+  },
+};
+
+function toFiniteNumber(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function roundMoney(value) {
+  return Math.round(toFiniteNumber(value) * 100) / 100;
+}
+
+function roundHours(value) {
+  return Math.round(toFiniteNumber(value) * 10) / 10;
+}
+
+function formatAuditCurrency(value) {
+  return `£${roundMoney(value).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function formatAuditHours(value) {
+  return `${roundHours(value).toLocaleString('en-GB', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}h`;
+}
+
+function formatAuditCount(value) {
+  return `${Math.round(toFiniteNumber(value)).toLocaleString('en-GB')} rows`;
+}
+
+function formatAuditDelta(value, formatter) {
+  return `Δ ${formatter(Math.abs(toFiniteNumber(value)))}`;
+}
+
+function getMonthBounds(monthOffset = 0) {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1);
+  const end = new Date(now.getFullYear(), now.getMonth() + monthOffset + 1, 0);
+  start.setHours(0, 0, 0, 0);
+  end.setHours(23, 59, 59, 999);
+  return { start, end };
+}
+
+function formatSqlDate(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return null;
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function getCurrentWeekBoundsLocal() {
+  const now = new Date();
+  const start = new Date(now);
+  const day = start.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  start.setDate(start.getDate() + diff);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(now);
+  end.setHours(23, 59, 59, 999);
+  return { start, end };
+}
+
+function getHistoricalWipBounds() {
+  const now = new Date();
+  const end = new Date(now);
+  const day = end.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  end.setDate(end.getDate() + diff - 1);
+  end.setHours(23, 59, 59, 999);
+  const start = new Date(end);
+  start.setMonth(start.getMonth() - 23, 1);
+  start.setHours(0, 0, 0, 0);
+  return { start, end };
+}
+
+function buildNumericParityCheck({ key, scope, label, actual, expected, formatter, tolerance, okDescription, mismatchDescription, status = 'warn' }) {
+  const actualValue = toFiniteNumber(actual);
+  const expectedValue = toFiniteNumber(expected);
+  const delta = actualValue - expectedValue;
+  const matches = Math.abs(delta) <= tolerance;
+  return {
+    key,
+    scope,
+    label,
+    status: matches ? 'ok' : status,
+    value: matches ? formatter(actualValue) : formatAuditDelta(delta, formatter),
+    description: matches
+      ? okDescription(actualValue)
+      : mismatchDescription({ actual: actualValue, expected: expectedValue, delta }),
+  };
+}
+
+function summariseWipRows(rows) {
+  const summary = {
+    rowCount: 0,
+    totalHours: 0,
+    totalAmount: 0,
+  };
+
+  for (const row of Array.isArray(rows) ? rows : []) {
+    summary.rowCount += 1;
+    summary.totalHours += roundHours(row?.quantity_in_hours);
+    summary.totalAmount += roundMoney(row?.total);
+  }
+
+  summary.totalHours = roundHours(summary.totalHours);
+  summary.totalAmount = roundMoney(summary.totalAmount);
+  return summary;
+}
+
+async function fetchCollectedClioMonthTotals({ startDate, endDate }) {
+  const startApi = new Date(`${startDate}T00:00:00`);
+  const endApi = new Date(`${endDate}T23:59:59.999`);
+  let accessToken = await getClioAccessToken();
+
+  const makeReportRequest = async (token) => fetch('https://eu.app.clio.com/api/v4/reports.json', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      data: {
+        start_date: startApi.toISOString(),
+        end_date: endApi.toISOString(),
+        format: 'json',
+        kind: 'invoice_payments_v2',
+      },
+    }),
+  });
+
+  let reportRes = await makeReportRequest(accessToken);
+  if (reportRes.status === 401) {
+    accessToken = await getClioAccessToken(true);
+    reportRes = await makeReportRequest(accessToken);
+  }
+
+  let downloadData = null;
+  let reportId = null;
+
+  if (!reportRes.ok) {
+    const text = await reportRes.text();
+    if (text.includes('no data to report on')) {
+      return { months: {}, rowCount: 0, totalValue: 0, source: 'clio-report' };
+    }
+    throw new Error(`Clio report request failed: ${reportRes.status}`);
+  }
+
+  const reportData = await reportRes.json();
+  reportId = reportData?.data?.id;
+  if (!reportId) {
+    throw new Error('No report ID returned from Clio');
+  }
+
+  const pollInterval = 4000;
+  const maxAttempts = 30;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, pollInterval));
+    let dlRes = await fetch(`https://eu.app.clio.com/api/v4/reports/${reportId}/download`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    if (dlRes.status === 401) {
+      accessToken = await getClioAccessToken(true);
+      dlRes = await fetch(`https://eu.app.clio.com/api/v4/reports/${reportId}/download`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+    }
+
+    if (dlRes.status === 200) {
+      const possibleData = await dlRes.json();
+      if (possibleData.error || (typeof possibleData === 'string' && possibleData.includes('no data'))) {
+        downloadData = { report_data: {} };
+      } else {
+        downloadData = possibleData;
+      }
+      break;
+    }
+
+    if (dlRes.status !== 404 && dlRes.status !== 202) {
+      const text = await dlRes.text();
+      if (text.includes('no data')) {
+        downloadData = { report_data: {} };
+        break;
+      }
+    }
+  }
+
+  if (!downloadData?.report_data) {
+    throw new Error('Clio report did not complete in time');
+  }
+
+  const months = {};
+  let rowCount = 0;
+  let totalValue = 0;
+
+  for (const [, matterData] of Object.entries(downloadData.report_data)) {
+    if (!matterData.bill_data || !matterData.matter_payment_data || !matterData.line_items_data) continue;
+    const paymentDate = String(matterData.matter_payment_data.date || '').slice(0, 10);
+    const monthKey = paymentDate.slice(0, 7);
+    if (!monthKey) continue;
+    const items = matterData.line_items_data.line_items || [];
+    if (!months[monthKey]) {
+      months[monthKey] = { rowCount: 0, totalValue: 0 };
+    }
+    for (const item of items) {
+      const allocated = roundMoney(item.payment_allocated);
+      months[monthKey].rowCount += 1;
+      months[monthKey].totalValue = roundMoney(months[monthKey].totalValue + allocated);
+      rowCount += 1;
+      totalValue = roundMoney(totalValue + allocated);
+    }
+  }
+
+  return { months, rowCount, totalValue, source: 'clio-report' };
+}
+
+function normalizeReconciliationScope(rawScope) {
+  const key = String(rawScope || 'all').trim().toLowerCase();
+  return RECONCILIATION_SCOPES[key] ? key : 'all';
+}
+
+function getCollectedFreshnessStatus(ageHours) {
+  if (ageHours == null) {
+    return { status: 'error', value: 'Unavailable', description: 'Collected time freshness could not be resolved.' };
+  }
+  if (ageHours <= 24) {
+    return { status: 'ok', value: `${ageHours}h`, description: 'Collected time is within the expected freshness window.' };
+  }
+  if (ageHours <= 72) {
+    return { status: 'monitor', value: `${ageHours}h`, description: 'Collected time is ageing; confirm whether the latest sync cadence is expected.' };
+  }
+  return { status: 'warn', value: `${ageHours}h`, description: 'Collected time is stale enough to warrant investigation.' };
+}
+
+function getWipFreshnessStatus(ageDays) {
+  if (ageDays == null) {
+    return { status: 'error', value: 'Unavailable', description: 'WIP freshness could not be resolved.' };
+  }
+  if (ageDays <= 10) {
+    return { status: 'ok', value: `${ageDays}d`, description: 'Historical WIP freshness is within the expected post-current-week window.' };
+  }
+  if (ageDays <= 21) {
+    return { status: 'monitor', value: `${ageDays}d`, description: 'Historical WIP is ageing; confirm the sync lane is still catching up normally.' };
+  }
+  return { status: 'warn', value: `${ageDays}d`, description: 'Historical WIP looks stale enough to justify a manual review.' };
+}
+
+async function buildReconciliationSnapshot(rawScope = 'all') {
+  const control = getReconciliationControlState();
+  const now = Date.now();
+  const scope = normalizeReconciliationScope(rawScope);
+  const scopeConfig = RECONCILIATION_SCOPES[scope];
+  const includeScope = (key) => scope === 'all' || scope === key;
+  const checks = [];
+  const reporting = (includeScope('collected') || includeScope('wip')) ? require('./reporting') : null;
+
+  const instructionsPool = includeScope('pipeline') ? await getLogPool() : null;
+  const coreConnStr = process.env.SQL_CONNECTION_STRING;
+  const corePool = (includeScope('collected') || includeScope('wip')) && coreConnStr ? await getPool(coreConnStr) : null;
+
+  if (includeScope('pipeline')) {
+    if (instructionsPool) {
+      const [dealSummary, dealLinkSummary, instructionSummary, instructionLinkSummary] = await Promise.all([
+        instructionsPool.request().query(`
+          SELECT
+            COUNT(*) AS totalDeals,
+            SUM(CASE WHEN ProspectId IS NULL OR LTRIM(RTRIM(CAST(ProspectId AS NVARCHAR(100)))) = '' THEN 1 ELSE 0 END) AS dealsMissingProspectId
+          FROM Deals
+        `),
+        instructionsPool.request().query(`
+          SELECT COUNT(*) AS dealsWithoutInstructionLink
+          FROM Deals d
+          WHERE ProspectId IS NOT NULL
+            AND LTRIM(RTRIM(CAST(ProspectId AS NVARCHAR(100)))) <> ''
+            AND NOT EXISTS (
+              SELECT 1
+              FROM Instructions i
+              WHERE CAST(i.ProspectId AS NVARCHAR(100)) = CAST(d.ProspectId AS NVARCHAR(100))
+            )
+        `),
+        instructionsPool.request().query(`
+          SELECT
+            COUNT(*) AS totalInstructions,
+            SUM(CASE WHEN InstructionRef IS NULL OR LTRIM(RTRIM(InstructionRef)) = '' THEN 1 ELSE 0 END) AS instructionsMissingInstructionRef
+          FROM Instructions
+        `),
+        instructionsPool.request().query(`
+          SELECT COUNT(*) AS instructionsWithoutDealLink
+          FROM Instructions i
+          WHERE ProspectId IS NOT NULL
+            AND LTRIM(RTRIM(CAST(ProspectId AS NVARCHAR(100)))) <> ''
+            AND NOT EXISTS (
+              SELECT 1
+              FROM Deals d
+              WHERE CAST(d.ProspectId AS NVARCHAR(100)) = CAST(i.ProspectId AS NVARCHAR(100))
+            )
+        `),
+      ]);
+
+      const dealsMissingProspectId = Number(dealSummary.recordset[0]?.dealsMissingProspectId || 0);
+      const dealsWithoutInstructionLink = Number(dealLinkSummary.recordset[0]?.dealsWithoutInstructionLink || 0);
+      const instructionsMissingInstructionRef = Number(instructionSummary.recordset[0]?.instructionsMissingInstructionRef || 0);
+      const instructionsWithoutDealLink = Number(instructionLinkSummary.recordset[0]?.instructionsWithoutDealLink || 0);
+
+      checks.push({
+        key: 'deals-missing-prospect-id',
+        scope: 'pipeline',
+        label: 'Deals missing ProspectId',
+        status: dealsMissingProspectId > 0 ? 'warn' : 'ok',
+        count: dealsMissingProspectId,
+        description: 'Deals without ProspectId cannot be matched cleanly into the pipeline chain.',
+      });
+      checks.push({
+        key: 'instructions-missing-ref',
+        scope: 'pipeline',
+        label: 'Instructions missing InstructionRef',
+        status: instructionsMissingInstructionRef > 0 ? 'warn' : 'ok',
+        count: instructionsMissingInstructionRef,
+        description: 'Instructions without a reference break downstream reporting and matter tracing.',
+      });
+      checks.push({
+        key: 'deals-without-instruction-link',
+        scope: 'pipeline',
+        label: 'Deals without instruction link',
+        status: dealsWithoutInstructionLink > 0 ? 'monitor' : 'ok',
+        count: dealsWithoutInstructionLink,
+        description: 'Deals still waiting for a matching instruction on ProspectId.',
+      });
+      checks.push({
+        key: 'instructions-without-deal-link',
+        scope: 'pipeline',
+        label: 'Instructions without deal link',
+        status: instructionsWithoutDealLink > 0 ? 'monitor' : 'ok',
+        count: instructionsWithoutDealLink,
+        description: 'Instructions that do not map back to a deal on ProspectId.',
+      });
+    } else {
+      checks.push({
+        key: 'instructions-db-unavailable',
+        scope: 'pipeline',
+        label: 'Pipeline checks unavailable',
+        status: 'error',
+        value: 'Unavailable',
+        description: 'Instructions-side continuity checks could not run.',
+      });
+    }
+  }
+
+  if (includeScope('collected') || includeScope('wip')) {
+    if (corePool) {
+      const dataFreshness = await corePool.request().query(`
+        SELECT
+          (SELECT MAX(payment_date) FROM collectedTime) AS latestCollectedDate,
+          (SELECT MAX(date) FROM wip) AS latestWipDate
+      `);
+      const freshnessRow = dataFreshness.recordset[0] || {};
+
+      if (includeScope('collected')) {
+        const latestCollectedDate = freshnessRow.latestCollectedDate ? new Date(freshnessRow.latestCollectedDate) : null;
+        const collectedAgeHours = latestCollectedDate ? Math.max(0, Math.round((now - latestCollectedDate.getTime()) / 3600000)) : null;
+        const collectedFreshness = getCollectedFreshnessStatus(collectedAgeHours);
+
+        if (typeof reporting?.fetchRecoveredFeesSummary === 'function') {
+          const currentMonth = getMonthBounds(0);
+          const previousMonth = getMonthBounds(-1);
+          const currentMonthKey = formatSqlDate(currentMonth.start).slice(0, 7);
+          const previousMonthKey = formatSqlDate(previousMonth.start).slice(0, 7);
+          const collectedProjection = await reporting.fetchRecoveredFeesSummary({ connectionString: coreConnStr, firm: true });
+          const collectedSourceSummary = await corePool.request()
+            .input('prevStart', formatSqlDate(previousMonth.start))
+            .input('prevEnd', formatSqlDate(previousMonth.end))
+            .input('currentStart', formatSqlDate(currentMonth.start))
+            .input('currentEnd', formatSqlDate(currentMonth.end))
+            .query(`
+              SELECT
+                SUM(CASE WHEN payment_date BETWEEN @currentStart AND @currentEnd THEN payment_allocated ELSE 0 END) AS current_total,
+                SUM(CASE WHEN payment_date BETWEEN @prevStart AND @prevEnd THEN payment_allocated ELSE 0 END) AS prev_total
+              FROM [dbo].[collectedTime]
+              WHERE payment_date BETWEEN @prevStart AND @currentEnd
+            `);
+          const collectedSourceRow = collectedSourceSummary.recordset[0] || {};
+          const clioCollected = await fetchCollectedClioMonthTotals({
+            startDate: formatSqlDate(previousMonth.start),
+            endDate: formatSqlDate(currentMonth.end),
+          });
+          const clioCurrentMonth = clioCollected.months[currentMonthKey]?.totalValue || 0;
+          const clioPreviousMonth = clioCollected.months[previousMonthKey]?.totalValue || 0;
+
+          checks.push(buildNumericParityCheck({
+            key: 'collected-current-month-ui-vs-clio',
+            scope: 'collected',
+            label: 'Current month displayed collected total',
+            actual: collectedProjection.currentMonthTotal,
+            expected: clioCurrentMonth,
+            formatter: formatAuditCurrency,
+            tolerance: RECONCILIATION_MONEY_TOLERANCE,
+            okDescription: (value) => `The displayed collected total matches the Clio source report for the current month at ${formatAuditCurrency(value)}.`,
+            mismatchDescription: ({ actual, expected, delta }) => `The displayed collected total shows ${formatAuditCurrency(actual)} but the Clio source report totals ${formatAuditCurrency(expected)} for the current month (${formatAuditDelta(delta, formatAuditCurrency)}).`,
+          }));
+          checks.push(buildNumericParityCheck({
+            key: 'collected-previous-month-ui-vs-clio',
+            scope: 'collected',
+            label: 'Previous month displayed collected total',
+            actual: collectedProjection.previousMonthTotal,
+            expected: clioPreviousMonth,
+            formatter: formatAuditCurrency,
+            tolerance: RECONCILIATION_MONEY_TOLERANCE,
+            okDescription: (value) => `The displayed collected total matches the Clio source report for the previous month at ${formatAuditCurrency(value)}.`,
+            mismatchDescription: ({ actual, expected, delta }) => `The displayed collected total shows ${formatAuditCurrency(actual)} but the Clio source report totals ${formatAuditCurrency(expected)} for the previous month (${formatAuditDelta(delta, formatAuditCurrency)}).`,
+          }));
+          checks.push(buildNumericParityCheck({
+            key: 'collected-current-month-sql-vs-clio',
+            scope: 'collected',
+            label: 'Current month collected DB parity',
+            actual: collectedSourceRow.current_total,
+            expected: clioCurrentMonth,
+            formatter: formatAuditCurrency,
+            tolerance: RECONCILIATION_MONEY_TOLERANCE,
+            okDescription: (value) => `The collectedTime table matches the Clio source report for the current month at ${formatAuditCurrency(value)}.`,
+            mismatchDescription: ({ actual, expected, delta }) => `The collectedTime table sums to ${formatAuditCurrency(actual)} but the Clio source report totals ${formatAuditCurrency(expected)} for the current month (${formatAuditDelta(delta, formatAuditCurrency)}).`,
+          }));
+        } else {
+          checks.push({
+            key: 'collected-summary-helper-missing',
+            scope: 'collected',
+            label: 'Collected projection helper unavailable',
+            status: 'error',
+            value: 'Unavailable',
+            description: 'The collected reporting summary helper was not available, so projection parity could not be checked.',
+          });
+        }
+
+        checks.push({
+          key: 'collected-freshness',
+          scope: 'collected',
+          label: 'Collected data freshness',
+          status: collectedFreshness.status,
+          value: collectedFreshness.value,
+          description: collectedFreshness.description,
+        });
+      }
+
+      if (includeScope('wip')) {
+        const latestWipDate = freshnessRow.latestWipDate ? new Date(freshnessRow.latestWipDate) : null;
+        const wipAgeDays = latestWipDate ? Math.max(0, Math.round((now - latestWipDate.getTime()) / 86400000)) : null;
+        const wipFreshness = getWipFreshnessStatus(wipAgeDays);
+
+        if (typeof reporting?.fetchWip === 'function') {
+          const historicalBounds = getHistoricalWipBounds();
+          const reportingHistoricalSummary = summariseWipRows(await reporting.fetchWip({ connectionString: coreConnStr }));
+          const wipSourceSummary = await corePool.request()
+            .input('historicalStart', formatSqlDate(historicalBounds.start))
+            .input('historicalEnd', formatSqlDate(historicalBounds.end))
+            .query(`
+              SELECT
+                COUNT(*) AS row_count,
+                SUM(CASE WHEN quantity_in_hours IS NULL THEN 0 ELSE CEILING(CAST(quantity_in_hours AS FLOAT) * 10.0) / 10.0 END) AS hours_total,
+                SUM(CASE WHEN total IS NULL THEN 0 ELSE total END) AS amount_total
+              FROM [dbo].[wip]
+              WHERE created_at_date BETWEEN @historicalStart AND @historicalEnd
+            `);
+          const wipSourceRow = wipSourceSummary.recordset[0] || {};
+
+          checks.push(buildNumericParityCheck({
+            key: 'wip-historical-row-count',
+            scope: 'wip',
+            label: 'Historical WIP row count',
+            actual: reportingHistoricalSummary.rowCount,
+            expected: wipSourceRow.row_count,
+            formatter: formatAuditCount,
+            tolerance: 0,
+            okDescription: (value) => `Reporting historical WIP includes the same ${formatAuditCount(value)} as the source table window.`,
+            mismatchDescription: ({ actual, expected, delta }) => `Reporting historical WIP includes ${formatAuditCount(actual)} but the source table window contains ${formatAuditCount(expected)} (${formatAuditDelta(delta, formatAuditCount)}).`,
+            status: 'error',
+          }));
+          checks.push(buildNumericParityCheck({
+            key: 'wip-historical-hours',
+            scope: 'wip',
+            label: 'Historical WIP hours',
+            actual: reportingHistoricalSummary.totalHours,
+            expected: wipSourceRow.hours_total,
+            formatter: formatAuditHours,
+            tolerance: RECONCILIATION_HOURS_TOLERANCE,
+            okDescription: (value) => `Reporting historical WIP hours match the source window at ${formatAuditHours(value)}.`,
+            mismatchDescription: ({ actual, expected, delta }) => `Reporting historical WIP shows ${formatAuditHours(actual)} but the source window sums to ${formatAuditHours(expected)} (${formatAuditDelta(delta, formatAuditHours)}).`,
+          }));
+          checks.push(buildNumericParityCheck({
+            key: 'wip-historical-amount',
+            scope: 'wip',
+            label: 'Historical WIP value',
+            actual: reportingHistoricalSummary.totalAmount,
+            expected: wipSourceRow.amount_total,
+            formatter: formatAuditCurrency,
+            tolerance: RECONCILIATION_MONEY_TOLERANCE,
+            okDescription: (value) => `Reporting historical WIP value matches the source window at ${formatAuditCurrency(value)}.`,
+            mismatchDescription: ({ actual, expected, delta }) => `Reporting historical WIP shows ${formatAuditCurrency(actual)} but the source window sums to ${formatAuditCurrency(expected)} (${formatAuditDelta(delta, formatAuditCurrency)}).`,
+          }));
+        } else {
+          checks.push({
+            key: 'wip-history-helper-missing',
+            scope: 'wip',
+            label: 'Historical WIP helper unavailable',
+            status: 'error',
+            value: 'Unavailable',
+            description: 'The historical WIP reporting helper was not available, so projection parity could not be checked.',
+          });
+        }
+
+        const currentWeekBounds = getCurrentWeekBoundsLocal();
+        const currentWeekDbSummary = await corePool.request()
+          .input('currentWeekStart', formatSqlDate(currentWeekBounds.start))
+          .input('currentWeekEnd', formatSqlDate(currentWeekBounds.end))
+          .query(`
+            SELECT COUNT(*) AS row_count
+            FROM [dbo].[wip]
+            WHERE created_at_date BETWEEN @currentWeekStart AND @currentWeekEnd
+          `);
+        const currentWeekDbRows = Number(currentWeekDbSummary.recordset[0]?.row_count || 0);
+        checks.push({
+          key: 'wip-current-week-db-contamination',
+          scope: 'wip',
+          label: 'Current-week WIP in DB lane',
+          status: currentWeekDbRows > 0 ? 'warn' : 'ok',
+          value: formatAuditCount(currentWeekDbRows),
+          description: currentWeekDbRows > 0
+            ? `The report should source current-week WIP from the live lane, but the DB still holds ${formatAuditCount(currentWeekDbRows)} for this week.`
+            : 'No current-week WIP rows were found in the DB lane, so the report can rely on the live current-week source.',
+        });
+
+        if (typeof reporting?.fetchWipClioCurrentWeek === 'function') {
+          try {
+            const liveCurrentWeek = await reporting.fetchWipClioCurrentWeek({ connectionString: coreConnStr, entraId: null });
+            const liveActivities = Array.isArray(liveCurrentWeek?.current_week?.activities)
+              ? liveCurrentWeek.current_week.activities
+              : [];
+            checks.push({
+              key: 'wip-current-week-live-source',
+              scope: 'wip',
+              label: 'Current-week live source availability',
+              status: 'ok',
+              value: formatAuditCount(liveActivities.length),
+              description: `Live current-week WIP fetch completed successfully${liveActivities.length > 0 ? ` with ${formatAuditCount(liveActivities.length)}` : ' with no current-week activity yet'}.`,
+            });
+          } catch (liveError) {
+            checks.push({
+              key: 'wip-current-week-live-source',
+              scope: 'wip',
+              label: 'Current-week live source availability',
+              status: 'error',
+              value: 'Unavailable',
+              description: `Live current-week WIP fetch failed: ${liveError.message || 'unknown error'}.`,
+            });
+          }
+        }
+
+        checks.push({
+          key: 'wip-freshness',
+          scope: 'wip',
+          label: 'Historical WIP freshness',
+          status: wipFreshness.status,
+          value: wipFreshness.value,
+          description: wipFreshness.description,
+        });
+      }
+    } else {
+      if (includeScope('collected')) {
+        checks.push({
+          key: 'collected-unavailable',
+          scope: 'collected',
+          label: 'Collected checks unavailable',
+          status: 'error',
+          value: 'Unavailable',
+          description: 'Collected-time freshness checks could not run.',
+        });
+      }
+      if (includeScope('wip')) {
+        checks.push({
+          key: 'wip-unavailable',
+          scope: 'wip',
+          label: 'WIP checks unavailable',
+          status: 'error',
+          value: 'Unavailable',
+          description: 'Historical WIP freshness checks could not run.',
+        });
+      }
+    }
+  }
+
+  let recentAutomaticRuns24h = 0;
+  let recentManualRuns24h = 0;
+  try {
+    const logPool = await getLogPool();
+    if (logPool) {
+      const runSummary = await logPool.request().query(`
+        SELECT
+          SUM(CASE WHEN triggeredBy = 'scheduler' THEN 1 ELSE 0 END) AS recentAutomaticRuns24h,
+          SUM(CASE WHEN triggeredBy = 'manual' THEN 1 ELSE 0 END) AS recentManualRuns24h
+        FROM dataOpsLog
+        WHERE ts >= DATEADD(HOUR, -24, SYSUTCDATETIME())
+      `);
+      const runRow = runSummary.recordset[0] || {};
+      recentAutomaticRuns24h = Number(runRow.recentAutomaticRuns24h || 0);
+      recentManualRuns24h = Number(runRow.recentManualRuns24h || 0);
+    }
+  } catch {
+    recentAutomaticRuns24h = 0;
+    recentManualRuns24h = 0;
+  }
+
+  const findings = checks.filter((check) => check.status !== 'ok');
+  const summary = checks.reduce((acc, check) => {
+    if (check.status === 'warn') acc.warnCount += 1;
+    else if (check.status === 'monitor') acc.monitorCount += 1;
+    else if (check.status === 'error') acc.errorCount += 1;
+    else acc.okCount += 1;
+    return acc;
+  }, {
+    warnCount: 0,
+    monitorCount: 0,
+    errorCount: 0,
+    okCount: 0,
+    issueCount: findings.length,
+    recentAutomaticRuns24h,
+    recentManualRuns24h,
+  });
+
+  return {
+    generatedAt: now,
+    mode: 'read-only',
+    scope,
+    scopeLabel: scopeConfig.label,
+    scopeDescription: scopeConfig.description,
+    control,
+    summary: {
+      ...summary,
+      checkCount: checks.length,
+      status: summary.errorCount > 0 ? 'error' : summary.warnCount > 0 ? 'warn' : summary.monitorCount > 0 ? 'monitor' : 'ok',
+    },
+    checks,
+    findings,
+  };
 }
 
 function resolveCollectedOperationKey(daysBack) {
@@ -353,10 +1128,11 @@ async function syncCollectedTime(options = {}) {
       const rangeDays = isCustomRange
         ? Math.ceil((new Date(customEnd) - new Date(customStart)) / 86400000)
         : (typeof daysBack === 'number' ? daysBack : 7);
-      // All tiers get generous patience — Clio report generation is unpredictable.
-      // ≤3 days: ~4 min, ≤31 days: ~8 min, >31 days: ~15 min
+      // Poll patience scales with date range. Short ranges exit faster.
+      // ≤3 days: ~100s (25×4s), ≤31 days: ~8 min, >31 days: ~15 min
       const pollInterval = rangeDays <= 3 ? 4000 : rangeDays <= 31 ? 8000 : 10000;
-      const maxAttempts = rangeDays <= 3 ? 60 : rangeDays <= 31 ? 60 : 90;
+      const maxAttempts = rangeDays <= 3 ? 25 : rangeDays <= 31 ? 60 : 90;
+      let consecutive404s = 0;
 
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         if (activeJobs.get(operationKey)?.cancelled) throw new Error('Operation cancelled by user');
@@ -368,6 +1144,7 @@ async function syncCollectedTime(options = {}) {
         
         if (dlRes.status === 200) {
           logProgress(operationKey, 'Report generated. Downloading...');
+          consecutive404s = 0;
           const possibleData = await dlRes.json();
           
           // Handle "No data" API Error hidden in 200 OK
@@ -379,11 +1156,20 @@ async function syncCollectedTime(options = {}) {
           }
           break;
         } else if (dlRes.status === 404 || dlRes.status === 202) {
+          consecutive404s++;
+          // Short-circuit: 3 consecutive 404s on short ranges → Clio has nothing
+          if (consecutive404s >= 3 && rangeDays <= 3) {
+            logProgress(operationKey, `Early exit after ${consecutive404s} consecutive 404s (short range, ${attempt + 1} polls). Treating as no data.`);
+            downloadData = { report_data: {} };
+            break;
+          }
           logProgress(operationKey, `Waiting for report generation... (poll ${attempt + 1}/${maxAttempts})`);
         } else if (dlRes.status === 401) {
+          consecutive404s = 0;
           logProgress(operationKey, 'Token expired during poll. Refreshing...');
           accessToken = await getClioAccessToken(true);
         } else {
+          consecutive404s = 0;
           // Some errors are just empty states
           const text = await dlRes.text();
           if (text.includes('no data')) {
@@ -1384,6 +2170,98 @@ router.post('/abort', (req, res) => {
  */
 router.get('/log', (req, res) => {
   res.json({ operations: operationLog });
+});
+
+router.get('/reconciliation-control', async (req, res) => {
+  try {
+    const control = getReconciliationControlState();
+    const recentActivity = await getRecentReconciliationActivity();
+    trackEvent('DataOps.ReconciliationControl.Queried', {
+      triggeredBy: req.user?.initials || 'unknown',
+      mode: control.mode,
+    });
+    res.json({
+      control,
+      availableScopes: Object.values(RECONCILIATION_SCOPES),
+      latestSnapshot: latestReconciliationSnapshot,
+      recentActivity,
+    });
+  } catch (error) {
+    trackException(error, { operation: 'reconciliation-control', phase: 'query' });
+    res.status(500).json({ error: 'Failed to load reconciliation control state' });
+  }
+});
+
+router.post('/reconciliation-snapshot', async (req, res) => {
+  const invokedBy = req.user?.fullName || req.user?.initials || req.body?.invokedBy || null;
+  const scope = normalizeReconciliationScope(req.body?.scope);
+  const scopeConfig = RECONCILIATION_SCOPES[scope];
+  const startedAt = Date.now();
+
+  logOperation({
+    operation: 'reconciliationSnapshot',
+    status: 'started',
+    triggeredBy: 'manual',
+    invokedBy,
+    message: `${scopeConfig.label} reconciliation snapshot started`,
+  });
+  trackEvent('DataOps.ReconciliationSnapshot.Started', {
+    triggeredBy: 'manual',
+    invokedBy: invokedBy || 'unknown',
+    mode: 'read-only',
+    scope,
+  });
+
+  try {
+    const snapshot = await buildReconciliationSnapshot(scope);
+    const durationMs = Date.now() - startedAt;
+    latestReconciliationSnapshot = snapshot;
+
+    logOperation({
+      operation: 'reconciliationSnapshot',
+      status: 'completed',
+      triggeredBy: 'manual',
+      invokedBy,
+      changedRows: snapshot.summary.warnCount + snapshot.summary.monitorCount + snapshot.summary.errorCount,
+      durationMs,
+      message: `${snapshot.scopeLabel} reconciliation snapshot completed: ${snapshot.summary.issueCount} issues`,
+    });
+    trackEvent('DataOps.ReconciliationSnapshot.Completed', {
+      triggeredBy: 'manual',
+      invokedBy: invokedBy || 'unknown',
+      scope: snapshot.scope,
+      warnCount: String(snapshot.summary.warnCount),
+      monitorCount: String(snapshot.summary.monitorCount),
+      errorCount: String(snapshot.summary.errorCount),
+      durationMs: String(durationMs),
+    });
+    trackMetric('DataOps.ReconciliationSnapshot.Duration', durationMs, {
+      triggeredBy: 'manual',
+      scope: snapshot.scope,
+      invokedBy: invokedBy || 'unknown',
+    });
+
+    res.json(snapshot);
+  } catch (error) {
+    const durationMs = Date.now() - startedAt;
+    logOperation({
+      operation: 'reconciliationSnapshot',
+      status: 'error',
+      triggeredBy: 'manual',
+      invokedBy,
+      durationMs,
+      message: error.message || 'Reconciliation snapshot failed',
+    });
+    trackException(error, { operation: 'reconciliationSnapshot', phase: 'snapshot-build' });
+    trackEvent('DataOps.ReconciliationSnapshot.Failed', {
+      triggeredBy: 'manual',
+      invokedBy: invokedBy || 'unknown',
+      scope,
+      durationMs: String(durationMs),
+      error: error.message || 'unknown',
+    });
+    res.status(500).json({ error: 'Failed to build reconciliation snapshot' });
+  }
 });
 
 /**
@@ -2769,6 +3647,39 @@ router.get('/scheduler-status', (req, res) => {
   }
 
   res.json({ enabled: true, tiers: status });
+});
+
+/**
+ * GET /api/data-operations/sync-history
+ * Returns live scheduler state: tier statuses, mutex, next fire countdowns, plus recent operation log.
+ * Consumed by SyncHistory panel in Reports tab.
+ */
+router.get('/sync-history', (req, res) => {
+  try {
+    const { getSchedulerState } = require('../utils/dataOperationsScheduler');
+    const state = getSchedulerState();
+
+    // Merge operation log for each tier (last 3 entries per operation)
+    const recentByOp = {};
+    for (const entry of [...operationLog].reverse()) {
+      const key = entry.operation;
+      if (!recentByOp[key]) recentByOp[key] = [];
+      if (recentByOp[key].length < 3) recentByOp[key].push(entry);
+    }
+
+    trackEvent('DataOps.SyncHistory.Queried', {
+      triggeredBy: req.user?.initials || 'unknown',
+    });
+
+    res.json({
+      scheduler: state,
+      recentLog: recentByOp,
+      serverTime: Date.now(),
+    });
+  } catch (err) {
+    trackException(err, { operation: 'sync-history', phase: 'query' });
+    res.status(500).json({ error: 'Failed to retrieve sync history' });
+  }
 });
 
 /**

@@ -227,11 +227,7 @@ router.get('/management-datasets', async (req, res) => {
 
 module.exports = router;
 
-// Expose selected helpers for reuse in streaming route
-module.exports.fetchWipClioCurrentWeek = fetchWipClioCurrentWeek;
-
-// Allow external routes to clear the in-memory response cache used by this router
-module.exports.clearReportingCache = function clearReportingCache(scope = 'all') {
+function clearReportingCache(scope = 'all') {
   try {
     if (!(cache instanceof Map)) return 0;
     let cleared = 0;
@@ -240,7 +236,6 @@ module.exports.clearReportingCache = function clearReportingCache(scope = 'all')
       cache.clear();
       return cleared;
     }
-    // For targeted clears, remove entries whose payload contains the target dataset
     for (const [key, entry] of cache.entries()) {
       const data = entry && entry.data;
       if (!data) continue;
@@ -257,7 +252,7 @@ module.exports.clearReportingCache = function clearReportingCache(scope = 'all')
   } catch {
     return 0;
   }
-};
+}
 
 async function fetchUserData({ connectionString, entraId }) {
   if (!entraId) {
@@ -1077,7 +1072,10 @@ function getLast24MonthsExcludingCurrentWeek() {
 }
 
 function formatDateOnly(date) {
-  return date.toISOString().split('T')[0];
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 // Monday 00:00:00 to Sunday 23:59:59.999 of current week
@@ -1378,3 +1376,7 @@ async function fetchDubberCalls() {
 }
 
 module.exports = router;
+module.exports.fetchWip = fetchWip;
+module.exports.fetchWipClioCurrentWeek = fetchWipClioCurrentWeek;
+module.exports.fetchRecoveredFeesSummary = fetchRecoveredFeesSummary;
+module.exports.clearReportingCache = clearReportingCache;

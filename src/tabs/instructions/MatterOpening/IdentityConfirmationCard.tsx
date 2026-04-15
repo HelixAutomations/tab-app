@@ -64,23 +64,23 @@ interface IdentityConfirmationCardProps {
 // Status palette helper (from InlineWorkbench pattern)
 const getStatusColors = (status: VerificationStatus, isDarkMode: boolean) => {
   if (status === 'passed') return {
-    bg: isDarkMode ? 'rgba(34, 197, 94, 0.12)' : 'rgba(34, 197, 94, 0.08)',
-    border: isDarkMode ? 'rgba(34, 197, 94, 0.4)' : 'rgba(34, 197, 94, 0.3)',
-    text: '#22c55e',
+    bg: isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.08)',
+    border: isDarkMode ? 'rgba(32, 178, 108, 0.4)' : 'rgba(32, 178, 108, 0.3)',
+    text: colours.green,
     label: 'Passed',
     icon: <Icon iconName="SkypeCheck" style={{ fontSize: 12 }} />,
   };
   if (status === 'review') return {
     bg: isDarkMode ? 'rgba(251, 191, 36, 0.12)' : 'rgba(251, 191, 36, 0.08)',
     border: isDarkMode ? 'rgba(251, 191, 36, 0.4)' : 'rgba(251, 191, 36, 0.3)',
-    text: '#f59e0b',
+    text: colours.orange,
     label: 'Review',
     icon: <Icon iconName="Warning" style={{ fontSize: 12 }} />,
   };
   if (status === 'failed') return {
-    bg: isDarkMode ? 'rgba(239, 68, 68, 0.12)' : 'rgba(239, 68, 68, 0.08)',
-    border: isDarkMode ? 'rgba(239, 68, 68, 0.4)' : 'rgba(239, 68, 68, 0.3)',
-    text: '#ef4444',
+    bg: isDarkMode ? 'rgba(214, 85, 65, 0.12)' : 'rgba(214, 85, 65, 0.08)',
+    border: isDarkMode ? 'rgba(214, 85, 65, 0.4)' : 'rgba(214, 85, 65, 0.3)',
+    text: colours.cta,
     label: 'Failed',
     icon: <Icon iconName="Warning" style={{ fontSize: 12 }} />,
   };
@@ -165,19 +165,19 @@ const IdentityConfirmationCard: React.FC<IdentityConfirmationCardProps> = ({
     const bannerStatus = isVerified ? 'complete' : needsReview ? 'review' : 'pending';
     const bannerColors = {
       complete: {
-        bg: isDarkMode ? 'rgba(34, 197, 94, 0.08)' : 'rgba(34, 197, 94, 0.06)',
-        border: isDarkMode ? 'rgba(34, 197, 94, 0.25)' : 'rgba(34, 197, 94, 0.2)',
-        text: '#22c55e',
+        bg: isDarkMode ? 'rgba(32, 178, 108, 0.08)' : 'rgba(32, 178, 108, 0.06)',
+        border: isDarkMode ? 'rgba(32, 178, 108, 0.25)' : 'rgba(32, 178, 108, 0.2)',
+        text: colours.green,
       },
       review: {
-        bg: isDarkMode ? 'rgba(239, 68, 68, 0.08)' : 'rgba(239, 68, 68, 0.06)',
-        border: isDarkMode ? 'rgba(239, 68, 68, 0.25)' : 'rgba(239, 68, 68, 0.2)',
-        text: '#ef4444',
+        bg: isDarkMode ? 'rgba(214, 85, 65, 0.08)' : 'rgba(214, 85, 65, 0.06)',
+        border: isDarkMode ? 'rgba(214, 85, 65, 0.25)' : 'rgba(214, 85, 65, 0.2)',
+        text: colours.cta,
       },
       pending: {
         bg: isDarkMode ? 'rgba(251, 191, 36, 0.08)' : 'rgba(251, 191, 36, 0.06)',
         border: isDarkMode ? 'rgba(251, 191, 36, 0.25)' : 'rgba(251, 191, 36, 0.2)',
-        text: '#f59e0b',
+        text: colours.orange,
       },
     };
     const colors = bannerColors[bannerStatus];
@@ -242,9 +242,9 @@ const IdentityConfirmationCard: React.FC<IdentityConfirmationCardProps> = ({
             onClick={() => setShowConfirmModal(true)}
             style={{
               padding: '8px 14px',
-              background: isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)',
-              color: '#ef4444',
-              border: '1px solid #ef4444',
+              background: isDarkMode ? 'rgba(214, 85, 65, 0.15)' : 'rgba(214, 85, 65, 0.1)',
+              color: colours.cta,
+              border: `1px solid ${colours.cta}`,
               borderRadius: 0,
               fontSize: 10,
               fontWeight: 600,
@@ -262,9 +262,9 @@ const IdentityConfirmationCard: React.FC<IdentityConfirmationCardProps> = ({
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             <span style={{ fontSize: 9, fontWeight: 600, color: isDarkMode ? '#9CA3AF' : '#64748B', marginRight: 4 }}>DEMO:</span>
             {[
-              { label: 'Pass', id: 'passed' as VerificationStatus, color: '#22c55e', icon: 'SkypeCheck' },
-              { label: 'Review', id: 'review' as VerificationStatus, color: '#f59e0b', icon: 'Warning' },
-              { label: 'Fail', id: 'failed' as VerificationStatus, color: '#ef4444', icon: 'StatusErrorFull' },
+              { label: 'Pass', id: 'passed' as VerificationStatus, color: colours.green, icon: 'SkypeCheck' },
+              { label: 'Review', id: 'review' as VerificationStatus, color: colours.orange, icon: 'Warning' },
+              { label: 'Fail', id: 'failed' as VerificationStatus, color: colours.cta, icon: 'StatusErrorFull' },
             ].map(opt => (
               <button
                 key={opt.label}
@@ -390,7 +390,7 @@ const IdentityConfirmationCard: React.FC<IdentityConfirmationCardProps> = ({
         borderRadius: 0,
         border: `1px solid ${isSelected ? colours.green : isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(0, 0, 0, 0.06)'}`,
         background: isSelected
-          ? (isDarkMode ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.1)')
+          ? (isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(32, 178, 108, 0.1)')
           : (isDarkMode ? 'rgba(148, 163, 184, 0.05)' : 'rgba(0, 0, 0, 0.02)'),
         color: isSelected
           ? colours.green
@@ -622,7 +622,7 @@ const IdentityConfirmationCard: React.FC<IdentityConfirmationCardProps> = ({
                 alignItems: 'center',
                 gap: 8,
               }}>
-                <Icon iconName="Warning" style={{ fontSize: 16, color: '#ef4444' }} />
+                <Icon iconName="Warning" style={{ fontSize: 16, color: colours.cta }} />
                 <div style={{
                   fontSize: 14,
                   fontWeight: 700,

@@ -500,11 +500,11 @@ const SeoReport: React.FC<SeoReportProps> = ({
           <span style={{
             padding: '4px 10px',
             borderRadius: 999,
-            border: `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.4)' : 'rgba(16, 185, 129, 0.3)'}`,
-            background: isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(16, 185, 129, 0.08)',
+            border: `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.4)' : 'rgba(32, 178, 108, 0.3)'}`,
+            background: isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.08)',
             fontSize: 11,
             fontWeight: 600,
-            color: isDarkMode ? '#86efac' : colours.green,
+            color: colours.green,
           }}>
             Sync {lastSyncLabel}
           </span>
@@ -888,8 +888,8 @@ const SeoReport: React.FC<SeoReportProps> = ({
       {/* Data Quality Note */}
       <div style={{
         padding: 16,
-        background: isDarkMode ? 'rgba(59, 130, 246, 0.1)' : 'rgba(59, 130, 246, 0.05)',
-        border: `1px solid ${isDarkMode ? 'rgba(59, 130, 246, 0.2)' : 'rgba(59, 130, 246, 0.15)'}`,
+        background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.05)',
+        border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)'}`,
         borderRadius: 8,
         fontSize: 12,
         color: isDarkMode ? '#E2E8F0' : colours.helixBlue,
@@ -908,4 +908,4 @@ const SeoReport: React.FC<SeoReportProps> = ({
   );
 };
 
-export default SeoReport;
+export default React.memo(SeoReport);

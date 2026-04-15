@@ -47,7 +47,7 @@ const sidebarContainer = (isOpen: boolean, isDarkMode: boolean, top: number) =>
         width: sidebarWidth,
         height: '100vh',
         paddingTop: top,
-        backgroundColor: isDarkMode ? '#0f0f0f' : '#fafbfc',
+        backgroundColor: isDarkMode ? colours.dark.background : colours.grey,
         borderLeft: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'}`,
         padding: '0',
         overflowY: 'auto',
@@ -71,7 +71,7 @@ const handleStyle = (isOpen: boolean, isDarkMode: boolean, top: number) =>
         alignItems: 'center',
         justifyContent: 'center',
         cursor: 'pointer',
-        backgroundColor: isDarkMode ? '#1a1a1a' : '#ffffff',
+        backgroundColor: isDarkMode ? colours.dark.sectionBackground : '#ffffff',
         borderLeft: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}`,
         transition: 'all 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
         zIndex: 851,
@@ -81,7 +81,7 @@ const handleStyle = (isOpen: boolean, isDarkMode: boolean, top: number) =>
         WebkitBackdropFilter: 'blur(20px)',
         selectors: {
             ':hover': {
-                backgroundColor: isDarkMode ? '#2a2a2a' : '#f0f2f5',
+                backgroundColor: isDarkMode ? colours.dark.cardBackground : '#f0f2f5',
                 transform: isOpen ? 'translateX(-4px)' : 'translateX(-2px)',
                 boxShadow: '-2px 0 20px rgba(0,0,0,0.15)',
             },
@@ -185,10 +185,10 @@ const ResourcesSidebar: React.FC<ResourcesSidebarProps> = ({
                         root: { 
                             width: 28, 
                             height: 28,
-                            color: isDarkMode ? '#8a8a8a' : '#6a6a6a',
+                            color: isDarkMode ? colours.subtleGrey : colours.greyText,
                         },
                         rootHovered: {
-                            color: isDarkMode ? '#ffffff' : '#1a1a1a',
+                            color: isDarkMode ? colours.dark.text : colours.light.text,
                         },
                     }}
                     ariaLabel="Toggle Resources Sidebar"
@@ -219,7 +219,7 @@ const ResourcesSidebar: React.FC<ResourcesSidebarProps> = ({
                                     variant="xLarge"
                                     style={{
                                         fontWeight: 600,
-                                        color: isDarkMode ? '#ffffff' : '#000000',
+                                        color: isDarkMode ? colours.dark.text : colours.light.text,
                                         letterSpacing: '-0.01em',
                                     }}
                                 >
@@ -233,16 +233,16 @@ const ResourcesSidebar: React.FC<ResourcesSidebarProps> = ({
                                             height: 32,
                                             borderRadius: '8px',
                                             backgroundColor: pinned 
-                                                ? (isDarkMode ? '#2a5db0' : '#0078d4')
+                                                ? (isDarkMode ? colours.helixBlue : colours.highlight)
                                                 : 'transparent',
                                             color: pinned 
                                                 ? '#ffffff'
-                                                : (isDarkMode ? '#8a8a8a' : '#6a6a6a'),
+                                                : (isDarkMode ? colours.subtleGrey : colours.greyText),
                                         },
                                         rootHovered: {
                                             backgroundColor: pinned 
-                                                ? (isDarkMode ? '#2f66c1' : '#106ebe')
-                                                : (isDarkMode ? '#2a2a2a' : '#f0f2f5'),
+                                                ? (isDarkMode ? colours.helixBlue : colours.highlight)
+                                                : (isDarkMode ? colours.dark.cardBackground : '#f0f2f5'),
                                         },
                                     }}
                                     onClick={() => setPinned(!pinned)}
@@ -257,12 +257,12 @@ const ResourcesSidebar: React.FC<ResourcesSidebarProps> = ({
                                     root: {
                                         borderRadius: '12px',
                                         border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}`,
-                                        backgroundColor: isDarkMode ? '#1a1a1a' : '#ffffff',
+                                        backgroundColor: isDarkMode ? colours.dark.sectionBackground : '#ffffff',
                                         transition: 'all 0.2s ease',
                                     },
                                     field: {
                                         backgroundColor: 'transparent',
-                                        color: isDarkMode ? '#ffffff' : '#000000',
+                                        color: isDarkMode ? colours.dark.text : colours.light.text,
                                         fontSize: '14px',
                                         padding: '12px 16px',
                                     },
@@ -279,7 +279,7 @@ const ResourcesSidebar: React.FC<ResourcesSidebarProps> = ({
                                             variant="medium"
                                             style={{
                                                 fontWeight: 500,
-                                                color: isDarkMode ? '#cccccc' : '#333333',
+                                                color: isDarkMode ? colours.subtleGrey : colours.greyText,
                                                 marginBottom: '12px',
                                                 display: 'block',
                                             }}
@@ -295,7 +295,7 @@ const ResourcesSidebar: React.FC<ResourcesSidebarProps> = ({
                                                         padding: '8px 12px',
                                                         borderRadius: '8px',
                                                         cursor: 'pointer',
-                                                        backgroundColor: isDarkMode ? '#1a1a1a' : '#f8f9fa',
+                                                        backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.grey,
                                                         border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'}`,
                                                         animation: `resourceItemFadeIn 0.3s ease ${index * 0.1}s both`,
                                                     }}
@@ -303,7 +303,7 @@ const ResourcesSidebar: React.FC<ResourcesSidebarProps> = ({
                                                     <Text
                                                         variant="small"
                                                         style={{
-                                                            color: isDarkMode ? '#ffffff' : '#000000',
+                                                            color: isDarkMode ? colours.dark.text : colours.light.text,
                                                             fontWeight: 500,
                                                         }}
                                                     >
@@ -321,7 +321,7 @@ const ResourcesSidebar: React.FC<ResourcesSidebarProps> = ({
                                             variant="medium"
                                             style={{
                                                 fontWeight: 500,
-                                                color: isDarkMode ? '#cccccc' : '#333333',
+                                                color: isDarkMode ? colours.subtleGrey : colours.greyText,
                                                 marginBottom: '12px',
                                                 display: 'block',
                                             }}
@@ -337,7 +337,7 @@ const ResourcesSidebar: React.FC<ResourcesSidebarProps> = ({
                                                         padding: '8px 12px',
                                                         borderRadius: '8px',
                                                         cursor: 'pointer',
-                                                        backgroundColor: isDarkMode ? '#1a1a1a' : '#f8f9fa',
+                                                        backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.grey,
                                                         border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'}`,
                                                         animation: `resourceItemFadeIn 0.3s ease ${(index + favorites.length) * 0.1}s both`,
                                                     }}
@@ -345,7 +345,7 @@ const ResourcesSidebar: React.FC<ResourcesSidebarProps> = ({
                                                     <Text
                                                         variant="small"
                                                         style={{
-                                                            color: isDarkMode ? '#ffffff' : '#000000',
+                                                            color: isDarkMode ? colours.dark.text : colours.light.text,
                                                             fontWeight: 500,
                                                         }}
                                                     >

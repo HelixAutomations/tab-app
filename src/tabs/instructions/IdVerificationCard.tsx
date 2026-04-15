@@ -14,15 +14,15 @@ interface IdVerificationCardProps {
 const getVerificationColor = (result: string) => {
     const level = result?.toLowerCase();
     if (level === 'passed' || level === 'pass' || level === 'approved') {
-        return { background: '#e6f4ea', text: '#107C10', border: '#107C10' };
+        return { background: 'rgba(32, 178, 108, 0.12)', text: colours.green, border: colours.green };
     }
     if (level === 'review' || level === 'pending') {
-        return { background: '#fffbe6', text: '#b88600', border: '#FFB900' };
+        return { background: 'rgba(255, 140, 0, 0.1)', text: colours.orange, border: colours.orange };
     }
     if (level === 'failed' || level === 'fail' || level === 'rejected') {
-        return { background: '#fde7e9', text: '#d13438', border: '#d13438' };
+        return { background: 'rgba(214, 85, 65, 0.12)', text: colours.cta, border: colours.cta };
     }
-    return { background: '#f4f4f6', text: '#666', border: '#e1dfdd' };
+    return { background: colours.grey, text: colours.greyText, border: '#e1dfdd' };
 };
 
 const IdVerificationCard: React.FC<IdVerificationCardProps> = ({
@@ -119,7 +119,7 @@ const IdVerificationCard: React.FC<IdVerificationCardProps> = ({
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <FaIdCard style={{
                         fontSize: '16px',
-                        color: '#0078d4',
+                        color: colours.highlight,
                         filter: 'drop-shadow(0 1px 2px rgba(0,120,212,0.3))'
                     }} />
                     <Text variant={compact ? "medium" : "mediumPlus"} styles={{
@@ -257,7 +257,7 @@ const IdVerificationCard: React.FC<IdVerificationCardProps> = ({
                             style={{
                                 background: 'none',
                                 border: 'none',
-                                color: '#0078d4',
+                                color: colours.highlight,
                                 fontSize: '11px',
                                 fontWeight: 600,
                                 cursor: 'pointer',
@@ -314,7 +314,7 @@ const IdVerificationCard: React.FC<IdVerificationCardProps> = ({
                 right: compact ? '8px' : '12px',
                 fontSize: compact ? '24px' : '32px',
                 opacity: 0.1,
-                color: '#0078d4',
+                color: colours.highlight,
                 pointerEvents: 'none',
                 transition: 'all 0.3s ease',
                 filter: 'blur(0.5px)'

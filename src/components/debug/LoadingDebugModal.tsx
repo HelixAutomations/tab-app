@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { colours } from '../../app/styles/colours';
 import Loading from '../../app/styles/Loading';
 import LoadingState from '../states/LoadingState';
 import AppLoadingScreen from '../states/AppLoadingScreen';
@@ -427,7 +428,7 @@ const LoadingDebugModal: React.FC<LoadingDebugModalProps> = ({ isOpen, onClose }
           <button 
             style={{
               ...buttonStyle,
-              background: '#0078d4',
+              background: colours.highlight,
               color: 'white',
               border: 'none',
               fontSize: '14px',

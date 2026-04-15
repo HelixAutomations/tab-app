@@ -59,8 +59,8 @@ const PasscodeGuard: React.FC<PasscodeGuardProps> = ({ children, title, onBack }
   };
 
   const cardStyle: React.CSSProperties = {
-    background: isDarkMode ? 'rgba(30, 41, 59, 0.7)' : '#ffffff',
-    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(0, 0, 0, 0.06)'}`,
+    background: isDarkMode ? 'rgba(6, 23, 51, 0.7)' : '#ffffff',
+    border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(0, 0, 0, 0.06)'}`,
     borderLeft: `3px solid ${colours.cta}`,
     borderRadius: 0,
     padding: '2rem',
@@ -73,16 +73,16 @@ const PasscodeGuard: React.FC<PasscodeGuardProps> = ({ children, title, onBack }
 
   const headerStyle: React.CSSProperties = {
     fontWeight: 600,
-    color: isDarkMode ? '#f1f5f9' : '#1e293b',
+    color: isDarkMode ? '#f3f4f6' : '#061733',
   };
 
   const subtitleStyle: React.CSSProperties = {
-    color: isDarkMode ? '#94a3b8' : '#64748b',
+    color: isDarkMode ? '#A0A0A0' : '#6B6B6B',
     fontSize: '14px',
   };
 
   const descriptionStyle: React.CSSProperties = {
-    color: isDarkMode ? '#94a3b8' : '#6b7280',
+    color: isDarkMode ? '#A0A0A0' : '#6B6B6B',
     fontSize: '14px',
     lineHeight: 1.5,
   };
@@ -92,7 +92,7 @@ const PasscodeGuard: React.FC<PasscodeGuardProps> = ({ children, title, onBack }
       <div style={cardStyle}>
         <Stack tokens={{ childrenGap: 16 }}>
           <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 10 }}>
-            <Icon iconName="Lock" style={{ fontSize: 20, color: isDarkMode ? '#94a3b8' : '#64748b' }} />
+            <Icon iconName="Lock" style={{ fontSize: 20, color: isDarkMode ? '#A0A0A0' : '#6B6B6B' }} />
             {title && (
               <Text style={subtitleStyle}>
                 {title}

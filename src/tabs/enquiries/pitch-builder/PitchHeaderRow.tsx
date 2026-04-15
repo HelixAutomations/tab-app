@@ -73,7 +73,7 @@ const PitchHeaderRow: React.FC<PitchHeaderRowProps> = ({
     width: '100%',
     padding: '24px',
     gap: '16px',
-    border: `1px solid ${isDarkMode ? 'rgba(59, 130, 246, 0.26)' : 'rgba(148, 163, 184, 0.16)'}`,
+    border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.26)' : 'rgba(148, 163, 184, 0.16)'}`,
     borderRadius: '16px',
     background: isDarkMode 
       ? 'linear-gradient(135deg, rgba(5, 12, 26, 0.98) 0%, rgba(9, 22, 44, 0.94) 52%, rgba(13, 35, 63, 0.9) 100%)'
@@ -178,8 +178,8 @@ const PitchHeaderRow: React.FC<PitchHeaderRowProps> = ({
     selectors: {
       ':hover': { 
         color: isDarkMode ? colours.dark.text : labelColour,
-        background: isDarkMode ? 'rgba(59, 130, 246, 0.15)' : 'rgba(59, 130, 246, 0.08)',
-        borderColor: isDarkMode ? 'rgba(59, 130, 246, 0.3)' : 'rgba(59, 130, 246, 0.2)'
+        background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.08)',
+        borderColor: isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)'
       },
     },
   });
@@ -242,7 +242,7 @@ const PitchHeaderRow: React.FC<PitchHeaderRowProps> = ({
     backdropFilter: 'blur(12px)',
     borderLeft: isDarkMode 
       ? '3px solid rgba(125, 211, 252, 0.7)' 
-      : '3px solid rgba(59, 130, 246, 0.6)',
+      : '3px solid rgba(54, 144, 206, 0.6)',
     animation: 'cascadeIn 0.6s ease-out'
   });
 

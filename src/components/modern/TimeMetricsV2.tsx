@@ -191,7 +191,7 @@ const SkeletonBox: React.FC<{ width: string; height: string; isDarkMode: boolean
 // Toast notification component - positioned inside section header
 const Toast: React.FC<{ message: string; type: 'info' | 'success' | 'error'; visible: boolean; isDarkMode: boolean }> = ({ message, type, visible, isDarkMode }) => {
   const bgColor = type === 'success' 
-    ? (isDarkMode ? 'rgba(16, 185, 129, 0.15)' : 'rgba(16, 185, 129, 0.1)') 
+    ? (isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(32, 178, 108, 0.1)') 
     : type === 'error' 
       ? (isDarkMode ? 'rgba(214, 85, 65, 0.15)' : 'rgba(214, 85, 65, 0.1)') 
       : (isDarkMode ? 'rgba(6, 23, 51, 0.5)' : 'rgba(54, 144, 206, 0.1)');
@@ -697,8 +697,8 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
 
   const getTrendColor = (direction: 'up' | 'down' | 'neutral'): string => {
     switch (direction) {
-      case 'up': return '#10B981'; // Green
-      case 'down': return '#EF4444'; // Red
+      case 'up': return colours.green;
+      case 'down': return colours.cta;
       default: return isDarkMode ? colours.subtleGrey : '#6B7280';
     }
   };
@@ -1190,8 +1190,8 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                             display: 'inline-flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            background: isDarkMode ? 'rgba(16, 185, 129, 0.2)' : 'rgba(16, 185, 129, 0.16)',
-                            border: `1px solid ${isDarkMode ? 'rgba(16, 185, 129, 0.35)' : 'rgba(16, 185, 129, 0.30)'}`,
+                            background: isDarkMode ? 'rgba(32, 178, 108, 0.2)' : 'rgba(32, 178, 108, 0.16)',
+                            border: `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.35)' : 'rgba(32, 178, 108, 0.30)'}`,
                           }}>
                             <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke={colours.green} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                               <path d="M20 6L9 17l-5-5" />

@@ -10,8 +10,7 @@
 
 const express = require('express');
 const sql = require('mssql');
-const { getClient } = require('../utils/getSecret');
-const { withRequest } = require('../utils/db');
+const { withRequest, getPool } = require('../utils/db');
 
 const router = express.Router();
 
@@ -79,8 +78,6 @@ async function tryGetTechRecipientAsanaUserIds() {
 const ASANA_BASE_URL = 'https://app.asana.com/api/1.0';
 
 const KV_URI = 'https://helix-keys.vault.azure.net/';
-const CORE_SQL_SERVER = 'helix-database-server.database.windows.net';
-const CORE_SQL_DATABASE = 'helix-core-data';
 const ASANA_WORKSPACE_ID = '1203336030510557';
 
 // Tech team project ID
@@ -95,20 +92,10 @@ const getConnectionString = () => {
   return connStr;
 };
 
-let cachedCorePool;
-
 async function getTeamSqlPool() {
-  if (cachedCorePool) return cachedCorePool;
-  const secretClient = getClient();
-  const passwordSecret = await secretClient.getSecret('sql-databaseserver-password');
-  cachedCorePool = await sql.connect({
-    server: CORE_SQL_SERVER,
-    database: CORE_SQL_DATABASE,
-    user: 'helix-database-server',
-    password: passwordSecret.value,
-    options: { encrypt: true, enableArithAbort: true },
-  });
-  return cachedCorePool;
+  const connStr = process.env.SQL_CONNECTION_STRING;
+  if (!connStr) throw new Error('SQL_CONNECTION_STRING not configured');
+  return getPool(connStr);
 }
 
 // Known Asana user IDs for tech team (from team database)

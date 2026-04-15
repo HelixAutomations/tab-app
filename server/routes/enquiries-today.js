@@ -1,5 +1,6 @@
 const express = require('express');
 const sql = require('mssql');
+const { withRequest } = require('../utils/db');
 
 const router = express.Router();
 
@@ -22,9 +23,7 @@ router.get('/', async (req, res) => {
   })();
 
   try {
-    const pool = await new sql.ConnectionPool(mainConnectionString).connect();
-    try {
-      const request = pool.request();
+    const result = await withRequest(mainConnectionString, async (request) => {
       request.requestTimeout = Number(process.env.SQL_REQUEST_TIMEOUT_MS) || 300000;
       request.input('targetDate', sql.Date, baseDate);
 
@@ -61,9 +60,7 @@ router.get('/', async (req, res) => {
       const result = await request.query(query);
       const rows = result.recordset || [];
       return res.status(200).json({ enquiries: rows, count: rows.length, date: baseDate.toISOString().slice(0, 10) });
-    } finally {
-      await pool.close();
-    }
+    });
   } catch (err) {
     console.error('❌ Error querying enquiries for today:', err.message);
     return res.status(200).json({ enquiries: [], count: 0, error: 'Query failed' });

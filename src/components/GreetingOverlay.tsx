@@ -1,5 +1,6 @@
 import React from 'react';
 import { useTheme } from '../app/functionality/ThemeContext';
+import { colours } from '../app/styles/colours';
 
 interface GreetingOverlayProps {
   userName?: string | null;
@@ -67,7 +68,7 @@ const GreetingOverlay: React.FC<GreetingOverlayProps> = ({ userName, onDismiss }
               alignItems: 'center',
               justifyContent: 'center',
               background: isDarkMode ? 'rgba(59,130,246,0.18)' : 'rgba(37,99,235,0.12)',
-              color: isDarkMode ? '#93C5FD' : '#1D4ED8',
+              color: isDarkMode ? colours.accent : colours.highlight,
               boxShadow: isDarkMode ? 'inset 0 0 0 1px rgba(147,197,253,0.18)' : 'inset 0 0 0 1px rgba(29,78,216,0.15)',
               fontSize: 14,
             }}
@@ -78,7 +79,7 @@ const GreetingOverlay: React.FC<GreetingOverlayProps> = ({ userName, onDismiss }
             margin: 0,
             fontSize: 18,
             fontWeight: 700,
-            color: isDarkMode ? '#E5E7EB' : '#0F172A',
+            color: isDarkMode ? colours.dark.text : colours.light.text,
             letterSpacing: 0.2,
           }}>
             {firstName ? `Welcome, ${firstName}!` : 'Welcome!'}
@@ -109,8 +110,8 @@ const GreetingOverlay: React.FC<GreetingOverlayProps> = ({ userName, onDismiss }
               cursor: 'pointer',
               color: isDarkMode ? '#0B1220' : '#FFFFFF',
               background: isDarkMode
-                ? 'linear-gradient(135deg, #93C5FD 0%, #60A5FA 100%)'
-                : 'linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%)',
+                ? `linear-gradient(135deg, ${colours.accent} 0%, ${colours.accent} 100%)`
+                : `linear-gradient(135deg, ${colours.highlight} 0%, ${colours.highlight} 100%)`,
               boxShadow: isDarkMode
                 ? '0 6px 16px rgba(96,165,250,0.28)'
                 : '0 6px 16px rgba(29,78,216,0.24)',

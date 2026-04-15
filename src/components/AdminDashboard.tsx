@@ -5,8 +5,9 @@ import { colours } from '../app/styles/colours';
 import ThemedSpinner from './ThemedSpinner';
 import { FixedSizeList, VariableSizeList } from 'react-window';
 import DataInspector from './DataInspector';
-const DataFlowWorkbench = React.lazy(() => import('./DataFlowWorkbench'));
-const DataFlowDiagram = React.lazy(() => import('./DataFlowDiagram'));
+const retryImport = <T,>(fn: () => Promise<T>) => fn().catch(() => new Promise<T>(r => setTimeout(r, 1500)).then(fn));
+const DataFlowWorkbench = React.lazy(() => retryImport(() => import('./DataFlowWorkbench')));
+const DataFlowDiagram = React.lazy(() => retryImport(() => import('./DataFlowDiagram')));
 
 interface AdminDashboardProps {
   isOpen: boolean;

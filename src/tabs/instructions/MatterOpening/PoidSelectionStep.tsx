@@ -3,6 +3,7 @@ import React from 'react'; // invisible change
 // invisible change 2.2
 import { Stack } from '@fluentui/react/lib/Stack';
 import { useTheme } from '../../../app/functionality/ThemeContext';
+import { colours } from '../../../app/styles/colours';
 import { IdentityConfirmationCard } from './components';
 import PoidCard from '../PoidCard';
 import { POID, TeamData } from '../../../app/functionality/types';
@@ -256,17 +257,17 @@ const PoidSelectionStep: React.FC<PoidSelectionStepProps> = ({
     const overallPalette = (() => {
         if (overallIdStatus === 'failed') {
             return {
-                border: isDarkMode ? 'rgba(239, 68, 68, 0.45)' : 'rgba(239, 68, 68, 0.4)',
-                glow: '0 0 0 1px rgba(239, 68, 68, 0.18)',
-                text: '#ef4444',
-                header: isDarkMode ? 'rgba(239, 68, 68, 0.16)' : 'rgba(239, 68, 68, 0.12)',
+                border: isDarkMode ? 'rgba(214, 85, 65, 0.45)' : 'rgba(214, 85, 65, 0.4)',
+                glow: '0 0 0 1px rgba(214, 85, 65, 0.18)',
+                text: colours.cta,
+                header: isDarkMode ? 'rgba(214, 85, 65, 0.16)' : 'rgba(214, 85, 65, 0.12)',
             };
         }
         if (overallIdStatus === 'review') {
             return {
                 border: isDarkMode ? 'rgba(251, 191, 36, 0.45)' : 'rgba(251, 191, 36, 0.4)',
                 glow: '0 0 0 1px rgba(251, 191, 36, 0.16)',
-                text: '#f59e0b',
+                text: colours.orange,
                 header: isDarkMode ? 'rgba(251, 191, 36, 0.16)' : 'rgba(251, 191, 36, 0.12)',
             };
         }
@@ -279,10 +280,10 @@ const PoidSelectionStep: React.FC<PoidSelectionStepProps> = ({
             };
         }
         return {
-            border: isDarkMode ? 'rgba(34, 197, 94, 0.5)' : 'rgba(34, 197, 94, 0.45)',
-            glow: '0 0 0 1px rgba(34, 197, 94, 0.18)',
-            text: '#22c55e',
-            header: isDarkMode ? 'rgba(34, 197, 94, 0.18)' : 'rgba(34, 197, 94, 0.12)',
+            border: isDarkMode ? 'rgba(32, 178, 108, 0.5)' : 'rgba(32, 178, 108, 0.45)',
+            glow: '0 0 0 1px rgba(32, 178, 108, 0.18)',
+            text: colours.green,
+            header: isDarkMode ? 'rgba(32, 178, 108, 0.18)' : 'rgba(32, 178, 108, 0.12)',
         };
     })();
 

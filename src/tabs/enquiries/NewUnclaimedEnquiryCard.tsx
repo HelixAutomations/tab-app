@@ -476,7 +476,7 @@ const NewUnclaimedEnquiryCard: React.FC<Props> = ({ enquiry, onSelect, onRate, o
               alignItems: 'center',
               gap: 6,
               marginTop: 8,
-              color: isDarkMode ? '#4CAF50' : '#107C10',
+              color: colours.green,
               fontSize: 12,
               fontWeight: 600
             }}

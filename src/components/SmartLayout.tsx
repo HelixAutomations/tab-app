@@ -1,5 +1,6 @@
 import React, { ReactNode } from 'react';
 import { useResponsiveLayout, createResponsiveStyles } from '../hooks/useResponsiveLayout';
+import { colours } from '../app/styles/colours';
 
 interface SmartLayoutProps {
   children: ReactNode;
@@ -132,19 +133,19 @@ export const SmartButton: React.FC<SmartButtonProps> = ({
       case 'primary':
         return {
           background: disabled ? '#f3f4f6' : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
-          color: disabled ? '#9ca3af' : '#fff',
+          color: disabled ? colours.subtleGrey : '#fff',
           border: '1px solid transparent'
         };
       case 'secondary':
         return {
           background: disabled ? '#f9fafb' : '#fff',
-          color: disabled ? '#9ca3af' : '#374151',
+          color: disabled ? colours.subtleGrey : '#374151',
           border: `1px solid ${disabled ? '#e5e7eb' : '#d1d5db'}`
         };
       case 'ghost':
         return {
           background: 'transparent',
-          color: disabled ? '#9ca3af' : '#6b7280',
+          color: disabled ? colours.subtleGrey : colours.greyText,
           border: '1px solid transparent'
         };
       default:

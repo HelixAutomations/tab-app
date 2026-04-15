@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { colours } from '../../../app/styles/colours';
 import { TextField } from '@fluentui/react/lib/TextField';
 import type { ITextFieldStyles } from '@fluentui/react/lib/TextField';
 import { PrimaryButton, DefaultButton } from '@fluentui/react/lib/Button';
@@ -108,11 +109,11 @@ const SnippetEditPopover: React.FC<SnippetEditPopoverProps> = ({ target, onSave,
             backgroundColor: '#ffffff',
             minHeight: '40px',
             ':hover': {
-                borderColor: '#0078d4',
+                borderColor: colours.highlight,
             },
             ':focus-within': {
-                borderColor: '#0078d4',
-                boxShadow: '0 0 0 2px rgba(0, 120, 212, 0.2)',
+                borderColor: colours.highlight,
+                boxShadow: '0 0 0 2px rgba(54, 144, 206, 0.2)',
             },
         },
         field: {
@@ -205,7 +206,7 @@ const SnippetEditPopover: React.FC<SnippetEditPopoverProps> = ({ target, onSave,
                                 styles={{ 
                                     root: { 
                                         fontSize: '20px', 
-                                        color: '#0078d4',
+                                        color: colours.highlight,
                                     } 
                                 }} 
                             />
@@ -246,7 +247,7 @@ const SnippetEditPopover: React.FC<SnippetEditPopoverProps> = ({ target, onSave,
                                 borderRadius: '8px',
                                 ':hover': {
                                     backgroundColor: '#f3f2f1',
-                                    color: '#d83b01',
+                                    color: colours.cta,
                                 }
                             } 
                         }} 
@@ -298,7 +299,7 @@ const SnippetEditPopover: React.FC<SnippetEditPopoverProps> = ({ target, onSave,
                             <span style={{
                                 fontSize: '14px',
                                 fontWeight: '400',
-                                color: '#d83b01',
+                                color: colours.cta,
                                 marginLeft: '12px',
                                 padding: '4px 8px',
                                 backgroundColor: '#fdf3e7',
@@ -366,12 +367,12 @@ const SnippetEditPopover: React.FC<SnippetEditPopoverProps> = ({ target, onSave,
                                 gap: '8px', 
                                 marginBottom: '8px' 
                             }}>
-                                <Icon iconName="EditNote" styles={{ root: { fontSize: '14px', color: '#0078d4' } }} />
+                                <Icon iconName="EditNote" styles={{ root: { fontSize: '14px', color: colours.highlight } }} />
                                 <Text styles={{
                                     root: {
                                         fontSize: '14px',
                                         fontWeight: '600',
-                                        color: '#0078d4',
+                                        color: colours.highlight,
                                     }
                                 }}>
                                     Your Customized Version
@@ -553,8 +554,8 @@ const SnippetEditPopover: React.FC<SnippetEditPopoverProps> = ({ target, onSave,
                                 },
                                 rootHovered: {
                                     backgroundColor: '#f8f9fa',
-                                    borderColor: '#0078d4',
-                                    color: '#0078d4',
+                                    borderColor: colours.highlight,
+                                    color: colours.highlight,
                                 },
                             }}
                             onClick={onDismiss}
@@ -563,7 +564,7 @@ const SnippetEditPopover: React.FC<SnippetEditPopoverProps> = ({ target, onSave,
                             text={mode === 'edit' ? 'Submit Changes' : 'Submit New Snippet'}
                             styles={{
                                 root: {
-                                    backgroundColor: hasChanges ? '#0078d4' : '#d1d1d1',
+                                    backgroundColor: hasChanges ? colours.highlight : '#d1d1d1',
                                     border: 'none',
                                     borderRadius: '6px',
                                     fontWeight: '600',

@@ -1,0 +1,200 @@
+/* ═══════════════════════════════════════════════════════════
+   home-tokens.css — Shared visual tokens for the Home page
+   
+   Extends design-tokens.css with Home-specific surface, border,
+   shadow, and typography tokens. All sections on the Home page
+   consume these to enforce a unified "Helix Software" look.
+   ═══════════════════════════════════════════════════════════ */
+
+/* ─── Light mode ─── */
+:root,
+[data-theme="light"] {
+  /* Card surfaces */
+  --home-card-bg: #FFFFFF;
+  --home-card-border: rgba(13, 47, 96, 0.08);
+  --home-card-shadow: inset 0 0 0 1px rgba(13, 47, 96, 0.06), 0 1px 4px rgba(13, 47, 96, 0.04);
+
+  /* Row / hover surfaces */
+  --home-row-hover-bg: rgba(13, 47, 96, 0.03);
+  --home-row-hover-shadow: 0 2px 8px rgba(13, 47, 96, 0.06);
+  --home-row-border: rgba(13, 47, 96, 0.06);
+
+  /* Section headers */
+  --home-section-header-color: var(--text-muted);
+  --home-section-header-accent: var(--helix-highlight);
+
+  /* Skeleton pulse */
+  --home-skel-fill: rgba(54, 144, 206, 0.06);
+  --home-skel-fill-weak: rgba(0, 0, 0, 0.04);
+  --home-skel-fill-faint: rgba(0, 0, 0, 0.03);
+
+  /* Strip background (QuickActionsBar, ImmediateActionsBar) */
+  --home-strip-bg: var(--surface-section);
+  --home-strip-border: rgba(13, 47, 96, 0.08);
+
+  /* Inter-section gutter */
+  --home-gutter: 6px;
+
+  /* Section divider inside cards */
+  --home-section-divider: rgba(13, 47, 96, 0.08);
+
+  /* Subtle surface alternation inside panels */
+  --home-surface-alt: rgba(214, 232, 255, 0.34);
+
+  /* Tile surfaces (TeamInsight tiles, skeleton tiles) */
+  --home-tile-bg: rgba(13, 47, 96, 0.03);
+  --home-tile-bg-hover: rgba(54, 144, 206, 0.06);
+  --home-tile-border: rgba(13, 47, 96, 0.08);
+  --home-tile-border-hover: rgba(54, 144, 206, 0.3);
+  --home-badge-bg: #F4F4F6;
+
+  /* Additional skeleton fills */
+  --home-skel-fill-medium: rgba(0, 0, 0, 0.04);
+
+  /* Chart gridlines (SVG skeleton charts) */
+  --home-chart-gridline: rgba(13, 47, 96, 0.04);
+
+  /* Tab divider (QuickActionsBar separators) */
+  --home-tab-divider: rgba(0, 0, 0, 0.08);
+
+  /* Selected row highlight (OperationsQueue) */
+  --home-row-selected-bg: rgba(54, 144, 206, 0.06);
+}
+
+/* ─── Dark mode ─── */
+[data-theme="dark"] {
+  /* Card surfaces */
+  --home-card-bg: rgba(6, 23, 51, 0.55);
+  --home-card-border: rgba(54, 144, 206, 0.08);
+  --home-card-shadow: none;
+
+  /* Row / hover surfaces */
+  --home-row-hover-bg: rgba(255, 255, 255, 0.03);
+  --home-row-hover-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  --home-row-border: rgba(255, 255, 255, 0.04);
+
+  /* Section headers */
+  --home-section-header-color: var(--text-muted);
+  --home-section-header-accent: var(--helix-accent);
+
+  /* Skeleton pulse */
+  --home-skel-fill: rgba(255, 255, 255, 0.06);
+  --home-skel-fill-weak: rgba(255, 255, 255, 0.04);
+  --home-skel-fill-faint: rgba(255, 255, 255, 0.03);
+
+  /* Strip background */
+  --home-strip-bg: #061733;
+  --home-strip-border: rgba(54, 144, 206, 0.08);
+
+  /* Inter-section gutter */
+  --home-gutter: 6px;
+
+  /* Section divider */
+  --home-section-divider: rgba(255, 255, 255, 0.06);
+
+  /* Subtle surface alternation */
+  --home-surface-alt: rgba(255, 255, 255, 0.025);
+
+  /* Tile surfaces (TeamInsight tiles, skeleton tiles) — aligned with darkBlue base */
+  --home-tile-bg: rgba(10, 32, 64, 0.72);
+  --home-tile-bg-hover: rgba(13, 40, 80, 0.82);
+  --home-tile-border: rgba(54, 144, 206, 0.12);
+  --home-tile-border-hover: rgba(54, 144, 206, 0.45);
+  --home-badge-bg: rgba(10, 32, 64, 0.92);
+
+  /* Additional skeleton fills */
+  --home-skel-fill-medium: rgba(255, 255, 255, 0.04);
+
+  /* Chart gridlines */
+  --home-chart-gridline: rgba(255, 255, 255, 0.03);
+
+  /* Tab divider */
+  --home-tab-divider: rgba(255, 255, 255, 0.08);
+
+  /* Selected row highlight */
+  --home-row-selected-bg: rgba(255, 255, 255, 0.04);
+}
+
+/* ─── High contrast ─── */
+[data-theme="high-contrast"] {
+  --home-card-bg: #1a1a1a;
+  --home-card-border: #ffffff;
+  --home-card-shadow: none;
+
+  --home-row-hover-bg: #333333;
+  --home-row-hover-shadow: none;
+  --home-row-border: #ffffff;
+
+  --home-section-header-color: #ffffff;
+  --home-section-header-accent: #ffff00;
+
+  --home-skel-fill: rgba(255, 255, 255, 0.12);
+  --home-skel-fill-weak: rgba(255, 255, 255, 0.08);
+  --home-skel-fill-faint: rgba(255, 255, 255, 0.06);
+
+  --home-strip-bg: #1a1a1a;
+  --home-strip-border: #ffffff;
+
+  --home-gutter: 6px;
+  --home-section-divider: #ffffff;
+  --home-surface-alt: #333333;
+
+  /* Tile surfaces */
+  --home-tile-bg: #1a1a1a;
+  --home-tile-bg-hover: #333333;
+  --home-tile-border: #ffffff;
+  --home-tile-border-hover: #ffff00;
+  --home-badge-bg: #1a1a1a;
+
+  /* Additional skeleton fills */
+  --home-skel-fill-medium: rgba(255, 255, 255, 0.08);
+
+  /* Chart gridlines */
+  --home-chart-gridline: rgba(255, 255, 255, 0.08);
+
+  /* Tab divider */
+  --home-tab-divider: #ffffff;
+
+  /* Selected row highlight */
+  --home-row-selected-bg: #333333;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Utility classes — Home section header
+   ═══════════════════════════════════════════════════════════ */
+
+.home-section-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-primary);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--home-section-header-color);
+  padding: 2px 0 3px;
+  user-select: none;
+}
+
+.home-section-header-icon {
+  width: 11px;
+  height: 11px;
+  color: var(--home-section-header-accent);
+  flex-shrink: 0;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Skeleton pulse — shared keyframe for all Home skeletons
+   ═══════════════════════════════════════════════════════════ */
+
+@keyframes homeSkelPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  @keyframes homeSkelPulse {
+    0%, 100% { opacity: 1; }
+  }
+}

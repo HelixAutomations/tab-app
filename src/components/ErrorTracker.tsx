@@ -146,8 +146,8 @@ export const ErrorTracker: React.FC<ErrorTrackerProps> = ({ onClose }) => {
   const borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)';
   const textPrimary = isDarkMode ? colours.dark.text : colours.light.text;
   const textMuted = isDarkMode ? 'rgba(203, 213, 225, 0.6)' : 'rgba(71, 85, 105, 0.6)';
-  const errorRed = '#ef4444';
-  const warningYellow = '#f59e0b';
+  const errorRed = colours.cta;
+  const warningYellow = colours.orange;
 
   return (
     <div

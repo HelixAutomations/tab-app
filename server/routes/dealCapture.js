@@ -1,95 +1,17 @@
 const sql = require('mssql');
 const { loggers } = require('../utils/logger');
 const { emitEvent } = require('../utils/eventEmitter');
+const { getPool } = require('../utils/db');
 
 const log = loggers.payments.child('DealCapture');
 
-// Database connection configuration
-let dbConfig = null;
+const getInstrConnStr = () => {
+  const s = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+  if (!s) throw new Error('INSTRUCTIONS_SQL_CONNECTION_STRING not configured');
+  return s;
+};
+
 let dealsColumnCache = null;
-
-function parseSqlConnectionString(connectionString) {
-  const map = new Map();
-  for (const part of String(connectionString)
-    .split(';')
-    .map((p) => p.trim())
-    .filter(Boolean)) {
-    const idx = part.indexOf('=');
-    if (idx === -1) continue;
-    const key = part.slice(0, idx).trim().toLowerCase();
-    const value = part.slice(idx + 1).trim();
-    if (!key) continue;
-    map.set(key, value);
-  }
-  return map;
-}
-
-function getFirstConnValue(connMap, keys) {
-  for (const k of keys) {
-    const v = connMap.get(String(k).toLowerCase());
-    if (v != null && String(v).trim() !== '') return v;
-  }
-  return undefined;
-}
-
-function normaliseServerName(serverValue) {
-  if (!serverValue) return serverValue;
-  // Common forms: tcp:myserver.database.windows.net,1433
-  const withoutPrefix = String(serverValue).replace(/^tcp:/i, '');
-  return withoutPrefix.split(',')[0];
-}
-
-async function getDbConfig() {
-  if (dbConfig) return dbConfig;
-  
-  const connectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
-  if (!connectionString) {
-    throw new Error('INSTRUCTIONS_SQL_CONNECTION_STRING not found in environment');
-  }
-
-  // Production connection strings vary (e.g. Server/Initial Catalog vs Data Source/Database).
-  // A brittle parser here can silently drop the database and default to the login's default DB
-  // (often 'master'), which then causes "Invalid object name 'Deals'."
-  const connMap = parseSqlConnectionString(connectionString);
-  const serverRaw = getFirstConnValue(connMap, [
-    'server',
-    'data source',
-    'address',
-    'addr',
-    'network address'
-  ]);
-  const database = getFirstConnValue(connMap, ['initial catalog', 'database']);
-  const user = getFirstConnValue(connMap, ['user id', 'uid', 'user']);
-  const password = getFirstConnValue(connMap, ['password', 'pwd']);
-
-  const server = normaliseServerName(serverRaw);
-
-  if (!server) {
-    throw new Error('INSTRUCTIONS_SQL_CONNECTION_STRING missing Server/Data Source');
-  }
-  if (!database) {
-    throw new Error('INSTRUCTIONS_SQL_CONNECTION_STRING missing Initial Catalog/Database');
-  }
-  if (!user || !password) {
-    throw new Error('INSTRUCTIONS_SQL_CONNECTION_STRING missing User ID/Password');
-  }
-  
-  dbConfig = {
-    server,
-    database, 
-    user,
-    password,
-    options: {
-      encrypt: true,
-      trustServerCertificate: false,
-      connectTimeout: 30000,
-      requestTimeout: 30000
-    }
-  };
-  
-  return dbConfig;
-}
-
 async function getDealsColumns(pool) {
   if (dealsColumnCache) return dealsColumnCache;
   const result = await pool.request().query(`
@@ -149,8 +71,7 @@ module.exports = async (req, res) => {
   }
 
   try {
-    const config = await getDbConfig();
-    const pool = await sql.connect(config);
+    const pool = await getPool(getInstrConnStr());
     const dealsColumns = await getDealsColumns(pool);
 
     const resolvedDealKind = (() => {
@@ -286,16 +207,8 @@ module.exports = async (req, res) => {
     });
 
   } catch (error) {
-    let dbName;
-    let dbServer;
-    try {
-      const cfg = await getDbConfig();
-      dbName = cfg?.database;
-      dbServer = cfg?.server;
-    } catch (_e) {
-      dbName = undefined;
-      dbServer = undefined;
-    }
+    const dbName = undefined;
+    const dbServer = undefined;
 
     const message = error?.message || String(error);
     const isMissingDealsTable =

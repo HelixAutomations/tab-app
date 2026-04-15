@@ -39,7 +39,7 @@ const formatBytes = (bytes?: number): string => {
 const getFileColour = (ext: string, coloursRef: typeof colours): string => {
   switch (ext) {
     case 'pdf':
-      return coloursRef.red || '#dc2626';
+      return coloursRef.red || colours.cta;
     case 'doc':
     case 'docx':
       return coloursRef.blue;
@@ -1503,7 +1503,7 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
           {...dealSummaryInteractionProps}
           style={{
             backgroundColor: selected 
-              ? (isDarkMode ? '#334155' : 'rgba(59, 130, 246, 0.04)')
+              ? (isDarkMode ? '#334155' : 'rgba(54, 144, 206, 0.04)')
               : (isDarkMode ? '#1e293b' : 'rgba(0,0,0,0.03)'),
             border: selected
               ? (isDarkMode ? `1px solid ${colours.blue}` : `1px solid ${colours.blue}`)
@@ -1921,9 +1921,9 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
                           return isDarkMode ? 'rgba(251, 191, 36, 0.2)' : 'rgba(251, 191, 36, 0.15)';
                         }
                         if (statusText.includes('complete') || statusText.includes('paid') || statusText.includes('assessed') || statusText.includes('opened') || statusText.includes('verified') || statusText.includes('uploaded') || statusText.includes('generated')) {
-                          return isDarkMode ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.1)';
+                          return isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(32, 178, 108, 0.1)';
                         } else if (statusText.includes('review') || statusText.includes('high risk')) {
-                          return isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)';
+                          return isDarkMode ? 'rgba(214, 85, 65, 0.15)' : 'rgba(214, 85, 65, 0.1)';
                         } else if (statusText.includes('processing') || statusText.includes('under review')) {
                           return isDarkMode ? 'rgba(251, 191, 36, 0.15)' : 'rgba(251, 191, 36, 0.1)';
                         } else {
@@ -1943,7 +1943,7 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
                         if (statusText.includes('complete') || statusText.includes('paid') || statusText.includes('assessed') || statusText.includes('opened') || statusText.includes('verified') || statusText.includes('uploaded') || statusText.includes('generated')) {
                           return `1px solid ${colours.green}30`;
                         } else if (statusText.includes('review') || statusText.includes('high risk')) {
-                          return '1px solid rgba(239, 68, 68, 0.3)';
+                          return '1px solid rgba(214, 85, 65, 0.3)';
                         } else if (statusText.includes('processing') || statusText.includes('under review')) {
                           return '1px solid rgba(251, 191, 36, 0.3)';
                         } else {
@@ -1974,14 +1974,14 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
                         const statusText = step.status.toLowerCase();
                         const isAttentionState = (step.key === 'id') && (statusText.includes('click to verify') || statusText.includes('verifying'));
                         if (isAttentionState) {
-                          return '#f59e0b';
+                          return colours.orange;
                         }
                         if (statusText.includes('complete') || statusText.includes('paid') || statusText.includes('assessed') || statusText.includes('opened') || statusText.includes('verified') || statusText.includes('uploaded') || statusText.includes('generated')) {
                           return colours.green;
                         } else if (statusText.includes('review') || statusText.includes('high risk')) {
-                          return '#ef4444';
+                          return colours.cta;
                         } else if (statusText.includes('processing') || statusText.includes('under review')) {
-                          return '#f59e0b';
+                          return colours.orange;
                         } else {
                           return colours.highlight;
                         }
@@ -2001,14 +2001,14 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
                           const statusText = step.status.toLowerCase();
                           const isAttentionState = (step.key === 'id') && (statusText.includes('click to verify') || statusText.includes('verifying'));
                           if (isAttentionState) {
-                            return '#f59e0b';
+                            return colours.orange;
                           }
                           if (statusText.includes('complete') || statusText.includes('paid') || statusText.includes('assessed') || statusText.includes('opened') || statusText.includes('verified') || statusText.includes('uploaded') || statusText.includes('generated')) {
                             return colours.green;
                           } else if (statusText.includes('review') || statusText.includes('high risk')) {
-                            return '#ef4444';
+                            return colours.cta;
                           } else if (statusText.includes('processing') || statusText.includes('under review')) {
-                            return '#f59e0b';
+                            return colours.orange;
                           } else {
                             return colours.highlight;
                           }
@@ -2091,8 +2091,8 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
                 style={{
                   padding: '6px 10px',
                   borderRadius: 6,
-                  border: '1px solid rgba(220, 38, 38, 0.35)',
-                  background: isDarkMode ? 'rgba(220,38,38,0.15)' : 'linear-gradient(135deg, #fff5f5 0%, #ffecec 100%)',
+                  border: '1px solid rgba(214, 85, 65, 0.35)',
+                  background: isDarkMode ? 'rgba(214,85,65,0.15)' : 'linear-gradient(135deg, #fff5f5 0%, #ffecec 100%)',
                   color: colours.red,
                   cursor: 'pointer'
                 }}
@@ -2702,7 +2702,7 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
                         style={{ 
                           fontWeight: 400, 
                           fontSize: '13px', 
-                          color: isDarkMode ? '#60a5fa' : '#2563eb',
+                          color: isDarkMode ? colours.accent : colours.highlight,
                           lineHeight: '1.4',
                           textDecoration: 'underline'
                         }}
@@ -2765,7 +2765,7 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
                       style={{
                         textAlign: 'left',
                         border: '1px solid ' + (isActive ? colours.blue : (isDarkMode ? 'rgba(255,255,255,0.15)' : '#e2e8f0')),
-                        background: isActive ? (isDarkMode ? 'rgba(96,165,250,0.15)' : '#eff6ff') : (isDarkMode ? 'rgba(255,255,255,0.04)' : '#f1f5f9'),
+                        background: isActive ? (isDarkMode ? 'rgba(54,144,206,0.15)' : 'rgba(54, 144, 206, 0.06)') : (isDarkMode ? 'rgba(255,255,255,0.04)' : '#f1f5f9'),
                         padding: '8px 10px',
                         borderRadius: 6,
                         cursor: 'pointer',

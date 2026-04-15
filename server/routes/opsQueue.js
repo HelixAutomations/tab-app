@@ -50,8 +50,6 @@ const {
 
 const router = express.Router();
 
-let dbConfig = null;
-
 function parseJsonObject(raw) {
   try {
     const parsed = JSON.parse(raw || '{}');
@@ -83,33 +81,21 @@ function derivePaymentMethodAndReference(row) {
   return { paymentMethod, paymentReference };
 }
 
-async function getDbConfig() {
-  if (dbConfig) return dbConfig;
-  const connectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
-  if (!connectionString) throw new Error('INSTRUCTIONS_SQL_CONNECTION_STRING not found');
-  const params = new URLSearchParams(connectionString.split(';').join('&'));
-  const server = params.get('Server').replace('tcp:', '').split(',')[0];
-  dbConfig = {
-    server,
-    database: params.get('Initial Catalog'),
-    user: params.get('User ID'),
-    password: params.get('Password'),
-    options: { encrypt: true, trustServerCertificate: false, enableArithAbort: true },
-  };
-  return dbConfig;
-}
+const getInstrConnStr = () => {
+  const cs = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+  if (!cs) throw new Error('INSTRUCTIONS_SQL_CONNECTION_STRING not found in environment');
+  return cs;
+};
 
 // GET /api/ops-queue/pending - Fetch bank transfer operations awaiting ops approval
 router.get('/pending', async (req, res) => {
-  let pool;
   try {
     // Check Redis cache first
     const cacheKey = OPS_CACHE_KEYS.pending();
     const cached = await getCache(cacheKey);
     if (cached?.data) return res.json({ ...cached.data, cached: true });
 
-    const config = await getDbConfig();
-    pool = await sql.connect(config);
+    const pool = await getPool(getInstrConnStr());
     const tableExists = await paymentOperationsTableExists(pool);
 
     if (!tableExists) {
@@ -160,22 +146,18 @@ router.get('/pending', async (req, res) => {
     trackException(error, { operation: 'OpsQueue.Pending', phase: 'query' });
     console.error('Error fetching ops queue:', error);
     res.status(500).json({ error: 'Failed to fetch ops queue', details: error.message });
-  } finally {
-    if (pool) try { await pool.close(); } catch {}
   }
 });
 
 // GET /api/ops-queue/recent - Fetch recently approved payment operations (last 7 days)
 router.get('/recent', async (req, res) => {
-  let pool;
   try {
     // Check Redis cache first
     const cacheKey = OPS_CACHE_KEYS.recent();
     const cached = await getCache(cacheKey);
     if (cached?.data) return res.json({ ...cached.data, cached: true });
 
-    const config = await getDbConfig();
-    pool = await sql.connect(config);
+    const pool = await getPool(getInstrConnStr());
     const tableExists = await paymentOperationsTableExists(pool);
 
     if (!tableExists) {
@@ -218,14 +200,11 @@ router.get('/recent', async (req, res) => {
   } catch (error) {
     trackException(error, { operation: 'OpsQueue.Recent', phase: 'query' });
     res.status(500).json({ error: 'Failed to fetch recent approvals', details: error.message });
-  } finally {
-    if (pool) try { await pool.close(); } catch {}
   }
 });
 
 // POST /api/ops-queue/approve - Approve a bank transfer payment operation
 router.post('/approve', async (req, res) => {
-  let pool;
   try {
     const { operationId, approvedBy } = req.body;
     if (!operationId || !approvedBy) {
@@ -234,8 +213,7 @@ router.post('/approve', async (req, res) => {
 
     trackEvent('OpsQueue.PaymentOperation.ApproveStarted', { operationId, approvedBy });
 
-    const config = await getDbConfig();
-    pool = await sql.connect(config);
+    const pool = await getPool(getInstrConnStr());
     const tableExists = await paymentOperationsTableExists(pool);
 
     if (!tableExists) {
@@ -273,8 +251,6 @@ router.post('/approve', async (req, res) => {
     trackEvent('OpsQueue.PaymentOperation.ApproveFailed', { operationId: req.body?.operationId, error: error.message });
     console.error('Error approving payment:', error);
     res.status(500).json({ error: 'Failed to approve payment', details: error.message });
-  } finally {
-    if (pool) try { await pool.close(); } catch {}
   }
 });
 
@@ -480,19 +456,16 @@ router.post('/transaction-approve', async (req, res) => {
 
 // GET /api/ops-queue/payment-lookup?q=xxx - Look up a payment by ID or payment_intent_id
 router.get('/payment-lookup', async (req, res) => {
-  let pool;
   try {
     const q = String(req.query.q || '').trim();
     if (!q) {
       return res.status(400).json({ error: 'q (payment ID) is required' });
     }
 
-    const config = await getDbConfig();
-    pool = await sql.connect(config);
-
-    const result = await pool.request()
-      .input('q', sql.NVarChar, q)
-      .query(`
+    const result = await withRequest(getInstrConnStr(), async (request) => {
+      return request
+        .input('q', sql.NVarChar, q)
+        .query(`
         SELECT TOP 1
           p.id,
           p.payment_intent_id,
@@ -518,6 +491,7 @@ router.get('/payment-lookup', async (req, res) => {
         WHERE p.id = @q
            OR p.payment_intent_id = @q
       `);
+    });
 
     if (result.recordset.length === 0) {
       return res.json({ success: true, found: false });
@@ -551,8 +525,6 @@ router.get('/payment-lookup', async (req, res) => {
   } catch (error) {
     trackException(error, { operation: 'OpsQueue.PaymentLookup', phase: 'query' });
     res.status(500).json({ error: 'Failed to look up payment', details: error.message });
-  } finally {
-    if (pool) try { await pool.close(); } catch {}
   }
 });
 
@@ -560,13 +532,9 @@ router.get('/payment-lookup', async (req, res) => {
 
 // GET /api/ops-queue/stripe-recent - Recent payments from the Payments table (last 14 days)
 router.get('/stripe-recent', async (req, res) => {
-  let pool;
   try {
-    const config = await getDbConfig();
-    pool = await sql.connect(config);
-
-    const result = await pool.request()
-      .query(`
+    const result = await withRequest(getInstrConnStr(), async (request) => {
+      return request.query(`
         SELECT TOP 30
           p.id,
           p.payment_intent_id,
@@ -589,6 +557,7 @@ router.get('/stripe-recent', async (req, res) => {
           AND (p.internal_status != 'archived' OR p.internal_status IS NULL)
         ORDER BY p.created_at DESC
       `);
+    });
 
     const items = result.recordset.map(row => {
       const { paymentMethod, paymentReference } = derivePaymentMethodAndReference(row);
@@ -616,8 +585,6 @@ router.get('/stripe-recent', async (req, res) => {
   } catch (error) {
     trackException(error, { operation: 'OpsQueue.StripeRecent', phase: 'query' });
     res.status(500).json({ error: 'Failed to fetch recent payments', details: error.message });
-  } finally {
-    if (pool) try { await pool.close(); } catch {}
   }
 });
 

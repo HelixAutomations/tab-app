@@ -24,11 +24,11 @@ interface AnnualLeaveHistoryProps {
 const getStatusColor = (status: string, isDarkMode: boolean): string => {
   const statusLower = status.toLowerCase();
   const colors: Record<string, string> = {
-    'approved': isDarkMode ? colours.green : '#059669',
-    'pending': isDarkMode ? colours.yellow : '#d97706',
-    'requested': isDarkMode ? colours.yellow : '#d97706',
-    'rejected': isDarkMode ? colours.cta : '#dc2626',
-    'booked': isDarkMode ? colours.green : '#059669',
+    'approved': colours.green,
+    'pending': isDarkMode ? colours.yellow : '#FF8C00',
+    'requested': isDarkMode ? colours.yellow : '#FF8C00',
+    'rejected': isDarkMode ? colours.cta : '#D65541',
+    'booked': colours.green,
   };
   return colors[statusLower] || (isDarkMode ? colours.dark.subText : colours.greyText);
 };
@@ -121,8 +121,8 @@ export const AnnualLeaveHistory: React.FC<AnnualLeaveHistoryProps> = ({
             root: {
               marginBottom: '16px',
               backgroundColor: message.type === 'success' 
-                ? (isDarkMode ? 'rgba(115, 171, 96, 0.1)' : 'rgba(16, 185, 129, 0.1)')
-                : (isDarkMode ? 'rgba(214, 85, 65, 0.1)' : 'rgba(220, 38, 38, 0.1)'),
+                ? (isDarkMode ? 'rgba(32, 178, 108, 0.1)' : 'rgba(32, 178, 108, 0.1)')
+                : (isDarkMode ? 'rgba(214, 85, 65, 0.1)' : 'rgba(214, 85, 65, 0.1)'),
               borderRadius: 0,
             }
           }}
@@ -140,17 +140,17 @@ export const AnnualLeaveHistory: React.FC<AnnualLeaveHistoryProps> = ({
               alignItems: 'center',
               justifyContent: 'space-between',
               padding: '12px 16px',
-              background: isDarkMode ? 'rgba(30, 41, 59, 0.3)' : 'rgba(248, 250, 252, 0.5)',
-              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(0, 0, 0, 0.06)'}`,
+              background: isDarkMode ? 'rgba(6, 23, 51, 0.3)' : 'rgba(244, 244, 246, 0.5)',
+              border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(0, 0, 0, 0.06)'}`,
               borderLeft: `3px solid ${getStatusColor(record.status || '', isDarkMode)}`,
               borderRadius: 0,
               transition: '0.2s'
             }}
             onMouseEnter={e => {
-              e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(30, 41, 59, 0.5)' : 'rgba(248, 250, 252, 0.8)';
+              e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(6, 23, 51, 0.5)' : 'rgba(244, 244, 246, 0.8)';
             }}
             onMouseLeave={e => {
-              e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(30, 41, 59, 0.3)' : 'rgba(248, 250, 252, 0.5)';
+              e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(6, 23, 51, 0.3)' : 'rgba(244, 244, 246, 0.5)';
             }}
           >
             <div style={{ flex: 1 }}>
@@ -236,7 +236,7 @@ export const AnnualLeaveHistory: React.FC<AnnualLeaveHistoryProps> = ({
                       width: '32px',
                     },
                     rootHovered: {
-                      color: isDarkMode ? '#ff6b6b' : '#b91c1c',
+                      color: isDarkMode ? '#D65541' : '#D65541',
                       backgroundColor: 'rgba(214, 85, 65, 0.1)',
                     }
                   }}
@@ -277,8 +277,8 @@ export const AnnualLeaveHistory: React.FC<AnnualLeaveHistoryProps> = ({
             main: {
               backgroundColor: isDarkMode ? colours.dark.sectionBackground : '#ffffff',
               color: isDarkMode ? colours.dark.text : colours.light.text,
-              borderRadius: '8px',
-              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
+              borderRadius: 0,
+              border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
             }
           }
         }}
@@ -289,10 +289,10 @@ export const AnnualLeaveHistory: React.FC<AnnualLeaveHistoryProps> = ({
               padding: '12px',
               backgroundColor: isDarkMode ? 'rgba(214, 176, 70, 0.1)' : 'rgba(217, 119, 6, 0.1)',
               border: isDarkMode ? '1px solid rgba(214, 176, 70, 0.3)' : '1px solid rgba(217, 119, 6, 0.3)',
-              borderRadius: '4px',
+              borderRadius: 0,
             }}>
               <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
-                <Text style={{ fontSize: '12px', color: isDarkMode ? colours.yellow : '#d97706' }}>
+                <Text style={{ fontSize: '12px', color: isDarkMode ? colours.yellow : '#FF8C00' }}>
                   ⚠️ This leave has been booked and added to Clio calendar.
                 </Text>
               </Stack>
@@ -321,10 +321,10 @@ export const AnnualLeaveHistory: React.FC<AnnualLeaveHistoryProps> = ({
             styles={{
               root: {
                 backgroundColor: 'transparent',
-                border: isDarkMode ? '1px solid rgba(148, 163, 184, 0.3)' : '1px solid rgba(0, 0, 0, 0.2)',
+                border: isDarkMode ? '1px solid rgba(160, 160, 160, 0.3)' : '1px solid rgba(0, 0, 0, 0.2)',
               },
               rootHovered: {
-                backgroundColor: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0, 0, 0, 0.05)',
+                backgroundColor: isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 0, 0, 0.05)',
               },
               label: {
                 color: isDarkMode ? colours.dark.text : colours.light.text,
@@ -341,7 +341,7 @@ export const AnnualLeaveHistory: React.FC<AnnualLeaveHistoryProps> = ({
                 border: 'none',
               },
               rootHovered: {
-                backgroundColor: isDarkMode ? '#ff6b6b' : '#b91c1c',
+                backgroundColor: isDarkMode ? '#D65541' : '#D65541',
               }
             }}
           >

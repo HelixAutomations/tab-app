@@ -1,41 +1,13 @@
 const express = require('express');
 const sql = require('mssql');
+const { withRequest } = require('../utils/db');
 const router = express.Router();
 
-// Database connection configuration
-let dbConfig = null;
-
-async function getDbConfig() {
-  if (dbConfig) return dbConfig;
-  
-  // Use the INSTRUCTIONS_SQL_CONNECTION_STRING from .env
-  const connectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
-  if (!connectionString) {
-    throw new Error('INSTRUCTIONS_SQL_CONNECTION_STRING not found in environment');
-  }
-  
-  // Parse connection string into config object
-  const params = new URLSearchParams(connectionString.split(';').join('&'));
-  const server = params.get('Server').replace('tcp:', '').split(',')[0];
-  const database = params.get('Initial Catalog');
-  const user = params.get('User ID');
-  const password = params.get('Password');
-  
-  dbConfig = {
-    server,
-    database, 
-    user,
-    password,
-    options: {
-      encrypt: true,
-      trustServerCertificate: false,
-      connectTimeout: 30000,
-      requestTimeout: 30000
-    }
-  };
-  
-  return dbConfig;
-}
+const getInstrConnStr = () => {
+  const s = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+  if (!s) throw new Error('INSTRUCTIONS_SQL_CONNECTION_STRING not configured');
+  return s;
+};
 
 // Update instruction status endpoint
 router.post('/', async (req, res) => {
@@ -49,36 +21,33 @@ router.post('/', async (req, res) => {
   }
 
   try {
-    const config = await getDbConfig();
-    const pool = await sql.connect(config);
-    
     // Build dynamic update query based on provided fields
     const updates = [];
-    const request = pool.request().input('instructionRef', sql.NVarChar, instructionRef);
+    const inputs = [['instructionRef', sql.NVarChar, instructionRef]];
     
     if (stage) {
       updates.push('Stage = @stage');
-      request.input('stage', sql.NVarChar, stage);
+      inputs.push(['stage', sql.NVarChar, stage]);
     }
     
     if (internalStatus) {
       updates.push('InternalStatus = @internalStatus');
-      request.input('internalStatus', sql.NVarChar, internalStatus);
+      inputs.push(['internalStatus', sql.NVarChar, internalStatus]);
     }
     
     if (overrideReason) {
       updates.push('OverrideReason = @overrideReason');
-      request.input('overrideReason', sql.NVarChar, overrideReason);
+      inputs.push(['overrideReason', sql.NVarChar, overrideReason]);
     }
     
     if (userInitials) {
       updates.push('LastModifiedBy = @userInitials');
-      request.input('userInitials', sql.NVarChar, userInitials);
+      inputs.push(['userInitials', sql.NVarChar, userInitials]);
     }
     
     // Always update LastUpdated
     updates.push('LastUpdated = @lastUpdated');
-    request.input('lastUpdated', sql.DateTime2, new Date());
+    inputs.push(['lastUpdated', sql.DateTime2, new Date()]);
     
     const updateQuery = `
       UPDATE Instructions 
@@ -86,7 +55,10 @@ router.post('/', async (req, res) => {
       WHERE InstructionRef = @instructionRef
     `;
     
-    const result = await request.query(updateQuery);
+    const result = await withRequest(getInstrConnStr(), async (request) => {
+      for (const [name, type, val] of inputs) request.input(name, type, val);
+      return request.query(updateQuery);
+    });
     
     if (result.rowsAffected[0] === 0) {
       return res.status(404).json({ 

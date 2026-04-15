@@ -1,6 +1,7 @@
 import React from 'react';
 import { Icon } from '@fluentui/react/lib/Icon';
 import { colours } from '../../app/styles/colours';
+import './home-tokens.css';
 import {
   FaChevronRight,
   FaRegCheckSquare,
@@ -191,8 +192,8 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
   const greetingVisible = showGreeting && Boolean(greetingLabel) && !expanded && !isCompact;
 
   // Theme colours — brand tokens only
-  const textPrimary = isDarkMode ? colours.dark.text : colours.light.text;
-  const textSecondary = isDarkMode ? colours.subtleGrey : colours.greyText;
+  const textPrimary = 'var(--text-primary)';
+  const textSecondary = 'var(--text-muted)';
   const interactiveAccent = isDarkMode ? colours.accent : colours.blue;
   const interactiveHoverBg = `${interactiveAccent}${isDarkMode ? '1A' : '14'}`;
 
@@ -206,11 +207,10 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
           gap: isCompact ? 6 : 10,
           padding: isCompact ? '4px 10px' : '4px 20px',
           minHeight: isCompact ? 30 : 32,
-          background: isDarkMode
-                ? colours.darkBlue
-              : colours.sectionBackground,
+          fontFamily: 'var(--font-primary)',
+          background: 'var(--home-strip-bg)',
           borderTop: 'none',
-          borderBottom: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(13, 47, 96, 0.08)'}`,
+          borderBottom: '1px solid var(--home-strip-border)',
           width: '100%',
           boxSizing: 'border-box',
         }}
@@ -242,10 +242,9 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
         gap: isCompact ? 6 : 10,
         padding: isCompact ? '4px 10px' : '4px 20px',
         minHeight: isCompact ? 30 : 32,
-        background: isDarkMode
-            ? colours.darkBlue
-          : colours.sectionBackground,
-        borderBottom: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(13, 47, 96, 0.08)'}`,
+        fontFamily: "var(--font-primary)",
+        background: 'var(--home-strip-bg)',
+        borderBottom: '1px solid var(--home-strip-border)',
         position: 'relative',
         width: '100%',
         boxSizing: 'border-box',
@@ -275,7 +274,7 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
           flexShrink: 0,
           transition: 'all 0.2s ease',
           color: expanded ? interactiveAccent : textSecondary,
-          fontSize: 10,
+          fontSize: 11,
           fontWeight: 600,
           whiteSpace: 'nowrap',
           letterSpacing: '0.04em',
@@ -300,7 +299,7 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
           width: 1,
           alignSelf: 'stretch',
           margin: '4px 2px',
-          background: isDarkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)',
+          background: 'var(--home-tab-divider)',
           flexShrink: 0,
           transition: 'opacity 0.2s ease',
           opacity: expanded || isCompact ? 1 : 0,
@@ -354,7 +353,7 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
                 borderLeft: `2px solid ${isActive ? interactiveAccent : (isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.25)')}`,
                 borderRadius: 2,
                 color: isActive ? interactiveAccent : textPrimary,
-                fontSize: 10,
+                fontSize: 11,
                 fontWeight: 600,
                 cursor: isLoading && !isSelected ? 'not-allowed' : 'pointer',
                 opacity: isLoading && !isSelected ? 0.5 : 1,
@@ -440,7 +439,7 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
               style={{
                 width: 1,
                 height: 16,
-                background: isDarkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)',
+                background: 'var(--home-tab-divider)',
                 marginRight: 8,
                 animation: iconsMounted ? 'qaIconDropIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both' : 'none',
                 opacity: iconsMounted ? 1 : 0,

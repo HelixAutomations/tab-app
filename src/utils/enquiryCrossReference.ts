@@ -3,6 +3,8 @@
  * and new (instructions) database systems during migration transition.
  */
 
+import { colours } from '../app/styles/colours';
+
 export interface OldEnquiry {
   ID: string;
   Date_Created: string;
@@ -244,13 +246,13 @@ export function getMigrationStats(matches: CrossReferenceMatch[]) {
 export function getStatusIndicator(match: CrossReferenceMatch) {
   switch (match.migrationStatus) {
     case 'migrated':
-      return { icon: '✅', label: 'Migrated', color: '#22c55e' };
+      return { icon: '✅', label: 'Migrated', color: colours.green };
     case 'partial':
-      return { icon: '⚠️', label: 'Partial', color: '#f59e0b' };
+      return { icon: '⚠️', label: 'Partial', color: colours.orange };
     case 'not-migrated':
-      return { icon: '❌', label: 'Not Migrated', color: '#ef4444' };
+      return { icon: '❌', label: 'Not Migrated', color: colours.cta };
     case 'sync-pending':
-      return { icon: '🔄', label: 'Sync Pending', color: '#3b82f6' };
+      return { icon: '🔄', label: 'Sync Pending', color: colours.highlight };
     default:
       return { icon: '❓', label: 'Unknown', color: '#6b7280' };
   }

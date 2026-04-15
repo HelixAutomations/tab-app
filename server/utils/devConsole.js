@@ -104,6 +104,7 @@ function prodHint(ms, source) {
 const QUIET_PATHS = new Set([
   '/api/telemetry',
   '/api/release-notes',
+  '/api/process-hub/health',
 ]);
 
 // Static asset patterns (only log when slow)

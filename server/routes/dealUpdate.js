@@ -1,54 +1,23 @@
 const express = require('express');
-const { getSecret } = require('../utils/getSecret');
 const sql = require('mssql');
 const { loggers } = require('../utils/logger');
-
+const { withRequest, getPool } = require('../utils/db');
 const { emitEvent } = require('../utils/eventEmitter');
 const router = express.Router();
 const log = loggers.payments.child('DealUpdate');
 
-// Database connection configuration
-let dbConfig = null;
-
-async function getDbConfig() {
-  if (dbConfig) return dbConfig;
-  
-  // Use the INSTRUCTIONS_SQL_CONNECTION_STRING from .env
-  const connectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
-  if (!connectionString) {
-    throw new Error('INSTRUCTIONS_SQL_CONNECTION_STRING not found in environment');
-  }
-  
-  // Parse connection string into config object
-  const params = new URLSearchParams(connectionString.split(';').join('&'));
-  const server = params.get('Server').replace('tcp:', '').split(',')[0];
-  const database = params.get('Initial Catalog');
-  const user = params.get('User ID');
-  const password = params.get('Password');
-  
-  dbConfig = {
-    server,
-    database, 
-    user,
-    password,
-    options: {
-      encrypt: true,
-      trustServerCertificate: false,
-      connectTimeout: 30000,
-      requestTimeout: 30000
-    }
-  };
-  
-  return dbConfig;
-}
+const getInstrConnStr = () => {
+  const s = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+  if (!s) throw new Error('INSTRUCTIONS_SQL_CONNECTION_STRING not configured');
+  return s;
+};
 
 // List deals endpoint for debugging
 router.get('/', async (req, res) => {
   try {
-    const config = await getDbConfig();
-    const pool = await sql.connect(config);
-    
-    const result = await pool.request().query('SELECT TOP 10 DealId, ServiceDescription, Amount FROM Deals ORDER BY DealId DESC');
+    const result = await withRequest(getInstrConnStr(), async (request) => {
+      return request.query('SELECT TOP 10 DealId, ServiceDescription, Amount FROM Deals ORDER BY DealId DESC');
+    });
     
     res.json({ deals: result.recordset });
   } catch (error) {
@@ -66,9 +35,6 @@ router.post('/close-by-instruction', async (req, res) => {
   }
 
   try {
-    const config = await getDbConfig();
-    const pool = await sql.connect(config);
-    
     const now = new Date();
     const updateQuery = `
       UPDATE Deals 
@@ -78,12 +44,14 @@ router.post('/close-by-instruction', async (req, res) => {
       WHERE InstructionRef = @instructionRef
     `;
     
-    const result = await pool.request()
-      .input('status', sql.NVarChar, 'closed')
-      .input('closeDate', sql.Date, now)
-      .input('closeTime', sql.Time, now)
-      .input('instructionRef', sql.NVarChar, instructionRef)
-      .query(updateQuery);
+    const result = await withRequest(getInstrConnStr(), async (request) => {
+      return request
+        .input('status', sql.NVarChar, 'closed')
+        .input('closeDate', sql.Date, now)
+        .input('closeTime', sql.Time, now)
+        .input('instructionRef', sql.NVarChar, instructionRef)
+        .query(updateQuery);
+    });
     
     if (result.rowsAffected[0] === 0) {
       return res.status(404).json({ 
@@ -118,8 +86,7 @@ router.put('/:dealId', async (req, res) => {
   }
 
   try {
-    const config = await getDbConfig();
-    const pool = await sql.connect(config);
+    const pool = await getPool(getInstrConnStr());
     
     // Build dynamic update query based on provided fields
     const updates = [];

@@ -75,6 +75,7 @@ const slideIn = keyframes({
 --------------------------------------------------------------------------- */
 const getCardStyle = (isDarkMode: boolean, isActive: boolean, isAnimatingOut: boolean, animationStatus?: 'booked' | 'discarded' | 'acknowledged') => 
   mergeStyles({
+    fontFamily: "'Raleway', 'Segoe UI', sans-serif",
     background: isDarkMode ? colours.darkBlue : colours.grey,
     border: isAnimatingOut
       ? `1px solid ${animationStatus === 'discarded' ? colours.red : colours.green}`
@@ -169,7 +170,7 @@ const getStatusBadgeStyle = (isDarkMode: boolean, status: string) => {
     letterSpacing: '0.5px',
     // Booking modal status chip: pending=orange, approved/ready=green, rejected=red
     backgroundColor: isRejected
-      ? (isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)')
+      ? (isDarkMode ? 'rgba(214, 85, 65, 0.15)' : 'rgba(214, 85, 65, 0.1)')
       : isApproved
         ? (isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(32, 178, 108, 0.1)')
         : isPending
@@ -219,7 +220,7 @@ const getInfoLabelStyle = (isDarkMode: boolean) =>
     fontWeight: 600,
     textTransform: 'uppercase',
     letterSpacing: '0.5px',
-    color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.8)',
+    color: isDarkMode ? 'rgba(160, 160, 160, 0.7)' : 'rgba(107, 107, 107, 0.8)',
   });
 
 const getInfoValueStyle = (isDarkMode: boolean, isHighlight?: boolean) =>
@@ -311,7 +312,7 @@ const getDetailsLabelStyle = (isDarkMode: boolean) =>
     fontWeight: 700,
     textTransform: 'uppercase',
     letterSpacing: '0.6px',
-    color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.85)',
+    color: isDarkMode ? 'rgba(160, 160, 160, 0.7)' : 'rgba(107, 107, 107, 0.85)',
     marginBottom: '8px',
   });
 
@@ -635,7 +636,7 @@ const AnnualLeaveBookings: React.FC<AnnualLeaveBookingsProps> = ({ bookings, onC
             <div style={{ 
               width: '1px', 
               height: '24px', 
-              backgroundColor: isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(15, 23, 42, 0.1)' 
+              backgroundColor: isDarkMode ? 'rgba(160, 160, 160, 0.15)' : 'rgba(0, 3, 25, 0.1)' 
             }} />
             <div className={getInfoItemStyle(isDarkMode)}>
               <span className={getInfoLabelStyle(isDarkMode)}>Type</span>
@@ -646,7 +647,7 @@ const AnnualLeaveBookings: React.FC<AnnualLeaveBookingsProps> = ({ bookings, onC
             <div style={{ 
               width: '1px', 
               height: '24px', 
-              backgroundColor: isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(15, 23, 42, 0.1)' 
+              backgroundColor: isDarkMode ? 'rgba(160, 160, 160, 0.15)' : 'rgba(0, 3, 25, 0.1)' 
             }} />
             <div className={getInfoItemStyle(isDarkMode)}>
               <span className={getInfoLabelStyle(isDarkMode)}>Status</span>
@@ -838,7 +839,7 @@ const AnnualLeaveBookings: React.FC<AnnualLeaveBookingsProps> = ({ bookings, onC
             </div>
             <div style={{
               fontSize: '14px',
-              color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.8)',
+              color: isDarkMode ? 'rgba(160, 160, 160, 0.7)' : 'rgba(107, 107, 107, 0.8)',
               maxWidth: '300px',
             }}>
               No pending, approved, or rejected leave requests to process at this time.

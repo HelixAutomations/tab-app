@@ -1,23 +1,19 @@
 /* App-level styling for immediate actions */
 
-#app-level-immediate-actions,
-#app-level-immediate-actions * {
-  transition: background-color 0.25s ease, border-color 0.25s ease, color 0.25s ease,
-    box-shadow 0.25s ease, transform 0.18s ease;
-}
-
+/* Theme transition on portal container only — NOT descendants.
+   The old wildcard (#app-level-immediate-actions *) rule applied transitions
+   to hundreds of child elements, causing severe layout thrashing. */
 #app-level-immediate-actions {
-  position: relative;
-  z-index: 1000;
+  transition: background-color 0.25s ease, border-color 0.25s ease, color 0.25s ease,
+    box-shadow 0.25s ease;
   display: block;
   width: 100%;
   min-width: 0;
+  min-height: 0;
   box-sizing: border-box;
   border-radius: 0;
   border: none;
   background: transparent;
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
 }
 
 #app-level-immediate-actions .immediate-action-chip {
@@ -28,4 +24,20 @@
 #app-level-immediate-actions .immediate-action-chip:disabled {
   cursor: not-allowed;
   transform: none;
+}
+
+/* ─── Chrome collapse (Navigator + ImmediateActions) ─────
+   Simple overflow clip + height snap. No animated height —
+   scroll-driven show/hide should feel physically connected
+   to the scroll, like mobile Chrome hiding the address bar.
+   ───────────────────────────────────────────────────────── */
+
+.chrome-collapse-wrapper {
+  overflow: hidden;
+}
+
+.chrome-collapse-wrapper.chrome-collapsed,
+.chrome-collapse-wrapper.chrome-tab-hidden {
+  height: 0;
+  pointer-events: none;
 }

@@ -166,19 +166,18 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
       role="navigation"
       aria-label={ariaLabel || 'Main Navigation'}
       style={{
-        background: isDarkMode ? 'rgba(0, 3, 25, 0.88)' : 'rgba(255, 255, 255, 0.92)',
-        backdropFilter: 'blur(20px) saturate(1.5)',
-        WebkitBackdropFilter: 'blur(20px) saturate(1.5)',
+        background: 'var(--surface-nav)',
         display: 'flex',
         alignItems: 'center',
         gap: 4,
         padding: '0 20px',
         height: 48,
-        borderBottom: `0.5px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.06)'}`,
-        boxShadow: isDarkMode ? '0 1px 0 rgba(255, 255, 255, 0.03)' : '0 1px 3px rgba(0, 0, 0, 0.04)',
+        borderBottom: '0.5px solid var(--nav-border)',
+        boxShadow: 'var(--nav-shadow)',
         position: 'sticky',
         top: 0,
         zIndex: 2000,
+        transition: 'background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease',
       }}
     >
       {/* ── Home button ──────────────────────────────────────── */}
@@ -360,7 +359,6 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
           demoModeEnabled={demoModeEnabled}
           onToggleDemoMode={onToggleDemoMode}
           onOpenReleaseNotesModal={canSeeReleaseNotes ? () => setShowReleaseNotesModal(true) : undefined}
-          hideOpsSections={canSeePrivateControls}
         />
       )}
 

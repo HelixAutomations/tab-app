@@ -3523,8 +3523,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   // Status pill
   const StatusPill = ({ status, label }: { status: 'pass' | 'fail' | 'pending' | 'warn'; label: string }) => {
     const bg = status === 'pass' ? `${colours.highlight}1f` 
-      : status === 'fail' ? 'rgba(239, 68, 68, 0.12)'
-      : status === 'warn' ? 'rgba(239, 68, 68, 0.12)'
+      : status === 'fail' ? 'rgba(214, 85, 65, 0.12)'
+      : status === 'warn' ? 'rgba(214, 85, 65, 0.12)'
       : (isDarkMode ? `${colours.subtleGrey}1a` : `${colours.subtleGrey}14`);
     const color = status === 'pass' ? colours.highlight 
       : status === 'fail' ? colours.cta
@@ -3558,8 +3558,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
       // Active but not complete (e.g. requires_action) shows amber
       if (isActive) return {
         bg: isDarkMode ? 'rgba(251, 191, 36, 0.15)' : 'rgba(251, 191, 36, 0.1)',
-        border: '#f59e0b',
-        text: '#f59e0b'
+        border: colours.orange,
+        text: colours.orange
       };
       return {
         bg: isDarkMode ? `${colours.subtleGrey}1a` : `${colours.subtleGrey}14`,
@@ -7541,7 +7541,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                           onClick={(e) => e.stopPropagation()}
                         >
                           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-                            <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'rgba(239, 68, 68, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'rgba(214, 85, 65, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                               <FaFileAlt size={14} color="#D65541" />
                             </div>
                             <div>

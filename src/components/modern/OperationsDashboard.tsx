@@ -431,6 +431,7 @@ interface MatterRecord {
   originatingSolicitor: string;
   status: 'active' | 'closed';
   instructionRef?: string;
+  sourceVersion?: 'v3' | 'v4';
 }
 
 interface CclPromptSection {
@@ -1274,6 +1275,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
   const [cclCompileByMatter, setCclCompileByMatter] = React.useState<Record<string, CclCompileResponse>>({});
   const [cclAiTraceByMatter, setCclAiTraceByMatter] = React.useState<Record<string, any>>({});
   const [cclAiTraceLoadingByMatter, setCclAiTraceLoadingByMatter] = React.useState<Record<string, boolean>>({});
+  const [cclAiTraceResolvedByMatter, setCclAiTraceResolvedByMatter] = React.useState<Record<string, boolean>>({});
   const [cclAiReviewedFields, setCclAiReviewedFields] = React.useState<Record<string, Set<string>>>(() => (
     Object.fromEntries(
       Object.entries(initialCclReviewSession)
@@ -1490,28 +1492,13 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
     }
     const el = cclReviewPreviewRef.current;
     if (!el) return;
-    let frameB = 0;
-    let frameC = 0;
-    const timeoutId = window.setTimeout(() => {
-      updateCclPreviewZoom();
-    }, 120);
+    let frameA = 0;
     updateCclPreviewZoom();
-    const frameA = window.requestAnimationFrame(() => {
-      updateCclPreviewZoom();
-      frameB = window.requestAnimationFrame(() => {
-        updateCclPreviewZoom();
-        frameC = window.requestAnimationFrame(() => {
-          updateCclPreviewZoom();
-        });
-      });
-    });
+    frameA = window.requestAnimationFrame(updateCclPreviewZoom);
     const obs = new ResizeObserver(() => requestAnimationFrame(updateCclPreviewZoom));
     obs.observe(el);
     return () => {
-      window.clearTimeout(timeoutId);
       window.cancelAnimationFrame(frameA);
-      if (frameB) window.cancelAnimationFrame(frameB);
-      if (frameC) window.cancelAnimationFrame(frameC);
       obs.disconnect();
     };
   }, [cclLetterModal, cclPreviewViewportVersion, updateCclPreviewZoom]);
@@ -1620,18 +1607,23 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
     setCclLetterModal(matterId);
 
     // Fetch draft immediately — not via an effect (avoids cancellation race)
-    if (cclDraftCacheRef.current[matterId] === undefined) {
+    // Re-fetch when draft is missing/null so repeated launches don't dead-end on stale empty cache.
+    const cachedDraft = cclDraftCacheRef.current[matterId];
+    const shouldFetchDraft = cachedDraft === undefined || !cachedDraft?.fields;
+    if (shouldFetchDraft) {
       console.log('[CCL modal] fetching draft for', matterId);
       setCclDraftLoading(matterId);
-      fetch(`/api/ccl/${encodeURIComponent(matterId)}`)
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 12000);
+      fetch(`/api/ccl/${encodeURIComponent(matterId)}`, { signal: controller.signal })
         .then(res => {
           if (!res.ok) throw new Error(`Draft fetch failed: ${res.status}`);
           return res.json();
         })
         .then(data => {
           console.log('[CCL modal] draft loaded', matterId, !!data?.json);
-          setCclDraftCache(prev => ({ ...prev, [matterId]: { fields: data?.json || null, docUrl: data?.url || undefined } }));
-          setCclDraftLoading(prev => prev === matterId ? null : prev);
+          const fields = data?.json && typeof data.json === 'object' ? data.json : {};
+          setCclDraftCache(prev => ({ ...prev, [matterId]: { fields, docUrl: data?.url || undefined } }));
           // Hydrate persisted pressure-test result so the PT ceremony doesn't replay
           if (data?.pressureTest?.fieldScores) {
             setCclPressureTestByMatter(prev => ({ ...prev, [matterId]: data.pressureTest }));
@@ -1639,7 +1631,10 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
         })
         .catch(err => {
           console.warn('[CCL modal] draft fetch failed', matterId, err?.message);
-          setCclDraftCache(prev => ({ ...prev, [matterId]: { fields: null } }));
+          setCclDraftCache(prev => ({ ...prev, [matterId]: { fields: {} } }));
+        })
+        .finally(() => {
+          window.clearTimeout(timeoutId);
           setCclDraftLoading(prev => prev === matterId ? null : prev);
         });
     } else {
@@ -1796,286 +1791,343 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
     devHoldActive?: boolean;
     onToggleDevHold?: () => void;
   }) => {
-    const accentColor = options.tone === 'success' ? colours.green : options.tone === 'warning' ? colours.orange : colours.accent;
-    const summaryDescription = String(options.matterDescription || '').trim();
-    const summaryStatus = String(options.statusLabel || '').trim() || (options.matter?.status === 'closed' ? 'Closed matter' : 'Active matter');
-    const summaryInstructionRef = String(options.instructionRef || options.matter?.instructionRef || '').trim();
+    const compactViewport = typeof window !== 'undefined' ? window.innerWidth <= 980 : false;
     const summaryClient = String(options.matter?.clientName || 'Client').trim();
-    const summaryPracticeArea = String(options.matter?.practiceArea || '').trim();
     const summaryMatterRef = String(options.matter?.displayNumber || '').trim() || 'Matter';
-    const summaryRows = [
-      { label: 'Matter ref', value: summaryMatterRef },
-      { label: 'Client', value: summaryClient },
-      { label: 'Practice area', value: summaryPracticeArea || 'Not set yet' },
-    ].filter((row) => row.value);
-    const journeySteps = [
-      { label: 'Matter opened', status: 'done' as const },
-      { label: 'Letter preparing', status: 'active' as const },
-      { label: 'Review ready', status: 'pending' as const },
-    ];
+    const summaryInstructionRef = String(options.instructionRef || options.matter?.instructionRef || '').trim();
+    const activeStepIndex = options.steps.findIndex((step) => step.status === 'active');
+    const errorStepIndex = options.steps.findIndex((step) => step.status === 'error');
+    const pendingStepIndex = options.steps.findIndex((step) => step.status === 'pending');
+    const focusStepIndex = activeStepIndex >= 0
+      ? activeStepIndex
+      : errorStepIndex >= 0
+        ? errorStepIndex
+        : pendingStepIndex >= 0
+          ? pendingStepIndex
+          : Math.max(options.steps.length - 1, 0);
+    const focusStep = options.steps[focusStepIndex] || options.steps[0];
+    const focusStepStatus = focusStep?.status || 'pending';
+    const focusStepColor = focusStepStatus === 'done'
+      ? colours.green
+      : focusStepStatus === 'error'
+        ? colours.cta
+        : colours.highlight;
+    const setupCueFieldsByStep: Record<string, string[]> = {
+      Draft: ['Client name', 'Matter heading', 'Instruction ref'],
+      Context: ['Practice area', 'Handler details', 'Matter scope'],
+      Fields: ['Costs estimate', 'Next steps', 'Disbursements'],
+      Check: ['Source evidence', 'Field scoring', 'Confidence'],
+      Review: ['Review queue', 'Ready to open', 'Workspace handoff'],
+    };
+    const setupCueFields = setupCueFieldsByStep[focusStep?.label || ''] || ['Preparing document', 'Syncing context', 'Finalising'];
+    const placeholderTemplateLines = DEFAULT_CCL_TEMPLATE.split('\n').slice(0, 120);
+
+    const renderPlaceholderLine = (line: string, lineIndex: number) => {
+      const trimmed = line.replace(/\t/g, '    ');
+      if (!trimmed) {
+        return <div key={`blank-${lineIndex}`} style={{ height: 8 }} />;
+      }
+      const segments = trimmed.split(/(\{\{[^}]+\}\})/g).filter(Boolean);
+      return (
+        <div key={`line-${lineIndex}`} style={{ fontSize: 10.5, lineHeight: 1.55, color: '#1f2937', whiteSpace: 'pre-wrap' }}>
+          {segments.map((segment, idx) => {
+            const isToken = /^\{\{[^}]+\}\}$/.test(segment);
+            if (!isToken) {
+              return <React.Fragment key={`text-${lineIndex}-${idx}`}>{segment}</React.Fragment>;
+            }
+            return (
+              <span
+                key={`token-${lineIndex}-${idx}`}
+                style={{
+                  background: 'rgba(54, 144, 206, 0.14)',
+                  border: '1px solid rgba(54, 144, 206, 0.32)',
+                  padding: '0 4px',
+                  color: '#0D2F60',
+                  fontWeight: 700,
+                }}
+              >
+                {segment}
+              </span>
+            );
+          })}
+        </div>
+      );
+    };
+
     return createPortal(
       <div
         style={{
           position: 'fixed',
           inset: 0,
           zIndex: 30000,
-          background: 'rgba(0, 3, 25, 0.76)',
-          backdropFilter: 'blur(6px)',
+          background: 'rgba(0, 3, 25, 0.82)',
+          backdropFilter: 'blur(10px)',
           display: 'flex',
-          alignItems: 'center',
+          alignItems: 'stretch',
           justifyContent: 'center',
           fontFamily: "'Raleway', Arial, Helvetica, sans-serif",
-          padding: '24px',
+          padding: compactViewport ? '0' : '20px',
         }}
         onClick={handleCclLetterBackdropClick}
       >
         <style>{`
-          @keyframes cclLaunchDotPulse { 0%, 100% { opacity: 0.52; transform: scale(1); } 50% { opacity: 1; transform: scale(1.12); } }
+          @keyframes cclLaunchDotPulse { 0%, 100% { opacity: 0.5; transform: scale(1); } 50% { opacity: 1; transform: scale(1.14); } }
+          @keyframes cclDocScan { 0% { transform: translateY(-12%); opacity: 0; } 12% { opacity: 0.46; } 50% { opacity: 0.64; } 88% { opacity: 0.46; } 100% { transform: translateY(112%); opacity: 0; } }
+          @keyframes cclFieldPop { 0%, 100% { opacity: 0; transform: translateY(8px) scale(0.98); } 18%, 78% { opacity: 1; transform: translateY(0) scale(1); } }
+          .ccl-setup-shell {
+            width: min(1280px, 100%);
+            height: 100%;
+            max-height: calc(100vh - 40px);
+            background: rgba(6, 23, 51, 0.98);
+            border: 1px solid rgba(135, 243, 243, 0.12);
+            box-shadow: var(--shadow-overlay-lg);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            border-radius: 2px;
+          }
+          .ccl-setup-scroll {
+            scrollbar-width: thin;
+            scrollbar-color: rgba(100, 110, 120, 0.5) rgba(0, 0, 0, 0.06);
+          }
+          .ccl-setup-scroll::-webkit-scrollbar {
+            width: 10px;
+            height: 10px;
+          }
+          .ccl-setup-scroll::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.06);
+          }
+          .ccl-setup-scroll::-webkit-scrollbar-thumb {
+            background: rgba(100, 110, 120, 0.5);
+            border: 2px solid rgba(213, 216, 220, 0.5);
+          }
+          .ccl-setup-stage-wrap {
+            flex: 1;
+            min-height: 0;
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 248px;
+            gap: 16px;
+            padding: 16px;
+            background: linear-gradient(180deg, rgba(6, 23, 51, 0.98), rgba(2, 6, 23, 0.98));
+          }
+          .ccl-setup-a4-stage {
+            min-width: 0;
+            min-height: 0;
+            border: 1px solid rgba(75, 85, 99, 0.42);
+            background: linear-gradient(180deg, rgba(2, 6, 23, 0.96), rgba(8, 28, 48, 0.88));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+          }
+          .ccl-setup-a4 {
+            width: min(794px, 100%);
+            aspect-ratio: 210 / 297;
+            background: #ffffff;
+            border: 1px solid rgba(54, 144, 206, 0.18);
+            box-shadow: 0 12px 28px rgba(0, 0, 0, 0.18);
+            position: relative;
+            overflow: hidden;
+            padding: 22px 26px;
+            display: grid;
+            align-content: start;
+            gap: 4px;
+            overflow: auto;
+          }
+          .ccl-setup-a4::after {
+            content: '';
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: -10%;
+            height: 16%;
+            background: linear-gradient(180deg, rgba(54, 144, 206, 0), rgba(54, 144, 206, 0.18), rgba(54, 144, 206, 0));
+            animation: cclDocScan 2.4s ease-in-out infinite;
+            pointer-events: none;
+          }
+          .ccl-setup-a4-line {
+            height: 8px;
+            background: rgba(13, 47, 96, 0.12);
+          }
+          .ccl-setup-field-chip {
+            position: absolute;
+            border: 1px solid rgba(54, 144, 206, 0.34);
+            background: rgba(54, 144, 206, 0.12);
+            color: #0D2F60;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            padding: 5px 8px;
+            animation: cclFieldPop 2.1s ease-in-out infinite;
+            white-space: nowrap;
+          }
+          .ccl-step-roller {
+            min-height: 0;
+            border: 1px solid rgba(75, 85, 99, 0.42);
+            background: linear-gradient(180deg, rgba(2, 6, 23, 0.96), rgba(8, 28, 48, 0.88));
+            padding: 14px 12px;
+            display: grid;
+            grid-template-rows: auto auto 1fr;
+            gap: 12px;
+          }
+          .ccl-step-window {
+            position: relative;
+            height: 126px;
+            overflow: hidden;
+            border: 1px solid rgba(75, 85, 99, 0.42);
+            background: rgba(2, 6, 23, 0.78);
+          }
+          .ccl-step-window::before,
+          .ccl-step-window::after {
+            content: '';
+            position: absolute;
+            left: 0;
+            right: 0;
+            height: 34px;
+            z-index: 2;
+            pointer-events: none;
+          }
+          .ccl-step-window::before {
+            top: 0;
+            background: linear-gradient(180deg, rgba(2,6,23,0.95), rgba(2,6,23,0));
+          }
+          .ccl-step-window::after {
+            bottom: 0;
+            background: linear-gradient(180deg, rgba(2,6,23,0), rgba(2,6,23,0.95));
+          }
+          .ccl-step-track {
+            position: relative;
+            transition: transform 360ms cubic-bezier(0.2, 0.7, 0.18, 1);
+          }
+          .ccl-step-row {
+            height: 42px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 8px;
+            text-align: center;
+            font-size: 12px;
+            font-weight: 700;
+            color: #d1d5db;
+            transition: opacity 220ms ease, transform 220ms ease, color 220ms ease;
+          }
+          .ccl-step-row.active {
+            color: #f3f4f6;
+            opacity: 1;
+            transform: scale(1.02);
+          }
+          .ccl-step-row.done {
+            color: #87F3F3;
+            opacity: 0.58;
+          }
+          @media (max-width: 980px) {
+            .ccl-setup-shell { max-height: 100vh; border-radius: 0; }
+            .ccl-setup-stage-wrap { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) auto; }
+            .ccl-step-roller { grid-template-rows: auto auto auto; }
+            .ccl-setup-a4 { width: min(640px, 100%); }
+          }
         `}</style>
+
         <button
           type="button"
           onClick={closeCclLetterModal}
-          style={{ position: 'absolute', top: 18, right: 22, background: 'none', border: 'none', color: 'rgba(255,255,255,0.38)', fontSize: 22, cursor: 'pointer', lineHeight: 1 }}
+          style={{ position: 'absolute', top: 18, right: 22, background: 'none', border: 'none', color: 'rgba(255,255,255,0.46)', fontSize: 22, cursor: 'pointer', lineHeight: 1 }}
           aria-label="Close"
         >
           &times;
         </button>
-        <div
-          onClick={(event) => event.stopPropagation()}
-          style={{
-            width: 'min(700px, 100%)',
-            background: 'linear-gradient(180deg, rgba(6, 23, 51, 0.98), rgba(2, 6, 23, 0.98))',
-            border: '1px solid rgba(75, 85, 99, 0.52)',
-            boxShadow: '0 24px 64px rgba(0, 0, 0, 0.42)',
-            padding: '18px',
-            display: 'grid',
-            gap: 16,
-            position: 'relative',
-            overflow: 'hidden',
-          }}
-        >
-          <div
-            aria-hidden="true"
-            style={{
-              position: 'absolute',
-              top: -38,
-              right: -28,
-              width: 220,
-              height: 220,
-              opacity: 0.06,
-              pointerEvents: 'none',
-              filter: 'blur(0.4px)',
-            }}
-          >
-            <img src={helixMark} alt="" style={{ width: '100%', height: '100%' }} />
-          </div>
 
-          <div style={{
-            position: 'relative',
-            border: '1px solid rgba(75, 85, 99, 0.48)',
-            background: 'linear-gradient(180deg, rgba(8, 28, 48, 0.96), rgba(6, 23, 51, 0.94))',
-            padding: '16px 16px 14px',
-            display: 'grid',
-            gap: 14,
-          }}>
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, minWidth: 0 }}>
-                <div style={{
-                  width: 34,
-                  height: 34,
-                  flexShrink: 0,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  border: `1px solid ${accentColor}`,
-                  background: options.tone === 'warning' ? 'rgba(255, 140, 0, 0.08)' : 'rgba(135, 243, 243, 0.08)',
-                  color: accentColor,
-                }}>
-                  <FiFolder size={15} />
-                </div>
-                <div style={{ display: 'grid', gap: 5, minWidth: 0 }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: accentColor }}>
-                    Matter opening handoff
-                  </div>
-                  <div style={{ fontSize: 19, fontWeight: 700, color: '#f3f4f6', lineHeight: 1.08, minWidth: 0 }}>
-                    {summaryMatterRef}
-                  </div>
-                  <div style={{ fontSize: 12, color: '#d1d5db', lineHeight: 1.45 }}>
-                    {summaryClient}{summaryPracticeArea ? ` · ${summaryPracticeArea}` : ''}
-                  </div>
-                </div>
+        <div onClick={(event) => event.stopPropagation()} className="ccl-setup-shell">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: compactViewport ? '12px 14px' : '14px 18px', borderBottom: '1px solid rgba(135, 243, 243, 0.08)', flexShrink: 0 }}>
+            <div style={{ width: 6, height: 6, borderRadius: '50%', background: focusStepColor, flexShrink: 0 }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: compactViewport ? 12 : 11, fontWeight: 700, color: '#f3f4f6', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {summaryMatterRef}
+                <span style={{ color: colours.subtleGrey, fontWeight: 500 }}> · {summaryClient}</span>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                <span style={{
-                  fontSize: 10,
-                  fontWeight: 700,
-                  letterSpacing: '0.06em',
-                  textTransform: 'uppercase',
-                  color: accentColor,
-                  border: `1px solid ${accentColor}`,
-                  background: options.tone === 'warning' ? 'rgba(255,140,0,0.08)' : 'rgba(135,243,243,0.08)',
-                  padding: '5px 8px',
-                }}>
-                  {summaryStatus}
-                </span>
-                {summaryInstructionRef && (
-                  <span style={{
-                    fontSize: 10,
-                    fontWeight: 600,
-                    color: '#cbd5e1',
-                    border: '1px solid rgba(255,255,255,0.08)',
-                    background: 'rgba(255,255,255,0.03)',
-                    padding: '5px 8px',
-                  }}>
-                    {summaryInstructionRef}
-                  </span>
-                )}
+              <div style={{ marginTop: 5, fontSize: compactViewport ? 11 : 10, color: colours.subtleGrey, lineHeight: 1.45 }}>
+                {focusStep?.label || 'Review setup'} in progress
               </div>
             </div>
-
-            {summaryDescription && (
-              <div style={{
-                display: 'grid',
-                gap: 5,
-                padding: '10px 11px',
-                border: '1px solid rgba(255,255,255,0.06)',
-                background: 'rgba(255,255,255,0.025)',
+            {summaryInstructionRef && (
+              <span style={{
+                fontSize: 10,
+                fontWeight: 600,
+                color: colours.subtleGrey,
+                border: '1px solid rgba(255,255,255,0.08)',
+                background: 'rgba(255,255,255,0.03)',
+                padding: '5px 8px',
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                  <FiFileText size={12} color={accentColor} />
-                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: accentColor }}>
-                    Matter description
-                  </div>
-                </div>
-                <div style={{ fontSize: 12, color: '#d1d5db', lineHeight: 1.5 }}>
-                  {summaryDescription}
-                </div>
-              </div>
+                {summaryInstructionRef}
+              </span>
             )}
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(132px, 1fr))', gap: 8 }}>
-              {summaryRows.map((row) => (
-                <div key={row.label} style={{ padding: '9px 10px', border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)', display: 'grid', gap: 4 }}>
-                  <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: '#94a3b8' }}>
-                    {row.label}
-                  </div>
-                  <div style={{ fontSize: 11.5, color: '#f3f4f6', lineHeight: 1.4, wordBreak: 'break-word' }}>
-                    {row.value}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-              {journeySteps.map((step, index) => {
-                const isActive = step.status === 'active';
-                const isDone = step.status === 'done';
-                const tone = isDone ? colours.green : isActive ? accentColor : 'rgba(160, 160, 160, 0.42)';
-                return (
-                  <React.Fragment key={step.label}>
-                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
-                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: tone, display: 'inline-block', animation: isActive ? 'cclLaunchDotPulse 1.1s ease-in-out infinite' : 'none' }} />
-                      <span style={{ fontSize: 10.5, fontWeight: isActive ? 700 : 600, color: isActive || isDone ? '#f3f4f6' : '#94a3b8' }}>
-                        {step.label}
-                      </span>
-                    </div>
-                    {index < journeySteps.length - 1 && (
-                      <span style={{ flex: '0 0 22px', height: 1, background: 'rgba(255,255,255,0.08)' }} />
-                    )}
-                  </React.Fragment>
-                );
-              })}
-            </div>
           </div>
 
-          <div style={{
-            position: 'relative',
-            border: '1px solid rgba(75, 85, 99, 0.42)',
-            background: 'linear-gradient(180deg, rgba(2, 6, 23, 0.96), rgba(8, 28, 48, 0.88))',
-            padding: '16px 16px 14px',
-            display: 'grid',
-            gap: 14,
-          }}>
-            <div style={{ display: 'grid', gap: 6 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: accentColor }}>
-                Letter processing
+          <div className="ccl-setup-stage-wrap">
+            <div className="ccl-setup-a4-stage">
+              <div className="ccl-setup-a4 ccl-setup-scroll">
+                {placeholderTemplateLines.map((line, index) => renderPlaceholderLine(line, index))}
+
+                <span className="ccl-setup-field-chip" style={{ top: '16%', left: '58%', animationDelay: '0ms' }}>{setupCueFields[0] || 'Preparing field'}</span>
+                <span className="ccl-setup-field-chip" style={{ top: '39%', left: '12%', animationDelay: '420ms' }}>{setupCueFields[1] || 'Syncing context'}</span>
+                <span className="ccl-setup-field-chip" style={{ top: '66%', left: '49%', animationDelay: '840ms' }}>{setupCueFields[2] || 'Final checks'}</span>
               </div>
-              <div style={{ fontSize: 26, fontWeight: 700, color: '#f3f4f6', lineHeight: 1.02 }}>{options.headline}</div>
-              <div style={{ fontSize: 13, color: '#d1d5db', lineHeight: 1.5, maxWidth: 520 }}>{options.body}</div>
             </div>
 
-            <div style={{ display: 'grid', gap: 10 }}>
-              {options.steps.map((step) => {
-                const isActive = step.status === 'active';
-                const isDone = step.status === 'done';
-                const isError = step.status === 'error';
-                const dotColor = isDone ? colours.green : isError ? colours.cta : isActive ? accentColor : 'rgba(160, 160, 160, 0.42)';
-                return (
-                  <div key={step.label} style={{ display: 'grid', gridTemplateColumns: '14px minmax(0, 1fr)', gap: 10, alignItems: 'start', padding: '4px 0', opacity: step.status === 'pending' ? 0.54 : 1, transition: 'opacity 180ms ease' }}>
-                    <div style={{ width: 14, height: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 2 }}>
-                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: dotColor, animation: isActive ? 'cclLaunchDotPulse 1.1s ease-in-out infinite' : 'none', display: 'inline-block' }} />
-                    </div>
-                    <div style={{ minWidth: 0, display: 'grid', gap: 2 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: isError ? '#fecaca' : '#f3f4f6', letterSpacing: '0.01em' }}>{step.label}</div>
-                      {step.detail && (
-                        <div style={{ fontSize: 11.5, lineHeight: 1.45, color: isError ? '#fca5a5' : 'rgba(209, 213, 219, 0.76)' }}>{step.detail}</div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+            <div className="ccl-step-roller">
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: colours.accent }}>
+                Review setup
+              </div>
+              <div style={{ fontSize: 12.5, color: '#d1d5db', lineHeight: 1.45 }}>
+                {options.body}
+              </div>
 
-            {isLocalDev && options.onToggleDevHold && (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingTop: 8, borderTop: '1px solid rgba(75, 85, 99, 0.42)' }}>
-                <div style={{ display: 'grid', gap: 2 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: options.devHoldActive ? accentColor : 'rgba(160, 160, 160, 0.92)' }}>Local dev hold</div>
-                  <div style={{ fontSize: 11.5, color: 'rgba(209, 213, 219, 0.74)' }}>{options.devHoldActive ? 'Paused on this loading view. Press Space to continue.' : 'Press Space to hold this screen before review opens.'}</div>
+              <div className="ccl-step-window">
+                <div className="ccl-step-track" style={{ transform: `translateY(${42 - (focusStepIndex * 42)}px)` }}>
+                  {options.steps.map((step, index) => {
+                    const isDone = step.status === 'done';
+                    const isActive = index === focusStepIndex;
+                    const rowClass = `ccl-step-row${isActive ? ' active' : ''}${isDone ? ' done' : ''}`;
+                    return (
+                      <div key={step.label} className={rowClass} style={{ opacity: isActive ? 1 : Math.abs(index - focusStepIndex) <= 1 ? 0.46 : 0.2 }}>
+                        {step.label}
+                      </div>
+                    );
+                  })}
                 </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: focusStepColor, display: 'inline-block', animation: 'cclLaunchDotPulse 1.1s ease-in-out infinite' }} />
+                <span style={{ fontSize: 11.5, color: '#d1d5db' }}>{focusStep?.detail || options.headline}</span>
+              </div>
+
+              {options.errorMessage && (
+                <div style={{ border: '1px solid rgba(214, 85, 65, 0.28)', background: 'rgba(214, 85, 65, 0.08)', padding: '9px 10px', fontSize: 11.5, color: colours.cta, lineHeight: 1.5 }}>
+                  {options.errorMessage}
+                </div>
+              )}
+
+              {options.showRetry && options.onRetry && (
                 <button
                   type="button"
-                  onClick={options.onToggleDevHold}
+                  onClick={options.onRetry}
                   style={{
-                    border: `1px solid ${options.devHoldActive ? accentColor : 'rgba(75, 85, 99, 0.7)'}`,
-                    background: options.devHoldActive ? 'rgba(135, 243, 243, 0.08)' : 'rgba(8, 28, 48, 0.72)',
+                    justifySelf: 'start',
+                    border: '1px solid rgba(135, 243, 243, 0.28)',
+                    background: 'rgba(135, 243, 243, 0.08)',
                     color: '#f3f4f6',
-                    padding: '6px 10px',
+                    padding: '8px 10px',
                     fontSize: 11.5,
                     fontWeight: 700,
                     fontFamily: "'Raleway', Arial, Helvetica, sans-serif",
                     cursor: 'pointer',
                   }}
                 >
-                  Space {options.devHoldActive ? 'On' : 'Off'}
+                  Retry draft fetch
                 </button>
-              </div>
-            )}
-
-            {options.errorMessage && (
-              <div style={{ border: '1px solid rgba(214, 85, 65, 0.28)', background: 'rgba(214, 85, 65, 0.08)', padding: '10px 12px', fontSize: 12, color: '#fecaca', lineHeight: 1.55 }}>
-                {options.errorMessage}
-              </div>
-            )}
-
-            {options.showRetry && options.onRetry && (
-              <button
-                type="button"
-                onClick={options.onRetry}
-                style={{
-                  justifySelf: 'start',
-                  border: '1px solid rgba(135, 243, 243, 0.28)',
-                  background: 'rgba(135, 243, 243, 0.08)',
-                  color: '#f3f4f6',
-                  padding: '9px 12px',
-                  fontSize: 12,
-                  fontWeight: 700,
-                  fontFamily: "'Raleway', Arial, Helvetica, sans-serif",
-                  cursor: 'pointer',
-                }}
-              >
-                Retry draft fetch
-              </button>
-            )}
+              )}
+            </div>
           </div>
         </div>
       </div>,
@@ -2920,8 +2972,12 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
     if (!cclLetterModal) return;
     if (cclAiResultByMatter[cclLetterModal]) return;
     if (cclAiTraceByMatter[cclLetterModal]) return;
+    if (cclAiTraceResolvedByMatter[cclLetterModal]) return;
 
-    // Guard via ref — functional updater timing is unreliable across React versions
+    // If a fetch is already in flight, wait for it to finish
+    if (cclAiTraceLoadingByMatter[cclLetterModal]) return;
+
+    // Guard via ref — prevents duplicate fetches when effect re-runs during loading
     if (cclTraceFetchingRef.current.has(cclLetterModal)) return;
     cclTraceFetchingRef.current.add(cclLetterModal);
     setCclAiTraceLoadingByMatter((prev) => ({ ...prev, [cclLetterModal]: true }));
@@ -2930,19 +2986,25 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
     fetch(`/api/ccl-admin/traces/${encodeURIComponent(cclLetterModal)}?limit=1`)
       .then((res) => res.ok ? res.json() : null)
       .then((data) => {
-        if (cancelled || !data?.traces?.length) return;
-        setCclAiTraceByMatter((prev) => ({ ...prev, [cclLetterModal]: data.traces[0] }));
+        if (cancelled) return;
+        if (data?.traces?.length) {
+          setCclAiTraceByMatter((prev) => ({ ...prev, [cclLetterModal]: data.traces[0] }));
+        }
+        setCclAiTraceResolvedByMatter((prev) => ({ ...prev, [cclLetterModal]: true }));
       })
       .catch(() => {})
       .finally(() => {
         cclTraceFetchingRef.current.delete(cclLetterModal);
-        if (cancelled) return;
+        // Always clear loading state — even if this effect was cancelled by React.
+        // The trace result is already guarded by `if (cancelled) return` in .then() above.
+        // If cancelled before the trace was saved, clearing loading here allows the effect
+        // to re-run (via the cclAiTraceLoadingByMatter dep) and retry the fetch.
         setCclAiTraceLoadingByMatter((prev) => ({ ...prev, [cclLetterModal]: false }));
       });
 
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cclLetterModal, cclAiResultByMatter, cclAiTraceByMatter]);
+  }, [cclLetterModal, cclAiResultByMatter, cclAiTraceByMatter, cclAiTraceLoadingByMatter, cclAiTraceResolvedByMatter]);
 
   // Auto-trigger AI fill when the letter modal opens and no saved AI context exists.
   // This removes the manual "Generate AI review" click — the review starts generating immediately.
@@ -3040,14 +3102,17 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
     setCclLaunchHandoffMatter(matterId);
     dismissCclLaunchToast();
     cclLaunchCompletionToastShownRef.current.add(matterId);
+  }, [cclAiFillingMatter, cclAiResultByMatter, cclAiTraceByMatter, cclAiTraceLoadingByMatter, cclDraftCache, cclDraftLoading, cclLaunchDevHold, cclLaunchHandoffMatter, cclLetterModal, cclPressureTestByMatter, cclPressureTestError, cclPressureTestRunning, cclReviewRailPrimedByMatter, dismissCclLaunchToast]);
 
+  React.useEffect(() => {
+    if (!cclLaunchHandoffMatter) return;
+    const matterId = cclLaunchHandoffMatter;
     const timer = window.setTimeout(() => {
       setCclLaunchHandoffMatter((current) => current === matterId ? null : current);
       setCclReviewRailPrimedByMatter((prev) => prev[matterId] ? prev : { ...prev, [matterId]: true });
     }, 520);
-
     return () => window.clearTimeout(timer);
-  }, [cclAiFillingMatter, cclAiResultByMatter, cclAiTraceByMatter, cclAiTraceLoadingByMatter, cclDraftCache, cclDraftLoading, cclLaunchDevHold, cclLaunchHandoffMatter, cclLetterModal, cclPressureTestByMatter, cclPressureTestError, cclPressureTestRunning, cclReviewRailPrimedByMatter, dismissCclLaunchToast]);
+  }, [cclLaunchHandoffMatter]);
 
   React.useEffect(() => {
     if (!cclLetterModal || typeof document === 'undefined') return undefined;
@@ -3746,7 +3811,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
   const muted = isDarkMode ? colours.subtleGrey : colours.greyText;
   const text = isDarkMode ? colours.dark.text : colours.light.text;
   const accent = isDarkMode ? colours.accent : colours.highlight;
-  const cardBg = isDarkMode ? 'rgba(6, 23, 51, 0.55)' : '#FFFFFF';
+  const cardBg = isDarkMode ? 'rgba(6, 23, 51, 0.55)' : colours.grey;
   const cardBorder = isDarkMode ? 'rgba(54,144,206,0.08)' : 'rgba(13,47,96,0.08)';
   const rowBorder = isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(13,47,96,0.05)';
   const colHeaderBg = isDarkMode ? 'rgba(6,23,51,0.75)' : colours.helixBlue;
@@ -3754,7 +3819,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
   const cardShadow = isDarkMode ? 'none' : 'inset 0 0 0 1px rgba(13,47,96,0.06), 0 1px 4px rgba(13,47,96,0.04)';
   const theadBg = isDarkMode ? 'rgba(255,255,255,0.02)' : colours.helixBlue;
   const theadText = isDarkMode ? colours.subtleGrey : colours.grey;
-  const theadAccent = isDarkMode ? colours.accent : '#FFFFFF';
+  const theadAccent = isDarkMode ? colours.accent : colours.dark.text;
   const hoverBg = isDarkMode ? 'rgba(135,243,243,0.04)' : 'rgba(13,47,96,0.04)';
   const hoverShadow = isDarkMode ? 'inset 2px 0 0 rgba(135,243,243,0.3)' : `inset 2px 0 0 ${colours.helixBlue}`;
 
@@ -3913,7 +3978,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                       style={{
                         border: `1px solid ${colours.cta}`,
                         background: isClaimingRow ? colours.cta : 'transparent',
-                        color: isClaimingRow ? '#fff' : colours.cta,
+                        color: isClaimingRow ? colours.dark.text : colours.cta,
                         padding: '5px 10px',
                         fontSize: 10,
                         fontWeight: 700,
@@ -4854,7 +4919,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
       {(billingMetrics.length > 0 || isLoading) && (
         <div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '2px 0 3px' }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><TbCurrencyPound size={11} style={{ color: accent, flexShrink: 0 }} /><span style={{ fontSize: 11, fontWeight: 600, color: muted, letterSpacing: '0.2px' }}>Billing</span></span>
+            <span className="home-section-header"><TbCurrencyPound size={11} className="home-section-header-icon" />Billing</span>
             {onRefresh && (
               <FiRefreshCw
                 size={11}
@@ -4986,7 +5051,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
           <div style={{ display: 'grid', gridTemplateColumns: isNarrow ? '1fr' : '1fr 2fr', gap: 6 }}>
           {/* ── Left: Conversion ── */}
           <div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: muted, padding: '2px 0 3px', letterSpacing: '0.2px', animation: 'opsDashFadeIn 0.25s ease both', display: 'flex', alignItems: 'center', gap: 4 }}><FiTrendingUp size={10} style={{ color: accent, flexShrink: 0 }} />Conversion</div>
+            <div className="home-section-header" style={{ animation: 'opsDashFadeIn 0.25s ease both' }}><FiTrendingUp size={10} className="home-section-header-icon" />Conversion</div>
             <div ref={conversionRailRef} style={{ minHeight: primaryRailMinHeight }}>
               {(!enquiryMetrics || enquiryMetrics.length === 0 || showExperimentalConversionSkeleton || (enableConversionComparison && !useExperimentalConversion)) ? (
                 renderConversionSkeleton()
@@ -5281,8 +5346,8 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
 
           {/* ── Right: Pipeline ── */}
           <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%' }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: muted, padding: '2px 0 3px', letterSpacing: '0.2px', display: 'flex', alignItems: 'center', gap: 4, minHeight: 18 }}>
-            <FiFilter size={10} style={{ color: accent, flexShrink: 0 }} />Pipeline
+          <div className="home-section-header" style={{ minHeight: 18 }}>
+            <FiFilter size={10} className="home-section-header-icon" />Pipeline
             <div
               title={enquiriesLiveRefreshInFlight ? 'Home is checking the live enquiries feed.' : enquiriesUsingSnapshot ? 'Home is showing cached data until the live feed settles.' : 'Home is showing the live enquiries feed.'}
               style={{
@@ -5946,7 +6011,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                           state: compileDone ? 'done' : (activeMatterStepKey === 'compile' ? 'active' : 'default'),
                           title: `${compileDone ? 'Compilation Results' : 'Compile context and evidence'}${readOnlyCclTitleSuffix}`,
                           tone: compileDone ? colours.green : activeMatterTone,
-                          disabled: matterStepsReadOnly || !compileDone,
+                          disabled: matterStepsReadOnly,
                         },
                         {
                           key: 'generate',
@@ -6089,10 +6154,10 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                             </div>
 
                             <div style={{ display: 'grid', gridTemplateColumns: matterActionGridTemplate, alignItems: 'center', justifyContent: 'end', gap: 0, minWidth: 0, width: '100%' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-start', width: '100%', minWidth: 0 }} title={showOriginating
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'space-between', width: '100%', minWidth: 0 }} title={showOriginating
                                 ? `Responsible: ${matterResponsible.title || '—'} · Originating: ${matterOriginating.title || '—'}`
                                 : (matterResponsible.title || undefined)}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 3, minWidth: 0, whiteSpace: 'nowrap' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 3, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden' }}>
                                   <span style={{ fontSize: 8, fontWeight: 700, color: matterResponsible.label !== '—' ? colours.green : muted, letterSpacing: '0.3px', whiteSpace: 'nowrap' }}>
                                     {matterResponsible.label}
                                   </span>
@@ -6105,6 +6170,21 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                                     </>
                                   )}
                                 </div>
+                                <span
+                                  style={{
+                                    marginLeft: 6,
+                                    flexShrink: 0,
+                                    fontSize: 7,
+                                    fontWeight: 700,
+                                    letterSpacing: '0.35px',
+                                    textTransform: 'uppercase',
+                                    color: colours.greyText,
+                                    opacity: 0.6,
+                                  }}
+                                  title={m.sourceVersion === 'v4' ? 'New space matter' : 'Legacy matter'}
+                                >
+                                  {m.sourceVersion === 'v4' ? 'v4' : 'v3'}
+                                </span>
                               </div>
                               {matterActionLabelWidth > 0 ? <span aria-hidden="true" style={{ fontSize: 8, lineHeight: 1, color: muted, opacity: canSeeCcl ? 0.42 : 0.26, display: 'flex', justifyContent: 'center' }}>|</span> : null}
                               {matterActionLabelWidth > 0 ? (
@@ -6132,7 +6212,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                                       onSelect={(stepKey) => {
                                         if (!canSeeCcl) return;
 
-                                        if (stepKey === 'compile' && compileDone) {
+                                        if (stepKey === 'compile') {
                                           openCclWorkflowModal(m.matterId);
                                           return;
                                         }
@@ -6475,7 +6555,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                   overflowY: 'auto',
                   background: isDarkMode ? 'rgba(8, 28, 48, 0.98)' : 'rgba(255, 255, 255, 0.98)',
                   border: `1px solid ${isDarkMode ? 'rgba(75,85,99,0.55)' : 'rgba(13,47,96,0.12)'}`,
-                  boxShadow: '0 18px 42px rgba(0, 0, 0, 0.34)',
+                  boxShadow: 'var(--shadow-overlay-lg)',
                   padding: 18,
                 }}
               >
@@ -6545,7 +6625,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                     style={{
                       border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.28)' : 'rgba(54,144,206,0.24)'}`,
                       background: enquiryFollowUpSavingChannel === 'email' ? colours.highlight : (isDarkMode ? 'rgba(54,144,206,0.12)' : 'rgba(54,144,206,0.08)'),
-                      color: enquiryFollowUpSavingChannel === 'email' ? '#fff' : text,
+                      color: enquiryFollowUpSavingChannel === 'email' ? colours.dark.text : text,
                       padding: '12px 14px',
                       cursor: !canRecordFollowUp || enquiryFollowUpSavingChannel ? 'default' : 'pointer',
                       opacity: !canRecordFollowUp ? 0.5 : 1,
@@ -6567,7 +6647,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                     style={{
                       border: `1px solid ${isDarkMode ? 'rgba(255,140,0,0.28)' : 'rgba(255,140,0,0.24)'}`,
                       background: enquiryFollowUpSavingChannel === 'phone' ? colours.orange : (isDarkMode ? 'rgba(255,140,0,0.12)' : 'rgba(255,140,0,0.08)'),
-                      color: enquiryFollowUpSavingChannel === 'phone' ? '#fff' : text,
+                      color: enquiryFollowUpSavingChannel === 'phone' ? colours.dark.text : text,
                       padding: '12px 14px',
                       cursor: !canRecordFollowUp || enquiryFollowUpSavingChannel ? 'default' : 'pointer',
                       opacity: !canRecordFollowUp ? 0.5 : 1,
@@ -6630,9 +6710,9 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                   width: 'min(760px, 100%)',
                   maxHeight: 'min(82vh, 920px)',
                   overflow: 'auto',
-                  background: isDarkMode ? 'rgba(6, 23, 51, 0.98)' : '#ffffff',
+                  background: isDarkMode ? 'rgba(6, 23, 51, 0.98)' : colours.grey,
                   border: `1px solid ${isDarkMode ? 'rgba(135,243,243,0.14)' : 'rgba(54,144,206,0.14)'}`,
-                  boxShadow: '0 18px 44px rgba(0,0,0,0.35)',
+                  boxShadow: 'var(--shadow-overlay-lg)',
                   padding: '18px 20px 20px',
                 }}
               >
@@ -6646,9 +6726,9 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                     </div>
                     <div style={{ fontSize: 15, fontWeight: 700, color: isDarkMode ? '#f3f4f6' : '#061733', lineHeight: 1.2 }}>
                       {matter?.displayNumber || 'Matter'}
-                      <span style={{ color: isDarkMode ? '#94a3b8' : '#475569', fontWeight: 500 }}> · {matter?.clientName || ccl?.clientName || 'Client'}</span>
+                      <span style={{ color: isDarkMode ? colours.subtleGrey : '#374151', fontWeight: 500 }}> · {matter?.clientName || ccl?.clientName || 'Client'}</span>
                     </div>
-                    <div style={{ marginTop: 4, fontSize: 10, color: isDarkMode ? '#94a3b8' : '#64748b', lineHeight: 1.45 }}>
+                    <div style={{ marginTop: 4, fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText, lineHeight: 1.45 }}>
                       {kind === 'compile'
                         ? 'Source readiness, context coverage, and missing evidence used before generation.'
                         : 'Field-by-field verification of the generated draft against source evidence.'}
@@ -6657,7 +6737,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                   <button
                     type="button"
                     onClick={closeCclPipelineDetailModal}
-                    style={{ border: 'none', background: 'transparent', color: isDarkMode ? '#94a3b8' : '#64748b', cursor: 'pointer', fontSize: 18, lineHeight: 1, padding: 0 }}
+                    style={{ border: 'none', background: 'transparent', color: isDarkMode ? colours.subtleGrey : colours.greyText, cursor: 'pointer', fontSize: 18, lineHeight: 1, padding: 0 }}
                     aria-label="Close pipeline detail modal"
                   >
                     ×
@@ -6675,7 +6755,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                           { label: 'Snippets', value: compileSummary.snippetCount || 0, tone: isDarkMode ? colours.accent : colours.highlight },
                         ].map((item) => (
                           <div key={item.label} style={{ padding: '10px 12px', border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(13,47,96,0.10)'}`, background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(13,47,96,0.025)' }}>
-                            <div style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: isDarkMode ? '#94a3b8' : '#64748b' }}>{item.label}</div>
+                            <div style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>{item.label}</div>
                             <div style={{ marginTop: 4, fontSize: 18, fontWeight: 700, color: item.tone }}>{item.value}</div>
                           </div>
                         ))}
@@ -6684,14 +6764,14 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                         <div style={{ fontSize: 10.5, fontWeight: 700, color: modalAccent }}>
                           {compileSummary.readyCount || 0}/{compileSummary.sourceCount || 0} evidence sources ready
                         </div>
-                        <div style={{ marginTop: 4, fontSize: 10, lineHeight: 1.5, color: isDarkMode ? '#d1d5db' : '#475569' }}>
+                        <div style={{ marginTop: 4, fontSize: 10, lineHeight: 1.5, color: isDarkMode ? '#d1d5db' : '#374151' }}>
                           {(compileSummary.missingFlagsCount || 0)} missing-data flags, {compileSummary.contextFieldCount || 0} context fields, {compileSummary.snippetCount || 0} evidence snippets.
                           {compileResult?.createdAt ? ` Compiled ${new Date(compileResult.createdAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}.` : ''}
                         </div>
                       </div>
                       {compileResult?.sourceCoverage?.length ? (
                         <div style={{ display: 'grid', gap: 8 }}>
-                          <div style={{ fontSize: 10, fontWeight: 700, color: isDarkMode ? '#94a3b8' : '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Evidence Coverage</div>
+                          <div style={{ fontSize: 10, fontWeight: 700, color: isDarkMode ? colours.subtleGrey : colours.greyText, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Evidence Coverage</div>
                           <div style={{ display: 'grid', gap: 8 }}>
                             {compileResult.sourceCoverage.map((source) => {
                               const sourceTone = source.status === 'ready' ? colours.green : source.status === 'limited' ? colours.orange : colours.cta;
@@ -6701,25 +6781,25 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                                     <div style={{ fontSize: 11, fontWeight: 700, color: isDarkMode ? '#f3f4f6' : '#061733' }}>{source.label}</div>
                                     <span style={{ fontSize: 9, fontWeight: 700, color: sourceTone, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{source.status}</span>
                                   </div>
-                                  <div style={{ marginTop: 4, fontSize: 10, lineHeight: 1.5, color: isDarkMode ? '#94a3b8' : '#64748b' }}>{source.summary}</div>
+                                  <div style={{ marginTop: 4, fontSize: 10, lineHeight: 1.5, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>{source.summary}</div>
                                 </div>
                               );
                             })}
                           </div>
                         </div>
                       ) : (
-                        <div style={{ fontSize: 10, lineHeight: 1.5, color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+                        <div style={{ fontSize: 10, lineHeight: 1.5, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
                           Detailed source-by-source coverage is only available for compile runs completed in this session.
                         </div>
                       )}
                       {!!compileResult?.missingDataFlags?.length && (
                         <div style={{ display: 'grid', gap: 8 }}>
-                          <div style={{ fontSize: 10, fontWeight: 700, color: isDarkMode ? '#94a3b8' : '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Missing Data Flags</div>
+                          <div style={{ fontSize: 10, fontWeight: 700, color: isDarkMode ? colours.subtleGrey : colours.greyText, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Missing Data Flags</div>
                           <div style={{ display: 'grid', gap: 6 }}>
                             {compileResult.missingDataFlags.map((flag) => (
                               <div key={flag.key} style={{ padding: '8px 10px', border: `1px solid ${isDarkMode ? 'rgba(214,85,65,0.18)' : 'rgba(214,85,65,0.16)'}`, background: isDarkMode ? 'rgba(214,85,65,0.08)' : 'rgba(214,85,65,0.05)' }}>
                                 <div style={{ fontSize: 10.5, fontWeight: 700, color: colours.cta }}>{flag.label}</div>
-                                {flag.detail ? <div style={{ marginTop: 3, fontSize: 10, lineHeight: 1.45, color: isDarkMode ? '#d1d5db' : '#475569' }}>{flag.detail}</div> : null}
+                                {flag.detail ? <div style={{ marginTop: 3, fontSize: 10, lineHeight: 1.45, color: isDarkMode ? '#d1d5db' : '#374151' }}>{flag.detail}</div> : null}
                               </div>
                             ))}
                           </div>
@@ -6727,7 +6807,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                       )}
                     </div>
                   ) : (
-                    <div style={{ fontSize: 11, lineHeight: 1.6, color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+                    <div style={{ fontSize: 11, lineHeight: 1.6, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
                       No compile result is cached for this matter yet.
                     </div>
                   )
@@ -6736,9 +6816,9 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                     <div style={{ padding: '12px 14px', border: `1px solid ${isDarkMode ? 'rgba(135,243,243,0.14)' : 'rgba(54,144,206,0.16)'}`, background: isDarkMode ? 'rgba(135,243,243,0.06)' : 'rgba(54,144,206,0.05)' }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                         <div style={{ fontSize: 11, fontWeight: 700, color: modalAccent }}>Safety Net running</div>
-                        <div style={{ fontSize: 10, fontWeight: 700, color: isDarkMode ? '#d1d5db' : '#334155' }}>{(cclPressureTestElapsed / 1000).toFixed(1)}s</div>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: isDarkMode ? '#d1d5db' : '#374151' }}>{(cclPressureTestElapsed / 1000).toFixed(1)}s</div>
                       </div>
-                      <div style={{ marginTop: 4, fontSize: 10, lineHeight: 1.5, color: isDarkMode ? '#d1d5db' : '#475569' }}>
+                      <div style={{ marginTop: 4, fontSize: 10, lineHeight: 1.5, color: isDarkMode ? '#d1d5db' : '#374151' }}>
                         Verifying generated fields against source evidence.
                       </div>
                     </div>
@@ -6750,16 +6830,16 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                             ? (isDarkMode ? colours.accent : colours.highlight)
                             : step.status === 'error'
                               ? colours.cta
-                              : (isDarkMode ? '#94a3b8' : '#64748b');
+                              : (isDarkMode ? colours.subtleGrey : colours.greyText);
                         return (
                           <div key={step.label} style={{ display: 'grid', gridTemplateColumns: '14px minmax(0, 1fr)', gap: 10, alignItems: 'start', padding: '8px 10px', border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(13,47,96,0.08)'}`, background: isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(13,47,96,0.02)' }}>
                             <div style={{ width: 12, height: 12, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: tone, marginTop: 1 }}>
                               {step.status === 'active' ? <FiRefreshCw size={12} style={{ animation: 'opsDashSpin 1s linear infinite' }} /> : step.status === 'done' ? <FiCheckCircle size={12} /> : <span style={{ width: 8, height: 8, borderRadius: '50%', background: tone, display: 'inline-block' }} />}
                             </div>
                             <div>
-                              <div style={{ fontSize: 10.5, fontWeight: 600, color: step.status === 'pending' ? (isDarkMode ? '#94a3b8' : '#64748b') : (isDarkMode ? '#f3f4f6' : '#061733') }}>{step.label}</div>
+                              <div style={{ fontSize: 10.5, fontWeight: 600, color: step.status === 'pending' ? (isDarkMode ? colours.subtleGrey : colours.greyText) : (isDarkMode ? '#f3f4f6' : '#061733') }}>{step.label}</div>
                               {step.detail && (step.status === 'active' || step.status === 'done') && (
-                                <div style={{ fontSize: 9, color: isDarkMode ? '#94a3b8' : '#64748b', marginTop: 2, lineHeight: 1.4 }}>{step.detail}</div>
+                                <div style={{ fontSize: 9, color: isDarkMode ? colours.subtleGrey : colours.greyText, marginTop: 2, lineHeight: 1.4 }}>{step.detail}</div>
                               )}
                             </div>
                           </div>
@@ -6769,7 +6849,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                     {/* Dev context: fields being tested */}
                     {cclPressureTestContext && cclPressureTestContext.fieldKeys.length > 0 && (
                       <div style={{ padding: '10px 12px', border: `1px solid ${isDarkMode ? 'rgba(135,243,243,0.10)' : 'rgba(54,144,206,0.10)'}`, background: isDarkMode ? 'rgba(135,243,243,0.03)' : 'rgba(54,144,206,0.03)' }}>
-                        <div style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: isDarkMode ? '#94a3b8' : '#64748b', marginBottom: 6 }}>
+                        <div style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: isDarkMode ? colours.subtleGrey : colours.greyText, marginBottom: 6 }}>
                           Fields under test ({cclPressureTestContext.fieldKeys.length})
                         </div>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
@@ -6790,7 +6870,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                 ) : cclPressureTestError ? (
                   <div style={{ padding: '12px 14px', border: `1px solid ${isDarkMode ? 'rgba(214,85,65,0.18)' : 'rgba(214,85,65,0.16)'}`, background: isDarkMode ? 'rgba(214,85,65,0.08)' : 'rgba(214,85,65,0.05)' }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: colours.cta }}>Safety Net unavailable</div>
-                    <div style={{ marginTop: 4, fontSize: 10, lineHeight: 1.5, color: isDarkMode ? '#d1d5db' : '#475569' }}>
+                    <div style={{ marginTop: 4, fontSize: 10, lineHeight: 1.5, color: isDarkMode ? '#d1d5db' : '#374151' }}>
                       {cclPressureTestError}
                     </div>
                   </div>
@@ -6801,18 +6881,18 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                       <span style={{ fontSize: 11, fontWeight: 700, color: pressureResult.flaggedCount > 0 ? colours.orange : colours.green }}>
                         {pressureResult.flaggedCount > 0 ? `${pressureResult.flaggedCount} of ${pressureResult.totalFields} fields flagged` : `All ${pressureResult.totalFields} fields passed`}
                       </span>
-                      <span style={{ fontSize: 10, color: isDarkMode ? '#94a3b8' : '#64748b' }}>·</span>
-                      <span style={{ fontSize: 10, color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+                      <span style={{ fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>·</span>
+                      <span style={{ fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
                         {pressureResult.dataSources?.join(', ') || 'source evidence'}
                       </span>
-                      <span style={{ fontSize: 10, color: isDarkMode ? '#94a3b8' : '#64748b' }}>·</span>
-                      <span style={{ fontSize: 10, color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+                      <span style={{ fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>·</span>
+                      <span style={{ fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
                         {Math.round((pressureResult.durationMs || 0) / 100) / 10}s
                       </span>
                     </div>
                     {flaggedFieldEntries.length > 0 && (
                       <div style={{ display: 'grid', gap: 8 }}>
-                        <div style={{ fontSize: 10, fontWeight: 700, color: isDarkMode ? '#94a3b8' : '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Flagged Fields</div>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: isDarkMode ? colours.subtleGrey : colours.greyText, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Flagged Fields</div>
                         <div style={{ display: 'grid', gap: 8 }}>
                           {flaggedFieldEntries.map(([fieldKey, score]) => (
                             <div key={fieldKey} style={{ padding: '8px 10px', border: `1px solid ${isDarkMode ? 'rgba(255,140,0,0.22)' : 'rgba(255,140,0,0.18)'}`, background: isDarkMode ? 'rgba(255,140,0,0.08)' : 'rgba(255,140,0,0.05)' }}>
@@ -6835,20 +6915,20 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                                   </button>
                                 </div>
                               </div>
-                              <div style={{ marginTop: 4, fontSize: 10, lineHeight: 1.45, color: isDarkMode ? '#d1d5db' : '#475569' }}>{score.reason}</div>
+                              <div style={{ marginTop: 4, fontSize: 10, lineHeight: 1.45, color: isDarkMode ? '#d1d5db' : '#374151' }}>{score.reason}</div>
                             </div>
                           ))}
                         </div>
                       </div>
                     )}
                     {flaggedFieldEntries.length === 0 && (
-                      <div style={{ fontSize: 10.5, lineHeight: 1.55, color: isDarkMode ? '#d1d5db' : '#475569' }}>
+                      <div style={{ fontSize: 10.5, lineHeight: 1.55, color: isDarkMode ? '#d1d5db' : '#374151' }}>
                         No fields were flagged against the available evidence. All scores were above the threshold.
                       </div>
                     )}
                   </div>
                 ) : (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, lineHeight: 1.6, color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, lineHeight: 1.6, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
                     <FiRefreshCw size={11} style={{ animation: 'opsDashSpin 1s linear infinite', opacity: 0.5 }} />
                     Preparing verification…
                   </div>
@@ -6983,7 +7063,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
           const priorValue = aiBaseFields[key] || '';
           const isNewFromAi = isAiFilled && !priorValue.trim();
           const isUpdatedByAi = isAiFilled && priorValue.trim() && aiFields[key] !== priorValue;
-          const checkboxBorder = isDarkMode ? colours.dark.borderColor : '#94a3b8';
+          const checkboxBorder = isDarkMode ? colours.dark.borderColor : colours.subtleGrey;
           const shouldAnimate = isAiFilled && isStreamingNow;
 
           return (
@@ -7012,7 +7092,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                   transition: 'all 0.15s ease',
                   opacity: 0.7,
                 }}>
-                  {isReviewed && <span style={{ color: '#fff', fontSize: 8, fontWeight: 700, lineHeight: 1 }}>✓</span>}
+                  {isReviewed && <span style={{ color: colours.dark.text, fontSize: 8, fontWeight: 700, lineHeight: 1 }}>✓</span>}
                 </div>
               )}
 
@@ -7064,10 +7144,10 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
               onClick={(e) => e.stopPropagation()}
               style={{
                 width: 460, maxHeight: '85vh', overflow: 'auto',
-                background: isDarkMode ? colours.darkBlue : '#fff',
+                background: isDarkMode ? colours.darkBlue : colours.grey,
                 border: `1px solid ${isDarkMode ? 'rgba(135,243,243,0.12)' : 'rgba(54,144,206,0.15)'}`,
                 padding: '18px 20px',
-                boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+                boxShadow: 'var(--shadow-overlay)',
               }}
             >
               {/* Header */}
@@ -7177,7 +7257,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                     style={{
                       fontSize: 8, fontWeight: 700, letterSpacing: '0.3px', textTransform: 'uppercase' as const,
                       padding: '4px 10px', cursor: cclAiFillingMatter === cclFieldsModal ? 'wait' : 'pointer',
-                      color: isDarkMode ? '#0a1c32' : '#fff', background: colours.highlight,
+                      color: isDarkMode ? colours.dark.cardBackground : colours.dark.text, background: colours.highlight,
                       borderRadius: 999, display: 'inline-block', marginBottom: 8,
                     }}
                     onClick={() => { if (cclFieldsModal) runHomeCclAiAutofill(cclFieldsModal); }}
@@ -7191,7 +7271,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                     <div key={item.key} style={{ marginBottom: 6 }}>
                       <div style={{ fontSize: 8, fontWeight: 600, color: text, marginBottom: 1 }}>{prettifyFieldKey(item.key)}</div>
                       <div style={{
-                        fontSize: 9, color: isDarkMode ? '#fca5a5' : '#7f1d1d', lineHeight: 1.45,
+                        fontSize: 9, color: isDarkMode ? colours.cta : colours.cta, lineHeight: 1.45,
                         padding: '4px 8px',
                         background: isDarkMode ? 'rgba(214,85,65,0.12)' : 'rgba(214,85,65,0.08)',
                         border: `1px solid ${isDarkMode ? 'rgba(214,85,65,0.28)' : 'rgba(214,85,65,0.22)'}`,
@@ -7352,9 +7432,18 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
         const reviewRailPrimed = !!cclReviewRailPrimedByMatter[cclLetterModal];
         const launchHandoffActive = cclLaunchHandoffMatter === cclLetterModal;
         const launchHeldLocally = isLocalDev && cclLaunchDevHold;
+        const launchDraftLoading = cclDraftLoading === cclLetterModal;
+        const launchReadyForHandoff = !!draft
+          && !launchDraftLoading
+          && !launchTraceLoading
+          && !launchIsStreamingNow
+          && !launchPressureRunning
+          && launchHasAiData
+          && (launchPressureReady || launchPressureErrored)
+          && !launchHeldLocally;
         const launchSteps = buildCclReviewLaunchSteps({
           hasDraft: !!draft,
-          draftLoading: cclDraftLoading === cclLetterModal,
+          draftLoading: launchDraftLoading,
           hasAiContext: launchHasAiData,
           traceLoading: launchTraceLoading,
           aiRunning: launchIsStreamingNow,
@@ -7365,45 +7454,35 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
           handoffActive: launchHandoffActive,
         });
         console.log('[CCL modal render]', { matterId: cclLetterModal, hasCached: cached !== undefined, hasDraft: !!draft, loading: cclDraftLoading });
-        if (!draft) {
-          const isLoading = cclDraftLoading === cclLetterModal;
-          const openedAt = cclLetterModalOpenedAtRef.current;
-          const elapsed = Date.now() - openedAt;
-          const isStale = isLoading && elapsed > 6000;
-          return renderCclLaunchOverlay({
-            matter,
-            headline: isStale ? 'Taking longer than expected' : 'Preparing your letter',
-            body: isStale
-              ? 'The draft service may be warming up. Retry the fetch or close the review for now.'
-              : 'Loading the latest draft and review context.',
-            steps: launchSteps,
-            tone: isStale ? 'warning' : 'accent',
-            matterDescription: ccl?.matterDescription || matter?.practiceArea || '',
-            statusLabel: ccl?.label || (matter?.status === 'closed' ? 'Closed matter' : 'Matter opening'),
-            instructionRef: matter?.instructionRef || '',
-            showRetry: isStale,
-            onRetry: isStale ? (() => {
-              console.log('[CCL modal] manual retry for', cclLetterModal);
-              setCclDraftLoading(cclLetterModal);
-              cclLetterModalOpenedAtRef.current = Date.now();
-              fetch(`/api/ccl/${encodeURIComponent(cclLetterModal!)}`)
-                .then(res => res.ok ? res.json() : Promise.reject(new Error(`${res.status}`)))
-                .then(data => {
-                  setCclDraftCache(prev => ({ ...prev, [cclLetterModal!]: { fields: data?.json || null, docUrl: data?.url || undefined } }));
-                  setCclDraftLoading(prev => prev === cclLetterModal ? null : prev);
-                })
-                .catch(() => {
-                  setCclDraftCache(prev => ({ ...prev, [cclLetterModal!]: { fields: null } }));
-                  setCclDraftLoading(prev => prev === cclLetterModal ? null : prev);
-                });
-            }) : undefined,
-            errorMessage: !isLoading && !isStale ? 'No saved draft was found for this matter yet. Create the draft first, then return to review it here.' : null,
-            devHoldActive: launchHeldLocally,
-            onToggleDevHold: isLocalDev ? (() => setCclLaunchDevHold((current) => !current)) : undefined,
-          });
-        }
+        const isDraftLoading = cclDraftLoading === cclLetterModal;
+        const openedAt = cclLetterModalOpenedAtRef.current;
+        const elapsed = Date.now() - openedAt;
+        const isDraftLoadStale = !draft && isDraftLoading && elapsed > 6000;
+        const launchDraftError = !draft && !isDraftLoading && !isDraftLoadStale
+          ? 'No saved draft was found for this matter yet. Create the draft first, then return to review it here.'
+          : null;
+        const retryDraftFetch = isDraftLoadStale ? (() => {
+          console.log('[CCL modal] manual retry for', cclLetterModal);
+          setCclDraftLoading(cclLetterModal);
+          cclLetterModalOpenedAtRef.current = Date.now();
+          const controller = new AbortController();
+          const timeoutId = window.setTimeout(() => controller.abort(), 12000);
+          fetch(`/api/ccl/${encodeURIComponent(cclLetterModal!)}`, { signal: controller.signal })
+            .then(res => res.ok ? res.json() : Promise.reject(new Error(`${res.status}`)))
+            .then(data => {
+              const fields = data?.json && typeof data.json === 'object' ? data.json : {};
+              setCclDraftCache(prev => ({ ...prev, [cclLetterModal!]: { fields, docUrl: data?.url || undefined } }));
+            })
+            .catch(() => {
+              setCclDraftCache(prev => ({ ...prev, [cclLetterModal!]: { fields: {} } }));
+            })
+            .finally(() => {
+              window.clearTimeout(timeoutId);
+              setCclDraftLoading(prev => prev === cclLetterModal ? null : prev);
+            });
+        }) : undefined;
 
-        const rawDraft = draft as Record<string, unknown>;
+        const rawDraft = (draft || {}) as Record<string, unknown>;
         const readTextValue = (value: unknown): string => {
           if (value === null || value === undefined) return '';
           if (typeof value === 'string') return value.trim();
@@ -7519,55 +7598,33 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
         const showReviewLaunchOverlay = launchHandoffActive || (!reviewRailPrimed && (
           launchHeldLocally
           ||
+          launchReadyForHandoff
+          ||
           launchTraceLoading
           || launchIsStreamingNow
           || launchPressureRunning
           || !launchHasAiData
           || (!launchPressureReady && !launchPressureErrored)
         ));
-        if (showReviewLaunchOverlay) {
-          const launchHeadline = launchHeldLocally
-            ? 'Preparing your letter'
-            : launchHandoffActive
-              ? 'Preparing your letter'
-              : launchPressureRunning
-                ? 'Preparing your letter'
-                : launchIsStreamingNow
-                  ? 'Preparing your letter'
-                  : launchTraceLoading
-                    ? 'Preparing your letter'
-                    : !launchHasAiData
-                      ? 'Preparing your letter'
-                      : 'Preparing your letter';
-          const launchBody = launchHeldLocally
-            ? 'Everything is ready locally. Press Space when you want the review workspace to open.'
+        const showSetupInDefaultView = !draft || showReviewLaunchOverlay;
+        const launchHeadline = isDraftLoadStale ? 'Taking longer than expected' : 'Opening CCL review';
+        const launchBody = isDraftLoadStale
+          ? 'The draft service may be warming up. Retry the fetch or close the review for now.'
+          : launchHeldLocally
+            ? 'Everything is ready. Press Space when you want to continue.'
             : launchPressureErrored
-              ? 'The draft is ready. Final checks fell back, so review will open without them.'
+              ? 'The draft is ready. Final checks were skipped, so review will open without them.'
               : launchHandoffActive
                 ? 'Opening the review workspace.'
                 : launchPressureRunning
-                  ? 'Running a final evidence check.'
+                  ? 'Running final checks.'
                   : launchIsStreamingNow
                     ? (/compil/i.test(launchAiStatusMessage) ? 'Pulling matter context.' : 'Writing review fields.')
                     : launchTraceLoading
-                      ? 'Checking for a saved review run.'
+                      ? 'Checking for saved review data.'
                       : !launchHasAiData
-                        ? 'Loading the draft and review context.'
-                        : 'Finishing the review setup.';
-          return renderCclLaunchOverlay({
-            matter,
-            headline: launchHeadline,
-            body: launchBody,
-            steps: launchSteps,
-            tone: launchHandoffActive ? 'success' : launchPressureErrored ? 'warning' : 'accent',
-            matterDescription: normalizedDraft.insert_heading_eg_matter_description || ccl?.matterDescription || matter?.practiceArea || '',
-            statusLabel: statusLabel,
-            instructionRef: matter?.instructionRef || aiReq?.instructionRef || '',
-            errorMessage: launchPressureErrored ? cclPressureTestError : null,
-            devHoldActive: launchHeldLocally,
-            onToggleDevHold: isLocalDev ? (() => setCclLaunchDevHold((current) => !current)) : undefined,
-          });
-        }
+                        ? 'Loading draft and review data.'
+                        : 'Finalising review setup.';
         const prettifyFieldKey = (key: string) => key
           .replace(/_/g, ' ')
           .replace(/\b\w/g, (char) => char.toUpperCase());
@@ -7757,6 +7814,19 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
         const canApprove = ['generated', 'pressure-tested'].includes(getCanonicalCclStage(ccl?.stage || ccl?.status)) && !hasUnresolved;
 
         const orderedTemplateFieldKeys: string[] = [...CCL_ORDERED_REVIEW_FIELD_KEYS];
+        const streamFieldValues = cclAiStreamLog.reduce((acc, entry) => {
+          const key = String(entry?.key || '').trim();
+          if (!key) return acc;
+          const value = String(entry?.value || '').trim();
+          if (!value) return acc;
+          acc[key] = value;
+          return acc;
+        }, {} as Record<string, string>);
+        const setupDisplayFields = orderedTemplateFieldKeys.reduce((acc, key) => {
+          const rawValue = String(streamFieldValues[key] || structuredReviewFields[key] || normalizedDraft[key] || '').trim();
+          acc[key] = rawValue || `{{${key}}}`;
+          return acc;
+        }, {} as Record<string, string>);
         const suppressedReviewFieldKeys = CCL_SUPPRESSED_REVIEW_FIELD_KEYS;
         const visibleReviewFieldKeys = orderedTemplateFieldKeys.filter((key) => (
           !suppressedReviewFieldKeys.has(key)
@@ -7813,7 +7883,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
           : (savedSelectedField && (effectiveReviewFieldKeys.includes(savedSelectedField) || allClickableFieldKeys.includes(savedSelectedField)))
             ? savedSelectedField
             : null;
-        const showReviewIntro = shouldOfferReviewIntro;
+        const showReviewIntro = !showSetupInDefaultView && shouldOfferReviewIntro;
         cclIntroPreviewModeRef.current = showReviewIntro;
         const selectedFieldKey = showReviewIntro ? null : resolvedSelectedFieldKey;
         cclSelectedFieldRef.current = selectedFieldKey;
@@ -8071,13 +8141,37 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
         const previewLegendItems = [
           { key: 'mail-merge', label: 'Mail merge', show: previewFieldStateList.some((state) => state.isMailMergeValue), swatch: 'rgba(135,243,243,0.14)', border: 'rgba(135,243,243,0.48)', text: '#0D2F60' },
           { key: 'ai', label: 'AI output', show: previewFieldStateList.some((state) => state.isAiGenerated || state.isAiUpdated), swatch: 'rgba(54,144,206,0.18)', border: 'rgba(54,144,206,0.45)', text: '#0D2F60' },
-          { key: 'placeholder', label: 'AI placeholder', show: previewFieldStateList.some((state) => state.isUnresolved) || previewPlaceholderPromptPresent, swatch: 'rgba(255,140,0,0.14)', border: 'rgba(255,140,0,0.40)', text: '#7c2d12' },
-          { key: 'static', label: 'Static text', show: true, swatch: 'rgba(255,255,255,0.96)', border: 'rgba(13,47,96,0.18)', text: '#334155' },
+          { key: 'placeholder', label: 'AI placeholder', show: previewFieldStateList.some((state) => state.isUnresolved) || previewPlaceholderPromptPresent, swatch: 'rgba(255,140,0,0.14)', border: 'rgba(255,140,0,0.40)', text: colours.orange },
+          { key: 'static', label: 'Static text', show: true, swatch: 'rgba(255,255,255,0.96)', border: 'rgba(13,47,96,0.18)', text: '#374151' },
           { key: 'reviewed', label: 'Approved', show: previewFieldStateList.some((state) => state.isReviewed), swatch: 'rgba(32,178,108,0.14)', border: 'rgba(32,178,108,0.45)', text: colours.green },
         ].filter((item) => item.show);
         const selectedFieldState = selectedFieldKey ? previewFieldStates[selectedFieldKey] : undefined;
+        const setupPressureActiveKey = launchPressureRunning && cclPressureTestContext?.fieldKeys?.length
+          ? cclPressureTestContext.fieldKeys[Math.floor((cclPressureTestElapsed / 900) % cclPressureTestContext.fieldKeys.length)]
+          : null;
+        const setupActiveFieldKey = setupPressureActiveKey || (cclAiStreamLog.length > 0 ? cclAiStreamLog[cclAiStreamLog.length - 1].key : null);
+        const setupHeaderTitle = launchPressureRunning
+          ? `Pressure testing ${cclPressureTestContext?.fieldKeys?.length || Object.keys(streamFieldValues).length || 1} field${(cclPressureTestContext?.fieldKeys?.length || Object.keys(streamFieldValues).length || 1) === 1 ? '' : 's'}`
+          : launchIsStreamingNow
+            ? `${Math.max(cclAiStreamLog.length, Object.keys(streamFieldValues).length, 0)} field${Math.max(cclAiStreamLog.length, Object.keys(streamFieldValues).length, 0) === 1 ? '' : 's'} generated`
+            : launchTraceLoading
+              ? 'Loading saved review'
+              : launchHandoffActive
+                ? 'Review ready'
+                : launchHeadline;
+        const setupHeaderBody = launchPressureRunning
+          ? (setupPressureActiveKey ? `Checking ${prettifyFieldKey(setupPressureActiveKey)} against source evidence.` : 'Checking generated fields against source evidence.')
+          : launchBody;
+        const setupFlowLabel = launchSteps
+          .map((step) => {
+            if (step.status === 'active') return `[${step.label}]`;
+            if (step.status === 'done') return step.label;
+            if (step.status === 'error') return `${step.label}*`;
+            return step.label;
+          })
+          .join('  ·  ');
         const selectedFieldCue = selectedFieldState?.isUnresolved
-          ? { label: 'AI placeholder', swatch: 'rgba(255,140,0,0.14)', border: 'rgba(255,140,0,0.40)', text: '#fbbf24' }
+          ? { label: 'AI placeholder', swatch: 'rgba(255,140,0,0.14)', border: 'rgba(255,140,0,0.40)', text: colours.yellow }
           : (selectedFieldState?.isAiGenerated || selectedFieldState?.isAiUpdated)
             ? { label: 'AI output', swatch: 'rgba(54,144,206,0.18)', border: 'rgba(54,144,206,0.45)', text: colours.accent }
             : selectedFieldState?.isMailMergeValue
@@ -8298,7 +8392,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
         const loadingReviewContext = !selectedFieldKey && (traceLoading || isStreamingNow);
         const noAiReviewContext = !selectedFieldKey && !loadingReviewContext && !hasAiData && !persistedTrace;
         const showQueuedReviewLanding = !selectedFieldKey && !loadingReviewContext && !noAiReviewContext && !showSummaryLanding && visibleReviewFieldCount > 0;
-        const shouldShowReviewRail = !showReviewIntro && !isMobileReview && !showQueuedReviewLanding && (
+        const shouldShowReviewRail = !showReviewIntro && !showSetupInDefaultView && !showQueuedReviewLanding && (
           reviewRailPrimed
           || !!selectedFieldKey
           || traceLoading
@@ -8311,7 +8405,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
         const noClarificationsQueued = !selectedFieldKey && !loadingReviewContext && !noAiReviewContext && visibleReviewFieldCount === 0 && !showSummaryLanding;
         const showReviewRailSkeleton = shouldShowReviewRail && loadingReviewContext;
         const reviewValueFontSize = isMobileReview ? 11 : 10;
-        const reviewPaneHeight = isMobileReview ? (selectedFieldKey ? 'min(50vh, 440px)' : '0px') : 'auto';
+        const reviewPaneHeight = isMobileReview ? ((selectedFieldKey || showSetupInDefaultView) ? 'min(50vh, 440px)' : '0px') : 'auto';
         const previewBottomPadding = isMobileReview && selectedFieldKey ? 380 : 22;
         const introPreviewFooter = 'Helix Law Ltd is authorised and regulated by the Solicitors Regulation Authority (SRA No. 669720)';
         const introHeadline = loadingReviewContext
@@ -8360,7 +8454,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
           <>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 24 }}>
               <img src="https://helix-law.co.uk/wp-content/uploads/2025/01/Asset-2@72x.png" alt="Helix Law" style={{ width: isMobileReview ? 146 : 178, height: 'auto', display: 'block', flexShrink: 0 }} />
-              <div style={{ textAlign: 'right' as const, fontSize: 9.5, lineHeight: 1.55, color: '#475569', minWidth: isMobileReview ? 160 : 220 }}>
+              <div style={{ textAlign: 'right' as const, fontSize: 9.5, lineHeight: 1.55, color: '#374151', minWidth: isMobileReview ? 160 : 220 }}>
                 <div style={{ fontSize: 10.5, fontWeight: 700, color: '#0D2F60' }}>01273 761990</div>
                 <div>helix-law.com</div>
                 <div>Second Floor, Britannia House</div>
@@ -8401,7 +8495,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
           </>
         );
         const previewFirstPageFooter = (
-          <div style={{ paddingTop: 10, borderTop: '0.5px solid #d5dbe3', fontSize: 7.5, color: '#94a3b8', textAlign: 'center', lineHeight: 1.45 }}>
+          <div style={{ paddingTop: 10, borderTop: '0.5px solid #d5dbe3', fontSize: 7.5, color: colours.subtleGrey, textAlign: 'center', lineHeight: 1.45 }}>
             {introPreviewFooter}
           </div>
         );
@@ -8549,7 +8643,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                 flexDirection: 'column',
                 background: 'rgba(6, 23, 51, 0.98)',
                 border: '1px solid rgba(135, 243, 243, 0.12)',
-                boxShadow: '0 24px 72px rgba(0, 3, 25, 0.62)',
+                boxShadow: 'var(--shadow-overlay-lg)',
                 animation: 'opsDashScaleIn 0.24s ease both',
                 overflow: 'hidden',
                 borderRadius: isMobileReview ? 0 : 2,
@@ -8591,7 +8685,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                         <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={colours.green} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
                       </div>
                       <div style={{ fontSize: 16, fontWeight: 700, color: '#f3f4f6', marginBottom: 6 }}>Letter approved</div>
-                      <div style={{ fontSize: 13, color: '#94a3b8', maxWidth: 320, textAlign: 'center', lineHeight: 1.5 }}>
+                      <div style={{ fontSize: 13, color: colours.subtleGrey, maxWidth: 320, textAlign: 'center', lineHeight: 1.5 }}>
                         {matter?.displayNumber || 'This letter'} has been finalised and uploaded to NetDocuments.
                       </div>
                     </>
@@ -8602,7 +8696,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                         <div style={{ position: 'absolute', inset: 0, border: '2px solid transparent', borderTopColor: colours.accent, borderRadius: '50%', animation: 'cclLoadPulse 1.2s ease-in-out infinite, cclApprovalSpin 1s linear infinite' }} />
                       </div>
                       <div style={{ fontSize: 14, fontWeight: 700, color: '#f3f4f6', marginBottom: 6 }}>{cclApprovalStep || 'Approving…'}</div>
-                      <div style={{ fontSize: 12, color: '#94a3b8' }}>This will only take a moment.</div>
+                      <div style={{ fontSize: 12, color: colours.subtleGrey }}>This will only take a moment.</div>
                     </>
                   )}
                 </div>
@@ -8614,11 +8708,13 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: isMobileReview ? 12 : 11, fontWeight: 700, color: '#f3f4f6', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {matter?.displayNumber || 'Matter'}
-                    <span style={{ color: '#94a3b8', fontWeight: 500 }}> · {matter?.clientName || normalizedDraft.insert_clients_name || 'Client'}</span>
+                    <span style={{ color: colours.subtleGrey, fontWeight: 500 }}> · {matter?.clientName || normalizedDraft.insert_clients_name || 'Client'}</span>
                   </div>
 
-                  <div style={{ marginTop: 5, fontSize: isMobileReview ? 11 : 10, color: '#94a3b8', lineHeight: 1.45 }}>
-                    {showReviewIntro
+                  <div style={{ marginTop: 5, fontSize: isMobileReview ? 11 : 10, color: colours.subtleGrey, lineHeight: 1.45 }}>
+                    {showSetupInDefaultView
+                      ? `${launchSteps[Math.max(0, launchSteps.findIndex((step) => step.status === 'active'))]?.label || 'Review setup'} in progress`
+                      : showReviewIntro
                       ? 'Draft review'
                       : selectedFieldKey
                         ? `Decision ${Math.max(currentDecisionNumber, 1)} of ${visibleReviewFieldCount}`
@@ -8646,7 +8742,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                 >×</button>
               </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: showReviewIntro ? introShellGrid : reviewShellGrid, flex: 1, minHeight: 0, overflow: 'hidden', position: 'relative' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: (showReviewIntro || showSetupInDefaultView) ? introShellGrid : reviewShellGrid, flex: 1, minHeight: 0, overflow: 'hidden', position: 'relative' }}>
                   <div style={{ position: 'relative', minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
                   <div
                     className="ccl-review-scroll"
@@ -8657,7 +8753,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                       padding: isMobileReview ? 0 : `0 ${previewFramePaddingX}px`,
                       paddingBottom: showReviewIntro ? 0 : previewBottomPadding,
                       scrollbarGutter: 'stable',
-                      background: '#cfd6df',
+                      background: colours.grey,
                       height: '100%',
                       boxSizing: 'border-box',
                     }}
@@ -8681,17 +8777,39 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                       padding: showReviewIntro
                         ? (isMobileReview ? '18px 14px 20px' : '30px 28px 34px')
                         : (isMobileReview ? '28px 24px 28px' : '24px 0 40px'),
-                      color: '#0f172a',
+                      color: colours.darkBlue,
                       boxSizing: 'border-box',
                       fontFamily: "'Raleway', Arial, Helvetica, sans-serif",
                       fontSize: isMobileReview ? 14 : previewDesktopFontSize,
                       lineHeight: isMobileReview ? 1.8 : previewDesktopLineHeight,
-                      background: isMobileReview ? '#ffffff' : 'transparent',
+                      background: isMobileReview ? colours.grey : 'transparent',
                       minHeight: isMobileReview ? 'calc(100% - 52px)' : 'auto',
                       transform: !isMobileReview && cclPreviewZoom < 1 ? `scale(${cclPreviewZoom})` : undefined,
                       transformOrigin: !isMobileReview ? 'top left' : undefined,
                     }}>
-                    {showReviewIntro ? (
+                    {showSetupInDefaultView ? (
+                        <DocumentRenderer
+                          template={rawPreviewTemplate}
+                          fieldValues={setupDisplayFields}
+                          interactiveFieldKeys={[]}
+                          activeFieldKey={setupActiveFieldKey}
+                          placeholderLabels={placeholderLabels}
+                          fieldStates={previewFieldStates}
+                          fieldElementRefs={cclReviewFieldElementRefs}
+                          editableFieldKey={null}
+                          onFieldValueChange={undefined}
+                          onFieldClick={undefined}
+                          rootRef={cclRendererRootRef}
+                          pageBreaks={isMobileReview ? undefined : cclPageBreaks}
+                          totalPages={cclTotalPages}
+                          currentPageNumber={previewCurrentPage}
+                          hoveredPageNumber={cclHoveredPreviewPage}
+                          contentPaddingX={previewDocumentPaddingX}
+                          contentPaddingY={isMobileReview ? undefined : { top: 48, bottom: 84 }}
+                          firstPageHeader={previewFirstPageHeader}
+                          firstPageFooter={previewFirstPageFooter}
+                        />
+                    ) : showReviewIntro ? (
                         <DocumentRenderer
                           template={introPreviewTemplate}
                           fieldValues={structuredReviewFields}
@@ -8742,7 +8860,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                   </div>
                   </div>
 
-                {showReviewIntro && (
+                {(showReviewIntro || showSetupInDefaultView) && (
                   <div style={{
                     borderLeft: isMobileReview ? 'none' : '1px solid rgba(135, 243, 243, 0.08)',
                     borderTop: isMobileReview ? '1px solid rgba(135, 243, 243, 0.12)' : 'none',
@@ -8759,14 +8877,73 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                         CCL Review
                       </div>
                       <div style={{ fontSize: isMobileReview ? 24 : 30, lineHeight: 1.1, fontWeight: 700, color: '#f3f4f6' }}>
-                        {loadingReviewContext ? introHeadline : visibleReviewFieldCount > 0 ? `${visibleReviewFieldCount} point${visibleReviewFieldCount === 1 ? '' : 's'} to check` : 'Review draft'}
+                        {showSetupInDefaultView
+                          ? setupHeaderTitle
+                          : loadingReviewContext ? introHeadline : visibleReviewFieldCount > 0 ? `${visibleReviewFieldCount} point${visibleReviewFieldCount === 1 ? '' : 's'} to check` : 'Review draft'}
                       </div>
                       <div style={{ fontSize: isMobileReview ? 13 : 14, lineHeight: 1.65, color: '#d1d5db', maxWidth: 360 }}>
-                        {introBody}
+                        {showSetupInDefaultView ? setupHeaderBody : introBody}
                       </div>
                     </div>
 
-                    {loadingReviewContext && (
+                    {showSetupInDefaultView ? (
+                      <div style={{ display: 'grid', gap: 14, padding: isMobileReview ? '12px 0 0' : '14px 0 0' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <div style={{
+                            width: 18,
+                            height: 18,
+                            border: '2px solid rgba(135, 243, 243, 0.12)',
+                            borderTopColor: launchPressureErrored ? colours.cta : (launchPressureRunning ? colours.orange : colours.accent),
+                            borderRadius: '50%',
+                            animation: 'helix-spin 0.8s linear infinite',
+                            flexShrink: 0,
+                          }} />
+                          <div style={{ fontSize: 12, color: '#f3f4f6', fontWeight: 600 }}>
+                            {setupFlowLabel}
+                          </div>
+                        </div>
+                        {(launchDraftError || launchPressureErrored || cclPressureTestError) && (
+                          <div style={{ border: '1px solid rgba(214, 85, 65, 0.28)', background: 'rgba(214, 85, 65, 0.08)', padding: '9px 10px', fontSize: isMobileReview ? 11 : 10, color: colours.cta, lineHeight: 1.5 }}>
+                            {launchDraftError || cclPressureTestError}
+                          </div>
+                        )}
+                        {!!retryDraftFetch && (
+                          <button
+                            type="button"
+                            onClick={retryDraftFetch}
+                            style={{
+                              justifySelf: 'start',
+                              border: '1px solid rgba(135, 243, 243, 0.28)',
+                              background: 'rgba(135, 243, 243, 0.08)',
+                              color: '#f3f4f6',
+                              padding: '10px 12px',
+                              fontSize: isMobileReview ? 12 : 11,
+                              fontWeight: 700,
+                              fontFamily: "'Raleway', Arial, Helvetica, sans-serif",
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Retry draft fetch
+                          </button>
+                        )}
+                        <div style={{ fontSize: 11, color: colours.subtleGrey, lineHeight: 1.55 }}>
+                          {launchPressureRunning
+                            ? 'The draft stays open while the current field is checked against source evidence.'
+                            : launchIsStreamingNow
+                              ? 'Generating review context. The draft will appear as fields are produced.'
+                              : launchTraceLoading
+                                ? 'Checking for saved review data before a fresh review pass starts.'
+                                : !launchHasAiData
+                                  ? 'Generating review context. The draft will appear as fields are produced.'
+                                  : 'The review will settle into the standard workspace as soon as setup completes.'}
+                        </div>
+                        {aiRes?.durationMs && (
+                          <div style={{ fontSize: 10, color: colours.subtleGrey, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                            Draft prepared in {(aiRes.durationMs / 1000).toFixed(1)}s
+                          </div>
+                        )}
+                      </div>
+                    ) : loadingReviewContext && (
                       <div style={{ display: 'grid', gap: 12, padding: '16px 0 0' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                           <div style={{
@@ -8795,9 +8972,9 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                       </div>
                     )}
 
-                    {noAiReviewContext && (
+                    {noAiReviewContext && !showSetupInDefaultView && (
                       <div style={{ display: 'grid', gap: 12, padding: '8px 0 0' }}>
-                        <div style={{ fontSize: 11, lineHeight: 1.55, color: '#94a3b8' }}>
+                        <div style={{ fontSize: 11, lineHeight: 1.55, color: colours.subtleGrey }}>
                           No saved AI run was found for this draft yet. Generate one now and the review workspace will open with the right checkpoints already prepared.
                         </div>
                         <button
@@ -8821,15 +8998,15 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                       </div>
                     )}
 
-                    {showSummaryLanding && (
+                    {showSummaryLanding && !showSetupInDefaultView && (
                       <div style={{ display: 'grid', gap: 14, padding: isMobileReview ? '12px 0 0' : '14px 0 0' }}>
-                        <div style={{ fontSize: 11, color: '#94a3b8', lineHeight: 1.55 }}>
+                        <div style={{ fontSize: 11, color: colours.subtleGrey, lineHeight: 1.55 }}>
                           {visibleReviewFieldCount > 0
                             ? 'Work through the remaining points with the draft open beside you.'
                             : 'The draft is ready for a final read-through.'}
                         </div>
                         {aiRes?.durationMs && (
-                          <div style={{ fontSize: 10, color: '#94a3b8', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                          <div style={{ fontSize: 10, color: colours.subtleGrey, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
                             Draft prepared in {(aiRes.durationMs / 1000).toFixed(1)}s
                           </div>
                         )}
@@ -8885,7 +9062,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                                 <span style={{ fontSize: isMobileReview ? 11 : 10.5, color: colours.accent, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>
                                   {currentDecisionNumber} of {selectedFieldSequenceCount || visibleReviewFieldCount}
                                 </span>
-                                <span style={{ fontSize: isMobileReview ? 11 : 10.5, color: '#94a3b8' }}>•</span>
+                                <span style={{ fontSize: isMobileReview ? 11 : 10.5, color: colours.subtleGrey }}>•</span>
                                 {reviewFieldTypeMap[selectedFieldKey] === 'verify' ? (
                                   <span style={{ fontSize: isMobileReview ? 11 : 10.5, color: colours.orange, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>
                                     Verify
@@ -8899,7 +9076,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                               <div style={{ fontSize: isMobileReview ? 18 : 19, fontWeight: 700, color: '#f3f4f6', lineHeight: 1.1 }}>
                                 {selectedFieldMeta.label}
                               </div>
-                              <div style={{ fontSize: isMobileReview ? 11 : 10.5, color: '#94a3b8', lineHeight: 1.4 }}>
+                              <div style={{ fontSize: isMobileReview ? 11 : 10.5, color: colours.subtleGrey, lineHeight: 1.4 }}>
                                 {selectedFieldMeta.group}
                               </div>
                               <div style={{ fontSize: isMobileReview ? 11.5 : 11, color: '#d1d5db', lineHeight: 1.45, maxWidth: 360 }}>
@@ -8928,7 +9105,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                               style={{
                                 border: 'none',
                                 background: 'transparent',
-                                color: '#94a3b8',
+                                color: colours.subtleGrey,
                                 cursor: 'pointer',
                                 padding: isMobileReview ? '8px 10px' : '6px 8px',
                                 fontSize: isMobileReview ? 10 : 9,
@@ -8945,22 +9122,26 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                           <div style={{ fontSize: isMobileReview ? 10 : 9, color: colours.accent, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                             CCL Review
                           </div>
-                          <div style={{ fontSize: isMobileReview ? 15 : 14, fontWeight: 700, color: '#f3f4f6', marginTop: 6, lineHeight: 1.25 }}>
-                            {aiState.title}
+                          <div style={{ fontSize: isMobileReview ? 15 : 14, fontWeight: 700, color: '#f3f4f6', marginTop: 6, lineHeight: 1.25, display: 'flex', alignItems: 'center', gap: 8 }}>
+                            {showSetupInDefaultView && <span style={{ width: 7, height: 7, borderRadius: '50%', background: launchPressureErrored ? colours.cta : launchPressureRunning ? colours.orange : colours.accent, display: 'inline-block', animation: 'cclLaunchDotPulse 1.1s ease-in-out infinite', flexShrink: 0 }} />}
+                            <span>{showSetupInDefaultView ? setupHeaderTitle : aiState.title}</span>
                           </div>
-                          {isStreamingNow && (
-                            <div style={{ fontSize: isMobileReview ? 11 : 10, color: '#94a3b8', marginTop: 6, lineHeight: 1.45 }}>
-                              {aiState.detail}
+                          <div style={{ fontSize: isMobileReview ? 11 : 10, color: colours.subtleGrey, marginTop: 6, lineHeight: 1.45 }}>
+                            {showSetupInDefaultView ? setupHeaderBody : aiState.detail}
+                          </div>
+                          {showSetupInDefaultView && aiRes?.durationMs && (
+                            <div style={{ fontSize: 10, color: colours.subtleGrey, marginTop: 6, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                              Draft prepared in {(aiRes.durationMs / 1000).toFixed(1)}s
                             </div>
                           )}
                         </>
                       )}
                     </div>
 
-                      {visibleReviewFieldCount > 0 && !loadingReviewContext && !selectedFieldKey && (
+                      {visibleReviewFieldCount > 0 && !loadingReviewContext && !selectedFieldKey && !showSetupInDefaultView && (
                         <div style={{ padding: '0 24px 12px', display: 'grid', gap: 6, flexShrink: 0 }}>
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                            <span style={{ fontSize: isMobileReview ? 11 : 10.5, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                            <span style={{ fontSize: isMobileReview ? 11 : 10.5, color: colours.subtleGrey, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                               Progress
                             </span>
                             <span style={{ fontSize: isMobileReview ? 11 : 10.5, color: reviewedDecisionCount === visibleReviewFieldCount ? colours.green : '#d1d5db', fontWeight: 700 }}>
@@ -8974,6 +9155,50 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                       )}
 
                     <div key={`rail-body:${reviewRailContentKey}`} style={{ padding: isMobileReview ? '14px 16px' : '14px 24px', flex: 1, display: 'flex', flexDirection: 'column', gap: 16, alignContent: 'start', animation: 'opsDashFadeIn 0.24s ease both' }}>
+                      {showSetupInDefaultView && (() => {
+                        const setupFlowLabel = launchSteps
+                          .map((step) => {
+                            if (step.status === 'active') return `[${step.label}]`;
+                            if (step.status === 'done') return step.label;
+                            if (step.status === 'error') return `${step.label}*`;
+                            return step.label;
+                          })
+                          .join('  ·  ');
+                        return (
+                          <div style={{ display: 'grid', gap: 12 }}>
+                            <div style={{ fontSize: isMobileReview ? 11 : 10.5, color: '#d1d5db', lineHeight: 1.5 }}>
+                              {setupFlowLabel}
+                            </div>
+                            {(launchDraftError || launchPressureErrored || cclPressureTestError) && (
+                              <div style={{ border: '1px solid rgba(214, 85, 65, 0.28)', background: 'rgba(214, 85, 65, 0.08)', padding: '9px 10px', fontSize: isMobileReview ? 11 : 10, color: colours.cta, lineHeight: 1.5 }}>
+                                {launchDraftError || cclPressureTestError}
+                              </div>
+                            )}
+                            {!!retryDraftFetch && (
+                              <button
+                                type="button"
+                                onClick={retryDraftFetch}
+                                style={{
+                                  justifySelf: 'start',
+                                  border: '1px solid rgba(135, 243, 243, 0.28)',
+                                  background: 'rgba(135, 243, 243, 0.08)',
+                                  color: '#f3f4f6',
+                                  padding: '8px 10px',
+                                  fontSize: isMobileReview ? 11.5 : 10.5,
+                                  fontWeight: 700,
+                                  fontFamily: "'Raleway', Arial, Helvetica, sans-serif",
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                Retry draft fetch
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })()}
+
+                      {!showSetupInDefaultView && (
+                      <>
                       {showReviewRailSkeleton && (
                         <>
                           <div style={{
@@ -9015,7 +9240,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                                   borderRadius: '50%',
                                   animation: 'helix-spin 0.8s linear infinite',
                                 }} />
-                                <div style={{ fontSize: isMobileReview ? 10 : 9, color: '#94a3b8', fontWeight: 600 }}>
+                                <div style={{ fontSize: isMobileReview ? 10 : 9, color: colours.subtleGrey, fontWeight: 600 }}>
                                   Loading saved review…
                                 </div>
                               </div>
@@ -9029,7 +9254,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                           <div style={{ fontSize: isMobileReview ? 10 : 9, color: '#A0A0A0', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                             Generate Review
                           </div>
-                          <div style={{ fontSize: isMobileReview ? 11 : 10, color: '#94a3b8', lineHeight: 1.45 }}>
+                          <div style={{ fontSize: isMobileReview ? 11 : 10, color: colours.subtleGrey, lineHeight: 1.45 }}>
                             No saved AI run was found for this draft yet. You can still read the letter on the left, or generate AI review context now.
                           </div>
                           <button
@@ -9061,14 +9286,14 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                               {totalAiFields} fields generated
                             </div>
                             {aiRes?.durationMs && (
-                              <div style={{ fontSize: 10, color: '#94a3b8', flexShrink: 0 }}>
+                              <div style={{ fontSize: 10, color: colours.subtleGrey, flexShrink: 0 }}>
                                 {(aiRes.durationMs / 1000).toFixed(1)}s
                               </div>
                             )}
                           </div>
 
                           {/* Confidence breakdown — muted single line */}
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, fontSize: 10, color: '#94a3b8' }}>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, fontSize: 10, color: colours.subtleGrey }}>
                             {confidenceBreakdown.data > 0 && (
                               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                                 <span style={{ width: 6, height: 6, background: 'rgba(32,178,108,0.6)', borderRadius: '50%' }} />
@@ -9111,13 +9336,13 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                           {ptPending && (
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                               <div style={{ width: 12, height: 12, border: '1.5px solid rgba(135,243,243,0.15)', borderTopColor: colours.accent, borderRadius: '50%', animation: 'helix-spin 0.8s linear infinite', flexShrink: 0 }} />
-                              <span style={{ fontSize: 10, color: '#94a3b8' }}>Safety Net verifying…</span>
+                              <span style={{ fontSize: 10, color: colours.subtleGrey }}>Safety Net verifying…</span>
                             </div>
                           )}
 
                           {/* Data sources */}
                           {aiRes?.dataSources && aiRes.dataSources.length > 0 && (
-                            <div style={{ fontSize: 10, color: '#94a3b8', lineHeight: 1.45 }}>
+                            <div style={{ fontSize: 10, color: colours.subtleGrey, lineHeight: 1.45 }}>
                               Sources: {aiRes.dataSources.join(', ')}
                             </div>
                           )}
@@ -9169,7 +9394,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                             {ptPending && (
                               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
                                 <div style={{ width: 12, height: 12, border: '1.5px solid rgba(135,243,243,0.15)', borderTopColor: colours.accent, borderRadius: '50%', animation: 'helix-spin 0.8s linear infinite', flexShrink: 0 }} />
-                                <span style={{ fontSize: isMobileReview ? 10 : 9.5, color: '#94a3b8' }}>Safety Net verifying…</span>
+                                <span style={{ fontSize: isMobileReview ? 10 : 9.5, color: colours.subtleGrey }}>Safety Net verifying…</span>
                               </div>
                             )}
                           </div>
@@ -9212,7 +9437,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                             </button>
                           </div>
                           {!ptResultHere && ptCanRun && !ptPending && (
-                            <div style={{ fontSize: isMobileReview ? 10 : 9.5, color: '#94a3b8', lineHeight: 1.5 }}>
+                            <div style={{ fontSize: isMobileReview ? 10 : 9.5, color: colours.subtleGrey, lineHeight: 1.5 }}>
                               Run Safety Net to verify AI output against source evidence.
                             </div>
                           )}
@@ -9232,7 +9457,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                                     <div style={{ fontSize: 10.5, fontWeight: 700, color: isDarkMode ? colours.accent : colours.highlight }}>
                                       Compiled {compileSummaryHere.readyCount || 0}/{compileSummaryHere.sourceCount || 0} evidence sources ready
                                     </div>
-                                    <div style={{ fontSize: 10, color: '#94a3b8', lineHeight: 1.45, marginTop: 3 }}>
+                                    <div style={{ fontSize: 10, color: colours.subtleGrey, lineHeight: 1.45, marginTop: 3 }}>
                                       {compileSummaryHere.limitedCount || 0} limited, {compileSummaryHere.missingCount || 0} missing, {compileSummaryHere.contextFieldCount || 0} context fields, {compileSummaryHere.snippetCount || 0} evidence snippets.
                                       {compiledAtHere ? ` Compiled ${new Date(compiledAtHere).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}.` : ''}
                                     </div>
@@ -9243,7 +9468,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                                     <div style={{ fontSize: 10.5, fontWeight: 700, color: '#d1d5db' }}>
                                       Generated {generationFieldCount} field{generationFieldCount === 1 ? '' : 's'}
                                     </div>
-                                    <div style={{ fontSize: 10, color: '#94a3b8', lineHeight: 1.45, marginTop: 3 }}>
+                                    <div style={{ fontSize: 10, color: colours.subtleGrey, lineHeight: 1.45, marginTop: 3 }}>
                                       Confidence {generationConfidence || 'unknown'}{typeof ccl?.unresolvedCount === 'number' ? `, ${ccl.unresolvedCount} unresolved placeholder${ccl.unresolvedCount === 1 ? '' : 's'}.` : '.'}
                                     </div>
                                   </div>
@@ -9253,7 +9478,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                                     <div style={{ fontSize: 10.5, fontWeight: 700, color: ptResultHere.flaggedCount > 0 ? colours.orange : colours.green }}>
                                       Pressure tested {ptResultHere.totalFields} field{ptResultHere.totalFields === 1 ? '' : 's'}
                                     </div>
-                                    <div style={{ fontSize: 10, color: '#94a3b8', lineHeight: 1.45, marginTop: 3 }}>
+                                    <div style={{ fontSize: 10, color: colours.subtleGrey, lineHeight: 1.45, marginTop: 3 }}>
                                       {ptResultHere.flaggedCount} flagged against source evidence.
                                     </div>
                                   </div>
@@ -9267,7 +9492,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                           <div style={{ fontSize: isMobileReview ? 11 : 10, color: '#d1d5db', lineHeight: 1.45, fontWeight: 700 }}>
                             No low-confidence clarifications are queued.
                           </div>
-                          <div style={{ fontSize: isMobileReview ? 11 : 10, color: '#94a3b8', lineHeight: 1.45 }}>
+                          <div style={{ fontSize: isMobileReview ? 11 : 10, color: colours.subtleGrey, lineHeight: 1.45 }}>
                             {ptResultHere
                               ? `Safety Net scored ${ptResultHere.totalFields} fields with ${ptResultHere.flaggedCount} flagged. Review the formatted letter on the left.`
                               : 'Review the letter on the left, or run a Safety Net check to verify AI output against source evidence.'}
@@ -9319,7 +9544,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                                   </div>
                                 )}
                                 {ptResultHere.dataSources?.length > 0 && (
-                                  <div style={{ fontSize: 10, color: '#94a3b8', lineHeight: 1.45, marginTop: 2, width: '100%' }}>
+                                  <div style={{ fontSize: 10, color: colours.subtleGrey, lineHeight: 1.45, marginTop: 2, width: '100%' }}>
                                     Sources: {ptResultHere.dataSources.join(', ')}
                                   </div>
                                 )}
@@ -9327,6 +9552,8 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                             );
                           })()}
                         </div>
+                      )}
+                      </>
                       )}
 
                       {/* Safety Net in-progress feedback */}
@@ -9336,7 +9563,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                             <div style={{ fontSize: isMobileReview ? 10 : 9, color: colours.accent, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>
                               Safety Net
                             </div>
-                            <span style={{ fontSize: 10, fontWeight: 600, color: '#94a3b8', fontVariantNumeric: 'tabular-nums' }}>
+                            <span style={{ fontSize: 10, fontWeight: 600, color: colours.subtleGrey, fontVariantNumeric: 'tabular-nums' }}>
                               {(cclPressureTestElapsed / 1000).toFixed(1)}s
                             </span>
                           </div>
@@ -9354,11 +9581,11 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                                     }} />
                                   )
                                   : step.status === 'error' ? <span style={{ color: colours.cta }}>✗</span>
-                                  : <span style={{ color: '#94a3b8' }}>·</span>}
+                                  : <span style={{ color: colours.subtleGrey }}>·</span>}
                               </span>
                               <span style={{
                                 fontSize: 11, lineHeight: 1.45,
-                                color: step.status === 'active' ? '#f3f4f6' : step.status === 'done' ? colours.green : step.status === 'error' ? colours.cta : '#94a3b8',
+                                color: step.status === 'active' ? '#f3f4f6' : step.status === 'done' ? colours.green : step.status === 'error' ? colours.cta : colours.subtleGrey,
                                 fontWeight: step.status === 'active' ? 700 : 500,
                               }}>
                                 {step.label}
@@ -9398,7 +9625,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                                 <div style={{ fontSize: isMobileReview ? 11 : 10.5, color: colours.accent, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>
                                   Choose wording
                                 </div>
-                                <div style={{ fontSize: isMobileReview ? 10.5 : 10, color: '#94a3b8', lineHeight: 1.4 }}>
+                                <div style={{ fontSize: isMobileReview ? 10.5 : 10, color: colours.subtleGrey, lineHeight: 1.4 }}>
                                   Pick the branch first, then review the selected wording below.
                                 </div>
                               </div>
@@ -9440,7 +9667,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                                         <span style={{
                                           fontSize: isMobileReview ? 10 : 9.5,
                                           fontWeight: 700,
-                                          color: isSelected ? '#061733' : '#94a3b8',
+                                          color: isSelected ? '#061733' : colours.subtleGrey,
                                           background: isSelected ? colours.accent : 'rgba(255,255,255,0.06)',
                                           padding: '3px 7px',
                                           letterSpacing: '0.04em',
@@ -9450,12 +9677,12 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                                           {isSelected ? 'Selected' : 'Option'}
                                         </span>
                                       </div>
-                                      <div style={{ fontSize: isMobileReview ? 10.5 : 10, color: isSelected ? '#e6fffb' : '#d1d5db', lineHeight: 1.45 }}>
+                                      <div style={{ fontSize: isMobileReview ? 10.5 : 10, color: isSelected ? colours.accent : '#d1d5db', lineHeight: 1.45 }}>
                                         {option.help}
                                       </div>
                                       <div style={{
                                         fontSize: isMobileReview ? 10.5 : 10,
-                                        color: isSelected ? '#f3f4f6' : '#aeb8c8',
+                                        color: isSelected ? '#f3f4f6' : colours.subtleGrey,
                                         lineHeight: 1.5,
                                         whiteSpace: 'pre-wrap',
                                         paddingTop: 6,
@@ -9521,7 +9748,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                                 display: 'grid',
                                 gap: 8,
                               }}>
-                                <div style={{ fontSize: isMobileReview ? 10 : 9.5, color: '#94a3b8', lineHeight: 1.4 }}>
+                                <div style={{ fontSize: isMobileReview ? 10 : 9.5, color: colours.subtleGrey, lineHeight: 1.4 }}>
                                   Live text currently going into the letter.
                                 </div>
                                 <div style={{ fontSize: isMobileReview ? 12 : 11, color: '#f3f4f6', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
@@ -9575,7 +9802,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                                   <div style={{ fontSize: isMobileReview ? 9 : 8, color: colours.cta, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>
                                     God mode
                                   </div>
-                                  <div style={{ fontSize: isMobileReview ? 10 : 9, color: '#94a3b8', lineHeight: 1.45 }}>
+                                  <div style={{ fontSize: isMobileReview ? 10 : 9, color: colours.subtleGrey, lineHeight: 1.45 }}>
                                     Reveal a hard edit or delete path for any stored draft field.
                                   </div>
                                 </div>
@@ -9591,7 +9818,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                                   style={{
                                     border: `1px solid ${godModeVisible ? colours.cta : colours.dark.borderColor}`,
                                     background: godModeVisible ? 'rgba(214,85,65,0.10)' : 'rgba(255,255,255,0.03)',
-                                    color: godModeVisible ? '#fecaca' : '#d1d5db',
+                                    color: godModeVisible ? colours.cta : '#d1d5db',
                                     padding: '6px 10px',
                                     fontSize: isMobileReview ? 10 : 9,
                                     fontWeight: 700,
@@ -9605,7 +9832,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
 
                               {godModeVisible && (
                                 <div style={{ display: 'grid', gap: 8, paddingTop: 6, borderTop: '1px solid rgba(214,85,65,0.18)' }}>
-                                  <div style={{ fontSize: isMobileReview ? 9 : 8, color: '#fca5a5', lineHeight: 1.45 }}>
+                                  <div style={{ fontSize: isMobileReview ? 9 : 8, color: colours.cta, lineHeight: 1.45 }}>
                                     This bypasses the guided review queue and writes directly into the saved draft.
                                   </div>
                                   <select
@@ -9653,7 +9880,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                                       style={{
                                         border: 'none',
                                         background: colours.cta,
-                                        color: '#fff',
+                                        color: colours.dark.text,
                                         padding: '8px 10px',
                                         fontSize: isMobileReview ? 10 : 9,
                                         fontWeight: 700,
@@ -9689,7 +9916,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                                       style={{
                                         border: `1px solid ${colours.cta}`,
                                         background: 'rgba(214,85,65,0.10)',
-                                        color: '#fecaca',
+                                        color: colours.cta,
                                         padding: '8px 10px',
                                         fontSize: isMobileReview ? 10 : 9,
                                         fontWeight: 700,
@@ -9782,7 +10009,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                                   )}
 
                                   {genSources.length === 0 && ptSources.length === 0 && (
-                                    <div style={{ fontSize: isMobileReview ? 10 : 9, color: '#94a3b8', lineHeight: 1.4 }}>
+                                    <div style={{ fontSize: isMobileReview ? 10 : 9, color: colours.subtleGrey, lineHeight: 1.4 }}>
                                       No AI run data available yet.
                                     </div>
                                   )}
@@ -9797,7 +10024,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                                   <div style={{ fontSize: isMobileReview ? 9 : 8, color: colours.accent, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>
                                     Field Context
                                   </div>
-                                  <span style={{ fontSize: isMobileReview ? 10 : 9, color: '#94a3b8', fontFamily: 'monospace' }}>
+                                  <span style={{ fontSize: isMobileReview ? 10 : 9, color: colours.subtleGrey, fontFamily: 'monospace' }}>
                                     {`{{${selectedFieldKey}}}`}
                                   </span>
                                 </div>
@@ -9859,7 +10086,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                                     <button type="button" onClick={() => setCclSessionPromptTabByMatter((prev) => ({ ...prev, [cclLetterModal]: 'system' }))} style={{
                                       border: 'none', borderRight: `1px solid ${colours.dark.border}`,
                                       background: visiblePromptTab === 'system' ? colours.helixBlue : colours.darkBlue,
-                                      color: systemPromptText ? (visiblePromptTab === 'system' ? colours.accent : '#d1d5db') : '#6b7280',
+                                      color: systemPromptText ? (visiblePromptTab === 'system' ? colours.accent : '#d1d5db') : colours.greyText,
                                       padding: '6px 8px', fontSize: isMobileReview ? 10 : 9, fontWeight: 700,
                                       textTransform: 'uppercase', letterSpacing: '0.05em',
                                       cursor: systemPromptText ? 'pointer' : 'default', fontFamily: "'Raleway', Arial, Helvetica, sans-serif",
@@ -9867,7 +10094,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                                     <button type="button" onClick={() => setCclSessionPromptTabByMatter((prev) => ({ ...prev, [cclLetterModal]: 'user' }))} style={{
                                       border: 'none',
                                       background: visiblePromptTab === 'user' ? colours.helixBlue : colours.darkBlue,
-                                      color: userPromptText ? (visiblePromptTab === 'user' ? colours.accent : '#d1d5db') : '#6b7280',
+                                      color: userPromptText ? (visiblePromptTab === 'user' ? colours.accent : '#d1d5db') : colours.greyText,
                                       padding: '6px 8px', fontSize: isMobileReview ? 10 : 9, fontWeight: 700,
                                       textTransform: 'uppercase', letterSpacing: '0.05em',
                                       cursor: userPromptText ? 'pointer' : 'default', fontFamily: "'Raleway', Arial, Helvetica, sans-serif",
@@ -9896,7 +10123,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
 
                     <div style={{ padding: isMobileReview ? '14px 16px max(16px, env(safe-area-inset-bottom))' : '14px 24px 18px', borderTop: '1px solid rgba(255, 255, 255, 0.06)', display: 'grid', gap: 10, flexShrink: 0, background: 'rgba(2, 6, 23, 0.98)', position: 'sticky', bottom: 0, animation: 'opsDashFadeIn 0.2s ease 0.24s both' }}>
                       {!selectedFieldKey && (
-                        <div style={{ fontSize: isMobileReview ? 11 : 10, color: '#94a3b8', lineHeight: 1.45 }}>
+                        <div style={{ fontSize: isMobileReview ? 11 : 10, color: colours.subtleGrey, lineHeight: 1.45 }}>
                           {loadingReviewContext
                             ? 'Generating review context. The draft will appear as fields are produced.'
                             : showSummaryLanding
@@ -9911,7 +10138,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                       {!selectedFieldKey && noClarificationsQueued && canApprove && (
                         <button
                           type="button"
-                          style={{ fontSize: isMobileReview ? 13 : 12, fontWeight: 700, color: '#fff', background: colours.green, padding: isMobileReview ? '14px 14px' : '11px 14px', cursor: cclApprovingMatter === cclLetterModal ? 'wait' : 'pointer', textAlign: 'center' as const, border: 'none', minHeight: isMobileReview ? 48 : 'auto', opacity: cclApprovingMatter === cclLetterModal ? 0.7 : 1 }}
+                          style={{ fontSize: isMobileReview ? 13 : 12, fontWeight: 700, color: colours.dark.text, background: colours.green, padding: isMobileReview ? '14px 14px' : '11px 14px', cursor: cclApprovingMatter === cclLetterModal ? 'wait' : 'pointer', textAlign: 'center' as const, border: 'none', minHeight: isMobileReview ? 48 : 'auto', opacity: cclApprovingMatter === cclLetterModal ? 0.7 : 1 }}
                           onClick={handleApproveCurrentLetter}
                           disabled={!!cclApprovingMatter}
                         >
@@ -9945,7 +10172,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                 type="button"
                 onClick={closeCclLetterModal}
                 style={{
-                  padding: '8px 20px', background: colours.cta, color: '#fff',
+                  padding: '8px 20px', background: colours.cta, color: colours.dark.text,
                   border: 'none', borderRadius: 0, fontSize: 12, fontWeight: 600,
                   cursor: 'pointer', fontFamily: "'Raleway', sans-serif",
                 }}
@@ -9979,7 +10206,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
             style={{
               background: isDarkMode ? colours.darkBlue : '#FFFFFF',
               border: `1px solid ${cardBorder}`,
-              boxShadow: isDarkMode ? '0 8px 32px rgba(0,0,0,0.5)' : '0 8px 32px rgba(13,47,96,0.15)',
+              boxShadow: 'var(--shadow-overlay)',
               width: '90%',
               maxWidth: 480,
               maxHeight: '80vh',
@@ -10137,13 +10364,13 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                                           <tr key={`${r.date}-g${gi}-e${ei}`} style={{ animation: `opsDashRowFade 0.12s ease ${0.02 * ri++}s both` }}>
                                             <td style={{ padding: '2px 14px 2px 38px', fontSize: 9, color: muted, borderBottom: isLastG && ei === ents.length - 1 ? `1px solid ${rowBorder}` : 'none' }}>
                                               {e.activity ? <span>{e.activity}</span> : null}
-                                              {e.note && <span style={{ marginLeft: e.activity ? 6 : 0, color: isDarkMode ? '#9ca3af' : '#6b7280' }} title={e.note}> {e.note.length > 40 ? e.note.slice(0, 40) + '…' : e.note}</span>}
+                                              {e.note && <span style={{ marginLeft: e.activity ? 6 : 0, color: isDarkMode ? colours.subtleGrey : colours.greyText }} title={e.note}> {e.note.length > 40 ? e.note.slice(0, 40) + '…' : e.note}</span>}
                                               {!e.activity && !e.note && '—'}
                                             </td>
-                                            <td style={{ padding: '2px 14px', fontSize: 9, color: e.hours > 0 ? muted : (isDarkMode ? '#6b7280' : '#9ca3af'), textAlign: 'right', borderBottom: isLastG && ei === ents.length - 1 ? `1px solid ${rowBorder}` : 'none', verticalAlign: 'top' }}>
+                                            <td style={{ padding: '2px 14px', fontSize: 9, color: e.hours > 0 ? muted : (isDarkMode ? colours.greyText : colours.subtleGrey), textAlign: 'right', borderBottom: isLastG && ei === ents.length - 1 ? `1px solid ${rowBorder}` : 'none', verticalAlign: 'top' }}>
                                               {e.hours > 0 ? fmt.hours(e.hours) : '—'}
                                             </td>
-                                            <td style={{ padding: '2px 14px', fontSize: 9, color: e.value > 0 ? muted : (isDarkMode ? '#6b7280' : '#9ca3af'), textAlign: 'right', borderBottom: isLastG && ei === ents.length - 1 ? `1px solid ${rowBorder}` : 'none', verticalAlign: 'top' }}>
+                                            <td style={{ padding: '2px 14px', fontSize: 9, color: e.value > 0 ? muted : (isDarkMode ? colours.greyText : colours.subtleGrey), textAlign: 'right', borderBottom: isLastG && ei === ents.length - 1 ? `1px solid ${rowBorder}` : 'none', verticalAlign: 'top' }}>
                                               {e.value > 0 ? fmt.currency(e.value) : '—'}
                                             </td>
                                           </tr>
@@ -10249,13 +10476,13 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                                           <tr key={`${r.date}-g${gi}-e${ei}`} style={{ opacity: 0.7, animation: `opsDashRowFade 0.12s ease ${0.02 * ri++}s both` }}>
                                             <td style={{ padding: '2px 14px 2px 38px', fontSize: 9, color: muted, borderBottom: isLastG && ei === ents.length - 1 ? `1px solid ${rowBorder}` : 'none' }}>
                                               {e.activity ? <span>{e.activity}</span> : null}
-                                              {e.note && <span style={{ marginLeft: e.activity ? 6 : 0, color: isDarkMode ? '#9ca3af' : '#6b7280' }} title={e.note}> {e.note.length > 40 ? e.note.slice(0, 40) + '…' : e.note}</span>}
+                                              {e.note && <span style={{ marginLeft: e.activity ? 6 : 0, color: isDarkMode ? colours.subtleGrey : colours.greyText }} title={e.note}> {e.note.length > 40 ? e.note.slice(0, 40) + '…' : e.note}</span>}
                                               {!e.activity && !e.note && '—'}
                                             </td>
-                                            <td style={{ padding: '2px 14px', fontSize: 9, color: e.hours > 0 ? muted : (isDarkMode ? '#6b7280' : '#9ca3af'), textAlign: 'right', borderBottom: isLastG && ei === ents.length - 1 ? `1px solid ${rowBorder}` : 'none', verticalAlign: 'top' }}>
+                                            <td style={{ padding: '2px 14px', fontSize: 9, color: e.hours > 0 ? muted : (isDarkMode ? colours.greyText : colours.subtleGrey), textAlign: 'right', borderBottom: isLastG && ei === ents.length - 1 ? `1px solid ${rowBorder}` : 'none', verticalAlign: 'top' }}>
                                               {e.hours > 0 ? fmt.hours(e.hours) : '—'}
                                             </td>
-                                            <td style={{ padding: '2px 14px', fontSize: 9, color: e.value > 0 ? muted : (isDarkMode ? '#6b7280' : '#9ca3af'), textAlign: 'right', borderBottom: isLastG && ei === ents.length - 1 ? `1px solid ${rowBorder}` : 'none', verticalAlign: 'top' }}>
+                                            <td style={{ padding: '2px 14px', fontSize: 9, color: e.value > 0 ? muted : (isDarkMode ? colours.greyText : colours.subtleGrey), textAlign: 'right', borderBottom: isLastG && ei === ents.length - 1 ? `1px solid ${rowBorder}` : 'none', verticalAlign: 'top' }}>
                                               {e.value > 0 ? fmt.currency(e.value) : '—'}
                                             </td>
                                           </tr>
@@ -10312,9 +10539,9 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
               width: '90vw',
               maxWidth: 900,
               height: '85vh',
-              background: isDarkMode ? colours.darkBlue : '#ffffff',
+              background: isDarkMode ? colours.darkBlue : colours.grey,
               border: `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.55)' : 'rgba(6, 23, 51, 0.08)'}`,
-              boxShadow: '0 24px 64px rgba(0, 0, 0, 0.4)',
+              boxShadow: 'var(--shadow-overlay-lg)',
               display: 'flex',
               flexDirection: 'column',
               overflow: 'hidden',

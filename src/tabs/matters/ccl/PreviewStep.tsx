@@ -2345,7 +2345,7 @@ ${pagesMarkup}
           borderRadius: 2,
           background: pc.bg,
           transition: 'all 0.12s ease',
-          color: isEmpty ? (isDarkMode ? '#facc15' : '#ca8a04') : 'inherit',
+          color: isEmpty ? colours.orange : 'inherit',
           fontStyle: isEmpty ? 'italic' : 'normal',
         }}
         onMouseEnter={e => {
@@ -2753,7 +2753,7 @@ ${pagesMarkup}
                     color: aiStatus === 'complete'
                       ? accentBlue
                       : aiStatus === 'partial'
-                        ? (isDarkMode ? '#facc15' : '#ca8a04')
+                        ? colours.orange
                         : textMuted,
                     border: `1px solid ${
                       aiStatus === 'complete'
@@ -2982,7 +2982,7 @@ ${pagesMarkup}
                       background: 'transparent', border: 'none',
                       color: textMuted, cursor: 'pointer', transition: 'color 0.12s ease',
                     }}
-                    onMouseEnter={(e) => { e.currentTarget.style.color = isDarkMode ? '#f87171' : '#dc2626'; }}
+                    onMouseEnter={(e) => { e.currentTarget.style.color = colours.cta; }}
                     onMouseLeave={(e) => { e.currentTarget.style.color = textMuted; }}
                   >
                     <Icon iconName="Feedback" styles={{ root: { fontSize: 12 } }} />
@@ -3666,7 +3666,7 @@ ${pagesMarkup}
                       cardBorderCol = mergeBorder;
                       cardHoverBg = mergeBgHover;
                     } else if (prov === 'scaffold') {
-                      leftAccent = isDarkMode ? '#facc15' : '#ca8a04';
+                      leftAccent = colours.orange;
                       cardBg = scaffoldBg;
                       cardBorderCol = scaffoldBorder;
                       cardHoverBg = scaffoldBgHover;
@@ -3680,7 +3680,7 @@ ${pagesMarkup}
                         : prov === 'auto-fill'
                           ? colours.green
                           : prov === 'scaffold'
-                            ? (isDarkMode ? '#facc15' : '#ca8a04')
+                            ? colours.orange
                             : prov === 'user'
                               ? colours.blue
                               : isResolved
@@ -3718,7 +3718,7 @@ ${pagesMarkup}
                       : prov === 'auto-fill'
                         ? colours.green
                         : prov === 'scaffold'
-                          ? (isDarkMode ? '#facc15' : '#ca8a04')
+                          ? colours.orange
                           : isResolved ? colours.green : (isDarkMode ? colours.accent : colours.highlight);
 
                     // Type label (no colour — just text distinction)
@@ -3789,7 +3789,7 @@ ${pagesMarkup}
                             }}>{badgeText}</span>
                             {ptResult?.fieldScores?.[cardKey] && (() => {
                               const pts = ptResult.fieldScores[cardKey];
-                              const ptColor = pts.score >= 8 ? colours.green : pts.score >= 7 ? colours.yellow : '#fca5a5';
+                              const ptColor = pts.score >= 8 ? colours.green : pts.score >= 7 ? colours.yellow : colours.cta;
                               const ptBg = pts.score >= 8 ? 'rgba(32,178,108,0.12)' : pts.score >= 7 ? 'rgba(255,213,79,0.12)' : 'rgba(214,85,65,0.12)';
                               return (
                                 <span title={pts.reason || ''} style={{
@@ -3868,7 +3868,7 @@ ${pagesMarkup}
                           </span>
                           {ptResult?.fieldScores?.[cardKey] && (() => {
                             const pts = ptResult.fieldScores[cardKey];
-                            const ptColor = pts.score >= 8 ? colours.green : pts.score >= 7 ? colours.yellow : '#fca5a5';
+                            const ptColor = pts.score >= 8 ? colours.green : pts.score >= 7 ? colours.yellow : colours.cta;
                             const ptBg = pts.score >= 8 ? 'rgba(32,178,108,0.12)' : pts.score >= 7 ? 'rgba(255,213,79,0.12)' : 'rgba(214,85,65,0.12)';
                             return (
                               <span title={pts.reason || ''} style={{
@@ -3937,7 +3937,7 @@ ${pagesMarkup}
                               }}>Prompt</div>
                               <div style={{
                                 fontSize: 10.5, lineHeight: 1.55,
-                                color: isDarkMode ? '#93c5fd' : colours.helixBlue,
+                                color: isDarkMode ? colours.accent : colours.helixBlue,
                               }}>
                                 {promptGroup ? (
                                   isActionGroup ? (
@@ -4054,7 +4054,7 @@ ${pagesMarkup}
                           {ptResult?.fieldScores?.[fp.key]?.flag && (
                             <div style={{
                               fontSize: 9.5, lineHeight: 1.5,
-                              color: isDarkMode ? '#fca5a5' : colours.cta,
+                              color: colours.cta,
                               padding: '4px 8px', borderRadius: 2,
                               background: isDarkMode ? 'rgba(214,85,65,0.06)' : 'rgba(214,85,65,0.04)',
                               border: `1px solid ${isDarkMode ? 'rgba(214,85,65,0.15)' : 'rgba(214,85,65,0.10)'}`,
@@ -4250,7 +4250,7 @@ ${pagesMarkup}
                   background: isDarkMode ? 'rgba(15,23,42,0.8)' : 'rgba(248,250,252,0.95)',
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <Icon iconName="Bug" styles={{ root: { fontSize: 14, color: isDarkMode ? '#f87171' : '#dc2626' } }} />
+                    <Icon iconName="Bug" styles={{ root: { fontSize: 14, color: colours.cta } }} />
                     <span style={{ fontSize: 13, fontWeight: 700, color: text }}>Report CCL Issue</span>
                   </div>
                   <button type="button" onClick={() => setShowSupportModal(false)} style={{
@@ -4320,7 +4320,7 @@ ${pagesMarkup}
                     <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' as const, color: textMuted, marginBottom: 6, letterSpacing: '0.04em' }}>Urgency</div>
                     <div style={{ display: 'flex', gap: 6 }}>
                       {urgencies.map(u => {
-                        const urgColors: Record<string, string> = { Blocking: '#ef4444', Annoying: '#f59e0b', Minor: '#22c55e' };
+                        const urgColors: Record<string, string> = { Blocking: colours.cta, Annoying: colours.orange, Minor: colours.green };
                         return (
                           <button key={u} type="button" onClick={() => setUrg(u)} style={{
                             padding: '5px 12px', borderRadius: 3, fontSize: 11, fontWeight: 600,
@@ -4363,7 +4363,7 @@ ${pagesMarkup}
                       style={{
                         padding: '6px 20px', borderRadius: 3, fontSize: 11, fontWeight: 700,
                         border: 'none',
-                        background: !summary.trim() ? (isDarkMode ? 'rgba(148,163,184,0.2)' : '#e2e8f0') : (isDarkMode ? '#dc2626' : '#ef4444'),
+                        background: !summary.trim() ? (isDarkMode ? 'rgba(148,163,184,0.2)' : '#e2e8f0') : colours.cta,
                         color: !summary.trim() ? textMuted : '#fff',
                         cursor: !summary.trim() || supportSubmitting ? 'not-allowed' : 'pointer',
                         opacity: supportSubmitting ? 0.6 : 1,

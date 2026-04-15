@@ -1,42 +1,14 @@
 const express = require('express');
 const sql = require('mssql');
-const { getSecret } = require('../utils/getSecret');
+const { withRequest } = require('../utils/db');
 
 const router = express.Router();
 
-// Database connection configuration
-let dbConfig = null;
-
-async function getDbConfig() {
-  if (dbConfig) return dbConfig;
-  
-  // Use the INSTRUCTIONS_SQL_CONNECTION_STRING from .env
-  const connectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
-  if (!connectionString) {
-    throw new Error('INSTRUCTIONS_SQL_CONNECTION_STRING not found in environment');
-  }
-  
-  // Parse connection string into config object
-  const params = new URLSearchParams(connectionString.split(';').join('&'));
-  const server = params.get('Server').replace('tcp:', '').split(',')[0];
-  const database = params.get('Initial Catalog');
-  const userId = params.get('User ID');
-  const password = params.get('Password');
-  
-  dbConfig = {
-    server: server,
-    database: database,
-    user: userId,
-    password: password,
-    options: {
-      encrypt: true,
-      trustServerCertificate: false,
-      enableArithAbort: true
-    }
-  };
-  
-  return dbConfig;
-}
+const getInstrConnStr = () => {
+  const s = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+  if (!s) throw new Error('INSTRUCTIONS_SQL_CONNECTION_STRING not configured');
+  return s;
+};
 
 // GET /api/instruction-details/:instructionRef - Get instruction details for an instruction
 router.get('/:instructionRef', async (req, res) => {
@@ -47,16 +19,10 @@ router.get('/:instructionRef', async (req, res) => {
             return res.status(400).json({ error: 'Instruction reference is required' });
         }
 
-        // Get database configuration
-        const config = await getDbConfig();
-        
-        // Connect to database
-        const pool = await sql.connect(config);
-        
-        // Query Instructions table for this instruction
-        const result = await pool.request()
-            .input('instructionRef', sql.NVarChar, instructionRef)
-            .query(`
+        const result = await withRequest(getInstrConnStr(), async (request) => {
+            return request
+                .input('instructionRef', sql.NVarChar, instructionRef)
+                .query(`
                 SELECT 
                     InstructionRef,
                     Stage,
@@ -102,8 +68,7 @@ router.get('/:instructionRef', async (req, res) => {
                 FROM Instructions 
                 WHERE InstructionRef = @instructionRef
             `);
-
-        await pool.close();
+        });
 
         // Format the results
         const instructions = result.recordset.map(instruction => ({

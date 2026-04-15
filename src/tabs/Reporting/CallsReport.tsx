@@ -659,4 +659,4 @@ const CallsReport: React.FC<CallsReportProps> = ({
   );
 };
 
-export default CallsReport;
+export default React.memo(CallsReport);

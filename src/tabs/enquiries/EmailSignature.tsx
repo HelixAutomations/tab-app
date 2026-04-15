@@ -1,4 +1,5 @@
 import React from 'react';
+import { colours } from '../../app/styles/colours';
 
 interface EmailSignatureProps {
   bodyHtml: string;
@@ -20,11 +21,11 @@ const EmailSignature: React.FC<EmailSignatureProps> = ({ bodyHtml, userData, isD
   const userEmail = `${userInitials}@helix-law.com`;
 
   // Color scheme based on dark mode (for preview modal)
-  const baseTextColor = isDarkMode ? '#E2E8F0' : '#000';
-  const disclaimerColor = isDarkMode ? '#FCA5A5' : '#D65541';
-  const locationColor = isDarkMode ? '#CBD5E1' : '#0D2F60';
-  const regularTextColor = isDarkMode ? '#94A3B8' : '#444';
-  const forceTextColor = isDarkMode ? 'color:#E2E8F0 !important;' : '';
+  const baseTextColor = isDarkMode ? colours.dark.text : '#000';
+  const disclaimerColor = colours.cta;
+  const locationColor = isDarkMode ? colours.subtleGrey : colours.helixBlue;
+  const regularTextColor = isDarkMode ? colours.subtleGrey : '#444';
+  const forceTextColor = isDarkMode ? `color:${colours.dark.text} !important;` : '';
 
   const signatureHtml = `
 <div style="margin:0; padding:0; font-family: Raleway, Arial, sans-serif; font-size:10pt; line-height:1.4; color:${baseTextColor};">

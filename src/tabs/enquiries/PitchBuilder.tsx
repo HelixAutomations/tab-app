@@ -608,7 +608,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
             display: 'inline-flex',
             alignItems: 'center',
             gap: 6,
-            color: isDarkMode ? colours.dark.text : '#24292f',
+            color: isDarkMode ? colours.dark.text : colours.light.text,
             background: isDarkMode ? colours.dark.inputBackground : '#f6f8fa',
             border: `1px solid ${isDarkMode ? colours.dark.border : '#e1e4e8'}`,
             borderLeft: 'none', // join with icon square

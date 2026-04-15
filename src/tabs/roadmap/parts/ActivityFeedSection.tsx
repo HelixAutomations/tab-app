@@ -135,7 +135,7 @@ const ActivityFeedRow: React.FC<{ item: ActivityFeedItem; isDarkMode: boolean }>
           <div
             style={{
               marginTop: 8, fontSize: 12, lineHeight: 1.5,
-              color: isDarkMode ? '#d1d5db' : '#374151',
+              color: isDarkMode ? colours.subtleGrey : colours.greyText,
             }}
           >
             {item.summary}
@@ -154,80 +154,39 @@ const ActivityFeedSection: React.FC<ActivityFeedSectionProps> = ({
   lastLiveSyncAt,
   error,
 }) => {
-  const textColour = isDarkMode ? colours.dark.text : colours.light.text;
-  const mutedColour = isDarkMode ? colours.subtleGrey : colours.greyText;
-  const accentColour = isDarkMode ? colours.accent : colours.highlight;
   const borderColour = isDarkMode ? colours.dark.border : colours.light.border;
-  const surfaceColour = isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground;
+  const bg = isDarkMode ? colours.darkBlue : colours.light.sectionBackground;
 
   return (
-    <div style={{ marginBottom: 28, maxWidth: 800 }}>
-      <div
-        style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
-          marginBottom: 12, flexWrap: 'wrap',
-        }}
-      >
-        <div>
-          <div
-            style={{
-              fontSize: 10, fontWeight: 800, textTransform: 'uppercase',
-              letterSpacing: '0.5px', color: accentColour, opacity: 0.85,
-            }}
-          >
-            Live operations
-          </div>
-          <div style={{ fontSize: 16, fontWeight: 700, color: textColour, letterSpacing: '-0.2px' }}>
+    <div style={{ padding: '14px 16px', background: bg, border: `1px solid ${borderColour}`, borderRadius: 0, marginBottom: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: isDarkMode ? colours.dark.text : colours.light.text, fontFamily: 'Raleway, sans-serif' }}>
             Operations feed
-          </div>
-          <div style={{ fontSize: 12, color: mutedColour, marginTop: 4 }}>
-            Enquiry cards, DM sends, bot actions, and card lab traffic. Tasking and time-entry events can plug into this same lane later.
-          </div>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <DataFreshnessIndicator
-            label="Activity"
-            isRefreshing={isRefreshing}
-            isSnapshot={isSnapshot}
-            lastLiveSyncAt={lastLiveSyncAt}
-            errorDetail={items.length > 0 ? error : null}
-            snapshotLabel="Delayed"
-            compact
-          />
-          <span
-            style={{
-              fontSize: 11,
-              color: mutedColour,
-              fontWeight: 600,
-              padding: '2px 8px',
-              borderRadius: 0,
-              background: surfaceColour,
-            }}
-          >
+          </span>
+          <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 0, background: isDarkMode ? 'rgba(255,255,255,0.06)' : colours.grey, color: isDarkMode ? colours.subtleGrey : colours.greyText, fontFamily: 'monospace' }}>
             {items.length}
           </span>
         </div>
+        <DataFreshnessIndicator
+          label="Activity"
+          isRefreshing={isRefreshing}
+          isSnapshot={isSnapshot}
+          lastLiveSyncAt={lastLiveSyncAt}
+          errorDetail={items.length > 0 ? error : null}
+          snapshotLabel="Delayed"
+          compact
+        />
       </div>
 
       {error ? (
-        <div
-          style={{
-            padding: 16, fontSize: 12, lineHeight: 1.5,
-            color: colours.cta,
-            background: isDarkMode ? 'rgba(214,85,65,0.08)' : 'rgba(214,85,65,0.05)',
-          }}
-        >
+        <div style={{ fontSize: 12, lineHeight: 1.5, color: colours.cta, fontFamily: 'Raleway, sans-serif', padding: '8px 0' }}>
           {error}
         </div>
       ) : items.length === 0 ? (
-        <div
-          style={{
-            padding: 16, fontSize: 12, lineHeight: 1.5,
-            color: mutedColour,
-            background: surfaceColour,
-          }}
-        >
-          No operational activity has been recorded yet.
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: colours.green, fontFamily: 'Raleway, sans-serif', padding: '8px 0' }}>
+          <span style={{ fontSize: 11 }}>✓</span>
+          All clear — no recent activity
         </div>
       ) : (
         <div

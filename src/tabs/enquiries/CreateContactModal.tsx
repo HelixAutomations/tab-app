@@ -607,9 +607,9 @@ const CreateContactModal: React.FC<CreateContactModalProps> = ({
             messageBarType={MessageBarType.success}
             styles={{
               root: {
-                background: isDarkMode ? 'rgba(115, 171, 96, 0.15)' : 'rgba(115, 171, 96, 0.08)',
+                background: isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(32, 178, 108, 0.08)',
                 borderRadius: 8,
-                border: `1px solid ${isDarkMode ? 'rgba(115, 171, 96, 0.4)' : 'rgba(115, 171, 96, 0.3)'}`,
+                border: `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.4)' : 'rgba(32, 178, 108, 0.3)'}`,
               }
             }}
           >

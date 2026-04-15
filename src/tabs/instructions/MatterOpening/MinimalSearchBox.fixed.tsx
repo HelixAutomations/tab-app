@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 // invisible change 2.2
 import { SearchBox } from '@fluentui/react/lib/SearchBox';
+import { colours } from '../../../app/styles/colours';
 import './MinimalSearchBox.css';
 
 interface MinimalSearchBoxProps {
@@ -21,7 +22,7 @@ const MinimalSearchBox: React.FC<MinimalSearchBoxProps> = ({ value, onChange }) 
           type="button"
           onClick={() => setFocused(true)}
         >
-          <span className="ms-SearchBox-icon" style={{ color: '#0078d4', fontSize: 20, display: 'flex', alignItems: 'center' }}>
+          <span className="ms-SearchBox-icon" style={{ color: colours.highlight, fontSize: 20, display: 'flex', alignItems: 'center' }}>
             <i className="ms-Icon ms-Icon--Search" aria-hidden="true" />
           </span>
         </button>
@@ -49,7 +50,7 @@ const MinimalSearchBox: React.FC<MinimalSearchBoxProps> = ({ value, onChange }) 
               padding: '8px 0',
             },
             icon: {
-              color: '#0078d4',
+              color: colours.highlight,
               fontSize: 18,
             },
           }}

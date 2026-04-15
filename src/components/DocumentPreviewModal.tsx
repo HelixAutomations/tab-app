@@ -286,8 +286,8 @@ const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
                       onClick={handleDownload}
                       styles={{
                         root: {
-                          backgroundColor: '#0078d4',
-                          borderColor: '#0078d4'
+                          backgroundColor: colours.highlight,
+                          borderColor: colours.highlight
                         }
                       }}
                     />

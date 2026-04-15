@@ -325,7 +325,7 @@ export const OperationValidator: React.FC<Props> = ({ operation, startDate, endD
       return { text: `Row mismatch: ${data.totalRows.toLocaleString()} vs ${data.clioCount!.toLocaleString()} expected`, tone: 'bad' as const };
     }
     if (hasSumMismatch) {
-      return { text: `£${Math.abs((data.sqlSum || 0) - (data.clioSum || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} discrepancy — run deep validate`, tone: 'bad' as const };
+      return { text: `£${Math.abs((data.sqlSum || 0) - (data.clioSum || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} discrepancy — run deep reconciliation`, tone: 'bad' as const };
     }
     if (isVerified) {
       const kindSummary = data.kindBreakdown && data.kindBreakdown.length > 0
@@ -504,7 +504,7 @@ export const OperationValidator: React.FC<Props> = ({ operation, startDate, endD
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4 }}>
             <Icon iconName="TimelineProgress" style={{ fontSize: 9, color: dim }} />
             <span style={{ fontSize: 8, fontWeight: 700, color: dim, textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>
-              {opLabel} Log
+              {opLabel} Reconciliation Log
             </span>
             {logEntries.length > 0 && (
               <span style={{ fontSize: 7, color: isDarkMode ? '#334155' : '#d1d5db' }}>
@@ -530,10 +530,10 @@ export const OperationValidator: React.FC<Props> = ({ operation, startDate, endD
                   const dotColor = isValidated ? colours.green : isCompleted ? colours.green : isNoData ? colours.orange : isError ? colours.cta : isStarted ? colours.blue : colours.subtleGrey;
 
                   const statusLabel = isValidated ? '✓' : isCompleted ? '✓' : isNoData ? '○' : isError ? '✕' : '○';
-                  const sColor = isValidated || isCompleted ? (isDarkMode ? colours.green : '#166534')
-                    : isNoData ? (isDarkMode ? colours.orange : '#b45309')
-                    : isError ? (isDarkMode ? colours.cta : '#991b1b')
-                    : isStarted ? (isDarkMode ? colours.blue : '#0369a1')
+                  const sColor = isValidated || isCompleted ? colours.green
+                    : isNoData ? colours.orange
+                    : isError ? colours.cta
+                    : isStarted ? colours.highlight
                     : dim;
 
                   let dateRange = '';
@@ -564,7 +564,7 @@ export const OperationValidator: React.FC<Props> = ({ operation, startDate, endD
                       <span style={{ fontSize: 8, fontWeight: 600, color: sColor, flexShrink: 0, width: 10 }}>{statusLabel}</span>
                       <span style={{
                         fontSize: 7, fontWeight: 700, textTransform: 'uppercase' as const,
-                        color: isAuto ? (isDarkMode ? '#38bdf8' : '#0369a1') : (isDarkMode ? '#f87171' : '#b91c1c'),
+                        color: isAuto ? colours.highlight : colours.cta,
                         flexShrink: 0, width: 24,
                       }}>
                         {isAuto ? 'AUTO' : 'USER'}
@@ -582,7 +582,7 @@ export const OperationValidator: React.FC<Props> = ({ operation, startDate, endD
           </div>
         </div>
 
-        {/* ── Right: Live Activity ── */}
+        {/* ── Right: Live stream ── */}
         <div style={{
           flex: 2, minWidth: 0,
           borderLeft: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)'}`,
@@ -590,7 +590,7 @@ export const OperationValidator: React.FC<Props> = ({ operation, startDate, endD
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
             <span style={{ fontSize: 8, fontWeight: 600, color: dim, textTransform: 'uppercase' as const, letterSpacing: '0.04em' }}>
-              Activity
+              Live Stream
             </span>
             {isSyncing && <Spinner size={SpinnerSize.xSmall} style={{ marginLeft: 2 }} />}
           </div>
@@ -634,7 +634,7 @@ export const OperationValidator: React.FC<Props> = ({ operation, startDate, endD
   }
 
   // ══════════════════════════════════════════
-  // RENDER — Full mode (validation + integrity)
+  // RENDER — Full mode (reconciliation surface)
   // ══════════════════════════════════════════
 
   return (
@@ -668,8 +668,8 @@ export const OperationValidator: React.FC<Props> = ({ operation, startDate, endD
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{
               fontSize: 10, fontWeight: 600,
-              color: confidence.tone === 'good' ? (isDarkMode ? '#4ade80' : '#166534')
-                : confidence.tone === 'bad' ? (isDarkMode ? '#f87171' : '#991b1b')
+              color: confidence.tone === 'good' ? colours.green
+                : confidence.tone === 'bad' ? colours.cta
                 : dim,
             }}>
               {confidence.text}
@@ -760,7 +760,7 @@ export const OperationValidator: React.FC<Props> = ({ operation, startDate, endD
                 borderRadius: 2, fontSize: 9,
               }}>
                 <Icon iconName={match ? 'CheckMark' : 'Warning'} style={{ fontSize: 10, color: match ? colours.green : colours.cta }} />
-                <span style={{ fontWeight: 600, color: match ? (isDarkMode ? '#4ade80' : '#166534') : (isDarkMode ? '#f87171' : '#991b1b') }}>
+                <span style={{ fontWeight: 600, color: match ? colours.green : colours.cta }}>
                   {match ? 'Verified' : `${fmtMoney(diff)} discrepancy`}
                 </span>
                 <span style={{ color: dim }}>
@@ -792,8 +792,8 @@ export const OperationValidator: React.FC<Props> = ({ operation, startDate, endD
                       <span style={{ fontWeight: 600, color: bright, fontSize: 9 }}>{sc.rows} · {fmtMoney(sc.total)}</span>
                       {hasClio && (
                         isOk
-                          ? <Icon iconName="CheckMark" style={{ fontSize: 10, color: isDarkMode ? '#4ade80' : '#166534' }} />
-                          : <span style={{ fontSize: 8, fontWeight: 600, color: isDarkMode ? '#f87171' : '#991b1b' }}>
+                          ? <Icon iconName="CheckMark" style={{ fontSize: 10, color: colours.green }} />
+                          : <span style={{ fontSize: 8, fontWeight: 600, color: colours.cta }}>
                               ±{fmtMoney(Math.abs(sc.total - (sc.clioTotal || 0)))}
                             </span>
                       )}
@@ -809,13 +809,13 @@ export const OperationValidator: React.FC<Props> = ({ operation, startDate, endD
       {/* ─── Action Row ─── */}
       {data && !loading && (
         <div style={{ padding: '0 14px 10px', display: 'flex', gap: 4, alignItems: 'center' }}>
-          <FlatButton text="Activity" icon="TimelineProgress" active={logOpen} onClick={() => setLogOpen(!logOpen)} />
+          <FlatButton text="Streams" icon="TimelineProgress" active={logOpen} onClick={() => setLogOpen(!logOpen)} />
 
           <div style={{ flex: 1 }} />
 
           <FlatButton text="Analyse" icon="AnalyticsView" active={explainOpen} onClick={() => { setExplainOpen(!explainOpen); if (explainOpen) setExplainData(null); }} activeColor={accent} />
           <FlatButton
-            text="Deep Validate"
+            text="Deep Reconcile"
             icon="Sync"
             onClick={() => runValidation(true)}
             disabled={loading}
@@ -831,12 +831,12 @@ export const OperationValidator: React.FC<Props> = ({ operation, startDate, endD
           padding: '8px 12px',
         }}>
           <div style={{ display: 'flex', gap: 12 }}>
-            {/* ── Left column: Audit Trail (DB-persisted) ── */}
+            {/* ── Left column: Database stream (DB-persisted) ── */}
             <div style={{ flex: 3, minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 6 }}>
                 <Icon iconName="TimelineProgress" style={{ fontSize: 9, color: dim }} />
                 <span style={{ fontSize: 8, fontWeight: 700, color: dim, textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>
-                  Audit Trail
+                  Database Stream
                 </span>
                 <span style={{ fontSize: 7, color: isDarkMode ? '#334155' : '#d1d5db' }}>
                   {logEntries.length} {logEntries.length === 1 ? 'entry' : 'entries'}
@@ -863,11 +863,11 @@ export const OperationValidator: React.FC<Props> = ({ operation, startDate, endD
                       const dotColor = isValidated ? colours.green : isCompleted ? colours.green : isNoData ? colours.orange : isError ? colours.cta : isStarted ? colours.blue : colours.subtleGrey;
 
                       const statusLabel = isValidated ? '✓ validated' : isCompleted ? '✓ completed' : isNoData ? '○ no data' : isError ? '✕ error' : isStarted ? '○ started' : entry.status;
-                      const sColor = isValidated ? (isDarkMode ? colours.green : '#15803d')
-                        : isCompleted ? (isDarkMode ? colours.green : '#166534')
-                        : isNoData ? (isDarkMode ? colours.orange : '#b45309')
-                        : isError ? (isDarkMode ? colours.cta : '#991b1b')
-                        : isStarted ? (isDarkMode ? colours.blue : '#0369a1')
+                      const sColor = isValidated ? colours.green
+                        : isCompleted ? colours.green
+                        : isNoData ? colours.orange
+                        : isError ? colours.cta
+                        : isStarted ? colours.highlight
                         : dim;
 
                       const opRaw = entry.operation || '';
@@ -931,7 +931,7 @@ export const OperationValidator: React.FC<Props> = ({ operation, startDate, endD
                               <span style={{
                                 fontSize: 7, fontWeight: 800,
                                 textTransform: 'uppercase' as const, letterSpacing: '0.5px',
-                                color: isAuto ? (isDarkMode ? '#38bdf8' : '#0369a1') : (isDarkMode ? '#f87171' : '#b91c1c'),
+                                color: isAuto ? colours.highlight : colours.cta,
                               }}>
                                 {isAuto ? 'AUTO' : 'USER'}
                               </span>
@@ -989,7 +989,7 @@ export const OperationValidator: React.FC<Props> = ({ operation, startDate, endD
               </div>
             </div>
 
-            {/* ── Right column: Activity feed ── */}
+            {/* ── Right column: Live stream feed ── */}
             <div style={{
               flex: 2, minWidth: 0,
               borderLeft: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)'}`,
@@ -1001,7 +1001,7 @@ export const OperationValidator: React.FC<Props> = ({ operation, startDate, endD
                   color: isDarkMode ? colours.subtleGrey : colours.greyText,
                   letterSpacing: '0.02em',
                 }}>
-                  Activity
+                  Live Stream
                 </span>
                 {isSyncing && <Spinner size={SpinnerSize.xSmall} style={{ marginLeft: 2 }} />}
                 <span style={{ fontSize: 9, color: isDarkMode ? colours.greyText : colours.subtleGrey, marginLeft: 'auto' }}>
@@ -1014,7 +1014,7 @@ export const OperationValidator: React.FC<Props> = ({ operation, startDate, endD
               >
                 {liveLog.length === 0 ? (
                   <div style={{ color: isDarkMode ? colours.greyText : colours.subtleGrey, padding: '6px 0', fontSize: 10 }}>
-                    {isSyncing ? 'Waiting…' : 'No activity'}
+                    {isSyncing ? 'Waiting…' : 'No stream activity'}
                   </div>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
@@ -1076,7 +1076,7 @@ export const OperationValidator: React.FC<Props> = ({ operation, startDate, endD
           {explainLoading ? (
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', color: dim, padding: '8px 0' }}>
               <Spinner size={SpinnerSize.xSmall} />
-              <span style={{ fontSize: 10, fontWeight: 500 }}>Analysing data pipeline…</span>
+              <span style={{ fontSize: 10, fontWeight: 500 }}>Analysing reconciliation evidence…</span>
             </div>
           ) : explainData ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
@@ -1175,7 +1175,7 @@ export const OperationValidator: React.FC<Props> = ({ operation, startDate, endD
                           </div>
                         </div>
                         {explainData.sumComparison.warning && (
-                          <div style={{ fontSize: 9, color: isDarkMode ? '#fbbf24' : '#92400e', marginTop: 8, fontWeight: 600 }}>
+                          <div style={{ fontSize: 9, color: colours.orange, marginTop: 8, fontWeight: 600 }}>
                             Split allocations — don't dedup.
                           </div>
                         )}

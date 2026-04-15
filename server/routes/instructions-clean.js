@@ -1,5 +1,6 @@
 const express = require('express');
 const sql = require('mssql');
+const { getPool } = require('../utils/db');
 const router = express.Router();
 
 // Generate unique request ID for logging
@@ -33,7 +34,7 @@ router.get('/', async (req, res) => {
     const { initials, prospectId, instructionRef, dealId, includeAll } = req.query;
     
     console.log(`[${requestId}] Connecting to Instructions SQL database...`);
-    const pool = await sql.connect(process.env.INSTRUCTIONS_SQL_CONNECTION_STRING);
+    const pool = await getPool(process.env.INSTRUCTIONS_SQL_CONNECTION_STRING);
     
     // Query deals
     let dealsQuery = `
@@ -220,7 +221,5 @@ router.get('/', async (req, res) => {
     });
   }
 });
-
-module.exports = router;
 
 module.exports = router;

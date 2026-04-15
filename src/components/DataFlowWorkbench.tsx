@@ -66,9 +66,9 @@ const DataFlowWorkbench: React.FC<DataFlowWorkbenchProps> = ({ isOpen, onClose, 
           </div>
         </div>
 
-        <div className={sectionStyle} style={{ borderLeft: '4px solid #15803d' }}>
+        <div className={sectionStyle} style={{ borderLeft: `4px solid ${colours.green}` }}>
           <div style={{ marginBottom: 10 }}>
-            <Text style={{ fontWeight: 800, color: '#15803d', fontSize: 13 }}>DATA</Text>
+            <Text style={{ fontWeight: 800, color: colours.green, fontSize: 13 }}>DATA</Text>
             <Text style={{ fontSize: 12, color: subText }}>
               Two SQL sources + secrets
             </Text>
@@ -80,7 +80,7 @@ const DataFlowWorkbench: React.FC<DataFlowWorkbenchProps> = ({ isOpen, onClose, 
               'Secrets via Key Vault / env vars (no hardcoding)',
             ].map((t) => (
               <div key={t} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#15803d' }} />
+                <div style={{ width: 6, height: 6, borderRadius: '50%', background: colours.green }} />
                 <Text style={{ fontSize: 13, color: text }}>{t}</Text>
               </div>
             ))}

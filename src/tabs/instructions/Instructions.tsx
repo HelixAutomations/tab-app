@@ -35,7 +35,6 @@ import RiskAssessmentPage from "./RiskAssessmentPage";
 import EIDCheckPage from "./EIDCheckPage";
 import "../../app/styles/InstructionsBanner.css";
 // invisible change 2.2
-import DocumentsV3 from "./DocumentsV3";
 import localUserData from "../../localData/localUserData.json";
 import SegmentedControl from '../../components/filter/SegmentedControl';
 import TwoLayerFilter, { TwoLayerFilterOption } from '../../components/filter/TwoLayerFilter';
@@ -112,7 +111,6 @@ const Instructions: React.FC<InstructionsProps> = ({
   const [forceNewMatter] = useState<boolean>(false);
   const [, setPendingInstructionRef] = useState<string>('');
   const [selectedRisk, setSelectedRisk] = useState<any | null>(null);
-  const [showCclDraftPage, setShowCclDraftPage] = useState(false);
   // ID Verification review modal state (still required post-simplification)
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [reviewModalDetails, setReviewModalDetails] = useState<any | null>(null);
@@ -1575,7 +1573,7 @@ const workbenchBorderColour = (isDarkMode: boolean): string => (
 );
 
 const workbenchButtonHover = (isDarkMode: boolean): string => (
-  isDarkMode ? 'rgba(59, 130, 246, 0.2)' : '#f0f9ff'
+  isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.06)'
 );
 
   const handleBack = () => {
@@ -2355,9 +2353,9 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
       if (!val) return { label: '', color: colours.blue };
       const l = val.toLowerCase();
       if (l.includes('commercial')) return { label: 'Commercial', color: colours.blue }; // Use consistent blue
-      if (l.includes('construction')) return { label: 'Construction', color: '#f59e0b' }; // Amber
-      if (l.includes('property')) return { label: 'Property', color: '#10b981' }; // Emerald
-      if (l.includes('employment')) return { label: 'Employment', color: '#8b5cf6' }; // Violet
+      if (l.includes('construction')) return { label: 'Construction', color: colours.orange };
+      if (l.includes('property')) return { label: 'Property', color: colours.green };
+      if (l.includes('employment')) return { label: 'Employment', color: colours.yellow };
       return { label: val, color: colours.blue }; // fallback: show as-is with default color
     };
 
@@ -2439,18 +2437,18 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
     : "Verify ID";
 
   const verifyButtonBorder = verifyButtonDisabled
-    ? (isDarkMode ? 'rgba(34, 197, 94, 0.6)' : colours.green)
+    ? (isDarkMode ? 'rgba(32, 178, 108, 0.6)' : colours.green)
     : verifyButtonReview
-      ? (isDarkMode ? 'rgba(250, 204, 21, 0.7)' : colours.yellow)
-      : (isDarkMode ? 'rgba(96, 165, 250, 0.7)' : colours.blue);
+      ? (isDarkMode ? 'rgba(255, 213, 79, 0.7)' : colours.yellow)
+      : (isDarkMode ? 'rgba(54, 144, 206, 0.7)' : colours.blue);
   const verifyButtonBackground = verifyButtonDisabled
-    ? (isDarkMode ? 'rgba(34, 197, 94, 0.12)' : '#f0f9ff')
+    ? (isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(54, 144, 206, 0.06)')
     : (isDarkMode ? 'rgba(15, 23, 42, 0.6)' : 'transparent');
   const verifyButtonColor = verifyButtonDisabled
-    ? (isDarkMode ? '#bbf7d0' : colours.green)
+    ? (isDarkMode ? colours.green : colours.green)
     : verifyButtonReview
-      ? (isDarkMode ? '#facc15' : colours.yellow)
-      : (isDarkMode ? '#93c5fd' : colours.blue);
+      ? (isDarkMode ? colours.yellow : colours.yellow)
+      : (isDarkMode ? colours.accent : colours.blue);
 
   const riskResultRaw = selectedOverviewItem?.risk?.RiskAssessmentResult?.toString().toLowerCase() ?? "";
   const riskStatus = riskResultRaw
@@ -2460,14 +2458,14 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
     : 'pending';
   const riskButtonDisabled = riskStatus === 'complete';
   const riskButtonBorder = riskButtonDisabled
-    ? (isDarkMode ? 'rgba(34, 197, 94, 0.6)' : colours.green)
-    : (isDarkMode ? 'rgba(96, 165, 250, 0.7)' : colours.blue);
+    ? (isDarkMode ? 'rgba(32, 178, 108, 0.6)' : colours.green)
+    : (isDarkMode ? 'rgba(54, 144, 206, 0.7)' : colours.blue);
   const riskButtonBackground = riskButtonDisabled
-    ? (isDarkMode ? 'rgba(34, 197, 94, 0.12)' : '#f0f9ff')
+    ? (isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(54, 144, 206, 0.06)')
     : (isDarkMode ? 'rgba(15, 23, 42, 0.6)' : 'transparent');
   const riskButtonColor = riskButtonDisabled
-    ? (isDarkMode ? '#bbf7d0' : colours.green)
-    : (isDarkMode ? '#bfdbfe' : colours.blue);
+    ? (isDarkMode ? colours.green : colours.green)
+    : (isDarkMode ? colours.accent : colours.blue);
   
   // Payment status logic
   const paymentResult = selectedOverviewItem?.instruction?.PaymentResult?.toLowerCase();
@@ -2504,33 +2502,33 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
   // 2. There's a matter opening in progress (so user can continue)
   const canOpenMatter = (poidPassed && paymentCompleted) || hasActiveMatterOpening();
   const matterButtonBorder = matterLinked
-    ? (isDarkMode ? 'rgba(34, 197, 94, 0.6)' : colours.green)
-    : (isDarkMode ? 'rgba(96, 165, 250, 0.7)' : colours.blue);
+    ? (isDarkMode ? 'rgba(32, 178, 108, 0.6)' : colours.green)
+    : (isDarkMode ? 'rgba(54, 144, 206, 0.7)' : colours.blue);
   const matterButtonBackground = matterLinked
-    ? (isDarkMode ? 'rgba(34, 197, 94, 0.12)' : '#f0f9ff')
+    ? (isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(54, 144, 206, 0.06)')
     : (isDarkMode ? 'rgba(15, 23, 42, 0.6)' : 'transparent');
   const matterButtonColor = matterLinked
-    ? (isDarkMode ? '#bbf7d0' : colours.green)
-    : (isDarkMode ? '#bfdbfe' : colours.blue);
+    ? (isDarkMode ? colours.green : colours.green)
+    : (isDarkMode ? colours.accent : colours.blue);
 
   const syncButtonActive = Boolean(selectedOverviewItem?.instruction?.MatterRef);
-  const syncButtonBorder = isDarkMode ? 'rgba(34, 197, 94, 0.6)' : colours.green;
+  const syncButtonBorder = isDarkMode ? 'rgba(32, 178, 108, 0.6)' : colours.green;
   const syncButtonBackground = syncButtonActive
-    ? (isDarkMode ? 'rgba(34, 197, 94, 0.16)' : '#f0f9ff')
+    ? (isDarkMode ? 'rgba(32, 178, 108, 0.16)' : 'rgba(54, 144, 206, 0.06)')
     : (isDarkMode ? 'rgba(30, 41, 59, 0.55)' : '#f5f5f5');
   const syncButtonColor = syncButtonActive
-    ? (isDarkMode ? '#bbf7d0' : colours.green)
+    ? (isDarkMode ? colours.green : colours.green)
     : (isDarkMode ? 'rgba(226, 232, 240, 0.5)' : colours.greyText);
 
   const cclButtonBorder = cclCompleted
-    ? (isDarkMode ? 'rgba(34, 197, 94, 0.6)' : colours.green)
-    : (isDarkMode ? 'rgba(96, 165, 250, 0.7)' : colours.blue);
+    ? (isDarkMode ? 'rgba(32, 178, 108, 0.6)' : colours.green)
+    : (isDarkMode ? 'rgba(54, 144, 206, 0.7)' : colours.blue);
   const cclButtonBackground = cclCompleted
-    ? (isDarkMode ? 'rgba(34, 197, 94, 0.12)' : '#f0f9ff')
+    ? (isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(54, 144, 206, 0.06)')
     : (isDarkMode ? 'rgba(15, 23, 42, 0.6)' : 'transparent');
   const cclButtonColor = cclCompleted
-    ? (isDarkMode ? '#bbf7d0' : colours.green)
-    : (isDarkMode ? '#bfdbfe' : colours.blue);
+    ? (isDarkMode ? colours.green : colours.green)
+    : (isDarkMode ? colours.accent : colours.blue);
 
   // Helper function to get area of work color
   const getAreaColor = (area?: string): string => {
@@ -3964,13 +3962,6 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
     setActiveTab('risk');
   };
 
-  const handleDraftCclNow = () => {
-    setShowNewMatterPage(false);
-    setShowCclDraftPage(true);
-    // Removed smooth scroll to prevent jolt
-    // setTimeout(() => { window.scrollTo({ top: 0 }); }, 0);
-  };
-
   // Document Preview Handler
   const handleDocumentPreview = (doc: any, instructionRef: string) => {
     setPreviewDocument({ ...doc, InstructionRef: instructionRef });
@@ -4254,7 +4245,6 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
           initialClientType={selectedInstruction?.ClientType || (selectedInstruction?.CompanyName ? 'Company' : 'Individual')}
           preselectedPoidIds={preselectedPoidIds}
           instructionPhone={selectedInstruction?.Phone}
-          onDraftCclNow={handleDraftCclNow}
           demoModeEnabled={demoModeEnabled}
           onRunIdCheck={selectedInstruction?.InstructionRef ? async () => {
             await handleEIDCheck(selectedInstruction);
@@ -4314,10 +4304,11 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
             borderRadius: '8px',
             background: isDarkMode ? '#1e293b' : '#ffffff',
             border: `1px solid ${
-              actionFeedback.type === 'error' ? '#EF4444' :
-              actionFeedback.type === 'warning' ? '#F59E0B' :
-              actionFeedback.type === 'success' ? '#10B981' : '#3B82F6'
+              actionFeedback.type === 'error' ? colours.cta :
+              actionFeedback.type === 'warning' ? colours.orange :
+              actionFeedback.type === 'success' ? colours.green : colours.highlight
             }`,
+
             boxShadow: isDarkMode 
               ? '0 10px 25px rgba(0, 0, 0, 0.5)' 
               : '0 10px 25px rgba(0, 0, 0, 0.1)',
@@ -4330,9 +4321,9 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
             }}>
               <div style={{
                 fontSize: '18px',
-                color: actionFeedback.type === 'error' ? '#EF4444' :
-                       actionFeedback.type === 'warning' ? '#F59E0B' :
-                       actionFeedback.type === 'success' ? '#10B981' : '#3B82F6',
+                color: actionFeedback.type === 'error' ? colours.cta :
+                       actionFeedback.type === 'warning' ? colours.orange :
+                       actionFeedback.type === 'success' ? colours.green : colours.highlight,
               }}>
                 {actionFeedback.type === 'error' ? '✕' :
                  actionFeedback.type === 'warning' ? '⚠' :
@@ -4354,7 +4345,7 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                     whiteSpace: 'pre-line',
                     paddingLeft: '8px',
                     borderLeft: `2px solid ${
-                      actionFeedback.type === 'error' ? '#EF4444' : '#F59E0B'
+                      actionFeedback.type === 'error' ? colours.cta : colours.orange
                     }`,
                     lineHeight: '1.5',
                   }}>
@@ -4376,10 +4367,10 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                       borderRadius: '6px',
                       background: feedbackSending 
                         ? (isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)')
-                        : (isDarkMode ? 'rgba(59, 130, 246, 0.2)' : 'rgba(59, 130, 246, 0.1)'),
+                        : (isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.1)'),
                       color: feedbackSending
                         ? (isDarkMode ? 'rgba(241, 245, 249, 0.5)' : 'rgba(15, 23, 42, 0.5)')
-                        : '#3B82F6',
+                        : colours.highlight,
                       cursor: feedbackSending ? 'not-allowed' : 'pointer',
                       transition: 'all 0.2s ease',
                       display: 'flex',
@@ -4389,15 +4380,15 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                     onMouseEnter={(e) => {
                       if (!feedbackSending) {
                         e.currentTarget.style.background = isDarkMode 
-                          ? 'rgba(59, 130, 246, 0.3)' 
-                          : 'rgba(59, 130, 246, 0.15)';
+                          ? 'rgba(54, 144, 206, 0.3)' 
+                          : 'rgba(54, 144, 206, 0.15)';
                       }
                     }}
                     onMouseLeave={(e) => {
                       if (!feedbackSending) {
                         e.currentTarget.style.background = isDarkMode 
-                          ? 'rgba(59, 130, 246, 0.2)' 
-                          : 'rgba(59, 130, 246, 0.1)';
+                          ? 'rgba(54, 144, 206, 0.2)' 
+                          : 'rgba(54, 144, 206, 0.1)';
                       }
                     }}
                   >
@@ -4413,8 +4404,8 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                     fontSize: '12px',
                     fontWeight: 600,
                     borderRadius: '6px',
-                    background: isDarkMode ? 'rgba(34, 197, 94, 0.2)' : 'rgba(34, 197, 94, 0.1)',
-                    color: '#10B981',
+                    background: isDarkMode ? 'rgba(32, 178, 108, 0.2)' : 'rgba(32, 178, 108, 0.1)',
+                    color: colours.green,
                     display: 'flex',
                     alignItems: 'center',
                     gap: '6px',
@@ -4464,7 +4455,7 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                   setTimeout(()=> handleGlobalOpenMatter(), 50);
                 }}
                 style={{
-                  background: 'linear-gradient(135deg,#2563EB 0%,#1D4ED8 100%)',
+                  background: `linear-gradient(135deg, ${colours.highlight} 0%, ${colours.highlight} 100%)`,
                   color: 'white',
                   border: 'none',
                   borderRadius: '10px',
@@ -5086,13 +5077,6 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
               </div>
             </>
           )}
-          {showCclDraftPage && (
-            <DocumentsV3
-              selectedInstructionProp={selectedInstruction}
-              initialTemplate={selectedInstruction ? 'ccl' : undefined}
-              instructions={instructionData}
-            />
-          )}
         </div>
         
         {/* Smart Contextual Action Panel - Unified Interface */}
@@ -5427,272 +5411,7 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                   )}
                 </div>
 
-                {/* Remove old action buttons section - no longer needed */}
-                {false && (
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <button
-                      onClick={handleGlobalEIDCheck}
-                      disabled={verifyButtonDisabled}
-                      onMouseEnter={(e) => {
-                        if (!verifyButtonDisabled) {
-                          e.currentTarget.style.transform = 'translateY(-1px)';
-                          e.currentTarget.style.background = workbenchButtonHover(isDarkMode);
-                          setHoveredButton('verify');
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.transform = 'translateY(0)';
-                        e.currentTarget.style.background = verifyButtonBackground;
-                        setHoveredButton(null);
-                      }}
-                      style={{
-                        padding: '8px 12px',
-                        borderRadius: '6px',
-                        border: `1px solid ${verifyButtonBorder}`,
-                        background: verifyButtonBackground,
-                        color: verifyButtonColor,
-                        cursor: verifyButtonDisabled ? 'default' : 'pointer',
-                        fontSize: '11px',
-                        fontWeight: '600',
-                        opacity: verifyButtonDisabled ? 0.8 : 1,
-                        animation: nextReadyAction === 'verify' ? 'pulse 2s infinite' : 'none',
-                        transition: 'all 0.2s ease',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        minWidth: '80px',
-                        position: 'relative',
-                      }}
-                    >
-                      <span style={{ 
-                        transition: 'opacity 160ms ease',
-                        opacity: hoveredButton === 'verify' ? 0 : 1
-                      }}>
-                        <FaIdCard size={14} />
-                      </span>
-                      <span style={{ 
-                        transition: 'opacity 160ms ease',
-                        opacity: hoveredButton === 'verify' ? 1 : 0,
-                        position: 'absolute',
-                        top: '50%',
-                        left: '50%',
-                        transform: 'translate(-50%, -50%)',
-                        whiteSpace: 'nowrap'
-                      }}>
-                        {verifyButtonLabel}
-                      </span>
-                    </button>
 
-                    <button
-                      onClick={handleGlobalRiskAssessment}
-                      disabled={riskButtonDisabled}
-                      onMouseEnter={(e) => {
-                        if (!riskButtonDisabled) {
-                          e.currentTarget.style.transform = 'translateY(-1px)';
-                          e.currentTarget.style.background = workbenchButtonHover(isDarkMode);
-                          setHoveredButton('risk');
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.transform = 'translateY(0)';
-                        e.currentTarget.style.background = riskButtonBackground;
-                        setHoveredButton(null);
-                      }}
-                      style={{
-                        padding: '8px 12px',
-                        borderRadius: '6px',
-                        border: `1px solid ${riskButtonBorder}`,
-                        background: riskButtonBackground,
-                        color: riskButtonColor,
-                        cursor: riskButtonDisabled ? 'default' : 'pointer',
-                        fontSize: '11px',
-                        fontWeight: '600',
-                        opacity: riskButtonDisabled ? 0.8 : 1,
-                        animation: nextReadyAction === 'risk' ? 'pulse 2s infinite' : 'none',
-                        transition: 'all 0.2s ease',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        minWidth: '80px',
-                        position: 'relative',
-                      }}
-                    >
-                      <span style={{ 
-                        transition: 'opacity 160ms ease',
-                        opacity: hoveredButton === 'risk' ? 0 : 1
-                      }}>
-                        <FaShieldAlt size={14} />
-                      </span>
-                      <span style={{ 
-                        transition: 'opacity 160ms ease',
-                        opacity: hoveredButton === 'risk' ? 1 : 0,
-                        position: 'absolute',
-                        top: '50%',
-                        left: '50%',
-                        transform: 'translate(-50%, -50%)',
-                        whiteSpace: 'nowrap'
-                      }}>
-                        Assess Risk
-                      </span>
-                    </button>
-
-                    <button
-                      onClick={handleGlobalOpenMatter}
-                      onMouseEnter={(e) => {
-                        if (!matterLinked) {
-                          e.currentTarget.style.transform = 'translateY(-1px)';
-                          e.currentTarget.style.background = workbenchButtonHover(isDarkMode);
-                          setHoveredButton('matter');
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.transform = 'translateY(0)';
-                        e.currentTarget.style.background = matterButtonBackground;
-                        setHoveredButton(null);
-                      }}
-                      style={{
-                        padding: '8px 12px',
-                        borderRadius: '6px',
-                        border: `1px solid ${matterButtonBorder}`,
-                        background: matterButtonBackground,
-                        color: matterButtonColor,
-                        cursor: matterLinked ? 'default' : 'pointer',
-                        fontSize: '11px',
-                        fontWeight: '600',
-                        animation: nextReadyAction === 'matter' ? 'pulse 2s infinite' : 'none',
-                        transition: 'all 0.2s ease',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        minWidth: '80px',
-                        position: 'relative',
-                      }}
-                    >
-                      <span style={{ 
-                        transition: 'opacity 160ms ease',
-                        opacity: hoveredButton === 'matter' ? 0 : 1
-                      }}>
-                        <FaFolder size={14} />
-                      </span>
-                      <span style={{ 
-                        transition: 'opacity 160ms ease',
-                        opacity: hoveredButton === 'matter' ? 1 : 0,
-                        position: 'absolute',
-                        top: '50%',
-                        left: '50%',
-                        transform: 'translate(-50%, -50%)',
-                        whiteSpace: 'nowrap'
-                      }}>
-                        Open Matter
-                      </span>
-                    </button>
-
-                    <button
-                      onClick={() => { /* TODO: Implement document sync */ }}
-                      onMouseEnter={(e) => {
-                        if (selectedOverviewItem?.instruction?.MatterRef) {
-                          e.currentTarget.style.transform = 'translateY(-1px)';
-                          e.currentTarget.style.background = workbenchButtonHover(isDarkMode);
-                          setHoveredButton('sync');
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.transform = 'translateY(0)';
-                        e.currentTarget.style.background = syncButtonBackground;
-                        setHoveredButton(null);
-                      }}
-                      style={{
-                        padding: '8px 12px',
-                        borderRadius: '6px',
-                        border: `1px solid ${syncButtonBorder}`,
-                        background: syncButtonBackground,
-                        color: syncButtonColor,
-                        cursor: selectedOverviewItem?.instruction?.MatterRef ? 'pointer' : 'default',
-                        fontSize: '11px',
-                        fontWeight: '600',
-                        transition: 'all 0.2s ease',
-                        opacity: selectedOverviewItem?.instruction?.MatterRef ? 1 : 0.5,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        minWidth: '80px',
-                        position: 'relative',
-                      }}
-                      title={selectedOverviewItem?.instruction?.MatterRef ? 'Sync documents to matter' : 'Matter must be opened first'}
-                    >
-                      <span style={{ 
-                        transition: 'opacity 160ms ease',
-                        opacity: hoveredButton === 'sync' ? 0 : 1
-                      }}>
-                        <MdSync size={14} />
-                      </span>
-                      <span style={{ 
-                        transition: 'opacity 160ms ease',
-                        opacity: hoveredButton === 'sync' ? 1 : 0,
-                        position: 'absolute',
-                        top: '50%',
-                        left: '50%',
-                        transform: 'translate(-50%, -50%)',
-                        whiteSpace: 'nowrap'
-                      }}>
-                        Sync Docs
-                      </span>
-                    </button>
-
-                    <button
-                      onClick={() => setShowCclDraftPage(true)}
-                      onMouseEnter={(e) => {
-                        if (!cclCompleted) {
-                          e.currentTarget.style.transform = 'translateY(-1px)';
-                          e.currentTarget.style.background = workbenchButtonHover(isDarkMode);
-                          setHoveredButton('ccl');
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.transform = 'translateY(0)';
-                        e.currentTarget.style.background = cclButtonBackground;
-                        setHoveredButton(null);
-                      }}
-                      style={{
-                        padding: '8px 12px',
-                        borderRadius: '6px',
-                        border: `1px solid ${cclButtonBorder}`,
-                        background: cclButtonBackground,
-                        color: cclButtonColor,
-                        cursor: cclCompleted ? 'default' : 'pointer',
-                        fontSize: '11px',
-                        fontWeight: '600',
-                        animation: nextReadyAction === 'ccl' ? 'pulse 2s infinite' : 'none',
-                        transition: 'all 0.2s ease',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        minWidth: '80px',
-                        position: 'relative',
-                      }}
-                    >
-                      <span style={{ 
-                        transition: 'opacity 160ms ease',
-                        opacity: hoveredButton === 'ccl' ? 0 : 1
-                      }}>
-                        <FaFileAlt size={14} />
-                      </span>
-                      <span style={{ 
-                        transition: 'opacity 160ms ease',
-                        opacity: hoveredButton === 'ccl' ? 1 : 0,
-                        position: 'absolute',
-                        top: '50%',
-                        left: '50%',
-                        transform: 'translate(-50%, -50%)',
-                        whiteSpace: 'nowrap'
-                      }}>
-                        CCL Service
-                      </span>
-                    </button>
-                  </div>
-                  </div>
-                  )}
                 
                 {/* Workbench Content - Redesigned for Consistency */}
                 {selectedInstruction && isWorkbenchVisible && (
@@ -7387,9 +7106,9 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                           </div>
                           <div style={{
                             padding: '8px 12px',
-                            background: isDarkMode ? 'rgba(239, 68, 68, 0.1)' : 'rgba(239, 68, 68, 0.05)',
+                            background: isDarkMode ? 'rgba(214, 85, 65, 0.1)' : 'rgba(214, 85, 65, 0.05)',
                             borderRadius: '6px',
-                            border: `1px solid ${isDarkMode ? 'rgba(239, 68, 68, 0.3)' : 'rgba(239, 68, 68, 0.2)'}`,
+                            border: `1px solid ${isDarkMode ? 'rgba(214, 85, 65, 0.3)' : 'rgba(214, 85, 65, 0.2)'}`,
                             marginBottom: '16px'
                           }}>
                             <p style={{
@@ -7911,7 +7630,7 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                 padding: '12px',
                 borderRadius: '8px',
                 backgroundColor: selectorResult.success ? '#e8f5e8' : '#f5e8e8',
-                border: `1px solid ${selectorResult.success ? '#4CAF50' : '#f44336'}`,
+                border: `1px solid ${selectorResult.success ? colours.green : colours.cta}`,
                 fontSize: '14px'
               }}>
                 <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>
@@ -8071,10 +7790,11 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                                   padding: '12px 16px',
                                   borderRadius: '8px',
                                   border: `2px solid ${isSelected 
-                                    ? '#3b82f6' 
+                                    ? colours.highlight 
                                     : isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(15, 23, 42, 0.15)'}`,
+
                                   background: isSelected 
-                                    ? 'rgba(59, 130, 246, 0.1)' 
+                                    ? 'rgba(54, 144, 206, 0.1)' 
                                     : isDarkMode ? '#0f172a' : '#ffffff',
                                   color: isDarkMode ? colours.dark.text : '#1f2937',
                                   fontSize: '14px',
@@ -8085,8 +7805,8 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                                 }}
                                 onMouseEnter={(e) => {
                                   if (!isSelected) {
-                                    e.currentTarget.style.borderColor = '#3b82f6';
-                                    e.currentTarget.style.background = 'rgba(59, 130, 246, 0.05)';
+                                    e.currentTarget.style.borderColor = colours.highlight;
+                                    e.currentTarget.style.background = 'rgba(54, 144, 206, 0.05)';
                                   }
                                 }}
                                 onMouseLeave={(e) => {

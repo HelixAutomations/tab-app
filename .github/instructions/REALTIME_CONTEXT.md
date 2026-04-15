@@ -1,62 +1,57 @@
 # Realtime Context
 
-Auto-generated: 2026-04-09T20:14:35.656Z
+Auto-generated: 2026-04-13T16:51:55.747Z
 
 ## Git State
 
 - **Branch**: main
-- **Uncommitted changes**: 112
-- **Last commit**: 816ead7a 04030626
+- **Uncommitted changes**: 86
+- **Last commit**: abbfe819 normal4
 
 ## Submodules
 
 | Name | Path | Branch | Last Commit |
 |------|------|--------|-------------|
-| submodules/instruct-pitch | submodules/instruct-pitch | workspace | 220c44a admin and payments portals |
-| submodules/enquiry-processing-v2 | submodules/enquiry-processing-v2 | facebook-lead-processing | f375e5b dm activity update |
+| submodules/instruct-pitch | submodules/instruct-pitch | workspace | 12a2f01 normal |
+| submodules/enquiry-processing-v2 | submodules/enquiry-processing-v2 | facebook-lead-processing | bf72694 SSE |
 | submodules/aged-debts-v2 | submodules/aged-debts-v2 | main | e3008ed aged debt fix, dupes |
 | submodules/transaction-intake | submodules/transaction-intake | main | 8b433ad 11300017 |
 
 ### Submodule Sync
 
-| Path | Tracked Branch | Result | Detail |
-|------|----------------|--------|--------|
-| submodules/instruct-pitch | workspace | updated | c355c42 -> 220c44a |
-| submodules/enquiry-processing-v2 | facebook-lead-processing | unchanged | Already latest |
-| submodules/aged-debts-v2 | main | unchanged | Already latest |
-| submodules/transaction-intake | main | unchanged | Already latest |
+- Not run in this refresh.
 
 
 ## Local Servers
 
 | Port | Status |
 |------|--------|
-| 3000 | ⚫ Inactive |
+| 3000 | 🟢 Active |
 | 7071 | ⚫ Inactive |
 | 53000 | ⚫ Inactive |
 
 ## Recent Changes (last 5 commits)
 
 - .github/copilot-instructions.md
-- .github/instructions/ARCHITECTURE_DATA_FLOW.md
 - .github/instructions/DATABASE_SCHEMA_REFERENCE.md
-- .github/instructions/DUBBER_API_REFERENCE.md
-- .github/instructions/DUBBER_INTEGRATION_BRIEF.md
 - .github/instructions/REALTIME_CONTEXT.md
 - .github/instructions/ROADMAP.md
-- .github/instructions/WORKSPACE_OPTIMIZATION.md
+- .github/instructions/components.instructions.md
+- .github/instructions/server.instructions.md
+- .github/instructions/styles.instructions.md
+- .github/instructions/tabs.instructions.md
+- .github/prompts/health-check.prompt.md
+- .github/prompts/optimise.prompt.md
+- .github/prompts/plan.prompt.md
+- .github/prompts/security-review.prompt.md
+- .github/workflows/ci.yml
 - .gitignore
-- .gitmodules
-- .vscode/tasks.json
-- README.md
-- api/src/functions/getComplianceData.ts
-- api/src/index.ts
-- api/src/marketingMetrics.ts
 - appPackage/manifest.json
 - build-and-deploy-staging.ps1
 - build-and-deploy.ps1
 - craco.config.js
-- data/.txt
+- jest.server.config.js
+- logs/changelog.md
 
 ---
 *Run `node tools/sync-context.mjs` to refresh (you will be asked each run whether to sync submodules)*

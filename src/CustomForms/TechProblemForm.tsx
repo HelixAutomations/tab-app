@@ -30,6 +30,8 @@ import {
   getFormPrimaryButtonStyles,
   getFormDefaultButtonStyles,
   getMessageBarStyle,
+  getFormTextareaStyles,
+  formFieldTokens,
   formAccentColors,
 } from './shared/formStyles';
 
@@ -190,7 +192,7 @@ const TechProblemFormContent: React.FC<TechProblemFormProps> = ({
             <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
               <Icon iconName="Info" style={{ color: accentColor, flexShrink: 0 }} />
               <Text style={getInfoBoxTextStyle(isDarkMode)}>
-                Report bugs, errors, or technical issues.
+                Report bugs, errors, or technical issues. This notifies the Tech team and creates a tracking task.
               </Text>
             </Stack>
           </div>
@@ -202,7 +204,7 @@ const TechProblemFormContent: React.FC<TechProblemFormProps> = ({
               Problem Details
             </div>
 
-            <Stack tokens={{ childrenGap: 16 }} style={{ paddingBottom: '4px' }}>
+            <Stack tokens={formFieldTokens} style={{ paddingBottom: '4px' }}>
               <Stack horizontal tokens={{ childrenGap: 16 }} verticalAlign="end">
                 <Stack.Item grow styles={{ root: { flex: 2 } }}>
                   <TextField
@@ -233,7 +235,7 @@ const TechProblemFormContent: React.FC<TechProblemFormProps> = ({
                 multiline
                 rows={4}
                 placeholder="What went wrong? Include any error messages you saw."
-                styles={getInputStyles(isDarkMode)}
+                styles={getFormTextareaStyles(isDarkMode, 4)}
               />
 
               <TextField
@@ -242,18 +244,18 @@ const TechProblemFormContent: React.FC<TechProblemFormProps> = ({
                 onChange={(_, val) => handleFieldChange('steps_to_reproduce', val || '')}
                 multiline
                 rows={3}
-                placeholder="1. Go to...&#10;2. Click on...&#10;3. See error..."
-                styles={getInputStyles(isDarkMode)}
+                placeholder="1. Navigate to...&#10;2. Click on...&#10;3. See error..."
+                styles={getFormTextareaStyles(isDarkMode, 3)}
               />
 
               <TextField
-                label="Expected Behavior"
+                label="Expected Behaviour"
                 value={formData.expected_behavior}
                 onChange={(_, val) => handleFieldChange('expected_behavior', val || '')}
                 multiline
                 rows={2}
                 placeholder="What should have happened instead?"
-                styles={getInputStyles(isDarkMode)}
+                styles={getFormTextareaStyles(isDarkMode, 2)}
               />
             </Stack>
           </div>

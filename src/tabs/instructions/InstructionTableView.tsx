@@ -553,19 +553,19 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
     }) => {
       const getColors = () => {
         if (status === 'complete') return { 
-          bg: isDarkMode ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.1)',
-          border: '#22c55e',
-          text: '#22c55e'
+          bg: isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(32, 178, 108, 0.1)',
+          border: colours.green,
+          text: colours.green
         };
         if (status === 'review') return {
-          bg: isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)',
-          border: '#ef4444',
-          text: '#ef4444'
+          bg: isDarkMode ? 'rgba(214, 85, 65, 0.15)' : 'rgba(214, 85, 65, 0.1)',
+          border: colours.cta,
+          text: colours.cta
         };
         if (status === 'processing') return {
           bg: isDarkMode ? 'rgba(251, 191, 36, 0.15)' : 'rgba(251, 191, 36, 0.1)',
-          border: '#f59e0b',
-          text: '#f59e0b'
+          border: colours.orange,
+          text: colours.orange
         };
         return {
           bg: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)',
@@ -648,7 +648,7 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
         marginLeft: -1,
         marginRight: -1,
         background: complete
-          ? (isDarkMode ? `linear-gradient(to right, #22c55e, rgba(34, 197, 94, 0.3))` : `linear-gradient(to right, #22c55e, rgba(34, 197, 94, 0.2))`)
+          ? (isDarkMode ? `linear-gradient(to right, ${colours.green}, rgba(32, 178, 108, 0.3))` : `linear-gradient(to right, ${colours.green}, rgba(32, 178, 108, 0.2))`)
           : (isDarkMode ? 'linear-gradient(to right, rgba(148, 163, 184, 0.3), rgba(148, 163, 184, 0.15))' : 'linear-gradient(to right, rgba(148, 163, 184, 0.25), rgba(148, 163, 184, 0.1))')
       }} />
     );
@@ -749,10 +749,10 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
                 borderRadius: 0,
                 width: '100%',
                 background: isShowingMatter 
-                  ? (isDarkMode ? 'rgba(115, 171, 96, 0.15)' : 'rgba(115, 171, 96, 0.1)')
+                  ? (isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(32, 178, 108, 0.1)')
                   : (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)'),
                 border: isShowingMatter 
-                  ? `1px solid ${isDarkMode ? 'rgba(115, 171, 96, 0.4)' : 'rgba(115, 171, 96, 0.3)'}`
+                  ? `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.4)' : 'rgba(32, 178, 108, 0.3)'}`
                   : `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)'}`,
                 fontSize: 10,
                 fontWeight: 600,
@@ -780,8 +780,8 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
               onMouseEnter={(e) => {
                 if (!canToggle) return;
                 if (isShowingMatter) {
-                  e.currentTarget.style.background = isDarkMode ? 'rgba(115, 171, 96, 0.25)' : 'rgba(115, 171, 96, 0.2)';
-                  e.currentTarget.style.borderColor = isDarkMode ? 'rgba(115, 171, 96, 0.6)' : 'rgba(115, 171, 96, 0.5)';
+                  e.currentTarget.style.background = isDarkMode ? 'rgba(32, 178, 108, 0.25)' : 'rgba(32, 178, 108, 0.2)';
+                  e.currentTarget.style.borderColor = isDarkMode ? 'rgba(32, 178, 108, 0.6)' : 'rgba(32, 178, 108, 0.5)';
                 } else {
                   e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)';
                   e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.5)' : 'rgba(54, 144, 206, 0.35)';
@@ -789,8 +789,8 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
               }}
               onMouseLeave={(e) => {
                 if (isShowingMatter) {
-                  e.currentTarget.style.background = isDarkMode ? 'rgba(115, 171, 96, 0.15)' : 'rgba(115, 171, 96, 0.1)';
-                  e.currentTarget.style.borderColor = isDarkMode ? 'rgba(115, 171, 96, 0.4)' : 'rgba(115, 171, 96, 0.3)';
+                  e.currentTarget.style.background = isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(32, 178, 108, 0.1)';
+                  e.currentTarget.style.borderColor = isDarkMode ? 'rgba(32, 178, 108, 0.4)' : 'rgba(32, 178, 108, 0.3)';
                 } else {
                   e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)';
                   e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)';
@@ -818,14 +818,14 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
               padding: '4px 8px',
               borderRadius: 0,
               background: isTriage
-                ? (isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)')
+                ? (isDarkMode ? 'rgba(214, 85, 65, 0.15)' : 'rgba(214, 85, 65, 0.1)')
                 : (isDarkMode ? 'rgba(148, 163, 184, 0.10)' : 'rgba(148, 163, 184, 0.08)'),
               border: isTriage
-                ? `1px solid ${isDarkMode ? 'rgba(239, 68, 68, 0.3)' : 'rgba(239, 68, 68, 0.25)'}`
+                ? `1px solid ${isDarkMode ? 'rgba(214, 85, 65, 0.3)' : 'rgba(214, 85, 65, 0.25)'}`
                 : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.22)' : 'rgba(148, 163, 184, 0.2)'}`,
               fontSize: 10,
               fontWeight: 700,
-              color: isTriage ? (isDarkMode ? '#f87171' : '#ef4444') : (isDarkMode ? 'rgba(203, 213, 225, 0.85)' : 'rgba(71, 85, 105, 0.85)'),
+              color: isTriage ? colours.cta : (isDarkMode ? 'rgba(203, 213, 225, 0.85)' : 'rgba(71, 85, 105, 0.85)'),
               cursor: canReassignFe ? 'pointer' : 'default',
               opacity: feInitials ? 1 : 0.65,
               transition: 'all 0.15s ease',
@@ -835,12 +835,12 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
             onMouseEnter={(e) => {
               if (!canReassignFe) return;
               e.currentTarget.style.background = isTriage
-                ? (isDarkMode ? 'rgba(239, 68, 68, 0.25)' : 'rgba(239, 68, 68, 0.18)')
+                ? (isDarkMode ? 'rgba(214, 85, 65, 0.25)' : 'rgba(214, 85, 65, 0.18)')
                 : (isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.14)');
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.background = isTriage
-                ? (isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)')
+                ? (isDarkMode ? 'rgba(214, 85, 65, 0.15)' : 'rgba(214, 85, 65, 0.1)')
                 : (isDarkMode ? 'rgba(148, 163, 184, 0.10)' : 'rgba(148, 163, 184, 0.08)');
             }}
           >
@@ -1104,7 +1104,7 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
                 <span style={{
                   fontSize: '10px',
                   fontWeight: '600',
-                  color: '#22c55e',
+                  color: colours.green,
                   opacity: 1,
                   transform: 'translateY(0px)',
                   transition: 'opacity 0.15s ease, transform 0.15s ease',
@@ -1378,10 +1378,10 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
                           // Color based on filter state
                           const getFilterColor = () => {
                             if (!filterState) return isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)';
-                            if (filterState === 'complete') return '#22c55e';
-                            if (filterState === 'review') return '#ef4444';
+                            if (filterState === 'complete') return colours.green;
+                            if (filterState === 'review') return colours.cta;
                             if (filterState === 'pending' || filterState === 'neutral') return isDarkMode ? 'rgba(148, 163, 184, 0.85)' : 'rgba(100, 116, 139, 0.85)';
-                            if (filterState === 'processing') return '#f59e0b';
+                            if (filterState === 'processing') return colours.orange;
                             return colours.highlight;
                           };
                           
@@ -1832,7 +1832,7 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
                                         <span style={{
                                           fontSize: '10px',
                                           fontWeight: '600',
-                                          color: '#22c55e',
+                                          color: colours.green,
                                         }}>
                                           £{totalValue.toLocaleString()}
                                         </span>

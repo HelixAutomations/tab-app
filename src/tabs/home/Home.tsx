@@ -16,6 +16,7 @@ import type { ConversionComparisonBucket, ConversionComparisonPayload, Unclaimed
 import { createPortal } from 'react-dom';
 import { debugLog, debugWarn } from '../../utils/debug';
 import { safeSetItem, safeGetItem, cleanupLocalStorage, logStorageUsage } from '../../utils/storageUtils';
+import { useCognitoEmbed } from '../../hooks/useCognitoEmbed';
 import { mergeStyles, keyframes } from '@fluentui/react/lib/Styling';
 import { Text } from '@fluentui/react/lib/Text';
 import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
@@ -40,6 +41,7 @@ import { useTheme } from '../../app/functionality/ThemeContext';
 import { useNavigatorActions } from '../../app/functionality/NavigatorContext';
 // Removed legacy MetricCard styles import
 import './EnhancedHome.css';
+import './home-tokens.css';
 import { dashboardTokens, cardTokens, cardStyles } from '../instructions/componentTokens';
 import { componentTokens } from '../../app/styles/componentTokens';
 // ThemedSpinner removed — skeleton fallbacks used instead
@@ -48,14 +50,10 @@ import { getProxyBaseUrl } from '../../utils/getProxyBaseUrl';
 import OperationStatusToast from '../enquiries/pitch-builder/OperationStatusToast';
 import ReleaseNotesModal from '../../components/ReleaseNotesModal';
 
-import FormCard from '../forms/FormCard';
-import ResourceCard from '../resources/ResourceCard';
-
 import { FormItem, Matter, Transaction, TeamData, OutstandingClientBalance, BoardroomBooking, SoundproofPodBooking, SpaceBooking, FutureBookingsResponse, InstructionData, Enquiry, NormalizedMatter } from '../../app/functionality/types';
 
 import { Resource } from '../resources/Resources';
 
-import FormDetails from '../forms/FormDetails';
 import ResourceDetails from '../resources/ResourceDetails';
 
 import HomePanel from './HomePanel';
@@ -354,40 +352,23 @@ const helixWatermarkSvg = (dark: boolean) => {
 
 const containerStyle = (isDarkMode: boolean) =>
   mergeStyles({
-    // Flat brand surface in dark mode (no background glow behind strips/cards)
-    background: isDarkMode
-      ? colours.websiteBlue
-      : `linear-gradient(to bottom right, #FFFFFF 0%, ${colours.grey} 100%)`,
-    backgroundImage: 'none',
-    color: isDarkMode ? '#f1f5f9' : '#1e293b',
+    // Flat brand surface — websiteBlue in dark, subtle grey in light
+    background: isDarkMode ? colours.websiteBlue : colours.grey,
+    color: isDarkMode ? colours.dark.text : colours.light.text,
     minHeight: '100%',
     boxSizing: 'border-box',
     position: 'relative',
-    overflowX: 'hidden',
-    '&::before': {
-      content: '""',
-      position: 'fixed',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      backgroundImage: isDarkMode ? 'none' : 'none',
-      backgroundRepeat: 'no-repeat',
-      backgroundPosition: isDarkMode ? 'right -120px top -80px' : 'right -140px top -100px',
-      backgroundSize: 'min(52vmin, 520px)',
-      pointerEvents: 'none',
-      zIndex: 0
-    }
+    overflowX: 'hidden'
   });
 
 const operationsHubStyle = (isDarkMode: boolean) =>
   mergeStyles({
-    margin: '0 8px 6px 8px',
+    margin: '6px 12px 6px 12px',
     background: isDarkMode
       ? 'transparent'
       : 'linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(244, 244, 246, 0.94) 100%)',
-    border: isDarkMode ? 'none' : `1px solid ${colours.highlightNeutral}`,
-    boxShadow: isDarkMode ? 'none' : '0 1px 3px rgba(0,0,0,0.03)',
+    border: isDarkMode ? 'none' : '1px solid var(--border-strong)',
+    boxShadow: isDarkMode ? 'none' : 'var(--shadow-sm)',
     padding: isDarkMode ? '0' : '2px',
     overflow: 'hidden',
   });
@@ -396,31 +377,6 @@ const operationsHubStyle = (isDarkMode: boolean) =>
    tableAnimationStyle, versionStyle, subLabelStyle, actionsMetricsContainerStyle,
    favouritesGridStyle, peopleGridStyle, sectionContainerStyle, ACTION_BAR_HEIGHT,
    calculateAnimationDelay — none referenced in current JSX. */
-
-
-//////////////////////
-// TabLabel Component
-//////////////////////
-const TabLabel: React.FC<{ label: string }> = ({ label }) => {
-  return (
-    <div
-      className={mergeStyles({
-        position: 'absolute',
-        left: 0,
-        top: 0,
-        bottom: 0,
-        width: '50px',
-        backgroundColor: colours.grey,
-        zIndex: 4,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-      })}
-    >
-      <span style={{ transform: 'rotate(-90deg)', whiteSpace: 'nowrap' }}>{label}</span>
-    </div>
-  );
-};
 
 //////////////////////
 // Utility: Flatten & Transform Context
@@ -804,21 +760,11 @@ const getMetricsAlias = (
 //////////////////////
 
 const CognitoForm: React.FC<{ dataKey: string; dataForm: string }> = ({ dataKey, dataForm }) => {
-  const containerRef = React.useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (containerRef.current) {
-      containerRef.current.innerHTML = '';
-      const script = document.createElement('script');
-      script.src = 'https://www.cognitoforms.com/f/seamless.js';
-      script.setAttribute('data-key', dataKey);
-      script.setAttribute('data-form', dataForm);
-      script.async = true;
-      containerRef.current.appendChild(script);
-      return () => {
-        if (containerRef.current) containerRef.current.innerHTML = '';
-      };
-    }
-  }, [dataKey, dataForm]);
+  const { containerRef } = useCognitoEmbed({
+    embedScript: { key: dataKey, formId: dataForm },
+    isActive: true,
+  });
+
   return <div ref={containerRef} />;
 };
 
@@ -1009,7 +955,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
   const [isContextsExpanded, setIsContextsExpanded] = useState<boolean>(false);
   const [formsFavorites, setFormsFavorites] = useState<FormItem[]>([]);
   const [resourcesFavorites, setResourcesFavorites] = useState<Resource[]>([]);
-  const [selectedForm, setSelectedForm] = useState<FormItem | null>(null);
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
   const [isBespokePanelOpen, setIsBespokePanelOpen] = useState<boolean>(false);
   const [bespokePanelContent, setBespokePanelContent] = useState<ReactNode>(null);
@@ -1927,6 +1872,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
         originatingSolicitor: m.originatingSolicitor || '',
         status: (m.status === 'closed' ? 'closed' : 'active') as 'active' | 'closed',
         instructionRef: m.instructionRef,
+        sourceVersion: m.dataSource === 'vnet_direct' ? 'v4' : 'v3',
       }));
 
     if (!isDemo) return mapped;
@@ -1956,6 +1902,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
         originatingSolicitor: resolvedName || userFullName || 'Demo User',
         status: 'active' as 'active' | 'closed',
         instructionRef: 'HELIX01-01',
+        sourceVersion: 'v4' as const,
       },
       ...mapped,
     ].slice(0, 15);
@@ -4984,33 +4931,33 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
   // Quick action button styles
   const approveButtonStyles = {
     root: {
-      backgroundColor: '#FFD700 !important', // Yellow background
+      backgroundColor: `${colours.yellow} !important`,
       border: 'none !important',
       height: '40px !important',
       fontWeight: '600',
-      borderRadius: '4px !important',
+      borderRadius: '0 !important',
       padding: '6px 12px !important',
-      animation: `yellowPulse 2s infinite !important`, // Use yellowPulse animation
+      animation: `yellowPulse 2s infinite !important`,
       transition: 'box-shadow 0.3s, transform 0.3s, background 0.3s ease !important',
       whiteSpace: 'nowrap',
       width: 'auto',
-      color: '#ffffff !important',
+      color: `${colours.light.text} !important`,
     },
   };
 
   const bookButtonStyles = {
     root: {
-      backgroundColor: '#28a745 !important', // Green background
+      backgroundColor: `${colours.green} !important`,
       border: 'none !important',
       height: '40px !important',
       fontWeight: '600',
-      borderRadius: '4px !important',
+      borderRadius: '0 !important',
       padding: '6px 12px !important',
-      animation: `greenPulse 2s infinite !important`, // Use greenPulse animation
+      animation: `greenPulse 2s infinite !important`,
       transition: 'box-shadow 0.3s, transform 0.3s, background 0.3s ease !important',
       whiteSpace: 'nowrap',
       width: 'auto',
-      color: '#ffffff !important',
+      color: `${colours.dark.text} !important`,
     },
   };
 
@@ -5946,7 +5893,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
       iconName = 'Airplane';
     }
     // Use proper text color for icons; if not highlighted, use main text color
-    const iconColor = highlight ? '#fff' : (isDarkMode ? colours.dark.text : colours.light.text);
+    const iconColor = highlight ? colours.dark.text : (isDarkMode ? colours.dark.text : colours.light.text);
     return (
       <Icon
         iconName={iconName}
@@ -6037,7 +5984,7 @@ const conversionRate = displayEnquiriesMonthToDate
             <span style={{ fontSize: 12, fontWeight: 600, color: isDarkMode ? '#f3f4f6' : '#061733' }}>
               Rebuilding your view…
             </span>
-            <span style={{ fontSize: 11, color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(100, 116, 139, 0.85)' }}>
+            <span style={{ fontSize: 11, color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : colours.greyText }}>
               Recalculating personalised metrics.
             </span>
           </div>
@@ -6051,52 +5998,52 @@ const conversionRate = displayEnquiriesMonthToDate
           <Suspense fallback={
             <div className="home-stable-shell-panel home-stable-shell-loading" style={{ padding: '4px 8px 0' }}>
               {/* Billing skeleton */}
-              <div style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? colours.subtleGrey : colours.greyText, padding: '2px 0 3px', letterSpacing: '0.2px' }}>Billing</div>
-              <div style={{ background: isDarkMode ? 'rgba(6, 23, 51, 0.55)' : '#fff', border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(160,160,160,0.12)'}`, boxShadow: isDarkMode ? 'none' : undefined, display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)' }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', padding: '2px 0 3px', letterSpacing: '0.2px' }}>Billing</div>
+              <div style={{ background: 'var(--home-card-bg)', border: '1px solid var(--home-card-border)', boxShadow: 'var(--home-card-shadow)', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)' }}>
                 {[0,1,2,3].map(i => (
-                  <div key={i} style={{ padding: '16px 18px 14px', borderRight: i < 3 ? `1px solid ${isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(160,160,160,0.08)'}` : 'none' }}>
-                    <div style={{ width: 52, height: 22, background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(54,144,206,0.06)', borderRadius: 2, animation: 'homeSkelPulse 1.5s ease-in-out infinite', animationDelay: `${i * 0.12}s` }} />
-                    <div style={{ width: 60, height: 9, marginTop: 6, background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)', borderRadius: 2 }} />
-                    <div style={{ width: 54, height: 9, marginTop: 5, background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)', borderRadius: 2 }} />
-                    <div style={{ width: '100%', height: 2, marginTop: 8, background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)', borderRadius: 1 }} />
+                  <div key={i} style={{ padding: '16px 18px 14px', borderRight: i < 3 ? '1px solid var(--home-row-border)' : 'none' }}>
+                    <div style={{ width: 52, height: 22, background: 'var(--home-skel-fill)', borderRadius: 2, animation: 'homeSkelPulse 1.5s ease-in-out infinite', animationDelay: `${i * 0.12}s` }} />
+                    <div style={{ width: 60, height: 9, marginTop: 6, background: 'var(--home-skel-fill-weak)', borderRadius: 2 }} />
+                    <div style={{ width: 54, height: 9, marginTop: 5, background: 'var(--home-skel-fill-weak)', borderRadius: 2 }} />
+                    <div style={{ width: '100%', height: 2, marginTop: 8, background: 'var(--home-skel-fill-faint)', borderRadius: 1 }} />
                   </div>
                 ))}
               </div>
-              <div style={{ padding: '10px 16px', border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(160,160,160,0.12)'}`, borderTop: 'none', background: isDarkMode ? 'rgba(6, 23, 51, 0.55)' : '#fff', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <div style={{ width: 76, height: 10, background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)', borderRadius: 2 }} />
-                <div style={{ width: 68, height: 10, background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)', borderRadius: 2 }} />
-                <div style={{ width: 86, height: 10, background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)', borderRadius: 2 }} />
+              <div style={{ padding: '10px 16px', border: '1px solid var(--home-card-border)', borderTop: 'none', background: 'var(--home-card-bg)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ width: 76, height: 10, background: 'var(--home-skel-fill-weak)', borderRadius: 2 }} />
+                <div style={{ width: 68, height: 10, background: 'var(--home-skel-fill-weak)', borderRadius: 2 }} />
+                <div style={{ width: 86, height: 10, background: 'var(--home-skel-fill-weak)', borderRadius: 2 }} />
               </div>
               {/* Conversion + Pipeline skeleton */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 6, paddingTop: 6 }}>
                 <div>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? colours.subtleGrey : colours.greyText, padding: '2px 0 3px', letterSpacing: '0.2px' }}>Conversion</div>
-                  <div style={{ background: isDarkMode ? 'rgba(6, 23, 51, 0.55)' : '#fff', border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(160,160,160,0.12)'}`, minHeight: 520, display: 'flex', flexDirection: 'column' }}>
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '10px 12px', borderBottom: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(160,160,160,0.12)'}` }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', padding: '2px 0 3px', letterSpacing: '0.2px' }}>Conversion</div>
+                  <div style={{ background: 'var(--home-card-bg)', border: '1px solid var(--home-card-border)', minHeight: 520, display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '10px 12px', borderBottom: '1px solid var(--home-card-border)' }}>
                       {[
                         { key: 'today', width: 56, active: true },
                         { key: 'week', width: 62, active: false },
                         { key: 'month', width: 62, active: false },
                         { key: 'quarter', width: 68, active: false },
                       ].map((tab, index) => (
-                        <div key={tab.key} style={{ width: tab.width, height: 21, border: `1px solid ${tab.active ? (isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(54,144,206,0.10)') : 'transparent'}`, background: tab.active ? (isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(54,144,206,0.06)') : (isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(13,47,96,0.03)'), animation: 'homeSkelPulse 1.5s ease-in-out infinite', animationDelay: `${index * 0.08}s` }} />
+                        <div key={tab.key} style={{ width: tab.width, height: 21, border: tab.active ? '1px solid var(--home-card-border)' : '1px solid transparent', background: tab.active ? 'var(--home-skel-fill)' : 'var(--home-skel-fill-faint)', animation: 'homeSkelPulse 1.5s ease-in-out infinite', animationDelay: `${index * 0.08}s` }} />
                       ))}
                     </div>
                     <div style={{ padding: '14px 14px 12px', display: 'grid', gap: 12, flex: 1, alignContent: 'start' }}>
                       <div style={{ display: 'grid', gap: 8 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
                           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-                            <div style={{ width: 94, height: 36, background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(54,144,206,0.06)', borderRadius: 2, animation: 'homeSkelPulse 1.5s ease-in-out infinite' }} />
-                            <div style={{ width: 42, height: 10, background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)', borderRadius: 2 }} />
+                            <div style={{ width: 94, height: 36, background: 'var(--home-skel-fill)', borderRadius: 2, animation: 'homeSkelPulse 1.5s ease-in-out infinite' }} />
+                            <div style={{ width: 42, height: 10, background: 'var(--home-skel-fill-weak)', borderRadius: 2 }} />
                           </div>
-                          <div style={{ width: 104, height: 9, background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)', borderRadius: 2 }} />
+                          <div style={{ width: 104, height: 9, background: 'var(--home-skel-fill-faint)', borderRadius: 2 }} />
                         </div>
-                        <div style={{ width: '76%', height: 11, background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)', borderRadius: 2 }} />
+                        <div style={{ width: '76%', height: 11, background: 'var(--home-skel-fill-weak)', borderRadius: 2 }} />
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
                           {[0, 1].map(i => (
-                            <div key={i} style={{ padding: '7px 9px', border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(160,160,160,0.12)'}`, background: i === 0 ? (isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(13,47,96,0.02)') : (isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(13,47,96,0.03)'), display: 'grid', gap: 4 }}>
-                              <div style={{ width: i === 0 ? '34%' : '40%', height: 8, background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(54,144,206,0.06)', borderRadius: 2 }} />
-                              <div style={{ width: '70%', height: 10, background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)', borderRadius: 2 }} />
+                            <div key={i} style={{ padding: '7px 9px', border: '1px solid var(--home-card-border)', background: i === 0 ? 'var(--home-skel-fill-faint)' : 'var(--home-skel-fill-faint)', display: 'grid', gap: 4 }}>
+                              <div style={{ width: i === 0 ? '34%' : '40%', height: 8, background: 'var(--home-skel-fill)', borderRadius: 2 }} />
+                              <div style={{ width: '70%', height: 10, background: 'var(--home-skel-fill-faint)', borderRadius: 2 }} />
                             </div>
                           ))}
                         </div>
@@ -6107,46 +6054,46 @@ const conversionRate = displayEnquiriesMonthToDate
                             {[0, 1].map(i => (
                               <div key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                                  <span style={{ width: 10, height: 0, borderTop: `1.8px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(54,144,206,0.10)'}`, display: 'inline-block' }} />
-                                  <span style={{ width: 10, height: i === 0 ? 0 : 8, borderTop: i === 0 ? 'none' : `1px dashed ${isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(13,47,96,0.05)'}`, display: 'inline-block' }} />
+                                  <span style={{ width: 10, height: 0, borderTop: '1.8px solid var(--home-card-border)', display: 'inline-block' }} />
+                                  <span style={{ width: 10, height: i === 0 ? 0 : 8, borderTop: i === 0 ? 'none' : '1px dashed var(--home-skel-fill-weak)', display: 'inline-block' }} />
                                 </span>
-                                <div style={{ width: 56, height: 8, background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)', borderRadius: 2 }} />
+                                <div style={{ width: 56, height: 8, background: 'var(--home-skel-fill-faint)', borderRadius: 2 }} />
                               </div>
                             ))}
                           </div>
-                          <div style={{ width: 56, height: 8, background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)', borderRadius: 2 }} />
+                          <div style={{ width: 56, height: 8, background: 'var(--home-skel-fill-faint)', borderRadius: 2 }} />
                         </div>
-                        <div style={{ height: 144, border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(160,160,160,0.12)'}`, background: isDarkMode ? 'linear-gradient(180deg, rgba(255,255,255,0.02) 0%, transparent 100%)' : 'linear-gradient(180deg, rgba(13,47,96,0.025) 0%, transparent 100%)', padding: '10px 12px 12px', display: 'grid', gap: 8 }}>
+                        <div style={{ height: 144, border: '1px solid var(--home-card-border)', background: isDarkMode ? 'linear-gradient(180deg, rgba(255,255,255,0.02) 0%, transparent 100%)' : 'linear-gradient(180deg, rgba(13,47,96,0.025) 0%, transparent 100%)', padding: '10px 12px 12px', display: 'grid', gap: 8 }}>
                           <svg viewBox="0 0 240 144" width="100%" height="100%" preserveAspectRatio="none" aria-hidden="true">
-                            <line x1="10" y1="132" x2="230" y2="132" stroke={isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(13,47,96,0.04)'} strokeWidth="1" />
-                            {[28, 56, 84].map(y => <line key={y} x1="10" y1={y} x2="230" y2={y} stroke={isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(13,47,96,0.04)'} strokeWidth="1" />)}
-                            <polyline points="10,78 32,74 54,70 76,68 98,60 120,58 142,62 164,54 186,50 208,56 230,52" fill="none" stroke={isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(13,47,96,0.05)'} strokeWidth="1.6" strokeDasharray="4 4" strokeLinecap="round" strokeLinejoin="round" />
-                            <polyline points="10,70 32,62 54,66 76,54 98,50 120,44 142,52 164,42 186,38 208,46 230,40" fill="none" stroke={isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(54,144,206,0.10)'} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+                            <line x1="10" y1="132" x2="230" y2="132" stroke="var(--home-chart-gridline)" strokeWidth="1" />
+                            {[28, 56, 84].map(y => <line key={y} x1="10" y1={y} x2="230" y2={y} stroke="var(--home-chart-gridline)" strokeWidth="1" />)}
+                            <polyline points="10,78 32,74 54,70 76,68 98,60 120,58 142,62 164,54 186,50 208,56 230,52" fill="none" stroke="var(--home-skel-fill-weak)" strokeWidth="1.6" strokeDasharray="4 4" strokeLinecap="round" strokeLinejoin="round" />
+                            <polyline points="10,70 32,62 54,66 76,54 98,50 120,44 142,52 164,42 186,38 208,46 230,40" fill="none" stroke="var(--home-card-border)" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
                           </svg>
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(11, minmax(0, 1fr))', gap: 4 }}>
                             {['8', '9', '10', '11', '12', '1', '2', '3', '4', '5', '6'].map((tick, index) => (
                               <div key={tick} style={{ display: 'grid', justifyItems: 'center' }}>
-                                <div style={{ width: index % 2 === 0 ? 16 : 12, height: 7, background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)', borderRadius: 2 }} />
+                                <div style={{ width: index % 2 === 0 ? 16 : 12, height: 7, background: 'var(--home-skel-fill-faint)', borderRadius: 2 }} />
                               </div>
                             ))}
                           </div>
                         </div>
                       </div>
-                      <div style={{ paddingTop: 8, borderTop: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(160,160,160,0.12)'}`, display: 'grid', gap: 6 }}>
+                      <div style={{ paddingTop: 8, borderTop: '1px solid var(--home-card-border)', display: 'grid', gap: 6 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                          <div style={{ width: 68, height: 8, background: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(54,144,206,0.06)', borderRadius: 2 }} />
-                          <div style={{ width: 74, height: 8, background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)', borderRadius: 2 }} />
+                          <div style={{ width: 68, height: 8, background: 'var(--home-skel-fill)', borderRadius: 2 }} />
+                          <div style={{ width: 74, height: 8, background: 'var(--home-skel-fill-faint)', borderRadius: 2 }} />
                         </div>
-                        <div style={{ width: '100%', minHeight: 8, border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(160,160,160,0.12)'}`, background: isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(13,47,96,0.02)', overflow: 'hidden', display: 'flex' }}>
+                        <div style={{ width: '100%', minHeight: 8, border: '1px solid var(--home-card-border)', background: 'var(--home-skel-fill-faint)', overflow: 'hidden', display: 'flex' }}>
                           {[22, 24, 18, 14, 22].map((width, index) => (
-                            <div key={index} style={{ width: `${width}%`, minHeight: 8, background: index % 2 === 0 ? (isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(54,144,206,0.06)') : (isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(13,47,96,0.04)'), animation: 'homeSkelPulse 1.5s ease-in-out infinite', animationDelay: `${index * 0.06}s` }} />
+                            <div key={index} style={{ width: `${width}%`, minHeight: 8, background: index % 2 === 0 ? 'var(--home-skel-fill)' : 'var(--home-skel-fill-weak)', animation: 'homeSkelPulse 1.5s ease-in-out infinite', animationDelay: `${index * 0.06}s` }} />
                           ))}
                         </div>
                         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                           {[0, 1, 2].map(index => (
                             <div key={index} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                              <span style={{ width: 6, height: 6, borderRadius: '50%', background: index === 1 ? (isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(13,47,96,0.04)') : (isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(54,144,206,0.06)') }} />
-                              <div style={{ width: index === 0 ? 58 : 48, height: 8, background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)', borderRadius: 2 }} />
+                              <span style={{ width: 6, height: 6, borderRadius: '50%', background: index === 1 ? 'var(--home-skel-fill-weak)' : 'var(--home-skel-fill)' }} />
+                              <div style={{ width: index === 0 ? 58 : 48, height: 8, background: 'var(--home-skel-fill-faint)', borderRadius: 2 }} />
                             </div>
                           ))}
                         </div>
@@ -6155,42 +6102,42 @@ const conversionRate = displayEnquiriesMonthToDate
                   </div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? colours.subtleGrey : colours.greyText, padding: '2px 0 3px', letterSpacing: '0.2px' }}>Pipeline</div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', padding: '2px 0 3px', letterSpacing: '0.2px' }}>Pipeline</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minHeight: 520 }}>
                     {[0,1].map(cardIndex => (
-                      <div key={cardIndex} style={{ background: isDarkMode ? 'rgba(6, 23, 51, 0.55)' : '#fff', border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(160,160,160,0.12)'}`, display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+                      <div key={cardIndex} style={{ background: 'var(--home-card-bg)', border: '1px solid var(--home-card-border)', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
                         {cardIndex === 0 ? (
-                          <div style={{ display: 'flex', borderBottom: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(160,160,160,0.12)'}` }}>
+                          <div style={{ display: 'flex', borderBottom: '1px solid var(--home-card-border)' }}>
                             {[0,1,2].map(i => (
-                              <div key={i} style={{ flex: 1, padding: '9px 6px 7px', textAlign: 'center', background: i === 0 ? (isDarkMode ? 'rgba(6,23,51,0.75)' : 'rgba(13,47,96,0.04)') : 'transparent', borderBottom: i === 0 ? `2px solid ${isDarkMode ? colours.accent : colours.highlight}` : '2px solid transparent' }}>
-                                <div style={{ width: 48, height: 9, margin: '0 auto', background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(54,144,206,0.06)', borderRadius: 2, animation: 'homeSkelPulse 1.5s ease-in-out infinite', animationDelay: `${i * 0.08}s` }} />
+                              <div key={i} style={{ flex: 1, padding: '9px 6px 7px', textAlign: 'center', background: i === 0 ? 'var(--home-tile-bg)' : 'transparent', borderBottom: i === 0 ? `2px solid ${isDarkMode ? colours.accent : colours.highlight}` : '2px solid transparent' }}>
+                                <div style={{ width: 48, height: 9, margin: '0 auto', background: 'var(--home-skel-fill)', borderRadius: 2, animation: 'homeSkelPulse 1.5s ease-in-out infinite', animationDelay: `${i * 0.08}s` }} />
                               </div>
                             ))}
                           </div>
                         ) : (
-                          <div style={{ padding: '9px 14px 7px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: isDarkMode ? 'rgba(6,23,51,0.75)' : 'rgba(13,47,96,0.04)', borderBottom: `2px solid ${isDarkMode ? colours.accent : colours.highlight}` }}>
-                            <div style={{ width: 46, height: 10, background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(54,144,206,0.06)', borderRadius: 2 }} />
-                            <div style={{ width: 48, height: 8, background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)', borderRadius: 2 }} />
+                          <div style={{ padding: '9px 14px 7px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--home-tile-bg)', borderBottom: `2px solid ${isDarkMode ? colours.accent : colours.highlight}` }}>
+                            <div style={{ width: 46, height: 10, background: 'var(--home-skel-fill)', borderRadius: 2 }} />
+                            <div style={{ width: 48, height: 8, background: 'var(--home-skel-fill-weak)', borderRadius: 2 }} />
                           </div>
                         )}
-                        <div style={{ display: 'grid', gridTemplateColumns: '20px 62px minmax(0,1fr) 34px 52px', alignItems: 'center', padding: '7px 0 5px', background: isDarkMode ? 'rgba(255,255,255,0.02)' : colours.helixBlue, borderBottom: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(160,160,160,0.12)'}` }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '20px 62px minmax(0,1fr) 34px 52px', alignItems: 'center', padding: '7px 0 5px', background: isDarkMode ? 'rgba(255,255,255,0.02)' : colours.helixBlue, borderBottom: '1px solid var(--home-card-border)' }}>
                           <div />
-                          <div style={{ width: 32, height: 8, background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.18)', borderRadius: 2, marginLeft: 8 }} />
-                          <div style={{ width: 42, height: 8, background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.18)', borderRadius: 2 }} />
-                          <div style={{ width: 18, height: 8, background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.18)', borderRadius: 2, justifySelf: 'center' }} />
-                          <div style={{ width: 34, height: 8, background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.18)', borderRadius: 2, justifySelf: 'center' }} />
+                          <div style={{ width: 32, height: 8, background: isDarkMode ? 'var(--home-skel-fill-weak)' : 'rgba(255,255,255,0.18)', borderRadius: 2, marginLeft: 8 }} />
+                          <div style={{ width: 42, height: 8, background: isDarkMode ? 'var(--home-skel-fill-weak)' : 'rgba(255,255,255,0.18)', borderRadius: 2 }} />
+                          <div style={{ width: 18, height: 8, background: isDarkMode ? 'var(--home-skel-fill-weak)' : 'rgba(255,255,255,0.18)', borderRadius: 2, justifySelf: 'center' }} />
+                          <div style={{ width: 34, height: 8, background: isDarkMode ? 'var(--home-skel-fill-weak)' : 'rgba(255,255,255,0.18)', borderRadius: 2, justifySelf: 'center' }} />
                         </div>
                         {Array.from({ length: 6 }).map((_, i) => (
-                          <div key={i} style={{ display: 'grid', gridTemplateColumns: '20px 62px minmax(0,1fr) 34px 52px', alignItems: 'center', padding: '6px 0', borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(160,160,160,0.08)'}`, animation: 'homeSkelPulse 1.5s ease-in-out infinite', animationDelay: `${i * 0.06}s` }}>
-                            <div style={{ display: 'flex', justifyContent: 'center' }}><span style={{ width: 6, height: 6, borderRadius: '50%', background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(54,144,206,0.06)', display: 'inline-block' }} /></div>
-                            <div style={{ width: 44, height: 8, background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)', borderRadius: 2, marginLeft: 8 }} />
+                          <div key={i} style={{ display: 'grid', gridTemplateColumns: '20px 62px minmax(0,1fr) 34px 52px', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--home-row-border)', animation: 'homeSkelPulse 1.5s ease-in-out infinite', animationDelay: `${i * 0.06}s` }}>
+                            <div style={{ display: 'flex', justifyContent: 'center' }}><span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--home-skel-fill)', display: 'inline-block' }} /></div>
+                            <div style={{ width: 44, height: 8, background: 'var(--home-skel-fill-weak)', borderRadius: 2, marginLeft: 8 }} />
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                              {cardIndex === 0 ? <div style={{ width: 13, height: 13, borderRadius: 2, background: isDarkMode ? 'rgba(255,255,255,0.025)' : 'rgba(0,0,0,0.025)' }} /> : null}
-                              <div style={{ width: '100%', height: 9, maxWidth: cardIndex === 0 ? 118 : 128, background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)', borderRadius: 2 }} />
+                              {cardIndex === 0 ? <div style={{ width: 13, height: 13, borderRadius: 2, background: 'var(--home-skel-fill-faint)' }} /> : null}
+                              <div style={{ width: '100%', height: 9, maxWidth: cardIndex === 0 ? 118 : 128, background: 'var(--home-skel-fill-weak)', borderRadius: 2 }} />
                             </div>
-                            <div style={{ width: 18, height: 8, background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)', borderRadius: 2, justifySelf: 'center' }} />
+                            <div style={{ width: 18, height: 8, background: 'var(--home-skel-fill-weak)', borderRadius: 2, justifySelf: 'center' }} />
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
-                              {cardIndex === 0 ? [0,1,2,3,4].map(dot => <span key={dot} style={{ width: dot === 2 ? 5 : 4, height: dot === 2 ? 5 : 4, borderRadius: '50%', background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)', display: 'inline-block' }} />) : <><span style={{ width: 6, height: 6, borderRadius: '50%', background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)', display: 'inline-block' }} /><span style={{ width: 14, height: 14, borderRadius: 2, background: isDarkMode ? 'rgba(255,255,255,0.025)' : 'rgba(0,0,0,0.025)', display: 'inline-block' }} /></>}
+                              {cardIndex === 0 ? [0,1,2,3,4].map(dot => <span key={dot} style={{ width: dot === 2 ? 5 : 4, height: dot === 2 ? 5 : 4, borderRadius: '50%', background: 'var(--home-skel-fill-weak)', display: 'inline-block' }} />) : <><span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--home-skel-fill-weak)', display: 'inline-block' }} /><span style={{ width: 14, height: 14, borderRadius: 2, background: 'var(--home-skel-fill-faint)', display: 'inline-block' }} /></>}
                             </div>
                           </div>
                         ))}
@@ -6199,7 +6146,7 @@ const conversionRate = displayEnquiriesMonthToDate
                   </div>
                 </div>
               </div>
-              <style>{`@keyframes homeSkelPulse { 0%,100% { opacity: 0.4; } 50% { opacity: 1; } }`}</style>
+              {/* homeSkelPulse keyframe now provided by home-tokens.css */}
             </div>
           }>
             <div className="home-stable-shell-panel home-stable-shell-live">
@@ -6276,7 +6223,7 @@ const conversionRate = displayEnquiriesMonthToDate
               <div className="home-stable-shell-panel home-stable-shell-loading" style={{ padding: '12px 0' }}>
                 <div style={{
                   background: isDarkMode ? 'var(--helix-website-blue)' : 'var(--surface-section)',
-                  border: `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.4)' : 'var(--border-strong)'}`,
+                  border: '1px solid var(--home-card-border)',
                   display: 'flex',
                   flexDirection: 'column',
                 }}>
@@ -6284,19 +6231,19 @@ const conversionRate = displayEnquiriesMonthToDate
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: 18 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <div style={{ width: 11, height: 11, borderRadius: 2, background: isDarkMode ? 'rgba(135,243,243,0.18)' : 'rgba(54,144,206,0.16)' }} />
-                        <div style={{ width: 108, height: 11, background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(13,47,96,0.07)', borderRadius: 2, animation: 'homeSkelPulse 1.4s ease-in-out infinite' }} />
+                        <div style={{ width: 108, height: 11, background: 'var(--home-skel-fill)', borderRadius: 2, animation: 'homeSkelPulse 1.4s ease-in-out infinite' }} />
                       </div>
-                      <div style={{ width: 56, height: 10, background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(13,47,96,0.05)', borderRadius: 2, animation: 'homeSkelPulse 1.4s ease-in-out infinite 0.08s' }} />
+                      <div style={{ width: 56, height: 10, background: 'var(--home-skel-fill-weak)', borderRadius: 2, animation: 'homeSkelPulse 1.4s ease-in-out infinite 0.08s' }} />
                     </div>
                     <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
                       {[0, 1, 2].map((group) => (
                         <React.Fragment key={group}>
-                          {group > 0 ? <div style={{ width: 1, alignSelf: 'stretch', background: isDarkMode ? 'rgba(75, 85, 99, 0.25)' : 'rgba(0,0,0,0.06)' }} /> : null}
+                          {group > 0 ? <div style={{ width: 1, alignSelf: 'stretch', background: 'var(--home-section-divider)' }} /> : null}
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                            <div style={{ width: 52, height: 9, background: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(13,47,96,0.05)', borderRadius: 2, animation: `homeSkelPulse 1.4s ease-in-out infinite ${group * 0.05}s` }} />
+                            <div style={{ width: 52, height: 9, background: 'var(--home-skel-fill)', borderRadius: 2, animation: `homeSkelPulse 1.4s ease-in-out infinite ${group * 0.05}s` }} />
                             <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', maxWidth: 160 }}>
                               {[0, 1, 2, 3].map((tile) => (
-                                <div key={tile} style={{ width: 34, height: 34, background: isDarkMode ? 'rgba(6,23,51,0.7)' : 'rgba(13,47,96,0.05)', border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.18)' : 'rgba(54,144,206,0.10)'}`, animation: `homeSkelPulse 1.4s ease-in-out infinite ${group * 0.05 + tile * 0.03}s` }} />
+                                <div key={tile} style={{ width: 34, height: 34, background: 'var(--home-tile-bg)', border: '1px solid var(--home-tile-border)', animation: `homeSkelPulse 1.4s ease-in-out infinite ${group * 0.05 + tile * 0.03}s` }} />
                               ))}
                             </div>
                           </div>
@@ -6304,25 +6251,25 @@ const conversionRate = displayEnquiriesMonthToDate
                       ))}
                     </div>
                   </div>
-                  <div style={{ height: 1, background: isDarkMode ? 'rgba(75, 85, 99, 0.25)' : 'rgba(0,0,0,0.06)' }} />
+                  <div style={{ height: 1, background: 'var(--home-section-divider)' }} />
                   <div style={{ padding: '14px 16px', display: 'grid', gap: 12 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: 18 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <div style={{ width: 11, height: 11, borderRadius: 2, background: isDarkMode ? 'rgba(135,243,243,0.18)' : 'rgba(54,144,206,0.16)' }} />
-                        <div style={{ width: 82, height: 11, background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(13,47,96,0.07)', borderRadius: 2, animation: 'homeSkelPulse 1.4s ease-in-out infinite 0.12s' }} />
+                        <div style={{ width: 82, height: 11, background: 'var(--home-skel-fill)', borderRadius: 2, animation: 'homeSkelPulse 1.4s ease-in-out infinite 0.12s' }} />
                       </div>
-                      <div style={{ width: 86, height: 10, background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(13,47,96,0.05)', borderRadius: 2, animation: 'homeSkelPulse 1.4s ease-in-out infinite 0.18s' }} />
+                      <div style={{ width: 86, height: 10, background: 'var(--home-skel-fill-weak)', borderRadius: 2, animation: 'homeSkelPulse 1.4s ease-in-out infinite 0.18s' }} />
                     </div>
                     <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
                       {[0, 1, 2].map((group) => (
                         <React.Fragment key={group}>
-                          {group > 0 ? <div style={{ width: 1, alignSelf: 'stretch', background: isDarkMode ? 'rgba(75, 85, 99, 0.25)' : 'rgba(0,0,0,0.06)' }} /> : null}
+                          {group > 0 ? <div style={{ width: 1, alignSelf: 'stretch', background: 'var(--home-section-divider)' }} /> : null}
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 120 }}>
-                            <div style={{ width: 64, height: 9, background: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(13,47,96,0.05)', borderRadius: 2, animation: `homeSkelPulse 1.4s ease-in-out infinite ${0.22 + group * 0.05}s` }} />
+                            <div style={{ width: 64, height: 9, background: 'var(--home-skel-fill)', borderRadius: 2, animation: `homeSkelPulse 1.4s ease-in-out infinite ${0.22 + group * 0.05}s` }} />
                             {[0, 1].map((row) => (
                               <div key={row} style={{ display: 'grid', gridTemplateColumns: '18px 1fr', gap: 8, alignItems: 'center' }}>
-                                <div style={{ width: 18, height: 18, background: isDarkMode ? 'rgba(6,23,51,0.7)' : 'rgba(13,47,96,0.05)', border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.18)' : 'rgba(54,144,206,0.10)'}`, animation: `homeSkelPulse 1.4s ease-in-out infinite ${0.26 + group * 0.05 + row * 0.03}s` }} />
-                                <div style={{ height: 10, width: row === 0 ? '78%' : '62%', background: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(13,47,96,0.05)', borderRadius: 2, animation: `homeSkelPulse 1.4s ease-in-out infinite ${0.3 + group * 0.05 + row * 0.03}s` }} />
+                                <div style={{ width: 18, height: 18, background: 'var(--home-tile-bg)', border: '1px solid var(--home-tile-border)', animation: `homeSkelPulse 1.4s ease-in-out infinite ${0.26 + group * 0.05 + row * 0.03}s` }} />
+                                <div style={{ height: 10, width: row === 0 ? '78%' : '62%', background: 'var(--home-skel-fill)', borderRadius: 2, animation: `homeSkelPulse 1.4s ease-in-out infinite ${0.3 + group * 0.05 + row * 0.03}s` }} />
                               </div>
                             ))}
                           </div>
@@ -6512,22 +6459,6 @@ const conversionRate = displayEnquiriesMonthToDate
           />
         )}
       </BespokePanel>
-
-      {/* Selected Form Details */}
-      {selectedForm && (
-        <FormDetails
-          isOpen={true}
-          onClose={() => {
-            setSelectedForm(null);
-            resetQuickActionsSelection();
-          }}
-          link={selectedForm}
-          isDarkMode={isDarkMode}
-          userData={userData}
-          matters={normalizedMatters}
-          offsetTop={96}
-        />
-      )}
 
       {/* Selected Resource Details */}
       {selectedResource && (

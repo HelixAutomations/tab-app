@@ -176,21 +176,21 @@ const EditEnquiryModal: React.FC<EditEnquiryModalProps> = ({
 
   const promptPalette = {
     warning: {
-      bg: isDarkMode ? 'rgba(251, 191, 36, 0.12)' : 'rgba(251, 191, 36, 0.08)',
-      border: '#f59e0b',
-      text: '#f59e0b',
+      bg: isDarkMode ? 'rgba(255, 140, 0, 0.12)' : 'rgba(255, 140, 0, 0.08)',
+      border: colours.orange,
+      text: colours.orange,
       icon: 'Warning'
     },
     error: {
-      bg: isDarkMode ? 'rgba(239, 68, 68, 0.12)' : 'rgba(239, 68, 68, 0.08)',
-      border: '#ef4444',
-      text: '#ef4444',
+      bg: isDarkMode ? 'rgba(214, 85, 65, 0.12)' : 'rgba(214, 85, 65, 0.08)',
+      border: colours.cta,
+      text: colours.cta,
       icon: 'StatusErrorFull'
     },
     success: {
-      bg: isDarkMode ? 'rgba(34, 197, 94, 0.12)' : 'rgba(34, 197, 94, 0.08)',
-      border: '#22c55e',
-      text: '#22c55e',
+      bg: isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.08)',
+      border: colours.green,
+      text: colours.green,
       icon: 'Completed'
     },
     info: {
@@ -366,7 +366,7 @@ const EditEnquiryModal: React.FC<EditEnquiryModalProps> = ({
             styles={{
               root: {
                 borderRadius: 6,
-                background: isDarkMode ? '#3b82f6' : '#3b82f6'
+                background: colours.highlight
               }
             }}
           />

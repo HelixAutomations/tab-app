@@ -11,17 +11,27 @@ import { Icon } from '@fluentui/react/lib/Icon';
 import { getProxyBaseUrl } from '../utils/getProxyBaseUrl';
 import { NormalizedMatter, UserData } from '../app/functionality/types';
 import { useTheme } from '../app/functionality/ThemeContext';
+import { colours } from '../app/styles/colours';
 import {
   getFormContainerStyle,
   getFormScrollContainerStyle,
   getFormCardStyle,
   getFormHeaderStyle,
+  getFormHeaderTitleStyle,
+  getFormHeaderSubtitleStyle,
   getFormSectionStyle,
   getFormSectionHeaderStyle,
   getInputStyles,
   getFormPrimaryButtonStyles,
   getFormDefaultButtonStyles,
-  formAccentColors
+  getFormLabelStyle,
+  getFormHelperTextStyle,
+  getFormSubmitFeedbackStyle,
+  getFormSubmitFeedbackIconStyle,
+  formFont,
+  formFieldTokens,
+  formSectionTokens,
+  formAccentColors,
 } from './shared/formStyles';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -110,10 +120,12 @@ const NotableCaseInfoForm: React.FC<NotableCaseInfoFormProps> = ({
     width: '100%',
     minHeight: '120px',
     padding: '12px',
-    border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
-    background: isDarkMode ? 'rgba(30,41,59,0.5)' : '#ffffff',
-    color: isDarkMode ? '#e2e8f0' : '#374151',
+    border: '1px solid var(--home-tile-border)',
+    background: 'var(--surface-card)',
+    color: 'var(--text-primary)',
+    fontFamily: formFont,
     fontSize: '14px',
+    lineHeight: 1.5,
     resize: 'vertical',
     outline: 'none',
     boxSizing: 'border-box',
@@ -125,8 +137,8 @@ const NotableCaseInfoForm: React.FC<NotableCaseInfoFormProps> = ({
     left: 0,
     right: 0,
     zIndex: 1000,
-    background: isDarkMode ? '#1e293b' : '#ffffff',
-    border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
+    background: isDarkMode ? '#061733' : '#ffffff',
+    border: '1px solid var(--home-tile-border)',
     maxHeight: '300px',
     overflowY: 'auto',
     marginTop: '4px',
@@ -137,17 +149,12 @@ const NotableCaseInfoForm: React.FC<NotableCaseInfoFormProps> = ({
     cursor: 'pointer',
     borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}`,
     transition: 'background-color 0.15s ease',
+    fontFamily: formFont,
     fontSize: '14px',
-    color: isDarkMode ? '#e2e8f0' : '#374151',
+    color: 'var(--text-primary)',
   };
 
-  const labelStyle: React.CSSProperties = {
-    fontWeight: 600,
-    fontSize: '13px',
-    color: isDarkMode ? '#e2e8f0' : '#374151',
-    marginBottom: '6px',
-    display: 'block',
-  };
+  const labelStyle = getFormLabelStyle(isDarkMode);
 
   // ─────────────────────────────────────────────────────────────────────────
   // EFFECTS
@@ -344,17 +351,11 @@ const NotableCaseInfoForm: React.FC<NotableCaseInfoFormProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <Icon iconName="DocumentSearch" style={{ fontSize: '20px', color: accentColor }} />
               <div>
-                <Text style={{ 
-                  fontSize: '18px', 
-                  fontWeight: 700, 
-                  color: isDarkMode ? '#f1f5f9' : '#1e293b',
-                  display: 'block',
-                  marginBottom: '2px'
-                }}>
+                <Text style={getFormHeaderTitleStyle(isDarkMode)}>
                   Notable Case Information
                 </Text>
-                <Text style={{ fontSize: '13px', color: isDarkMode ? '#94a3b8' : '#64748b' }}>
-                  Submit case details for legal directories
+                <Text style={getFormHeaderSubtitleStyle(isDarkMode)}>
+                  Record case details for legal directory submissions
                 </Text>
               </div>
             </div>
@@ -362,7 +363,7 @@ const NotableCaseInfoForm: React.FC<NotableCaseInfoFormProps> = ({
 
           {/* Content */}
           <div style={{ padding: '24px' }}>
-            <Stack tokens={{ childrenGap: 24 }}>
+            <Stack tokens={formSectionTokens}>
               {/* Validation Errors */}
               {validationErrors.length > 0 && (
                 <MessageBar messageBarType={MessageBarType.error}>
@@ -381,7 +382,7 @@ const NotableCaseInfoForm: React.FC<NotableCaseInfoFormProps> = ({
                   {formData.context_type === 'C' ? 'Matter Details' : 'Prospect / Enquiry Details'}
                 </Text>
                 
-                <Stack tokens={{ childrenGap: 16 }}>
+                <Stack tokens={formFieldTokens}>
                   {/* Context Type Selection */}
                   <div style={{ display: 'flex', gap: '24px' }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
@@ -391,7 +392,7 @@ const NotableCaseInfoForm: React.FC<NotableCaseInfoFormProps> = ({
                         onChange={() => handleInputChange('context_type', 'C')}
                         style={{ accentColor }}
                       />
-                      <span style={{ fontSize: '14px', fontWeight: 500, color: isDarkMode ? '#e2e8f0' : '#374151' }}>
+                      <span style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)' }}>
                         Client Matter
                       </span>
                     </label>
@@ -402,7 +403,7 @@ const NotableCaseInfoForm: React.FC<NotableCaseInfoFormProps> = ({
                         onChange={() => handleInputChange('context_type', 'P')}
                         style={{ accentColor }}
                       />
-                      <span style={{ fontSize: '14px', fontWeight: 500, color: isDarkMode ? '#e2e8f0' : '#374151' }}>
+                      <span style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)' }}>
                         Prospect / Enquiry
                       </span>
                     </label>
@@ -421,15 +422,16 @@ const NotableCaseInfoForm: React.FC<NotableCaseInfoFormProps> = ({
                           setMatterDropdownOpen(true);
                         }}
                         onFocus={() => setMatterDropdownOpen(true)}
-                        placeholder="Search and select a matter..."
+                        placeholder="Search by matter number or client name"
                         style={{
                           width: '100%',
-                          height: '40px',
-                          border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
-                          background: isDarkMode ? 'rgba(30,41,59,0.5)' : '#ffffff',
+                          height: '44px',
+                          border: '1px solid var(--home-tile-border)',
+                          background: 'var(--surface-card)',
                           padding: '0 12px',
+                          fontFamily: formFont,
                           fontSize: '14px',
-                          color: isDarkMode ? '#e2e8f0' : '#374151',
+                          color: 'var(--text-primary)',
                           outline: 'none',
                           boxSizing: 'border-box',
                         }}
@@ -454,7 +456,7 @@ const NotableCaseInfoForm: React.FC<NotableCaseInfoFormProps> = ({
                                 {matter.displayNumber}
                               </div>
                               {matter.clientName && (
-                                <div style={{ fontSize: '13px', color: isDarkMode ? '#94a3b8' : '#6b7280' }}>
+                                <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
                                   {matter.clientName}
                                 </div>
                               )}
@@ -473,12 +475,13 @@ const NotableCaseInfoForm: React.FC<NotableCaseInfoFormProps> = ({
                         placeholder="Enter prospect or enquiry reference"
                         style={{
                           width: '100%',
-                          height: '40px',
-                          border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
-                          background: isDarkMode ? 'rgba(30,41,59,0.5)' : '#ffffff',
+                          height: '44px',
+                          border: '1px solid var(--home-tile-border)',
+                          background: 'var(--surface-card)',
                           padding: '0 12px',
+                          fontFamily: formFont,
                           fontSize: '14px',
-                          color: isDarkMode ? '#e2e8f0' : '#374151',
+                          color: 'var(--text-primary)',
                           outline: 'none',
                           boxSizing: 'border-box',
                         }}
@@ -495,7 +498,7 @@ const NotableCaseInfoForm: React.FC<NotableCaseInfoFormProps> = ({
                       style={textAreaStyle}
                       value={formData.merit_press}
                       onChange={(e) => handleInputChange('merit_press', e.target.value)}
-                      placeholder="Explain potential press / PR merit"
+                      placeholder="What makes this case noteworthy for press or PR coverage?"
                       rows={3}
                       disabled={isSubmitting}
                     />
@@ -510,7 +513,7 @@ const NotableCaseInfoForm: React.FC<NotableCaseInfoFormProps> = ({
                       style={textAreaStyle}
                       value={formData.summary}
                       onChange={(e) => handleInputChange('summary', e.target.value)}
-                      placeholder="Include: parties, central issues, value, counsel instructed, next steps"
+                      placeholder="Include: parties involved, central issues, value, counsel instructed, next steps"
                       rows={4}
                       disabled={isSubmitting}
                     />
@@ -530,16 +533,17 @@ const NotableCaseInfoForm: React.FC<NotableCaseInfoFormProps> = ({
                   <div
                     onClick={() => setValueDropdownOpen(!valueDropdownOpen)}
                     style={{
-                      height: '40px',
-                      border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
-                      background: isDarkMode ? 'rgba(30,41,59,0.5)' : '#ffffff',
+                      height: '44px',
+                      border: '1px solid var(--home-tile-border)',
+                      background: 'var(--surface-card)',
                       display: 'flex',
                       alignItems: 'center',
                       padding: '0 12px',
                       cursor: 'pointer',
+                      fontFamily: formFont,
                       color: formData.value_in_dispute 
-                        ? (isDarkMode ? '#e2e8f0' : '#374151')
-                        : (isDarkMode ? '#64748b' : '#9ca3af'),
+                        ? 'var(--text-primary)'
+                        : 'var(--text-muted)',
                       fontSize: '14px',
                     }}
                   >
@@ -549,7 +553,7 @@ const NotableCaseInfoForm: React.FC<NotableCaseInfoFormProps> = ({
                       style={{ 
                         marginLeft: 'auto', 
                         fontSize: '12px',
-                        color: isDarkMode ? '#94a3b8' : '#6b7280',
+                        color: 'var(--text-muted)',
                         transform: valueDropdownOpen ? 'rotate(180deg)' : 'none',
                         transition: 'transform 0.2s ease',
                       }} 
@@ -597,7 +601,7 @@ const NotableCaseInfoForm: React.FC<NotableCaseInfoFormProps> = ({
                   Additional Information
                 </Text>
                 
-                <Stack tokens={{ childrenGap: 16 }}>
+                <Stack tokens={formFieldTokens}>
                   <div>
                     <Toggle
                       label={formData.context_type === 'C' 
@@ -611,16 +615,11 @@ const NotableCaseInfoForm: React.FC<NotableCaseInfoFormProps> = ({
                         label: {
                           fontWeight: 600,
                           fontSize: '13px',
-                          color: isDarkMode ? '#e2e8f0' : '#374151',
+                          color: 'var(--text-primary)',
                         },
                       }}
                     />
-                    <Text style={{ 
-                      fontSize: '12px', 
-                      color: isDarkMode ? '#64748b' : '#9ca3af',
-                      fontStyle: 'italic',
-                      marginTop: '4px'
-                    }}>
+                    <Text style={getFormHelperTextStyle(isDarkMode)}>
                       Suitable for legal directories and professional publications
                     </Text>
                   </div>
@@ -636,7 +635,7 @@ const NotableCaseInfoForm: React.FC<NotableCaseInfoFormProps> = ({
                           label: {
                             fontWeight: 600,
                             fontSize: '13px',
-                            color: isDarkMode ? '#e2e8f0' : '#374151',
+                            color: 'var(--text-primary)',
                           },
                         }}
                       />
@@ -657,34 +656,23 @@ const NotableCaseInfoForm: React.FC<NotableCaseInfoFormProps> = ({
 
               {/* Status Feedback */}
               {submitStatus !== 'idle' && (
-                <div style={{
-                  padding: '16px',
-                  borderLeft: `3px solid ${
-                    submitStatus === 'success' ? '#22c55e' :
-                    submitStatus === 'error' ? '#ef4444' : '#3b82f6'
-                  }`,
-                  background: isDarkMode 
-                    ? `rgba(${submitStatus === 'success' ? '34, 197, 94' : submitStatus === 'error' ? '239, 68, 68' : '59, 130, 246'}, 0.1)`
-                    : `rgba(${submitStatus === 'success' ? '34, 197, 94' : submitStatus === 'error' ? '239, 68, 68' : '59, 130, 246'}, 0.05)`,
-                }}>
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '10px',
-                    color: submitStatus === 'success' ? '#22c55e' :
-                           submitStatus === 'error' ? '#ef4444' : '#3b82f6',
-                  }}>
-                    <Icon 
-                      iconName={
-                        submitStatus === 'success' ? 'CheckMark' :
-                        submitStatus === 'error' ? 'ErrorBadge' : 'More'
-                      } 
-                      style={{ fontSize: '18px' }} 
-                    />
-                    <Text style={{ fontWeight: 600, fontSize: '14px' }}>
-                      {submitMessage}
-                    </Text>
-                  </div>
+                <div style={getFormSubmitFeedbackStyle(isDarkMode,
+                  submitStatus === 'success' ? 'success' :
+                  submitStatus === 'error' ? 'error' : 'info'
+                )}>
+                  <Icon 
+                    iconName={
+                      submitStatus === 'success' ? 'CheckMark' :
+                      submitStatus === 'error' ? 'ErrorBadge' : 'More'
+                    } 
+                    style={getFormSubmitFeedbackIconStyle(
+                      submitStatus === 'success' ? 'success' :
+                      submitStatus === 'error' ? 'error' : 'info'
+                    )} 
+                  />
+                  <Text style={{ fontWeight: 600, fontSize: '13px' }}>
+                    {submitMessage}
+                  </Text>
                 </div>
               )}
 
@@ -697,11 +685,11 @@ const NotableCaseInfoForm: React.FC<NotableCaseInfoFormProps> = ({
                 borderTop: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}`,
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Icon iconName="Contact" style={{ fontSize: '14px', color: isDarkMode ? '#94a3b8' : '#6b7280' }} />
+                  <Icon iconName="Contact" style={{ fontSize: '14px', color: 'var(--text-muted)' }} />
                   <Text style={{ 
                     fontSize: '13px', 
                     fontWeight: 600, 
-                    color: isDarkMode ? '#e2e8f0' : '#374151' 
+                    color: 'var(--text-primary)' 
                   }}>
                     {users?.[0]?.FullName?.split(' ')[0] || 'User'}
                   </Text>

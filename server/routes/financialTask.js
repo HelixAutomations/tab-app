@@ -1,11 +1,13 @@
 const express = require('express');
-const { sql } = require('../utils/db');
-const { getClient } = require('../utils/getSecret');
+const { sql, withRequest } = require('../utils/db');
+const { getClient, getSecret } = require('../utils/getSecret');
+const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
 const router = express.Router();
 
 const KV_URI = "https://helix-keys.vault.azure.net/";
 const ONEDRIVE_DRIVE_ID = "b!Yvwb2hcQd0Sccr_JiZEOOEqq1HfNiPFCs8wM4QfDlvVbiAZXWhpCS47xKdZKl8Vd";
 const ASANA_PROJECT_ID = "1203336124217593";
+const PAYMENT_REQUESTS_WEBHOOK_SECRET_NAME = 'payment-request-logic-app-url';
 
 function createHttpError(status, code, message, details) {
   const err = new Error(message);
@@ -32,24 +34,18 @@ const FILE_FIELD_MAPPING = {
 
 // Get Asana credentials from SQL by team initials
 async function getAsanaCredentials(initials) {
-  const secretClient = getClient();
-  const passwordSecret = await secretClient.getSecret("sql-databaseserver-password");
+  const connStr = process.env.SQL_CONNECTION_STRING;
+  if (!connStr) throw new Error('SQL_CONNECTION_STRING not configured');
   
-  const pool = await sql.connect({
-    server: "helix-database-server.database.windows.net",
-    database: "helix-core-data",
-    user: "helix-database-server",
-    password: passwordSecret.value,
-    options: { encrypt: true, enableArithAbort: true }
+  const result = await withRequest(connStr, async (request) => {
+    return request
+      .input('Initials', sql.NVarChar, initials.toUpperCase())
+      .query(`
+        SELECT [ASANAClient_ID], [ASANASecret], [ASANARefreshToken], [ASANAUser_ID]
+        FROM [dbo].[team]
+        WHERE UPPER([Initials]) = @Initials
+      `);
   });
-  
-  const result = await pool.request()
-    .input('Initials', sql.NVarChar, initials.toUpperCase())
-    .query(`
-      SELECT [ASANAClient_ID], [ASANASecret], [ASANARefreshToken], [ASANAUser_ID]
-      FROM [dbo].[team]
-      WHERE UPPER([Initials]) = @Initials
-    `);
   
   if (result.recordset.length === 0) return null;
   
@@ -233,6 +229,72 @@ function sanitizeDataForTask(data) {
   return sanitised;
 }
 
+async function postPaymentRequestWebhook(data, requestId) {
+  const operation = 'paymentRequestWebhook';
+  const startedAt = Date.now();
+
+  try {
+    const webhookUrl = await getSecret(PAYMENT_REQUESTS_WEBHOOK_SECRET_NAME);
+    if (!webhookUrl) {
+      console.warn('[financial-task] Payment request webhook missing', { requestId });
+      return;
+    }
+
+    trackEvent('Forms.PaymentRequestWebhook.Started', {
+      operation,
+      triggeredBy: 'financial-task',
+      requestId,
+    });
+
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+
+    if (!response.ok) {
+      const error = createHttpError(
+        response.status,
+        'PAYMENT_REQUEST_WEBHOOK_FAILED',
+        'Payment request webhook failed.',
+        `Upstream status ${response.status}`
+      );
+      throw error;
+    }
+
+    const durationMs = Date.now() - startedAt;
+    trackEvent('Forms.PaymentRequestWebhook.Completed', {
+      operation,
+      triggeredBy: 'financial-task',
+      requestId,
+      durationMs,
+    });
+    trackMetric('Forms.PaymentRequestWebhook.Duration', durationMs, {
+      operation,
+      triggeredBy: 'financial-task',
+    });
+  } catch (error) {
+    const durationMs = Date.now() - startedAt;
+    console.warn('[financial-task] Payment request webhook failed', {
+      message: error?.message,
+      requestId,
+    });
+    trackException(error instanceof Error ? error : new Error(String(error)), {
+      operation,
+      phase: 'postWebhook',
+      requestId,
+      triggeredBy: 'financial-task',
+    });
+    trackEvent('Forms.PaymentRequestWebhook.Failed', {
+      operation,
+      triggeredBy: 'financial-task',
+      requestId,
+      durationMs,
+      error: error?.message || 'Unknown error',
+    });
+  }
+}
+
 // POST /api/financial-task - Create financial task in Asana with OneDrive attachment
 router.post('/', async (req, res) => {
   const { formType, data, initials } = req.body;
@@ -242,6 +304,7 @@ router.post('/', async (req, res) => {
   const requestId = arrLogId || `local-${startedAt.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const contentLength = req.get('content-length');
   const dataKeys = data && typeof data === 'object' ? Object.keys(data) : [];
+  const operation = 'createFinancialTask';
 
   // Trace (do not log values; may include sensitive financial data)
   console.log('[financial-task] Incoming request', {
@@ -250,6 +313,13 @@ router.post('/', async (req, res) => {
     keys: dataKeys,
     keyCount: dataKeys.length,
     contentLength,
+    requestId,
+  });
+
+  trackEvent('Forms.FinancialTask.Started', {
+    operation,
+    triggeredBy: initials || 'unknown',
+    formType: formType || 'unknown',
     requestId,
   });
   
@@ -392,6 +462,24 @@ router.post('/', async (req, res) => {
       requestId,
       ms: Date.now() - startedAt,
     });
+
+    if (formType === 'Payment Requests') {
+      await postPaymentRequestWebhook(data, requestId);
+    }
+
+    const durationMs = Date.now() - startedAt;
+    trackEvent('Forms.FinancialTask.Completed', {
+      operation,
+      triggeredBy: initials,
+      formType,
+      requestId,
+      durationMs,
+    });
+    trackMetric('Forms.FinancialTask.Duration', durationMs, {
+      operation,
+      triggeredBy: initials,
+      formType,
+    });
     
     res.json({
       message: "Task created and OneDrive upload completed (if applicable).",
@@ -404,6 +492,22 @@ router.post('/', async (req, res) => {
       name: error?.name,
       requestId,
       ms: Date.now() - startedAt,
+    });
+
+    trackException(error instanceof Error ? error : new Error(String(error)), {
+      operation,
+      phase: 'route',
+      requestId,
+      triggeredBy: initials || 'unknown',
+      formType: formType || 'unknown',
+    });
+    trackEvent('Forms.FinancialTask.Failed', {
+      operation,
+      triggeredBy: initials || 'unknown',
+      formType: formType || 'unknown',
+      requestId,
+      durationMs: Date.now() - startedAt,
+      error: error?.message || 'Unknown error',
     });
 
     const status = typeof error?.status === 'number' ? error.status : 500;

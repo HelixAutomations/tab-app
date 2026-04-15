@@ -21,9 +21,9 @@ const verificationButtonStyle = (status: string) => ({
     fontWeight: 400,
     borderRadius: 0,
     border: '1px solid', // Changed from 2px to 1px for a neater look
-    borderColor: status === 'passed' ? '#107C10' : '#FFB900',
-    background: status === 'passed' ? '#e6f4ea' : '#fffbe6',
-    color: status === 'passed' ? '#107C10' : '#b88600',
+    borderColor: status === 'passed' ? colours.green : colours.orange,
+    background: status === 'passed' ? 'rgba(32, 178, 108, 0.12)' : 'rgba(255, 140, 0, 0.1)',
+    color: status === 'passed' ? colours.green : colours.orange,
     marginRight: 0,
     marginBottom: 0,
     minWidth: 0,
@@ -66,13 +66,13 @@ function getExpiryCountdown(expiryDateString: string | undefined): string | null
 const getVerificationColor = (result: string) => {
     const level = result?.toLowerCase();
     if (level === 'passed' || level === 'pass' || level === 'approved') {
-        return { background: '#e6f4ea', text: '#107C10', border: '#107C10' };
+        return { background: 'rgba(32, 178, 108, 0.12)', text: colours.green, border: colours.green };
     }
     if (level === 'review' || level === 'pending') {
-        return { background: '#fffbe6', text: '#b88600', border: '#FFB900' };
+        return { background: 'rgba(255, 140, 0, 0.1)', text: colours.orange, border: colours.orange };
     }
     if (level === 'failed' || level === 'fail' || level === 'rejected') {
-        return { background: '#fde7e9', text: '#d13438', border: '#d13438' };
+        return { background: 'rgba(214, 85, 65, 0.12)', text: colours.cta, border: colours.cta };
     }
     return { background: '#f4f4f6', text: '#666', border: '#e1dfdd' };
 };
@@ -545,9 +545,9 @@ const PoidCard: React.FC<PoidCardProps> = ({ poid, selected, onClick, teamData, 
                             {paymentResult && (
                                 <div style={{
                                     padding: '4px 8px',
-                                    backgroundColor: paymentResult === 'successful' ? '#e6f4ea' : paymentResult === 'failed' ? '#fde7e9' : '#fffbe6',
-                                    color: paymentResult === 'successful' ? '#107C10' : paymentResult === 'failed' ? '#d13438' : '#b88600',
-                                    border: `1px solid ${paymentResult === 'successful' ? '#107C10' : paymentResult === 'failed' ? '#d13438' : '#FFB900'}60`,
+                                    backgroundColor: paymentResult === 'successful' ? 'rgba(32, 178, 108, 0.12)' : paymentResult === 'failed' ? 'rgba(214, 85, 65, 0.12)' : 'rgba(255, 140, 0, 0.1)',
+                                    color: paymentResult === 'successful' ? colours.green : paymentResult === 'failed' ? colours.cta : colours.orange,
+                                    border: `1px solid ${paymentResult === 'successful' ? colours.green : paymentResult === 'failed' ? colours.cta : colours.orange}60`,
                                     borderRadius: '4px',
                                     fontSize: '0.65rem',
                                     fontWeight: 600,
@@ -616,7 +616,7 @@ const PoidCard: React.FC<PoidCardProps> = ({ poid, selected, onClick, teamData, 
                     {/* Verification expiry - subtle info */}
                     {checkExpiry && (
                         <Text variant="xSmall" styles={{ root: { 
-                            color: getExpiryCountdown(checkExpiry) === 'expired' ? '#d13438' : '#888',
+                            color: getExpiryCountdown(checkExpiry) === 'expired' ? colours.cta : colours.subtleGrey,
                             fontStyle: 'italic',
                             fontSize: '0.7rem',
                             fontFamily: 'Raleway, sans-serif'
@@ -629,7 +629,7 @@ const PoidCard: React.FC<PoidCardProps> = ({ poid, selected, onClick, teamData, 
                         <Stack tokens={{ childrenGap: 4 }} verticalAlign="center">
                             {paymentResult && (
                                 <Stack horizontal tokens={{ childrenGap: 8 }} verticalAlign="center">
-                                    <Text variant="small" styles={{ root: { color: paymentResult === 'successful' ? '#107C10' : paymentResult === 'failed' ? '#D83B01' : '#555', fontFamily: 'Raleway, sans-serif' } }}>Payment: {paymentResult}</Text>
+                                    <Text variant="small" styles={{ root: { color: paymentResult === 'successful' ? colours.green : paymentResult === 'failed' ? colours.cta : colours.greyText, fontFamily: 'Raleway, sans-serif' } }}>Payment: {paymentResult}</Text>
                                 </Stack>
                             )}
                             {((serviceDescription && serviceDescription.trim() && serviceDescription !== '0') || (dealAmount && dealAmount > 0 && !isNaN(dealAmount))) && (

@@ -126,7 +126,7 @@ const SkeletonMetricCard: React.FC<{ isDarkMode: boolean; index: number; showPro
 // Toast notification component
 const Toast: React.FC<{ message: string; type: 'info' | 'success' | 'error'; visible: boolean; isDarkMode: boolean }> = ({ message, type, visible, isDarkMode }) => {
   const bgColor = type === 'success' 
-    ? (isDarkMode ? 'rgba(16, 185, 129, 0.15)' : 'rgba(16, 185, 129, 0.1)') 
+    ? (isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(32, 178, 108, 0.1)') 
     : type === 'error' 
       ? (isDarkMode ? 'rgba(214, 85, 65, 0.15)' : 'rgba(214, 85, 65, 0.1)') 
       : (isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)');
@@ -652,7 +652,7 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
               </div>
             )}
             {detailsError && (
-              <div style={{ fontSize: 12, color: isDarkMode ? '#FCA5A5' : '#DC2626' }}>
+              <div style={{ fontSize: 12, color: colours.cta }}>
                 {detailsError}
               </div>
             )}

@@ -256,8 +256,8 @@ const getRangeButtonStyles = (
         : active
           ? '#fff'
           : isDarkMode
-            ? '#e2e8f0'
-            : '#1e293b',
+            ? colours.dark.text
+            : colours.darkBlue,
       cursor: disabled ? 'not-allowed' : 'pointer',
       opacity: disabled ? 0.6 : 1,
       fontFamily: 'Raleway, sans-serif',
@@ -322,8 +322,8 @@ const getRoleButtonStyles = (
         : active
           ? '#fff'
           : isDarkMode
-            ? '#e2e8f0'
-            : '#475569',
+            ? colours.dark.text
+            : colours.greyText,
       background: resolvedBackground,
       cursor: disabled ? 'not-allowed' : 'pointer',
       opacity: disabled ? 0.6 : 1,
@@ -376,7 +376,7 @@ const getTeamButtonStyles = (
       fontSize: 12,
       border: activeBorder,
       background: activeBackground,
-      color: active ? '#ffffff' : (isDarkMode ? '#E2E8F0' : colours.helixBlue),
+      color: active ? '#ffffff' : (isDarkMode ? colours.dark.text : colours.helixBlue),
       boxShadow: active
         ? (isDarkMode ? '0 2px 8px rgba(54, 144, 206, 0.3)' : '0 2px 8px rgba(54, 144, 206, 0.25)')
         : 'none',
@@ -411,9 +411,9 @@ const clearFilterButtonStyle = (isDarkMode: boolean): React.CSSProperties => ({
   padding: '0 12px',
   height: 32,
   borderRadius: 8,
-  border: `1px solid ${isDarkMode ? 'rgba(239, 68, 68, 0.35)' : 'rgba(239, 68, 68, 0.25)'}`,
-  background: isDarkMode ? 'rgba(239, 68, 68, 0.12)' : 'rgba(254, 242, 242, 0.85)',
-  color: isDarkMode ? '#fca5a5' : '#dc2626',
+  border: `1px solid ${isDarkMode ? 'rgba(214, 85, 65, 0.35)' : 'rgba(214, 85, 65, 0.25)'}`,
+  background: isDarkMode ? 'rgba(214, 85, 65, 0.12)' : 'rgba(214, 85, 65, 0.06)',
+  color: colours.cta,
   gap: 6,
   cursor: 'pointer',
   transition: 'all 0.2s ease',
@@ -433,7 +433,7 @@ const dateStampButtonStyle = (isDarkMode: boolean): React.CSSProperties => ({
   borderRadius: 10,
   border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(13, 47, 96, 0.16)'}`,
   background: isDarkMode ? 'rgba(15, 23, 42, 0.8)' : 'rgba(255, 255, 255, 0.95)',
-  color: isDarkMode ? '#E2E8F0' : colours.helixBlue,
+  color: isDarkMode ? colours.dark.text : colours.helixBlue,
   minWidth: 120,
   cursor: 'pointer',
   transition: 'all 0.2s ease',
@@ -1076,7 +1076,7 @@ const AnnualLeaveReport: React.FC<Props> = ({
                   background: isDarkMode ? "rgba(15, 23, 42, 0.8)" : "rgba(255, 255, 255, 0.95)",
                   fontSize: 12,
                   fontWeight: 600,
-                  color: isDarkMode ? "#E2E8F0" : colours.helixBlue,
+                  color: isDarkMode ? colours.dark.text : colours.helixBlue,
                   transition: "border-color 1s ease",
                 }}
                 title={
@@ -1127,7 +1127,7 @@ const AnnualLeaveReport: React.FC<Props> = ({
                     borderRadius: 8,
                     border: `1px solid ${isDarkMode ? "rgba(148, 163, 184, 0.24)" : "rgba(13, 47, 96, 0.16)"}`,
                     background: isDarkMode ? "rgba(15, 23, 42, 0.8)" : "rgba(255, 255, 255, 0.95)",
-                    color: isDarkMode ? "#E2E8F0" : colours.helixBlue,
+                    color: isDarkMode ? colours.dark.text : colours.helixBlue,
                     cursor: isFetching ? "default" : "pointer",
                     opacity: isFetching ? 0.6 : 1,
                     transition: "all 0.2s ease",
@@ -1157,7 +1157,7 @@ const AnnualLeaveReport: React.FC<Props> = ({
                   borderRadius: 8,
                   border: `1px solid ${isDarkMode ? "rgba(148, 163, 184, 0.24)" : "rgba(13, 47, 96, 0.16)"}`,
                   background: isDarkMode ? "rgba(15, 23, 42, 0.8)" : "rgba(255, 255, 255, 0.95)",
-                  color: showRoleFilter ? (isDarkMode ? "#60a5fa" : colours.highlight) : (isDarkMode ? "rgba(148, 163, 184, 0.6)" : "rgba(13, 47, 96, 0.5)"),
+                  color: showRoleFilter ? (isDarkMode ? colours.accent : colours.highlight) : (isDarkMode ? "rgba(148, 163, 184, 0.6)" : "rgba(13, 47, 96, 0.5)"),
                   cursor: "pointer",
                   transform: showRoleFilter ? "translateY(-1px)" : "translateY(0)",
                   transition: "all 0.2s ease",
@@ -1181,7 +1181,7 @@ const AnnualLeaveReport: React.FC<Props> = ({
                     borderRadius: 8,
                     border: `1px solid ${isDarkMode ? "rgba(148, 163, 184, 0.24)" : "rgba(13, 47, 96, 0.16)"}`,
                     background: isDarkMode ? "rgba(15, 23, 42, 0.8)" : "rgba(255, 255, 255, 0.95)",
-                    color: isDarkMode ? "#60a5fa" : colours.highlight,
+                    color: isDarkMode ? colours.accent : colours.highlight,
                     cursor: "pointer",
                     transform: showDatasetInfo ? "translateY(-1px)" : "translateY(0)",
                     transition: "all 0.2s ease",
@@ -1208,11 +1208,11 @@ const AnnualLeaveReport: React.FC<Props> = ({
                       lineHeight: 1.5,
                       width: 260,
                       zIndex: 1000,
-                      color: isDarkMode ? "#e2e8f0" : "#334155",
+                      color: isDarkMode ? colours.dark.text : colours.greyText,
                       textAlign: "left",
                     }}
                   >
-                    <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 13, color: isDarkMode ? "#60a5fa" : colours.highlight }}>
+                    <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 13, color: isDarkMode ? colours.accent : colours.highlight }}>
                       Dataset information
                     </div>
                     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -1561,7 +1561,7 @@ const AnnualLeaveReport: React.FC<Props> = ({
                               ? "rgba(148, 163, 184, 0.06)"
                               : "rgba(248, 250, 252, 0.8)"
                             : "transparent",
-                          color: isDarkMode ? "#e2e8f0" : "#1f2937",
+                          color: isDarkMode ? colours.dark.text : colours.light.text,
                         }}
                       >
                         <td style={{ padding: "10px 12px" }}>{entry.dateLabel}</td>
@@ -1578,11 +1578,11 @@ const AnnualLeaveReport: React.FC<Props> = ({
                               fontSize: 11,
                               fontWeight: 600,
                               background: entry.status.toLowerCase() === "booked"
-                                ? (isDarkMode ? "rgba(16, 185, 129, 0.18)" : "rgba(16, 185, 129, 0.16)")
+                                ? (isDarkMode ? "rgba(32, 178, 108, 0.18)" : "rgba(32, 178, 108, 0.16)")
                                 : (isDarkMode ? "rgba(148, 163, 184, 0.14)" : "rgba(148, 163, 184, 0.18)"),
                               color: entry.status.toLowerCase() === "booked"
-                                ? (isDarkMode ? "#34d399" : "#047857")
-                                : (isDarkMode ? "#e2e8f0" : "#0f172a"),
+                                ? colours.green
+                                : (isDarkMode ? colours.dark.text : colours.light.text),
                             }}
                           >
                             {entry.status}
@@ -1658,7 +1658,7 @@ const AnnualLeaveReport: React.FC<Props> = ({
                             ? "rgba(148, 163, 184, 0.06)"
                             : "rgba(248, 250, 252, 0.8)"
                           : "transparent",
-                        color: isDarkMode ? "#e2e8f0" : "#1f2937",
+                        color: isDarkMode ? colours.dark.text : colours.light.text,
                       }}
                     >
                       <td style={{ padding: "10px 12px", fontWeight: 600 }}>
@@ -1681,11 +1681,11 @@ const AnnualLeaveReport: React.FC<Props> = ({
                             fontSize: 11,
                             fontWeight: 600,
                             background: entry.status.toLowerCase() === "booked"
-                              ? (isDarkMode ? "rgba(16, 185, 129, 0.18)" : "rgba(16, 185, 129, 0.16)")
+                              ? (isDarkMode ? "rgba(32, 178, 108, 0.18)" : "rgba(32, 178, 108, 0.16)")
                               : (isDarkMode ? "rgba(148, 163, 184, 0.14)" : "rgba(148, 163, 184, 0.18)"),
                             color: entry.status.toLowerCase() === "booked"
-                              ? (isDarkMode ? "#34d399" : "#047857")
-                              : (isDarkMode ? "#e2e8f0" : "#0f172a"),
+                              ? colours.green
+                              : (isDarkMode ? colours.dark.text : colours.light.text),
                           }}
                         >
                           {entry.status}
@@ -1707,4 +1707,4 @@ const AnnualLeaveReport: React.FC<Props> = ({
 };
 
 
-export default AnnualLeaveReport;
+export default React.memo(AnnualLeaveReport);

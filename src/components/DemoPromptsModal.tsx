@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useTheme } from '../app/functionality/ThemeContext';
+import { colours } from '../app/styles/colours';
 
 interface DemoPromptsModalProps {
   isOpen: boolean;
@@ -86,19 +87,19 @@ const DemoPromptsModal: React.FC<DemoPromptsModalProps> = ({ isOpen, onClose }) 
   const bg = isDarkMode ? '#0f172a' : '#ffffff';
   const bgSubtle = isDarkMode ? 'rgba(30,41,59,0.6)' : '#f8fafc';
   const border = isDarkMode ? 'rgba(148,163,184,0.15)' : 'rgba(203,213,225,0.4)';
-  const text = isDarkMode ? '#e2e8f0' : '#1e293b';
-  const textMuted = isDarkMode ? '#94a3b8' : '#64748b';
-  const accent = '#3690CE';
-  const successColor = isDarkMode ? '#4ade80' : '#166534';
+  const text = isDarkMode ? colours.dark.text : colours.light.text;
+  const textMuted = isDarkMode ? colours.subtleGrey : colours.greyText;
+  const accent = colours.highlight;
+  const successColor = colours.green;
 
   const statusColor = (status: string) => {
     switch (status) {
       case 'completed':
-        return '#22c55e';
+        return colours.green;
       case 'approved':
-        return '#3b82f6';
+        return colours.highlight;
       case 'not-started':
-        return '#a1a1aa';
+        return colours.subtleGrey;
       default:
         return textMuted;
     }
@@ -264,7 +265,7 @@ const DemoPromptsModal: React.FC<DemoPromptsModalProps> = ({ isOpen, onClose }) 
                               : 'rgba(203,213,225,0.5)'
                         }`,
                         borderRadius: '4px',
-                        color: phase.value ? (isDarkMode ? '#4ade80' : '#166534') : textMuted,
+                        color: phase.value ? colours.green : textMuted,
                         fontWeight: 600,
                       }}
                     >

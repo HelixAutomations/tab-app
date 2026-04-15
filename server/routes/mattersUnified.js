@@ -143,55 +143,41 @@ async function performMattersUnifiedQuery(queryParams) {
     throw new Error('Missing DB connection strings');
   }
 
-  // Query both databases
-  let legacyAll = [];
-  let legacyError = null;
-  try {
-    const legacyStart = Date.now();
-    legacyAll = await withRequest(legacyConn, async (request) => {
-      const q = 'SELECT * FROM matters';
-      const r = await request.query(q);
+  // Query both databases in parallel (independent connections)
+  const parallelStart = Date.now();
+  const [legacyResult, vnetResult] = await Promise.allSettled([
+    withRequest(legacyConn, async (request) => {
+      const r = await request.query('SELECT * FROM matters');
       return Array.isArray(r.recordset) ? r.recordset : [];
-    });
-    const legacyMs = Date.now() - legacyStart;
-    if (legacyMs > 5000) {
-      console.warn('[mattersUnified] slow legacy query', { ms: legacyMs });
-    }
-  } catch (err) {
-    legacyAll = [];
-    legacyError = err;
-    console.error('❌ Legacy matters query failed:', err?.message || err);
-  }
-
-  let vnetAll = [];
-  let vnetError = null;
-  try {
-    const vnetStart = Date.now();
-    vnetAll = await withRequest(vnetConn, async (request) => {
+    }),
+    withRequest(vnetConn, async (request) => {
       if (!norm) {
         const r = await request.query('SELECT * FROM Matters');
         return Array.isArray(r.recordset) ? r.recordset : [];
       }
       request.input('name', sql.VarChar(200), norm);
       request.input('nameLike', sql.VarChar(210), `%${norm}%`);
-      const q = `
+      const r = await request.query(`
         SELECT * FROM Matters
         WHERE (
           LOWER(ResponsibleSolicitor) = @name OR LOWER(OriginatingSolicitor) = @name
           OR LOWER(ResponsibleSolicitor) LIKE @nameLike OR LOWER(OriginatingSolicitor) LIKE @nameLike
-        )`;
-      const r = await request.query(q);
+        )`);
       return Array.isArray(r.recordset) ? r.recordset : [];
-    });
-    const vnetMs = Date.now() - vnetStart;
-    if (vnetMs > 5000) {
-      console.warn('[mattersUnified] slow vnet query', { ms: vnetMs, filtered: !!norm });
-    }
-  } catch (err) {
-    vnetAll = [];
-    vnetError = err;
-    console.error('❌ VNet matters query failed:', err?.message || err);
+    }),
+  ]);
+  const parallelMs = Date.now() - parallelStart;
+  if (parallelMs > 5000) {
+    console.warn('[mattersUnified] slow parallel query', { ms: parallelMs, filtered: !!norm });
   }
+
+  const legacyAll = legacyResult.status === 'fulfilled' ? legacyResult.value : [];
+  const legacyError = legacyResult.status === 'rejected' ? legacyResult.reason : null;
+  if (legacyError) console.error('❌ Legacy matters query failed:', legacyError?.message || legacyError);
+
+  const vnetAll = vnetResult.status === 'fulfilled' ? vnetResult.value : [];
+  const vnetError = vnetResult.status === 'rejected' ? vnetResult.reason : null;
+  if (vnetError) console.error('❌ VNet matters query failed:', vnetError?.message || vnetError);
 
   // Return fields expected by the frontend (legacyAll/vnetAll) and keep
   // legacy/vnet aliases for compatibility with any exploratory callers.

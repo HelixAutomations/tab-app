@@ -149,7 +149,7 @@ class ErrorBoundary extends Component<Props, State> {
               textAlign: 'center',
             }}
           >
-            <h1 style={{ color: '#d13438', marginBottom: '16px' }}>
+            <h1 style={{ color: colours.cta, marginBottom: '16px' }}>
               We hit a problem
             </h1>
             <p style={{ color: '#666', marginBottom: '16px', lineHeight: '1.5' }}>
@@ -199,7 +199,7 @@ class ErrorBoundary extends Component<Props, State> {
                   style={{
                     overflow: 'auto',
                     fontSize: '12px',
-                    color: '#d13438',
+                    color: colours.cta,
                     margin: '8px 0',
                   }}
                 >

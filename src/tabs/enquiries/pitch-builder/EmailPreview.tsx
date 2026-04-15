@@ -388,7 +388,7 @@ const EmailPreview: React.FC<EmailPreviewProps> = ({
             <div style={{
               fontSize: '14px',
               fontWeight: 500,
-              color: '#e65100'
+              color: colours.orange
             }}>
               {followUpOptions[followUp] || followUp}
             </div>
@@ -500,7 +500,7 @@ const EmailPreview: React.FC<EmailPreviewProps> = ({
                 },
                 rootHovered: {
                   backgroundColor: isDraftConfirmed ? '#d1edd1' : '#f8f9fa',
-                  borderColor: isDraftConfirmed ? '#107c10' : '#dadce0',
+                  borderColor: isDraftConfirmed ? colours.green : '#dadce0',
                   transform: 'translateY(-1px)',
                   boxShadow: '0 2px 6px rgba(0,0,0,0.1)'
                 },

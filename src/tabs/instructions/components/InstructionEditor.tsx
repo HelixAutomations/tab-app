@@ -167,7 +167,7 @@ if (typeof window !== 'undefined' && !document.getElementById('instruction-edito
     
     .template-callout {
       background: #fff4ce;
-      border: 1px solid #ffb900;
+      border: 1px solid ${colours.orange};
       border-radius: 4px;
       padding: 12px;
       margin-bottom: 16px;

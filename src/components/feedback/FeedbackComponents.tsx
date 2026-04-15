@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { FaCheck, FaTimes, FaInfoCircle, FaExclamationTriangle, FaSpinner } from 'react-icons/fa';
 import { ANIMATION_DURATION, EASING, createTransition } from '../../app/styles/animations';
+import { colours } from '../../app/styles/colours';
 
 // Types for feedback states
 export type FeedbackType = 'success' | 'error' | 'warning' | 'info' | 'loading';
@@ -53,9 +54,9 @@ export const ActionFeedback: React.FC<ActionFeedbackProps> = ({
 
   const getColors = () => {
     const colors = {
-      success: { bg: 'rgba(34, 197, 94, 0.15)', border: '#22c55e', text: '#22c55e' },
-      error: { bg: 'rgba(239, 68, 68, 0.15)', border: '#ef4444', text: '#ef4444' },
-      warning: { bg: 'rgba(251, 191, 36, 0.15)', border: '#fbbf24', text: '#fbbf24' },
+      success: { bg: `rgba(32, 178, 108, 0.15)`, border: colours.green, text: colours.green },
+      error: { bg: `rgba(214, 85, 65, 0.15)`, border: colours.cta, text: colours.cta },
+      warning: { bg: `rgba(255, 140, 0, 0.15)`, border: colours.orange, text: colours.orange },
       info: { bg: 'rgba(54, 144, 206, 0.15)', border: '#3690CE', text: '#3690CE' },
       loading: { bg: 'rgba(148, 163, 184, 0.15)', border: '#94a3b8', text: '#94a3b8' },
     };
@@ -161,8 +162,8 @@ export const ActionButton: React.FC<ActionButtonProps> = ({
         text: isDarkMode ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.85)',
       },
       danger: {
-        bg: '#ef4444',
-        bgHover: '#dc2626',
+        bg: colours.cta,
+        bgHover: colours.cta,
         text: '#ffffff',
       },
     };
@@ -182,7 +183,7 @@ export const ActionButton: React.FC<ActionButtonProps> = ({
     borderRadius: 6,
     border: 'none',
     cursor: disabled || state === 'loading' ? 'not-allowed' : 'pointer',
-    backgroundColor: state === 'success' ? '#22c55e' : state === 'error' ? '#ef4444' : variantStyles.bg,
+    backgroundColor: state === 'success' ? colours.green : state === 'error' ? colours.cta : variantStyles.bg,
     color: variantStyles.text,
     opacity: disabled ? 0.5 : 1,
     transition: createTransition(['background-color', 'opacity', 'transform'], 'fast'),
@@ -353,9 +354,9 @@ export const StatusPill: React.FC<StatusPillProps> = ({
 }) => {
   const getStatusColors = () => {
     const colors = {
-      complete: { bg: 'rgba(34, 197, 94, 0.15)', border: '#22c55e30', text: '#22c55e' },
-      review: { bg: 'rgba(239, 68, 68, 0.15)', border: '#ef444430', text: '#ef4444' },
-      processing: { bg: 'rgba(251, 191, 36, 0.15)', border: '#fbbf2430', text: '#fbbf24' },
+      complete: { bg: `rgba(32, 178, 108, 0.15)`, border: `${colours.green}30`, text: colours.green },
+      review: { bg: `rgba(214, 85, 65, 0.15)`, border: `${colours.cta}30`, text: colours.cta },
+      processing: { bg: `rgba(255, 140, 0, 0.15)`, border: `${colours.orange}30`, text: colours.orange },
       pending: { bg: isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.1)', border: '#94a3b830', text: '#94a3b8' },
     };
     return colors[status];

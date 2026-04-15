@@ -3976,7 +3976,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                             case 'sync-pending':
                               return { icon: '◒', color: isDarkMode ? colours.accent : colours.highlight, label: 'Pending', title: 'Sync pending' };
                             case 'instructions-only':
-                              return { icon: '●', color: isDarkMode ? '#c4b5fd' : '#8b5cf6', label: 'New', title: 'New system only' };
+                              return { icon: '●', color: isDarkMode ? colours.accent : colours.highlight, label: 'New', title: 'New system only' };
                             default:
                               return { icon: '○', color: isDarkMode ? colours.greyText : colours.subtleGrey, label: 'Unknown', title: 'Migration status unknown' };
                           }
@@ -5386,4 +5386,4 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
 };
 
 export type { MarketingMetrics, GoogleAnalyticsMetrics, GoogleAdsMetrics, MetaAdsMetrics };
-export default EnquiriesReport;
+export default React.memo(EnquiriesReport);

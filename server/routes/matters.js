@@ -1,55 +1,14 @@
 const express = require('express');
 const sql = require('mssql');
-const { getSecret } = require('../utils/getSecret');
+const { withRequest, getPool } = require('../utils/db');
 
 const router = express.Router();
 
-// Database connection configuration
-let dbConfig = null;
-
-async function getDbConfig() {
-  if (dbConfig) return dbConfig;
-  
-  // Use the INSTRUCTIONS_SQL_CONNECTION_STRING from .env
-  const connectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
-  if (!connectionString) {
-    throw new Error('INSTRUCTIONS_SQL_CONNECTION_STRING not found in environment');
-  }
-  
-  // Parse connection string into config object
-  const params = new URLSearchParams(connectionString.split(';').join('&'));
-  const server = params.get('Server').replace('tcp:', '').split(',')[0];
-  const database = params.get('Initial Catalog');
-  const user = params.get('User ID');
-  const password = params.get('Password');
-  
-  dbConfig = {
-    server,
-    database, 
-    user,
-    password,
-    options: {
-      encrypt: true,
-      trustServerCertificate: false,
-      enableArithAbort: true
-    }
-  };
-  
-  return dbConfig;
-}
-
-// Database connection pool
-let pool;
-
-// Initialize database connection
-async function initializeDatabase() {
-    if (!pool) {
-        const config = await getDbConfig();
-        pool = new sql.ConnectionPool(config);
-        await pool.connect();
-    }
-    return pool;
-}
+const getInstrConnStr = () => {
+  const s = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+  if (!s) throw new Error('INSTRUCTIONS_SQL_CONNECTION_STRING not configured');
+  return s;
+};
 
 /**
  * Get matter details from our database by instruction reference
@@ -59,7 +18,7 @@ router.get('/details/:instructionRef', async (req, res) => {
         const { instructionRef } = req.params;
         
         // Initialize database connection
-        await initializeDatabase();
+        const pool = await getPool(getInstrConnStr());
         
         // Query matter details from database
         const result = await pool.request()
@@ -152,7 +111,7 @@ router.get('/:id', async (req, res) => {
 
         if (displayNumber) {
             try {
-                const db = await initializeDatabase();
+                const db = await getPool(getInstrConnStr());
                 await db.request()
                     .input('matterID', sql.NVarChar(255), id)
                     .input('displayNumber', sql.NVarChar(255), displayNumber)
@@ -311,9 +270,8 @@ router.get('/enquiry-lookup/:email', async (req, res) => {
     const legacyConnStr = process.env.SQL_CONNECTION_STRING;
     if (legacyConnStr) {
         try {
-            const pool = await new sql.ConnectionPool(legacyConnStr).connect();
-            try {
-                const result = await pool.request()
+            const result = await withRequest(legacyConnStr, async (request) => {
+                return request
                     .input('email', sql.NVarChar(255), email.toLowerCase())
                     .query(`
                         SELECT TOP 10 
@@ -338,7 +296,8 @@ router.get('/enquiry-lookup/:email', async (req, res) => {
                         WHERE LOWER(Email) = @email
                         ORDER BY Touchpoint_Date DESC
                     `);
-                const rows = result.recordset || [];
+            });
+            const rows = result.recordset || [];
                 results.legacy = {
                     found: rows.length > 0,
                     count: rows.length,
@@ -362,9 +321,6 @@ router.get('/enquiry-lookup/:email', async (req, res) => {
                     })),
                     error: null
                 };
-            } finally {
-                await pool.close();
-            }
         } catch (err) {
             console.error('Legacy enquiry lookup failed:', err.message);
             results.legacy.error = err.message;
@@ -377,9 +333,8 @@ router.get('/enquiry-lookup/:email', async (req, res) => {
     const instructionsConnStr = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
     if (instructionsConnStr) {
         try {
-            const pool = await new sql.ConnectionPool(instructionsConnStr).connect();
-            try {
-                const result = await pool.request()
+            const result = await withRequest(instructionsConnStr, async (request) => {
+                return request
                     .input('email', sql.NVarChar(255), email.toLowerCase())
                     .query(`
                         SELECT TOP 10 
@@ -392,7 +347,8 @@ router.get('/enquiry-lookup/:email', async (req, res) => {
                         WHERE LOWER(email) = @email
                         ORDER BY datetime DESC
                     `);
-                const rows = result.recordset || [];
+            });
+            const rows = result.recordset || [];
                 results.instructions = {
                     found: rows.length > 0,
                     count: rows.length,
@@ -416,9 +372,7 @@ router.get('/enquiry-lookup/:email', async (req, res) => {
                     })),
                     error: null
                 };
-            } finally {
-                await pool.close();
-            }
+
         } catch (err) {
             console.error('Instructions enquiry lookup failed:', err.message);
             results.instructions.error = err.message;

@@ -230,16 +230,16 @@ function groupPracticeArea(practiceArea: string): "Commercial" | "Construction" 
 function getGroupColor(group: string): string {
     switch (group) {
         case 'Commercial':
-            return '#0078d4';
+            return colours.highlight;
         case 'Construction':
-            return '#ff8c00';
+            return colours.orange;
         case 'Property':
-            return '#107c10';
+            return colours.green;
         case 'Employment':
-            return '#ffb900';
+            return colours.yellow;
         case 'Miscellaneous':
         default:
-            return '#d13438';
+            return colours.cta;
     }
 }
 
@@ -419,9 +419,9 @@ const clearFilterButtonStyle = (isDarkMode: boolean): React.CSSProperties => ({
     padding: '0 12px',
     height: 32,
     borderRadius: 8,
-    border: `1px solid ${isDarkMode ? 'rgba(239, 68, 68, 0.35)' : 'rgba(239, 68, 68, 0.25)'}`,
-    background: isDarkMode ? 'rgba(239, 68, 68, 0.12)' : 'rgba(254, 242, 242, 0.85)',
-    color: isDarkMode ? '#fca5a5' : '#dc2626',
+    border: `1px solid ${isDarkMode ? 'rgba(214, 85, 65, 0.35)' : 'rgba(214, 85, 65, 0.25)'}`,
+    background: isDarkMode ? 'rgba(214, 85, 65, 0.12)' : 'rgba(214, 85, 65, 0.06)',
+    color: isDarkMode ? colours.cta : colours.cta,
     gap: 6,
     cursor: 'pointer',
     transition: 'all 0.2s ease',
@@ -851,14 +851,14 @@ const getDataQualityScore = (wipSources: { clio: number; sql: number; manual: nu
 const formatROI = (roi: number, wipSources: { clio: number; sql: number; manual: number }, collectedSources: { clio: number; sql: number; manual: number }): { display: string; color: string; reliability: string } => {
     const quality = getDataQualityScore(wipSources, collectedSources);
     
-    let color = '#6b7280'; // gray for no data
+    let color = colours.greyText; // gray for no data
     let reliability = 'No data';
     
     if (quality.score > 0) {
         // Color based on ROI performance
-        if (roi >= 50) color = '#059669'; // green for good ROI
-        else if (roi >= 0) color = '#d97706'; // amber for break-even
-        else color = '#dc2626'; // red for negative ROI
+        if (roi >= 50) color = colours.green; // green for good ROI
+        else if (roi >= 0) color = colours.orange; // amber for break-even
+        else color = colours.cta; // red for negative ROI
         
         // Reliability based on data quality
         reliability = quality.score >= 70 ? 'High' : quality.score >= 50 ? 'Medium' : 'Low';
@@ -1017,9 +1017,9 @@ const MattersReport: React.FC<MattersReportProps> = ({
                     };
                 case 'instruction':
                     return {
-                        bg: isDarkMode ? 'rgba(34, 197, 94, 0.18)' : 'rgba(16, 185, 129, 0.12)',
-                        border: isDarkMode ? 'rgba(74, 222, 128, 0.45)' : 'rgba(34, 197, 94, 0.45)',
-                        color: isDarkMode ? '#86efac' : '#064e3b',
+                        bg: isDarkMode ? 'rgba(32, 178, 108, 0.18)' : 'rgba(32, 178, 108, 0.12)',
+                        border: isDarkMode ? 'rgba(32, 178, 108, 0.45)' : 'rgba(32, 178, 108, 0.45)',
+                        color: colours.green,
                     };
                 default:
                     return {
@@ -2644,13 +2644,13 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                     {selectedMatter?.DisplayNumber}
                                 </FluentLink>
                                 <span style={{ 
-                                    background: selectedMatter?.Status === 'Open' ? (isDarkMode ? '#10b98140' : '#dcfce7') : (isDarkMode ? '#6b728040' : '#f3f4f6'),
-                                    color: selectedMatter?.Status === 'Open' ? (isDarkMode ? '#34d399' : '#16a34a') : (isDarkMode ? '#9ca3af' : '#6b7280'),
+                                    background: selectedMatter?.Status === 'Open' ? (isDarkMode ? `${colours.green}40` : 'rgba(32, 178, 108, 0.08)') : (isDarkMode ? '#6b728040' : '#f3f4f6'),
+                                    color: selectedMatter?.Status === 'Open' ? (isDarkMode ? colours.green : colours.green) : (isDarkMode ? colours.subtleGrey : colours.greyText),
                                     padding: '4px 12px',
                                     borderRadius: '6px',
                                     fontWeight: 600,
                                     fontSize: '12px',
-                                    border: `1px solid ${selectedMatter?.Status === 'Open' ? (isDarkMode ? '#10b981' : '#16a34a') : (isDarkMode ? '#6b7280' : '#d1d5db')}`
+                                    border: `1px solid ${selectedMatter?.Status === 'Open' ? colours.green : (isDarkMode ? colours.greyText : '#d1d5db')}`
                                 }}>
                                     {selectedMatter?.Status || 'Open'}
                                 </span>
@@ -2671,7 +2671,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                             minWidth: 200,
                                             flex: 1
                                         }}>
-                                            <span style={{ color: isDarkMode ? '#94a3b8' : colours.light.subText, fontSize: 12, display: 'block', marginBottom: 8 }}>Work in Progress</span>
+                                            <span style={{ color: isDarkMode ? colours.subtleGrey : colours.light.subText, fontSize: 12, display: 'block', marginBottom: 8 }}>Work in Progress</span>
                                             <span style={{ fontSize: 24, fontWeight: 700, color: isDarkMode ? '#f1f5f9' : '#111827' }}>
                                                 {formatCurrency(getMatterFinancials(selectedMatter).wip)}
                                             </span>
@@ -2685,8 +2685,8 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                             minWidth: 200,
                                             flex: 1
                                         }}>
-                                            <span style={{ color: isDarkMode ? '#94a3b8' : colours.light.subText, fontSize: 12, display: 'block', marginBottom: 8 }}>Collected Fees</span>
-                                            <span style={{ fontSize: 24, fontWeight: 700, color: isDarkMode ? '#34d399' : '#16a34a' }}>
+                                            <span style={{ color: isDarkMode ? colours.subtleGrey : colours.light.subText, fontSize: 12, display: 'block', marginBottom: 8 }}>Collected Fees</span>
+                                            <span style={{ fontSize: 24, fontWeight: 700, color: colours.green }}>
                                                 {formatCurrency(getMatterFinancials(selectedMatter).collected)}
                                             </span>
                                         </div>
@@ -2700,8 +2700,8 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                 minWidth: 200,
                                                 flex: 1
                                             }}>
-                                                <span style={{ color: isDarkMode ? '#94a3b8' : colours.light.subText, fontSize: 12, display: 'block', marginBottom: 8 }}>Outstanding Balance</span>
-                                                <span style={{ fontSize: 24, fontWeight: 700, color: isDarkMode ? '#f59e0b' : '#d97706' }}>
+                                                <span style={{ color: isDarkMode ? colours.subtleGrey : colours.light.subText, fontSize: 12, display: 'block', marginBottom: 8 }}>Outstanding Balance</span>
+                                                <span style={{ fontSize: 24, fontWeight: 700, color: colours.orange }}>
                                                     {formatCurrency(matterOutstandingData.total_outstanding_balance || matterOutstandingData.due || 0)}
                                                 </span>
                                             </div>
@@ -2718,52 +2718,52 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                         <span style={{ fontWeight: 600, color: isDarkMode ? '#e2e8f0' : '#374151', display: 'block', marginBottom: 16 }}>Matter Details</span>
                                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                                             <div>
-                                                <span style={{ color: isDarkMode ? '#64748b' : colours.light.subText, fontSize: 12 }}>Practice Area</span>
+                                                <span style={{ color: isDarkMode ? colours.greyText : colours.light.subText, fontSize: 12 }}>Practice Area</span>
                                                 <div style={{ fontWeight: 500, color: isDarkMode ? '#f1f5f9' : '#111827' }}>{selectedMatter?.PracticeArea || '—'}</div>
                                             </div>
                                             <div>
-                                                <span style={{ color: isDarkMode ? '#64748b' : colours.light.subText, fontSize: 12 }}>Description</span>
+                                                <span style={{ color: isDarkMode ? colours.greyText : colours.light.subText, fontSize: 12 }}>Description</span>
                                                 <div style={{ fontWeight: 500, color: isDarkMode ? '#f1f5f9' : '#111827' }}>{selectedMatter?.Description || '—'}</div>
                                             </div>
                                             <div>
-                                                <span style={{ color: isDarkMode ? '#64748b' : colours.light.subText, fontSize: 12 }}>Open Date</span>
+                                                <span style={{ color: isDarkMode ? colours.greyText : colours.light.subText, fontSize: 12 }}>Open Date</span>
                                                 <div style={{ fontWeight: 500, color: isDarkMode ? '#f1f5f9' : '#111827' }}>
                                                     {selectedMatter?.OpenDate ? format(parseISO(selectedMatter.OpenDate), 'dd MMM yyyy') : '—'}
                                                 </div>
                                             </div>
                                             <div>
-                                                <span style={{ color: isDarkMode ? '#64748b' : colours.light.subText, fontSize: 12 }}>Source</span>
+                                                <span style={{ color: isDarkMode ? colours.greyText : colours.light.subText, fontSize: 12 }}>Source</span>
                                                 <div style={{ fontWeight: 500, color: isDarkMode ? '#f1f5f9' : '#111827' }}>{selectedMatter?.Source || '—'}</div>
                                             </div>
                                             <div>
-                                                <span style={{ color: isDarkMode ? '#64748b' : colours.light.subText, fontSize: 12 }}>Opponent</span>
+                                                <span style={{ color: isDarkMode ? colours.greyText : colours.light.subText, fontSize: 12 }}>Opponent</span>
                                                 <div style={{ fontWeight: 500, color: isDarkMode ? '#f1f5f9' : '#111827' }}>{selectedMatter?.Opponent || '—'}</div>
                                             </div>
                                             <div>
-                                                <span style={{ color: isDarkMode ? '#64748b' : colours.light.subText, fontSize: 12 }}>Opponent Solicitor</span>
+                                                <span style={{ color: isDarkMode ? colours.greyText : colours.light.subText, fontSize: 12 }}>Opponent Solicitor</span>
                                                 <div style={{ fontWeight: 500, color: isDarkMode ? '#f1f5f9' : '#111827' }}>{selectedMatter?.OpponentSolicitor || '—'}</div>
                                             </div>
                                         </div>
 
                                         {/* Team Avatars */}
                                         <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}` }}>
-                                            <span style={{ color: isDarkMode ? '#64748b' : colours.light.subText, fontSize: 12, display: 'block', marginBottom: 12 }}>Team</span>
+                                            <span style={{ color: isDarkMode ? colours.greyText : colours.light.subText, fontSize: 12, display: 'block', marginBottom: 12 }}>Team</span>
                                             <div style={{ display: 'flex', gap: 12 }}>
                                                 <div title={`${selectedMatter?.OriginatingSolicitor} (Originating)`} style={{
-                                                    width: 40, height: 40, borderRadius: '50%', background: '#0ea5e9', color: 'white',
+                                                    width: 40, height: 40, borderRadius: '50%', background: colours.highlight, color: 'white',
                                                     display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 14
                                                 }}>
                                                     {getInitialsFromName(selectedMatter?.OriginatingSolicitor || '')}
                                                 </div>
                                                 <div title={`${selectedMatter?.ResponsibleSolicitor} (Responsible)`} style={{
-                                                    width: 40, height: 40, borderRadius: '50%', background: '#22c55e', color: 'white',
+                                                    width: 40, height: 40, borderRadius: '50%', background: colours.green, color: 'white',
                                                     display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 14
                                                 }}>
                                                     {getInitialsFromName(selectedMatter?.ResponsibleSolicitor || '')}
                                                 </div>
                                                 {selectedMatter?.SupervisingPartner && (
                                                     <div title={`${selectedMatter?.SupervisingPartner} (Supervising)`} style={{
-                                                        width: 40, height: 40, borderRadius: '50%', background: '#f59e0b', color: 'white',
+                                                        width: 40, height: 40, borderRadius: '50%', background: colours.orange, color: 'white',
                                                         display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 14
                                                     }}>
                                                         {getInitialsFromName(selectedMatter?.SupervisingPartner || '')}
@@ -2790,14 +2790,14 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                                             {selectedMatter?.ClientEmail && (
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                                    <Icon iconName="Mail" style={{ fontSize: 14, color: isDarkMode ? '#64748b' : colours.light.subText }} />
-                                                    <span style={{ color: isDarkMode ? '#94a3b8' : '#6b7280', fontSize: 13 }}>{selectedMatter.ClientEmail}</span>
+                                                    <Icon iconName="Mail" style={{ fontSize: 14, color: isDarkMode ? colours.greyText : colours.light.subText }} />
+                                                    <span style={{ color: isDarkMode ? colours.subtleGrey : colours.greyText, fontSize: 13 }}>{selectedMatter.ClientEmail}</span>
                                                 </div>
                                             )}
                                             {selectedMatter?.ClientPhone && (
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                                    <Icon iconName="Phone" style={{ fontSize: 14, color: isDarkMode ? '#64748b' : colours.light.subText }} />
-                                                    <span style={{ color: isDarkMode ? '#94a3b8' : '#6b7280', fontSize: 13 }}>{selectedMatter.ClientPhone}</span>
+                                                    <Icon iconName="Phone" style={{ fontSize: 14, color: isDarkMode ? colours.greyText : colours.light.subText }} />
+                                                    <span style={{ color: isDarkMode ? colours.subtleGrey : colours.greyText, fontSize: 13 }}>{selectedMatter.ClientPhone}</span>
                                                 </div>
                                             )}
                                         </div>
@@ -3110,8 +3110,8 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                 className="filter-icon-button"
                                 style={{
                                     color: showRoleFilter 
-                                        ? (isDarkMode ? '#34d399' : '#10b981') 
-                                        : (isDarkMode ? '#94a3b8' : '#64748b'),
+                                        ? colours.green 
+                                        : (isDarkMode ? colours.subtleGrey : colours.greyText),
                                     transform: showRoleFilter ? 'translateY(-1px)' : 'translateY(0)'
                                 }}
                                 title={showRoleFilter ? "Hide role filter" : "Show role filter"}
@@ -3129,7 +3129,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                 onMouseLeave={() => setShowDatasetInfo(false)}
                                 className="filter-icon-button"
                                 style={{
-                                    color: isDarkMode ? '#60a5fa' : colours.highlight,
+                                    color: colours.highlight,
                                     transform: showDatasetInfo ? 'translateY(-1px)' : 'translateY(0)'
                                 }}
                                 title="Dataset information"
@@ -3140,7 +3140,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
 
                             {showDatasetInfo && (
                                 <div className="filter-dataset-tooltip">
-                                    <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 13, color: isDarkMode ? '#60a5fa' : colours.highlight }}>
+                                    <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 13, color: colours.highlight }}>
                                         Dataset Date Ranges
                                     </div>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -3332,7 +3332,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'space-between',
-                        color: isDarkMode ? '#94a3b8' : '#6b7280',
+                        color: isDarkMode ? colours.subtleGrey : colours.greyText,
                         fontSize: 12,
                         fontWeight: 600
                     }}
@@ -3342,7 +3342,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                         Advanced Filters
                         {(statusFilter !== 'all' || collectedMin || collectedMax || wipMin || wipMax) && (
                             <span style={{
-                                background: isDarkMode ? '#3b82f6' : '#2563eb',
+                                background: colours.highlight,
                                 color: '#fff',
                                 padding: '2px 6px',
                                 borderRadius: 10,
@@ -3384,16 +3384,16 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                             fontSize: 11,
                                             fontWeight: statusFilter === status ? 700 : 500,
                                             background: statusFilter === status 
-                                                ? (isDarkMode ? 'rgba(59, 130, 246, 0.3)' : 'rgba(37, 99, 235, 0.1)')
+                                                ? (isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.1)')
                                                 : 'transparent',
                                             border: `1px solid ${statusFilter === status 
-                                                ? (isDarkMode ? '#3b82f6' : '#2563eb')
+                                                ? colours.highlight
                                                 : (isDarkMode ? 'rgba(71, 85, 105, 0.4)' : 'rgba(209, 213, 219, 0.8)')}`,
                                             borderRadius: 6,
                                             cursor: 'pointer',
                                             color: statusFilter === status
-                                                ? (isDarkMode ? '#60a5fa' : '#2563eb')
-                                                : (isDarkMode ? '#94a3b8' : '#6b7280'),
+                                                ? colours.highlight
+                                                : (isDarkMode ? colours.subtleGrey : colours.greyText),
                                             transition: 'all 0.15s'
                                         }}
                                     >
@@ -3414,7 +3414,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                 Collected:
                             </label>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <span style={{ fontSize: 11, color: isDarkMode ? '#64748b' : '#9ca3af' }}>£</span>
+                                <span style={{ fontSize: 11, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>£</span>
                                 <input
                                     type="number"
                                     placeholder="Min"
@@ -3431,7 +3431,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                         outline: 'none'
                                     }}
                                 />
-                                <span style={{ fontSize: 11, color: isDarkMode ? '#64748b' : '#9ca3af' }}>to £</span>
+                                <span style={{ fontSize: 11, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>to £</span>
                                 <input
                                     type="number"
                                     placeholder="Max"
@@ -3468,16 +3468,16 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                             fontSize: 10,
                                             fontWeight: 500,
                                             background: (collectedMin === preset.min && collectedMax === preset.max)
-                                                ? (isDarkMode ? 'rgba(34, 197, 94, 0.2)' : 'rgba(22, 163, 74, 0.1)')
+                                                ? (isDarkMode ? 'rgba(32, 178, 108, 0.2)' : 'rgba(32, 178, 108, 0.1)')
                                                 : 'transparent',
                                             border: `1px solid ${(collectedMin === preset.min && collectedMax === preset.max)
-                                                ? (isDarkMode ? '#22c55e' : '#16a34a')
+                                                ? colours.green
                                                 : (isDarkMode ? 'rgba(71, 85, 105, 0.3)' : 'rgba(209, 213, 219, 0.6)')}`,
                                             borderRadius: 4,
                                             cursor: 'pointer',
                                             color: (collectedMin === preset.min && collectedMax === preset.max)
-                                                ? (isDarkMode ? '#4ade80' : '#16a34a')
-                                                : (isDarkMode ? '#64748b' : '#9ca3af'),
+                                                ? colours.green
+                                                : (isDarkMode ? colours.greyText : colours.subtleGrey),
                                             transition: 'all 0.15s'
                                         }}
                                     >
@@ -3498,7 +3498,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                 WIP:
                             </label>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <span style={{ fontSize: 11, color: isDarkMode ? '#64748b' : '#9ca3af' }}>£</span>
+                                <span style={{ fontSize: 11, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>£</span>
                                 <input
                                     type="number"
                                     placeholder="Min"
@@ -3515,7 +3515,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                         outline: 'none'
                                     }}
                                 />
-                                <span style={{ fontSize: 11, color: isDarkMode ? '#64748b' : '#9ca3af' }}>to £</span>
+                                <span style={{ fontSize: 11, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>to £</span>
                                 <input
                                     type="number"
                                     placeholder="Max"
@@ -3554,13 +3554,13 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                 ? (isDarkMode ? 'rgba(251, 191, 36, 0.2)' : 'rgba(245, 158, 11, 0.1)')
                                                 : 'transparent',
                                             border: `1px solid ${(wipMin === preset.min && wipMax === preset.max)
-                                                ? (isDarkMode ? '#fbbf24' : '#f59e0b')
+                                                ? colours.orange
                                                 : (isDarkMode ? 'rgba(71, 85, 105, 0.3)' : 'rgba(209, 213, 219, 0.6)')}`,
                                             borderRadius: 4,
                                             cursor: 'pointer',
                                             color: (wipMin === preset.min && wipMax === preset.max)
-                                                ? (isDarkMode ? '#fcd34d' : '#d97706')
-                                                : (isDarkMode ? '#64748b' : '#9ca3af'),
+                                                ? colours.orange
+                                                : (isDarkMode ? colours.greyText : colours.subtleGrey),
                                             transition: 'all 0.15s'
                                         }}
                                     >
@@ -3585,11 +3585,11 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                         padding: '6px 14px',
                                         fontSize: 11,
                                         fontWeight: 600,
-                                        background: isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(220, 38, 38, 0.08)',
-                                        border: `1px solid ${isDarkMode ? 'rgba(239, 68, 68, 0.4)' : 'rgba(220, 38, 38, 0.3)'}`,
+                                        background: isDarkMode ? 'rgba(214, 85, 65, 0.15)' : 'rgba(214, 85, 65, 0.08)',
+                                        border: `1px solid ${isDarkMode ? 'rgba(214, 85, 65, 0.4)' : 'rgba(214, 85, 65, 0.3)'}`,
                                         borderRadius: 6,
                                         cursor: 'pointer',
-                                        color: isDarkMode ? '#f87171' : '#dc2626',
+                                        color: colours.cta,
                                         transition: 'all 0.15s'
                                     }}
                                 >
@@ -3656,7 +3656,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                         border: `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.3)' : 'rgba(209, 213, 219, 0.6)'}`,
                         borderRadius: 8
                     }}>
-                        <span style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? '#94a3b8' : '#6b7280', marginRight: 4 }}>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? colours.subtleGrey : colours.greyText, marginRight: 4 }}>
                             Active Filters:
                         </span>
                         {activeFilters.map((filter, idx) => (
@@ -3669,10 +3669,10 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                     padding: '4px 10px',
                                     fontSize: 10,
                                     fontWeight: 500,
-                                    background: isDarkMode ? 'rgba(59, 130, 246, 0.15)' : 'rgba(37, 99, 235, 0.08)',
-                                    border: `1px solid ${isDarkMode ? 'rgba(59, 130, 246, 0.3)' : 'rgba(37, 99, 235, 0.2)'}`,
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.08)',
+                                    border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)'}`,
                                     borderRadius: 12,
-                                    color: isDarkMode ? '#60a5fa' : '#2563eb'
+                                    color: colours.highlight
                                 }}
                             >
                                 {filter.label}
@@ -3685,7 +3685,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                         padding: 0,
                                         fontSize: 14,
                                         lineHeight: 1,
-                                        color: isDarkMode ? '#60a5fa' : '#2563eb',
+                                        color: colours.highlight,
                                         opacity: 0.7
                                     }}
                                     title="Remove filter"
@@ -3714,11 +3714,11 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                     padding: '4px 10px',
                                     fontSize: 10,
                                     fontWeight: 600,
-                                    background: isDarkMode ? 'rgba(239, 68, 68, 0.1)' : 'rgba(220, 38, 38, 0.05)',
-                                    border: `1px solid ${isDarkMode ? 'rgba(239, 68, 68, 0.3)' : 'rgba(220, 38, 38, 0.2)'}`,
+                                    background: isDarkMode ? 'rgba(214, 85, 65, 0.1)' : 'rgba(214, 85, 65, 0.05)',
+                                    border: `1px solid ${isDarkMode ? 'rgba(214, 85, 65, 0.3)' : 'rgba(214, 85, 65, 0.2)'}`,
                                     borderRadius: 12,
                                     cursor: 'pointer',
-                                    color: isDarkMode ? '#f87171' : '#dc2626',
+                                    color: colours.cta,
                                     marginLeft: 'auto'
                                 }}
                             >
@@ -3780,7 +3780,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                     </h3>
                                     <div style={{
                                         fontSize: '11px',
-                                        color: isDarkMode ? '#64748b' : '#6b7280',
+                                        color: colours.greyText,
                                         marginTop: '4px'
                                     }}>
                                         Showing {tableMatters.length} of {filteredMatters.length} matters
@@ -3810,7 +3810,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                 : (isDarkMode ? '#1e293b' : '#f9fafb'),
                                             color: matterSource === 'instructions'
                                                 ? (isDarkMode ? '#5eead4' : '#0f766e')
-                                                : (isDarkMode ? '#94a3b8' : '#6b7280'),
+                                                : (isDarkMode ? colours.subtleGrey : colours.greyText),
                                             cursor: 'pointer',
                                             display: 'flex',
                                             alignItems: 'center',
@@ -3841,7 +3841,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                     <span style={{ 
                                         fontSize: 11, 
                                         fontWeight: 600, 
-                                        color: isDarkMode ? '#38bdf8' : '#0284c7' 
+                                        color: colours.highlight 
                                     }}>
                                         {selectedMatterIds.size} matter{selectedMatterIds.size !== 1 ? 's' : ''} selected
                                     </span>
@@ -3856,7 +3856,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                             border: `1px solid ${isDarkMode ? 'rgba(56, 189, 248, 0.4)' : 'rgba(2, 132, 199, 0.3)'}`,
                                             borderRadius: 4,
                                             cursor: bulkProcessing ? 'wait' : 'pointer',
-                                            color: isDarkMode ? '#38bdf8' : '#0284c7',
+                                            color: colours.highlight,
                                             opacity: bulkProcessing ? 0.6 : 1,
                                             display: 'flex',
                                             alignItems: 'center',
@@ -3880,7 +3880,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                             <div style={{
                                                 width: `${(bulkProcessingProgress.current / bulkProcessingProgress.total) * 100}%`,
                                                 height: '100%',
-                                                background: isDarkMode ? '#38bdf8' : '#0284c7',
+                                                background: colours.highlight,
                                                 transition: 'width 0.3s ease'
                                             }} />
                                         </div>
@@ -3895,7 +3895,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                             border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(100, 116, 139, 0.2)'}`,
                                             borderRadius: 4,
                                             cursor: 'pointer',
-                                            color: isDarkMode ? '#94a3b8' : '#64748b'
+                                            color: isDarkMode ? colours.subtleGrey : colours.greyText
                                         }}
                                     >
                                         Clear
@@ -3903,7 +3903,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                     {bulkInspectionResults.size > 0 && !bulkProcessing && (
                                         <span style={{ 
                                             fontSize: 10, 
-                                            color: isDarkMode ? '#4ade80' : '#16a34a',
+                                            color: colours.green,
                                             marginLeft: 'auto',
                                             display: 'flex',
                                             alignItems: 'center',
@@ -3939,8 +3939,8 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                         <Icon iconName="AnalyticsView" style={{ fontSize: 14 }} />
                                         Source Analysis
                                         <span style={{
-                                            background: isDarkMode ? 'rgba(59, 130, 246, 0.2)' : 'rgba(37, 99, 235, 0.1)',
-                                            color: isDarkMode ? '#60a5fa' : '#2563eb',
+                                            background: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.1)',
+                                            color: colours.highlight,
                                             padding: '2px 8px',
                                             borderRadius: 10,
                                             fontSize: 10,
@@ -3969,7 +3969,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                     border: `1px solid ${isDarkMode ? 'rgba(251, 191, 36, 0.4)' : 'rgba(217, 119, 6, 0.3)'}`,
                                                     borderRadius: 4,
                                                     cursor: googleAdsEnriching ? 'wait' : 'pointer',
-                                                    color: isDarkMode ? '#fbbf24' : '#d97706',
+                                                    color: colours.orange,
                                                     display: 'flex',
                                                     alignItems: 'center',
                                                     gap: 4
@@ -4001,7 +4001,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                             borderBottom: `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.2)' : 'rgba(229, 231, 235, 0.8)'}`,
                                             fontSize: 9,
                                             fontWeight: 700,
-                                            color: isDarkMode ? '#94a3b8' : '#6b7280',
+                                            color: isDarkMode ? colours.subtleGrey : colours.greyText,
                                             textTransform: 'uppercase',
                                             letterSpacing: '0.5px'
                                         }}>
@@ -4047,11 +4047,11 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                             const resolvedKeyword = googleAdsEntry?.keyword || latestCall?.keywords || preferredEnquiry?.keyword || null;
                                             
                                             const chainSteps = [
-                                                { key: 'C', active: hasEmail || hasClioPhone, color: '#38bdf8', title: 'Clio', detail: hasEmail ? result.clientEmail?.split('@')[0] : (hasClioPhone ? result.clientPhone?.slice(-4) : null) },
-                                                { key: 'E', active: hasEnquiry, color: '#a78bfa', title: 'Enquiry', detail: preferredEnquiry ? `${enquiryCount}` : null },
-                                                { key: 'R', active: hasCalls, color: '#f59e0b', title: 'CallRail', detail: latestCall ? `${result.callRailLookup?.count || 0}` : null },
-                                                { key: 'F', active: hasWebForm, color: '#34d399', title: 'Form', detail: primaryForm?.gclid ? 'GCLID' : (primaryForm?.url ? 'URL' : null) },
-                                                { key: 'G', active: hasGoogleAdsData, color: '#facc15', title: 'Google Ads', detail: googleAdsEntry?.keyword ? googleAdsEntry.keyword.slice(0, 8) : null },
+                                                { key: 'C', active: hasEmail || hasClioPhone, color: colours.highlight, title: 'Clio', detail: hasEmail ? result.clientEmail?.split('@')[0] : (hasClioPhone ? result.clientPhone?.slice(-4) : null) },
+                                                { key: 'E', active: hasEnquiry, color: colours.highlight, title: 'Enquiry', detail: preferredEnquiry ? `${enquiryCount}` : null },
+                                                { key: 'R', active: hasCalls, color: colours.orange, title: 'CallRail', detail: latestCall ? `${result.callRailLookup?.count || 0}` : null },
+                                                { key: 'F', active: hasWebForm, color: colours.green, title: 'Form', detail: primaryForm?.gclid ? 'GCLID' : (primaryForm?.url ? 'URL' : null) },
+                                                { key: 'G', active: hasGoogleAdsData, color: colours.yellow, title: 'Google Ads', detail: googleAdsEntry?.keyword ? googleAdsEntry.keyword.slice(0, 8) : null },
                                             ];
                                             
                                             return (
@@ -4077,7 +4077,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                         <div style={{ fontWeight: 600, color: isDarkMode ? '#e2e8f0' : '#1f2937', fontSize: 10 }}>
                                                             {result.displayNumber || id}
                                                         </div>
-                                                        <div style={{ fontSize: 9, color: isDarkMode ? '#64748b' : '#9ca3af', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                        <div style={{ fontSize: 9, color: isDarkMode ? colours.greyText : colours.subtleGrey, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                                             {result.clientName}
                                                         </div>
                                                     </div>
@@ -4116,7 +4116,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                                         width: 4,
                                                                         height: 1,
                                                                         background: step.active && chainSteps[idx + 1].active
-                                                                            ? (isDarkMode ? '#4ade80' : '#22c55e')
+                                                                            ? colours.green
                                                                             : (isDarkMode ? 'rgba(71, 85, 105, 0.15)' : 'rgba(209, 213, 219, 0.3)')
                                                                     }} />
                                                                 )}
@@ -4179,17 +4179,17 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                             background: isPaid 
                                                                 ? (isDarkMode ? 'rgba(251, 191, 36, 0.15)' : 'rgba(251, 191, 36, 0.12)')
                                                                 : resolvedSource 
-                                                                    ? (isDarkMode ? 'rgba(74, 222, 128, 0.12)' : 'rgba(34, 197, 94, 0.08)')
+                                                                    ? (isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.08)')
                                                                     : (isDarkMode ? 'rgba(71, 85, 105, 0.2)' : 'rgba(243, 244, 246, 0.8)'),
                                                             color: isPaid 
-                                                                ? (isDarkMode ? '#fbbf24' : '#d97706')
+                                                                ? colours.orange
                                                                 : resolvedSource 
-                                                                    ? (isDarkMode ? '#4ade80' : '#16a34a')
-                                                                    : (isDarkMode ? '#64748b' : '#9ca3af'),
+                                                                    ? colours.green
+                                                                    : (isDarkMode ? colours.greyText : colours.subtleGrey),
                                                             border: `1px solid ${isPaid 
                                                                 ? (isDarkMode ? 'rgba(251, 191, 36, 0.3)' : 'rgba(217, 119, 6, 0.2)')
                                                                 : resolvedSource 
-                                                                    ? (isDarkMode ? 'rgba(74, 222, 128, 0.2)' : 'rgba(22, 163, 74, 0.15)')
+                                                                    ? (isDarkMode ? 'rgba(32, 178, 108, 0.2)' : 'rgba(32, 178, 108, 0.15)')
                                                                     : 'transparent'}`
                                                         }}>
                                                             {isPaid ? 'Paid' : resolvedSource ? 'Organic' : '—'}
@@ -4237,7 +4237,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                         selectAllVisible();
                                                     }
                                                 }}
-                                                style={{ cursor: 'pointer', accentColor: isDarkMode ? '#38bdf8' : '#0284c7' }}
+                                                style={{ cursor: 'pointer', accentColor: colours.highlight }}
                                                 title={selectedMatterIds.size === tableMatters.length ? "Deselect all" : "Select all visible"}
                                             />
                                         </th>
@@ -4409,7 +4409,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                     ? 'transparent' 
                                                     : (isDarkMode ? 'rgba(30, 41, 59, 0.2)' : 'rgba(249, 250, 251, 0.5)')
                                             }}
-                                            onMouseEnter={(e) => e.currentTarget.style.background = isDarkMode ? 'rgba(59, 130, 246, 0.08)' : 'rgba(59, 130, 246, 0.04)'}
+                                            onMouseEnter={(e) => e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.04)'}
                                             onMouseLeave={(e) => e.currentTarget.style.background = idx % 2 === 0 
                                                 ? 'transparent' 
                                                 : (isDarkMode ? 'rgba(30, 41, 59, 0.2)' : 'rgba(249, 250, 251, 0.5)')}
@@ -4428,7 +4428,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                             toggleMatterSelection(matterRowId);
                                                         }}
                                                         onClick={(e) => e.stopPropagation()}
-                                                        style={{ cursor: 'pointer', accentColor: isDarkMode ? '#38bdf8' : '#0284c7' }}
+                                                        style={{ cursor: 'pointer', accentColor: colours.highlight }}
                                                     />
                                                 </td>
                                                 <td style={{
@@ -4439,18 +4439,18 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                 }}>
                                                     <span style={{
                                                         background: ((matter as any).Status || matter.Status) === 'Open' 
-                                                            ? (isDarkMode ? 'rgba(34, 197, 94, 0.12)' : 'rgba(34, 197, 94, 0.08)') 
+                                                            ? (isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.08)') 
                                                             : (isDarkMode ? 'rgba(100, 116, 139, 0.12)' : 'rgba(100, 116, 139, 0.08)'),
                                                         color: ((matter as any).Status || matter.Status) === 'Open' 
-                                                            ? (isDarkMode ? '#4ade80' : '#16a34a') 
-                                                            : (isDarkMode ? '#94a3b8' : '#6b7280'),
+                                                            ? colours.green 
+                                                            : (isDarkMode ? colours.subtleGrey : colours.greyText),
                                                         padding: '3px 8px',
                                                         borderRadius: '4px',
                                                         fontWeight: 600,
                                                         fontSize: '10px',
                                                         display: 'inline-block',
                                                         border: `1px solid ${((matter as any).Status || matter.Status) === 'Open' 
-                                                            ? (isDarkMode ? 'rgba(34, 197, 94, 0.25)' : 'rgba(34, 197, 94, 0.2)') 
+                                                            ? (isDarkMode ? 'rgba(32, 178, 108, 0.25)' : 'rgba(32, 178, 108, 0.2)') 
                                                             : (isDarkMode ? 'rgba(100, 116, 139, 0.2)' : 'rgba(100, 116, 139, 0.15)')}`
                                                     }}>
                                                         {(matter as any).Status || matter.Status || 'Open'}
@@ -4475,7 +4475,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                     padding: '8px 6px',
                                                     width: 95,
                                                     minWidth: 95,
-                                                    color: isDarkMode ? '#94a3b8' : '#6b7280',
+                                                    color: isDarkMode ? colours.subtleGrey : colours.greyText,
                                                     fontFamily: 'monospace',
                                                     fontSize: '10px',
                                                     lineHeight: '1.3'
@@ -4503,11 +4503,11 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                                 borderRadius: 3,
                                                                 fontFamily: 'system-ui, sans-serif',
                                                                 background: matter.InstructionRef 
-                                                                    ? (isDarkMode ? 'rgba(34, 197, 94, 0.12)' : 'rgba(34, 197, 94, 0.08)')
+                                                                    ? (isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.08)')
                                                                     : (isDarkMode ? 'rgba(100, 116, 139, 0.12)' : 'rgba(100, 116, 139, 0.08)'),
                                                                 color: matter.InstructionRef
-                                                                    ? (isDarkMode ? '#4ade80' : '#16a34a')
-                                                                    : (isDarkMode ? '#64748b' : '#9ca3af')
+                                                                    ? colours.green
+                                                                    : (isDarkMode ? colours.greyText : colours.subtleGrey)
                                                             }}
                                                             title={matter.InstructionRef 
                                                                 ? `New space matter (${matter.InstructionRef})` 
@@ -4579,7 +4579,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                     padding: '8px 6px',
                                                     width: 80,
                                                     minWidth: 80,
-                                                    color: isDarkMode ? '#94a3b8' : '#6b7280',
+                                                    color: isDarkMode ? colours.subtleGrey : colours.greyText,
                                                     fontSize: '10px',
                                                     textAlign: 'left',
                                                     fontFamily: 'monospace',
@@ -4591,7 +4591,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                     padding: '8px 6px',
                                                     width: 80,
                                                     minWidth: 80,
-                                                    color: isDarkMode ? '#94a3b8' : '#6b7280',
+                                                    color: isDarkMode ? colours.subtleGrey : colours.greyText,
                                                     fontSize: '10px',
                                                     textAlign: 'left',
                                                     fontFamily: 'monospace',
@@ -4669,7 +4669,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                                         iconName="Warning" 
                                                                         style={{ 
                                                                             fontSize: '10px', 
-                                                                            color: '#f59e0b',
+                                                                            color: colours.orange,
                                                                             opacity: 0.7
                                                                         }} 
                                                                         title="Low data reliability"
@@ -4684,7 +4684,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                     width: 140,
                                                     minWidth: 140,
                                                     textAlign: 'left',
-                                                    color: isDarkMode ? '#94a3b8' : '#6b7280',
+                                                    color: isDarkMode ? colours.subtleGrey : colours.greyText,
                                                     fontFamily: 'system-ui, sans-serif',
                                                     fontSize: '10px'
                                                 }}>
@@ -4698,13 +4698,13 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                             alignItems: 'center',
                                                             gap: 4,
                                                             background: isExpanded
-                                                                ? (isDarkMode ? 'rgba(59, 130, 246, 0.15)' : 'rgba(59, 130, 246, 0.08)')
+                                                                ? (isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.08)')
                                                                 : 'transparent',
                                                             border: 'none',
                                                             borderRadius: 4,
                                                             padding: '3px 6px',
                                                             cursor: 'pointer',
-                                                            color: isDarkMode ? '#94a3b8' : '#6b7280',
+                                                            color: isDarkMode ? colours.subtleGrey : colours.greyText,
                                                             fontSize: '10px',
                                                             fontFamily: 'system-ui, sans-serif',
                                                             transition: 'background 0.15s ease'
@@ -4740,7 +4740,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                             gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
                                                             gap: 16,
                                                             fontSize: '11px',
-                                                            color: isDarkMode ? '#94a3b8' : '#4b5563'
+                                                            color: isDarkMode ? colours.subtleGrey : colours.greyText
                                                         }}>
                                                             {/* Only show source fields that have data */}
                                                             {((matter as any).Campaign || (matter as any).campaign) && (
@@ -4796,7 +4796,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                                         gap: 8,
                                                                         marginBottom: 4
                                                                     }}>
-                                                                        <Icon iconName="Search" style={{ fontSize: 14, color: isDarkMode ? '#3690ce' : '#2563eb' }} />
+                                                                        <Icon iconName="Search" style={{ fontSize: 14, color: colours.highlight }} />
                                                                         <span style={{ fontWeight: 600, color: isDarkMode ? '#e2e8f0' : '#1f2937' }}>Inspection</span>
                                                                         <button
                                                                             onClick={() => setMatterInspection(null)}
@@ -4805,7 +4805,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                                                 background: 'transparent',
                                                                                 border: 'none',
                                                                                 cursor: 'pointer',
-                                                                                color: isDarkMode ? '#64748b' : '#6b7280',
+                                                                                color: colours.greyText,
                                                                                 padding: '2px 6px',
                                                                                 borderRadius: 4
                                                                             }}
@@ -4826,34 +4826,34 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                                         marginBottom: 10
                                                                     }}>
                                                                         <div>
-                                                                            <div style={{ fontSize: 9, color: isDarkMode ? '#64748b' : '#9ca3af', marginBottom: 2 }}>Matter ID</div>
-                                                                            <div style={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 11, color: isDarkMode ? '#38bdf8' : '#0284c7' }}>{matterInspection.matterId || '—'}</div>
+                                                                            <div style={{ fontSize: 9, color: isDarkMode ? colours.greyText : colours.subtleGrey, marginBottom: 2 }}>Matter ID</div>
+                                                                            <div style={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 11, color: colours.highlight }}>{matterInspection.matterId || '—'}</div>
                                                                         </div>
                                                                         <div>
-                                                                            <div style={{ fontSize: 9, color: isDarkMode ? '#64748b' : '#9ca3af', marginBottom: 2 }}>Client ID</div>
+                                                                            <div style={{ fontSize: 9, color: isDarkMode ? colours.greyText : colours.subtleGrey, marginBottom: 2 }}>Client ID</div>
                                                                             <div style={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 11, color: isDarkMode ? '#a78bfa' : '#7c3aed' }}>{matterInspection.clientId || '—'}</div>
                                                                         </div>
                                                                         <div>
-                                                                            <div style={{ fontSize: 9, color: isDarkMode ? '#64748b' : '#9ca3af', marginBottom: 2 }}>Display #</div>
+                                                                            <div style={{ fontSize: 9, color: isDarkMode ? colours.greyText : colours.subtleGrey, marginBottom: 2 }}>Display #</div>
                                                                             <div style={{ fontFamily: 'monospace', fontWeight: 500, fontSize: 10 }}>{matterInspection.displayNumber || '—'}</div>
                                                                         </div>
                                                                         <div>
-                                                                            <div style={{ fontSize: 9, color: isDarkMode ? '#64748b' : '#9ca3af', marginBottom: 2 }}>Version</div>
+                                                                            <div style={{ fontSize: 9, color: isDarkMode ? colours.greyText : colours.subtleGrey, marginBottom: 2 }}>Version</div>
                                                                             <div style={{ 
                                                                                 fontWeight: 600, fontSize: 10,
-                                                                                color: matterInspection.version === 'v2' ? (isDarkMode ? '#4ade80' : '#16a34a') : (isDarkMode ? '#94a3b8' : '#64748b')
+                                                                                color: matterInspection.version === 'v2' ? colours.green : (isDarkMode ? colours.subtleGrey : colours.greyText)
                                                                             }}>
                                                                                 {matterInspection.version}
                                                                             </div>
                                                                         </div>
                                                                         <div>
-                                                                            <div style={{ fontSize: 9, color: isDarkMode ? '#64748b' : '#9ca3af', marginBottom: 2 }}>Client</div>
+                                                                            <div style={{ fontSize: 9, color: isDarkMode ? colours.greyText : colours.subtleGrey, marginBottom: 2 }}>Client</div>
                                                                             <div style={{ fontWeight: 500, fontSize: 10 }}>{matterInspection.clientName || '—'}</div>
                                                                         </div>
                                                                         {matterInspection.instructionRef && (
                                                                             <div>
-                                                                                <div style={{ fontSize: 9, color: isDarkMode ? '#64748b' : '#9ca3af', marginBottom: 2 }}>Instruction</div>
-                                                                                <div style={{ fontFamily: 'monospace', fontWeight: 500, fontSize: 10, color: isDarkMode ? '#4ade80' : '#16a34a' }}>{matterInspection.instructionRef}</div>
+                                                                                <div style={{ fontSize: 9, color: isDarkMode ? colours.greyText : colours.subtleGrey, marginBottom: 2 }}>Instruction</div>
+                                                                                <div style={{ fontFamily: 'monospace', fontWeight: 500, fontSize: 10, color: colours.green }}>{matterInspection.instructionRef}</div>
                                                                             </div>
                                                                         )}
                                                                     </div>
@@ -4871,13 +4871,13 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                                         <div style={{ 
                                                                             width: 18, height: 18, borderRadius: '50%',
                                                                             background: matterInspection.clientEmail 
-                                                                                ? (isDarkMode ? '#166534' : '#dcfce7')
+                                                                                ? (isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(32, 178, 108, 0.08)')
                                                                                 : (isDarkMode ? '#1e293b' : '#e5e7eb'),
                                                                             display: 'flex', alignItems: 'center', justifyContent: 'center',
                                                                             fontSize: 10, fontWeight: 700,
                                                                             color: matterInspection.clientEmail 
-                                                                                ? (isDarkMode ? '#4ade80' : '#16a34a')
-                                                                                : (isDarkMode ? '#64748b' : '#9ca3af')
+                                                                                ? colours.green
+                                                                                : (isDarkMode ? colours.greyText : colours.subtleGrey)
                                                                         }}>
                                                                             {matterInspection.clientEmail ? '✓' : '1'}
                                                                         </div>
@@ -4889,7 +4889,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                                                 <div>
                                                                                     <div style={{ 
                                                                                         fontSize: 11, fontWeight: 500, fontFamily: 'monospace',
-                                                                                        color: isDarkMode ? '#4ade80' : '#16a34a',
+                                                                                        color: colours.green,
                                                                                         overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
                                                                                     }}>
                                                                                         {matterInspection.clientEmail}
@@ -4897,7 +4897,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                                                     {matterInspection.clientPhone && (
                                                                                         <div style={{ 
                                                                                             fontSize: 10, fontFamily: 'monospace',
-                                                                                            color: isDarkMode ? '#94a3b8' : '#64748b',
+                                                                                            color: isDarkMode ? colours.subtleGrey : colours.greyText,
                                                                                             marginTop: 2
                                                                                         }}>
                                                                                             {matterInspection.clientPhone}
@@ -4905,7 +4905,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                                                     )}
                                                                                 </div>
                                                                             ) : (
-                                                                                <div style={{ fontSize: 9, color: isDarkMode ? '#64748b' : '#9ca3af' }}>
+                                                                                <div style={{ fontSize: 9, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
                                                                                     {matterInspection.loading ? 'Fetching...' : 'Not fetched'}
                                                                                 </div>
                                                                             )}
@@ -4941,7 +4941,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                                                     background: isDarkMode ? 'rgba(56, 189, 248, 0.15)' : 'rgba(2, 132, 199, 0.1)',
                                                                                     border: `1px solid ${isDarkMode ? 'rgba(56, 189, 248, 0.3)' : 'rgba(2, 132, 199, 0.2)'}`,
                                                                                     borderRadius: 4, cursor: 'pointer',
-                                                                                    color: isDarkMode ? '#38bdf8' : '#0284c7',
+                                                                                    color: colours.highlight,
                                                                                     opacity: matterInspection.loading ? 0.5 : 1
                                                                                 }}
                                                                             >
@@ -4963,13 +4963,13 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                                         <div style={{ 
                                                                             width: 18, height: 18, borderRadius: '50%', flexShrink: 0, marginTop: 2,
                                                                             background: matterInspection.enquiryLookup?.legacy.found || matterInspection.enquiryLookup?.instructions.found
-                                                                                ? (isDarkMode ? '#166534' : '#dcfce7')
+                                                                                ? (isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(32, 178, 108, 0.08)')
                                                                                 : (isDarkMode ? '#1e293b' : '#e5e7eb'),
                                                                             display: 'flex', alignItems: 'center', justifyContent: 'center',
                                                                             fontSize: 10, fontWeight: 700,
                                                                             color: matterInspection.enquiryLookup?.legacy.found || matterInspection.enquiryLookup?.instructions.found
-                                                                                ? (isDarkMode ? '#4ade80' : '#16a34a')
-                                                                                : (isDarkMode ? '#64748b' : '#9ca3af')
+                                                                                ? colours.green
+                                                                                : (isDarkMode ? colours.greyText : colours.subtleGrey)
                                                                         }}>
                                                                             {matterInspection.enquiryLookup?.legacy.found || matterInspection.enquiryLookup?.instructions.found ? '✓' : '2'}
                                                                         </div>
@@ -4983,19 +4983,19 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                                                     <div style={{ marginBottom: 6 }}>
                                                                                         <div style={{ 
                                                                                             display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3,
-                                                                                            color: isDarkMode ? '#94a3b8' : '#64748b'
+                                                                                            color: isDarkMode ? colours.subtleGrey : colours.greyText
                                                                                         }}>
                                                                                             <span style={{ 
                                                                                                 padding: '1px 4px', borderRadius: 3, fontSize: 8, fontWeight: 600,
                                                                                                 background: isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(100, 116, 139, 0.1)',
-                                                                                                color: isDarkMode ? '#94a3b8' : '#64748b'
+                                                                                                color: isDarkMode ? colours.subtleGrey : colours.greyText
                                                                                             }}>Legacy</span>
                                                                                             {matterInspection.enquiryLookup.legacy.found ? (
-                                                                                                <span style={{ color: isDarkMode ? '#4ade80' : '#16a34a', fontWeight: 600 }}>
+                                                                                                <span style={{ color: colours.green, fontWeight: 600 }}>
                                                                                                     {matterInspection.enquiryLookup.legacy.count} match{matterInspection.enquiryLookup.legacy.count !== 1 ? 'es' : ''}
                                                                                                 </span>
                                                                                             ) : matterInspection.enquiryLookup.legacy.error ? (
-                                                                                                <span style={{ color: '#ef4444' }}>Error</span>
+                                                                                                <span style={{ color: colours.cta }}>Error</span>
                                                                                             ) : (
                                                                                                 <span>No matches</span>
                                                                                             )}
@@ -5009,11 +5009,11 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                                                             }}>
                                                                                                 {/* Header: ID + Name */}
                                                                                                 <div style={{ marginBottom: 8 }}>
-                                                                                                    <span style={{ fontFamily: 'monospace', fontSize: 10, color: isDarkMode ? '#94a3b8' : '#64748b' }}>#{m.id}</span>
+                                                                                                    <span style={{ fontFamily: 'monospace', fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>#{m.id}</span>
                                                                                                     {m.name && <span style={{ marginLeft: 8, fontWeight: 600, fontSize: 11, color: isDarkMode ? '#e2e8f0' : '#1e293b' }}>{m.name}</span>}
                                                                                                 </div>
                                                                                                 {/* Details grid */}
-                                                                                                <div style={{ display: 'grid', gridTemplateColumns: '70px 1fr', gap: '4px 8px', fontSize: 9, color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+                                                                                                <div style={{ display: 'grid', gridTemplateColumns: '70px 1fr', gap: '4px 8px', fontSize: 9, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
                                                                                                     <span>Email</span>
                                                                                                     <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{m.email || '—'}</span>
                                                                                                     <span>Phone</span>
@@ -5029,8 +5029,8 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                                                                 </div>
                                                                                                 {/* Source Attribution */}
                                                                                                 <div style={{ marginTop: 10, paddingTop: 8, borderTop: `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.25)' : 'rgba(203, 213, 225, 0.4)'}` }}>
-                                                                                                    <div style={{ fontSize: 8, fontWeight: 600, color: isDarkMode ? '#64748b' : '#9ca3af', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Tracking</div>
-                                                                                                    <div style={{ display: 'grid', gridTemplateColumns: '70px 1fr', gap: '4px 8px', fontSize: 9, color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+                                                                                                    <div style={{ fontSize: 8, fontWeight: 600, color: isDarkMode ? colours.greyText : colours.subtleGrey, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Tracking</div>
+                                                                                                    <div style={{ display: 'grid', gridTemplateColumns: '70px 1fr', gap: '4px 8px', fontSize: 9, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
                                                                                                         <span>Source</span>
                                                                                                         <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{m.source || '—'}</span>
                                                                                                         <span>Campaign</span>
@@ -5052,19 +5052,19 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                                                     <div>
                                                                                         <div style={{ 
                                                                                             display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3,
-                                                                                            color: isDarkMode ? '#94a3b8' : '#64748b'
+                                                                                            color: isDarkMode ? colours.subtleGrey : colours.greyText
                                                                                         }}>
                                                                                             <span style={{ 
                                                                                                 padding: '1px 4px', borderRadius: 3, fontSize: 8, fontWeight: 600,
-                                                                                                background: isDarkMode ? 'rgba(74, 222, 128, 0.15)' : 'rgba(22, 163, 74, 0.1)',
-                                                                                                color: isDarkMode ? '#4ade80' : '#16a34a'
+                                                                                                background: isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(32, 178, 108, 0.1)',
+                                                                                                color: colours.green
                                                                                             }}>Instructions</span>
                                                                                             {matterInspection.enquiryLookup.instructions.found ? (
-                                                                                                <span style={{ color: isDarkMode ? '#4ade80' : '#16a34a', fontWeight: 600 }}>
+                                                                                                <span style={{ color: colours.green, fontWeight: 600 }}>
                                                                                                     {matterInspection.enquiryLookup.instructions.count} match{matterInspection.enquiryLookup.instructions.count !== 1 ? 'es' : ''}
                                                                                                 </span>
                                                                                             ) : matterInspection.enquiryLookup.instructions.error ? (
-                                                                                                <span style={{ color: '#ef4444' }}>Error</span>
+                                                                                                <span style={{ color: colours.cta }}>Error</span>
                                                                                             ) : (
                                                                                                 <span>No matches</span>
                                                                                             )}
@@ -5078,12 +5078,12 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                                                             }}>
                                                                                                 {/* Header: ID + ACID + Name */}
                                                                                                 <div style={{ marginBottom: 8 }}>
-                                                                                                    <span style={{ fontFamily: 'monospace', fontSize: 10, color: isDarkMode ? '#94a3b8' : '#64748b' }}>#{m.id}</span>
-                                                                                                    {m.acid && <span style={{ marginLeft: 6, fontFamily: 'monospace', fontSize: 9, color: isDarkMode ? '#64748b' : '#9ca3af' }}>acid:{m.acid}</span>}
+                                                                                                    <span style={{ fontFamily: 'monospace', fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>#{m.id}</span>
+                                                                                                    {m.acid && <span style={{ marginLeft: 6, fontFamily: 'monospace', fontSize: 9, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>acid:{m.acid}</span>}
                                                                                                     {m.name && <span style={{ marginLeft: 8, fontWeight: 600, fontSize: 11, color: isDarkMode ? '#e2e8f0' : '#1e293b' }}>{m.name}</span>}
                                                                                                 </div>
                                                                                                 {/* Details grid */}
-                                                                                                <div style={{ display: 'grid', gridTemplateColumns: '70px 1fr', gap: '4px 8px', fontSize: 9, color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+                                                                                                <div style={{ display: 'grid', gridTemplateColumns: '70px 1fr', gap: '4px 8px', fontSize: 9, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
                                                                                                     <span>Email</span>
                                                                                                     <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{m.email || '—'}</span>
                                                                                                     <span>Phone</span>
@@ -5101,8 +5101,8 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                                                                 </div>
                                                                                                 {/* Source Attribution */}
                                                                                                 <div style={{ marginTop: 10, paddingTop: 8, borderTop: `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.25)' : 'rgba(203, 213, 225, 0.4)'}` }}>
-                                                                                                    <div style={{ fontSize: 8, fontWeight: 600, color: isDarkMode ? '#64748b' : '#9ca3af', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Tracking</div>
-                                                                                                    <div style={{ display: 'grid', gridTemplateColumns: '70px 1fr', gap: '4px 8px', fontSize: 9, color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+                                                                                                    <div style={{ fontSize: 8, fontWeight: 600, color: isDarkMode ? colours.greyText : colours.subtleGrey, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Tracking</div>
+                                                                                                    <div style={{ display: 'grid', gridTemplateColumns: '70px 1fr', gap: '4px 8px', fontSize: 9, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
                                                                                                         <span>Source</span>
                                                                                                         <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{m.source || '—'}</span>
                                                                                                         <span>URL</span>
@@ -5114,7 +5114,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                                                     </div>
                                                                                 </div>
                                                                             ) : (
-                                                                                <div style={{ fontSize: 9, color: isDarkMode ? '#64748b' : '#9ca3af' }}>
+                                                                                <div style={{ fontSize: 9, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
                                                                                     {!matterInspection.clientEmail ? 'Requires email first' : 'Not searched'}
                                                                                 </div>
                                                                             )}
@@ -5188,7 +5188,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                                             flexShrink: 0,
                                                                             marginTop: 2,
                                                                             background: (matterInspection.webFormMatches?.length || 0) > 0
-                                                                                ? (isDarkMode ? '#166534' : '#dcfce7')
+                                                                                ? (isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(32, 178, 108, 0.08)')
                                                                                 : (isDarkMode ? '#1e293b' : '#e5e7eb'),
                                                                             display: 'flex',
                                                                             alignItems: 'center',
@@ -5196,8 +5196,8 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                                             fontSize: 10,
                                                                             fontWeight: 700,
                                                                             color: (matterInspection.webFormMatches?.length || 0) > 0
-                                                                                ? (isDarkMode ? '#4ade80' : '#16a34a')
-                                                                                : (isDarkMode ? '#64748b' : '#9ca3af')
+                                                                                ? colours.green
+                                                                                : (isDarkMode ? colours.greyText : colours.subtleGrey)
                                                                         }}>
                                                                             {(matterInspection.webFormMatches?.length || 0) > 0 ? '✓' : '3'}
                                                                         </div>
@@ -5211,10 +5211,10 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                                                         <div key={signal.id} style={{
                                                                                             padding: '8px 10px',
                                                                                             borderRadius: 6,
-                                                                                            border: `1px solid ${isDarkMode ? 'rgba(74, 222, 128, 0.3)' : 'rgba(5, 150, 105, 0.2)'}`,
+                                                                                            border: `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.3)' : 'rgba(32, 178, 108, 0.2)'}`,
                                                                                             background: isDarkMode ? 'rgba(15, 23, 42, 0.35)' : 'rgba(236, 253, 245, 0.7)'
                                                                                         }}>
-                                                                                            <div style={{ fontSize: 9, color: isDarkMode ? '#34d399' : '#065f46', fontWeight: 600, marginBottom: 4 }}>
+                                                                                            <div style={{ fontSize: 9, color: colours.green, fontWeight: 600, marginBottom: 4 }}>
                                                                                                 {signal.source === 'legacy' ? 'Legacy DB' : 'Instructions DB'} Web Form
                                                                                             </div>
                                                                                             <div style={{ fontSize: 9, color: isDarkMode ? '#cbd5e1' : '#374151', display: 'grid', gridTemplateColumns: '70px 1fr', gap: '4px 8px' }}>
@@ -5233,7 +5233,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                                                     ))}
                                                                                 </div>
                                                                             ) : (
-                                                                                <div style={{ fontSize: 9, color: isDarkMode ? '#64748b' : '#9ca3af' }}>
+                                                                                <div style={{ fontSize: 9, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
                                                                                     No URL + GCLID evidence yet. Run an enquiry lookup or verify the enquiry captured the web form submission.
                                                                                 </div>
                                                                             )}
@@ -5253,13 +5253,13 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                                         <div style={{ 
                                                                             width: 18, height: 18, borderRadius: '50%', flexShrink: 0, marginTop: 2,
                                                                             background: matterInspection.callRailLookup?.found
-                                                                                ? (isDarkMode ? '#166534' : '#dcfce7')
+                                                                                ? (isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(32, 178, 108, 0.08)')
                                                                                 : (isDarkMode ? '#1e293b' : '#e5e7eb'),
                                                                             display: 'flex', alignItems: 'center', justifyContent: 'center',
                                                                             fontSize: 10, fontWeight: 700,
                                                                             color: matterInspection.callRailLookup?.found
-                                                                                ? (isDarkMode ? '#4ade80' : '#16a34a')
-                                                                                : (isDarkMode ? '#64748b' : '#9ca3af')
+                                                                                ? colours.green
+                                                                                : (isDarkMode ? colours.greyText : colours.subtleGrey)
                                                                         }}>
                                                                             {matterInspection.callRailLookup?.found ? '✓' : '4'}
                                                                         </div>
@@ -5270,15 +5270,15 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                                             {matterInspection.callRailLookup ? (
                                                                                 <div style={{ fontSize: 9 }}>
                                                                                     {matterInspection.callRailLookup.loading ? (
-                                                                                        <span style={{ color: isDarkMode ? '#64748b' : '#9ca3af' }}>Searching...</span>
+                                                                                        <span style={{ color: isDarkMode ? colours.greyText : colours.subtleGrey }}>Searching...</span>
                                                                                     ) : matterInspection.callRailLookup.error ? (
-                                                                                        <span style={{ color: '#ef4444' }}>{matterInspection.callRailLookup.error}</span>
+                                                                                        <span style={{ color: colours.cta }}>{matterInspection.callRailLookup.error}</span>
                                                                                     ) : matterInspection.callRailLookup.found ? (
                                                                                         <div>
-                                                                                            <div style={{ color: isDarkMode ? '#4ade80' : '#16a34a', fontWeight: 600, marginBottom: 6 }}>
+                                                                                            <div style={{ color: colours.green, fontWeight: 600, marginBottom: 6 }}>
                                                                                                 {matterInspection.callRailLookup.count} call{matterInspection.callRailLookup.count !== 1 ? 's' : ''} found
                                                                                                 {matterInspection.callRailLookup.phoneSearched && (
-                                                                                                    <span style={{ fontWeight: 400, color: isDarkMode ? '#64748b' : '#9ca3af', marginLeft: 6 }}>
+                                                                                                    <span style={{ fontWeight: 400, color: isDarkMode ? colours.greyText : colours.subtleGrey, marginLeft: 6 }}>
                                                                                                         ({matterInspection.callRailLookup.phoneSearched})
                                                                                                     </span>
                                                                                                 )}
@@ -5289,15 +5289,15 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                                                                     background: isDarkMode ? 'rgba(30, 41, 59, 0.25)' : 'rgba(248, 250, 252, 0.8)',
                                                                                                     borderRadius: 6, border: `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.3)' : 'rgba(203, 213, 225, 0.5)'}`
                                                                                                 }}>
-                                                                                                    <div style={{ display: 'grid', gridTemplateColumns: '70px 1fr', gap: '3px 8px', fontSize: 9, color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+                                                                                                    <div style={{ display: 'grid', gridTemplateColumns: '70px 1fr', gap: '3px 8px', fontSize: 9, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
                                                                                                         <span>Date</span>
                                                                                                         <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{call.startTime ? new Date(call.startTime).toLocaleString() : '—'}</span>
                                                                                                         <span>Direction</span>
-                                                                                                        <span style={{ color: call.direction === 'inbound' ? (isDarkMode ? '#4ade80' : '#16a34a') : (isDarkMode ? '#38bdf8' : '#0284c7') }}>{call.direction || '—'}</span>
+                                                                                                        <span style={{ color: call.direction === 'inbound' ? colours.green : colours.highlight }}>{call.direction || '—'}</span>
                                                                                                         <span>Duration</span>
                                                                                                         <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{call.duration ? `${Math.floor(call.duration / 60)}m ${call.duration % 60}s` : '—'}</span>
                                                                                                         <span>Answered</span>
-                                                                                                        <span style={{ color: call.answered ? (isDarkMode ? '#4ade80' : '#16a34a') : (isDarkMode ? '#f87171' : '#dc2626') }}>{call.answered ? 'Yes' : 'No'}</span>
+                                                                                                        <span style={{ color: call.answered ? colours.green : colours.cta }}>{call.answered ? 'Yes' : 'No'}</span>
                                                                                                         <span>Source</span>
                                                                                                         <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{call.source || '—'}</span>
                                                                                                         <span>Campaign</span>
@@ -5314,17 +5314,17 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                                                                 </div>
                                                                                             ))}
                                                                                             {matterInspection.callRailLookup.count > 5 && (
-                                                                                                <div style={{ fontSize: 8, color: isDarkMode ? '#64748b' : '#9ca3af', marginTop: 4 }}>
+                                                                                                <div style={{ fontSize: 8, color: isDarkMode ? colours.greyText : colours.subtleGrey, marginTop: 4 }}>
                                                                                                     ... and {matterInspection.callRailLookup.count - 5} more
                                                                                                 </div>
                                                                                             )}
                                                                                         </div>
                                                                                     ) : (
-                                                                                        <span style={{ color: isDarkMode ? '#64748b' : '#9ca3af' }}>No calls found</span>
+                                                                                        <span style={{ color: isDarkMode ? colours.greyText : colours.subtleGrey }}>No calls found</span>
                                                                                     )}
                                                                                 </div>
                                                                             ) : (
-                                                                                <div style={{ fontSize: 9, color: isDarkMode ? '#64748b' : '#9ca3af' }}>
+                                                                                <div style={{ fontSize: 9, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
                                                                                     {(() => {
                                                                                         // Collect phone numbers from Clio and enquiry matches
                                                                                         const phones: string[] = [];
@@ -5433,7 +5433,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                                     
                                                                     {/* Error Display */}
                                                                     {matterInspection.error && (
-                                                                        <div style={{ fontSize: 9, color: '#ef4444', padding: '4px 8px', marginBottom: 6 }}>
+                                                                        <div style={{ fontSize: 9, color: colours.cta, padding: '4px 8px', marginBottom: 6 }}>
                                                                             {matterInspection.error}
                                                                         </div>
                                                                     )}
@@ -5452,7 +5452,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                                             background: isDarkMode ? '#0f172a' : '#f1f5f9',
                                                                             borderRadius: 4, fontSize: 9, fontFamily: 'monospace',
                                                                             overflow: 'auto', maxHeight: 200,
-                                                                            color: isDarkMode ? '#64748b' : '#64748b',
+                                                                            color: isDarkMode ? colours.greyText : colours.subtleGrey,
                                                                             whiteSpace: 'pre-wrap', wordBreak: 'break-all'
                                                                         }}>
                                                                             {JSON.stringify(matter, null, 2)}
@@ -5491,22 +5491,22 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                                         display: 'inline-flex',
                                                                         alignItems: 'center',
                                                                         gap: 6,
-                                                                        background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(37, 99, 235, 0.1)',
-                                                                        border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(37, 99, 235, 0.2)'}`,
+                                                                        background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)',
+                                                                        border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)'}`,
                                                                         borderRadius: 6,
                                                                         padding: '6px 12px',
                                                                         cursor: 'pointer',
-                                                                        color: isDarkMode ? '#7dd3fc' : '#2563eb',
+                                                                        color: colours.highlight,
                                                                         fontSize: '11px',
                                                                         fontFamily: 'Raleway, sans-serif',
                                                                         fontWeight: 600,
                                                                         transition: 'all 0.15s ease'
                                                                     }}
                                                                     onMouseEnter={(e) => {
-                                                                        e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(37, 99, 235, 0.15)';
+                                                                        e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.15)';
                                                                     }}
                                                                     onMouseLeave={(e) => {
-                                                                        e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(37, 99, 235, 0.1)';
+                                                                        e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)';
                                                                     }}
                                                                     title="Inspect matter to resolve IDs and find linked enquiries"
                                                                 >
@@ -5527,7 +5527,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                 <div style={{
                                     padding: '40px',
                                     textAlign: 'center',
-                                    color: isDarkMode ? '#64748b' : '#6b7280',
+                                    color: colours.greyText,
                                     fontSize: '13px'
                                 }}>
                                     No matters found with current filters.
@@ -5537,7 +5537,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                 <div style={{
                                     padding: '12px 16px',
                                     textAlign: 'center',
-                                    color: isDarkMode ? '#64748b' : '#6b7280',
+                                    color: colours.greyText,
                                     fontSize: '11px',
                                     borderTop: `1px solid ${isDarkMode ? '#1e293b' : '#e5e7eb'}`,
                                     background: isDarkMode ? '#0f172a' : '#f9fafb'
@@ -5588,4 +5588,4 @@ const MattersReport: React.FC<MattersReportProps> = ({
     );
 };
 
-export default MattersReport;
+export default React.memo(MattersReport);

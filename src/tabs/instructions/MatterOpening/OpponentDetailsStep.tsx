@@ -1713,7 +1713,7 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-              <i className="ms-Icon ms-Icon--SkypeCheck" style={{ fontSize: 14, color: '#22C55E' }} />
+              <i className="ms-Icon ms-Icon--SkypeCheck" style={{ fontSize: 14, color: colours.green }} />
               <span style={{ fontWeight: 700 }}>No opponent details yet</span>
             </div>
             <div style={{ color: isDarkMode ? '#9CA3AF' : '#475569', fontSize: 12 }}>
@@ -1739,10 +1739,10 @@ const OpponentDetailsStep: React.FC<OpponentDetailsStepProps> = ({
                 letterSpacing: '0.5px',
                 boxShadow: 'none',
                 ':hover': {
-                  background: '#2563EB',
+                  background: colours.highlight,
                 },
                 ':active': {
-                  background: '#1D4ED8',
+                  background: colours.highlight,
                 }
               }
             }}

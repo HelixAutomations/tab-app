@@ -119,7 +119,7 @@ const DataFlowDiagram: React.FC = () => {
       <g key={`${fromId}->${toId}`}>
         <path d={path} stroke={isDarkMode ? '#6ea8d6' : '#3690CE'} strokeWidth={2} fill="none" markerEnd="url(#arrow)" strokeDasharray={strokeDasharray} />
         {label && (
-          <text x={(startX + endX) / 2} y={(startY + endY) / 2 - 6} textAnchor="middle" fontSize={11} fill={isDarkMode ? '#cbd5e1' : '#334155'}>
+          <text x={(startX + endX) / 2} y={(startY + endY) / 2 - 6} textAnchor="middle" fontSize={11} fill={isDarkMode ? colours.subtleGrey : colours.greyText}>
             {label}
           </text>
         )}
@@ -148,7 +148,7 @@ const DataFlowDiagram: React.FC = () => {
           return (
             <g key={lane}>
               <rect x={lp.x} y={lp.y} width={laneWidth} height={laneHeight} rx={8} ry={8} fill={laneColor} />
-              <text x={lp.x + laneWidth / 2} y={lp.y + 18} textAnchor="middle" fontSize={12} fill={isDarkMode ? '#cbd5e1' : '#334155'}>
+              <text x={lp.x + laneWidth / 2} y={lp.y + 18} textAnchor="middle" fontSize={12} fill={isDarkMode ? colours.subtleGrey : colours.greyText}>
                 {lane}
               </text>
             </g>
@@ -185,23 +185,23 @@ const DataFlowDiagram: React.FC = () => {
       {/* Visual legend (subtle Fluent UI icons) */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', marginTop: 10, fontSize: 12, color: isDarkMode ? colours.dark.subText : colours.light.subText }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Icon iconName="Forward" style={{ fontSize: 14, color: isDarkMode ? '#cbd5e1' : '#64748b' }} />
+          <Icon iconName="Forward" style={{ fontSize: 14, color: isDarkMode ? colours.subtleGrey : colours.greyText }} />
           <span>Direct call</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Icon iconName="Flow" style={{ fontSize: 14, color: isDarkMode ? '#cbd5e1' : '#64748b' }} />
+          <Icon iconName="Flow" style={{ fontSize: 14, color: isDarkMode ? colours.subtleGrey : colours.greyText }} />
           <span>Proxy → Functions</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Icon iconName="Shield" style={{ fontSize: 14, color: isDarkMode ? '#cbd5e1' : '#64748b' }} />
+          <Icon iconName="Shield" style={{ fontSize: 14, color: isDarkMode ? colours.subtleGrey : colours.greyText }} />
           <span>Secrets (Key Vault)</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Icon iconName="Cloud" style={{ fontSize: 14, color: isDarkMode ? '#cbd5e1' : '#64748b' }} />
+          <Icon iconName="Cloud" style={{ fontSize: 14, color: isDarkMode ? colours.subtleGrey : colours.greyText }} />
           <span>Storage</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Icon iconName="Mail" style={{ fontSize: 14, color: isDarkMode ? '#cbd5e1' : '#64748b' }} />
+          <Icon iconName="Mail" style={{ fontSize: 14, color: isDarkMode ? colours.subtleGrey : colours.greyText }} />
           <span>Email (Graph)</span>
         </div>
       </div>

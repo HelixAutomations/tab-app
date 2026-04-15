@@ -841,7 +841,7 @@ useLayoutEffect(() => {
                     root: {
                       marginBottom: 20,
                       marginLeft: 2,
-                      color: '#d13438', // red
+                      color: colours.cta,
                     }
                   }}
                   ariaLabel="Remove client"

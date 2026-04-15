@@ -670,4 +670,4 @@ const EnquiryLedgerReport: React.FC<EnquiryLedgerReportProps> = ({
   );
 };
 
-export default EnquiryLedgerReport;
+export default React.memo(EnquiryLedgerReport);

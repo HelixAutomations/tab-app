@@ -7,6 +7,7 @@ import { Text } from '@fluentui/react/lib/Text';
 import { Icon } from '@fluentui/react/lib/Icon';
 import { TooltipHost } from '@fluentui/react/lib/Tooltip';
 import { mergeStyles } from '@fluentui/react/lib/Styling';
+import { colours } from './colours';
 interface AttendanceRecord {
   name: string;
   confirmed: boolean;
@@ -55,7 +56,7 @@ const avatarStyle = mergeStyles({
   lineHeight: '60px',
   textAlign: 'center',
   backgroundColor: '#fafafa',
-  border: '2px solid #0078d4',
+  border: `2px solid ${colours.highlight}`,
   display: 'inline-block',
   position: 'relative',
 });
@@ -74,7 +75,7 @@ const statusBadgeStyle = (isOffice: boolean) =>
     marginTop: '4px',
     padding: '2px 4px',
     borderRadius: '4px',
-    backgroundColor: isOffice ? '#28a745' : '#0078d4',
+    backgroundColor: isOffice ? colours.green : colours.highlight,
     color: '#fff',
     fontSize: '10px',
   });

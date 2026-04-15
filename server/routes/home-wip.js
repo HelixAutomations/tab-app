@@ -611,27 +611,34 @@ router.get('/team', async (req, res) => {
       });
     }
 
-    // Fetch WIP for each team member in parallel.
+    // Fetch WIP for each team member with concurrency limiting.
     // Use the already-known Clio ID to skip 32 redundant resolveClioId SQL queries.
     // Check per-user cache first to skip Clio API for recently-fetched users.
-    const results = await Promise.allSettled(
-      teamMembers.map(member => {
-        const entraId = member['Entra ID'];
-        const clioId = member['Clio ID'];
-        const userCacheKey = generateCacheKey('homeWip', entraId);
-        return getCached(userCacheKey).then(userCached => {
-          if (userCached && !userCached.stale) return userCached.data;
-          // De-dup: if another request is already fetching this user, await it
-          if (inflightRequests.has(userCacheKey)) return inflightRequests.get(userCacheKey);
-          const inFlight = fetchUserWipTwoWeeksWithClioId(clioId).then(freshData => {
-            setCached(userCacheKey, freshData).catch(() => {});
-            return freshData;
-          }).finally(() => inflightRequests.delete(userCacheKey));
-          inflightRequests.set(userCacheKey, inFlight);
-          return inFlight;
-        });
-      })
-    );
+    // Batch into chunks of 8 to avoid flooding Clio API with 30+ simultaneous requests.
+    const CONCURRENCY = 8;
+    const results = [];
+    for (let i = 0; i < teamMembers.length; i += CONCURRENCY) {
+      const chunk = teamMembers.slice(i, i + CONCURRENCY);
+      const chunkResults = await Promise.allSettled(
+        chunk.map(member => {
+          const entraId = member['Entra ID'];
+          const clioId = member['Clio ID'];
+          const userCacheKey = generateCacheKey('homeWip', entraId);
+          return getCached(userCacheKey).then(userCached => {
+            if (userCached && !userCached.stale) return userCached.data;
+            // De-dup: if another request is already fetching this user, await it
+            if (inflightRequests.has(userCacheKey)) return inflightRequests.get(userCacheKey);
+            const inFlight = fetchUserWipTwoWeeksWithClioId(clioId).then(freshData => {
+              setCached(userCacheKey, freshData).catch(() => {});
+              return freshData;
+            }).finally(() => inflightRequests.delete(userCacheKey));
+            inflightRequests.set(userCacheKey, inFlight);
+            return inFlight;
+          });
+        })
+      );
+      results.push(...chunkResults);
+    }
 
     // Aggregate daily data across all members
     const { currentStart, currentEnd, lastStart, lastEnd } = getTwoWeekBounds();

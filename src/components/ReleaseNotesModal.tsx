@@ -2,6 +2,7 @@
 import { Modal } from '@fluentui/react/lib/Modal';
 import { IconButton } from '@fluentui/react/lib/Button';
 import { Spinner } from '@fluentui/react/lib/Spinner';
+import { colours } from '../app/styles/colours';
 interface ReleaseNotesModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -42,10 +43,10 @@ function detectCategory(title: string, details?: string): ReleaseEntry['category
 }
 
 const CATEGORY_META: Record<ReleaseEntry['category'], { label: string; colour: string }> = {
-  feature:     { label: 'New',             colour: '#10b981' },
-  improvement: { label: 'Improved',        colour: '#60a5fa' },
-  fix:         { label: 'Fixed',           colour: '#f59e0b' },
-  ops:         { label: 'Under the hood',  colour: '#8b5cf6' },
+  feature:     { label: 'New',             colour: colours.green },
+  improvement: { label: 'Improved',        colour: colours.highlight },
+  fix:         { label: 'Fixed',           colour: colours.orange },
+  ops:         { label: 'Under the hood',  colour: colours.highlight },
 };
 
 /* --- Parser --- */
@@ -217,12 +218,12 @@ const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({ isOpen, onClose, 
   }, [isOpen]);
 
   const t: Theme = {
-    bg:      isDarkMode ? '#0f172a' : '#ffffff',
-    surface: isDarkMode ? '#1e293b' : '#f8fafc',
-    text:    isDarkMode ? '#f1f5f9' : '#0f172a',
-    muted:   isDarkMode ? '#94a3b8' : '#64748b',
-    border:  isDarkMode ? '#334155' : '#e2e8f0',
-    accent:  isDarkMode ? '#60a5fa' : '#3690CE',
+    bg:      isDarkMode ? colours.dark.sectionBackground : '#ffffff',
+    surface: isDarkMode ? colours.darkBlue : colours.grey,
+    text:    isDarkMode ? colours.dark.text : colours.light.text,
+    muted:   isDarkMode ? colours.subtleGrey : colours.greyText,
+    border:  isDarkMode ? colours.dark.border : '#e2e8f0',
+    accent:  isDarkMode ? colours.accent : colours.highlight,
     hover:   isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)',
   };
 
@@ -296,8 +297,8 @@ const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({ isOpen, onClose, 
             </div>
           ) : error ? (
             <div style={{
-              padding: 20, textAlign: 'center', color: '#ef4444', borderRadius: 8, fontSize: 13,
-              background: isDarkMode ? 'rgba(239,68,68,0.1)' : 'rgba(239,68,68,0.05)',
+              padding: 20, textAlign: 'center', color: colours.cta, borderRadius: 8, fontSize: 13,
+              background: isDarkMode ? 'rgba(214,85,65,0.1)' : 'rgba(214,85,65,0.05)',
             }}>
               {error}
             </div>

@@ -140,7 +140,7 @@ export const componentTokens = {
         subtle: '0 4px 6px rgba(0, 0, 0, 0.3)',
         medium: '0 8px 25px rgba(0, 0, 0, 0.4)',
         strong: '0 16px 48px rgba(0, 0, 0, 0.5)',
-        glow: '0 0 20px rgba(59, 130, 246, 0.4)',
+        glow: '0 0 20px rgba(54, 144, 206, 0.4)',
       },
     },
     transitions: {

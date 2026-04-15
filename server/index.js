@@ -47,7 +47,7 @@ const { init: initOpLog, append: opAppend, sessionId: opSessionId } = require('.
 const { getRedisClient } = require('./utils/redisClient');
 const { getPool } = require('./utils/db');
 const { getSecret } = require('./utils/getSecret');
-const { startDataOperationsScheduler, getSchedulerState } = require('./utils/dataOperationsScheduler');
+const { startDataOperationsScheduler, stopScheduler, getSchedulerState } = require('./utils/dataOperationsScheduler');
 const { startEventPoller, POLL_INTERVAL_MS } = require('./utils/eventPoller');
 const { requestTrackerMiddleware } = require('./utils/requestTracker');
 const { setStatus: setServerStatus } = require('./utils/serverStatus');
@@ -363,6 +363,7 @@ const financialTaskRouter = require('./routes/financialTask');
 const activityFeedRouter = require('./routes/activity-feed');
 const releaseNotesRouter = require('./routes/release-notes');
 const opsQueueRouter = require('./routes/opsQueue');
+const processHubRouter = require('./routes/processHub');
 const { router: dataOperationsRouter } = require('./routes/dataOperations');
 const yoyComparisonRouter = require('./routes/yoy-comparison');
 const formHealthCheckRouter = require('./routes/formHealthCheck');
@@ -642,6 +643,9 @@ app.use('/api/financial-task', financialTaskRouter);
 // Form health checks (admin-only, non-destructive endpoint probes)
 app.use('/api/form-health', formHealthCheckRouter);
 
+// Unified process definitions and submission feed foundation
+app.use('/api/process-hub', processHubRouter);
+
 // Route health (dev indicator — probes all registered routes)
 const registersRouter = require('./routes/registers');
 app.use('/api/registers', registersRouter);
@@ -758,12 +762,26 @@ app.listen(PORT, () => {
     });
 });
 
-// Flush App Insights telemetry on graceful shutdown
-process.on('SIGTERM', async () => {
+// Graceful shutdown: stop scheduler, drain mutex (up to 15s), flush telemetry
+async function gracefulShutdown(signal) {
+    schedulerLogger.info(`${signal} received — initiating graceful shutdown`);
+    stopScheduler();
+
+    // Wait for mutex to drain (in-flight sync to finish)
+    const { getState: getMutexState } = require('./utils/syncMutex');
+    const drainStart = Date.now();
+    const DRAIN_TIMEOUT_MS = 15000;
+    while (getMutexState().locked && Date.now() - drainStart < DRAIN_TIMEOUT_MS) {
+        await new Promise(r => setTimeout(r, 500));
+    }
+    if (getMutexState().locked) {
+        schedulerLogger.warn('Mutex still held after 15s drain — forcing exit');
+    }
+
     await appInsights.flush();
     process.exit(0);
-});
-process.on('SIGINT', async () => {
-    await appInsights.flush();
-    process.exit(0);
-});
+}
+
+const schedulerLogger = require('./utils/logger').createLogger('Shutdown');
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));

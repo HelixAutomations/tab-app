@@ -36,17 +36,16 @@ function statusColour(status: number): string {
 const SLOW_THRESHOLD_MS = 2000;
 
 const ApiHeatSection: React.FC<Props> = ({ requests, isDarkMode }) => {
-  const bg = isDarkMode ? colours.dark.cardBackground : '#ffffff';
+  const bg = isDarkMode ? colours.darkBlue : colours.light.sectionBackground;
   const borderCol = isDarkMode ? colours.dark.border : colours.light.border;
-  const sectionAccent = isDarkMode ? colours.accent : colours.highlight;
 
   return (
     <div style={{ padding: '14px 16px', background: bg, border: `1px solid ${borderCol}`, borderRadius: 0, marginBottom: 8 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-        <span style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: sectionAccent, fontFamily: 'Raleway, sans-serif' }}>
+        <span style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: isDarkMode ? colours.dark.text : colours.light.text, fontFamily: 'Raleway, sans-serif' }}>
           API Heat
         </span>
-        <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 0, background: `${sectionAccent}14`, color: sectionAccent, fontFamily: 'monospace' }}>
+        <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 0, background: isDarkMode ? 'rgba(255,255,255,0.06)' : colours.grey, color: isDarkMode ? colours.subtleGrey : colours.greyText, fontFamily: 'monospace' }}>
           {requests.length}
         </span>
       </div>
@@ -67,7 +66,7 @@ const ApiHeatSection: React.FC<Props> = ({ requests, isDarkMode }) => {
                 style={{
                   display: 'flex', alignItems: 'center', gap: 6, padding: '4px 6px', fontSize: 11,
                   fontFamily: 'monospace',
-                  background: isError ? (isDarkMode ? 'rgba(214,85,65,0.06)' : 'rgba(214,85,65,0.03)') : isSlow ? (isDarkMode ? 'rgba(255,140,0,0.06)' : 'rgba(255,140,0,0.03)') : 'transparent',
+                  background: isError ? (isDarkMode ? `${colours.cta}0F` : `${colours.cta}08`) : isSlow ? (isDarkMode ? `${colours.orange}0F` : `${colours.orange}08`) : 'transparent',
                   borderLeft: isError ? `2px solid ${colours.cta}` : isSlow ? `2px solid ${colours.orange}` : '2px solid transparent',
                 }}
               >
@@ -77,7 +76,7 @@ const ApiHeatSection: React.FC<Props> = ({ requests, isDarkMode }) => {
                 <span style={{ color: statusColour(req.status), fontWeight: 600, width: 28, fontSize: 10 }}>
                   {req.status}
                 </span>
-                <span style={{ color: isDarkMode ? '#d1d5db' : '#374151', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 10 }}>
+                <span style={{ color: isDarkMode ? colours.subtleGrey : colours.greyText, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 10 }}>
                   {req.path}
                 </span>
                 <span style={{ color: isSlow ? colours.orange : colours.subtleGrey, fontWeight: isSlow ? 700 : 400, width: 48, textAlign: 'right', fontSize: 10 }}>

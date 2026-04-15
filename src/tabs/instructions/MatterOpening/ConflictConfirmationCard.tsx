@@ -438,9 +438,9 @@ const ConflictConfirmationCard: React.FC<ConflictConfirmationCardProps> = ({
                     height: 18,
                     borderRadius: 0,
                     border: `2px solid ${item.checked 
-                      ? '#22c55e' 
+                      ? colours.green 
                       : (isDarkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(100, 116, 139, 0.25)')}`,
-                    background: item.checked ? '#22c55e' : 'transparent',
+                    background: item.checked ? colours.green : 'transparent',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',

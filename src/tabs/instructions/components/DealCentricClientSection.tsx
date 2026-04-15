@@ -368,7 +368,7 @@ const DealCentricClientSection: React.FC<DealCentricClientSectionProps> = ({
                   root: {
                     color: mutedText(isDarkMode),
                     ':hover': {
-                      color: '#dc2626',
+                      color: colours.cta,
                       backgroundColor: isDarkMode ? '#334155' : '#f8f9fa'
                     }
                   }
@@ -607,7 +607,7 @@ const DealCentricClientSection: React.FC<DealCentricClientSectionProps> = ({
                   color: '#ffffff',
                   border: 'none',
                   ':hover': {
-                    backgroundColor: '#2563eb'
+                    backgroundColor: colours.highlight
                   }
                 }
               }}
@@ -654,7 +654,7 @@ const DealCentricClientSection: React.FC<DealCentricClientSectionProps> = ({
               color: '#ffffff',
               border: 'none',
               ':hover': {
-                backgroundColor: '#2563eb'
+                backgroundColor: colours.highlight
               }
             }
           }}

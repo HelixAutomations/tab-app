@@ -1086,11 +1086,11 @@ const PpcReport: React.FC<PpcReportProps> = ({
           <span style={{
             padding: '4px 10px',
             borderRadius: 999,
-            border: `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.4)' : 'rgba(16, 185, 129, 0.3)'}`,
-            background: isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(16, 185, 129, 0.08)',
+            border: `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.4)' : 'rgba(32, 178, 108, 0.3)'}`,
+            background: isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.08)',
             fontSize: 11,
             fontWeight: 600,
-            color: isDarkMode ? '#86efac' : colours.green,
+            color: colours.green,
           }}>
             Sync {lastSyncLabel}
           </span>
@@ -1123,8 +1123,8 @@ const PpcReport: React.FC<PpcReportProps> = ({
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', minWidth: 0 }}>
             <div style={{
               width: 6, height: 6, borderRadius: '50%',
-              background: '#10b981',
-              boxShadow: '0 0 6px rgba(16, 185, 129, 0.4)'
+              background: colours.green,
+              boxShadow: '0 0 6px rgba(32, 178, 108, 0.4)'
             }} />
             <span style={{ fontWeight: 600, opacity: 0.9 }}>Google Ads</span>
             <span style={{ opacity: 0.6 }}>•</span>
@@ -1940,4 +1940,4 @@ const PpcReport: React.FC<PpcReportProps> = ({
   );
 };
 
-export default PpcReport;
+export default React.memo(PpcReport);

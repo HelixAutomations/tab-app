@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef, useDeferredVa
 import { FiCheck, FiCheckCircle, FiAlertCircle, FiBriefcase, FiCalendar, FiArrowUpRight, FiExternalLink, FiSearch, FiChevronDown, FiArrowRight, FiCreditCard, FiClock } from 'react-icons/fi';
 import { SiAsana, SiStripe } from 'react-icons/si';
 import { colours } from '../../app/styles/colours';
+import '../../tabs/home/home-tokens.css';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -1778,21 +1779,21 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
     return linked;
   }, [deferredAsanaTasks, deferredTxnV2Pending]);
 
-  // ─── Tokens (aligned with OperationsDashboard) ─────────────────────────
+  // ─── Tokens (aligned with home-tokens.css) ─────────────────────────
 
-  const cardBg = isDarkMode ? 'rgba(6, 23, 51, 0.55)' : '#FFFFFF';
-  const cardBorder = isDarkMode ? 'rgba(54,144,206,0.08)' : 'rgba(13,47,96,0.08)';
-  const cardShadow = isDarkMode ? 'none' : 'inset 0 0 0 1px rgba(13,47,96,0.06), 0 1px 4px rgba(13,47,96,0.04)';
-  const borderCol = isDarkMode ? 'rgba(75, 85, 99, 0.25)' : 'rgba(13, 47, 96, 0.08)';
-  const rowBorder = isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(13,47,96,0.06)';
-  const sectionDivider = isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(13,47,96,0.08)';
-  const textPrimary = isDarkMode ? colours.dark.text : colours.light.text;
-  const textBody = isDarkMode ? '#d1d5db' : '#374151';
-  const textMuted = isDarkMode ? colours.subtleGrey : colours.greyText;
+  const cardBg = 'var(--home-card-bg)';
+  const cardBorder = 'var(--home-card-border)';
+  const cardShadow = 'var(--home-card-shadow)';
+  const borderCol = 'var(--home-section-divider)';
+  const rowBorder = 'var(--home-row-border)';
+  const sectionDivider = 'var(--home-section-divider)';
+  const textPrimary = 'var(--text-primary)';
+  const textBody = 'var(--text-body)';
+  const textMuted = 'var(--text-muted)';
   const accent = isDarkMode ? colours.accent : colours.highlight;
-  const hoverBg = isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(13,47,96,0.03)';
-  const sectionSurface = isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(13,47,96,0.025)';
-  const sectionSurfaceAlt = isDarkMode ? 'rgba(255,255,255,0.025)' : 'rgba(214,232,255,0.34)';
+  const hoverBg = 'var(--home-row-hover-bg)';
+  const sectionSurface = 'var(--home-skel-fill-faint)';
+  const sectionSurfaceAlt = 'var(--home-surface-alt)';
   const queueTitle = isAdmin ? 'Operations' : 'My transactions';
   const queueSubtitle = isAdmin
     ? 'Accounts pipeline, transfers, payments, and debt follow-up in one Home workspace.'
@@ -1828,10 +1829,10 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
   // ─── Skeleton ───────────────────────────────────────────────────────────
 
   if (isLoading) {
-    const skelStrong = isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(13,47,96,0.08)';
-    const skelSoft = isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(13,47,96,0.03)';
-    const skelBar = isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(13,47,96,0.05)';
-    const skelBorder = isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(13,47,96,0.06)';
+    const skelStrong = 'var(--home-skel-fill)';
+    const skelSoft = 'var(--home-skel-fill-faint)';
+    const skelBar = 'var(--home-skel-fill-weak)';
+    const skelBorder = 'var(--home-card-border)';
     return (
       <div ref={queueRootRef} style={{
         background: cardBg,
@@ -1859,7 +1860,7 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
           display: 'flex', alignItems: 'center', gap: 8,
           padding: '0 14px', height: 32, boxSizing: 'border-box',
           background: isDarkMode ? colours.darkBlue : colours.grey,
-          borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}`,
+          borderBottom: '1px solid var(--home-section-divider)',
         }}>
           <div style={{ width: 8, height: 8, background: skelBar, animation: 'opsQPulse 1.5s ease-in-out infinite 0.06s' }} />
           <div style={{ width: 9, height: 9, borderRadius: 1, background: skelStrong, animation: 'opsQPulse 1.5s ease-in-out infinite 0.08s' }} />
@@ -1875,7 +1876,7 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
         </div>
 
         {/* Bank transfers skeleton — dot + label + card grid */}
-        <div style={{ marginTop: 10, borderTop: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(13,47,96,0.04)'}`, paddingTop: 8 }}>
+        <div style={{ marginTop: 10, borderTop: '1px solid var(--home-row-border)', paddingTop: 8 }}>
           <div style={{ padding: '2px 14px 3px', display: 'flex', alignItems: 'center', gap: 5 }}>
             <div style={{ width: 4, height: 4, borderRadius: '50%', background: isDarkMode ? 'rgba(255,140,0,0.35)' : 'rgba(255,140,0,0.25)' }} />
             <div style={{ width: 80, height: 9, background: skelStrong, animation: 'opsQPulse 1.5s ease-in-out infinite 0.18s' }} />
@@ -1902,8 +1903,8 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
         <div style={{ paddingTop: 8 }}>
           <div style={{
             padding: '6px 14px 7px', display: 'flex', alignItems: 'center', gap: 4,
-            borderTop: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(13,47,96,0.03)'}`,
-            borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.07)' : 'rgba(13,47,96,0.07)'}`,
+            borderTop: '1px solid var(--home-row-border)',
+            borderBottom: '1px solid var(--home-section-divider)',
             background: isDarkMode ? 'rgba(2,6,23,0.24)' : 'rgba(244,244,246,0.52)',
           }}>
             {[32, 26, 30, 38, 24].map((w, i) => (

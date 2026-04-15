@@ -11,18 +11,31 @@ import { Label } from '@fluentui/react/lib/Label';
 import { Icon } from '@fluentui/react/lib/Icon';
 import { UserData, NormalizedMatter } from '../app/functionality/types';
 import { useTheme } from '../app/functionality/ThemeContext';
+import { colours } from '../app/styles/colours';
 import {
     getFormContainerStyle,
     getFormScrollContainerStyle,
     getFormCardStyle,
     getFormHeaderStyle,
+    getFormHeaderTitleStyle,
+    getFormHeaderSubtitleStyle,
     getFormSectionStyle,
     getFormSectionHeaderStyle,
     getInputStyles,
     getDropdownStyles,
     getFormPrimaryButtonStyles,
     getFormDefaultButtonStyles,
-    formAccentColors
+    getFormLabelStyle,
+    getFormHelperTextStyle,
+    getFormSystemNoteStyle,
+    getFormSystemNoteIconStyle,
+    getFormSubmitFeedbackStyle,
+    getFormSubmitFeedbackIconStyle,
+    getFormTextareaStyles,
+    formFont,
+    formFieldTokens,
+    formSectionTokens,
+    formAccentColors,
 } from './shared/formStyles';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -106,8 +119,8 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
             border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
             background: checked 
                 ? accentColor 
-                : isDarkMode ? 'rgba(30,41,59,0.5)' : '#ffffff',
-            color: checked ? '#ffffff' : isDarkMode ? '#e2e8f0' : '#374151',
+                : isDarkMode ? 'rgba(6, 23, 51,0.5)' : '#ffffff',
+            color: checked ? '#ffffff' : isDarkMode ? '#f3f4f6' : '#374151',
             fontWeight: 600,
             fontSize: '14px',
             transition: 'all 0.15s ease',
@@ -115,8 +128,8 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
         rootHovered: {
             background: checked 
                 ? accentColor 
-                : isDarkMode ? 'rgba(51,65,85,0.5)' : '#f8fafc',
-            color: checked ? '#ffffff' : isDarkMode ? '#e2e8f0' : '#374151',
+                : isDarkMode ? 'rgba(55, 65, 81,0.5)' : '#F4F4F6',
+            color: checked ? '#ffffff' : isDarkMode ? '#f3f4f6' : '#374151',
         },
         rootChecked: {
             background: accentColor,
@@ -125,7 +138,7 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
     });
 
     const branchCardStyle: React.CSSProperties = {
-        background: isDarkMode ? 'rgba(30, 41, 59, 0.3)' : '#f8fafc',
+        background: isDarkMode ? 'rgba(6, 23, 51, 0.3)' : '#F4F4F6',
         border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}`,
         borderLeft: `3px solid ${accentColor}`,
         padding: '16px 20px',
@@ -137,7 +150,7 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
         gap: 8,
         flexWrap: 'wrap',
         alignItems: 'flex-start',
-        background: isDarkMode ? 'rgba(30,41,59,0.5)' : '#ffffff',
+        background: isDarkMode ? 'rgba(6, 23, 51,0.5)' : '#ffffff',
         padding: '12px',
         border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}`,
         marginBottom: '8px',
@@ -149,7 +162,7 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
         left: 0,
         right: 0,
         zIndex: 1000,
-        background: isDarkMode ? '#1e293b' : '#ffffff',
+        background: isDarkMode ? '#061733' : '#ffffff',
         border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
         maxHeight: '300px',
         overflowY: 'auto',
@@ -327,20 +340,11 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
                                 style={{ fontSize: '20px', color: accentColor }} 
                             />
                             <div>
-                                <Text style={{ 
-                                    fontSize: '18px', 
-                                    fontWeight: 700, 
-                                    color: isDarkMode ? '#f1f5f9' : '#1e293b',
-                                    display: 'block',
-                                    marginBottom: '2px'
-                                }}>
+                                <Text style={getFormHeaderTitleStyle(isDarkMode)}>
                                     Bundle Submission
                                 </Text>
-                                <Text style={{ 
-                                    fontSize: '13px', 
-                                    color: isDarkMode ? '#94a3b8' : '#64748b' 
-                                }}>
-                                    Submit documents for professional processing
+                                <Text style={getFormHeaderSubtitleStyle(isDarkMode)}>
+                                    Prepare and route physical document bundles
                                 </Text>
                             </div>
                         </div>
@@ -348,7 +352,7 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
 
                     {/* Content */}
                     <div style={{ padding: '24px' }}>
-                        <Stack tokens={{ childrenGap: 24 }}>
+                        <Stack tokens={formSectionTokens}>
                             {/* Request Details Section */}
                             <div style={sectionStyle}>
                                 <Text style={sectionHeaderStyle}>
@@ -356,15 +360,10 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
                                     Request Details
                                 </Text>
                                 
-                                <Stack tokens={{ childrenGap: 16 }}>
+                                <Stack tokens={formFieldTokens}>
                                     {/* Matter Reference Field */}
                                     <div ref={matterFieldRef} style={{ position: 'relative' }}>
-                                        <Label style={{
-                                            fontWeight: 600,
-                                            fontSize: '13px',
-                                            color: isDarkMode ? '#e2e8f0' : '#374151',
-                                            marginBottom: '6px',
-                                        }}>
+                                        <Label style={getFormLabelStyle(isDarkMode)}>
                                             Matter reference *
                                         </Label>
                                         <div style={{ position: 'relative' }}>
@@ -377,13 +376,14 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
                                                 disabled={submitting}
                                                 style={{
                                                     width: '100%',
-                                                    height: '40px',
+                                                    height: '44px',
                                                     border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
                                                     outline: 'none',
-                                                    background: isDarkMode ? 'rgba(30,41,59,0.5)' : '#ffffff',
+                                                    background: isDarkMode ? 'rgba(6, 23, 51,0.5)' : '#ffffff',
+                                                    fontFamily: formFont,
                                                     fontSize: '14px',
                                                     padding: '0 40px 0 12px',
-                                                    color: isDarkMode ? '#e2e8f0' : '#374151',
+                                                    color: 'var(--text-primary)',
                                                     cursor: submitting ? 'not-allowed' : 'text',
                                                     boxSizing: 'border-box',
                                                 }}
@@ -397,7 +397,7 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
                                                     top: '50%',
                                                     transform: 'translateY(-50%)',
                                                     fontSize: '14px',
-                                                    color: isDarkMode ? '#94a3b8' : '#6b7280',
+                                                    color: isDarkMode ? '#A0A0A0' : '#6B6B6B',
                                                     pointerEvents: 'none',
                                                 }} 
                                             />
@@ -428,21 +428,23 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
                                                             <div style={{
                                                                 fontWeight: 600,
                                                                 fontSize: '14px',
-                                                                color: isDarkMode ? '#e2e8f0' : '#374151',
+                                                                fontFamily: formFont,
+                                                                color: 'var(--text-primary)',
                                                                 marginBottom: '2px',
                                                             }}>
                                                                 {displayNumber}
                                                             </div>
                                                             <div style={{
                                                                 fontSize: '13px',
-                                                                color: isDarkMode ? '#94a3b8' : '#6b7280',
+                                                                color: 'var(--text-muted)',
                                                             }}>
                                                                 {clientName}
                                                             </div>
                                                             {description && (
                                                                 <div style={{
                                                                     fontSize: '12px',
-                                                                    color: isDarkMode ? '#64748b' : '#9ca3af',
+                                                                    color: 'var(--text-muted)',
+                                                                    opacity: 0.7,
                                                                 }}>
                                                                     {description.length > 60 ? description.substring(0, 60) + '...' : description}
                                                                 </div>
@@ -461,7 +463,7 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
                                         required
                                         disabled={submitting}
                                         styles={inputStyles}
-                                        placeholder="Enter bundle reference or link"
+                                        placeholder="Paste the NetDocs bundle link or reference"
                                     />
                                 </Stack>
                             </div>
@@ -507,7 +509,7 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
                                         <Text style={{ 
                                             fontSize: '14px', 
                                             fontWeight: 600, 
-                                            color: isDarkMode ? '#e2e8f0' : '#374151',
+                                            color: 'var(--text-primary)',
                                             marginBottom: '16px',
                                             display: 'block'
                                         }}>
@@ -516,12 +518,10 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
                                         
                                         {/* Recipients */}
                                         <Label style={{
-                                            fontSize: '12px',
-                                            fontWeight: 600,
+                                            ...getFormLabelStyle(isDarkMode),
+                                            fontSize: '11px',
                                             textTransform: 'uppercase',
                                             letterSpacing: '0.5px',
-                                            color: isDarkMode ? '#94a3b8' : '#6b7280',
-                                            marginBottom: '8px',
                                         }}>
                                             Recipients
                                         </Label>
@@ -627,13 +627,7 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
                                                 styles={{ ...inputStyles, root: { width: 100 } }}
                                             />
                                         </Stack>
-                                        <Text style={{ 
-                                            fontSize: '12px', 
-                                            color: isDarkMode ? '#64748b' : '#9ca3af',
-                                            fontStyle: 'italic',
-                                            marginTop: '8px',
-                                            display: 'block'
-                                        }}>
+                                        <Text style={getFormHelperTextStyle(isDarkMode)}>
                                             Copies to the address on the covering letter
                                         </Text>
                                     </div>
@@ -645,7 +639,7 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
                                         <Text style={{ 
                                             fontSize: '14px', 
                                             fontWeight: 600, 
-                                            color: isDarkMode ? '#e2e8f0' : '#374151',
+                                            color: 'var(--text-primary)',
                                             marginBottom: '16px',
                                             display: 'block'
                                         }}>
@@ -681,78 +675,57 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
                                     Additional Notes
                                 </Text>
                                 <TextField
-                                    label="Other notes"
+                                    label="Additional notes"
                                     multiline
                                     rows={4}
                                     value={notes}
                                     onChange={(_, v) => setNotes(v || '')}
-                                    styles={inputStyles}
-                                    placeholder="Enter any additional notes or special instructions..."
+                                    styles={getFormTextareaStyles(isDarkMode, 4)}
+                                    placeholder="Any special instructions for the bundle team"
                                 />
                             </div>
 
-                            {/* Info Box */}
-                            <div style={{
-                                background: isDarkMode ? 'rgba(16, 185, 129, 0.1)' : 'rgba(16, 185, 129, 0.05)',
-                                border: `1px solid ${isDarkMode ? 'rgba(16, 185, 129, 0.3)' : 'rgba(16, 185, 129, 0.2)'}`,
-                                borderLeft: '3px solid #10b981',
-                                padding: '16px',
-                            }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-                                    <Icon iconName="Info" style={{ fontSize: '16px', color: '#10b981' }} />
-                                    <Text style={{ 
-                                        fontSize: '14px', 
-                                        fontWeight: 600, 
-                                        color: isDarkMode ? '#e2e8f0' : '#374151' 
-                                    }}>
-                                        Automatic Notifications
-                                    </Text>
-                                </div>
-                                <div style={{ paddingLeft: '26px' }}>
+                            {/* System Note */}
+                            <div style={getFormSystemNoteStyle(isDarkMode, 'success')}>
+                                <Icon iconName="Info" style={getFormSystemNoteIconStyle(isDarkMode, 'success')} />
+                                <div>
                                     <Text style={{ 
                                         fontSize: '13px', 
-                                        color: isDarkMode ? '#94a3b8' : '#6b7280',
+                                        fontWeight: 600, 
+                                        color: 'var(--text-primary)',
                                         display: 'block',
                                         marginBottom: '4px'
                                     }}>
-                                        • Asana task created in Bundle project
+                                        What happens next
                                     </Text>
-                                    <Text style={{ fontSize: '13px', color: isDarkMode ? '#94a3b8' : '#6b7280' }}>
-                                        • Email sent to <span style={{ fontWeight: 600, color: '#10b981' }}>operations@helix-law.com</span>
+                                    <Text style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginBottom: '2px' }}>
+                                        An Asana task is created in the Bundle project.
+                                    </Text>
+                                    <Text style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                                        Operations are notified at <span style={{ fontWeight: 600, color: colours.green }}>operations@helix-law.com</span>.
                                     </Text>
                                 </div>
                             </div>
 
                             {/* Status Feedback */}
                             {submitStatus !== 'idle' && (
-                                <div style={{
-                                    padding: '16px',
-                                    borderLeft: `3px solid ${
-                                        submitStatus === 'success' ? '#22c55e' :
-                                        submitStatus === 'error' ? '#ef4444' : '#3b82f6'
-                                    }`,
-                                    background: isDarkMode 
-                                        ? `rgba(${submitStatus === 'success' ? '34, 197, 94' : submitStatus === 'error' ? '239, 68, 68' : '59, 130, 246'}, 0.1)`
-                                        : `rgba(${submitStatus === 'success' ? '34, 197, 94' : submitStatus === 'error' ? '239, 68, 68' : '59, 130, 246'}, 0.05)`,
-                                }}>
-                                    <div style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '10px',
-                                        color: submitStatus === 'success' ? '#22c55e' :
-                                               submitStatus === 'error' ? '#ef4444' : '#3b82f6',
-                                    }}>
-                                        <Icon 
-                                            iconName={
-                                                submitStatus === 'success' ? 'CheckMark' :
-                                                submitStatus === 'error' ? 'ErrorBadge' : 'More'
-                                            } 
-                                            style={{ fontSize: '18px' }} 
-                                        />
-                                        <Text style={{ fontWeight: 600, fontSize: '14px' }}>
-                                            {submitMessage}
-                                        </Text>
-                                    </div>
+                                <div style={getFormSubmitFeedbackStyle(isDarkMode, 
+                                    submitStatus === 'success' ? 'success' : 
+                                    submitStatus === 'error' ? 'error' : 'info'
+                                )}>
+                                    <Icon 
+                                        iconName={
+                                            submitStatus === 'success' ? 'CheckMark' :
+                                            submitStatus === 'error' ? 'ErrorBadge' : 'More'
+                                        } 
+                                        style={getFormSubmitFeedbackIconStyle(
+                                            submitStatus === 'success' ? 'success' : 
+                                            submitStatus === 'error' ? 'error' : 'info'
+                                        )} 
+                                    />
+                                    <Text style={{ fontWeight: 600, fontSize: '13px' }}>
+                                        {submitMessage}
+                                    </Text>
                                 </div>
                             )}
 
@@ -765,11 +738,11 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
                                 borderTop: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}`,
                             }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <Icon iconName="Contact" style={{ fontSize: '14px', color: isDarkMode ? '#94a3b8' : '#6b7280' }} />
+                                    <Icon iconName="Contact" style={{ fontSize: '14px', color: 'var(--text-muted)' }} />
                                     <Text style={{ 
                                         fontSize: '13px', 
                                         fontWeight: 600, 
-                                        color: isDarkMode ? '#e2e8f0' : '#374151' 
+                                        color: 'var(--text-primary)' 
                                     }}>
                                         {(() => {
                                             if (users && users.length > 0) {

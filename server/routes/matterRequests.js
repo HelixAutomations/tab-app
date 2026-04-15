@@ -2,9 +2,16 @@ const express = require('express');
 const sql = require('mssql');
 const { v4: uuidv4 } = require('uuid');
 const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
+const { withRequest, getPool } = require('../utils/db');
 const { emitEvent } = require('../utils/eventEmitter');
 
 const router = express.Router();
+
+const getInstrConnStr = () => {
+  const s = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+  if (!s) throw new Error('INSTRUCTIONS_SQL_CONNECTION_STRING not configured');
+  return s;
+};
 
 /**
  * POST /api/matter-requests
@@ -23,9 +30,8 @@ router.post('/', async (req, res) => {
     }
 
     trackEvent('MatterOpening.MatterRequest.Started', { instructionRef, clientType: body.clientType || '', responsibleSolicitor: body.responsibleSolicitor || '' });
-    let pool;
     try {
-        pool = await sql.connect(connectionString);
+        const pool = await getPool(connectionString);
 
         // Insert opponent if provided
         let opponentId = body.opponentId || null;
@@ -134,8 +140,6 @@ router.post('/', async (req, res) => {
         trackException(err, { component: 'MatterOpening', operation: 'MatterRequest', phase: 'insert', instructionRef });
         trackEvent('MatterOpening.MatterRequest.Failed', { instructionRef, error: err.message, durationMs: String(mrDurationMs) });
         res.status(500).json({ error: 'Failed to insert matter request', detail: err.message });
-    } finally {
-        if (pool) await pool.close();
     }
 });
 
@@ -193,25 +197,24 @@ router.patch('/:matterId', async (req, res) => {
         traceId: String(traceId || ''),
     });
 
-    let pool;
     try {
-        pool = await sql.connect(connectionString);
-
-        const result = await pool.request()
-            .input('matterId', sql.NVarChar(255), matterId)
-            .input('instructionRef', sql.NVarChar(255), updates.instructionRef)
-            .input('clientId', sql.NVarChar(255), updates.clientId)
-            .input('displayNumber', sql.NVarChar(255), updates.displayNumber)
-            .input('clioMatterId', sql.NVarChar(255), updates.clioMatterId)
-            .query(`
-                UPDATE Matters
-                SET
-                    InstructionRef = COALESCE(@instructionRef, InstructionRef),
-                    ClientID = COALESCE(@clientId, ClientID),
-                    DisplayNumber = COALESCE(@displayNumber, DisplayNumber),
-                    MatterID = COALESCE(@clioMatterId, MatterID)
-                WHERE MatterID = @matterId
-            `);
+        const result = await withRequest(connectionString, async (request) => {
+            return request
+                .input('matterId', sql.NVarChar(255), matterId)
+                .input('instructionRef', sql.NVarChar(255), updates.instructionRef)
+                .input('clientId', sql.NVarChar(255), updates.clientId)
+                .input('displayNumber', sql.NVarChar(255), updates.displayNumber)
+                .input('clioMatterId', sql.NVarChar(255), updates.clioMatterId)
+                .query(`
+                    UPDATE Matters
+                    SET
+                        InstructionRef = COALESCE(@instructionRef, InstructionRef),
+                        ClientID = COALESCE(@clientId, ClientID),
+                        DisplayNumber = COALESCE(@displayNumber, DisplayNumber),
+                        MatterID = COALESCE(@clioMatterId, MatterID)
+                    WHERE MatterID = @matterId
+                `);
+        });
 
         if (!result.rowsAffected || result.rowsAffected[0] === 0) {
             trackEvent('MatterOpening.MatterRequestPatch.NotFound', {
@@ -246,8 +249,6 @@ router.patch('/:matterId', async (req, res) => {
             traceId: String(traceId || ''),
         });
         return res.status(500).json({ error: 'Failed to update matter request', detail: err.message });
-    } finally {
-        if (pool) await pool.close();
     }
 });
 

@@ -6753,8 +6753,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             {/* Prospect Details */}
             <div style={{
               background: isDarkMode 
-                ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.12), rgba(37, 99, 235, 0.08))'
-                : 'linear-gradient(135deg, rgba(54, 144, 206, 0.08), rgba(37, 99, 235, 0.05))',
+                ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.12), rgba(54, 144, 206, 0.08))'
+                : 'linear-gradient(135deg, rgba(54, 144, 206, 0.08), rgba(54, 144, 206, 0.05))',
               borderRadius: 0,
               padding: '20px',
               marginBottom: '24px',
@@ -7133,8 +7133,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             {/* Account Owner Section */}
             <div style={{
               background: isDarkMode 
-                ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.12), rgba(37, 99, 235, 0.08))'
-                : 'linear-gradient(135deg, rgba(54, 144, 206, 0.08), rgba(37, 99, 235, 0.05))',
+                ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.12), rgba(54, 144, 206, 0.08))'
+                : 'linear-gradient(135deg, rgba(54, 144, 206, 0.08), rgba(54, 144, 206, 0.05))',
               borderRadius: 0,
               padding: '20px',
               marginBottom: '24px',
@@ -7282,8 +7282,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
 
             {/* Info Banner */}
             <div style={{
-              background: isDarkMode ? 'rgba(59, 130, 246, 0.1)' : 'rgba(59, 130, 246, 0.08)',
-              border: `1px solid ${isDarkMode ? 'rgba(59, 130, 246, 0.2)' : 'rgba(59, 130, 246, 0.15)'}`,
+              background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.08)',
+              border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)'}`,
               borderRadius: 0,
               padding: '12px 16px',
               marginBottom: '24px',

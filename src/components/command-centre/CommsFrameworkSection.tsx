@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { colours } from '../../app/styles/colours';
 import { CommandCentreTokens } from './types';
 
@@ -42,6 +42,11 @@ const CommsFrameworkSection: React.FC<CommsFrameworkSectionProps> = ({ tokens })
     const [result, setResult] = useState<PressureTestResult | null>(null);
     const [error, setError] = useState('');
     const abortRef = useRef<AbortController | null>(null);
+
+    // Abort in-flight request on unmount
+    useEffect(() => {
+        return () => { abortRef.current?.abort(); };
+    }, []);
 
     const runPressureTest = useCallback(async () => {
         if (draft.trim().length < 10) {

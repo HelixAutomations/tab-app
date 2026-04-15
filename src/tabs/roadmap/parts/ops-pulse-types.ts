@@ -1,4 +1,4 @@
-// src/tabs/roadmap/parts/ops-pulse-types.ts — Types for the Helix Eye dashboard
+// src/tabs/roadmap/parts/ops-pulse-types.ts — Types for the Live Monitor dashboard
 
 export interface PulseData {
   uptimeSeconds: number;
@@ -77,6 +77,20 @@ export interface RequestEntry {
   user: string | null;
 }
 
+export interface PresenceEntry {
+  initials: string;
+  name: string;
+  email: string;
+  tab: string;
+  lastSeen: number;
+}
+
+export interface PresenceData {
+  online: number;
+  tabs: Record<string, number>;
+  list: PresenceEntry[];
+}
+
 export interface OpsPulseState {
   connected: boolean;
   pulse: PulseData | null;
@@ -84,4 +98,5 @@ export interface OpsPulseState {
   errors: ErrorEntry[];
   sessions: SessionsData | null;
   requests: RequestEntry[];
+  presence: PresenceData | null;
 }

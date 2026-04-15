@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { colours } from '../../app/styles/colours';
 import { UserData } from '../../app/functionality/types';
 import { ErrorCollector } from '../ErrorTracker';
+import { buildStreamItem, createLedgerSeed, LEDGER_VISIBLE_STATUSES, prependStoredStreamItem } from '../../tabs/forms/processStreamStore';
+import { streamStatusMeta } from '../../tabs/forms/processHubData';
 import { CommandCentreTokens } from './types';
 import './CommandDeck.css';
 
@@ -242,6 +244,26 @@ const CommandDeck: React.FC<CommandDeckProps> = (props) => {
             tools.push({ key: 'demoMatter', label: 'Demo Matter', icon: icons.matter, onClick: () => onOpenDemoMatter(false) });
             tools.push({ key: 'demoCcl', label: 'Demo CCL', icon: icons.ccl, onClick: () => onOpenDemoMatter(true) });
         }
+        if (demoModeEnabled && isAdminEligible) {
+            LEDGER_VISIBLE_STATUSES.forEach((status) => {
+                tools.push({
+                    key: `ledger-${status}`,
+                    label: `Ledger ${streamStatusMeta[status].label}`,
+                    icon: icons.activity,
+                    onClick: () => {
+                        const seed = createLedgerSeed(status, 'demo');
+                        prependStoredStreamItem(buildStreamItem({
+                            lane: 'Request',
+                            lastEvent: seed.lastEvent,
+                            processTitle: seed.processTitle,
+                            status,
+                            summary: seed.summary,
+                        }), 12);
+                        showToast(`Added ${streamStatusMeta[status].label.toLowerCase()} ledger demo entry`, 'success');
+                    },
+                });
+            });
+        }
         tools.push({ key: 'rateTracker', label: 'Rate Tracker', icon: icons.rateTracker, onClick: () => { window.dispatchEvent(new CustomEvent('openRateChangeModal')); onClose(); } });
         tools.push({ key: 'prompts', label: 'Prompt Seeds', icon: icons.prompts, onClick: onDemoPrompts });
         tools.push({ key: 'migration', label: 'Migration', icon: icons.migration, onClick: onMigrationTool });
@@ -249,7 +271,7 @@ const CommandDeck: React.FC<CommandDeckProps> = (props) => {
             tools.push({ key: 'release', label: 'Release Notes', icon: icons.release, onClick: () => { onOpenReleaseNotesModal(); onClose(); } });
         }
         return tools;
-    }, [errorCount, onDevDashboard, onErrorTracker, onErrorPreview, onLoadingDebug, onDemoPrompts, onMigrationTool, onOpenDemoMatter, onOpenReleaseNotesModal, onClose, showToast]);
+    }, [demoModeEnabled, errorCount, isAdminEligible, onDevDashboard, onErrorTracker, onErrorPreview, onLoadingDebug, onDemoPrompts, onMigrationTool, onOpenDemoMatter, onOpenReleaseNotesModal, onClose, showToast]);
 
     const handleUserChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
         const sel = availableUsers?.find(u => u.Initials === e.target.value);

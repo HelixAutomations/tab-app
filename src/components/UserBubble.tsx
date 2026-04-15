@@ -15,13 +15,10 @@ import LegacyMigrationTool from './LegacyMigrationTool';
 import lightAvatarMark from '../assets/dark blue mark.svg';
 import darkAvatarMark from '../assets/markwhite.svg';
 import { CommandCentreTokens, BubbleToastTone } from './command-centre/types';
-import AdminControlsSection from './command-centre/AdminControlsSection';
 import LocalDevSection from './command-centre/LocalDevSection';
-import WorkspaceViewsSection from './command-centre/WorkspaceViewsSection';
 import SessionFiltersSection from './command-centre/SessionFiltersSection';
 import TodayStripSection from './command-centre/TodayStripSection';
 import MyAttentionSection from './command-centre/MyAttentionSection';
-import QuickLinksSection from './command-centre/QuickLinksSection';
 import CommsFrameworkSection from './command-centre/CommsFrameworkSection';
 
 interface UserBubbleProps {
@@ -40,7 +37,6 @@ interface UserBubbleProps {
     demoModeEnabled?: boolean;
     onToggleDemoMode?: (enabled: boolean) => void;
     onOpenReleaseNotesModal?: () => void;
-    hideOpsSections?: boolean;
 }
 
 const UserBubble: React.FC<UserBubbleProps> = ({
@@ -58,7 +54,6 @@ const UserBubble: React.FC<UserBubbleProps> = ({
     demoModeEnabled = false,
     onToggleDemoMode,
     onOpenReleaseNotesModal,
-    hideOpsSections = false,
 }) => {
     // ── State ──
     const [open, setOpen] = useState(false);
@@ -287,6 +282,7 @@ const UserBubble: React.FC<UserBubbleProps> = ({
     }), [isDarkMode, showToast]);
 
     const actionBtn: React.CSSProperties = tokens.actionBtn;
+    const { toggleRow, toggleSwitch, toggleKnob, sectionTitle, applyRowHover, resetRowHover } = tokens;
 
     // ── Render ──
     return (
@@ -425,76 +421,6 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                         )}
                                     </div>
                                 </div>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 1, flexShrink: 0 }}>
-                                    <span
-                                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 9, fontWeight: 600, color: user.ClioID ? textMuted : colours.cta, letterSpacing: '0.2px', cursor: user.ClioID ? 'pointer' : 'default' }}
-                                        onClick={() => {
-                                            if (user.ClioID) {
-                                                navigator.clipboard.writeText(String(user.ClioID));
-                                                showToast('Clio ID copied', 'success');
-                                            }
-                                        }}
-                                        title={user.ClioID ? `Click to copy: ${user.ClioID}` : 'No Clio ID'}
-                                    >
-                                        <span style={{ width: 4, height: 4, borderRadius: '50%', background: user.ClioID ? colours.green : colours.cta, flexShrink: 0 }} />
-                                        Clio {user.ClioID || '—'}
-                                        {user.ClioID && (
-                                            <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ opacity: 0.5 }}>
-                                                <rect x="9" y="9" width="13" height="13" rx="1"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/>
-                                            </svg>
-                                        )}
-                                    </span>
-                                    <span
-                                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 9, fontWeight: 600, color: user.EntraID ? textMuted : colours.cta, letterSpacing: '0.2px', cursor: user.EntraID ? 'pointer' : 'default' }}
-                                        onClick={() => {
-                                            if (user.EntraID) {
-                                                navigator.clipboard.writeText(String(user.EntraID));
-                                                showToast('Entra ID copied', 'success');
-                                            }
-                                        }}
-                                        title={user.EntraID ? `Click to copy: ${user.EntraID}` : 'No Entra ID'}
-                                    >
-                                        <span style={{ width: 4, height: 4, borderRadius: '50%', background: user.EntraID ? colours.green : colours.cta, flexShrink: 0 }} />
-                                        Entra {user.EntraID ? `${String(user.EntraID).substring(0, 8)}…` : '—'}
-                                        {user.EntraID && (
-                                            <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ opacity: 0.5 }}>
-                                                <rect x="9" y="9" width="13" height="13" rx="1"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/>
-                                            </svg>
-                                        )}
-                                    </span>
-                                </div>
-                                {/* Theme toggle */}
-                                <button
-                                    onClick={toggleTheme}
-                                    style={{
-                                        background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : colours.grey,
-                                        border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.12)' : borderMedium}`,
-                                        borderRadius: '2px', color: textMuted, cursor: 'pointer',
-                                        padding: '5px', minWidth: 28, minHeight: 28,
-                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                        transition: 'all 0.15s ease', flexShrink: 0
-                                    }}
-                                    onMouseEnter={(e) => {
-                                        e.currentTarget.style.borderColor = isDarkMode ? colours.accent : colours.blue;
-                                        e.currentTarget.style.color = textPrimary;
-                                    }}
-                                    onMouseLeave={(e) => {
-                                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.12)' : borderMedium;
-                                        e.currentTarget.style.color = textMuted;
-                                    }}
-                                    aria-label={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
-                                    title={isDarkMode ? 'Light mode' : 'Dark mode'}
-                                >
-                                    {isDarkMode ? (
-                                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                            <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-                                        </svg>
-                                    ) : (
-                                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-                                        </svg>
-                                    )}
-                                </button>
                                 <button
                                     onClick={() => closePopover()}
                                     style={{
@@ -527,8 +453,56 @@ const UserBubble: React.FC<UserBubbleProps> = ({
 
                         {/* Content — My Helix */}
                         <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
+                            {/* System IDs strip */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+                                <span
+                                    style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 9, fontWeight: 600, color: user.ClioID ? textMuted : colours.cta, letterSpacing: '0.2px', cursor: user.ClioID ? 'pointer' : 'default' }}
+                                    onClick={() => {
+                                        if (user.ClioID) {
+                                            navigator.clipboard.writeText(String(user.ClioID));
+                                            showToast('Clio ID copied', 'success');
+                                        }
+                                    }}
+                                    title={user.ClioID ? `Click to copy: ${user.ClioID}` : 'No Clio ID'}
+                                    role={user.ClioID ? 'button' : undefined}
+                                    aria-label={user.ClioID ? `Copy Clio ID ${user.ClioID}` : 'No Clio ID'}
+                                    tabIndex={user.ClioID ? 0 : undefined}
+                                    onKeyDown={user.ClioID ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigator.clipboard.writeText(String(user.ClioID)); showToast('Clio ID copied', 'success'); } } : undefined}
+                                >
+                                    <span style={{ width: 4, height: 4, borderRadius: '50%', background: user.ClioID ? colours.green : colours.cta, flexShrink: 0 }} />
+                                    Clio {user.ClioID || '\u2014'}
+                                    {user.ClioID && (
+                                        <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ opacity: 0.5 }}>
+                                            <rect x="9" y="9" width="13" height="13" rx="1"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/>
+                                        </svg>
+                                    )}
+                                </span>
+                                <span
+                                    style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 9, fontWeight: 600, color: user.EntraID ? textMuted : colours.cta, letterSpacing: '0.2px', cursor: user.EntraID ? 'pointer' : 'default' }}
+                                    onClick={() => {
+                                        if (user.EntraID) {
+                                            navigator.clipboard.writeText(String(user.EntraID));
+                                            showToast('Entra ID copied', 'success');
+                                        }
+                                    }}
+                                    title={user.EntraID ? `Click to copy: ${user.EntraID}` : 'No Entra ID'}
+                                    role={user.EntraID ? 'button' : undefined}
+                                    aria-label={user.EntraID ? `Copy Entra ID` : 'No Entra ID'}
+                                    tabIndex={user.EntraID ? 0 : undefined}
+                                    onKeyDown={user.EntraID ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigator.clipboard.writeText(String(user.EntraID)); showToast('Entra ID copied', 'success'); } } : undefined}
+                                >
+                                    <span style={{ width: 4, height: 4, borderRadius: '50%', background: user.EntraID ? colours.green : colours.cta, flexShrink: 0 }} />
+                                    Entra {user.EntraID ? `${String(user.EntraID).substring(0, 8)}\u2026` : '\u2014'}
+                                    {user.EntraID && (
+                                        <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ opacity: 0.5 }}>
+                                            <rect x="9" y="9" width="13" height="13" rx="1"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/>
+                                        </svg>
+                                    )}
+                                </span>
+                            </div>
+
                             {/* Active state warnings (admin view-as, demo mode) */}
-                            {!hideOpsSections && (demoModeEnabled || featureToggles.viewAsProd || originalAdminUser) && (
+                            {(demoModeEnabled || featureToggles.viewAsProd || originalAdminUser) && (
                                 <div style={{
                                     display: 'flex', alignItems: 'center', gap: 6,
                                     padding: '8px 12px', marginBottom: 16,
@@ -559,48 +533,138 @@ const UserBubble: React.FC<UserBubbleProps> = ({
 
                             {/* ── Area of Work filter strip ── */}
                             {hasSessionFilters && (
-                                <SessionFiltersSection
-                                    tokens={tokens}
-                                    onAreasChange={onAreasChange}
-                                    areasOfWork={areasOfWork}
-                                    setAreasOfWork={setAreasOfWork}
-                                />
+                                <div style={{ marginBottom: 8 }}>
+                                    <SessionFiltersSection
+                                        tokens={tokens}
+                                        onAreasChange={onAreasChange}
+                                        areasOfWork={areasOfWork}
+                                        setAreasOfWork={setAreasOfWork}
+                                    />
+                                </div>
                             )}
 
-                            <QuickLinksSection tokens={tokens} userTier={tier} onOpenReleaseNotes={onOpenReleaseNotesModal} closePopover={closePopover} />
+                            {/* ── Admin Tools (all admins) ── */}
+                            {isAdminEligible && (
+                                <div style={{
+                                    marginBottom: 4,
+                                    border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.10)' : borderLight}`,
+                                    borderRadius: 0,
+                                    overflow: 'hidden',
+                                }}>
+                                    <div style={{
+                                        display: 'flex', alignItems: 'center', gap: 8,
+                                        padding: '8px 14px',
+                                        background: isDarkMode ? 'rgba(54, 144, 206, 0.04)' : 'rgba(54, 144, 206, 0.02)',
+                                        borderBottom: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : borderLight}`,
+                                    }}>
+                                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={textMuted} strokeWidth="1.8" style={{ flexShrink: 0, opacity: 0.7 }}>
+                                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                                        </svg>
+                                        <span style={{ fontSize: 10, fontWeight: 600, color: textMuted, letterSpacing: '0.3px', textTransform: 'uppercase' as const }}>Admin</span>
+                                    </div>
+                                    <div style={{ padding: '8px 14px 12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                        {/* Demo mode toggle */}
+                                        {onToggleDemoMode && (
+                                            <div
+                                                style={toggleRow}
+                                                onMouseEnter={(e) => applyRowHover(e.currentTarget)}
+                                                onMouseLeave={(e) => resetRowHover(e.currentTarget)}
+                                                onClick={() => {
+                                                    const next = !demoModeEnabled;
+                                                    onToggleDemoMode(next);
+                                                    showToast(next ? 'Demo mode enabled' : 'Demo mode disabled', next ? 'success' : 'warning');
+                                                }}
+                                            >
+                                                <div>
+                                                    <div style={{ fontSize: 12, fontWeight: 500, color: textPrimary }}>Demo mode</div>
+                                                    <div style={{ fontSize: 10, color: textMuted, marginTop: 2 }}>Skip live refresh &amp; seed demo cases</div>
+                                                </div>
+                                                <div style={toggleSwitch(!!demoModeEnabled)}>
+                                                    <div style={toggleKnob(!!demoModeEnabled)} />
+                                                </div>
+                                            </div>
+                                        )}
+                                        {/* User switch */}
+                                        {onUserChange && availableUsers && canSwitchUser && (
+                                            <div>
+                                                <div style={{ ...sectionTitle, color: textMuted, marginBottom: 6 }}>
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+                                                        <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                                                    </svg>
+                                                    Switch User
+                                                </div>
+                                                <select
+                                                    onChange={(e) => {
+                                                        const sel = availableUsers.find(u => u.Initials === e.target.value);
+                                                        if (sel) {
+                                                            onUserChange(sel);
+                                                            showToast(`Switched to ${sel.FullName || sel.Initials}`, 'success');
+                                                        }
+                                                    }}
+                                                    style={{
+                                                        width: '100%', padding: '10px 12px',
+                                                        background: controlRowBg,
+                                                        color: textPrimary,
+                                                        border: `1px solid ${borderLight}`,
+                                                        borderRadius: '2px', fontSize: 11,
+                                                        cursor: 'pointer',
+                                                    }}
+                                                >
+                                                    <option value="">Select user...</option>
+                                                    {availableUsers
+                                                        .filter(u => !u.status || u.status.toLowerCase() === 'active')
+                                                        .map(u => (
+                                                            <option key={u.Initials} value={u.Initials}>
+                                                                {u.FullName || `${u.First || ''} ${u.Last || ''}`}
+                                                            </option>
+                                                        ))}
+                                                </select>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
 
                             {/* ── Frameworks (dev group only) ── */}
                             {(tier === 'dev' || tier === 'devGroup') && (
                                 <CommsFrameworkSection tokens={tokens} />
                             )}
 
-                            {/* ── Admin sections (admins without HubToolsChip) ── */}
-                            {!hideOpsSections && (
-                                <WorkspaceViewsSection
-                                    tokens={tokens}
-                                    onFeatureToggle={onFeatureToggle}
-                                    featureToggles={featureToggles}
-                                    demoModeEnabled={demoModeEnabled}
-                                    onToggleDemoMode={onToggleDemoMode}
-                                    closePopover={closePopover}
-                                />
-                            )}
+                            {/* ── Appearance ── */}
+                            <div style={{ marginBottom: 4 }}>
+                                <div
+                                    style={{
+                                        ...toggleRow,
+                                        justifyContent: 'space-between',
+                                    }}
+                                    onMouseEnter={(e) => applyRowHover(e.currentTarget)}
+                                    onMouseLeave={(e) => resetRowHover(e.currentTarget)}
+                                    onClick={toggleTheme}
+                                >
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        {isDarkMode ? (
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={textMuted} strokeWidth="1.8" style={{ flexShrink: 0 }}>
+                                                <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                                            </svg>
+                                        ) : (
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={textMuted} strokeWidth="1.8" style={{ flexShrink: 0 }}>
+                                                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+                                            </svg>
+                                        )}
+                                        <div>
+                                            <div style={{ fontSize: 12, fontWeight: 500, color: textPrimary }}>{isDarkMode ? 'Light mode' : 'Dark mode'}</div>
+                                            <div style={{ fontSize: 10, color: textMuted, marginTop: 2 }}>Switch appearance</div>
+                                        </div>
+                                    </div>
+                                    <div style={toggleSwitch(!isDarkMode)}>
+                                        <div style={toggleKnob(!isDarkMode)} />
+                                    </div>
+                                </div>
+                            </div>
 
-                            {!hideOpsSections && isAdminEligible && (
-                                <AdminControlsSection
-                                    tokens={tokens}
-                                    user={user}
-                                    canSwitchUser={canSwitchUser}
-                                    onUserChange={onUserChange}
-                                    availableUsers={availableUsers}
-                                    onToggleDemoMode={onToggleDemoMode}
-                                    demoModeEnabled={demoModeEnabled}
-                                    onOpenReleaseNotesModal={onOpenReleaseNotesModal}
-                                    closePopover={closePopover}
-                                />
-                            )}
-
-                            {!hideOpsSections && isLocalDev && (
+                            {/* ── Local Dev tools ── */}
+                            {isLocalDev && (
                                 <LocalDevSection
                                     tokens={tokens}
                                     onFeatureToggle={onFeatureToggle}
@@ -614,48 +678,44 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                 />
                             )}
 
-                            {/* Quick actions footer (admins without HubToolsChip) */}
-                            {!hideOpsSections && (
-                                <>
-                                <div style={{ height: 1, background: borderLight, marginBottom: 8 }} />
-                                <div style={{ display: 'flex', gap: 8 }}>
-                                    <button
-                                        onClick={() => setShowRefreshModal(true)}
-                                        style={{ ...actionBtn, flex: 1, justifyContent: 'center' }}
-                                        onMouseEnter={(e) => {
-                                            e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.03)';
-                                        }}
-                                        onMouseLeave={(e) => {
-                                            e.currentTarget.style.background = actionBtn.background as string;
-                                        }}
-                                    >
-                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                            <path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-                                        </svg>
-                                        Refresh Data
-                                    </button>
+                            {/* Quick actions footer */}
+                            <div style={{ height: 1, background: borderLight, marginBottom: 8 }} />
+                            <div style={{ display: 'flex', gap: 8 }}>
+                                <button
+                                    onClick={() => setShowRefreshModal(true)}
+                                    style={{ ...actionBtn, flex: 1, justifyContent: 'center' }}
+                                    onMouseEnter={(e) => {
+                                        e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.03)';
+                                    }}
+                                    onMouseLeave={(e) => {
+                                        e.currentTarget.style.background = actionBtn.background as string;
+                                    }}
+                                >
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                                    </svg>
+                                    Refresh Data
+                                </button>
 
-                                    {originalAdminUser && onReturnToAdmin && (
-                                        <button
-                                            onClick={() => { onReturnToAdmin(); closePopover(); }}
-                                            style={{
-                                                ...actionBtn,
-                                                flex: 1, justifyContent: 'center',
-                                                background: ctaPrimary, color: '#fff',
-                                                border: `1px solid ${ctaPrimary}`
-                                            }}
-                                            onMouseEnter={(e) => { e.currentTarget.style.filter = 'brightness(0.85)'; }}
-                                            onMouseLeave={(e) => { e.currentTarget.style.filter = 'none'; }}
-                                        >
-                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                                <path d="M19 12H5M12 19l-7-7 7-7"/>
-                                            </svg>
-                                            Return to Admin
-                                        </button>
-                                    )}
-                                </div>
-                                </>
-                            )}
+                                {originalAdminUser && onReturnToAdmin && (
+                                    <button
+                                        onClick={() => { onReturnToAdmin(); closePopover(); }}
+                                        style={{
+                                            ...actionBtn,
+                                            flex: 1, justifyContent: 'center',
+                                            background: ctaPrimary, color: '#fff',
+                                            border: `1px solid ${ctaPrimary}`
+                                        }}
+                                        onMouseEnter={(e) => { e.currentTarget.style.filter = 'brightness(0.85)'; }}
+                                        onMouseLeave={(e) => { e.currentTarget.style.filter = 'none'; }}
+                                    >
+                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                            <path d="M19 12H5M12 19l-7-7 7-7"/>
+                                        </svg>
+                                        Return to Admin
+                                    </button>
+                                )}
+                            </div>
                         </div>
                     </div>
                     </div>

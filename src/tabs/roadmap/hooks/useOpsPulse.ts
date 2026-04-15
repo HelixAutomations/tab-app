@@ -1,7 +1,7 @@
-// src/tabs/roadmap/hooks/useOpsPulse.ts — SSE hook for the Helix Eye dashboard
+// src/tabs/roadmap/hooks/useOpsPulse.ts — SSE hook for the Live Monitor dashboard
 
 import { useEffect, useRef, useCallback, useState } from 'react';
-import type { OpsPulseState, PulseData, SchedulerData, ErrorEntry, SessionsData, RequestEntry } from '../parts/ops-pulse-types';
+import type { OpsPulseState, PulseData, SchedulerData, ErrorEntry, SessionsData, RequestEntry, PresenceData } from '../parts/ops-pulse-types';
 
 const INITIAL_STATE: OpsPulseState = {
   connected: false,
@@ -10,6 +10,7 @@ const INITIAL_STATE: OpsPulseState = {
   errors: [],
   sessions: null,
   requests: [],
+  presence: null,
 };
 
 /**
@@ -96,6 +97,13 @@ export function useOpsPulse(enabled: boolean): OpsPulseState {
           try {
             const data = JSON.parse(e.data) as RequestEntry[];
             setState((prev) => ({ ...prev, requests: data }));
+          } catch { /* ignore */ }
+        });
+
+        es.addEventListener('presence', (e: MessageEvent) => {
+          try {
+            const data = JSON.parse(e.data) as PresenceData;
+            setState((prev) => ({ ...prev, presence: data }));
           } catch { /* ignore */ }
         });
 

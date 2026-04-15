@@ -30,6 +30,8 @@ import {
   getFormDefaultButtonStyles,
   getMessageBarStyle,
   getChoiceGroupStyles,
+  getFormTextareaStyles,
+  formFieldTokens,
   formAccentColors,
 } from './shared/formStyles';
 
@@ -418,8 +420,8 @@ const CounselRecommendationFormContent: React.FC<CounselRecommendationFormProps>
                 onChange={(_, val) => handleFieldChange('notes', val || '')}
                 multiline
                 rows={3}
-                placeholder="Any additional notes about this counsel..."
-                styles={getInputStyles(isDarkMode)}
+                placeholder="Any additional notes about this counsel"
+                styles={getFormTextareaStyles(isDarkMode, 3)}
               />
             </Stack>
           </div>

@@ -1,0 +1,72 @@
+/* Activity tab — coordinated reveal + responsive grid */
+
+@keyframes activityCascadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.activity-cascade-pending {
+  opacity: 0;
+}
+
+.activity-cascade-1 {
+  animation: activityCascadeIn 0.32s ease-out both;
+}
+
+.activity-cascade-2 {
+  animation: activityCascadeIn 0.32s ease-out 0.12s both;
+}
+
+.activity-cascade-3 {
+  animation: activityCascadeIn 0.32s ease-out 0.22s both;
+}
+
+/* ═══ Responsive grid ═══ */
+
+.activity-live-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.activity-ops-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+@media (max-width: 900px) {
+  .activity-live-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .activity-live-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .activity-ops-detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ═══ Reduce motion ═══ */
+
+@media (prefers-reduced-motion: reduce) {
+  .activity-cascade-pending,
+  .activity-cascade-1,
+  .activity-cascade-2,
+  .activity-cascade-3 {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}

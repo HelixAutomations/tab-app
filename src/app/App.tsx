@@ -5,8 +5,8 @@ import './styles/ImmediateActionsPortal.css';
 import { ThemeProvider, useTheme } from './functionality/ThemeContext';
 import Navigator from '../components/Navigator';
 import { useNavigatorActions } from './functionality/NavigatorContext';
-import FormsModal from '../components/FormsModal';
 import ResourcesModal from '../components/ResourcesModal';
+import FormsHub from '../tabs/forms/FormsHub';
 import { NavigatorProvider } from './functionality/NavigatorContext';
 import { ToastProvider } from '../components/feedback/ToastProvider';
 import { colours } from './styles/colours';
@@ -17,24 +17,34 @@ import { normalizeMatterData } from '../utils/matterNormalization';
 import { getProxyBaseUrl } from '../utils/getProxyBaseUrl';
 import { ADMIN_USERS, isAdminUser, canSeePrivateHubControls, canSeeActivityTab } from './admin';
 import HubToolsChip from '../components/HubToolsChip';
-import DataFreshnessIndicator from '../components/DataFreshnessIndicator';
 import MaintenanceNotice from './MaintenanceNotice';
 import { useServiceHealthMonitor } from './functionality/useServiceHealthMonitor';
 import actionLog from '../utils/actionLog';
+import { trackClientEvent } from '../utils/telemetry';
 
 const proxyBaseUrl = getProxyBaseUrl();
 
-const loadHomeTab = () => import('../tabs/home/Home');
-const loadEnquiriesTab = () => import('../tabs/enquiries/Enquiries');
-const loadInstructionsTab = () => import('../tabs/instructions/Instructions');
-const loadReportingTab = () => import('../tabs/Reporting/ReportingHome');
+/** Retry a dynamic import up to `retries` times with exponential back-off. */
+function retryImport<T>(fn: () => Promise<T>, retries = 2, delay = 1000): Promise<T> {
+  return fn().catch((err) => {
+    if (retries <= 0) throw err;
+    return new Promise<T>((resolve) => setTimeout(resolve, delay)).then(() =>
+      retryImport(fn, retries - 1, delay * 2),
+    );
+  });
+}
+
+const loadHomeTab = () => retryImport(() => import('../tabs/home/Home'));
+const loadEnquiriesTab = () => retryImport(() => import('../tabs/enquiries/Enquiries'));
+const loadInstructionsTab = () => retryImport(() => import('../tabs/instructions/Instructions'));
+const loadReportingTab = () => retryImport(() => import('../tabs/Reporting/ReportingHome'));
 const Home = lazy(loadHomeTab);
 const Enquiries = lazy(loadEnquiriesTab);
 const Instructions = lazy(loadInstructionsTab);
-const loadMattersTab = () => import('../tabs/matters/Matters');
+const loadMattersTab = () => retryImport(() => import('../tabs/matters/Matters'));
 const Matters = lazy(loadMattersTab);
-const Roadmap = lazy(() => import('../tabs/roadmap/Roadmap'));
-const ReportingHome = lazy(loadReportingTab); // Replace ReportingCode with ReportingHome
+const Roadmap = lazy(() => retryImport(() => import('../tabs/roadmap/Roadmap')));
+const ReportingHome = lazy(loadReportingTab);
 
 type LocalInstructionFixtures = {
   instructionData: InstructionData[];
@@ -193,6 +203,7 @@ const App: React.FC<AppProps> = ({
   const [pendingEnquiryId, setPendingEnquiryId] = useState<string | null>(null);
   const [pendingEnquirySubTab, setPendingEnquirySubTab] = useState<string | null>(null);
   const [pendingEnquiryPitchScenario, setPendingEnquiryPitchScenario] = useState<string | null>(null);
+  const [pendingFormTitle, setPendingFormTitle] = useState<string | null>(null);
   const [reportingNavigationRequest, setReportingNavigationRequest] = useState<ReportingNavigationRequest | null>(null);
   const [demoModeEnabled, setDemoModeEnabled] = useState<boolean>(() => {
     try {
@@ -248,12 +259,22 @@ const App: React.FC<AppProps> = ({
     return undefined;
   }, []);
   // Local override: persist user selection across refreshes
-  const persistedTheme = useMemo(() => {
+  // useState + event listener so isDarkMode updates when user toggles theme mid-session
+  const [persistedTheme, setPersistedTheme] = React.useState<string | null>(() => {
     try {
       return typeof window !== 'undefined' ? window.localStorage.getItem('helix_theme') : null;
     } catch {
       return null;
     }
+  });
+
+  React.useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.theme) setPersistedTheme(detail.theme);
+    };
+    window.addEventListener('helix-theme-changed', handler);
+    return () => window.removeEventListener('helix-theme-changed', handler);
   }, []);
 
   const teamsTheme = teamsContext?.app?.theme ? teamsContext.app.theme.toLowerCase() : undefined;
@@ -323,8 +344,6 @@ const App: React.FC<AppProps> = ({
   const [soundproofBookings, setSoundproofBookings] = useState<SoundproofPodBooking[] | null>(null);
   const [isHydratingMattersOnDemand, setIsHydratingMattersOnDemand] = useState(false);
   
-  // Modal state management with mutual exclusivity
-  const [isFormsModalOpen, setIsFormsModalOpen] = useState(false);
   const [isResourcesModalOpen, setIsResourcesModalOpen] = useState(false);
   
   const [hasActiveMatter, setHasActiveMatter] = useState(false);
@@ -346,18 +365,12 @@ const App: React.FC<AppProps> = ({
 
   const [teamWideEnquiries, setTeamWideEnquiries] = useState<Enquiry[] | null>(null);
   const mattersHydrationRequestedForUserRef = React.useRef<string | null>(null);
+  const prevTabRef = React.useRef(activeTab);
   // Scroll position map for keep-alive tabs
   const tabScrollPositions = React.useRef<Record<string, number>>({});
-  // Threshold-based collapse for Navigator + ImmediateActionsBar.
-  // Bars stay structurally intact until a scroll threshold, then collapse
-  // as a whole unit via CSS transition — no proportional squishing.
+  // Refs for tab-switch visibility of Navigator + ImmediateActions
   const navigatorChromeRef = React.useRef<HTMLDivElement | null>(null);
-  const immediateActionsPortalRef = React.useRef<HTMLDivElement | null>(null);
-  const chromeCollapsedRef = React.useRef(false);
-  const navigatorOpenHeightRef = React.useRef(0);
-  const immediateActionsOpenHeightRef = React.useRef(0);
-  const [navigatorOpenHeight, setNavigatorOpenHeight] = React.useState(0);
-  const [immediateActionsOpenHeight, setImmediateActionsOpenHeight] = React.useState(0);
+  const actionsWrapperRef = React.useRef<HTMLDivElement | null>(null);
   const currentUser = userData?.[0] || null;
   const useLocalData = useMemo(() => {
     if (process.env.REACT_APP_USE_LOCAL_DATA === 'true') {
@@ -602,31 +615,13 @@ const App: React.FC<AppProps> = ({
     };
   }, [isInMatterOpeningWorkflow]);
 
-  // Modal handlers with mutual exclusivity
-  const openFormsModal = useCallback(() => {
-    setIsResourcesModalOpen(false);
-    setIsFormsModalOpen(true);
-  }, []);
-
   const openResourcesModal = useCallback(() => {
-    setIsFormsModalOpen(false);
     setIsResourcesModalOpen(true);
-  }, []);
-
-  const closeFormsModal = useCallback(() => {
-    setIsFormsModalOpen(false);
   }, []);
 
   const closeResourcesModal = useCallback(() => {
     setIsResourcesModalOpen(false);
   }, []);
-
-  // Open modals when tabs are selected
-  useEffect(() => {
-    if (activeTab === 'forms') {
-      openFormsModal();
-    }
-  }, [activeTab]);
 
   useEffect(() => {
     if (activeTab === 'resources') {
@@ -677,179 +672,63 @@ const App: React.FC<AppProps> = ({
     };
   }, [isLocalDev, teamsContext, userData]);
 
+  // ─── Bars inside scroll region — tab-switch visibility only ───
+  // Navigator + ImmediateActions are inside .app-scroll-region so they
+  // scroll away naturally. No collapse logic needed — just hide them
+  // on tabs where they don't belong.
+
   useLayoutEffect(() => {
-    const navigatorNode = navigatorChromeRef.current;
-    const actionsNode = immediateActionsPortalRef.current;
-    if (!navigatorNode && !actionsNode) return;
-
-    const measure = () => {
-      const nextNavigatorOpenHeight = navigatorNode
-        ? Math.ceil(navigatorNode.scrollHeight)
-        : 0;
-      const nextImmediateActionsOpenHeight = actionsNode
-        ? Math.ceil(actionsNode.scrollHeight)
-        : 0;
-
-      navigatorOpenHeightRef.current = nextNavigatorOpenHeight;
-      immediateActionsOpenHeightRef.current = nextImmediateActionsOpenHeight;
-
-      setNavigatorOpenHeight((currentHeight) => (
-        currentHeight === nextNavigatorOpenHeight ? currentHeight : nextNavigatorOpenHeight
-      ));
-      setImmediateActionsOpenHeight((currentHeight) => (
-        currentHeight === nextImmediateActionsOpenHeight ? currentHeight : nextImmediateActionsOpenHeight
-      ));
-    };
-
-    measure();
-
-    const observer = new ResizeObserver(() => measure());
-    if (navigatorNode) observer.observe(navigatorNode);
-    if (actionsNode) observer.observe(actionsNode);
-
-    return () => observer.disconnect();
-  }, [activeTab, hasImmediateActions]);
-
-  const shouldChromeCollapse = React.useCallback((scrollTop: number): boolean => {
-    if (activeTab !== 'home') return false;
-    const hideThreshold = 50;
-    const showThreshold = 20;
-    if (scrollTop >= hideThreshold) return true;
-    if (scrollTop <= showThreshold) return false;
-    // Hysteresis zone — maintain current state
-    return chromeCollapsedRef.current;
-  }, [activeTab]);
-
-  const applyHomeChromeCollapse = React.useCallback((collapsed: boolean) => {
-    const navigatorNode = navigatorChromeRef.current;
-    const actionsNode = immediateActionsPortalRef.current;
-
-    // Smooth 0.3s transition gives the bars a deliberate, "decided" collapse
-    const transitionValue = 'height 0.3s ease, max-height 0.3s ease, opacity 0.28s ease, transform 0.3s ease';
-    const tabSwitchTransition = 'height 0.22s ease, max-height 0.22s ease, opacity 0.22s ease, transform 0.22s ease';
-
-    const clearNodeStyles = (node: HTMLDivElement) => {
-      node.style.height = '';
-      node.style.maxHeight = '';
-      node.style.opacity = '';
-      node.style.transform = '';
-      node.style.pointerEvents = '';
-      node.style.transition = '';
-      node.style.willChange = '';
-      node.style.overflow = '';
-    };
-
-    const collapseNode = (node: HTMLDivElement, transition: string) => {
-      node.style.height = '0px';
-      node.style.maxHeight = '0px';
-      node.style.opacity = '0';
-      node.style.transform = 'translateY(-6px)';
-      node.style.pointerEvents = 'none';
-      node.style.overflow = 'hidden';
-      node.style.transition = transition;
-      node.style.willChange = '';
-    };
-
-    const expandNode = (node: HTMLDivElement, openHeight: number, transition: string) => {
-      node.style.height = openHeight > 0 ? `${openHeight}px` : '';
-      node.style.maxHeight = openHeight > 0 ? `${openHeight}px` : '';
-      node.style.opacity = '1';
-      node.style.transform = '';
-      node.style.pointerEvents = '';
-      node.style.overflow = openHeight > 0 ? 'hidden' : '';
-      node.style.transition = transition;
-      node.style.willChange = '';
-    };
-
-    if (navigatorNode) {
-      if (activeTab === 'enquiries') {
-        // Enquiries injects FilterBanner / NavigatorDetailBar — keep navigator visible
-        clearNodeStyles(navigatorNode);
-      } else if (activeTab !== 'home') {
-        collapseNode(navigatorNode, tabSwitchTransition);
-      } else if (collapsed) {
-        collapseNode(navigatorNode, transitionValue);
-      } else {
-        expandNode(navigatorNode, navigatorOpenHeightRef.current, transitionValue);
-      }
+    const isMobile = window.matchMedia('(max-width: 640px)').matches;
+    const scrollContainer = (isMobile
+      ? document.querySelector('.app-root')
+      : document.querySelector('.app-scroll-region')) as HTMLElement | null;
+    if (scrollContainer) {
+      scrollContainer.scrollTop = tabScrollPositions.current[activeTab] || 0;
     }
 
-    if (actionsNode) {
-      if (activeTab !== 'home') {
-        collapseNode(actionsNode, tabSwitchTransition);
-      } else if (collapsed) {
-        collapseNode(actionsNode, transitionValue);
-      } else {
-        expandNode(actionsNode, immediateActionsOpenHeightRef.current, transitionValue);
-      }
+    const navNode = navigatorChromeRef.current;
+    const actNode = actionsWrapperRef.current;
+    if (navNode) {
+      navNode.classList.toggle('chrome-tab-hidden', activeTab !== 'home' && activeTab !== 'enquiries');
     }
-
-    if (activeTab === 'home') {
-      chromeCollapsedRef.current = collapsed;
+    if (actNode) {
+      actNode.classList.toggle('chrome-tab-hidden', activeTab !== 'home');
     }
   }, [activeTab]);
 
-  useLayoutEffect(() => {
-    // Tab switch or height change — apply correct state
-    const scrollRegion = document.querySelector('.app-scroll-region') as HTMLElement | null;
-    const collapsed = shouldChromeCollapse(scrollRegion?.scrollTop ?? 0);
-    applyHomeChromeCollapse(collapsed);
-  }, [applyHomeChromeCollapse, shouldChromeCollapse, navigatorOpenHeight, immediateActionsOpenHeight]);
-
-  // Save scroll position for the active tab continuously + collapse ImmediateActions on scroll
+  // Save scroll position on scroll (rAF-throttled)
   useEffect(() => {
-    const scrollRegion = document.querySelector('.app-scroll-region') as HTMLElement | null;
-    if (!scrollRegion) return;
+    const isMobile = window.matchMedia('(max-width: 640px)').matches;
+    const scrollContainer = (isMobile
+      ? document.querySelector('.app-root')
+      : document.querySelector('.app-scroll-region')) as HTMLElement | null;
+    if (!scrollContainer) return;
 
     let frameId: number | null = null;
-
-    const syncHomeChromeToScroll = () => {
-      frameId = null;
-
-      const scrollTop = scrollRegion.scrollTop;
-      tabScrollPositions.current[activeTab] = scrollTop;
-
-      if (activeTab !== 'home') {
-        applyHomeChromeCollapse(false);
-        return;
-      }
-
-      const nextCollapsed = shouldChromeCollapse(scrollTop);
-      if (nextCollapsed !== chromeCollapsedRef.current) {
-        applyHomeChromeCollapse(nextCollapsed);
-      }
+    const onScroll = () => {
+      if (frameId != null) return;
+      frameId = requestAnimationFrame(() => {
+        frameId = null;
+        tabScrollPositions.current[activeTab] = scrollContainer.scrollTop;
+      });
     };
 
-    const handleScroll = () => {
-      if (frameId == null) {
-        frameId = requestAnimationFrame(syncHomeChromeToScroll);
-      }
-    };
-
-    // Reset on tab switch
-    if (activeTab !== 'home') {
-      applyHomeChromeCollapse(false);
-    } else {
-      handleScroll();
-    }
-
-    scrollRegion.addEventListener('scroll', handleScroll, { passive: true });
+    scrollContainer.addEventListener('scroll', onScroll, { passive: true });
     return () => {
-      scrollRegion.removeEventListener('scroll', handleScroll);
-      if (frameId != null) {
-        cancelAnimationFrame(frameId);
-      }
+      scrollContainer.removeEventListener('scroll', onScroll);
+      if (frameId != null) cancelAnimationFrame(frameId);
     };
-  }, [activeTab, applyHomeChromeCollapse, shouldChromeCollapse]);
+  }, [activeTab]);
 
-  // Restore scroll position when switching tabs (synchronous to prevent flash)
-  useLayoutEffect(() => {
-    const scrollRegion = document.querySelector('.app-scroll-region') as HTMLElement | null;
-    if (!scrollRegion) return;
-    scrollRegion.scrollTop = tabScrollPositions.current[activeTab] || 0;
-    const collapsed = shouldChromeCollapse(scrollRegion.scrollTop);
-    applyHomeChromeCollapse(collapsed);
-  }, [activeTab, navigatorOpenHeight, immediateActionsOpenHeight, applyHomeChromeCollapse, shouldChromeCollapse]);
+  // Presence heartbeat — fires every 60s so the server knows who's online and what tab they're viewing
+  useEffect(() => {
+    const id = setInterval(() => {
+      trackClientEvent('Nav', 'heartbeat', { tab: activeTab });
+    }, 60_000);
+    // Fire immediately on mount so presence registers without waiting 60s
+    trackClientEvent('Nav', 'heartbeat', { tab: activeTab });
+    return () => clearInterval(id);
+  }, [activeTab]);
 
   useEffect(() => {
     mattersHydrationRequestedForUserRef.current = null;
@@ -958,14 +837,6 @@ const App: React.FC<AppProps> = ({
     ));
   }, []);
 
-  const handleFormsTabClick = () => {
-    if (isFormsModalOpen) {
-      closeFormsModal();
-    } else {
-      openFormsModal();
-    }
-  };
-
   const handleResourcesTabClick = () => {
     if (isResourcesModalOpen) {
       closeResourcesModal();
@@ -1059,6 +930,13 @@ const App: React.FC<AppProps> = ({
       setPendingShowCcl(!!detail?.showCcl);
       setActiveTab('matters');
     };
+    const handleNavigateToForms = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      const requestedFormTitle = typeof detail?.formTitle === 'string' ? detail.formTitle : null;
+      actionLog('Navigate → forms', requestedFormTitle || undefined);
+      setPendingFormTitle(requestedFormTitle);
+      setActiveTab('forms');
+    };
     const handleWarmMattersTab = () => {
       warmMattersTab();
     };
@@ -1069,6 +947,7 @@ const App: React.FC<AppProps> = ({
     window.addEventListener('navigateToEnquiry', handleNavigateToEnquiry);
     window.addEventListener('navigateToReporting', handleNavigateToReporting);
     window.addEventListener('navigateToMatter', handleNavigateToMatter);
+    window.addEventListener('navigateToForms', handleNavigateToForms);
     window.addEventListener('warmMattersTab', handleWarmMattersTab);
 
     return () => {
@@ -1078,6 +957,7 @@ const App: React.FC<AppProps> = ({
       window.removeEventListener('navigateToEnquiry', handleNavigateToEnquiry);
       window.removeEventListener('navigateToReporting', handleNavigateToReporting);
       window.removeEventListener('navigateToMatter', handleNavigateToMatter);
+      window.removeEventListener('navigateToForms', handleNavigateToForms);
       window.removeEventListener('warmMattersTab', handleWarmMattersTab);
     };
   }, [warmMattersTab]);
@@ -1541,7 +1421,7 @@ const App: React.FC<AppProps> = ({
     return [
       { key: 'enquiries', text: 'Prospects' },
       { key: 'matters', text: 'Matters' },
-      { key: 'forms', text: 'Forms', disabled: true },
+      { key: 'forms', text: 'Forms' },
       { key: 'resources', text: 'Resources', disabled: true },
       ...(showActivityTab ? [{ key: 'roadmap', text: 'Activity' }] : []),
       ...(showReportsTab ? [{ key: 'reporting', text: 'Reports' }] : []),
@@ -1590,13 +1470,12 @@ const App: React.FC<AppProps> = ({
         >
           <CustomTabs
             selectedKey={activeTab}
-            onTabSelect={(key) => { actionLog(`Tab → ${key}`); setActiveTab(key); }}
+            onTabSelect={(key) => { actionLog(`Tab → ${key}`); trackClientEvent('Nav', 'tab-switch', { from: prevTabRef.current, to: key }); prevTabRef.current = key; setActiveTab(key); }}
             onTabWarm={warmTabByKey}
-            onHomeClick={() => { actionLog('Tab → home'); setActiveTab('home'); }}
+            onHomeClick={() => { actionLog('Tab → home'); trackClientEvent('Nav', 'tab-switch', { from: prevTabRef.current, to: 'home' }); prevTabRef.current = 'home'; setActiveTab('home'); }}
             tabs={tabs}
             ariaLabel="Main Navigation Tabs"
             user={userData?.[0]}
-            onFormsClick={handleFormsTabClick}
             onResourcesClick={handleResourcesTabClick}
             hasActiveMatter={hasActiveMatter}
             isInMatterOpeningWorkflow={isInMatterOpeningWorkflow}
@@ -1615,68 +1494,18 @@ const App: React.FC<AppProps> = ({
             demoModeEnabled={demoModeEnabled}
             onToggleDemoMode={handleToggleDemoMode}
           />
-          {/* Thin loading bar — visible when boot data is still loading */}
-          {(!enquiries || enquiries.length === 0) && !isLoading && (
+          {/* Thin loading bar — visible only while boot data is still arriving */}
+          {!dataReady && (
             <div style={{
               height: 2,
-              background: `linear-gradient(90deg, transparent 0%, ${colours.highlight} 50%, transparent 100%)`,
+              background: `linear-gradient(90deg, transparent 0%, ${isDarkMode ? colours.accent : colours.highlight} 50%, transparent 100%)`,
               backgroundSize: '200% 100%',
               animation: 'helix-shimmer 1.5s ease-in-out infinite',
               flexShrink: 0,
             }} />
           )}
           <style>{`@keyframes helix-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }`}</style>
-          {/* Navigator + Immediate Actions — scroll-driven collapse on home tab */}
-          <div
-            ref={navigatorChromeRef}
-            className="app-navigator"
-            style={{
-              overflow: 'hidden',
-            } as React.CSSProperties}
-          >
-            <Navigator />
-            {/* Pipeline freshness indicator — dev preview (LZ/AC only) */}
-            {['LZ', 'AC'].includes(userInitials) && (
-              <div style={{ position: 'absolute', top: 6, right: 12, zIndex: 2 }}>
-                <DataFreshnessIndicator
-                  label="Pipeline"
-                  compact
-                  isRefreshing={sseConnectionState === 'connecting'}
-                  errorDetail={sseConnectionState === 'error' ? 'Stream interrupted' : null}
-                  lastLiveSyncAt={sseConnectionState === 'live' ? (lastPipelineEventAt ?? Date.now()) : lastPipelineEventAt}
-                  liveLabel="Live"
-                  syncingLabel="Connecting"
-                  errorLabel="Delayed"
-                />
-              </div>
-            )}
-          </div>
-          
-          {/* App-level Immediate Actions Bar — always mounted, scroll-driven collapse */}
-          <div
-            ref={immediateActionsPortalRef}
-            id="app-level-immediate-actions"
-            className="immediate-actions-portal"
-            style={{
-              position: 'relative',
-              zIndex: 1,
-              width: '100%',
-              minHeight: 0,
-              minWidth: 0,
-              boxSizing: 'border-box',
-              color: 'inherit',
-              overflow: 'hidden',
-            } as React.CSSProperties}
-          />
 
-          {/* Full-width Modal Overlays */}
-          <FormsModal
-            userData={userData}
-            teamData={teamData}
-            matters={matters || []}
-            isOpen={isFormsModalOpen}
-            onDismiss={closeFormsModal}
-          />
           <ResourcesModal
             isOpen={isResourcesModalOpen}
             onDismiss={closeResourcesModal}
@@ -1696,6 +1525,18 @@ const App: React.FC<AppProps> = ({
           )}
           
           <div className="app-scroll-region">
+            {/* Navigator + Immediate Actions — inside scroll region so they
+                scroll away naturally with the content. Hidden on non-home tabs. */}
+            <div ref={navigatorChromeRef} className="app-navigator">
+              <Navigator />
+            </div>
+            <div ref={actionsWrapperRef}>
+              <div
+                id="app-level-immediate-actions"
+                className="immediate-actions-portal"
+              />
+            </div>
+
             {!dataReady ? (
               /* Shell-first boot: tabs are visible, content area shows a shimmer bar */
               <div style={{
@@ -1819,6 +1660,20 @@ const App: React.FC<AppProps> = ({
                 </Suspense>
               </div>
             )}
+            {activeTab === 'forms' && (
+              <FormsHub
+                initialFormTitle={pendingFormTitle}
+                isOpen={activeTab === 'forms'}
+                matters={matters || []}
+                onDismiss={() => {
+                  setPendingFormTitle(null);
+                  setActiveTab('home');
+                }}
+                onInitialFormHandled={() => setPendingFormTitle(null)}
+                teamData={teamData}
+                userData={userData}
+              />
+            )}
             {/* Reporting: admin-only, mount/unmount is fine */}
             {activeTab === 'reporting' && (
               <Suspense fallback={<ThemedSuspenseFallback />}>
@@ -1834,7 +1689,7 @@ const App: React.FC<AppProps> = ({
             )}
             {activeTab === 'roadmap' && (
               <Suspense fallback={<ThemedSuspenseFallback />}>
-                <Roadmap userData={userData} showBootMonitor={isLocalDev && !isProductionPreview} />
+                <Roadmap userData={userData} showBootMonitor={isLocalDev && !isProductionPreview} isLocalDev={isLocalDev} />
               </Suspense>
             )}
             </>

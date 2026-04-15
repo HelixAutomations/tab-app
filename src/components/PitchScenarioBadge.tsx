@@ -2,6 +2,7 @@ import React from 'react';
 import { Icon } from '@fluentui/react/lib/Icon';
 import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { useTheme } from '../app/functionality/ThemeContext';
+import { colours } from '../app/styles/colours';
 import { SCENARIOS } from '../tabs/enquiries/pitch-builder/scenarios';
 
 interface PitchScenarioBadgeProps {
@@ -95,7 +96,7 @@ export function getScenarioColor(scenarioId?: string | null): string {
     case 'after-call-email':
       return '#3690CE'; // Brand highlight blue
     case 'cfa':
-      return '#a855f7'; // Purple (accepted accent)
+      return colours.highlight; // was purple, now brand highlight
     default:
       return '#3690CE'; // Brand highlight blue
   }

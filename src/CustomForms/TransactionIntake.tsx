@@ -3,10 +3,11 @@
 
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useTheme } from '../app/functionality/ThemeContext';
+import { isDevOwner } from '../app/admin';
 import { colours } from '../app/styles/colours';
-import { getFormModeToggleStyles } from './shared/formStyles';
+import { getFormModeToggleStyles, formFont } from './shared/formStyles';
 import { UserData, NormalizedMatter } from '../app/functionality/types';
-import { canSeePrivateHubControls } from '../app/admin';
+import { checkIsLocalDev } from '../utils/useIsLocalDev';
 
 interface TransactionIntakeProps {
   userData?: UserData[];
@@ -79,9 +80,8 @@ const TransactionIntake: React.FC<TransactionIntakeProps> = ({
 }) => {
   const { isDarkMode } = useTheme();
   const userInitials = currentUser?.Initials || '';
-  const isLocalDev = !currentUser || process.env.NODE_ENV === 'development';
-  const isV2Enabled = isLocalDev || canSeePrivateHubControls(currentUser);
-  const [mode, setMode] = useState<'cognito' | 'bespoke'>(isV2Enabled ? 'bespoke' : 'cognito');
+  const showModeToggle = isDevOwner(currentUser) && checkIsLocalDev();
+  const [mode, setMode] = useState<'cognito' | 'bespoke'>(showModeToggle ? 'bespoke' : 'cognito');
   const [form, setForm] = useState<FormData>(INITIAL_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -215,69 +215,101 @@ const TransactionIntake: React.FC<TransactionIntakeProps> = ({
   const textPrimary = isDarkMode ? colours.dark.text : colours.light.text;
   const textBody = isDarkMode ? '#d1d5db' : '#374151';
   const textMuted = isDarkMode ? colours.subtleGrey : colours.greyText;
+  const shellStyle: React.CSSProperties = {
+    width: '100%',
+    maxWidth: 920,
+    margin: '0 auto',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 16,
+  };
+  const panelStyle: React.CSSProperties = {
+    width: '100%',
+    background: 'var(--surface-card)',
+    border: '1px solid var(--home-card-border)',
+    boxShadow: 'var(--home-card-shadow)',
+    padding: '20px 22px',
+    boxSizing: 'border-box',
+  };
+  const sectionCardStyle: React.CSSProperties = {
+    marginBottom: 14,
+    padding: '12px 14px',
+    background: 'var(--home-tile-bg)',
+    border: '1px solid var(--home-tile-border)',
+  };
 
   const labelStyle: React.CSSProperties = {
-    fontSize: 12, fontWeight: 600, color: textPrimary,
-    marginBottom: 4, display: 'block',
-    fontFamily: "'Raleway', 'Segoe UI', sans-serif",
+    fontSize: 13, fontWeight: 600, color: textPrimary,
+    marginBottom: 6, display: 'block',
+    fontFamily: formFont,
   };
 
   const inputStyle: React.CSSProperties = {
     width: '100%', padding: '8px 10px', fontSize: 13,
-    background: inputBg, color: textPrimary,
-    border: `1px solid ${inputBorder}`, borderRadius: 0,
-    fontFamily: "'Raleway', 'Segoe UI', sans-serif",
+    background: 'var(--surface-card)', color: textPrimary,
+    border: '1px solid var(--home-tile-border)', borderRadius: 0,
+    fontFamily: formFont,
     boxSizing: 'border-box',
     outline: 'none',
+    minHeight: 44,
   };
 
   const fieldGap: React.CSSProperties = { marginBottom: 14 };
 
   return (
-    <div style={{ width: '100%', height: '100%', padding: '16px', boxSizing: 'border-box' }}>
-      {/* Mode toggle */}
-      <div style={getFormModeToggleStyles(isDarkMode).container}>
-        <button
-          onClick={() => setMode('cognito')}
-          style={getFormModeToggleStyles(isDarkMode).option(mode === 'cognito', false)}
-          aria-pressed={mode === 'cognito'}
-        >
-          Cognito
-        </button>
-        <button
-          onClick={() => isV2Enabled && setMode('bespoke')}
-          style={getFormModeToggleStyles(isDarkMode).option(mode === 'bespoke', !isV2Enabled)}
-          disabled={!isV2Enabled}
-          aria-pressed={mode === 'bespoke'}
-          title={isV2Enabled ? 'Bespoke V2 intake' : 'V2 not yet enabled'}
-        >
-          Bespoke
-        </button>
-      </div>
+    <div style={{ width: '100%', height: '100%', padding: '16px 0 28px', boxSizing: 'border-box' }}>
+      <div style={shellStyle}>
+      {showModeToggle && (
+        <div style={{ display: 'grid', gap: 6, justifyItems: 'center' }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: isDarkMode ? colours.accent : colours.highlight, fontFamily: formFont }}>
+            Luke-only dev preview
+          </div>
+          <div style={{ ...getFormModeToggleStyles(isDarkMode).container, margin: '0 auto' }}>
+            <button
+              onClick={() => setMode('cognito')}
+              style={getFormModeToggleStyles(isDarkMode).option(mode === 'cognito', false)}
+              aria-pressed={mode === 'cognito'}
+            >
+              Cognito
+            </button>
+            <button
+              onClick={() => setMode('bespoke')}
+              style={getFormModeToggleStyles(isDarkMode).option(mode === 'bespoke', false)}
+              aria-pressed={mode === 'bespoke'}
+              title="Luke-only bespoke preview"
+            >
+              Bespoke
+            </button>
+          </div>
+        </div>
+      )}
 
       {mode === 'cognito' ? (
-        <iframe
-          src="https://www.cognitoforms.com/f/QzaAr_2Q7kesClKq8g229g/58"
-          allow="payment"
-          style={{
-            border: 0, width: '100%', height: '600px',
-            borderRadius: 0,
-            background: isDarkMode ? '#1e293b' : '#ffffff',
-          }}
-          title="Transaction Intake (Cognito)"
-        />
+        <div style={panelStyle}>
+          <iframe
+            src="https://www.cognitoforms.com/f/QzaAr_2Q7kesClKq8g229g/58"
+            allow="payment"
+            style={{
+              border: 0, width: '100%', height: '600px',
+              borderRadius: 0,
+              background: 'var(--surface-card)',
+            }}
+            title="Transaction Intake (Cognito)"
+          />
+        </div>
       ) : submitted ? (
         /* ── Success state ─────────────────────────────────────── */
         <div style={{
+          ...panelStyle,
           padding: '40px 20px', textAlign: 'center',
-          background: isDarkMode ? 'rgba(32, 178, 108, 0.06)' : 'rgba(32, 178, 108, 0.04)',
-          border: `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.2)' : 'rgba(32, 178, 108, 0.15)'}`,
+          background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)',
+          border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.24)' : 'rgba(54, 144, 206, 0.16)'}`,
         }}>
           <div style={{ fontSize: 28, marginBottom: 8 }}>✓</div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: colours.green, marginBottom: 4, fontFamily: "'Raleway', 'Segoe UI', sans-serif" }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: isDarkMode ? colours.accent : colours.highlight, marginBottom: 4, fontFamily: formFont }}>
             Transaction submitted
           </div>
-          <div style={{ fontSize: 12, color: textMuted, marginBottom: 16, fontFamily: "'Raleway', 'Segoe UI', sans-serif" }}>
+          <div style={{ fontSize: 12, color: textMuted, marginBottom: 16, fontFamily: formFont }}>
             It will appear in the Operations queue for review
           </div>
           <button
@@ -287,7 +319,7 @@ const TransactionIntake: React.FC<TransactionIntakeProps> = ({
               border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(13, 47, 96, 0.15)'}`,
               borderRadius: 0, padding: '6px 18px', cursor: 'pointer',
               fontSize: 12, fontWeight: 600, color: isDarkMode ? colours.accent : colours.highlight,
-              fontFamily: "'Raleway', 'Segoe UI', sans-serif",
+              fontFamily: formFont,
             }}
           >
             Submit another
@@ -295,19 +327,7 @@ const TransactionIntake: React.FC<TransactionIntakeProps> = ({
         </div>
       ) : (
         /* ── Bespoke form ──────────────────────────────────────── */
-        <div style={{ maxWidth: 480 }}>
-          {/* V2 badge */}
-          <div style={{
-            display: 'inline-flex', alignItems: 'center', gap: 4, marginBottom: 16,
-            padding: '3px 8px',
-            background: isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.06)',
-            border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.2)' : 'rgba(54, 144, 206, 0.15)'}`,
-          }}>
-            <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: isDarkMode ? colours.accent : colours.highlight, fontFamily: "'Raleway', 'Segoe UI', sans-serif" }}>
-              V2 · Hub-native intake
-            </span>
-          </div>
-
+        <div style={{ ...panelStyle, maxWidth: 820, margin: '0 auto' }}>
           {/* Matter ref — searchable picker */}
           <div style={fieldGap} ref={matterPickerRef}>
             <label style={labelStyle}>Matter Reference *</label>
@@ -328,9 +348,9 @@ const TransactionIntake: React.FC<TransactionIntakeProps> = ({
               {matterDropdownOpen && filteredMatterOptions.length > 0 && (
                 <div style={{
                   position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 1000,
-                  background: isDarkMode ? '#1e293b' : '#ffffff',
-                  border: `1px solid ${inputBorder}`, borderTop: 'none',
-                  boxShadow: isDarkMode ? '0 8px 24px rgba(0,0,0,0.4)' : '0 8px 24px rgba(0,0,0,0.12)',
+                  background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
+                  border: '1px solid var(--home-card-border)', borderTop: 'none',
+                  boxShadow: 'var(--shadow-overlay)',
                   maxHeight: 240, overflowY: 'auto',
                 }}>
                   {filteredMatterOptions.map(opt => (
@@ -339,11 +359,12 @@ const TransactionIntake: React.FC<TransactionIntakeProps> = ({
                       onClick={() => handleMatterSelect(opt)}
                       style={{
                         padding: '8px 10px', cursor: 'pointer',
-                        borderBottom: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.1)' : 'rgba(0,0,0,0.05)'}`,
+                        background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
+                        borderBottom: '1px solid var(--home-row-border)',
                         transition: 'background-color 0.1s ease',
                       }}
-                      onMouseEnter={e => { e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(148,163,184,0.15)' : 'rgba(0,0,0,0.04)'; }}
-                      onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+                      onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--home-tile-bg-hover)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.backgroundColor = isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground; }}
                     >
                       <div style={{ fontWeight: 600, fontSize: 13, color: textPrimary }}>{opt.displayNumber}</div>
                       {opt.clientName && (
@@ -374,12 +395,8 @@ const TransactionIntake: React.FC<TransactionIntakeProps> = ({
           </div>
 
           {/* ── Client details section ─────────────────────────── */}
-          <div style={{
-            marginBottom: 14, padding: '10px 12px',
-            background: isDarkMode ? 'rgba(6, 23, 51, 0.4)' : 'rgba(13, 47, 96, 0.02)',
-            border: `1px solid ${inputBorder}`,
-          }}>
-            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: isDarkMode ? colours.accent : colours.highlight, marginBottom: 10, fontFamily: "'Raleway', 'Segoe UI', sans-serif" }}>
+          <div style={sectionCardStyle}>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: isDarkMode ? colours.accent : colours.highlight, marginBottom: 10, fontFamily: formFont }}>
               Client Details
             </div>
             {/* First + Last name row */}
@@ -533,7 +550,7 @@ const TransactionIntake: React.FC<TransactionIntakeProps> = ({
                     border: `1px solid ${inputBorder}`,
                     color: form.fromClient === opt.val ? textPrimary : textMuted,
                     cursor: 'pointer', borderRadius: 0,
-                    fontFamily: "'Raleway', 'Segoe UI', sans-serif",
+                    fontFamily: formFont,
                   }}
                 >
                   {opt.label}
@@ -575,7 +592,7 @@ const TransactionIntake: React.FC<TransactionIntakeProps> = ({
                         border: `1px solid ${inputBorder}`,
                         color: form.debitAccount === opt ? textPrimary : textMuted,
                         cursor: 'pointer', borderRadius: 0,
-                        fontFamily: "'Raleway', 'Segoe UI', sans-serif",
+                        fontFamily: formFont,
                       }}
                     >
                       {opt}
@@ -678,7 +695,7 @@ const TransactionIntake: React.FC<TransactionIntakeProps> = ({
               background: isDarkMode ? 'rgba(214, 85, 65, 0.08)' : 'rgba(214, 85, 65, 0.04)',
               border: `1px solid ${isDarkMode ? 'rgba(214, 85, 65, 0.25)' : 'rgba(214, 85, 65, 0.15)'}`,
               fontSize: 12, color: colours.cta,
-              fontFamily: "'Raleway', 'Segoe UI', sans-serif",
+              fontFamily: formFont,
             }}>
               {error}
             </div>
@@ -695,7 +712,7 @@ const TransactionIntake: React.FC<TransactionIntakeProps> = ({
               color: '#ffffff', fontSize: 13, fontWeight: 600,
               cursor: submitting ? 'wait' : 'pointer',
               opacity: submitting ? 0.6 : 1,
-              fontFamily: "'Raleway', 'Segoe UI', sans-serif",
+              fontFamily: formFont,
               transition: 'opacity 0.15s ease',
             }}
           >
@@ -703,6 +720,7 @@ const TransactionIntake: React.FC<TransactionIntakeProps> = ({
           </button>
         </div>
       )}
+      </div>
     </div>
   );
 };

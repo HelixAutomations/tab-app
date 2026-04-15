@@ -1935,21 +1935,22 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                         <div style={{
                             marginTop: 16,
                             padding: '12px 16px',
-                            background: isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)',
-                            border: `1px solid ${isDarkMode ? 'rgba(239, 68, 68, 0.3)' : 'rgba(239, 68, 68, 0.25)'}`,
+                            background: isDarkMode ? 'rgba(214, 85, 65, 0.15)' : 'rgba(214, 85, 65, 0.1)',
+                            border: `1px solid ${isDarkMode ? 'rgba(214, 85, 65, 0.3)' : 'rgba(214, 85, 65, 0.25)'}`,
+
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'space-between',
                             gap: 16,
                         }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                <Icon iconName="BlockContact" style={{ fontSize: 16, color: '#ef4444' }} />
+                                <Icon iconName="BlockContact" style={{ fontSize: 16, color: colours.cta }} />
                                 <span style={{ fontSize: 12, color: textPrimary }}>
                                     <strong>{inactiveStats.pending}</strong> matters attributed to inactive team members
                                 </span>
                             </div>
                             <div style={{ fontSize: 11, color: textMuted }}>
-                                <span style={{ color: '#f59e0b' }}>Orange</span> = active originating solicitor can action
+                                <span style={{ color: colours.orange }}>Orange</span> = active originating solicitor can action
                             </div>
                         </div>
                     )}
@@ -1967,7 +1968,7 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                             gap: 16,
                         }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                <Icon iconName="Warning" style={{ fontSize: 16, color: '#f59e0b' }} />
+                                <Icon iconName="Warning" style={{ fontSize: 16, color: colours.orange }} />
                                 <span style={{ fontSize: 12, color: textPrimary }}>
                                     <strong>{stats.pending}</strong> clients still need rate change notifications
                                 </span>
@@ -2020,7 +2021,7 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                                         padding: '6px 12px', border: 'none', height: 32,
                                         cursor: 'pointer',
                                         background: viewMode === 'inactive' ? (isDarkMode ? '#4b5563' : '#fff') : 'transparent',
-                                        color: viewMode === 'inactive' ? '#ef4444' : (inactiveStats.pending > 0 ? '#ef4444' : textMuted),
+                                        color: viewMode === 'inactive' ? colours.cta : (inactiveStats.pending > 0 ? colours.cta : textMuted),
                                         fontWeight: 600, fontSize: 11, letterSpacing: '0.02em',
                                         boxShadow: viewMode === 'inactive' ? '0 1px 2px rgba(0,0,0,0.15)' : 'none',
                                     }}
@@ -2510,7 +2511,7 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                                                                 padding: '2px 6px',
                                                                 borderRadius: 2,
                                                                 background: isDarkMode ? 'rgba(245, 158, 11, 0.18)' : 'rgba(245, 158, 11, 0.12)',
-                                                                color: '#f59e0b',
+                                                                color: colours.orange,
                                                                 textTransform: 'uppercase',
                                                                 letterSpacing: '0.03em',
                                                             }} title={(() => {
@@ -2624,20 +2625,20 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                                                                     <span 
                                                                         title={respInactive ? 'Inactive - Responsible Solicitor' : 'Responsible Solicitor'}
                                                                         style={{ 
-                                                                            color: respInactive ? '#ef4444' : undefined,
+                                                                            color: respInactive ? colours.cta : undefined,
                                                                             fontWeight: respInactive ? 600 : undefined,
                                                                         }}
                                                                     >
                                                                         {respSol || '—'}
                                                                         {respInactive && (
-                                                                            <Icon iconName="Warning" style={{ fontSize: 10, marginLeft: 4, color: '#ef4444' }} />
+                                                                            <Icon iconName="Warning" style={{ fontSize: 10, marginLeft: 4, color: colours.cta }} />
                                                                         )}
                                                                     </span>
                                                                     {origSol && origSol !== respSol && (
                                                                         <span 
                                                                             style={{ 
                                                                                 fontSize: 10, 
-                                                                                color: origCanRescue ? '#f59e0b' : (origInactive ? '#ef4444' : textMuted), 
+                                                                                color: origCanRescue ? colours.orange : (origInactive ? colours.cta : textMuted), 
                                                                                 fontStyle: 'italic',
                                                                                 fontWeight: (origInactive || origCanRescue) ? 600 : undefined,
                                                                             }} 
@@ -2645,10 +2646,10 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                                                                         >
                                                                             ↳ {origSol}
                                                                             {origInactive && (
-                                                                                <Icon iconName="Warning" style={{ fontSize: 9, marginLeft: 3, color: '#ef4444' }} />
+                                                                                <Icon iconName="Warning" style={{ fontSize: 9, marginLeft: 3, color: colours.cta }} />
                                                                             )}
                                                                             {origCanRescue && (
-                                                                                <Icon iconName="UserFollowed" style={{ fontSize: 9, marginLeft: 3, color: '#f59e0b' }} />
+                                                                                <Icon iconName="UserFollowed" style={{ fontSize: 9, marginLeft: 3, color: colours.orange }} />
                                                                             )}
                                                                         </span>
                                                                     )}
@@ -2668,13 +2669,13 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                                                                                 key={i} 
                                                                                 title={solInactive ? 'Inactive - Responsible Solicitor' : 'Responsible Solicitor'}
                                                                                 style={{
-                                                                                    color: solInactive ? '#ef4444' : undefined,
+                                                                                    color: solInactive ? colours.cta : undefined,
                                                                                     fontWeight: solInactive ? 600 : undefined,
                                                                                 }}
                                                                             >
                                                                                 {sol}
                                                                                 {solInactive && (
-                                                                                    <Icon iconName="Warning" style={{ fontSize: 10, marginLeft: 4, color: '#ef4444' }} />
+                                                                                    <Icon iconName="Warning" style={{ fontSize: 10, marginLeft: 4, color: colours.cta }} />
                                                                                 )}
                                                                             </span>
                                                                         );
@@ -2696,7 +2697,7 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                                                                                     key={`orig-${i}`} 
                                                                                     style={{ 
                                                                                         fontSize: 10, 
-                                                                                        color: canRescue ? '#f59e0b' : (solInactive ? '#ef4444' : textMuted), 
+                                                                                        color: canRescue ? colours.orange : (solInactive ? colours.cta : textMuted), 
                                                                                         fontStyle: 'italic',
                                                                                         fontWeight: (solInactive || canRescue) ? 600 : undefined,
                                                                                     }} 
@@ -2704,10 +2705,10 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                                                                                 >
                                                                                     ↳ {sol}
                                                                                     {solInactive && (
-                                                                                        <Icon iconName="Warning" style={{ fontSize: 9, marginLeft: 3, color: '#ef4444' }} />
+                                                                                        <Icon iconName="Warning" style={{ fontSize: 9, marginLeft: 3, color: colours.cta }} />
                                                                                     )}
                                                                                     {canRescue && (
-                                                                                        <Icon iconName="UserFollowed" style={{ fontSize: 9, marginLeft: 3, color: '#f59e0b' }} />
+                                                                                        <Icon iconName="UserFollowed" style={{ fontSize: 9, marginLeft: 3, color: colours.orange }} />
                                                                                     )}
                                                                                 </span>
                                                                             );
@@ -2803,7 +2804,7 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                                                                 padding: '6px 14px', borderRadius: 0,
                                                                 border: `1px solid ${isDarkMode ? 'rgba(239,68,68,0.4)' : 'rgba(239,68,68,0.3)'}`,
                                                                 background: isDarkMode ? 'rgba(239,68,68,0.15)' : 'rgba(239,68,68,0.08)',
-                                                                color: isDarkMode ? '#fca5a5' : '#dc2626',
+                                                                color: colours.cta,
                                                                 fontSize: 11, fontWeight: 600, 
                                                                 cursor: canActionClient(client.client_id) ? 'pointer' : 'not-allowed',
                                                                 letterSpacing: '0.03em', textTransform: 'uppercase',
@@ -2830,7 +2831,7 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                     {toasts.map(t => (
                         <div key={t.id} className="rc-toast" style={{
                             padding: '12px 24px', marginTop: 8,
-                            background: t.type === 'success' ? '#1a1a1a' : '#dc2626',
+                            background: t.type === 'success' ? colours.dark.sectionBackground : colours.cta,
                             color: '#fff', fontSize: 13, fontWeight: 600,
                             boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
                             border: `1px solid ${t.type === 'success' ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.25)'}`,
@@ -3130,7 +3131,7 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                                                 ? (isDarkMode ? 'rgba(54,144,206,0.2)' : 'rgba(54,144,206,0.06)') 
                                                 : 'transparent',
                                             color: naReason === r.key 
-                                                ? (isDarkMode ? '#60a5fa' : colours.highlight)
+                                                ? (isDarkMode ? colours.accent : colours.highlight)
                                                 : textMuted,
                                             fontSize: 11, fontWeight: 500, cursor: 'pointer',
                                             transition: 'all 0.1s ease',
@@ -3204,7 +3205,7 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                                         </span>
                                     )}
                                     {streamingSummary.failed > 0 && (
-                                        <span style={{ color: '#ef4444', fontWeight: 600 }}>
+                                        <span style={{ color: colours.cta, fontWeight: 600 }}>
                                             ✗ {streamingSummary.failed} failed
                                         </span>
                                     )}
@@ -3250,7 +3251,7 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                                                 <span style={{ color: colours.orange, fontSize: 14 }} title={m.message || 'Not found in Clio'}>⊘</span>
                                             )}
                                             {m.status === 'failed' && (
-                                                <span style={{ color: '#ef4444', fontSize: 14 }}>✗</span>
+                                                <span style={{ color: colours.cta, fontSize: 14 }}>✗</span>
                                             )}
                                         </div>
                                         
@@ -3268,7 +3269,7 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                                             fontSize: 10, 
                                             color: m.status === 'success' ? colours.green 
                                                 : m.status === 'skipped' ? colours.orange
-                                                : m.status === 'failed' ? '#ef4444' 
+                                                : m.status === 'failed' ? colours.cta 
                                                 : m.status === 'updating' ? colours.highlight
                                                 : textMuted,
                                             fontWeight: 500,
@@ -3285,10 +3286,10 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                                 <div style={{ 
                                     marginTop: 12, 
                                     padding: 10, 
-                                    background: isDarkMode ? 'rgba(239,68,68,0.15)' : 'rgba(239,68,68,0.08)',
-                                    border: '1px solid rgba(239,68,68,0.3)',
+                                    background: isDarkMode ? `${colours.cta}26` : `${colours.cta}14`,
+                                    border: `1px solid ${colours.cta}4D`,
                                     fontSize: 11,
-                                    color: '#ef4444',
+                                    color: colours.cta,
                                 }}>
                                     <strong>Errors:</strong>
                                     {matterProgress.filter(m => m.error).map(m => (
@@ -3342,11 +3343,11 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                             border: `1px solid ${isDarkMode ? 'rgba(251,191,36,0.3)' : 'rgba(251,191,36,0.4)'}`,
                             display: 'flex', alignItems: 'flex-start', gap: 10,
                         }}>
-                            <Icon iconName="Warning" style={{ fontSize: 14, color: '#fbbf24', marginTop: 1 }} />
+                            <Icon iconName="Warning" style={{ fontSize: 14, color: colours.orange, marginTop: 1 }} />
                             <div>
                                 <div style={{ 
                                     fontSize: 11, fontWeight: 600, 
-                                    color: isDarkMode ? '#fbbf24' : '#b89600',
+                                    color: colours.orange,
                                     marginBottom: 2,
                                 }}>
                                     Includes matters for other solicitors
@@ -3519,7 +3520,7 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                         styles={{
                             fieldGroup: { 
                                 borderRadius: 0,
-                                border: `1px solid ${passcodeError ? '#dc2626' : (isDarkMode ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.1)')}`,
+                                border: `1px solid ${passcodeError ? colours.cta : (isDarkMode ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.1)')}`,
                                 background: isDarkMode ? '#374151' : '#fff',
                             },
                             field: { fontSize: 14, color: isDarkMode ? '#f9fafb' : undefined },
@@ -3756,9 +3757,9 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                             {migrateError && (
                                 <div style={{
                                     marginTop: 16, padding: '12px 14px',
-                                    background: 'rgba(220,38,38,0.1)',
-                                    border: '1px solid rgba(220,38,38,0.3)',
-                                    color: '#dc2626', fontSize: 12, fontWeight: 500,
+                                    background: `${colours.cta}1A`,
+                                    border: `1px solid ${colours.cta}4D`,
+                                    color: colours.cta, fontSize: 12, fontWeight: 500,
                                 }}>
                                     {migrateError}
                                 </div>

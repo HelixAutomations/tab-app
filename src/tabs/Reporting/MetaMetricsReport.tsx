@@ -1337,4 +1337,4 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
   );
 };
 
-export default MetaMetricsReport;
+export default React.memo(MetaMetricsReport);

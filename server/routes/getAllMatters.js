@@ -1,5 +1,6 @@
 const express = require('express');
 const sql = require('mssql');
+const { withRequest } = require('../utils/db');
 
 const router = express.Router();
 
@@ -67,22 +68,12 @@ async function fetchLegacyMatters(bypassCache) {
     }
 
     const connectionString = getLegacyConnectionString();
-    let pool;
-    try {
-        pool = await new sql.ConnectionPool(connectionString).connect();
-        const result = await pool.request().query('SELECT TOP 10000 * FROM matters');
-        const records = Array.isArray(result.recordset) ? result.recordset : [];
-        mattersCache = { data: records, ts: now };
-        return { records, cached: false };
-    } finally {
-        if (pool) {
-            try {
-                await pool.close();
-            } catch {
-                // ignore close errors
-            }
-        }
-    }
+    const result = await withRequest(connectionString, async (request) => {
+        return request.query('SELECT TOP 10000 * FROM matters');
+    });
+    const records = Array.isArray(result.recordset) ? result.recordset : [];
+    mattersCache = { data: records, ts: now };
+    return { records, cached: false };
 }
 
 function shapeResponse(records, cached) {

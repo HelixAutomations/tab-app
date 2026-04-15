@@ -49,6 +49,8 @@ const SessionFiltersSection: React.FC<SessionFiltersSectionProps> = ({
                     <button
                         key={area}
                         title={area}
+                        aria-label={`Filter ${area}${checked ? ' (active)' : ''}`}
+                        aria-pressed={checked}
                         onClick={() => {
                             const newAreas = checked
                                 ? areasOfWork.filter(a => a !== area)

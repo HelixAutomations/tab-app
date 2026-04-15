@@ -9,3 +9,37 @@
   min-width: 0;
   box-sizing: border-box;
 }
+
+/* Theme transition on portal container only — NOT descendants.
+   A wildcard * rule applied transitions to hundreds of child elements,
+   causing severe layout thrashing. Scope to container + chips only. */
+#app-level-immediate-actions {
+  transition: background-color 0.25s ease, border-color 0.25s ease, color 0.25s ease,
+    box-shadow 0.25s ease;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  box-sizing: border-box;
+  border-radius: 0;
+  border: none;
+  background: transparent;
+}
+
+#app-level-immediate-actions .immediate-action-chip {
+  transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease,
+    transform 0.18s ease;
+}
+
+#app-level-immediate-actions .immediate-action-chip:disabled {
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ─── Tab-switch visibility for Navigator + ImmediateActions ───
+   Bars live inside .app-scroll-region and scroll away naturally.
+   This class hides them instantly on non-applicable tabs. */
+
+.chrome-tab-hidden {
+  display: none;
+}

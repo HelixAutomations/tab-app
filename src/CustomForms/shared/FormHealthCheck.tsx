@@ -9,6 +9,7 @@ import { Text } from '@fluentui/react/lib/Text';
 import { TooltipHost } from '@fluentui/react/lib/Tooltip';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { getProxyBaseUrl } from '../../utils/getProxyBaseUrl';
+import { colours } from '../../app/styles/colours';
 
 interface HealthResult {
   id: string;
@@ -71,9 +72,9 @@ const FormHealthCheck: React.FC = () => {
 
   const getStatusIcon = (status: string) => {
     switch (status) {
-      case 'healthy': return { icon: 'CompletedSolid', color: '#10b981' };
-      case 'unhealthy': return { icon: 'ErrorBadge', color: '#ef4444' };
-      default: return { icon: 'Warning', color: '#f59e0b' };
+      case 'healthy': return { icon: 'CompletedSolid', color: colours.green };
+      case 'unhealthy': return { icon: 'ErrorBadge', color: '#D65541' };
+      default: return { icon: 'Warning', color: '#FF8C00' };
     }
   };
 
@@ -88,10 +89,10 @@ const FormHealthCheck: React.FC = () => {
     alignItems: 'center',
     gap: '6px',
     padding: '6px 12px',
-    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(15, 23, 42, 0.08)'}`,
+    border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(0, 3, 25, 0.08)'}`,
     borderRadius: '8px',
-    background: isDarkMode ? 'rgba(30, 41, 59, 0.6)' : 'rgba(241, 245, 249, 0.8)',
-    color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)',
+    background: isDarkMode ? 'rgba(6, 23, 51, 0.6)' : 'rgba(244, 244, 246, 0.8)',
+    color: isDarkMode ? 'rgba(160, 160, 160, 0.7)' : 'rgba(107, 107, 107, 0.7)',
     cursor: 'pointer',
     fontSize: '12px',
     fontFamily: 'Raleway, sans-serif',
@@ -105,12 +106,12 @@ const FormHealthCheck: React.FC = () => {
     right: 0,
     marginTop: '8px',
     width: '380px',
-    background: isDarkMode ? '#1e293b' : '#ffffff',
-    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(15, 23, 42, 0.08)'}`,
+    background: isDarkMode ? '#061733' : '#ffffff',
+    border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(0, 3, 25, 0.08)'}`,
     borderRadius: '12px',
     boxShadow: isDarkMode
       ? '0 8px 32px rgba(0, 0, 0, 0.4)'
-      : '0 8px 32px rgba(15, 23, 42, 0.12)',
+      : '0 8px 32px rgba(0, 3, 25, 0.12)',
     zIndex: 1000,
     overflow: 'hidden',
     fontFamily: 'Raleway, sans-serif',
@@ -118,7 +119,7 @@ const FormHealthCheck: React.FC = () => {
 
   const headerStyle: React.CSSProperties = {
     padding: '14px 16px',
-    borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(15, 23, 42, 0.06)'}`,
+    borderBottom: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 3, 25, 0.06)'}`,
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -129,9 +130,9 @@ const FormHealthCheck: React.FC = () => {
     display: 'flex',
     alignItems: 'center',
     gap: '10px',
-    borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(15, 23, 42, 0.03)'}`,
+    borderBottom: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.06)' : 'rgba(0, 3, 25, 0.03)'}`,
     fontSize: '13px',
-    color: isDarkMode ? '#e2e8f0' : '#374151',
+    color: isDarkMode ? '#f3f4f6' : '#374151',
   };
 
   const footerStyle: React.CSSProperties = {
@@ -140,7 +141,7 @@ const FormHealthCheck: React.FC = () => {
     justifyContent: 'space-between',
     alignItems: 'center',
     fontSize: '11px',
-    color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)',
+    color: isDarkMode ? 'rgba(160, 160, 160, 0.5)' : 'rgba(107, 107, 107, 0.5)',
   };
 
   return (
@@ -151,12 +152,12 @@ const FormHealthCheck: React.FC = () => {
           onClick={handleToggle}
           aria-label="Form health checks"
           onMouseEnter={(e) => {
-            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(15, 23, 42, 0.15)';
-            e.currentTarget.style.color = isDarkMode ? 'rgba(148, 163, 184, 1)' : 'rgba(100, 116, 139, 1)';
+            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(160, 160, 160, 0.4)' : 'rgba(0, 3, 25, 0.15)';
+            e.currentTarget.style.color = isDarkMode ? 'rgba(160, 160, 160, 1)' : 'rgba(107, 107, 107, 1)';
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(15, 23, 42, 0.08)';
-            e.currentTarget.style.color = isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)';
+            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(0, 3, 25, 0.08)';
+            e.currentTarget.style.color = isDarkMode ? 'rgba(160, 160, 160, 0.7)' : 'rgba(107, 107, 107, 0.7)';
           }}
         >
           <Icon
@@ -164,8 +165,8 @@ const FormHealthCheck: React.FC = () => {
             style={{
               fontSize: '12px',
               color: results
-                ? results.summary.unhealthy === 0 ? '#10b981' : '#ef4444'
-                : isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)',
+                ? results.summary.unhealthy === 0 ? colours.green : '#D65541'
+                : isDarkMode ? 'rgba(160, 160, 160, 0.5)' : 'rgba(107, 107, 107, 0.5)',
             }}
           />
           <span>Health</span>
@@ -176,7 +177,7 @@ const FormHealthCheck: React.FC = () => {
       {isOpen && (
         <div style={panelStyle}>
           <div style={headerStyle}>
-            <Text style={{ fontWeight: 600, fontSize: '13px', color: isDarkMode ? '#e2e8f0' : '#1e293b' }}>
+            <Text style={{ fontWeight: 600, fontSize: '13px', color: isDarkMode ? '#f3f4f6' : '#061733' }}>
               Endpoint Health
             </Text>
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -186,9 +187,9 @@ const FormHealthCheck: React.FC = () => {
                   padding: '2px 8px',
                   borderRadius: '10px',
                   background: results.summary.unhealthy === 0
-                    ? 'rgba(16, 185, 129, 0.1)'
-                    : 'rgba(239, 68, 68, 0.1)',
-                  color: results.summary.unhealthy === 0 ? '#10b981' : '#ef4444',
+                    ? 'rgba(32, 178, 108, 0.1)'
+                    : 'rgba(214, 85, 65, 0.1)',
+                  color: results.summary.unhealthy === 0 ? colours.green : '#D65541',
                   fontWeight: 600,
                 }}>
                   {results.summary.healthy}/{results.summary.total}
@@ -202,7 +203,7 @@ const FormHealthCheck: React.FC = () => {
                   border: 'none',
                   cursor: isLoading ? 'not-allowed' : 'pointer',
                   padding: '4px',
-                  color: isDarkMode ? '#94a3b8' : '#64748b',
+                  color: isDarkMode ? '#A0A0A0' : '#6B6B6B',
                   fontSize: '14px',
                   display: 'flex',
                   opacity: isLoading ? 0.5 : 1,
@@ -221,7 +222,7 @@ const FormHealthCheck: React.FC = () => {
           )}
 
           {error && (
-            <div style={{ padding: '16px', color: '#ef4444', fontSize: '13px' }}>
+            <div style={{ padding: '16px', color: '#D65541', fontSize: '13px' }}>
               <Icon iconName="ErrorBadge" style={{ marginRight: '6px' }} />
               {error}
             </div>
@@ -244,7 +245,7 @@ const FormHealthCheck: React.FC = () => {
                         </div>
                         <div style={{
                           fontSize: '11px',
-                          color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)',
+                          color: isDarkMode ? 'rgba(160, 160, 160, 0.6)' : 'rgba(107, 107, 107, 0.6)',
                           marginTop: '2px',
                         }}>
                           {check.error || check.description}
@@ -252,7 +253,7 @@ const FormHealthCheck: React.FC = () => {
                       </div>
                       <span style={{
                         fontSize: '11px',
-                        color: isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(100, 116, 139, 0.4)',
+                        color: isDarkMode ? 'rgba(160, 160, 160, 0.4)' : 'rgba(107, 107, 107, 0.4)',
                         flexShrink: 0,
                         fontVariantNumeric: 'tabular-nums',
                       }}>

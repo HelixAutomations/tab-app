@@ -26,18 +26,17 @@ function statusBadge(status: number) {
 }
 
 const ErrorStreamSection: React.FC<Props> = ({ errors, isDarkMode }) => {
-  const bg = isDarkMode ? colours.dark.cardBackground : '#ffffff';
+  const bg = isDarkMode ? colours.darkBlue : colours.light.sectionBackground;
   const borderCol = isDarkMode ? colours.dark.border : colours.light.border;
-  const sectionAccent = isDarkMode ? colours.accent : colours.highlight;
 
   return (
     <div style={{ padding: '14px 16px', background: bg, border: `1px solid ${borderCol}`, borderRadius: 0, marginBottom: 8 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-        <span style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: sectionAccent, fontFamily: 'Raleway, sans-serif' }}>
+        <span style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: isDarkMode ? colours.dark.text : colours.light.text, fontFamily: 'Raleway, sans-serif' }}>
           Error Stream
         </span>
         {errors.length > 0 && (
-          <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 0, background: `${colours.cta}18`, color: colours.cta, fontFamily: 'monospace' }}>
+          <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 0, background: `${colours.cta}25`, color: colours.cta, fontFamily: 'monospace' }}>
             {errors.length}
           </span>
         )}
@@ -54,7 +53,7 @@ const ErrorStreamSection: React.FC<Props> = ({ errors, isDarkMode }) => {
               key={`${err.ts}-${i}`}
               style={{
                 display: 'flex', alignItems: 'flex-start', gap: 8, padding: '6px 8px',
-                background: isDarkMode ? 'rgba(214,85,65,0.05)' : 'rgba(214,85,65,0.03)',
+                background: isDarkMode ? `${colours.cta}0D` : `${colours.cta}08`,
                 borderLeft: `2px solid ${err.status >= 500 ? colours.cta : colours.orange}`,
               }}
             >

@@ -618,7 +618,7 @@ const RiskAssessment: React.FC<RiskAssessmentProps> = ({
                             <div style={{
                                 fontSize: 9,
                                 fontWeight: 600,
-                                color: isDarkMode ? '#64748b' : '#94a3b8',
+                                color: isDarkMode ? colours.greyText : colours.subtleGrey,
                                 textTransform: 'uppercase',
                                 letterSpacing: '0.5px',
                             }}>
@@ -737,7 +737,7 @@ const RiskAssessment: React.FC<RiskAssessmentProps> = ({
                             <div style={{
                                 fontSize: 12,
                                 fontWeight: 600,
-                                color: isDarkMode ? '#94a3b8' : '#64748b',
+                                color: isDarkMode ? colours.subtleGrey : colours.greyText,
                                 marginBottom: 10,
                             }}>
                                 Limitation Date
@@ -884,7 +884,7 @@ const RiskAssessment: React.FC<RiskAssessmentProps> = ({
                                 borderRadius: 0,
                                 color: isComplete()
                                     ? '#FFFFFF'
-                                    : (isDarkMode ? '#64748b' : '#94a3b8'),
+                                    : (isDarkMode ? colours.greyText : colours.subtleGrey),
                                 fontSize: 14,
                                 fontWeight: 600,
                                 fontFamily: 'inherit',
@@ -920,7 +920,7 @@ const RiskAssessment: React.FC<RiskAssessmentProps> = ({
                     <div style={{
                         fontSize: 10,
                         fontWeight: 700,
-                        color: isDarkMode ? '#64748b' : '#94a3b8',
+                        color: isDarkMode ? colours.greyText : colours.subtleGrey,
                         textTransform: 'uppercase',
                         letterSpacing: '0.5px',
                         marginBottom: 10,
@@ -1000,7 +1000,7 @@ const RiskAssessment: React.FC<RiskAssessmentProps> = ({
                         </div>
                         <p style={{
                             fontSize: 13,
-                            color: isDarkMode ? '#94a3b8' : '#64748b',
+                            color: isDarkMode ? colours.subtleGrey : colours.greyText,
                             margin: '0 0 20px 0',
                             lineHeight: 1.5,
                         }}>

@@ -1,13 +1,17 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React from 'react';
 // invisible change 2
 import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
 import { TooltipHost } from '@fluentui/react/lib/Tooltip';
 import { FormItem, UserData, NormalizedMatter, TeamData } from '../app/functionality/types';
 import BespokeForm from '../CustomForms/BespokeForms';
 import loaderIcon from '../assets/grey helix mark.png';
-import { getProxyBaseUrl } from "../utils/getProxyBaseUrl";
 import { useTheme } from '../app/functionality/ThemeContext';
+import { colours } from '../app/styles/colours';
+import { isDevOwner } from '../app/admin';
 import { getFormModeToggleStyles } from '../CustomForms/shared/formStyles';
+import { useCognitoEmbed } from '../hooks/useCognitoEmbed';
+import { useFinancialFormSubmit } from '../hooks/useFinancialFormSubmit';
+import { checkIsLocalDev } from '../utils/useIsLocalDev';
 
 interface FormEmbedProps {
     link: FormItem;
@@ -25,108 +29,21 @@ const loaderStyle = {
 
 const FormEmbed: React.FC<FormEmbedProps> = ({ link, userData, teamData, matters }) => {
     const { isDarkMode } = useTheme();
-    const formContainerRef = useRef<HTMLDivElement>(null);
-    const [isCognitoLoaded, setIsCognitoLoaded] = useState<boolean>(false);
-    const [formKey, setFormKey] = useState<number>(() => Date.now());
-    const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
-    const [submissionSuccess, setSubmissionSuccess] = useState<string | null>(null);
-
-    const loadCognitoScript = useCallback(() => {
-        if (document.getElementById('cognito-forms-script')) {
-            setIsCognitoLoaded(true);
-            return Promise.resolve();
-        }
-        return new Promise<void>((resolve, reject) => {
-            const script = document.createElement('script');
-            script.id = 'cognito-forms-script';
-            script.src = 'https://www.cognitoforms.com/f/seamless.js';
-            script.async = true;
-            script.onload = () => {
-                setIsCognitoLoaded(true);
-                resolve();
-            };
-            script.onerror = reject;
-            document.body.appendChild(script);
-        });
-    }, []);
-
-    useEffect(() => {
-        if (link.embedScript) {
-            loadCognitoScript().catch((err) => console.error(err));
-        }
-    }, [link.embedScript, loadCognitoScript]);
-
-    useEffect(() => {
-        if (isCognitoLoaded && link.embedScript && formContainerRef.current) {
-            formContainerRef.current.innerHTML = '';
-            const formScript = document.createElement('script');
-            formScript.src = 'https://www.cognitoforms.com/f/seamless.js';
-            formScript.async = true;
-            formScript.setAttribute('data-key', link.embedScript.key);
-            formScript.setAttribute('data-form', link.embedScript.formId);
-            formContainerRef.current.appendChild(formScript);
-        }
-    }, [isCognitoLoaded, link.embedScript]);
-
-    const handleFinancialSubmit = useCallback(
-        async (values: any) => {
-            if (isSubmitting) return;
-            setIsSubmitting(true);
-            const payload = {
-                formType: link.title,
-                data: values,
-                initials: userData?.[0]?.Initials || 'N/A',
-            };
-            
-            // Debug logging for file uploads
-            console.log('Form submission payload:', payload);
-            if (values['Disbursement Upload']) {
-                console.log('Disbursement Upload data:', values['Disbursement Upload']);
-            }
-            
-            const endpointUrl = '/api/financial-task';
-            try {
-                const response = await fetch(endpointUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload),
-                });
-                if (!response.ok) {
-                    const errText = await response.text();
-                    console.error('Error posting financial task:', errText);
-                    setSubmissionSuccess(null);
-                } else {
-                    await response.json();
-                    setSubmissionSuccess('Financial form submitted successfully!');
-                    setTimeout(() => {
-                        setSubmissionSuccess(null);
-                        setFormKey(Date.now());
-                    }, 3000);
-                }
-
-                if (link.title === 'Payment Requests') {
-                    try {
-                        await fetch(
-                            'https://prod-16.uksouth.logic.azure.com:443/workflows/625f5ed1d19b42999e113bd44c4799e5/triggers/manual/paths/invoke?api-version=2016-06-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=OQhUuEJuXMgy2UCbOAuwM-3OBKb0xLIKgbp1GcnH_Bg',
-                            {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify(values),
-                            }
-                        );
-                    } catch (err) {
-                        console.error('Error posting payment request to external endpoint:', err);
-                    }
-                }
-            } catch (error: any) {
-                console.error('Error in financial form submission:', error);
-                setSubmissionSuccess(null);
-            } finally {
-                setIsSubmitting(false);
-            }
-        },
-        [link.title, userData, isSubmitting]
-    );
+    const showFormModeToggle = isDevOwner(userData?.[0] || null) && checkIsLocalDev();
+    const { containerRef: formContainerRef, isCognitoLoaded, cognitoError } = useCognitoEmbed({
+        embedScript: link.embedScript,
+        isActive: Boolean(link.embedScript),
+    });
+    const {
+        formKey,
+        isSubmitting,
+        submissionSuccess,
+        setSubmissionSuccess,
+        handleFinancialSubmit,
+    } = useFinancialFormSubmit({
+        formType: link.title,
+        initials: userData?.[0]?.Initials,
+    });
 
     return (
         <div style={{ padding: '10px 0' }}>
@@ -143,25 +60,34 @@ const FormEmbed: React.FC<FormEmbedProps> = ({ link, userData, teamData, matters
             )}
             {link.embedScript ? (
                 <>
-                    {/* Form Mode Toggle - Cognito/Bespoke */}
-                    <div style={getFormModeToggleStyles(isDarkMode).container}>
-                        <button 
-                            style={getFormModeToggleStyles(isDarkMode).option(true, false)}
-                            aria-pressed="true"
-                        >
-                            Cognito
-                        </button>
-                        <TooltipHost content="Bespoke version coming soon">
-                            <button 
-                                style={getFormModeToggleStyles(isDarkMode).option(false, true)}
-                                disabled
-                                aria-pressed="false"
-                            >
-                                Bespoke
-                            </button>
-                        </TooltipHost>
-                    </div>
+                    {showFormModeToggle && (
+                        <>
+                            <div style={{ display: 'grid', gap: 6, marginBottom: '10px' }}>
+                                <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: isDarkMode ? colours.accent : colours.highlight }}>
+                                    Luke-only dev preview
+                                </div>
+                                <div style={getFormModeToggleStyles(isDarkMode).container}>
+                                    <button 
+                                        style={getFormModeToggleStyles(isDarkMode).option(true, false)}
+                                        aria-pressed="true"
+                                    >
+                                        Cognito
+                                    </button>
+                                    <TooltipHost content="Luke-only bespoke preview">
+                                        <button 
+                                            style={getFormModeToggleStyles(isDarkMode).option(false, true)}
+                                            disabled
+                                            aria-pressed="false"
+                                        >
+                                            Bespoke
+                                        </button>
+                                    </TooltipHost>
+                                </div>
+                            </div>
+                        </>
+                    )}
                     <div ref={formContainerRef}>
+                        {cognitoError && <div>{cognitoError}</div>}
                         {!isCognitoLoaded && (
                             <div style={loaderStyle}>
                                 <img src={loaderIcon} alt="Loading..." style={{ width: '100px', height: 'auto' }} />

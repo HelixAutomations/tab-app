@@ -255,15 +255,15 @@ const DataInspector: React.FC<DataInspectorProps> = ({ data, onClose, mode = 'mo
   const getStatusAppearance = useCallback((status?: number) => {
     if (!status || status >= 400) {
       return {
-        tone: '#ef4444',
-        background: isDarkMode ? 'rgba(239,68,68,0.18)' : 'rgba(239,68,68,0.12)',
+        tone: colours.cta,
+        background: isDarkMode ? 'rgba(214,85,65,0.18)' : 'rgba(214,85,65,0.12)',
         label: status ? status : 'Failed',
       };
     }
     if (status < 300) {
       return {
-        tone: isDarkMode ? '#4ade80' : '#15803d',
-        background: isDarkMode ? 'rgba(74,222,128,0.18)' : 'rgba(22,163,74,0.12)',
+        tone: colours.green,
+        background: isDarkMode ? 'rgba(32,178,108,0.18)' : 'rgba(32,178,108,0.12)',
         label: status,
       };
     }
@@ -459,7 +459,7 @@ const DataInspector: React.FC<DataInspectorProps> = ({ data, onClose, mode = 'mo
             Unlock inspector
           </button>
           {passcodeError && (
-            <Text style={{ color: '#ef4444' }}>{passcodeError}</Text>
+            <Text style={{ color: colours.cta }}>{passcodeError}</Text>
           )}
         </div>
       </div>
@@ -552,7 +552,7 @@ const DataInspector: React.FC<DataInspectorProps> = ({ data, onClose, mode = 'mo
                 padding: '6px 12px',
                 borderRadius: 8,
                 border: 'none',
-                background: '#ef4444',
+                background: colours.cta,
                 color: '#fff',
                 fontSize: 12,
                 fontWeight: 600,

@@ -1,5 +1,10 @@
 ﻿/* Enhanced Home — minimal retained styles (everything else was dead CSS) */
 
+/* Root font cascade — all Home sections inherit Raleway */
+.home-root {
+  font-family: var(--font-primary);
+}
+
 /* Skeleton shimmer — used across multiple components */
 .skeleton-shimmer {
   background: linear-gradient(90deg,

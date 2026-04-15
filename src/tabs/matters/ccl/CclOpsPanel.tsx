@@ -37,21 +37,21 @@ const TRANSITION = 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)';
 const ASSESSMENT_USERS = ['LZ', 'AC'];
 
 const STATUS_COLOURS: Record<string, string> = {
-    draft:    '#3690CE',
-    final:    '#20b26c',
-    uploaded: '#8b5cf6',
-    complete: '#20b26c',
-    partial:  '#f59e0b',
-    fallback: '#6b7280',
-    error:    '#ef4444',
+    draft:    colours.highlight,
+    final:    colours.green,
+    uploaded: colours.highlight,
+    complete: colours.green,
+    partial:  colours.orange,
+    fallback: colours.greyText,
+    error:    colours.cta,
 };
 
 const SCORE_LABELS: Record<number, { label: string; colour: string }> = {
-    1: { label: 'Poor', colour: '#ef4444' },
-    2: { label: 'Needs Work', colour: '#f59e0b' },
-    3: { label: 'Acceptable', colour: '#eab308' },
-    4: { label: 'Good', colour: '#22c55e' },
-    5: { label: 'Excellent', colour: '#10b981' },
+    1: { label: 'Poor', colour: colours.cta },
+    2: { label: 'Needs Work', colour: colours.orange },
+    3: { label: 'Acceptable', colour: colours.orange },
+    4: { label: 'Good', colour: colours.green },
+    5: { label: 'Excellent', colour: colours.green },
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -440,9 +440,9 @@ const CclOpsPanel: React.FC<CclOpsPanelProps> = ({ matterId, isDarkMode, onClose
                             background: isDarkMode ? 'rgba(16,185,129,0.08)' : 'rgba(16,185,129,0.06)',
                             border: `1px solid ${isDarkMode ? 'rgba(16,185,129,0.2)' : 'rgba(16,185,129,0.15)'}`,
                         }}>
-                            <Icon iconName="Contact" style={{ fontSize: 9, color: '#10b981' }} />
+                            <Icon iconName="Contact" style={{ fontSize: 9, color: colours.green }} />
                             <span style={{ fontSize: 9, color: textMuted }}>Client</span>
-                            <span style={{ fontSize: 10, fontWeight: 700, color: '#10b981' }}>{topClient}</span>
+                            <span style={{ fontSize: 10, fontWeight: 700, color: colours.green }}>{topClient}</span>
                         </div>
                     )}
                 </div>
@@ -499,7 +499,7 @@ const CclOpsPanel: React.FC<CclOpsPanelProps> = ({ matterId, isDarkMode, onClose
                     background: isDarkMode ? 'rgba(54,144,206,0.04)' : 'rgba(54,144,206,0.02)',
                 }}>
                     {ctxLoading && <div style={{ textAlign: 'center', padding: '16px 0' }}><Spinner size={SpinnerSize.small} label="Gathering context..." /></div>}
-                    {ctxError && <div style={{ color: '#ef4444', fontSize: 11, padding: 8 }}><Icon iconName="ErrorBadge" style={{ marginRight: 6 }} />{ctxError}</div>}
+                    {ctxError && <div style={{ color: colours.cta, fontSize: 11, padding: 8 }}><Icon iconName="ErrorBadge" style={{ marginRight: 6 }} />{ctxError}</div>}
                     {ctxPreview && !ctxLoading && (
                         <>
                             <ContextSection label={`Data Sources (${ctxPreview.dataSources?.length || 0})`} isDark={isDarkMode}>
@@ -581,7 +581,7 @@ const CclOpsPanel: React.FC<CclOpsPanelProps> = ({ matterId, isDarkMode, onClose
                     </div>
                 )}
                 {error && (
-                    <div style={{ textAlign: 'center', padding: '40px 0', color: '#ef4444' }}>
+                    <div style={{ textAlign: 'center', padding: '40px 0', color: colours.cta }}>
                         <Icon iconName="ErrorBadge" style={{ fontSize: 24, marginBottom: 8, display: 'block' }} />
                         {error}
                     </div>
@@ -823,7 +823,7 @@ const HistoryTab: React.FC<{
                                         {v.Status}
                                     </span>
                                     {isAssessed && (
-                                        <Icon iconName="SkypeCircleCheck" style={{ fontSize: 10, color: '#10b981' }} />
+                                        <Icon iconName="SkypeCircleCheck" style={{ fontSize: 10, color: colours.green }} />
                                     )}
                                 </div>
 
@@ -845,17 +845,17 @@ const HistoryTab: React.FC<{
                                         </span>
                                     )}
                                     {v.UploadedToClio && (
-                                        <span style={{ color: '#10b981' }}>
+                                        <span style={{ color: colours.green }}>
                                             <Icon iconName="CloudUpload" styles={{ root: { fontSize: 9 } }} /> Clio
                                         </span>
                                     )}
                                     {v.FinalizedAt && (
-                                        <span style={{ color: '#0ea5e9', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                                        <span style={{ color: colours.highlight, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
                                             <Icon iconName="SkypeCircleCheck" styles={{ root: { fontSize: 9 } }} /> sent
                                         </span>
                                     )}
                                     {expiry.isExpired === true && (
-                                        <span style={{ color: '#ef4444', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                                        <span style={{ color: colours.cta, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
                                             <Icon iconName="Warning" styles={{ root: { fontSize: 9 } }} /> expired
                                         </span>
                                     )}
@@ -915,7 +915,7 @@ const HistoryTab: React.FC<{
                                                 padding: '5px 12px', borderRadius: 2, height: 26,
                                                 background: isDark ? 'rgba(14,165,233,0.12)' : 'rgba(14,165,233,0.08)',
                                                 border: `1px solid ${isDark ? 'rgba(14,165,233,0.35)' : 'rgba(14,165,233,0.2)'}`,
-                                                color: '#0ea5e9', fontSize: 10, fontWeight: 600,
+                                                color: colours.highlight, fontSize: 10, fontWeight: 600,
                                                 cursor: reconstructingId === v.CclContentId ? 'wait' : 'pointer',
                                                 opacity: reconstructingId === v.CclContentId ? 0.65 : 1,
                                                 transition: TRANSITION,
@@ -947,8 +947,8 @@ const HistoryTab: React.FC<{
                                         <div style={{
                                             display: 'flex', alignItems: 'center', gap: 5,
                                             padding: '4px 10px', borderRadius: 2,
-                                            background: '#10b98108', border: '1px solid #10b98118',
-                                            fontSize: 10, color: '#10b981', fontWeight: 500,
+                                            background: `${colours.green}08`, border: `1px solid ${colours.green}18`,
+                                            fontSize: 10, color: colours.green, fontWeight: 500,
                                         }}>
                                             <Icon iconName="SkypeCircleCheck" style={{ fontSize: 10 }} />
                                             Assessment on file
@@ -961,7 +961,7 @@ const HistoryTab: React.FC<{
                                         marginTop: -4,
                                         marginBottom: 10,
                                         fontSize: 10,
-                                        color: reconstructMsgById[v.CclContentId].toLowerCase().includes('failed') ? '#ef4444' : textMuted,
+                                        color: reconstructMsgById[v.CclContentId].toLowerCase().includes('failed') ? colours.cta : textMuted,
                                         fontFamily: FONT_MONO,
                                     }}>
                                         {reconstructMsgById[v.CclContentId]}
@@ -996,7 +996,7 @@ const HistoryTab: React.FC<{
                                         <span>where: {v.UploadedToClio || v.UploadedToNd ? `${v.UploadedToClio ? 'Clio' : ''}${v.UploadedToClio && v.UploadedToNd ? ' + ' : ''}${v.UploadedToNd ? 'NetDocuments' : ''}` : 'not uploaded'}</span>
                                         {(v.ClioDocId || v.NdDocId) && <span>doc refs: {[v.ClioDocId, v.NdDocId].filter(Boolean).join(' / ')}</span>}
                                         {v.InstructionRef && <span>ref: {v.InstructionRef}</span>}
-                                        <span style={{ color: expiry.isExpired ? '#ef4444' : textMuted }}>
+                                        <span style={{ color: expiry.isExpired ? colours.cta : textMuted }}>
                                             {expiryLabel}{expiry.source === 'inferred_30d' ? ' (30d inferred)' : ''}
                                         </span>
                                     </div>
@@ -1234,9 +1234,9 @@ const TracesTab: React.FC<{
                                 {t.FallbackReason && (
                                     <div style={{
                                         marginTop: 8, padding: '6px 10px',
-                                        background: '#ef444410', borderRadius: 2,
-                                        borderLeft: '3px solid #ef4444',
-                                        fontSize: 10, color: '#ef4444', lineHeight: 1.4,
+                                        background: `${colours.cta}10`, borderRadius: 2,
+                                        borderLeft: `3px solid ${colours.cta}`,
+                                        fontSize: 10, color: colours.cta, lineHeight: 1.4,
                                     }}>
                                         <strong>Fallback:</strong> {t.FallbackReason}
                                     </div>
@@ -1304,7 +1304,7 @@ const AssessmentsTab: React.FC<{
                         </div>
                         <div style={{ display: 'flex', gap: 10, fontSize: 10, color: textMuted, marginTop: 2 }}>
                             <span>{withSuggestions} with suggestions</span>
-                            <span style={{ color: applied > 0 ? '#10b981' : textMuted }}>{applied} applied</span>
+                            <span style={{ color: applied > 0 ? colours.green : textMuted }}>{applied} applied</span>
                         </div>
                     </div>
                 </div>
@@ -1358,8 +1358,8 @@ const AssessmentsTab: React.FC<{
                                             display: 'inline-flex', alignItems: 'center', gap: 3,
                                             padding: '2px 8px', borderRadius: 2,
                                             fontSize: 9, fontWeight: 600,
-                                            background: '#10b98112', color: '#10b981',
-                                            border: '1px solid #10b98125',
+                                            background: `${colours.green}12`, color: colours.green,
+                                            border: `1px solid ${colours.green}25`,
                                         }}>
                                             <Icon iconName="SkypeCircleCheck" styles={{ root: { fontSize: 8 } }} />
                                             Applied
@@ -1384,13 +1384,13 @@ const AssessmentsTab: React.FC<{
                                 {/* Proportional bar */}
                                 <div style={{ display: 'flex', height: 6, borderRadius: 1, overflow: 'hidden', marginBottom: 4 }}>
                                     {a.FieldsCorrect != null && a.FieldsCorrect > 0 && (
-                                        <div style={{ flex: a.FieldsCorrect, background: '#10b981', transition: TRANSITION }} title={`${a.FieldsCorrect} correct`} />
+                                        <div style={{ flex: a.FieldsCorrect, background: colours.green, transition: TRANSITION }} title={`${a.FieldsCorrect} correct`} />
                                     )}
                                     {a.FieldsEdited != null && a.FieldsEdited > 0 && (
-                                        <div style={{ flex: a.FieldsEdited, background: '#f59e0b', transition: TRANSITION }} title={`${a.FieldsEdited} edited`} />
+                                        <div style={{ flex: a.FieldsEdited, background: colours.orange, transition: TRANSITION }} title={`${a.FieldsEdited} edited`} />
                                     )}
                                     {a.FieldsReplaced != null && a.FieldsReplaced > 0 && (
-                                        <div style={{ flex: a.FieldsReplaced, background: '#ef4444', transition: TRANSITION }} title={`${a.FieldsReplaced} replaced`} />
+                                        <div style={{ flex: a.FieldsReplaced, background: colours.cta, transition: TRANSITION }} title={`${a.FieldsReplaced} replaced`} />
                                     )}
                                     {a.FieldsEmpty != null && a.FieldsEmpty > 0 && (
                                         <div style={{ flex: a.FieldsEmpty, background: isDark ? 'rgba(148,163,184,0.2)' : 'rgba(0,0,0,0.08)', transition: TRANSITION }} title={`${a.FieldsEmpty} empty`} />
@@ -1398,9 +1398,9 @@ const AssessmentsTab: React.FC<{
                                 </div>
                                 {/* Labels */}
                                 <div style={{ display: 'flex', gap: 10, fontSize: 9, fontFamily: FONT_MONO }}>
-                                    {a.FieldsCorrect != null && <span style={{ color: '#10b981' }}>{a.FieldsCorrect} correct</span>}
-                                    {a.FieldsEdited != null && <span style={{ color: '#f59e0b' }}>{a.FieldsEdited} edited</span>}
-                                    {a.FieldsReplaced != null && <span style={{ color: '#ef4444' }}>{a.FieldsReplaced} replaced</span>}
+                                    {a.FieldsCorrect != null && <span style={{ color: colours.green }}>{a.FieldsCorrect} correct</span>}
+                                    {a.FieldsEdited != null && <span style={{ color: colours.orange }}>{a.FieldsEdited} edited</span>}
+                                    {a.FieldsReplaced != null && <span style={{ color: colours.cta }}>{a.FieldsReplaced} replaced</span>}
                                     {a.FieldsEmpty != null && <span style={{ color: textMuted }}>{a.FieldsEmpty} empty</span>}
                                 </div>
                             </div>
@@ -1415,8 +1415,8 @@ const AssessmentsTab: React.FC<{
                                         <span key={cat} style={{
                                             padding: '2px 8px', borderRadius: 2,
                                             fontSize: 9, fontWeight: 600,
-                                            background: '#ef444410', color: '#ef4444',
-                                            border: '1px solid #ef444420',
+                                            background: `${colours.cta}10`, color: colours.cta,
+                                            border: `1px solid ${colours.cta}20`,
                                         }}>{catInfo?.label || cat}</span>
                                     );
                                 })}
@@ -1691,9 +1691,9 @@ const AssessmentForm: React.FC<{
                         </label>
                         <div style={{ display: 'flex', gap: 6 }}>
                             {[
-                                { label: 'Correct', value: fieldsCorrect, setter: setFieldsCorrect, colour: '#10b981' },
-                                { label: 'Edited', value: fieldsEdited, setter: setFieldsEdited, colour: '#f59e0b' },
-                                { label: 'Replaced', value: fieldsReplaced, setter: setFieldsReplaced, colour: '#ef4444' },
+                                { label: 'Correct', value: fieldsCorrect, setter: setFieldsCorrect, colour: colours.green },
+                                { label: 'Edited', value: fieldsEdited, setter: setFieldsEdited, colour: colours.orange },
+                                { label: 'Replaced', value: fieldsReplaced, setter: setFieldsReplaced, colour: colours.cta },
                             ].map(f => (
                                 <div key={f.label} style={{ flex: 1 }}>
                                     <div style={{
@@ -1744,9 +1744,9 @@ const AssessmentForm: React.FC<{
                                         style={{
                                             padding: '3px 8px',
                                             borderRadius: 2,
-                                            border: `1px solid ${isActive ? '#ef4444' : border}`,
-                                            background: isActive ? '#ef444412' : 'transparent',
-                                            color: isActive ? '#ef4444' : textMuted,
+                                            border: `1px solid ${isActive ? colours.cta : border}`,
+                                            background: isActive ? `${colours.cta}12` : 'transparent',
+                                            color: isActive ? colours.cta : textMuted,
                                             fontSize: 10, fontWeight: isActive ? 600 : 400,
                                             cursor: 'pointer',
                                             transition: TRANSITION,
@@ -1844,9 +1844,9 @@ const AssessmentForm: React.FC<{
 
                     {error && (
                         <div style={{
-                            color: '#ef4444', fontSize: 11, marginTop: 8,
-                            padding: '6px 10px', borderLeft: '3px solid #ef4444',
-                            background: '#ef444408', borderRadius: '0 2px 2px 0',
+                            color: colours.cta, fontSize: 11, marginTop: 8,
+                            padding: '6px 10px', borderLeft: `3px solid ${colours.cta}`,
+                            background: `${colours.cta}08`, borderRadius: '0 2px 2px 0',
                         }}>{error}</div>
                     )}
                 </div>

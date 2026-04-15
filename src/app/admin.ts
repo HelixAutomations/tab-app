@@ -1,7 +1,10 @@
 import { UserData } from './functionality/types';
 
 // Centralized list of admin users by initials
-export const ADMIN_USERS = ['LZ', 'AC', 'KW', 'JW', 'LA'] as const;
+export const ADMIN_USERS = ['LZ', 'AC', 'KW', 'JW', 'LA', 'EA'] as const;
+
+// Admins who can access the Reports tab (LA is admin but no reports access)
+export const REPORTS_USERS = ['LZ', 'AC', 'KW', 'JW', 'EA'] as const;
 
 // Users who can see CCL features (early access while feature is in beta)
 export const CCL_USERS = ['LZ', 'AC'] as const;
@@ -37,7 +40,7 @@ export function isAdminUser(user?: UserData | null): boolean {
     const initials = user.Initials?.toUpperCase().trim();
     const first = user.First?.toLowerCase().trim();
     const nickname = user.Nickname?.toLowerCase().trim();
-    const adminNames = ['lukasz', 'luke', 'alex', 'kanchel', 'jonathan', 'laura'];
+    const adminNames = ['lukasz', 'luke', 'alex', 'kanchel', 'jonathan', 'laura', 'emma'];
     return !!(
         (initials && ADMIN_USERS.includes(initials as any)) ||
         (first && adminNames.includes(first)) ||
@@ -110,8 +113,25 @@ export function hasInstructionsAccess(user?: UserData | null): boolean {
     return !!user;
 }
 
-// Helper to determine if a user is a power user (admin or has 'operations'/'tech' in AOW)
-export function isPowerUser(user?: UserData | null): boolean {
+/**
+ * Reports access — admins who can see the Reports tab.
+ * LA is admin but explicitly excluded from reports.
+ */
+export function canAccessReports(user?: UserData | null): boolean {
+    if (!user) return false;
+    const initials = user.Initials?.toUpperCase().trim();
+    const first = user.First?.toLowerCase().trim();
+    const nickname = user.Nickname?.toLowerCase().trim();
+    const reportsNames = ['lukasz', 'luke', 'alex', 'kanchel', 'jonathan', 'emma'];
+    return !!(
+        (initials && REPORTS_USERS.includes(initials as any)) ||
+        (first && reportsNames.includes(first)) ||
+        (nickname && reportsNames.includes(nickname))
+    );
+}
+
+// Operations user — admin or has 'operations'/'tech' in AOW
+export function isOperationsUser(user?: UserData | null): boolean {
     if (!user) return false;
     if (isAdminUser(user)) return true;
     const areas = (user.AOW || '').toLowerCase();

@@ -5,6 +5,7 @@ import { Text } from '@fluentui/react/lib/Text';
 import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
 import { ProgressIndicator } from '@fluentui/react/lib/ProgressIndicator';
 import { getStorageQuota, cleanupLocalStorage, logStorageUsage, StorageQuotaInfo } from '../utils/storageUtils';
+import { colours } from '../app/styles/colours';
 
 interface StorageManagerProps {
   onCleanupComplete?: () => void;
@@ -77,7 +78,7 @@ const StorageManager: React.FC<StorageManagerProps> = ({ onCleanupComplete }) =>
           barHeight={8}
           styles={{
             progressBar: {
-              backgroundColor: isOverQuota ? '#d13438' : isNearQuota ? '#ff8c00' : '#0078d4'
+              backgroundColor: isOverQuota ? colours.cta : isNearQuota ? colours.orange : colours.highlight
             }
           }}
         />

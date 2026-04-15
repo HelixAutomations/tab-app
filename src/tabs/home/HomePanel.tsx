@@ -1,7 +1,7 @@
 // src/tabs/home/HomePanel.tsx
 // invisible change 2
 
-import React, { useEffect, useCallback, useRef, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { Stack } from '@fluentui/react/lib/Stack';
 import { Text } from '@fluentui/react/lib/Text';
 import { Panel, PanelType } from '@fluentui/react/lib/Panel';
@@ -14,6 +14,7 @@ import { mergeStyles } from '@fluentui/react/lib/Styling';
 import loaderIcon from '../../assets/grey helix mark.png';
 import BespokeForm from '../../CustomForms/BespokeForms';
 import { sharedPrimaryButtonStyles, sharedDefaultButtonStyles } from '../../app/styles/ButtonStyles';
+import { useCognitoEmbed } from '../../hooks/useCognitoEmbed';
 
 interface HomePanelProps {
   isOpen: boolean;
@@ -101,85 +102,16 @@ const HomePanel: React.FC<HomePanelProps> = ({
   displayUrl,
 }) => {
   const [copySuccess, setCopySuccess] = useState<string | null>(null);
-  const [isCognitoLoaded, setIsCognitoLoaded] = useState<boolean>(false);
-  const formContainerRef = useRef<HTMLDivElement>(null);
+  const { containerRef: formContainerRef, isCognitoLoaded } = useCognitoEmbed({
+    embedScript,
+    isActive: isOpen,
+  });
   const loaderStyle = {
     display: 'flex',
     justifyContent: 'center',
     alignItems: 'center',
     height: '100%',
   };
-
-  // Function to load the Cognito seamless script
-  const loadCognitoScript = useCallback((): Promise<void> => {
-    return new Promise<void>((resolve, reject) => {
-      // Check if Cognito is already available
-      if ((window as any).Cognito) {
-        resolve();
-        return;
-      }
-
-      // Check if the script is already present
-      const existingScript = document.getElementById('cognito-seamless-script');
-      if (existingScript) {
-        // If the script is already present but Cognito is not ready, wait for it to load
-        existingScript.addEventListener('load', () => {
-          if ((window as any).Cognito) {
-            resolve();
-          } else {
-            reject(new Error('Cognito script loaded but Cognito is not available'));
-          }
-        });
-        existingScript.addEventListener('error', () => reject(new Error('Failed to load Cognito script')));
-      } else {
-        // If the script is not present, create and append it
-        const script = document.createElement('script');
-        script.id = 'cognito-seamless-script';
-        script.src = 'https://www.cognitoforms.com/f/seamless.js';
-        script.async = true;
-        script.onload = () => {
-          if ((window as any).Cognito) {
-            resolve();
-          } else {
-            reject(new Error('Cognito script loaded but Cognito is not available'));
-          }
-        };
-        script.onerror = () => reject(new Error('Failed to load Cognito script'));
-        document.body.appendChild(script);
-      }
-    });
-  }, []);
-
-  // Load the Cognito script when the panel is opened
-  useEffect(() => {
-    if (embedScript && isOpen) {
-      setIsCognitoLoaded(false);
-      loadCognitoScript()
-        .then(() => {
-          setIsCognitoLoaded(true);
-        })
-        .catch((err) => {
-          console.error(err);
-        });
-    }
-  }, [embedScript, isOpen, loadCognitoScript]);
-
-  // Embed the Cognito form when the script is loaded
-  useEffect(() => {
-    if (isCognitoLoaded && embedScript && formContainerRef.current) {
-      // Clear previous content to avoid duplicate forms
-      formContainerRef.current.innerHTML = '';
-
-      // Create script tag for the form
-      const formScript = document.createElement('script');
-      formScript.src = 'https://www.cognitoforms.com/f/seamless.js';
-      formScript.async = true;
-      formScript.setAttribute('data-key', embedScript.key);
-      formScript.setAttribute('data-form', embedScript.formId);
-
-      formContainerRef.current.appendChild(formScript);
-    }
-  }, [isCognitoLoaded, embedScript]);
 
   const copyToClipboard = useCallback(() => {
     if (!displayUrl) return;

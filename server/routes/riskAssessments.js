@@ -3,6 +3,7 @@ require('dotenv').config({ path: path.join(__dirname, '../../.env'), override: f
 
 const express = require('express');
 const sql = require('mssql');
+const { withRequest } = require('../utils/db');
 const { emitEvent } = require('../utils/eventEmitter');
 const router = express.Router();
 
@@ -20,15 +21,12 @@ router.post('/', async (req, res) => {
 
     console.log(`[risk-assessments] Processing risk assessment for ${InstructionRef || MatterId}`);
 
-    let pool;
     try {
         // Use the INSTRUCTIONS_SQL_CONNECTION_STRING from .env (same as verify-id)
         const connectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
         if (!connectionString) {
             throw new Error('INSTRUCTIONS_SQL_CONNECTION_STRING not found in environment');
         }
-
-        pool = await sql.connect(connectionString);
 
         // Handle limitation date formatting like the Azure Function
         let limitation = body.Limitation || null;
@@ -41,8 +39,8 @@ router.post('/', async (req, res) => {
             if (datePart) limitation = `${limitation} - ${datePart}`;
         }
 
-        // Insert/update the risk assessment
-        await pool.request()
+        await withRequest(connectionString, async (request) => {
+            return request
             .input('MatterId', sql.NVarChar(50), MatterId || InstructionRef)
             .input('InstructionRef', sql.NVarChar(50), InstructionRef || null)
             .input('RiskAssessor', sql.NVarChar(100), body.RiskAssessor || null)
@@ -123,6 +121,7 @@ router.post('/', async (req, res) => {
                         @FirmWideAMLPolicyConsidered, @FirmWideSanctionsRiskConsidered
                     );
             `);
+        });
 
         console.log(`[risk-assessments] Risk assessment saved successfully for ${InstructionRef || MatterId}`);
 
@@ -144,10 +143,6 @@ router.post('/', async (req, res) => {
             error: 'Failed to save risk assessment',
             details: error.message 
         });
-    } finally {
-        if (pool) {
-            await pool.close();
-        }
     }
 });
 
@@ -164,21 +159,20 @@ router.get('/:instructionRef', async (req, res) => {
 
     console.log(`[risk-assessments] Getting risk assessment for ${instructionRef}`);
 
-    let pool;
     try {
         const connectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
         if (!connectionString) {
             throw new Error('INSTRUCTIONS_SQL_CONNECTION_STRING not found in environment');
         }
 
-        pool = await sql.connect(connectionString);
-
-        const result = await pool.request()
-            .input('ref', sql.NVarChar, instructionRef)
-            .query(`
-                SELECT * FROM RiskAssessment 
-                WHERE MatterId = @ref OR InstructionRef = @ref
-            `);
+        const result = await withRequest(connectionString, async (request) => {
+            return request
+                .input('ref', sql.NVarChar, instructionRef)
+                .query(`
+                    SELECT * FROM RiskAssessment 
+                    WHERE MatterId = @ref OR InstructionRef = @ref
+                `);
+        });
 
         if (result.recordset.length === 0) {
             return res.status(404).json({ error: 'Risk assessment not found' });
@@ -192,10 +186,6 @@ router.get('/:instructionRef', async (req, res) => {
             error: 'Failed to fetch risk assessment',
             details: error.message 
         });
-    } finally {
-        if (pool) {
-            await pool.close();
-        }
     }
 });
 
@@ -213,21 +203,20 @@ router.delete('/:instructionRef', async (req, res) => {
 
     console.log(`[risk-assessments] Deleting risk assessment for ${instructionRef}`);
 
-    let pool;
     try {
         const connectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
         if (!connectionString) {
             throw new Error('INSTRUCTIONS_SQL_CONNECTION_STRING not found in environment');
         }
 
-        pool = await sql.connect(connectionString);
-
-        const result = await pool.request()
-            .input('ref', sql.NVarChar, instructionRef)
-            .query(`
-                DELETE FROM [dbo].[RiskAssessment]
-                WHERE MatterId = @ref OR InstructionRef = @ref
-            `);
+        const result = await withRequest(connectionString, async (request) => {
+            return request
+                .input('ref', sql.NVarChar, instructionRef)
+                .query(`
+                    DELETE FROM [dbo].[RiskAssessment]
+                    WHERE MatterId = @ref OR InstructionRef = @ref
+                `);
+        });
 
         const rows = result.rowsAffected?.[0] ?? 0;
         if (rows === 0) {
@@ -242,9 +231,5 @@ router.delete('/:instructionRef', async (req, res) => {
             error: 'Failed to delete risk assessment',
             details: error.message 
         });
-    } finally {
-        if (pool) {
-            await pool.close();
-        }
     }
 });

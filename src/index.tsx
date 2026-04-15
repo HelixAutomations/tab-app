@@ -481,12 +481,8 @@ async function fetchEnquiries(
       params.set('limit', '999999'); // No effective cap for personal view
     }
     appendDefaultEnquiryProcessingParams(params);
-    if (fetchAll) {
-      // Team-wide Home/Enquiries views must include the legacy/core feed as well as
-      // instructions records. The shared client default can resolve to new-only,
-      // which collapses the dataset to a partial instructions-side slice.
-      params.set('sourceBias', 'legacy-primary');
-    }
+    // Boot and team views now run new-only (instructions DB) by default.
+    // Legacy data loads deferred after initial paint — see scheduleDeferredBootTask.
     
     const primaryUrl = `/api/enquiries-unified?${params.toString()}`;
     // Dedup: if an identical request is already in-flight, reuse it
@@ -752,6 +748,25 @@ async function fetchVNetMatters(fullName?: string): Promise<any[]> {
 }
 
 // (removed) legacy v4 fetchAllMatterSources in favor of unified v5
+  async function fetchUnifiedMattersWithTimeout(url: string, timeoutMs: number, dedupKey: string): Promise<any> {
+    const controller = new AbortController();
+    const warnId = window.setTimeout(() => {
+      // eslint-disable-next-line no-console
+      console.warn('[Matters] /api/matters-unified still pending…');
+    }, 10_000);
+    const timeoutId = timeoutMs > 0 ? window.setTimeout(() => controller.abort(), timeoutMs) : null;
+    try {
+      return await dedup(dedupKey, async () => {
+        const res = await fetch(url, { signal: controller.signal });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      });
+    } finally {
+      window.clearTimeout(warnId);
+      if (timeoutId) window.clearTimeout(timeoutId);
+    }
+  }
+
   async function fetchAllMatterSources(fullName: string, queryFullName?: string): Promise<NormalizedMatter[]> {
     // v5 cache key: unified server endpoint
     // Use in-memory cache instead of localStorage (matters data is too large)
@@ -769,20 +784,18 @@ async function fetchVNetMatters(fullName?: string): Promise<any[]> {
       const trimmedQueryName = queryFullName?.trim();
       const query = trimmedQueryName ? `?fullName=${encodeURIComponent(trimmedQueryName)}` : '';
       const url = `/api/matters-unified${query}`;
-      const controller = new AbortController();
-      const warnId = window.setTimeout(() => {
-        // eslint-disable-next-line no-console
-        console.warn('[Matters] /api/matters-unified still pending…');
-      }, 10_000);
-      const timeoutId = window.setTimeout(() => controller.abort(), 45_000);
-
-      const data = await dedup(`mat:${url}`, async () => {
-        const res = await fetch(url, { signal: controller.signal });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res.json();
-      });
-      window.clearTimeout(warnId);
-      window.clearTimeout(timeoutId);
+      let data: any;
+      try {
+        data = await fetchUnifiedMattersWithTimeout(url, 45_000, `mat:${url}`);
+      } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') {
+          // eslint-disable-next-line no-console
+          console.warn('[Matters] unified fetch timed out, retrying once with extended timeout');
+          data = await fetchUnifiedMattersWithTimeout(url, 120_000, `mat:${url}:retry`);
+        } else {
+          throw err;
+        }
+      }
       const legacyAll = Array.isArray(data.legacyAll) ? data.legacyAll : [];
       const vnetAll = Array.isArray(data.vnetAll) ? data.vnetAll : [];
 
@@ -1268,7 +1281,7 @@ const AppWithContext: React.FC = () => {
         field: String(payload.field || ''),
         status: String(payload.status || ''),
         source: String(payload.source || ''),
-        timestamp: String(payload.timestamp || payload.ts || ''),
+        timestamp: String(payload.timestamp || ('ts' in (payload as unknown as Record<string, unknown>) ? (payload as unknown as Record<string, unknown>).ts : '') || ''),
         data: payload.data && typeof payload.data === 'object' ? payload.data : undefined,
       };
 

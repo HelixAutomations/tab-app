@@ -152,7 +152,7 @@ function escapeHtml(str: string) {
 function stripDashDividers(text: string): string {
   return text
     .split('\n')
-    .filter((line) => !/^\s*[-–—]{3,}\s*$/.test(line))
+    .filter((line) => !/^\s*[-â€“â€”]{3,}\s*$/.test(line))
     .join('\n');
 }
 
@@ -233,10 +233,10 @@ function highlightPlaceholdersHtml(html: string): string {
     el.removeAttribute('data-placeholder');
     const txt = el.textContent || '';
     if (/^\[[^\]]+\]$/.test(txt.trim())) {
-      // Unresolved placeholder → mark as CTA red
+      // Unresolved placeholder â†’ mark as CTA red
       (el as HTMLElement).className = 'placeholder-unresolved';
     } else {
-      // Satisfied placeholder → unwrap to plain text
+      // Satisfied placeholder â†’ unwrap to plain text
       const textNode = document.createTextNode(txt);
       el.parentNode?.replaceChild(textNode, el);
     }
@@ -300,7 +300,7 @@ function useAutoInsertRateRole(
     };
     const rateNumber = parseRate(rateRaw);
     const formatRateGBP = (n: number) =>
-      `£${n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} + VAT`;
+      `Â£${n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} + VAT`;
 
     if (!body || (!roleStr && rateNumber == null)) {
       // No changes; clear any prior transient highlights
@@ -355,7 +355,7 @@ function formatPoundsAmount(amountRaw: string | undefined | null): string | null
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
-  return `£${withDecimals}`;
+  return `Â£${withDecimals}`;
 }
 
 export function syncAmountIntoBody(prevBody: string, formattedAmount: string): string {
@@ -377,7 +377,7 @@ export function syncAmountIntoBody(prevBody: string, formattedAmount: string): s
     if (next !== prevBody) return next;
   }
 
-  const insertVatSpanPattern = /(<span\b[^>]*(?:data-original=(['"])\s*\[INSERT\]\s*\2|class=(['"])(?=[^'"]*\b(?:insert-placeholder|placeholder-edited|placeholder-editing)\b)[^'"]*\3)[^>]*>)(\s*(?:\[INSERT\]|£?\d[\d,]*(?:\.\d{1,2})?)\s*)(<\/span>)(\s*\+?\s*VAT)/i;
+  const insertVatSpanPattern = /(<span\b[^>]*(?:data-original=(['"])\s*\[INSERT\]\s*\2|class=(['"])(?=[^'"]*\b(?:insert-placeholder|placeholder-edited|placeholder-editing)\b)[^'"]*\3)[^>]*>)(\s*(?:\[INSERT\]|Â£?\d[\d,]*(?:\.\d{1,2})?)\s*)(<\/span>)(\s*\+?\s*VAT)/i;
   const insertVatSpanNext = prevBody.replace(insertVatSpanPattern, (_match, openTag, _q1, _q2, _content, closeTag, vat) => {
     return `${openTag}${formattedAmount}${closeTag}${vat}`;
   });
@@ -389,7 +389,7 @@ export function syncAmountIntoBody(prevBody: string, formattedAmount: string): s
   const insertVatNext = prevBody.replace(/\[INSERT\](\s*\+?\s*VAT)/i, `${formattedAmount}$1`);
   if (insertVatNext !== prevBody) return insertVatNext;
 
-  const estimateVatPattern = /(\b(?:budget|estimate|estimated|approx(?:imately)?|quote)\b[^£]{0,80})£\s?\d[\d,]*(?:\.\d{1,2})?\s*\+?\s*VAT/i;
+  const estimateVatPattern = /(\b(?:budget|estimate|estimated|approx(?:imately)?|quote)\b[^Â£]{0,80})Â£\s?\d[\d,]*(?:\.\d{1,2})?\s*\+?\s*VAT/i;
   const estimateVatNext = prevBody.replace(estimateVatPattern, (_match, prefix) => `${prefix}${formattedAmount} + VAT`);
   return estimateVatNext;
 }
@@ -556,7 +556,7 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
       // Only update if the content is different
       const currentContent = bodyEditorRef.current.innerHTML;
       if (currentContent !== wrappedContent) {
-        console.log('[EditorSync] ⚠️ WRITING innerHTML', { wrappedLength: wrappedContent.length });
+        console.log('[EditorSync] âš ï¸ WRITING innerHTML', { wrappedLength: wrappedContent.length });
         bodyEditorRef.current.innerHTML = wrappedContent;
       }
     }
@@ -995,14 +995,14 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
                 : 'transparent',
               color: undoRedoState.currentIndex <= 0
                 ? (isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(148, 163, 184, 0.6)')
-                : (isDarkMode ? '#E2E8F0' : '#334155'),
+                : (isDarkMode ? colours.dark.text : colours.light.text),
               border: 'none',
               borderRadius: 5,
               cursor: undoRedoState.currentIndex <= 0 ? 'default' : 'pointer',
               transition: 'all 0.12s ease',
               opacity: undoRedoState.currentIndex <= 0 ? 0.5 : 1
             }}
-            title={`Undo (Ctrl+Z)${undoRedoState.currentIndex > 0 ? ` • ${undoRedoState.currentIndex} step${undoRedoState.currentIndex > 1 ? 's' : ''} back` : ''}`}
+            title={`Undo (Ctrl+Z)${undoRedoState.currentIndex > 0 ? ` â€¢ ${undoRedoState.currentIndex} step${undoRedoState.currentIndex > 1 ? 's' : ''} back` : ''}`}
             onMouseOver={(e) => undoRedoState.currentIndex > 0 && (e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(71, 85, 105, 0.5)' : 'rgba(226, 232, 240, 0.9)')}
             onMouseOut={(e) => (e.currentTarget.style.backgroundColor = undoRedoState.currentIndex > 0 ? (isDarkMode ? 'rgba(71, 85, 105, 0.3)' : 'rgba(241, 245, 249, 0.8)') : 'transparent')}
           >
@@ -1024,14 +1024,14 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
                 : 'transparent',
               color: undoRedoState.currentIndex >= undoRedoState.history.length - 1
                 ? (isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(148, 163, 184, 0.6)')
-                : (isDarkMode ? '#E2E8F0' : '#334155'),
+                : (isDarkMode ? colours.dark.text : colours.light.text),
               border: 'none',
               borderRadius: 5,
               cursor: undoRedoState.currentIndex >= undoRedoState.history.length - 1 ? 'default' : 'pointer',
               transition: 'all 0.12s ease',
               opacity: undoRedoState.currentIndex >= undoRedoState.history.length - 1 ? 0.5 : 1
             }}
-            title={`Redo (Ctrl+Y)${undoRedoState.currentIndex < undoRedoState.history.length - 1 ? ` • ${undoRedoState.history.length - 1 - undoRedoState.currentIndex} step${undoRedoState.history.length - 1 - undoRedoState.currentIndex > 1 ? 's' : ''} forward` : ''}`}
+            title={`Redo (Ctrl+Y)${undoRedoState.currentIndex < undoRedoState.history.length - 1 ? ` â€¢ ${undoRedoState.history.length - 1 - undoRedoState.currentIndex} step${undoRedoState.history.length - 1 - undoRedoState.currentIndex > 1 ? 's' : ''} forward` : ''}`}
             onMouseOver={(e) => undoRedoState.currentIndex < undoRedoState.history.length - 1 && (e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(71, 85, 105, 0.5)' : 'rgba(226, 232, 240, 0.9)')}
             onMouseOut={(e) => (e.currentTarget.style.backgroundColor = undoRedoState.currentIndex < undoRedoState.history.length - 1 ? (isDarkMode ? 'rgba(71, 85, 105, 0.3)' : 'rgba(241, 245, 249, 0.8)') : 'transparent')}
           >
@@ -1065,14 +1065,14 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
               alignItems: 'center',
               justifyContent: 'center',
               backgroundColor: isDarkMode ? 'rgba(71, 85, 105, 0.3)' : 'rgba(241, 245, 249, 0.8)',
-              color: isDarkMode ? '#E2E8F0' : '#334155',
+              color: isDarkMode ? colours.dark.text : colours.light.text,
               border: 'none',
               borderRadius: 5,
               cursor: 'pointer',
               transition: 'all 0.12s ease'
             }}
-            onMouseOver={(e) => (e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(239, 68, 68, 0.25)' : 'rgba(254, 226, 226, 0.9)', e.currentTarget.style.color = isDarkMode ? '#FCA5A5' : '#DC2626')}
-            onMouseOut={(e) => (e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(71, 85, 105, 0.3)' : 'rgba(241, 245, 249, 0.8)', e.currentTarget.style.color = isDarkMode ? '#E2E8F0' : '#334155')}
+            onMouseOver={(e) => (e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(214, 85, 65, 0.25)' : 'rgba(214, 85, 65, 0.12)', e.currentTarget.style.color = isDarkMode ? colours.cta : colours.cta)}
+            onMouseOut={(e) => (e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(71, 85, 105, 0.3)' : 'rgba(241, 245, 249, 0.8)', e.currentTarget.style.color = isDarkMode ? colours.dark.text : colours.light.text)}
           >
             <FaEraser style={{ fontSize: 11 }} />
           </button>
@@ -1168,14 +1168,14 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
               const original = el.getAttribute('data-original') || '';
               const current = (el.textContent || '').trim();
               if (current === original) {
-                // No change → restore original placeholder wrapper
+                // No change â†’ restore original placeholder wrapper
                 const span = document.createElement('span');
                 span.className = 'insert-placeholder';
                 span.setAttribute('data-insert', '');
                 span.textContent = original;
                 el.replaceWith(span);
               } else {
-                // Changed → persist edited highlight
+                // Changed â†’ persist edited highlight
                 const span = document.createElement('span');
                 span.className = 'placeholder-edited';
                 if (original) span.setAttribute('data-original', original);
@@ -1378,7 +1378,7 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
           width: '100%',
           minHeight: minHeight,
           background: 'transparent',
-          color: isDarkMode ? '#E2E8F0' : '#101828',
+          color: isDarkMode ? colours.dark.text : colours.light.text,
           font: 'inherit',
           lineHeight: 1.6,
           border: 'none',
@@ -1658,7 +1658,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
       return isFinite(n) ? n : null;
     };
     const rateNumber = parseRate(rateRaw);
-    const formatRateGBP = (n: number) => `£${n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} + VAT`;
+    const formatRateGBP = (n: number) => `Â£${n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} + VAT`;
     let out = text;
     if (rateNumber != null) out = out.replace(/\[RATE\]/gi, formatRateGBP(rateNumber));
     if (roleStr) out = out.replace(/\[ROLE\]/gi, roleStr);
@@ -1824,7 +1824,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
   // Replace placeholders with actual values when amount changes
   useEffect(() => {
     if (amountValue && scopeDescription && scopeDescription.includes('[AMOUNT]')) {
-      const formattedAmount = `£${parseFloat(amountValue).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      const formattedAmount = `Â£${parseFloat(amountValue).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
       const updatedScope = scopeDescription.replace(/\[AMOUNT\]/g, formattedAmount);
       setScopeDescription(updatedScope);
       onScopeDescriptionChange?.(updatedScope);
@@ -1889,7 +1889,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
     
     // Replace [AMOUNT] placeholder with actual amount if available
     if (amountValue && processedValue.includes('[AMOUNT]')) {
-      const formattedAmount = `£${parseFloat(amountValue).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      const formattedAmount = `Â£${parseFloat(amountValue).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
       processedValue = processedValue.replace(/\[AMOUNT\]/g, formattedAmount);
     }
     
@@ -1914,21 +1914,21 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
       if (value && !isNaN(Number(value))) {
         // Format the amount with currency and proper formatting
         const numericValue = parseFloat(value);
-        const formattedAmount = `£${numericValue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        const formattedAmount = `Â£${numericValue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
         
         // Replace existing [AMOUNT] placeholders with the actual formatted amount
         if (updatedScope.includes('[AMOUNT]')) {
           updatedScope = updatedScope.replace(/\[AMOUNT\]/g, formattedAmount);
-        } else if (!updatedScope.includes('Estimated fee:') && !updatedScope.includes('£')) {
+        } else if (!updatedScope.includes('Estimated fee:') && !updatedScope.includes('Â£')) {
           // Add the amount if it doesn't exist yet
           updatedScope = updatedScope + '\n\nEstimated fee: ' + formattedAmount;
         } else if (updatedScope.includes('Estimated fee:')) {
           // Replace existing amount in "Estimated fee:" line
-          updatedScope = updatedScope.replace(/(Estimated fee:\s*)£[\d,]+\.[\d]{2}/g, `$1${formattedAmount}`);
+          updatedScope = updatedScope.replace(/(Estimated fee:\s*)Â£[\d,]+\.[\d]{2}/g, `$1${formattedAmount}`);
         }
       } else if (value === '') {
         // If amount is cleared, revert back to placeholder
-        updatedScope = updatedScope.replace(/£[\d,]+\.[\d]{2}/g, '[AMOUNT]');
+        updatedScope = updatedScope.replace(/Â£[\d,]+\.[\d]{2}/g, '[AMOUNT]');
       }
       
       setScopeDescription(updatedScope);
@@ -2206,10 +2206,10 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
           --helix-navy: #061733;
           --helix-blue: #3690CE;
           --helix-grey: #F4F4F6;
-          --helix-border: #E3E8EF;
-          --helix-success: #10B981;
-          --helix-warning: #F59E0B;
-          --helix-error: #EF4444;
+          --helix-border: #e1e1e1;
+          --helix-success: #20b26c;
+          --helix-warning: #FF8C00;
+          --helix-error: #D65541;
           --white: #FFFFFF;
           
           /* Raleway as default font family */
@@ -2234,12 +2234,12 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
         /* Custom text selection styling - softer blue for brand consistency */
         .helix-professional-content *::selection {
           background-color: rgba(54, 144, 206, 0.15);
-          color: #1E293B;
+          color: ${colours.light.text};
         }
         
         .helix-professional-content *::-moz-selection {
           background-color: rgba(54, 144, 206, 0.15);
-          color: #1E293B;
+          color: ${colours.light.text};
         }
 
         /* Keyframe animation for radio button check */
@@ -2348,7 +2348,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
         }
 
         .helix-professional-button-primary:hover {
-          background-color: #2980b9;
+          background-color: #0D2F60;
         }
 
         .helix-professional-label {
@@ -2414,7 +2414,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 style={{
                   fontSize: '14px',
                   fontWeight: 600,
-                  color: isDarkMode ? '#E0F2FE' : '#0F172A',
+                  color: isDarkMode ? colours.dark.text : colours.light.text,
                   marginBottom: pitchHistoryContextHint ? '6px' : '12px',
                   display: 'flex',
                   alignItems: 'center',
@@ -2432,13 +2432,13 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   borderRadius: '50%',
                   background: selectedScenarioId 
                     ? (isDarkMode 
-                        ? 'linear-gradient(135deg, rgba(74, 222, 128, 0.35) 0%, rgba(34, 197, 94, 0.28) 100%)'
-                        : 'linear-gradient(135deg, rgba(5, 150, 105, 0.16) 0%, rgba(74, 222, 128, 0.18) 100%)')
+                        ? 'linear-gradient(135deg, rgba(32, 178, 108, 0.35) 0%, rgba(32, 178, 108, 0.28) 100%)'
+                        : 'linear-gradient(135deg, rgba(32, 178, 108, 0.16) 0%, rgba(32, 178, 108, 0.18) 100%)')
                     : (isDarkMode 
                         ? 'linear-gradient(135deg, rgba(135, 243, 243, 0.24) 0%, rgba(135, 243, 243, 0.18) 100%)'
                         : 'linear-gradient(135deg, rgba(54, 144, 206, 0.16) 0%, rgba(54, 144, 206, 0.18) 100%)'),
                   border: selectedScenarioId
-                    ? `1px solid ${isDarkMode ? 'rgba(74, 222, 128, 0.5)' : 'rgba(5, 150, 105, 0.3)'}`
+                    ? `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.5)' : 'rgba(32, 178, 108, 0.3)'}`
                     : `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`,
                   display: 'flex',
                   alignItems: 'center',
@@ -2446,7 +2446,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   fontSize: '12px',
                   fontWeight: 700,
                   color: selectedScenarioId 
-                    ? (isDarkMode ? '#4ADE80' : '#059669')
+                    ? (isDarkMode ? colours.green : colours.green)
                     : (isDarkMode ? colours.accent : colours.highlight)
                 }}>
                   1
@@ -2465,12 +2465,12 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                           : 'linear-gradient(135deg, rgba(217, 119, 6, 0.1) 0%, rgba(251, 191, 36, 0.08) 100%)';
                       case 'after-call-probably-cant-assist':
                         return isDarkMode
-                          ? 'linear-gradient(135deg, rgba(248, 113, 113, 0.2) 0%, rgba(220, 38, 38, 0.15) 100%)'
-                          : 'linear-gradient(135deg, rgba(220, 38, 38, 0.1) 0%, rgba(248, 113, 113, 0.08) 100%)';
+                          ? 'linear-gradient(135deg, rgba(214, 85, 65, 0.2) 0%, rgba(214, 85, 65, 0.15) 100%)'
+                          : 'linear-gradient(135deg, rgba(214, 85, 65, 0.1) 0%, rgba(214, 85, 65, 0.08) 100%)';
                       case 'after-call-want-instruction':
                         return isDarkMode
-                          ? 'linear-gradient(135deg, rgba(74, 222, 128, 0.3) 0%, rgba(5, 150, 105, 0.25) 100%)'
-                          : 'linear-gradient(135deg, rgba(5, 150, 105, 0.1) 0%, rgba(74, 222, 128, 0.08) 100%)';
+                          ? 'linear-gradient(135deg, rgba(32, 178, 108, 0.3) 0%, rgba(32, 178, 108, 0.25) 100%)'
+                          : 'linear-gradient(135deg, rgba(32, 178, 108, 0.1) 0%, rgba(32, 178, 108, 0.08) 100%)';
                       case 'cfa':
                         return isDarkMode
                           ? 'linear-gradient(135deg, rgba(168, 85, 247, 0.2) 0%, rgba(139, 92, 246, 0.15) 100%)'
@@ -2491,9 +2491,9 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                     case 'before-call-no-call':
                       return `1px solid ${isDarkMode ? 'rgba(251, 191, 36, 0.3)' : 'rgba(217, 119, 6, 0.2)'}`;
                     case 'after-call-probably-cant-assist':
-                      return `1px solid ${isDarkMode ? 'rgba(248, 113, 113, 0.3)' : 'rgba(220, 38, 38, 0.2)'}`;
+                      return `1px solid ${isDarkMode ? 'rgba(214, 85, 65, 0.3)' : 'rgba(214, 85, 65, 0.2)'}`;
                     case 'after-call-want-instruction':
-                      return `1px solid ${isDarkMode ? 'rgba(74, 222, 128, 0.45)' : 'rgba(5, 150, 105, 0.2)'}`;
+                      return `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.45)' : 'rgba(32, 178, 108, 0.2)'}`;
                     case 'cfa':
                       return `1px solid ${isDarkMode ? 'rgba(168, 85, 247, 0.3)' : 'rgba(139, 92, 246, 0.2)'}`;
                     default:
@@ -2506,11 +2506,11 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   const iconColor = (() => {
                     switch(selectedScenarioId) {
                       case 'before-call-call': return isDarkMode ? colours.accent : colours.highlight;
-                      case 'before-call-no-call': return isDarkMode ? '#FBBF24' : '#D97706';
-                      case 'after-call-probably-cant-assist': return isDarkMode ? '#F87171' : '#DC2626';
-                      case 'after-call-want-instruction': return isDarkMode ? '#4ADE80' : '#059669';
-                      case 'cfa': return isDarkMode ? '#A855F7' : '#8B5CF6';
-                      default: return isDarkMode ? '#94A3B8' : '#6B7280';
+                      case 'before-call-no-call': return colours.orange;
+                      case 'after-call-probably-cant-assist': return colours.cta;
+                      case 'after-call-want-instruction': return colours.green;
+                      case 'cfa': return colours.highlight;
+                      default: return isDarkMode ? colours.subtleGrey : colours.greyText;
                     }
                   })();
                   
@@ -2569,8 +2569,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 height: '1px',
                 background: selectedScenarioId
                   ? (isDarkMode
-                      ? 'linear-gradient(90deg, rgba(74, 222, 128, 0.35) 0%, transparent 100%)'
-                      : 'linear-gradient(90deg, rgba(5, 150, 105, 0.25) 0%, transparent 100%)')
+                      ? 'linear-gradient(90deg, rgba(32, 178, 108, 0.35) 0%, transparent 100%)'
+                      : 'linear-gradient(90deg, rgba(32, 178, 108, 0.25) 0%, transparent 100%)')
                   : (isDarkMode
                       ? 'linear-gradient(90deg, rgba(54, 144, 206, 0.3) 0%, transparent 100%)'
                       : 'linear-gradient(90deg, rgba(54, 144, 206, 0.2) 0%, transparent 100%)')
@@ -2582,8 +2582,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)'
               }}>
                 {isTemplatesCollapsed ? 
-                  <FaChevronDown style={{ fontSize: 12, color: isDarkMode ? '#94A3B8' : '#64748B', opacity: selectedScenarioId ? 1 : 0.6 }} /> : 
-                  <FaChevronUp style={{ fontSize: 12, color: isDarkMode ? '#94A3B8' : '#64748B', opacity: selectedScenarioId ? 1 : 0.6 }} />
+                  <FaChevronDown style={{ fontSize: 12, color: isDarkMode ? colours.subtleGrey : colours.greyText, opacity: selectedScenarioId ? 1 : 0.6 }} /> : 
+                  <FaChevronUp style={{ fontSize: 12, color: isDarkMode ? colours.subtleGrey : colours.greyText, opacity: selectedScenarioId ? 1 : 0.6 }} />
                 }
               </div>
             </div>
@@ -2594,7 +2594,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 fontSize: 10,
                 color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.65)'
               }}>
-                Pitch history · {pitchHistoryContextHint}
+                Pitch history Â· {pitchHistoryContextHint}
               </div>
             )}
           </div>
@@ -2604,8 +2604,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
               marginLeft: 11,
               paddingLeft: 23,
               borderLeft: `2px solid ${selectedScenarioId 
-                ? (isDarkMode ? 'rgba(74, 222, 128, 0.35)' : 'rgba(5, 150, 105, 0.3)')
-                : (isDarkMode ? 'rgba(96, 165, 250, 0.25)' : 'rgba(54, 144, 206, 0.2)')}`,
+                ? (isDarkMode ? 'rgba(32, 178, 108, 0.35)' : 'rgba(32, 178, 108, 0.3)')
+                : (isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)')}`,
               paddingTop: 12
             }}>
             <div style={{
@@ -2669,7 +2669,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                       // If there's already a prefilled amount, replace [INSERT]+VAT in the scenario body
                       const currentAmount = s.id === 'cfa' ? '0.99' : amountValue;
                       if (currentAmount && parseFloat(currentAmount) > 0) {
-                        const formattedAmt = `£${parseFloat(currentAmount).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                        const formattedAmt = `Â£${parseFloat(currentAmount).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
                         // Replace [INSERT] that appears before +VAT (the amount placeholder)
                         projected = projected.replace(/\[INSERT\](\s*\+?\s*VAT)/gi, `<span class="placeholder-edited" data-original="[INSERT]">${formattedAmt}</span>$1`);
                       }
@@ -2781,8 +2781,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                               switch (s.id) {
                                 case 'before-call-call': return isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.1)';
                                 case 'before-call-no-call': return isDarkMode ? 'rgba(251, 191, 36, 0.2)' : 'rgba(251, 191, 36, 0.1)';
-                                case 'after-call-probably-cant-assist': return isDarkMode ? 'rgba(239, 68, 68, 0.2)' : 'rgba(239, 68, 68, 0.1)';
-                                case 'after-call-want-instruction': return isDarkMode ? 'rgba(34, 197, 94, 0.2)' : 'rgba(34, 197, 94, 0.1)';
+                                case 'after-call-probably-cant-assist': return isDarkMode ? 'rgba(214, 85, 65, 0.2)' : 'rgba(214, 85, 65, 0.1)';
+                                case 'after-call-want-instruction': return isDarkMode ? 'rgba(32, 178, 108, 0.2)' : 'rgba(32, 178, 108, 0.1)';
                                 case 'cfa': return isDarkMode ? 'rgba(168, 85, 247, 0.2)' : 'rgba(168, 85, 247, 0.1)';
                                 default: return isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.1)';
                               }
@@ -2796,20 +2796,20 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                               switch (s.id) {
                                 case 'before-call-call':
                                   return isDarkMode
-                                    ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.35) 0%, rgba(96, 165, 250, 0.3) 100%)'
-                                    : 'linear-gradient(135deg, rgba(54, 144, 206, 0.22) 0%, rgba(96, 165, 250, 0.18) 100%)';
+                                    ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.35) 0%, rgba(54, 144, 206, 0.3) 100%)'
+                                    : 'linear-gradient(135deg, rgba(54, 144, 206, 0.22) 0%, rgba(54, 144, 206, 0.18) 100%)';
                                 case 'before-call-no-call':
                                   return isDarkMode
-                                    ? 'linear-gradient(135deg, rgba(251, 191, 36, 0.35) 0%, rgba(250, 204, 21, 0.28) 100%)'
-                                    : 'linear-gradient(135deg, rgba(251, 191, 36, 0.22) 0%, rgba(250, 204, 21, 0.16) 100%)';
+                                    ? 'linear-gradient(135deg, rgba(251, 191, 36, 0.35) 0%, rgba(255, 213, 79, 0.28) 100%)'
+                                    : 'linear-gradient(135deg, rgba(251, 191, 36, 0.22) 0%, rgba(255, 213, 79, 0.16) 100%)';
                                 case 'after-call-probably-cant-assist':
                                   return isDarkMode
-                                    ? 'linear-gradient(135deg, rgba(239, 68, 68, 0.35) 0%, rgba(252, 165, 165, 0.28) 100%)'
-                                    : 'linear-gradient(135deg, rgba(239, 68, 68, 0.22) 0%, rgba(248, 113, 113, 0.16) 100%)';
+                                    ? 'linear-gradient(135deg, rgba(214, 85, 65, 0.35) 0%, rgba(214, 85, 65, 0.28) 100%)'
+                                    : 'linear-gradient(135deg, rgba(214, 85, 65, 0.22) 0%, rgba(214, 85, 65, 0.16) 100%)';
                                 case 'after-call-want-instruction':
                                   return isDarkMode
-                                    ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.35) 0%, rgba(134, 239, 172, 0.28) 100%)'
-                                    : 'linear-gradient(135deg, rgba(34, 197, 94, 0.22) 0%, rgba(74, 222, 128, 0.16) 100%)';
+                                    ? 'linear-gradient(135deg, rgba(32, 178, 108, 0.35) 0%, rgba(32, 178, 108, 0.28) 100%)'
+                                    : 'linear-gradient(135deg, rgba(32, 178, 108, 0.22) 0%, rgba(32, 178, 108, 0.16) 100%)';
                                 case 'cfa':
                                   return isDarkMode
                                     ? 'linear-gradient(135deg, rgba(168, 85, 247, 0.35) 0%, rgba(192, 132, 252, 0.28) 100%)'
@@ -2827,8 +2827,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                             switch(s.id) {
                               case 'before-call-call': return isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)';
                               case 'before-call-no-call': return isDarkMode ? 'rgba(251, 191, 36, 0.3)' : 'rgba(251, 191, 36, 0.2)';
-                              case 'after-call-probably-cant-assist': return isDarkMode ? 'rgba(239, 68, 68, 0.3)' : 'rgba(239, 68, 68, 0.2)';
-                              case 'after-call-want-instruction': return isDarkMode ? 'rgba(34, 197, 94, 0.3)' : 'rgba(34, 197, 94, 0.2)';
+                              case 'after-call-probably-cant-assist': return isDarkMode ? 'rgba(214, 85, 65, 0.3)' : 'rgba(214, 85, 65, 0.2)';
+                              case 'after-call-want-instruction': return isDarkMode ? 'rgba(32, 178, 108, 0.3)' : 'rgba(32, 178, 108, 0.2)';
                               case 'cfa': return isDarkMode ? 'rgba(168, 85, 247, 0.3)' : 'rgba(168, 85, 247, 0.2)';
                               default: return isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)';
                             }
@@ -2844,11 +2844,11 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                               // Keep scenario-specific icon colours; selected state shouldn't override these.
                               switch(s.id) {
                                 case 'before-call-call': return colours.blue;
-                                case 'before-call-no-call': return isDarkMode ? '#FBBF24' : '#D97706';
-                                case 'after-call-probably-cant-assist': return isDarkMode ? '#F87171' : '#DC2626';
-                                case 'after-call-want-instruction': return isDarkMode ? '#4ADE80' : '#059669';
-                                case 'cfa': return isDarkMode ? '#A855F7' : '#8B5CF6';
-                                default: return isDarkMode ? '#94A3B8' : '#6B7280';
+                                case 'before-call-no-call': return colours.orange;
+                                case 'after-call-probably-cant-assist': return colours.cta;
+                                case 'after-call-want-instruction': return colours.green;
+                                case 'cfa': return colours.highlight;
+                                default: return isDarkMode ? colours.subtleGrey : colours.greyText;
                               }
                             })();
                             
@@ -2904,7 +2904,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                           <div className="scenario-title" style={{
                             fontSize: '14px',
                             fontWeight: 600,
-                            color: isDarkMode ? colours.dark.text : '#1E293B',
+                            color: isDarkMode ? colours.dark.text : colours.light.text,
                             lineHeight: '1.3',
                             marginBottom: '3px'
                           }}>
@@ -2913,22 +2913,22 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                           
                           <div className="scenario-description" style={{
                             fontSize: '11px',
-                            color: isDarkMode ? '#94A3B8' : '#64748B',
+                            color: isDarkMode ? colours.subtleGrey : colours.greyText,
                             lineHeight: '1.3',
                             fontWeight: 400
                           }}>
                             {(() => {
                               switch(s.id) {
                                 case 'before-call-call': 
-                                  return 'Schedule consultation • Calendly link • No upfront cost';
+                                  return 'Schedule consultation â€¢ Calendly link â€¢ No upfront cost';
                                 case 'before-call-no-call':
-                                  return 'Detailed written pitch • Cost estimate • Instruction link';
+                                  return 'Detailed written pitch â€¢ Cost estimate â€¢ Instruction link';
                                 case 'after-call-probably-cant-assist':
-                                  return 'Polite decline • Alternative suggestions • Review request';
+                                  return 'Polite decline â€¢ Alternative suggestions â€¢ Review request';
                                 case 'after-call-want-instruction':
-                                  return 'Formal proposal • Comprehensive costs • Next steps';
+                                  return 'Formal proposal â€¢ Comprehensive costs â€¢ Next steps';
                                 case 'cfa':
-                                  return 'No-win-no-fee enquiry • Quick response • Clear expectations';
+                                  return 'No-win-no-fee enquiry â€¢ Quick response â€¢ Clear expectations';
                                 default:
                                   return 'Standard professional response template';
                               }
@@ -3008,7 +3008,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 style={{
                 fontSize: '14px',
                 fontWeight: 600,
-                color: isDarkMode ? '#E0F2FE' : '#0F172A',
+                color: isDarkMode ? colours.dark.text : colours.light.text,
                 marginBottom: '12px',
                 display: 'flex',
                 alignItems: 'center',
@@ -3022,13 +3022,13 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   borderRadius: '50%',
                   background: !isSubjectEditing && subject && subject !== 'Your Enquiry - Helix Law'
                     ? (isDarkMode 
-                        ? 'linear-gradient(135deg, rgba(74, 222, 128, 0.35) 0%, rgba(34, 197, 94, 0.28) 100%)'
-                        : 'linear-gradient(135deg, rgba(74, 222, 128, 0.16) 0%, rgba(34, 197, 94, 0.18) 100%)')
+                        ? 'linear-gradient(135deg, rgba(32, 178, 108, 0.35) 0%, rgba(32, 178, 108, 0.28) 100%)'
+                        : 'linear-gradient(135deg, rgba(32, 178, 108, 0.16) 0%, rgba(32, 178, 108, 0.18) 100%)')
                     : (isDarkMode 
                         ? 'linear-gradient(135deg, rgba(135, 243, 243, 0.24) 0%, rgba(135, 243, 243, 0.18) 100%)'
                         : 'linear-gradient(135deg, rgba(54, 144, 206, 0.16) 0%, rgba(54, 144, 206, 0.18) 100%)'),
                   border: !isSubjectEditing && subject && subject !== 'Your Enquiry - Helix Law'
-                    ? `1px solid ${isDarkMode ? 'rgba(74, 222, 128, 0.5)' : 'rgba(34, 197, 94, 0.3)'}`
+                    ? `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.5)' : 'rgba(32, 178, 108, 0.3)'}`
                     : `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`,
                   display: 'flex',
                   alignItems: 'center',
@@ -3036,7 +3036,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   fontSize: '12px',
                   fontWeight: 700,
                   color: !isSubjectEditing && subject && subject !== 'Your Enquiry - Helix Law'
-                    ? (isDarkMode ? '#4ADE80' : '#059669')
+                    ? (isDarkMode ? colours.green : colours.green)
                     : (isDarkMode ? colours.accent : colours.highlight)
                 }}>
                   2
@@ -3045,8 +3045,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   padding: '6px',
                   background: !isSubjectEditing && subject && subject !== 'Your Enquiry - Helix Law'
                     ? (isDarkMode 
-                        ? 'linear-gradient(135deg, rgba(74, 222, 128, 0.35) 0%, rgba(5, 150, 105, 0.28) 100%)'
-                        : 'linear-gradient(135deg, rgba(5, 150, 105, 0.16) 0%, rgba(74, 222, 128, 0.18) 100%)')
+                        ? 'linear-gradient(135deg, rgba(32, 178, 108, 0.35) 0%, rgba(32, 178, 108, 0.28) 100%)'
+                        : 'linear-gradient(135deg, rgba(32, 178, 108, 0.16) 0%, rgba(32, 178, 108, 0.18) 100%)')
                     : (isDarkMode 
                         ? 'linear-gradient(135deg, rgba(135, 243, 243, 0.24) 0%, rgba(135, 243, 243, 0.18) 100%)'
                         : 'linear-gradient(135deg, rgba(54, 144, 206, 0.16) 0%, rgba(54, 144, 206, 0.18) 100%)'),
@@ -3054,13 +3054,13 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   display: 'flex',
                   alignItems: 'center',
                   border: !isSubjectEditing && subject && subject !== 'Your Enquiry - Helix Law'
-                    ? `1px solid ${isDarkMode ? 'rgba(74, 222, 128, 0.5)' : 'rgba(5, 150, 105, 0.3)'}`
+                    ? `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.5)' : 'rgba(32, 178, 108, 0.3)'}`
                     : `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`
                 }}>
                   <FaEdit style={{ 
                     fontSize: 12, 
                     color: !isSubjectEditing && subject && subject !== 'Your Enquiry - Helix Law'
-                      ? (isDarkMode ? '#4ADE80' : '#059669')
+                      ? (isDarkMode ? colours.green : colours.green)
                       : (isDarkMode ? colours.accent : colours.highlight)
                   }} />
                 </div>
@@ -3072,8 +3072,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   height: '1px',
                   background: (!isSubjectEditing && subject && subject !== 'Your Enquiry - Helix Law')
                     ? (isDarkMode
-                        ? 'linear-gradient(90deg, rgba(74, 222, 128, 0.35) 0%, transparent 100%)'
-                        : 'linear-gradient(90deg, rgba(5, 150, 105, 0.25) 0%, transparent 100%)')
+                        ? 'linear-gradient(90deg, rgba(32, 178, 108, 0.35) 0%, transparent 100%)'
+                        : 'linear-gradient(90deg, rgba(32, 178, 108, 0.25) 0%, transparent 100%)')
                     : (isDarkMode
                         ? 'linear-gradient(90deg, rgba(54, 144, 206, 0.3) 0%, transparent 100%)'
                         : 'linear-gradient(90deg, rgba(54, 144, 206, 0.2) 0%, transparent 100%)')
@@ -3085,8 +3085,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)'
                 }}>
                   {isSubjectCollapsed ?
-                    <FaChevronDown style={{ fontSize: 12, color: isDarkMode ? '#94A3B8' : '#64748B' }} /> :
-                    <FaChevronUp style={{ fontSize: 12, color: isDarkMode ? '#94A3B8' : '#64748B' }} />
+                    <FaChevronDown style={{ fontSize: 12, color: isDarkMode ? colours.subtleGrey : colours.greyText }} /> :
+                    <FaChevronUp style={{ fontSize: 12, color: isDarkMode ? colours.subtleGrey : colours.greyText }} />
                   }
                 </div>
               </div>
@@ -3095,8 +3095,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 marginLeft: 11,
                 paddingLeft: 23,
                 borderLeft: `2px solid ${!isSubjectEditing && subject && subject !== 'Your Enquiry - Helix Law'
-                  ? (isDarkMode ? 'rgba(74, 222, 128, 0.35)' : 'rgba(5, 150, 105, 0.3)')
-                  : (isDarkMode ? 'rgba(96, 165, 250, 0.25)' : 'rgba(54, 144, 206, 0.2)')}`,
+                  ? (isDarkMode ? 'rgba(32, 178, 108, 0.35)' : 'rgba(32, 178, 108, 0.3)')
+                  : (isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)')}`,
                 paddingTop: 12
               }}>
                 {!isSubjectEditing ? (
@@ -3110,7 +3110,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                         : 'linear-gradient(135deg, rgba(248, 250, 252, 0.8) 0%, rgba(255, 255, 255, 0.6) 100%)',
                       border: `1.5px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.25)' : 'rgba(148, 163, 184, 0.3)'}`,
                       borderRadius: '8px',
-                      color: isDarkMode ? '#E0F2FE' : '#0F172A',
+                      color: isDarkMode ? colours.dark.text : colours.light.text,
                       fontSize: '14px',
                       fontWeight: 500,
                       transition: 'all 0.2s ease',
@@ -3166,7 +3166,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                         background: isDarkMode 
                           ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.94) 0%, rgba(11, 30, 55, 0.88) 100%)'
                           : 'linear-gradient(135deg, rgba(248, 250, 252, 0.96) 0%, rgba(255, 255, 255, 0.92) 100%)',
-                        color: isDarkMode ? '#E0F2FE' : '#0F172A',
+                        color: isDarkMode ? colours.dark.text : colours.light.text,
                         outline: 'none',
                         transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
                         boxShadow: '0 0 0 4px rgba(54, 144, 206, 0.1)',
@@ -3219,7 +3219,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   style={{
                   fontSize: '14px',
                   fontWeight: 600,
-                  color: isDarkMode ? '#E0F2FE' : '#0F172A',
+                  color: isDarkMode ? colours.dark.text : colours.light.text,
                   marginBottom: '12px',
                   display: 'flex',
                   alignItems: 'center',
@@ -3233,19 +3233,19 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                     borderRadius: '50%',
                     background: !isIncomplete
                       ? (isDarkMode 
-                          ? 'linear-gradient(135deg, rgba(74, 222, 128, 0.35) 0%, rgba(34, 197, 94, 0.28) 100%)'
-                          : 'linear-gradient(135deg, rgba(74, 222, 128, 0.16) 0%, rgba(34, 197, 94, 0.18) 100%)')
+                          ? 'linear-gradient(135deg, rgba(32, 178, 108, 0.35) 0%, rgba(32, 178, 108, 0.28) 100%)'
+                          : 'linear-gradient(135deg, rgba(32, 178, 108, 0.16) 0%, rgba(32, 178, 108, 0.18) 100%)')
                       : needsAttention
                         ? (isDarkMode
-                            ? 'linear-gradient(135deg, rgba(250, 204, 21, 0.35) 0%, rgba(234, 179, 8, 0.28) 100%)'
+                            ? 'linear-gradient(135deg, rgba(255, 213, 79, 0.35) 0%, rgba(234, 179, 8, 0.28) 100%)'
                             : 'linear-gradient(135deg, rgba(234, 179, 8, 0.2) 0%, rgba(202, 138, 4, 0.16) 100%)')
                         : (isDarkMode 
                             ? 'linear-gradient(135deg, rgba(135, 243, 243, 0.24) 0%, rgba(135, 243, 243, 0.18) 100%)'
                             : 'linear-gradient(135deg, rgba(54, 144, 206, 0.16) 0%, rgba(54, 144, 206, 0.18) 100%)'),
                     border: !isIncomplete
-                      ? `1px solid ${isDarkMode ? 'rgba(74, 222, 128, 0.5)' : 'rgba(34, 197, 94, 0.3)'}`
+                      ? `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.5)' : 'rgba(32, 178, 108, 0.3)'}`
                       : needsAttention
-                        ? `2px solid rgba(250, 204, 21, 0.7)`
+                        ? `2px solid rgba(255, 213, 79, 0.7)`
                         : `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`,
                     display: 'flex',
                     alignItems: 'center',
@@ -3253,9 +3253,9 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                     fontSize: '12px',
                     fontWeight: 700,
                     color: !isIncomplete
-                      ? (isDarkMode ? '#4ADE80' : '#059669')
+                      ? colours.green
                       : needsAttention
-                        ? '#FACC15'
+                        ? colours.yellow
                         : (isDarkMode ? colours.accent : colours.highlight)
                   }}>
                     3
@@ -3264,11 +3264,11 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                     padding: '6px',
                     background: !isIncomplete
                       ? (isDarkMode 
-                          ? 'linear-gradient(135deg, rgba(74, 222, 128, 0.35) 0%, rgba(5, 150, 105, 0.28) 100%)'
-                          : 'linear-gradient(135deg, rgba(5, 150, 105, 0.16) 0%, rgba(74, 222, 128, 0.18) 100%)')
+                          ? 'linear-gradient(135deg, rgba(32, 178, 108, 0.35) 0%, rgba(32, 178, 108, 0.28) 100%)'
+                          : 'linear-gradient(135deg, rgba(32, 178, 108, 0.16) 0%, rgba(32, 178, 108, 0.18) 100%)')
                       : needsAttention
                         ? (isDarkMode
-                            ? 'linear-gradient(135deg, rgba(250, 204, 21, 0.35) 0%, rgba(234, 179, 8, 0.28) 100%)'
+                            ? 'linear-gradient(135deg, rgba(255, 213, 79, 0.35) 0%, rgba(234, 179, 8, 0.28) 100%)'
                             : 'linear-gradient(135deg, rgba(234, 179, 8, 0.2) 0%, rgba(202, 138, 4, 0.16) 100%)')
                         : (isDarkMode 
                             ? 'linear-gradient(135deg, rgba(135, 243, 243, 0.24) 0%, rgba(135, 243, 243, 0.18) 100%)'
@@ -3277,17 +3277,17 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                     display: 'flex',
                     alignItems: 'center',
                     border: !isIncomplete
-                      ? `1px solid ${isDarkMode ? 'rgba(74, 222, 128, 0.5)' : 'rgba(5, 150, 105, 0.3)'}`
+                      ? `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.5)' : 'rgba(32, 178, 108, 0.3)'}`
                       : needsAttention
-                        ? `1px solid rgba(250, 204, 21, 0.6)`
+                        ? `1px solid rgba(255, 213, 79, 0.6)`
                         : `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`
                   }}>
                     <FaFileAlt style={{ 
                       fontSize: 12, 
                       color: !isIncomplete
-                        ? (isDarkMode ? '#4ADE80' : '#059669')
+                        ? colours.green
                         : needsAttention
-                          ? '#FACC15'
+                          ? colours.yellow
                           : (isDarkMode ? colours.accent : colours.highlight)
                     }} />
                   </div>
@@ -3299,11 +3299,11 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                     height: '1px',
                     background: !isIncomplete
                       ? (isDarkMode
-                          ? 'linear-gradient(90deg, rgba(74, 222, 128, 0.35) 0%, transparent 100%)'
-                          : 'linear-gradient(90deg, rgba(5, 150, 105, 0.25) 0%, transparent 100%)')
+                          ? 'linear-gradient(90deg, rgba(32, 178, 108, 0.35) 0%, transparent 100%)'
+                          : 'linear-gradient(90deg, rgba(32, 178, 108, 0.25) 0%, transparent 100%)')
                       : needsAttention
                         ? (isDarkMode
-                            ? 'linear-gradient(90deg, rgba(250, 204, 21, 0.35) 0%, transparent 100%)'
+                            ? 'linear-gradient(90deg, rgba(255, 213, 79, 0.35) 0%, transparent 100%)'
                             : 'linear-gradient(90deg, rgba(234, 179, 8, 0.22) 0%, transparent 100%)')
                         : (isDarkMode
                             ? 'linear-gradient(90deg, rgba(54, 144, 206, 0.3) 0%, transparent 100%)'
@@ -3313,7 +3313,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                     {needsAttention && (
                       <span style={{ 
                         fontSize: '11px', 
-                        color: '#CA8A04',
+                        color: colours.orange,
                         fontWeight: 500,
                         padding: '2px 8px',
                         background: isDarkMode ? 'rgba(234, 179, 8, 0.15)' : 'rgba(234, 179, 8, 0.1)',
@@ -3330,8 +3330,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                       transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)'
                     }}>
                       {isScopeCollapsed ? 
-                        <FaChevronDown style={{ fontSize: 12, color: isDarkMode ? '#94A3B8' : '#64748B' }} /> :
-                        <FaChevronUp style={{ fontSize: 12, color: isDarkMode ? '#94A3B8' : '#64748B' }} />
+                        <FaChevronDown style={{ fontSize: 12, color: isDarkMode ? colours.subtleGrey : colours.greyText }} /> :
+                        <FaChevronUp style={{ fontSize: 12, color: isDarkMode ? colours.subtleGrey : colours.greyText }} />
                       }
                     </div>
                   </div>
@@ -3346,10 +3346,10 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                     amountError={amountError}
                     showScopeOnly={true}
                     scopeConnectorColor={!isIncomplete
-                      ? (isDarkMode ? 'rgba(74, 222, 128, 0.35)' : 'rgba(5, 150, 105, 0.3)')
+                      ? (isDarkMode ? 'rgba(32, 178, 108, 0.35)' : 'rgba(32, 178, 108, 0.3)')
                       : needsAttention
-                        ? (isDarkMode ? 'rgba(250, 204, 21, 0.35)' : 'rgba(234, 179, 8, 0.22)')
-                        : (isDarkMode ? 'rgba(96, 165, 250, 0.25)' : 'rgba(54, 144, 206, 0.2)')}
+                        ? (isDarkMode ? 'rgba(255, 213, 79, 0.35)' : 'rgba(234, 179, 8, 0.22)')
+                        : (isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)')}
                     includeVat={includeVat}
                     onIncludeVatChange={setIncludeVat}
                   />
@@ -3379,7 +3379,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   style={{
                   fontSize: '14px',
                   fontWeight: 600,
-                  color: isDarkMode ? '#E0F2FE' : '#0F172A',
+                  color: isDarkMode ? colours.dark.text : colours.light.text,
                   marginBottom: '12px',
                   display: 'flex',
                   alignItems: 'center',
@@ -3393,13 +3393,13 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                     borderRadius: '50%',
                     background: amountValue && parseFloat(amountValue) > 0
                       ? (isDarkMode 
-                          ? 'linear-gradient(135deg, rgba(74, 222, 128, 0.35) 0%, rgba(34, 197, 94, 0.28) 100%)'
-                          : 'linear-gradient(135deg, rgba(74, 222, 128, 0.16) 0%, rgba(34, 197, 94, 0.18) 100%)')
+                          ? 'linear-gradient(135deg, rgba(32, 178, 108, 0.35) 0%, rgba(32, 178, 108, 0.28) 100%)'
+                          : 'linear-gradient(135deg, rgba(32, 178, 108, 0.16) 0%, rgba(32, 178, 108, 0.18) 100%)')
                       : (isDarkMode 
                           ? 'linear-gradient(135deg, rgba(135, 243, 243, 0.24) 0%, rgba(135, 243, 243, 0.18) 100%)'
                           : 'linear-gradient(135deg, rgba(54, 144, 206, 0.16) 0%, rgba(54, 144, 206, 0.18) 100%)'),
                     border: amountValue && parseFloat(amountValue) > 0
-                      ? `1px solid ${isDarkMode ? 'rgba(74, 222, 128, 0.5)' : 'rgba(34, 197, 94, 0.3)'}`
+                      ? `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.5)' : 'rgba(32, 178, 108, 0.3)'}`
                       : `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`,
                     display: 'flex',
                     alignItems: 'center',
@@ -3407,7 +3407,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                     fontSize: '12px',
                     fontWeight: 700,
                     color: amountValue && parseFloat(amountValue) > 0
-                      ? (isDarkMode ? '#4ADE80' : '#059669')
+                      ? (isDarkMode ? colours.green : colours.green)
                       : (isDarkMode ? colours.accent : colours.highlight)
                   }}>
                     4
@@ -3416,8 +3416,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                     padding: '6px',
                     background: amountValue && parseFloat(amountValue) > 0
                       ? (isDarkMode 
-                          ? 'linear-gradient(135deg, rgba(74, 222, 128, 0.35) 0%, rgba(5, 150, 105, 0.28) 100%)'
-                          : 'linear-gradient(135deg, rgba(5, 150, 105, 0.16) 0%, rgba(74, 222, 128, 0.18) 100%)')
+                          ? 'linear-gradient(135deg, rgba(32, 178, 108, 0.35) 0%, rgba(32, 178, 108, 0.28) 100%)'
+                          : 'linear-gradient(135deg, rgba(32, 178, 108, 0.16) 0%, rgba(32, 178, 108, 0.18) 100%)')
                       : (isDarkMode 
                           ? 'linear-gradient(135deg, rgba(135, 243, 243, 0.24) 0%, rgba(135, 243, 243, 0.18) 100%)'
                           : 'linear-gradient(135deg, rgba(54, 144, 206, 0.16) 0%, rgba(54, 144, 206, 0.18) 100%)'),
@@ -3425,13 +3425,13 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                     display: 'flex',
                     alignItems: 'center',
                     border: amountValue && parseFloat(amountValue) > 0
-                      ? `1px solid ${isDarkMode ? 'rgba(74, 222, 128, 0.5)' : 'rgba(5, 150, 105, 0.3)'}`
+                      ? `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.5)' : 'rgba(32, 178, 108, 0.3)'}`
                       : `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`
                   }}>
                     <FaPoundSign style={{ 
                       fontSize: 12, 
                       color: amountValue && parseFloat(amountValue) > 0
-                        ? (isDarkMode ? '#4ADE80' : '#059669')
+                        ? (isDarkMode ? colours.green : colours.green)
                         : (isDarkMode ? colours.accent : colours.highlight)
                     }} />
                   </div>
@@ -3443,8 +3443,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                     height: '1px',
                     background: (amountValue && parseFloat(amountValue) > 0)
                       ? (isDarkMode
-                          ? 'linear-gradient(90deg, rgba(74, 222, 128, 0.35) 0%, transparent 100%)'
-                          : 'linear-gradient(90deg, rgba(5, 150, 105, 0.25) 0%, transparent 100%)')
+                          ? 'linear-gradient(90deg, rgba(32, 178, 108, 0.35) 0%, transparent 100%)'
+                          : 'linear-gradient(90deg, rgba(32, 178, 108, 0.25) 0%, transparent 100%)')
                       : (isDarkMode
                           ? 'linear-gradient(90deg, rgba(54, 144, 206, 0.3) 0%, transparent 100%)'
                           : 'linear-gradient(90deg, rgba(54, 144, 206, 0.2) 0%, transparent 100%)')
@@ -3457,8 +3457,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                       transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)'
                     }}>
                       {isAmountCollapsed ? 
-                        <FaChevronDown style={{ fontSize: 12, color: isDarkMode ? '#94A3B8' : '#64748B' }} /> :
-                        <FaChevronUp style={{ fontSize: 12, color: isDarkMode ? '#94A3B8' : '#64748B' }} />
+                        <FaChevronDown style={{ fontSize: 12, color: isDarkMode ? colours.subtleGrey : colours.greyText }} /> :
+                        <FaChevronUp style={{ fontSize: 12, color: isDarkMode ? colours.subtleGrey : colours.greyText }} />
                       }
                     </div>
                   </div>
@@ -3473,8 +3473,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                     amountError={amountError}
                     showAmountOnly={true}
                     amountConnectorColor={(amountValue && parseFloat(amountValue) > 0)
-                      ? (isDarkMode ? 'rgba(74, 222, 128, 0.35)' : 'rgba(5, 150, 105, 0.3)')
-                      : (isDarkMode ? 'rgba(96, 165, 250, 0.25)' : 'rgba(54, 144, 206, 0.2)')}
+                      ? (isDarkMode ? 'rgba(32, 178, 108, 0.35)' : 'rgba(32, 178, 108, 0.3)')
+                      : (isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)')}
                     includeVat={includeVat}
                     onIncludeVatChange={setIncludeVat}
                   />
@@ -3515,13 +3515,13 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   borderRadius: '50%',
                   background: allPlaceholdersSatisfied
                     ? (isDarkMode 
-                        ? 'linear-gradient(135deg, rgba(74, 222, 128, 0.35) 0%, rgba(34, 197, 94, 0.28) 100%)'
-                        : 'linear-gradient(135deg, rgba(74, 222, 128, 0.16) 0%, rgba(34, 197, 94, 0.18) 100%)')
+                        ? 'linear-gradient(135deg, rgba(32, 178, 108, 0.35) 0%, rgba(32, 178, 108, 0.28) 100%)'
+                        : 'linear-gradient(135deg, rgba(32, 178, 108, 0.16) 0%, rgba(32, 178, 108, 0.18) 100%)')
                     : (isDarkMode 
                         ? 'linear-gradient(135deg, rgba(135, 243, 243, 0.24) 0%, rgba(135, 243, 243, 0.18) 100%)'
                         : 'linear-gradient(135deg, rgba(54, 144, 206, 0.16) 0%, rgba(54, 144, 206, 0.18) 100%)'),
                   border: allPlaceholdersSatisfied
-                    ? `1px solid ${isDarkMode ? 'rgba(74, 222, 128, 0.5)' : 'rgba(34, 197, 94, 0.3)'}`
+                    ? `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.5)' : 'rgba(32, 178, 108, 0.3)'}`
                     : `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`,
                   display: 'flex',
                   alignItems: 'center',
@@ -3529,7 +3529,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   fontSize: '12px',
                   fontWeight: 700,
                   color: allPlaceholdersSatisfied 
-                    ? (isDarkMode ? '#4ADE80' : '#059669')
+                    ? (isDarkMode ? colours.green : colours.green)
                     : (isDarkMode ? colours.accent : colours.highlight)
                 }}>
                   {isBeforeCallCall ? 3 : 5}
@@ -3538,8 +3538,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   padding: '6px',
                   background: allPlaceholdersSatisfied
                     ? (isDarkMode 
-                        ? 'linear-gradient(135deg, rgba(74, 222, 128, 0.35) 0%, rgba(34, 197, 94, 0.28) 100%)'
-                        : 'linear-gradient(135deg, rgba(74, 222, 128, 0.16) 0%, rgba(34, 197, 94, 0.18) 100%)')
+                        ? 'linear-gradient(135deg, rgba(32, 178, 108, 0.35) 0%, rgba(32, 178, 108, 0.28) 100%)'
+                        : 'linear-gradient(135deg, rgba(32, 178, 108, 0.16) 0%, rgba(32, 178, 108, 0.18) 100%)')
                     : (isDarkMode 
                         ? 'linear-gradient(135deg, rgba(135, 243, 243, 0.24) 0%, rgba(135, 243, 243, 0.18) 100%)'
                         : 'linear-gradient(135deg, rgba(54, 144, 206, 0.16) 0%, rgba(54, 144, 206, 0.18) 100%)'),
@@ -3547,20 +3547,20 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   display: 'flex',
                   alignItems: 'center',
                   border: allPlaceholdersSatisfied
-                    ? `1px solid ${isDarkMode ? 'rgba(74, 222, 128, 0.5)' : 'rgba(34, 197, 94, 0.3)'}`
+                    ? `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.5)' : 'rgba(32, 178, 108, 0.3)'}`
                     : `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`
                 }}>
                   <FaFileAlt style={{ 
                     fontSize: 12, 
                     color: allPlaceholdersSatisfied 
-                      ? '#059669' 
+                      ? colours.green 
                       : (isDarkMode ? colours.accent : colours.highlight) 
                   }} />
                 </div>
                 <span style={{
                   fontSize: '14px',
                   fontWeight: 600,
-                  color: isDarkMode ? '#E2E8F0' : '#1F2937',
+                  color: isDarkMode ? colours.dark.text : colours.light.text,
                   letterSpacing: '0.025em'
                 }}>
                   {showInlinePreview ? 'Email Preview' : 'Email Body'}
@@ -3605,13 +3605,13 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   padding: '6px 10px',
                   fontSize: 11,
                   backgroundColor: copiedToolbar
-                    ? (isDarkMode ? 'rgba(34, 197, 94, 0.18)' : 'rgba(34, 197, 94, 0.12)')
+                    ? (isDarkMode ? 'rgba(32, 178, 108, 0.18)' : 'rgba(32, 178, 108, 0.12)')
                     : (isDarkMode ? 'rgba(30, 41, 59, 0.35)' : 'rgba(226, 232, 240, 0.7)'),
                   color: copiedToolbar
-                    ? (isDarkMode ? '#4ADE80' : '#16A34A')
-                    : (isDarkMode ? '#E2E8F0' : '#1F2937'),
+                    ? (isDarkMode ? colours.green : colours.green)
+                    : (isDarkMode ? colours.dark.text : colours.light.text),
                   border: copiedToolbar
-                    ? `1px solid ${isDarkMode ? 'rgba(34, 197, 94, 0.35)' : 'rgba(34, 197, 94, 0.25)'}`
+                    ? `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.35)' : 'rgba(32, 178, 108, 0.25)'}`
                     : `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.5)' : 'rgba(203, 213, 225, 0.8)'}`,
                   borderRadius: 0,
                   cursor: 'pointer',
@@ -3621,7 +3621,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   transition: 'all 0.18s ease',
                   fontWeight: 600,
                   boxShadow: copiedToolbar
-                    ? (isDarkMode ? '0 0 0 1px rgba(34, 197, 94, 0.25)' : '0 0 0 1px rgba(34, 197, 94, 0.2)')
+                    ? (isDarkMode ? '0 0 0 1px rgba(32, 178, 108, 0.25)' : '0 0 0 1px rgba(32, 178, 108, 0.2)')
                     : 'none',
                   animation: copiedToolbar ? 'subtlePulseMd 1.2s ease-in-out 2' : 'none'
                 }}
@@ -3633,13 +3633,13 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.backgroundColor = copiedToolbar
-                    ? (isDarkMode ? 'rgba(34, 197, 94, 0.18)' : 'rgba(34, 197, 94, 0.12)')
+                    ? (isDarkMode ? 'rgba(32, 178, 108, 0.18)' : 'rgba(32, 178, 108, 0.12)')
                     : (isDarkMode ? 'rgba(30, 41, 59, 0.35)' : 'rgba(226, 232, 240, 0.7)');
                   e.currentTarget.style.borderColor = copiedToolbar
-                    ? (isDarkMode ? 'rgba(34, 197, 94, 0.35)' : 'rgba(34, 197, 94, 0.25)')
+                    ? (isDarkMode ? 'rgba(32, 178, 108, 0.35)' : 'rgba(32, 178, 108, 0.25)')
                     : (isDarkMode ? 'rgba(71, 85, 105, 0.5)' : 'rgba(203, 213, 225, 0.8)');
                   e.currentTarget.style.boxShadow = copiedToolbar
-                    ? (isDarkMode ? '0 0 0 1px rgba(34, 197, 94, 0.25)' : '0 0 0 1px rgba(34, 197, 94, 0.2)')
+                    ? (isDarkMode ? '0 0 0 1px rgba(32, 178, 108, 0.25)' : '0 0 0 1px rgba(32, 178, 108, 0.2)')
                     : 'none';
                   e.currentTarget.style.transform = 'translateY(0)';
                 }}
@@ -3668,7 +3668,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                     ? (allPlaceholdersSatisfied ? '#20b26c' : '#D65541')
                     : allPlaceholdersSatisfied
                       ? '#20b26c' 
-                      : (isDarkMode ? '#E2E8F0' : '#1F2937'),
+                      : (isDarkMode ? colours.dark.text : colours.light.text),
                   border: showInlinePreview
                     ? (allPlaceholdersSatisfied ? '1px solid rgba(32, 178, 108, 0.35)' : '1px solid rgba(214, 85, 65, 0.35)')
                     : `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.5)' : 'rgba(203, 213, 225, 0.8)'}`,
@@ -3768,7 +3768,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                     backdropFilter: isDarkMode ? 'blur(6px)' : 'none'
                   }}>
                     <div style={{
-                      borderBottom: `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.65)' : '#E2E8F0'}`,
+                      borderBottom: `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.65)' : 'rgba(209, 213, 219, 0.8)'}`,
                       background: isDarkMode ? 'rgba(11, 19, 36, 0.94)' : '#F8FAFC',
                       position: 'relative',
                       zIndex: 2,
@@ -3810,7 +3810,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
               {showInlinePreview && (
                 <div className="smooth-appear pitch-step-card" style={{
                     marginTop: 12,
-                    border: `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.35)' : 'rgba(148, 163, 184, 0.22)'}`,
+                    border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(148, 163, 184, 0.22)'}`,
                   borderRadius: '2px',
                     background: isDarkMode
                       ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.94) 0%, rgba(11, 30, 55, 0.88) 100%)'
@@ -3826,13 +3826,13 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                       background: isDarkMode
                         ? 'linear-gradient(135deg, rgba(11, 30, 55, 0.92) 0%, rgba(15, 38, 68, 0.85) 100%)'
                         : 'linear-gradient(135deg, rgba(240, 249, 255, 0.85) 0%, rgba(219, 234, 254, 0.8) 100%)',
-                      borderBottom: `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.25)' : 'rgba(148, 163, 184, 0.2)'}`,
+                      borderBottom: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(148, 163, 184, 0.2)'}`,
                       display: 'flex',
                       alignItems: 'center',
                       gap: 8,
                       backdropFilter: 'blur(8px)'
                     }}>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: isDarkMode ? '#E0F2FE' : '#0F172A', letterSpacing: 0.6, textTransform: 'uppercase' }}>Inline Preview</span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text, letterSpacing: 0.6, textTransform: 'uppercase' }}>Inline Preview</span>
                       <span style={{ marginLeft: 'auto', fontSize: 11, color: isDarkMode ? 'rgba(224, 242, 254, 0.7)' : colours.blue }}>{subject || 'Your Enquiry - Helix Law'}</span>
                     </div>
                       <div
@@ -3843,11 +3843,11 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                         background: isDarkMode
                           ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.92) 0%, rgba(11, 30, 55, 0.86) 100%)'
                           : 'linear-gradient(135deg, rgba(248, 250, 252, 0.96) 0%, rgba(255, 255, 255, 0.92) 100%)',
-                        color: isDarkMode ? '#E0F2FE' : '#1F2937',
+                        color: isDarkMode ? colours.dark.text : colours.light.text,
                         lineHeight: 1.6,
                         fontSize: '14px',
                         borderRadius: '0 0 2px 2px',
-                        border: `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.3)' : 'rgba(148, 163, 184, 0.22)'}`,
+                        border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(148, 163, 184, 0.22)'}`,
                         borderTop: 'none',
                         boxShadow: isDarkMode
                           ? '0 8px 16px rgba(4, 9, 20, 0.5)'
@@ -3886,8 +3886,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                                 background: isDarkMode
                                   ? 'linear-gradient(135deg, rgba(185, 28, 28, 0.2) 0%, rgba(153, 27, 27, 0.15) 100%)'
                                   : 'linear-gradient(135deg, #fff1f0 0%, #fef2f2 100%)',
-                                border: `1px solid ${isDarkMode ? 'rgba(248, 113, 113, 0.4)' : '#ffa39e'}`,
-                                color: isDarkMode ? '#FCA5A5' : '#a8071a',
+                                border: `1px solid ${isDarkMode ? 'rgba(214, 85, 65, 0.4)' : '#ffa39e'}`,
+                                color: isDarkMode ? colours.cta : colours.cta,
                                 fontSize: 12,
                                 padding: '10px 12px',
                                 borderRadius: 8,
@@ -3898,7 +3898,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                                 backdropFilter: 'blur(6px)',
                                 fontWeight: 500
                               }}>
-                                <FaExclamationTriangle style={{ fontSize: 12, color: isDarkMode ? '#FCA5A5' : '#a8071a', marginRight: 6 }} />
+                                <FaExclamationTriangle style={{ fontSize: 12, color: isDarkMode ? colours.cta : colours.cta, marginRight: 6 }} />
                                 {unresolvedBody.length} placeholder{unresolvedBody.length === 1 ? '' : 's'} to resolve: {unresolvedBody.join(', ')}
                               </div>
                             )}
@@ -3912,7 +3912,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                       background: isDarkMode
                         ? 'linear-gradient(135deg, rgba(11, 30, 55, 0.92) 0%, rgba(15, 38, 68, 0.85) 100%)'
                         : 'linear-gradient(135deg, rgba(240, 249, 255, 0.85) 0%, rgba(219, 234, 254, 0.8) 100%)',
-                      borderTop: `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.25)' : 'rgba(148, 163, 184, 0.2)'}`,
+                      borderTop: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(148, 163, 184, 0.2)'}`,
                       display: 'flex',
                       alignItems: 'center',
                       gap: 12,
@@ -3926,17 +3926,17 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                           gap: 12,
                           padding: '12px 16px',
                           background: confirmReady
-                            ? (isDarkMode ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.1)')
+                            ? (isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(32, 178, 108, 0.1)')
                             : (isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.05)'),
                           border: confirmReady
-                            ? `2px solid ${isDarkMode ? '#22c55e' : '#16a34a'}`
+                            ? `2px solid ${isDarkMode ? colours.green : colours.green}`
                             : `2px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)'}`,
                           borderRadius: '10px',
                           cursor: 'pointer',
                           transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
                           transform: confirmReady ? 'translateY(-1px)' : 'none',
                           boxShadow: confirmReady
-                            ? (isDarkMode ? '0 4px 16px rgba(34, 197, 94, 0.3)' : '0 4px 16px rgba(34, 197, 94, 0.2)')
+                            ? (isDarkMode ? '0 4px 16px rgba(32, 178, 108, 0.3)' : '0 4px 16px rgba(32, 178, 108, 0.2)')
                             : 'none'
                         }}
                         onClick={() => setConfirmReady(!confirmReady)}
@@ -3946,7 +3946,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                           height: '20px',
                           borderRadius: '4px',
                           background: confirmReady
-                            ? (isDarkMode ? '#22c55e' : '#16a34a')
+                            ? (isDarkMode ? colours.green : colours.green)
                             : 'transparent',
                           border: confirmReady
                             ? 'none'
@@ -3970,7 +3970,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                         </div>
                         <span style={{
                           fontSize: '14px',
-                          color: isDarkMode ? '#E2E8F0' : '#334155',
+                          color: isDarkMode ? colours.dark.text : colours.light.text,
                           fontWeight: 600,
                           userSelect: 'none'
                         }}>
@@ -4052,8 +4052,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                                   top: '100%',
                                   right: 0,
                                   marginTop: 8,
-                                  background: isDarkMode ? 'rgba(239, 68, 68, 0.1)' : 'rgba(254, 242, 242, 0.9)',
-                                  border: `1px solid ${isDarkMode ? 'rgba(239, 68, 68, 0.3)' : 'rgba(239, 68, 68, 0.2)'}`,
+                                  background: isDarkMode ? 'rgba(214, 85, 65, 0.1)' : 'rgba(214, 85, 65, 0.9)',
+                                  border: `1px solid ${isDarkMode ? 'rgba(214, 85, 65, 0.3)' : 'rgba(214, 85, 65, 0.2)'}`,
                                   borderRadius: 6,
                                   padding: '10px 14px',
                                   display: 'flex',
@@ -4071,7 +4071,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                                     width: 16,
                                     height: 16,
                                     borderRadius: '50%',
-                                    background: isDarkMode ? '#EF4444' : '#DC2626',
+                                    background: isDarkMode ? colours.cta : colours.cta,
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
@@ -4083,7 +4083,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                                   <div style={{
                                     fontSize: 13,
                                     fontWeight: 500,
-                                    color: isDarkMode ? '#FEE2E2' : '#991B1B'
+                                    color: colours.cta
                                   }}>
                                     {unresolvedAny
                                       ? 'Please resolve all highlighted placeholders before sending the email.'
@@ -4134,18 +4134,18 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
         
         /* Preview text selection styling for dark mode */
         [data-theme="dark"] ::selection {
-          background-color: rgba(96, 165, 250, 0.3);
-          color: #E0F2FE;
+          background-color: rgba(54, 144, 206, 0.3);
+          color: ${colours.dark.text};
         }
         [data-theme="light"] ::selection {
           background-color: rgba(54, 144, 206, 0.2);
-          color: #0F172A;
+          color: ${colours.light.text};
         }
         
         /* Force proper text colors in preview mode (excluding signature) */
         .email-preview.dark-mode p,
         .email-preview.dark-mode div:not([class*="signature"]) {
-          color: #E0F2FE !important;
+          color: ${colours.dark.text} !important;
         }
         .email-preview.light-mode p,
         .email-preview.light-mode div:not([class*="signature"]) {
@@ -4341,9 +4341,9 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
         
         /* Edited placeholder styles - subtle confirmation */
         .placeholder-edited {
-          background: ${isDarkMode ? 'rgba(16, 185, 129, 0.12)' : 'rgba(34, 197, 94, 0.08)'} !important;
-          color: ${isDarkMode ? '#D1FAE5' : '#0F766E'} !important;
-          border: 1px solid ${isDarkMode ? 'rgba(16, 185, 129, 0.28)' : 'rgba(34, 197, 94, 0.22)'} !important;
+          background: ${isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.08)'} !important;
+          color: ${colours.green} !important;
+          border: 1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.28)' : 'rgba(32, 178, 108, 0.22)'} !important;
           font-style: normal !important;
           cursor: text !important;
           opacity: 1 !important;
@@ -4351,8 +4351,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
         }
         .placeholder-edited:hover,
         .placeholder-edited:focus {
-          background: ${isDarkMode ? 'rgba(16, 185, 129, 0.18)' : 'rgba(34, 197, 94, 0.12)'} !important;
-          border-color: ${isDarkMode ? 'rgba(16, 185, 129, 0.4)' : 'rgba(34, 197, 94, 0.35)'} !important;
+          background: ${isDarkMode ? 'rgba(32, 178, 108, 0.18)' : 'rgba(32, 178, 108, 0.12)'} !important;
+          border-color: ${isDarkMode ? 'rgba(32, 178, 108, 0.4)' : 'rgba(32, 178, 108, 0.35)'} !important;
           box-shadow: none !important;
         }
 
@@ -4425,7 +4425,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
         }}>
           <div style={{
             background: isDarkMode 
-              ? '#1E293B'
+              ? colours.darkBlue
               : '#FFFFFF',
             padding: '0',
             borderRadius: '8px',
@@ -4450,7 +4450,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
               marginBottom: '16px',
               paddingBottom: '14px',
               padding: '20px 20px 14px 20px',
-              borderBottom: `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.25)' : 'rgba(148, 163, 184, 0.2)'}`
+              borderBottom: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(148, 163, 184, 0.2)'}`
             }}>
               <div style={{
                 width: '40px',
@@ -4475,7 +4475,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
               <div>
                 <h3 style={{
                   margin: '0 0 2px 0',
-                  color: isDarkMode ? '#E0F2FE' : '#0F172A',
+                  color: isDarkMode ? colours.dark.text : colours.light.text,
                   fontSize: '20px',
                   fontWeight: '700',
                   letterSpacing: '-0.02em',
@@ -4485,7 +4485,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 </h3>
                 <p style={{
                   margin: 0,
-                  color: isDarkMode ? 'rgba(224, 242, 254, 0.7)' : '#64748B',
+                  color: isDarkMode ? colours.subtleGrey : colours.greyText,
                   fontSize: '13px',
                   fontWeight: '500',
                   letterSpacing: '-0.005em'
@@ -4546,7 +4546,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   margin: 0,
                   fontSize: '16px',
                   fontWeight: '650',
-                  color: isDarkMode ? '#E0F2FE' : '#0F172A',
+                  color: isDarkMode ? colours.dark.text : colours.light.text,
                   letterSpacing: '-0.01em'
                 }}>
                   Email Recipients
@@ -4566,14 +4566,14 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 }}>
                   <span style={{ 
                     fontWeight: '650', 
-                    color: isDarkMode ? '#94A3B8' : '#64748B',
+                    color: isDarkMode ? colours.subtleGrey : colours.greyText,
                     fontSize: '13px',
                     minWidth: '55px',
                     letterSpacing: '0.025em',
                     textTransform: 'uppercase'
                   }}>From:</span>
                   <span style={{ 
-                    color: isDarkMode ? '#CBD5E1' : '#334155',
+                    color: isDarkMode ? colours.dark.text : colours.light.text,
                     fontSize: '14px',
                     fontWeight: '500',
                     flex: 1,
@@ -4595,7 +4595,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 }}>
                   <span style={{ 
                     fontWeight: '650', 
-                    color: isDarkMode ? '#94A3B8' : '#64748B',
+                    color: isDarkMode ? colours.subtleGrey : colours.greyText,
                     fontSize: '13px',
                     minWidth: '55px',
                     letterSpacing: '0.025em',
@@ -4645,7 +4645,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 }}>
                   <span style={{ 
                     fontWeight: '650', 
-                    color: isDarkMode ? '#94A3B8' : '#64748B',
+                    color: isDarkMode ? colours.subtleGrey : colours.greyText,
                     fontSize: '13px',
                     minWidth: '55px',
                     letterSpacing: '0.025em',
@@ -4738,7 +4738,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
               </div>
             </div>
 
-            {/* Email Summary Section - Secondary (hidden for Before call — Call) */}
+            {/* Email Summary Section - Secondary (hidden for Before call â€” Call) */}
             {!isBeforeCallCall && (
               <div style={{
                 background: 'transparent',
@@ -4751,7 +4751,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   margin: '0 0 8px 0',
                   fontSize: '12px',
                   fontWeight: '600',
-                  color: isDarkMode ? '#94A3B8' : '#64748B',
+                  color: isDarkMode ? colours.subtleGrey : colours.greyText,
                   letterSpacing: '0.02em',
                   textTransform: 'uppercase'
                 }}>
@@ -4761,10 +4761,10 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 {/* Replace Subject with Service Description */}
                 {scopeDescription && (
                   <div style={{ fontSize: '12px', marginBottom: '6px' }}>
-                    <span style={{ fontWeight: '500', color: isDarkMode ? '#94A3B8' : '#64748B', fontSize: '11px' }}>Scope</span>
+                    <span style={{ fontWeight: '500', color: isDarkMode ? colours.subtleGrey : colours.greyText, fontSize: '11px' }}>Scope</span>
                     <div style={{ 
                       marginTop: '2px',
-                      color: isDarkMode ? '#CBD5E1' : '#334155',
+                      color: isDarkMode ? colours.dark.text : colours.light.text,
                       lineHeight: '1.4',
                       maxHeight: '60px',
                       overflow: 'hidden',
@@ -4778,10 +4778,10 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 
                 {amountValue && (
                   <div style={{ marginBottom: '0', fontSize: '12px' }}>
-                    <span style={{ fontWeight: '500', color: isDarkMode ? '#94A3B8' : '#64748B', fontSize: '11px' }}>Amount</span>
+                    <span style={{ fontWeight: '500', color: isDarkMode ? colours.subtleGrey : colours.greyText, fontSize: '11px' }}>Amount</span>
                     <div style={{ 
                       marginTop: '2px',
-                      color: isDarkMode ? '#CBD5E1' : '#334155',
+                      color: isDarkMode ? colours.dark.text : colours.light.text,
                       fontWeight: 600,
                       fontSize: '13px'
                     }}>
@@ -4796,7 +4796,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
             <div style={{
               marginBottom: '14px',
               padding: '12px 16px',
-              background: isDarkMode ? '#1E293B' : '#FFFFFF',
+              background: isDarkMode ? colours.darkBlue : '#FFFFFF',
               border: `1px solid #3690CE`,
               borderRadius: '12px',
               display: 'flex',
@@ -4820,7 +4820,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 <div style={{
                   fontSize: '13px',
                   fontWeight: '500',
-                  color: isDarkMode ? '#E2E8F0' : '#1E293B',
+                  color: isDarkMode ? colours.dark.text : colours.light.text,
                   lineHeight: '1.4'
                 }}>
                   Follow-up reminder set for 24 hours
@@ -4832,8 +4832,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
             <div style={{
               marginBottom: '14px',
               padding: '12px 16px',
-              background: isDarkMode ? '#1E293B' : '#FFFFFF',
-              border: `1px solid #10B981`,
+              background: isDarkMode ? colours.darkBlue : '#FFFFFF',
+              border: `1px solid ${colours.green}`,
               borderRadius: '12px',
               display: 'flex',
               alignItems: 'center',
@@ -4848,7 +4848,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 height: '18px',
                 flexShrink: 0
               }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ color: '#10B981' }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ color: colours.green }}>
                   <path d="M9 12L11 14L15 10M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
               </div>
@@ -4856,7 +4856,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 <div style={{
                   fontSize: '13px',
                   fontWeight: '500',
-                  color: isDarkMode ? '#E2E8F0' : '#1E293B',
+                  color: isDarkMode ? colours.dark.text : colours.light.text,
                   lineHeight: '1.4'
                 }}>
                   Saved to Sent Items
@@ -4867,8 +4867,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
             {/* Success Banner - Shows prominently when email sent */}
             {emailStatus === 'sent' && (
               <div style={{
-                background: isDarkMode ? '#1E293B' : '#FFFFFF',
-                border: `1px solid #10B981`,
+                background: isDarkMode ? colours.darkBlue : '#FFFFFF',
+                border: `1px solid ${colours.green}`,
                 borderRadius: '12px',
                 padding: '16px 20px',
                 marginBottom: '18px',
@@ -4887,7 +4887,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   flexShrink: 0,
                   marginTop: '2px'
                 }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ color: '#10B981' }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ color: colours.green }}>
                     <path d="M9 12L11 14L15 10M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
                 </div>
@@ -4895,7 +4895,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   <div style={{
                     fontSize: '14px',
                     fontWeight: '600',
-                    color: isDarkMode ? '#E2E8F0' : '#1E293B',
+                    color: isDarkMode ? colours.dark.text : colours.light.text,
                     lineHeight: '1.4',
                     marginBottom: '4px'
                   }}>
@@ -4903,7 +4903,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   </div>
                   <div style={{
                     fontSize: '13px',
-                    color: isDarkMode ? '#94A3B8' : '#64748B',
+                    color: isDarkMode ? colours.subtleGrey : colours.greyText,
                     lineHeight: '1.4',
                     fontWeight: '400'
                   }}>
@@ -4926,7 +4926,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   margin: '0 0 8px 0',
                   fontSize: '12px',
                   fontWeight: '600',
-                  color: isDarkMode ? '#94A3B8' : '#64748B',
+                  color: isDarkMode ? colours.subtleGrey : colours.greyText,
                   letterSpacing: '0.02em',
                   textTransform: 'uppercase'
                 }}>
@@ -4979,7 +4979,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   <div style={{ flex: 1 }}>
                     <div style={{ 
                       fontWeight: '500', 
-                      color: isDarkMode ? '#CBD5E1' : '#334155',
+                      color: isDarkMode ? colours.dark.text : colours.light.text,
                       marginBottom: '0',
                       fontSize: '12px'
                     }}>
@@ -5035,7 +5035,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   <div style={{ flex: 1 }}>
                     <div style={{ 
                       fontWeight: '500', 
-                      color: isDarkMode ? '#CBD5E1' : '#334155',
+                      color: isDarkMode ? colours.dark.text : colours.light.text,
                       marginBottom: '0',
                       fontSize: '12px'
                     }}>
@@ -5051,8 +5051,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
             {/* Inline validation error (modal) */}
             {modalError && (
               <div style={{
-                background: isDarkMode ? '#1E293B' : '#FFFFFF',
-                border: `1px solid #EF4444`,
+                background: isDarkMode ? colours.darkBlue : '#FFFFFF',
+                border: `1px solid ${colours.cta}`,
                 borderRadius: '12px',
                 padding: '16px 20px',
                 marginBottom: '16px',
@@ -5070,7 +5070,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   flexShrink: 0,
                   marginTop: '2px'
                 }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ color: '#EF4444' }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ color: colours.cta }}>
                     <path d="M12 8V12M12 16H12.01M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
                 </div>
@@ -5078,7 +5078,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   <div style={{
                     fontSize: '14px',
                     fontWeight: '600',
-                    color: isDarkMode ? '#E2E8F0' : '#1E293B',
+                    color: isDarkMode ? colours.dark.text : colours.light.text,
                     lineHeight: '1.4'
                   }}>
                     {modalError}
@@ -5095,7 +5095,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
               gap: '12px',
               justifyContent: 'flex-end',
               padding: '16px 20px',
-              borderTop: `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.2)' : 'rgba(148, 163, 184, 0.25)'}`
+              borderTop: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(148, 163, 184, 0.25)'}`
             }}>
               <button
                 onClick={() => { if (!modalSending) setShowSendConfirmModal(false); }}
@@ -5107,7 +5107,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   background: isDarkMode 
                     ? 'rgba(51, 65, 85, 0.6)' 
                     : 'rgba(248, 250, 252, 0.9)',
-                  color: isDarkMode ? '#CBD5E1' : '#475569',
+                  color: isDarkMode ? colours.dark.text : colours.greyText,
                   borderRadius: '8px',
                   cursor: modalSending ? 'not-allowed' : 'pointer',
                   fontSize: '13px',
@@ -5156,12 +5156,12 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 style={{
                   padding: '10px 20px',
                   border: isDarkMode 
-                    ? '1px solid rgba(96, 165, 250, 0.35)' 
+                    ? '1px solid rgba(54, 144, 206, 0.35)' 
                     : '1px solid rgba(54, 144, 206, 0.4)',
                   background: isDarkMode 
                     ? 'rgba(30, 58, 95, 0.5)' 
                     : 'rgba(54, 144, 206, 0.08)',
-                  color: isDarkMode ? '#93C5FD' : colours.blue,
+                  color: isDarkMode ? colours.accent : colours.blue,
                   borderRadius: '8px',
                   cursor: modalSending ? 'not-allowed' : 'pointer',
                   fontSize: '13px',
@@ -5188,7 +5188,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                     ? 'rgba(30, 58, 95, 0.5)' 
                     : 'rgba(54, 144, 206, 0.08)';
                   e.currentTarget.style.borderColor = isDarkMode 
-                    ? 'rgba(96, 165, 250, 0.35)' 
+                    ? 'rgba(54, 144, 206, 0.35)' 
                     : 'rgba(54, 144, 206, 0.4)';
                 }}
               >
@@ -5281,7 +5281,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                       borderRadius: '50%',
                       animation: 'spin 1s linear infinite'
                     }} />
-                    Sending…
+                    Sendingâ€¦
                   </>
                 ) : (
                   <>

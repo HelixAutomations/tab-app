@@ -3,6 +3,7 @@ import { mergeStyles, keyframes } from '@fluentui/react/lib/Styling';
 import { Stack } from '@fluentui/react/lib/Stack';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';
+import './home-tokens.css';
 
 /**
  * Enhanced section container with sophisticated styling and animations.
@@ -31,27 +32,17 @@ const slideUpFade = keyframes({
 });
 
 const baseClass = (isDark: boolean, variant: string, animationDelay: number) => mergeStyles({
-  // Dark: solid brand surfaces. Light: helix grey cards on white canvas.
-  background: isDark
-    ? (variant === 'minimal'
-      ? 'rgba(6, 23, 51, 0.55)'
-      : 'rgba(6, 23, 51, 0.55)')
-    : (variant === 'minimal'
-      ? '#FFFFFF'
-      : '#FFFFFF'),
+  // Surface from shared home tokens
+  background: 'var(--home-card-bg)',
   padding: variant === 'minimal' ? '12px' : '18px',
-  borderRadius: '2px',
-  border: isDark
-    ? `1px solid rgba(54, 144, 206, 0.08)`
-    : `1px solid rgba(13, 47, 96, 0.08)`,
-  borderLeft: isDark
-    ? undefined
-    : undefined,
+  borderRadius: '0',
+  border: '1px solid var(--home-card-border)',
   boxShadow: isDark
     ? (variant === 'elevated'
       ? '0 4px 16px rgba(0,0,0,0.3), 0 0 0 1px rgba(135,243,243,0.08)'
-      : 'none')
-    : 'inset 0 0 0 1px rgba(13,47,96,0.06), 0 1px 4px rgba(13,47,96,0.04)',
+      : 'var(--home-card-shadow)')
+    : 'var(--home-card-shadow)',
+  fontFamily: 'var(--font-primary)',
   width: '100%',
   display: 'flex',
   flexDirection: 'column',
@@ -75,9 +66,7 @@ const baseClass = (isDark: boolean, variant: string, animationDelay: number) => 
   '&:hover': isDark
     ? {
       borderColor: 'rgba(135, 243, 243, 0.18)',
-      boxShadow: variant === 'elevated'
-        ? '0 4px 16px rgba(0,0,0,0.3), 0 0 0 1px rgba(135,243,243,0.08)'
-        : '0 4px 16px rgba(0,0,0,0.3), 0 0 0 1px rgba(135,243,243,0.08)',
+      boxShadow: '0 4px 16px rgba(0,0,0,0.3), 0 0 0 1px rgba(135,243,243,0.08)',
     }
     : {
       boxShadow: '0 4px 16px rgba(13,47,96,0.10), inset 0 0 0 1px rgba(13,47,96,0.10)',
@@ -96,14 +85,14 @@ const titleClass = (isDark: boolean) => mergeStyles({
   fontWeight: '600',
   fontSize: '18px',
   lineHeight: '1.2',
-  color: isDark ? colours.dark.text : colours.light.text,
+  color: 'var(--text-primary)',
   margin: 0,
 });
 
 const subtitleClass = (isDark: boolean) => mergeStyles({
   fontSize: '14px',
   fontWeight: '500',
-  color: isDark ? colours.dark.text : colours.light.text,
+  color: 'var(--text-body)',
   marginTop: '4px',
   lineHeight: '1.4',
   opacity: 0.8,

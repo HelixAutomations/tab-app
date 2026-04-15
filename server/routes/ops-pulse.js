@@ -1,14 +1,15 @@
 /**
- * Ops Pulse — SSE stream + REST snapshot for the Helix Eye dashboard.
+ * Ops Pulse — SSE stream + REST snapshot for the Live Monitor dashboard.
  *
- * Provides 5 event types:
+ * Provides 6 event types:
  *   pulse     – heartbeat with uptime, connections, request stats
  *   scheduler – sync tier states, mutex, next fires
  *   errors    – recent error ring buffer
  *   sessions  – active SSE sessions
  *   requests  – recent API request log
+ *   presence  – who is online and what tab they're viewing
  *
- * Gated to dev owner (LZ) only. SSE excluded from compression + rate limiting.
+ * Gated to dev group (LZ + AC) only. SSE excluded from compression + rate limiting.
  */
 
 const express = require('express');
@@ -18,6 +19,7 @@ const { getStatus } = require('../utils/serverStatus');
 const { getSchedulerState } = require('../utils/dataOperationsScheduler');
 const { getRecentRequests, getRequestStats } = require('../utils/requestTracker');
 const { getActiveSessions, getSessionStats } = require('../utils/sessionTracker');
+const { getPresence, getPresenceStats } = require('../utils/presenceTracker');
 
 const router = express.Router();
 const log = createLogger('OpsPulse');
@@ -47,15 +49,15 @@ function getRecentErrors(limit = 50) {
   return _errors.slice(-limit).reverse();
 }
 
-/** Dev owner gate — LZ only */
-function isDevOwner(req) {
-  const initials = req.user?.initials || req.query?.initials;
-  return initials === 'LZ';
+/** Dev group gate — LZ + AC */
+function isDevGroup(req) {
+  const initials = (req.user?.initials || req.query?.initials || '').toUpperCase().trim();
+  return ['LZ', 'AC'].includes(initials);
 }
 
 // ── REST snapshot (for initial load) ──
 router.get('/snapshot', (req, res) => {
-  if (!isDevOwner(req)) return res.status(403).json({ error: 'forbidden' });
+  if (!isDevGroup(req)) return res.status(403).json({ error: 'forbidden' });
 
   const serverStatus = getStatus();
   const schedulerState = getSchedulerState();
@@ -76,12 +78,16 @@ router.get('/snapshot', (req, res) => {
       list: getActiveSessions(),
     },
     requests: getRecentRequests(50),
+    presence: {
+      ...getPresenceStats(),
+      list: getPresence(),
+    },
   });
 });
 
 // ── SSE stream (real-time updates) ──
 router.get('/stream', (req, res) => {
-  if (!isDevOwner(req)) return res.status(403).json({ error: 'forbidden' });
+  if (!isDevGroup(req)) return res.status(403).json({ error: 'forbidden' });
 
   res.writeHead(200, {
     'Content-Type': 'text/event-stream; charset=utf-8',
@@ -116,6 +122,7 @@ router.get('/stream', (req, res) => {
   writeSse('errors', getRecentErrors(50));
   writeSse('sessions', { ...getSessionStats(), list: getActiveSessions() });
   writeSse('requests', getRecentRequests(50));
+  writeSse('presence', { ...getPresenceStats(), list: getPresence() });
 
   // ── Periodic broadcasts ──
 
@@ -131,9 +138,10 @@ router.get('/stream', (req, res) => {
     writeSse('scheduler', getSchedulerState());
   }, 5000);
 
-  // Sessions every 10s
+  // Sessions + presence every 10s
   const sessionInterval = setInterval(() => {
     writeSse('sessions', { ...getSessionStats(), list: getActiveSessions() });
+    writeSse('presence', { ...getPresenceStats(), list: getPresence() });
   }, 10000);
 
   // Request log every 3s

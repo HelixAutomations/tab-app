@@ -2,8 +2,15 @@ const express = require('express');
 const sql = require('mssql');
 const Stripe = require('stripe');
 const { getSecret } = require('../utils/getSecret');
+const { withRequest } = require('../utils/db');
 
 const router = express.Router();
+
+const getInstrConnStr = () => {
+  const s = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+  if (!s) throw new Error('INSTRUCTIONS_SQL_CONNECTION_STRING not configured');
+  return s;
+};
 
 let cachedStripeSecretKey = null;
 let cachedStripeSecretKeyAt = 0;
@@ -31,33 +38,7 @@ async function resolveStripeSecretKey() {
   return kvKey;
 }
 
-// Lazily parse and cache the instructions DB connection config from the env connection string
-let dbConfig = null;
-function getDbConfig() {
-  if (dbConfig) return dbConfig;
-  const connectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
-  if (!connectionString) throw new Error('INSTRUCTIONS_SQL_CONNECTION_STRING not found in environment');
-
-  const params = new URLSearchParams(connectionString.split(';').join('&'));
-  const server = params.get('Server')?.replace('tcp:', '').split(',')[0];
-  const database = params.get('Initial Catalog');
-  const userId = params.get('User ID');
-  const password = params.get('Password');
-
-  dbConfig = {
-    server,
-    database,
-    user: userId,
-    password,
-    options: {
-      encrypt: true,
-      trustServerCertificate: false,
-      enableArithAbort: true,
-    },
-  };
-  return dbConfig;
-}
-
+// POST /api/payment-link - Create a Stripe payment link
 router.post('/', async (req, res) => {
   try {
     const { instructionRef, amount, description, clientEmail, clientName } = req.body || {};
@@ -114,12 +95,9 @@ router.post('/', async (req, res) => {
 
     // Persist to payments table
     const paymentId = `plink_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    const config = getDbConfig();
-    const pool = await sql.connect(config);
 
-    try {
-      await pool
-        .request()
+    await withRequest(getInstrConnStr(), async (request) => {
+      return request
         .input('id', sql.NVarChar, paymentId)
         .input('paymentLinkId', sql.NVarChar, paymentLink.id)
         .input('amount', sql.Decimal(10, 2), numericAmount)
@@ -147,9 +125,7 @@ router.post('/', async (req, res) => {
             @metadata, @description
           )
         `);
-    } finally {
-      await pool.close();
-    }
+    });
 
     return res.json({
       success: true,

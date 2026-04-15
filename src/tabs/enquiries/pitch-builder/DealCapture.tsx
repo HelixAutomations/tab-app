@@ -72,7 +72,7 @@ export const DealCapture: React.FC<DealCaptureProps> = ({
   const getScopeConnectorColor = () => {
     if (scopeConnectorColor) return scopeConnectorColor;
     if (scopeDescription && scopeDescription.trim()) {
-      return isDarkMode ? 'rgba(74, 222, 128, 0.35)' : 'rgba(5, 150, 105, 0.3)';
+      return isDarkMode ? 'rgba(32, 178, 108, 0.35)' : 'rgba(32, 178, 108, 0.3)';
     }
     return isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(54, 144, 206, 0.2)';
   };
@@ -80,7 +80,7 @@ export const DealCapture: React.FC<DealCaptureProps> = ({
   const getAmountConnectorColor = () => {
     if (amountConnectorColor) return amountConnectorColor;
     if (amount && parseFloat(amount) > 0) {
-      return isDarkMode ? 'rgba(74, 222, 128, 0.35)' : 'rgba(5, 150, 105, 0.3)';
+      return isDarkMode ? 'rgba(32, 178, 108, 0.35)' : 'rgba(32, 178, 108, 0.3)';
     }
     return isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(54, 144, 206, 0.2)';
   };
@@ -371,7 +371,7 @@ export const DealCapture: React.FC<DealCaptureProps> = ({
         {amountError && (
           <div style={{
             fontSize: 11,
-            color: '#EF4444',
+            color: colours.cta,
             paddingLeft: 2,
             marginTop: -6,
             display: 'flex',

@@ -3,6 +3,7 @@ const express = require('express');
 const sql = require('mssql');
 const { getSecret } = require('../utils/getSecret');
 const { trackEvent, trackException } = require('../utils/appInsights');
+const { withRequest, getPool } = require('../utils/db');
 const {
     paymentOperationsTableExists,
     ensureBankTransferReviewOperation,
@@ -11,39 +12,11 @@ const {
 
 const router = express.Router();
 
-// Database connection configuration
-let dbConfig = null;
-
-async function getDbConfig() {
-  if (dbConfig) return dbConfig;
-  
-  // Use the INSTRUCTIONS_SQL_CONNECTION_STRING from .env
-  const connectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
-  if (!connectionString) {
-    throw new Error('INSTRUCTIONS_SQL_CONNECTION_STRING not found in environment');
-  }
-  
-  // Parse connection string into config object
-  const params = new URLSearchParams(connectionString.split(';').join('&'));
-  const server = params.get('Server').replace('tcp:', '').split(',')[0];
-  const database = params.get('Initial Catalog');
-  const userId = params.get('User ID');
-  const password = params.get('Password');
-  
-  dbConfig = {
-    server: server,
-    database: database,
-    user: userId,
-    password: password,
-    options: {
-      encrypt: true,
-      trustServerCertificate: false,
-      enableArithAbort: true
-    }
-  };
-  
-  return dbConfig;
-}
+const getInstrConnStr = () => {
+  const cs = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+  if (!cs) throw new Error('INSTRUCTIONS_SQL_CONNECTION_STRING not found in environment');
+  return cs;
+};
 
 const parseJsonObject = (value) => {
     if (!value) return {};
@@ -99,11 +72,8 @@ router.delete('/delete', async (req, res) => {
             return res.status(400).json({ error: 'Payment ID is required' });
         }
 
-        // Get database configuration
-        const config = await getDbConfig();
-        
-        // Connect to database
-        const pool = await sql.connect(config);
+        const connStr = getInstrConnStr();
+        const pool = await getPool(connStr);
         
         if (archive) {
             // Archive: Update internal_status to 'archived'
@@ -125,8 +95,6 @@ router.delete('/delete', async (req, res) => {
             } catch {
                 // Do not block archiving if the queue table has not been created yet.
             }
-
-            await pool.close();
 
             if (result.rowsAffected[0] === 0) {
                 return res.status(404).json({ error: 'Payment not found' });
@@ -156,8 +124,6 @@ router.delete('/delete', async (req, res) => {
                     WHERE id = @paymentId
                 `);
 
-            await pool.close();
-
             if (result.rowsAffected[0] === 0) {
                 return res.status(404).json({ error: 'Payment not found' });
             }
@@ -180,7 +146,6 @@ router.delete('/delete', async (req, res) => {
 
 // POST /api/payments/confirm-bank - Mark a bank transfer as confirmed and queue ops review
 router.post('/confirm-bank', async (req, res) => {
-    let pool;
     let transaction;
 
     try {
@@ -192,8 +157,7 @@ router.post('/confirm-bank', async (req, res) => {
 
         trackEvent('Payments.BankConfirm.Started', { paymentId, confirmedDate, confirmedBy: confirmedBy || 'unknown' });
 
-        const config = await getDbConfig();
-        pool = await sql.connect(config);
+        const pool = await getPool(getInstrConnStr());
 
         const tableExists = await paymentOperationsTableExists(pool);
         if (!tableExists) {
@@ -284,10 +248,6 @@ router.post('/confirm-bank', async (req, res) => {
         });
         console.error('Error confirming bank payment:', error);
         res.status(500).json({ error: 'Failed to confirm bank payment', details: error.message });
-    } finally {
-        if (pool) {
-            try { await pool.close(); } catch {}
-        }
     }
 });
 
@@ -300,40 +260,33 @@ router.get('/:instructionRef', async (req, res) => {
             return res.status(400).json({ error: 'Instruction reference is required' });
         }
 
-        // Get database configuration
-        const config = await getDbConfig();
-        
-        // Connect to database
-        const pool = await sql.connect(config);
-        
-        // Query payments table for this instruction (exclude archived payments)
-        const result = await pool.request()
-            .input('instructionRef', sql.NVarChar, instructionRef)
-            .query(`
-                SELECT 
-                    id,
-                    payment_intent_id,
-                    amount,
-                    amount_minor,
-                    currency,
-                    payment_status,
-                    internal_status,
-                    client_secret,
-                    metadata,
-                    instruction_ref,
-                    created_at,
-                    updated_at,
-                    webhook_events,
-                    service_description,
-                    area_of_work,
-                    receipt_url
-                FROM Payments 
-                WHERE instruction_ref = @instructionRef 
-                AND (internal_status IS NULL OR internal_status != 'archived')
-                ORDER BY created_at DESC
-            `);
-
-        await pool.close();
+        const result = await withRequest(getInstrConnStr(), async (request) => {
+            return request
+                .input('instructionRef', sql.NVarChar, instructionRef)
+                .query(`
+                    SELECT 
+                        id,
+                        payment_intent_id,
+                        amount,
+                        amount_minor,
+                        currency,
+                        payment_status,
+                        internal_status,
+                        client_secret,
+                        metadata,
+                        instruction_ref,
+                        created_at,
+                        updated_at,
+                        webhook_events,
+                        service_description,
+                        area_of_work,
+                        receipt_url
+                    FROM Payments 
+                    WHERE instruction_ref = @instructionRef 
+                    AND (internal_status IS NULL OR internal_status != 'archived')
+                    ORDER BY created_at DESC
+                `);
+        });
 
         // Format the results
         const payments = result.recordset.map(payment => ({

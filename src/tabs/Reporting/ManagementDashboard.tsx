@@ -3289,4 +3289,4 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   );
 };
 
-export default ManagementDashboard;
+export default React.memo(ManagementDashboard);

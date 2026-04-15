@@ -13,6 +13,7 @@ const PUBLIC_PREFIXES = [
     '/api/telemetry',       // Client-side telemetry (fire-and-forget)
     '/api/messages',        // Teams bot webhook (Bot Framework auth)
     '/api/teams-notify',    // Teams proactive messages
+    '/api/logs',            // SSE log stream (EventSource can't send auth headers; UI is admin-gated)
 ];
 
 function requireUser(req, res, next) {

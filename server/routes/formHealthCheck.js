@@ -9,9 +9,44 @@
  */
 
 const express = require('express');
-const { trackEvent } = require('../utils/appInsights');
+const { trackEvent, trackException } = require('../utils/appInsights');
 
 const router = express.Router();
+
+function buildBaseUrl(req) {
+  return `${req.protocol}://${req.get('host')}`;
+}
+
+async function verifyMountedEndpoint(url, options = {}) {
+  const { method = 'OPTIONS' } = options;
+  const response = await fetch(url, { method, headers: { 'Content-Type': 'application/json' } });
+  const contentType = response.headers.get('content-type') || '';
+
+  if (response.status === 404) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+
+  if (response.status >= 500) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+
+  if (response.status === 200 && contentType.includes('text/html')) {
+    throw new Error('Unexpected HTML response');
+  }
+
+  return { mounted: true, status: response.status || 200 };
+}
+
+function getNotableCaseInfoUrl(baseUrl) {
+  const path = (process.env.REACT_APP_INSERT_NOTABLE_CASE_INFO_PATH || '').replace(/^\/+/, '');
+  const code = process.env.REACT_APP_INSERT_NOTABLE_CASE_INFO_CODE;
+
+  if (!path || !code) {
+    throw new Error('Notable case info route is not configured');
+  }
+
+  return `${baseUrl}/${path}?code=${code}`;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FORM ENDPOINT DEFINITIONS
@@ -79,13 +114,7 @@ const FORM_CHECKS = [
     name: 'Financial Task',
     description: 'Financial form submission API',
     check: async (baseUrl) => {
-      // Just check the endpoint responds — POST-only, so we check with an OPTIONS/HEAD approach
-      // or simply verify the route is mounted by sending a GET that returns 404 (route exists but method not allowed)
-      const res = await fetch(`${baseUrl}/api/financial-task`, {
-        method: 'OPTIONS',
-      });
-      // OPTIONS returning anything other than a network error means the route is mounted
-      return { mounted: true };
+      return verifyMountedEndpoint(`${baseUrl}/api/financial-task`);
     },
   },
   {
@@ -93,10 +122,23 @@ const FORM_CHECKS = [
     name: 'Bundle',
     description: 'Court bundle submission API',
     check: async (baseUrl) => {
-      const res = await fetch(`${baseUrl}/api/bundle`, {
-        method: 'OPTIONS',
-      });
-      return { mounted: true };
+      return verifyMountedEndpoint(`${baseUrl}/api/bundle`);
+    },
+  },
+  {
+    id: 'transactions-v2',
+    name: 'Transaction Intake',
+    description: 'Transaction intake submission API',
+    check: async (baseUrl) => {
+      return verifyMountedEndpoint(`${baseUrl}/api/transactions-v2`);
+    },
+  },
+  {
+    id: 'notable-case-info',
+    name: 'Notable Case Info',
+    description: 'Notable case information submission route',
+    check: async (baseUrl) => {
+      return verifyMountedEndpoint(getNotableCaseInfoUrl(baseUrl));
     },
   },
 ];
@@ -110,59 +152,70 @@ const FORM_CHECKS = [
  * Run all health checks concurrently
  */
 router.get('/', async (req, res) => {
-  const protocol = req.protocol;
-  const host = req.get('host');
-  const baseUrl = `${protocol}://${host}`;
   const startTime = Date.now();
 
-  const results = await Promise.allSettled(
-    FORM_CHECKS.map(async (form) => {
-      const checkStart = Date.now();
-      try {
-        const details = await form.check(baseUrl);
-        return {
-          id: form.id,
-          name: form.name,
-          description: form.description,
-          status: 'healthy',
-          responseMs: Date.now() - checkStart,
-          details,
-        };
-      } catch (error) {
-        return {
-          id: form.id,
-          name: form.name,
-          description: form.description,
-          status: 'unhealthy',
-          responseMs: Date.now() - checkStart,
-          error: error.message || 'Unknown error',
-        };
-      }
-    })
-  );
+  try {
+    const baseUrl = buildBaseUrl(req);
+    const results = await Promise.allSettled(
+      FORM_CHECKS.map(async (form) => {
+        const checkStart = Date.now();
+        try {
+          const details = await form.check(baseUrl);
+          return {
+            id: form.id,
+            name: form.name,
+            description: form.description,
+            status: 'healthy',
+            responseMs: Date.now() - checkStart,
+            details,
+          };
+        } catch (error) {
+          return {
+            id: form.id,
+            name: form.name,
+            description: form.description,
+            status: 'unhealthy',
+            responseMs: Date.now() - checkStart,
+            error: error instanceof Error ? error.message : 'Unknown error',
+          };
+        }
+      })
+    );
 
-  const checks = results.map((r) => (r.status === 'fulfilled' ? r.value : {
-    id: 'unknown',
-    name: 'Unknown',
-    status: 'error',
-    error: r.reason?.message || 'Promise rejected',
-  }));
+    const checks = results.map((result) => (result.status === 'fulfilled' ? result.value : {
+      id: 'unknown',
+      name: 'Unknown',
+      status: 'error',
+      error: result.reason?.message || 'Promise rejected',
+    }));
 
-  const healthy = checks.filter((c) => c.status === 'healthy').length;
-  const total = checks.length;
+    const healthy = checks.filter((check) => check.status === 'healthy').length;
+    const total = checks.length;
 
-  trackEvent('FormHealth.CheckCompleted', {
-    healthy: String(healthy),
-    total: String(total),
-    durationMs: String(Date.now() - startTime),
-  });
+    trackEvent('FormHealth.CheckCompleted', {
+      healthy: String(healthy),
+      total: String(total),
+      durationMs: String(Date.now() - startTime),
+      operation: 'all-checks',
+      triggeredBy: 'forms-hub',
+    });
 
-  res.json({
-    timestamp: new Date().toISOString(),
-    summary: { healthy, unhealthy: total - healthy, total },
-    durationMs: Date.now() - startTime,
-    checks,
-  });
+    res.json({
+      timestamp: new Date().toISOString(),
+      summary: { healthy, unhealthy: total - healthy, total },
+      durationMs: Date.now() - startTime,
+      checks,
+    });
+  } catch (error) {
+    trackException(error, { operation: 'all-checks', phase: 'run-form-health-checks' });
+    trackEvent('FormHealth.CheckFailed', {
+      durationMs: String(Date.now() - startTime),
+      error: error instanceof Error ? error.message : 'Unknown error',
+      operation: 'all-checks',
+      triggeredBy: 'forms-hub',
+    });
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Form health checks failed' });
+  }
 });
 
 /**
@@ -172,18 +225,21 @@ router.get('/', async (req, res) => {
 router.get('/:formId', async (req, res) => {
   const { formId } = req.params;
   const form = FORM_CHECKS.find((f) => f.id === formId);
+  const checkStart = Date.now();
 
   if (!form) {
     return res.status(404).json({ error: `Unknown form: ${formId}`, available: FORM_CHECKS.map((f) => f.id) });
   }
 
-  const protocol = req.protocol;
-  const host = req.get('host');
-  const baseUrl = `${protocol}://${host}`;
-  const checkStart = Date.now();
-
   try {
+    const baseUrl = buildBaseUrl(req);
     const details = await form.check(baseUrl);
+    trackEvent('FormHealth.SingleCheckCompleted', {
+      durationMs: String(Date.now() - checkStart),
+      formId,
+      operation: 'single-check',
+      triggeredBy: 'forms-hub',
+    });
     res.json({
       id: form.id,
       name: form.name,
@@ -193,13 +249,21 @@ router.get('/:formId', async (req, res) => {
       details,
     });
   } catch (error) {
+    trackException(error, { operation: 'single-check', phase: 'run-form-health-check', formId });
+    trackEvent('FormHealth.SingleCheckFailed', {
+      durationMs: String(Date.now() - checkStart),
+      error: error instanceof Error ? error.message : 'Unknown error',
+      formId,
+      operation: 'single-check',
+      triggeredBy: 'forms-hub',
+    });
     res.json({
       id: form.id,
       name: form.name,
       description: form.description,
       status: 'unhealthy',
       responseMs: Date.now() - checkStart,
-      error: error.message || 'Unknown error',
+      error: error instanceof Error ? error.message : 'Unknown error',
     });
   }
 });

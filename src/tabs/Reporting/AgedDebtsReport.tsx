@@ -186,4 +186,4 @@ const AgedDebtsReport: React.FC<AgedDebtsReportProps> = ({ onBack, showToast }) 
   );
 };
 
-export default AgedDebtsReport;
+export default React.memo(AgedDebtsReport);

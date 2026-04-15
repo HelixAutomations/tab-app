@@ -66,13 +66,13 @@ export default function TechTicketsLedger(props: TechTicketsLedgerProps) {
   const [editStatus, setEditStatus] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const textPrimary = isDarkMode ? '#f8fafc' : '#0f172a';
-  const textMuted = isDarkMode ? 'rgba(148, 163, 184, 0.9)' : 'rgba(100, 116, 139, 0.95)';
+  const textPrimary = isDarkMode ? '#F4F4F6' : '#061733';
+  const textMuted = isDarkMode ? 'rgba(160, 160, 160, 0.9)' : 'rgba(107, 107, 107, 0.95)';
   const rowBg = isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)';
   const rowHover = isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)';
   const rowBorder = isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
-  const countChipBorder = isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(15, 23, 42, 0.08)';
-  const countChipBg = isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(15,23,42,0.04)';
+  const countChipBorder = isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(0, 3, 25, 0.08)';
+  const countChipBg = isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0, 3, 25,0.04)';
 
   // Dark mode dialog styling
   const dialogContainerClass = mergeStyles({
@@ -80,14 +80,14 @@ export default function TechTicketsLedger(props: TechTicketsLedgerProps) {
       backgroundColor: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
       color: isDarkMode ? colours.dark.text : colours.light.text,
       borderRadius: 0,
-      border: isDarkMode ? '1px solid rgba(148, 163, 184, 0.15)' : '1px solid rgba(15, 23, 42, 0.08)',
+      border: isDarkMode ? '1px solid rgba(160, 160, 160, 0.15)' : '1px solid rgba(0, 3, 25, 0.08)',
     },
     '& .ms-Dialog-title': {
       color: isDarkMode ? colours.dark.text : colours.light.text,
       fontWeight: 600,
     },
     '& .ms-Dialog-subText': {
-      color: isDarkMode ? 'rgba(148, 163, 184, 0.9)' : 'rgba(100, 116, 139, 0.95)',
+      color: isDarkMode ? 'rgba(160, 160, 160, 0.9)' : 'rgba(107, 107, 107, 0.95)',
     },
   });
 
@@ -111,19 +111,19 @@ export default function TechTicketsLedger(props: TechTicketsLedgerProps) {
   const statusStyles = (tone: 'neutral' | 'success' | 'warning') => {
     const palette = {
       neutral: {
-        bg: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(15, 23, 42, 0.04)',
-        color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.7)',
-        border: isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(15, 23, 42, 0.12)',
+        bg: isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(0, 3, 25, 0.04)',
+        color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : 'rgba(0, 3, 25, 0.7)',
+        border: isDarkMode ? 'rgba(160, 160, 160, 0.3)' : 'rgba(0, 3, 25, 0.12)',
       },
       success: {
-        bg: isDarkMode ? 'rgba(74, 222, 128, 0.12)' : 'rgba(74, 222, 128, 0.08)',
-        color: isDarkMode ? '#4ade80' : '#15803d',
-        border: isDarkMode ? 'rgba(74, 222, 128, 0.35)' : 'rgba(74, 222, 128, 0.25)',
+        bg: isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.08)',
+        color: colours.green,
+        border: isDarkMode ? 'rgba(32, 178, 108, 0.35)' : 'rgba(32, 178, 108, 0.25)',
       },
       warning: {
-        bg: isDarkMode ? 'rgba(248, 113, 113, 0.12)' : 'rgba(248, 113, 113, 0.08)',
-        color: isDarkMode ? '#f87171' : '#b91c1c',
-        border: isDarkMode ? 'rgba(248, 113, 113, 0.35)' : 'rgba(248, 113, 113, 0.25)',
+        bg: isDarkMode ? 'rgba(214, 85, 65, 0.12)' : 'rgba(214, 85, 65, 0.08)',
+        color: isDarkMode ? '#D65541' : '#D65541',
+        border: isDarkMode ? 'rgba(214, 85, 65, 0.35)' : 'rgba(214, 85, 65, 0.25)',
       },
     }[tone];
 
@@ -275,7 +275,7 @@ export default function TechTicketsLedger(props: TechTicketsLedgerProps) {
               background: countChipBg
             }}>
               {isLoading ? (
-                <span style={{ display: 'inline-block', width: '26px', height: '8px', borderRadius: 2, background: isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.2)' }} />
+                <span style={{ display: 'inline-block', width: '26px', height: '8px', borderRadius: 2, background: isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(160, 160, 160, 0.2)' }} />
               ) : (
                 `${items.length} total`
               )}
@@ -299,10 +299,10 @@ export default function TechTicketsLedger(props: TechTicketsLedgerProps) {
                 ...rowStyle,
                 color: textMuted,
               }}>
-                <div style={{ height: 12, background: isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)' }} />
-                <div style={{ height: 12, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.18)' }} />
-                <div style={{ height: 12, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.18)' }} />
-                <div style={{ height: 18, borderRadius: 999, background: isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.22)' }} />
+                <div style={{ height: 12, background: isDarkMode ? 'rgba(160, 160, 160, 0.15)' : 'rgba(160, 160, 160, 0.2)' }} />
+                <div style={{ height: 12, background: isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(160, 160, 160, 0.18)' }} />
+                <div style={{ height: 12, background: isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(160, 160, 160, 0.18)' }} />
+                <div style={{ height: 18, borderRadius: 999, background: isDarkMode ? 'rgba(160, 160, 160, 0.18)' : 'rgba(160, 160, 160, 0.22)' }} />
               </div>
             ))
           ) : items.length === 0 ? (
@@ -346,14 +346,14 @@ export default function TechTicketsLedger(props: TechTicketsLedgerProps) {
                           root: {
                             width: 22,
                             height: 22,
-                            background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(15, 23, 42, 0.04)',
-                            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(15, 23, 42, 0.12)'}`,
+                            background: isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 3, 25, 0.04)',
+                            border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.3)' : 'rgba(0, 3, 25, 0.12)'}`,
                             borderRadius: 0,
                             transition: 'background 0.15s, border-color 0.15s, color 0.15s'
                           },
                           rootHovered: {
-                            background: isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(15, 23, 42, 0.08)',
-                            borderColor: isDarkMode ? 'rgba(148, 163, 184, 0.45)' : 'rgba(15, 23, 42, 0.2)'
+                            background: isDarkMode ? 'rgba(160, 160, 160, 0.18)' : 'rgba(0, 3, 25, 0.08)',
+                            borderColor: isDarkMode ? 'rgba(160, 160, 160, 0.45)' : 'rgba(0, 3, 25, 0.2)'
                           },
                           icon: { color: textMuted }
                         }}
@@ -367,14 +367,14 @@ export default function TechTicketsLedger(props: TechTicketsLedgerProps) {
                           root: {
                             width: 22,
                             height: 22,
-                            background: isDarkMode ? 'rgba(248, 113, 113, 0.12)' : 'rgba(248, 113, 113, 0.08)',
-                            border: `1px solid ${isDarkMode ? 'rgba(248, 113, 113, 0.35)' : 'rgba(248, 113, 113, 0.25)'}`,
+                            background: isDarkMode ? 'rgba(214, 85, 65, 0.12)' : 'rgba(214, 85, 65, 0.08)',
+                            border: `1px solid ${isDarkMode ? 'rgba(214, 85, 65, 0.35)' : 'rgba(214, 85, 65, 0.25)'}`,
                             borderRadius: 0,
                             transition: 'background 0.15s, border-color 0.15s, color 0.15s'
                           },
                           rootHovered: {
-                            background: isDarkMode ? 'rgba(248, 113, 113, 0.2)' : 'rgba(248, 113, 113, 0.14)',
-                            borderColor: isDarkMode ? 'rgba(248, 113, 113, 0.5)' : 'rgba(248, 113, 113, 0.4)'
+                            background: isDarkMode ? 'rgba(214, 85, 65, 0.2)' : 'rgba(214, 85, 65, 0.14)',
+                            borderColor: isDarkMode ? 'rgba(214, 85, 65, 0.5)' : 'rgba(214, 85, 65, 0.4)'
                           },
                           icon: { color: '#D65541' }
                         }}
@@ -402,7 +402,7 @@ export default function TechTicketsLedger(props: TechTicketsLedgerProps) {
               backgroundColor: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
               color: isDarkMode ? colours.dark.text : colours.light.text,
               borderRadius: 0,
-              border: isDarkMode ? '1px solid rgba(148, 163, 184, 0.15)' : '1px solid rgba(15, 23, 42, 0.08)',
+              border: isDarkMode ? '1px solid rgba(160, 160, 160, 0.15)' : '1px solid rgba(0, 3, 25, 0.08)',
             },
           },
         }}
@@ -418,7 +418,7 @@ export default function TechTicketsLedger(props: TechTicketsLedgerProps) {
               root: { marginTop: 8 },
               fieldGroup: {
                 backgroundColor: isDarkMode ? 'rgba(255,255,255,0.03)' : '#fff',
-                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(15, 23, 42, 0.12)'}`,
+                border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.25)' : 'rgba(0, 3, 25, 0.12)'}`,
                 borderRadius: 0,
               },
               field: {
@@ -427,7 +427,7 @@ export default function TechTicketsLedger(props: TechTicketsLedgerProps) {
               subComponentStyles: {
                 label: {
                   root: {
-                    color: isDarkMode ? 'rgba(148, 163, 184, 0.9)' : 'rgba(100, 116, 139, 0.95)',
+                    color: isDarkMode ? 'rgba(160, 160, 160, 0.9)' : 'rgba(107, 107, 107, 0.95)',
                     fontWeight: 500,
                     fontSize: '12px',
                   },
@@ -444,17 +444,17 @@ export default function TechTicketsLedger(props: TechTicketsLedgerProps) {
               root: {},
               title: {
                 backgroundColor: isDarkMode ? 'rgba(255,255,255,0.03)' : '#fff',
-                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(15, 23, 42, 0.12)'}`,
+                border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.25)' : 'rgba(0, 3, 25, 0.12)'}`,
                 borderRadius: 0,
                 color: isDarkMode ? colours.dark.text : colours.light.text,
               },
               label: {
-                color: isDarkMode ? 'rgba(148, 163, 184, 0.9)' : 'rgba(100, 116, 139, 0.95)',
+                color: isDarkMode ? 'rgba(160, 160, 160, 0.9)' : 'rgba(107, 107, 107, 0.95)',
                 fontWeight: 500,
                 fontSize: '12px',
               },
               caretDownWrapper: {
-                color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)',
+                color: isDarkMode ? 'rgba(160, 160, 160, 0.7)' : 'rgba(107, 107, 107, 0.7)',
               },
             }}
           />
@@ -481,13 +481,13 @@ export default function TechTicketsLedger(props: TechTicketsLedgerProps) {
             disabled={isSaving}
             styles={{
               root: {
-                backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(15, 23, 42, 0.04)',
-                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(15, 23, 42, 0.12)'}`,
+                backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0, 3, 25, 0.04)',
+                border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.25)' : 'rgba(0, 3, 25, 0.12)'}`,
                 borderRadius: 0,
                 color: isDarkMode ? colours.dark.text : colours.light.text,
               },
               rootHovered: {
-                backgroundColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(15, 23, 42, 0.08)',
+                backgroundColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0, 3, 25, 0.08)',
               },
             }}
           />
@@ -509,7 +509,7 @@ export default function TechTicketsLedger(props: TechTicketsLedgerProps) {
               backgroundColor: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
               color: isDarkMode ? colours.dark.text : colours.light.text,
               borderRadius: 0,
-              border: isDarkMode ? '1px solid rgba(148, 163, 184, 0.15)' : '1px solid rgba(15, 23, 42, 0.08)',
+              border: isDarkMode ? '1px solid rgba(160, 160, 160, 0.15)' : '1px solid rgba(0, 3, 25, 0.08)',
             },
           },
         }}
@@ -538,13 +538,13 @@ export default function TechTicketsLedger(props: TechTicketsLedgerProps) {
             disabled={isDeleting}
             styles={{
               root: {
-                backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(15, 23, 42, 0.04)',
-                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(15, 23, 42, 0.12)'}`,
+                backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0, 3, 25, 0.04)',
+                border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.25)' : 'rgba(0, 3, 25, 0.12)'}`,
                 borderRadius: 0,
                 color: isDarkMode ? colours.dark.text : colours.light.text,
               },
               rootHovered: {
-                backgroundColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(15, 23, 42, 0.08)',
+                backgroundColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0, 3, 25, 0.08)',
               },
             }}
           />

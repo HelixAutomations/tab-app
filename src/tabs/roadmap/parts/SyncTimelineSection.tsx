@@ -42,7 +42,7 @@ function TierRow({ label, tier, nextFire, isDarkMode }: { label: string; tier: T
       <span style={{ fontSize: 12, fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text, fontFamily: 'Raleway, sans-serif', width: 120 }}>
         {label}
       </span>
-      <span style={{ fontSize: 11, color: isDarkMode ? '#d1d5db' : '#374151', fontFamily: 'Raleway, sans-serif', flex: 1 }}>
+      <span style={{ fontSize: 11, color: isDarkMode ? colours.subtleGrey : colours.greyText, fontFamily: 'Raleway, sans-serif', flex: 1 }}>
         {tier?.status || 'idle'}
         {tier?.status === 'running' && tier.ts ? ` (${timeAgo(tier.ts)})` : ''}
         {tier?.error ? ` — ${tier.error}` : ''}
@@ -81,9 +81,8 @@ function MutexIndicator({ mutex, isDarkMode }: { mutex: MutexState; isDarkMode: 
 }
 
 const SyncTimelineSection: React.FC<Props> = ({ scheduler, isDarkMode }) => {
-  const bg = isDarkMode ? colours.dark.cardBackground : '#ffffff';
+  const bg = isDarkMode ? colours.darkBlue : colours.light.sectionBackground;
   const borderCol = isDarkMode ? colours.dark.border : colours.light.border;
-  const sectionAccent = isDarkMode ? colours.accent : colours.highlight;
 
   if (!scheduler) {
     return (
@@ -97,7 +96,7 @@ const SyncTimelineSection: React.FC<Props> = ({ scheduler, isDarkMode }) => {
 
   return (
     <div style={{ padding: '14px 16px', background: bg, border: `1px solid ${borderCol}`, borderRadius: 0, marginBottom: 8 }}>
-      <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: sectionAccent, marginBottom: 10, fontFamily: 'Raleway, sans-serif' }}>
+      <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: isDarkMode ? colours.dark.text : colours.light.text, marginBottom: 10, fontFamily: 'Raleway, sans-serif' }}>
         Sync Timeline
       </div>
 
@@ -127,7 +126,7 @@ const SyncTimelineSection: React.FC<Props> = ({ scheduler, isDarkMode }) => {
             Recent completions
           </div>
           {mutex.recentHistory.slice(0, 5).map((h, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0', fontSize: 11, color: isDarkMode ? '#d1d5db' : '#374151', fontFamily: 'Raleway, sans-serif' }}>
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0', fontSize: 11, color: isDarkMode ? colours.subtleGrey : colours.greyText, fontFamily: 'Raleway, sans-serif' }}>
               <span style={{ color: colours.green, fontSize: 10 }}>●</span>
               <span style={{ fontWeight: 600 }}>{h.name}</span>
               <span style={{ color: colours.subtleGrey }}>{formatDuration(h.durationMs)}</span>

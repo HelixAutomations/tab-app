@@ -31,6 +31,8 @@ import {
   getFormPrimaryButtonStyles,
   getFormDefaultButtonStyles,
   getMessageBarStyle,
+  getFormTextareaStyles,
+  formFieldTokens,
   formAccentColors,
 } from './shared/formStyles';
 
@@ -182,7 +184,7 @@ const TechIdeaFormContent: React.FC<TechIdeaFormProps> = ({
               Idea Details
             </div>
 
-            <Stack tokens={{ childrenGap: 16 }} style={{ paddingBottom: '4px' }}>
+            <Stack tokens={formFieldTokens} style={{ paddingBottom: '4px' }}>
               <Stack horizontal tokens={{ childrenGap: 16 }} verticalAlign="end">
                 <Stack.Item grow styles={{ root: { flex: 2 } }}>
                   <TextField
@@ -212,8 +214,8 @@ const TechIdeaFormContent: React.FC<TechIdeaFormProps> = ({
                 required
                 multiline
                 rows={5}
-                placeholder="What should we build/change? Include context, affected users, and any useful links."
-                styles={getInputStyles(isDarkMode)}
+                placeholder="What should we build or change? Include context, affected users, and any useful links."
+                styles={getFormTextareaStyles(isDarkMode, 5)}
               />
 
               <TextField
@@ -222,8 +224,8 @@ const TechIdeaFormContent: React.FC<TechIdeaFormProps> = ({
                 onChange={(_, val) => handleFieldChange('business_value', val || '')}
                 multiline
                 rows={3}
-                placeholder="Optional: time saved, risk reduced, client impact, etc."
-                styles={getInputStyles(isDarkMode)}
+                placeholder="Time saved, risk reduced, client impact, or other measurable benefit"
+                styles={getFormTextareaStyles(isDarkMode, 3)}
               />
             </Stack>
           </div>

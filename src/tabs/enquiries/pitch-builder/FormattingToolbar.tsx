@@ -553,7 +553,7 @@ const FormattingToolbar: React.FC<FormattingToolbarProps> = ({
                     transform: 'translate(-50%, -50%) rotate(45deg)',
                     width: '2px',
                     height: '16px',
-                    backgroundColor: '#f44336'
+                    backgroundColor: colours.cta
                   }} />
                 )}
               </button>
