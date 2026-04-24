@@ -1,0 +1,694 @@
+
+> teamhub@0.1.0 dev:fast
+> node tools/dev-fast.mjs
+
+[33m[dev:all][0m writing logs to logs\dev-all\2026-04-21T04-11-33-893Z
+[33m[dev:all][0m backend spawned — waiting for port 8080 before starting frontend…
+[2m+   361ms[0m [36m[backend][0m > teamhub@0.1.0 start:server:watch
+[2m+   392ms[0m [36m[backend][0m > nodemon --watch server --ext js,ts,json --exec node server/index.js
+[2m+  2309ms[0m [36m[backend][0m [nodemon] 3.1.10
+[2m+  2336ms[0m [36m[backend][0m [nodemon] to restart at any time, enter `rs`
+[2m+  2381ms[0m [36m[backend][0m [nodemon] watching path(s): server\**\*
+[2m+  2413ms[0m [36m[backend][0m [nodemon] watching extensions: js,ts,json
+[2m+  2447ms[0m [36m[backend][0m [nodemon] starting `node server/index.js`
+[2m+  2462ms[0m [36m[backend][0m [AppInsights] No connection string — telemetry disabled (local dev)
+[33m[dev:all][0m backend ready on port 8080 (+5689ms) — starting frontend
+[33m[dev:all][0m frontend spawned — webpack compiling (this takes ~60-90s)…
+[2m+  6028ms[0m [35m[frontend][0m > teamhub@0.1.0 start:dev
+[2m+  6029ms[0m [35m[frontend][0m > craco start
+[2m+  7015ms[0m [36m[backend][0m [Secrets] SQL_CONNECTION_STRING resolved via Key Vault
+[2m+  7017ms[0m [36m[backend][0m [Secrets] INSTRUCTIONS_SQL_CONNECTION_STRING resolved via Key Vault
+[2m+  7034ms[0m [36m[backend][0m ──────────────────────────────────────────────────────────
+[2m+  7035ms[0m [36m[backend][0m HELIX HUB  dev server
+[2m+  7036ms[0m [36m[backend][0m ──────────────────────────────────────────────────────────
+[2m+  7037ms[0m [36m[backend][0m Port            8080
+[2m+  7038ms[0m [36m[backend][0m Redis           ● connecting...
+[2m+  7089ms[0m [36m[backend][0m Core SQL        ● connecting...
+[2m+  7090ms[0m [36m[backend][0m Instructions SQL ● connecting...
+[2m+  7093ms[0m [36m[backend][0m Clio creds      ● warming...
+[2m+  7094ms[0m [36m[backend][0m Scheduler       ● off
+[2m+  7095ms[0m [36m[backend][0m Event poller    ● polling (skipped (HELIX_LAZY_INIT)s)
+[2m+  7097ms[0m [36m[backend][0m ──────────────────────────────────────────────────────────
+[2m+  7098ms[0m [36m[backend][0m Source badges:  MEM  memory   RDS  redis   SQL  sql   CLO  clio
+[2m+  7099ms[0m [36m[backend][0m Timing: < 200ms < 1s < 3s > 3s
+[2m+  7101ms[0m [36m[backend][0m Telemetry + static assets hidden. Set LOG_LEVEL=debug for all.
+[2m+  7102ms[0m [36m[backend][0m ──────────────────────────────────────────────────────────
+[2m+  7742ms[0m [36m[backend][0m [status] Instructions SQL ● pool ready
+[2m+  7775ms[0m [36m[backend][0m [status] Core SQL ● pool ready
+[2m+  8438ms[0m [36m[backend][0m [status] Redis ● connected
+[2m+  8485ms[0m [36m[backend][0m [status] Clio creds ● pre-warmed
+[2m+ 43292ms[0m [35m[frontend][0m [HPM] Proxy created: /  -> http://localhost:8080
+[2m+ 43293ms[0m [35m[frontend][0m [HPM] Proxy created: /  -> http://localhost:8080
+[35m[dev:all][0m frontend ready on port 3000 (+43582ms) — open http://localhost:3000
+[2m+ 44401ms[0m [35m[frontend][0m Starting the development server...
+[2m+ 44528ms[0m [36m[backend][0m 1 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 85ms
+[2m+ 44540ms[0m [36m[backend][0m 2 GET  /api/enquiries-unified/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+ 46998ms[0m [36m[backend][0m 3 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 2ms
+[2m+ 49994ms[0m [36m[backend][0m 4 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+ 52973ms[0m [36m[backend][0m 5 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+ 54117ms[0m [35m[frontend][0m Compiled successfully!
+[2m+ 54118ms[0m [35m[frontend][0m You can now view teamhub in the browser.
+[2m+ 54119ms[0m [35m[frontend][0m Local:            http://localhost:3000
+[2m+ 54119ms[0m [35m[frontend][0m On Your Network:  http://192.168.50.179:3000
+[2m+ 54120ms[0m [35m[frontend][0m Note that the development build is not optimized.
+[2m+ 54120ms[0m [35m[frontend][0m To create a production build, use npm run build.
+[2m+ 54130ms[0m [35m[frontend][0m webpack compiled successfully
+[2m+ 54515ms[0m [35m[frontend][0m Compiling...
+[2m+ 58548ms[0m [36m[backend][0m 6 200 GET  /process-hub/submissions?limit=5 810ms
+[2m+ 58793ms[0m [36m[backend][0m 7 200 GET  /activity-feed?limit=30 219ms
+[2m+ 68722ms[0m [36m[backend][0m 8 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+ 68724ms[0m [36m[backend][0m 9 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+ 68725ms[0m [36m[backend][0m 10 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+ 68727ms[0m [36m[backend][0m 11 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+ 68729ms[0m [36m[backend][0m 12 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+ 69405ms[0m [35m[frontend][0m Compiled successfully!
+[2m+ 69409ms[0m [35m[frontend][0m webpack compiled successfully
+[2m+ 70659ms[0m [36m[backend][0m 13 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+ 73961ms[0m [36m[backend][0m 14 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+ 76966ms[0m [36m[backend][0m 15 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+ 79975ms[0m [36m[backend][0m 16 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+ 82974ms[0m [36m[backend][0m 17 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+ 85966ms[0m [36m[backend][0m 18 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+ 88973ms[0m [36m[backend][0m 19 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+ 91987ms[0m [36m[backend][0m 20 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+ 94962ms[0m [36m[backend][0m 21 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+ 97980ms[0m [36m[backend][0m 22 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+100962ms[0m [36m[backend][0m 23 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+103962ms[0m [36m[backend][0m 24 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+106963ms[0m [36m[backend][0m 25 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+109969ms[0m [36m[backend][0m 26 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+112964ms[0m [36m[backend][0m 27 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+115978ms[0m [36m[backend][0m 28 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+118962ms[0m [36m[backend][0m 29 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+121962ms[0m [36m[backend][0m 30 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+124977ms[0m [36m[backend][0m 31 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+127968ms[0m [36m[backend][0m 32 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+130976ms[0m [36m[backend][0m 33 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+133965ms[0m [36m[backend][0m 34 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+136974ms[0m [36m[backend][0m 35 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+139968ms[0m [36m[backend][0m 36 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+142966ms[0m [36m[backend][0m 37 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+145971ms[0m [36m[backend][0m 38 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+148965ms[0m [36m[backend][0m 39 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+151972ms[0m [36m[backend][0m 40 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+154967ms[0m [36m[backend][0m 41 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+157973ms[0m [36m[backend][0m 42 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+160963ms[0m [36m[backend][0m 43 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+163971ms[0m [36m[backend][0m 44 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+166968ms[0m [36m[backend][0m 45 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+169972ms[0m [36m[backend][0m 46 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+172962ms[0m [36m[backend][0m 47 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+175965ms[0m [36m[backend][0m 48 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+178965ms[0m [36m[backend][0m 49 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+181970ms[0m [36m[backend][0m 50 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+184969ms[0m [36m[backend][0m 51 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 2ms
+[2m+187973ms[0m [36m[backend][0m 52 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+190969ms[0m [36m[backend][0m 53 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+193963ms[0m [36m[backend][0m 54 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+196969ms[0m [36m[backend][0m 55 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+199973ms[0m [36m[backend][0m 56 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+202978ms[0m [36m[backend][0m 57 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+205973ms[0m [36m[backend][0m 58 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+208967ms[0m [36m[backend][0m 59 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+211964ms[0m [36m[backend][0m 60 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+214966ms[0m [36m[backend][0m 61 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+217971ms[0m [36m[backend][0m 62 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+220977ms[0m [36m[backend][0m 63 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+223974ms[0m [36m[backend][0m 64 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+226963ms[0m [36m[backend][0m 65 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+229967ms[0m [36m[backend][0m 66 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+232974ms[0m [36m[backend][0m 67 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+235964ms[0m [36m[backend][0m 68 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+238973ms[0m [36m[backend][0m 69 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+241962ms[0m [36m[backend][0m 70 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+244967ms[0m [36m[backend][0m 71 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+247961ms[0m [36m[backend][0m 72 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+250963ms[0m [36m[backend][0m 73 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+253968ms[0m [36m[backend][0m 74 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+256967ms[0m [36m[backend][0m 75 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+259978ms[0m [36m[backend][0m 76 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+262962ms[0m [36m[backend][0m 77 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+265975ms[0m [36m[backend][0m 78 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+268980ms[0m [36m[backend][0m 79 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+271961ms[0m [36m[backend][0m 80 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+274965ms[0m [36m[backend][0m 81 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+277967ms[0m [36m[backend][0m 82 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+280986ms[0m [36m[backend][0m 83 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+283967ms[0m [36m[backend][0m 84 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+286975ms[0m [36m[backend][0m 85 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+289968ms[0m [36m[backend][0m 86 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+292986ms[0m [36m[backend][0m 87 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+295965ms[0m [36m[backend][0m 88 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+298964ms[0m [36m[backend][0m 89 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+301974ms[0m [36m[backend][0m 90 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+304973ms[0m [36m[backend][0m 91 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+307980ms[0m [36m[backend][0m 92 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+310973ms[0m [36m[backend][0m 93 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+313972ms[0m [36m[backend][0m 94 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+316975ms[0m [36m[backend][0m 95 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+319962ms[0m [36m[backend][0m 96 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+322963ms[0m [36m[backend][0m 97 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+325970ms[0m [36m[backend][0m 98 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+328958ms[0m [36m[backend][0m 99 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+331964ms[0m [36m[backend][0m 100 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+334962ms[0m [36m[backend][0m 101 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+337963ms[0m [36m[backend][0m 102 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+340969ms[0m [36m[backend][0m 103 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+343972ms[0m [36m[backend][0m 104 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+346975ms[0m [36m[backend][0m 105 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+349975ms[0m [36m[backend][0m 106 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+352962ms[0m [36m[backend][0m 107 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+355970ms[0m [36m[backend][0m 108 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+358973ms[0m [36m[backend][0m 109 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+361965ms[0m [36m[backend][0m 110 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+364972ms[0m [36m[backend][0m 111 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+367969ms[0m [36m[backend][0m 112 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+370968ms[0m [36m[backend][0m 113 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+373963ms[0m [36m[backend][0m 114 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+376975ms[0m [36m[backend][0m 115 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+379978ms[0m [36m[backend][0m 116 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+382977ms[0m [36m[backend][0m 117 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+385966ms[0m [36m[backend][0m 118 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+388975ms[0m [36m[backend][0m 119 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+391971ms[0m [36m[backend][0m 120 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+394977ms[0m [36m[backend][0m 121 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+397968ms[0m [36m[backend][0m 122 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+400974ms[0m [36m[backend][0m 123 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+403977ms[0m [36m[backend][0m 124 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+406966ms[0m [36m[backend][0m 125 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+409977ms[0m [36m[backend][0m 126 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+412974ms[0m [36m[backend][0m 127 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+415966ms[0m [36m[backend][0m 128 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+418961ms[0m [36m[backend][0m 129 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+421980ms[0m [36m[backend][0m 130 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+423442ms[0m [36m[backend][0m 131 200 GET  /dev/health 1ms
+[2m+424067ms[0m [36m[backend][0m 132 200 GET  /health 1ms
+[2m+424070ms[0m [36m[backend][0m 133 GET  /api/enquiries-unified/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+424780ms[0m [36m[backend][0m 135 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+425205ms[0m [36m[backend][0m 134 200 GET  /enquiries-unified?email=lz%40helix-law.com&initials=lz&dateFrom=2025-03-31&dateTo=2026-04-21&includeTeamInbox=true&bypassCache=true&fetchAll=true&limit=999999&sourcePolicy=operational&sourceBias=new-only&processingApproach=area-personalised&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1.1s  SQL  bypass-cache
+[2m+425980ms[0m [36m[backend][0m [RecoveredFees] Firm-wide query (no user filter)
+[2m+425981ms[0m [36m[backend][0m [RecoveredFees] Date ranges: Current=2026-04-01 to 2026-04-30, Prev=2026-03-01 to 2026-03-31
+[2m+426155ms[0m [36m[backend][0m [RecoveredFees] Results (FIRM): Current=82620.58999999968 (0h), Previous=389681.10999999987 (0h)
+[2m+426465ms[0m [36m[backend][0m 137 200 GET  /reporting/management-datasets?datasets=recoveredFeesSummary&firm=true&clioId=141740&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c&email=lz%40helix-law.com&initials=LZ 528ms  SQL  recoveredFeesSummary fresh
+[2m+426507ms[0m [36m[backend][0m 140 200 POST /ccl/batch-status 350ms
+[2m+426524ms[0m [36m[backend][0m 136 200 GET  /ccl/DEMO-3311402?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 635ms
+[2m+427321ms[0m [36m[backend][0m 142 200 GET  /home-enquiries?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 487ms  SQL  fresh from 2 DBs
+[2m+427359ms[0m [36m[backend][0m 139 200 POST /attendance/getAnnualLeave?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1.3s
+[2m+427413ms[0m [36m[backend][0m 138 200 POST /attendance/getAttendance?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1.5s
+[2m+427822ms[0m [36m[backend][0m 143 200 GET  /matters-new-space?limit=50&email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 192ms  RDS  50 new-space matters (limit=50)
+[2m+428228ms[0m [36m[backend][0m 145 200 POST /ccl/batch-status 290ms
+[2m+428961ms[0m [36m[backend][0m 147 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+429021ms[0m [36m[backend][0m 146 200 GET  /matters-new-space?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 260ms  RDS  new-space matters
+[2m+429342ms[0m [36m[backend][0m 144 200 GET  /doc-workspace/pending-actions?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1.7s  SQL  3 actions from blob scan
+[2m+430431ms[0m [36m[backend][0m 141 200 GET  /home-wip/team?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 3.7s  CLO  team aggregate: 32/32 members
+[2m+430595ms[0m [36m[backend][0m 149 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+431005ms[0m [36m[backend][0m 148 200 POST /home-enquiries/pitch-lookup?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1.7s [live] pitch-lookup pids=3430 emails=1566
+[2m+431316ms[0m [36m[backend][0m 150 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+431536ms[0m [36m[backend][0m 151 GET  /api/attendance/annual-leave/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+431628ms[0m [36m[backend][0m 152 GET  /api/data-operations/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+431690ms[0m [36m[backend][0m 153 GET  /api/attendance/attendance/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+431848ms[0m [36m[backend][0m 154 GET  /api/future-bookings/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+442075ms[0m [36m[backend][0m 155 200 POST /ccl/batch-status 272ms
+[2m+473451ms[0m [36m[backend][0m 156 GET  /api/outstanding-balances/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+475173ms[0m [36m[backend][0m 157 200 GET  /dev/health 0ms
+[2m+475490ms[0m [36m[backend][0m 158 200 GET  /health 0ms
+[2m+475502ms[0m [36m[backend][0m 159 GET  /api/enquiries-unified/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+476061ms[0m [36m[backend][0m 160 200 GET  /enquiries-unified?email=lz%40helix-law.com&initials=lz&dateFrom=2025-03-31&dateTo=2026-04-21&includeTeamInbox=true&bypassCache=true&fetchAll=true&limit=999999&sourcePolicy=operational&sourceBias=new-only&processingApproach=area-personalised&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 356ms  SQL  bypass-cache
+[2m+476379ms[0m [36m[backend][0m 161 304 GET  /reporting/management-datasets?datasets=recoveredFeesSummary&firm=true&clioId=141740&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c&email=lz%40helix-law.com&initials=LZ 1ms  MEM   (prod: ~1-3s from Redis/SQL) TTL 70s remaining
+[2m+476424ms[0m [36m[backend][0m 162 200 POST /attendance/getAttendance?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 42ms
+[2m+476648ms[0m [36m[backend][0m 163 200 POST /attendance/getAnnualLeave?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 48ms
+[2m+476743ms[0m [36m[backend][0m 167 200 GET  /doc-workspace/pending-actions?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms  MEM   (prod: ~1-3s from Redis/SQL) 3 actions, TTL 131s
+[2m+476783ms[0m [36m[backend][0m 164 200 GET  /home-wip/team?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 86ms  RDS   (prod: similar — Redis cache) team aggregate, TTL 120s
+[2m+476785ms[0m [36m[backend][0m 165 200 GET  /home-enquiries?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 86ms  RDS   (prod: similar — Redis cache) summary TTL 60s
+[2m+476787ms[0m [36m[backend][0m 166 304 GET  /matters-new-space?limit=50&email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 88ms  RDS   (prod: similar — Redis cache) 50 new-space matters (limit=50)
+[2m+477891ms[0m [36m[backend][0m 168 GET  /api/attendance/annual-leave/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+477986ms[0m [36m[backend][0m 169 GET  /api/data-operations/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+478035ms[0m [36m[backend][0m 170 GET  /api/attendance/attendance/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+478048ms[0m [36m[backend][0m 171 GET  /api/future-bookings/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+478048ms[0m [36m[backend][0m 172 GET  /api/outstanding-balances/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+596401ms[0m [36m[backend][0m 173 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+597457ms[0m [36m[backend][0m 174 200 GET  /dev/health 1ms
+[2m+597781ms[0m [36m[backend][0m 175 200 GET  /health 1ms
+[2m+597825ms[0m [36m[backend][0m 176 GET  /api/enquiries-unified/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+598302ms[0m [36m[backend][0m 177 200 GET  /enquiries-unified?email=lz%40helix-law.com&initials=lz&dateFrom=2025-03-31&dateTo=2026-04-21&includeTeamInbox=true&bypassCache=true&fetchAll=true&limit=999999&sourcePolicy=operational&sourceBias=new-only&processingApproach=area-personalised&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 301ms  SQL  bypass-cache
+[2m+598681ms[0m [36m[backend][0m [RecoveredFees] Firm-wide query (no user filter)
+[2m+598683ms[0m [36m[backend][0m [RecoveredFees] Date ranges: Current=2026-04-01 to 2026-04-30, Prev=2026-03-01 to 2026-03-31
+[2m+598685ms[0m [36m[backend][0m 179 200 POST /attendance/getAttendance?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 45ms
+[2m+598771ms[0m [36m[backend][0m [RecoveredFees] Results (FIRM): Current=82620.58999999968 (0h), Previous=389681.10999999987 (0h)
+[2m+598839ms[0m [36m[backend][0m 180 200 POST /attendance/getAnnualLeave?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 47ms
+[2m+598947ms[0m [36m[backend][0m 178 304 GET  /reporting/management-datasets?datasets=recoveredFeesSummary&firm=true&clioId=141740&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c&email=lz%40helix-law.com&initials=LZ 308ms  SQL  recoveredFeesSummary fresh
+[2m+598991ms[0m [36m[backend][0m 181 200 GET  /home-wip/team?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 58ms  OLD  team aggregate stale 169s, background refresh
+[2m+599036ms[0m [36m[backend][0m 183 304 GET  /matters-new-space?limit=50&email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 41ms  RDS   (prod: similar — Redis cache) 50 new-space matters (limit=50)
+[2m+599152ms[0m [36m[backend][0m 184 200 GET  /doc-workspace/pending-actions?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms  MEM   (prod: ~1-3s from Redis/SQL) 3 actions, TTL 9s
+[2m+599179ms[0m [36m[backend][0m 182 200 GET  /home-enquiries?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 231ms  SQL  fresh from 2 DBs
+[2m+600082ms[0m [36m[backend][0m 185 200 GET  /matters-new-space?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms  OLD  new-space stale - refreshing in background
+[2m+600190ms[0m [36m[backend][0m 186 GET  /api/attendance/annual-leave/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+600240ms[0m [36m[backend][0m 187 GET  /api/data-operations/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+600284ms[0m [36m[backend][0m 188 GET  /api/attendance/attendance/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+600391ms[0m [36m[backend][0m 189 GET  /api/future-bookings/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+600423ms[0m [36m[backend][0m 190 GET  /api/outstanding-balances/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+718601ms[0m [36m[backend][0m 191 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+719647ms[0m [36m[backend][0m 192 200 GET  /dev/health 0ms
+[2m+719965ms[0m [36m[backend][0m 193 200 GET  /health 0ms
+[2m+719975ms[0m [36m[backend][0m 194 GET  /api/enquiries-unified/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+720286ms[0m [36m[backend][0m [teamData] Summary { active: 20, inactive: 12 }
+[2m+720287ms[0m [36m[backend][0m 195 304 GET  /team-data?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 86ms  SQL  20 active, 12 inactive
+[2m+720865ms[0m [36m[backend][0m [RecoveredFees] Firm-wide query (no user filter)
+[2m+720866ms[0m [36m[backend][0m [RecoveredFees] Date ranges: Current=2026-04-01 to 2026-04-30, Prev=2026-03-01 to 2026-03-31
+[2m+720949ms[0m [36m[backend][0m [RecoveredFees] Results (FIRM): Current=82620.58999999968 (0h), Previous=389681.10999999987 (0h)
+[2m+721011ms[0m [36m[backend][0m 198 200 POST /attendance/getAttendance?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 41ms
+[2m+721129ms[0m [36m[backend][0m 197 304 GET  /reporting/management-datasets?datasets=recoveredFeesSummary&firm=true&clioId=141740&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c&email=lz%40helix-law.com&initials=LZ 307ms  SQL  recoveredFeesSummary fresh
+[2m+721179ms[0m [36m[backend][0m 199 200 POST /attendance/getAnnualLeave?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 53ms
+[2m+721196ms[0m [36m[backend][0m 200 304 GET  /home-wip/team?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 70ms  OLD  team aggregate stale 120s, background refresh
+[2m+721355ms[0m [36m[backend][0m 196 200 GET  /enquiries-unified?email=lz%40helix-law.com&initials=lz&dateFrom=2025-03-31&dateTo=2026-04-21&includeTeamInbox=true&bypassCache=true&fetchAll=true&limit=999999&sourcePolicy=operational&sourceBias=new-only&processingApproach=area-personalised&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 846ms  SQL  bypass-cache
+[2m+721510ms[0m [36m[backend][0m 202 304 GET  /matters-new-space?limit=50&email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 48ms  RDS   (prod: similar — Redis cache) 50 new-space matters (limit=50)
+[2m+721609ms[0m [36m[backend][0m 201 304 GET  /home-enquiries?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 253ms  SQL  fresh from 2 DBs
+[2m+721889ms[0m [36m[backend][0m 203 200 GET  /doc-workspace/pending-actions?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 386ms  SQL  3 actions from blob scan
+[2m+722230ms[0m [36m[backend][0m 204 GET  /api/attendance/annual-leave/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+722355ms[0m [36m[backend][0m 205 GET  /api/data-operations/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+722450ms[0m [36m[backend][0m 206 GET  /api/attendance/attendance/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+722451ms[0m [36m[backend][0m 207 GET  /api/future-bookings/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+722512ms[0m [36m[backend][0m 208 GET  /api/outstanding-balances/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+842198ms[0m [36m[backend][0m 209 200 GET  /dev/health 0ms
+[2m+842529ms[0m [36m[backend][0m 210 200 GET  /health 1ms
+[2m+842532ms[0m [36m[backend][0m 211 GET  /api/enquiries-unified/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+843048ms[0m [36m[backend][0m 212 200 GET  /enquiries-unified?email=lz%40helix-law.com&initials=lz&dateFrom=2025-03-31&dateTo=2026-04-21&includeTeamInbox=true&bypassCache=true&fetchAll=true&limit=999999&sourcePolicy=operational&sourceBias=new-only&processingApproach=area-personalised&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 305ms  SQL  bypass-cache
+[2m+843428ms[0m [36m[backend][0m [RecoveredFees] Firm-wide query (no user filter)
+[2m+843429ms[0m [36m[backend][0m [RecoveredFees] Date ranges: Current=2026-04-01 to 2026-04-30, Prev=2026-03-01 to 2026-03-31
+[2m+843525ms[0m [36m[backend][0m [RecoveredFees] Results (FIRM): Current=82620.58999999968 (0h), Previous=389681.10999999987 (0h)
+[2m+843591ms[0m [36m[backend][0m 215 200 POST /attendance/getAnnualLeave?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 53ms
+[2m+843753ms[0m [36m[backend][0m 216 304 GET  /home-wip/team?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 59ms  OLD  team aggregate stale 120s, background refresh
+[2m+843757ms[0m [36m[backend][0m 213 304 GET  /reporting/management-datasets?datasets=recoveredFeesSummary&firm=true&clioId=141740&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c&email=lz%40helix-law.com&initials=LZ 369ms  SQL  recoveredFeesSummary fresh
+[2m+843798ms[0m [36m[backend][0m 214 200 POST /attendance/getAttendance?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 411ms
+[2m+843949ms[0m [36m[backend][0m 217 304 GET  /home-enquiries?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 255ms  SQL  fresh from 2 DBs
+[2m+843956ms[0m [36m[backend][0m 218 304 GET  /matters-new-space?limit=50&email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 44ms  RDS   (prod: similar — Redis cache) 50 new-space matters (limit=50)
+[2m+844076ms[0m [36m[backend][0m 219 200 GET  /doc-workspace/pending-actions?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms  MEM   (prod: ~1-3s from Redis/SQL) 3 actions, TTL 57s
+[2m+845013ms[0m [36m[backend][0m 220 200 GET  /matters-new-space?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms  OLD  new-space stale - refreshing in background
+[2m+845014ms[0m [36m[backend][0m 221 GET  /api/attendance/annual-leave/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+845043ms[0m [36m[backend][0m 222 GET  /api/data-operations/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+845184ms[0m [36m[backend][0m 223 GET  /api/attendance/attendance/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+845199ms[0m [36m[backend][0m 224 GET  /api/future-bookings/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+845322ms[0m [36m[backend][0m 225 GET  /api/outstanding-balances/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+963509ms[0m [36m[backend][0m 226 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 180ms
+[2m+964550ms[0m [36m[backend][0m 227 200 GET  /dev/health 1ms
+[2m+964869ms[0m [36m[backend][0m 228 200 GET  /health 0ms
+[2m+964882ms[0m [36m[backend][0m 229 GET  /api/enquiries-unified/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+965749ms[0m [36m[backend][0m [RecoveredFees] Firm-wide query (no user filter)
+[2m+965750ms[0m [36m[backend][0m [RecoveredFees] Date ranges: Current=2026-04-01 to 2026-04-30, Prev=2026-03-01 to 2026-03-31
+[2m+965751ms[0m [36m[backend][0m 232 200 POST /attendance/getAttendance?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 42ms
+[2m+965875ms[0m [36m[backend][0m 233 200 POST /attendance/getAnnualLeave?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 47ms
+[2m+965922ms[0m [36m[backend][0m [RecoveredFees] Results (FIRM): Current=82620.58999999968 (0h), Previous=389681.10999999987 (0h)
+[2m+966078ms[0m [36m[backend][0m 234 304 GET  /home-wip/team?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 61ms  OLD  team aggregate stale 120s, background refresh
+[2m+966102ms[0m [36m[backend][0m 231 304 GET  /reporting/management-datasets?datasets=recoveredFeesSummary&firm=true&clioId=141740&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c&email=lz%40helix-law.com&initials=LZ 394ms  SQL  recoveredFeesSummary fresh
+[2m+966230ms[0m [36m[backend][0m 236 304 GET  /matters-new-space?limit=50&email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 40ms  RDS   (prod: similar — Redis cache) 50 new-space matters (limit=50)
+[2m+966420ms[0m [36m[backend][0m 230 200 GET  /enquiries-unified?email=lz%40helix-law.com&initials=lz&dateFrom=2025-03-31&dateTo=2026-04-21&includeTeamInbox=true&bypassCache=true&fetchAll=true&limit=999999&sourcePolicy=operational&sourceBias=new-only&processingApproach=area-personalised&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1.0s  SQL  bypass-cache
+[2m+966467ms[0m [36m[backend][0m 235 304 GET  /home-enquiries?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 401ms  SQL  fresh from 2 DBs
+[2m+966789ms[0m [36m[backend][0m 237 200 GET  /doc-workspace/pending-actions?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 365ms  SQL  3 actions from blob scan
+[2m+967135ms[0m [36m[backend][0m 238 GET  /api/attendance/annual-leave/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+967167ms[0m [36m[backend][0m 239 GET  /api/data-operations/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+967371ms[0m [36m[backend][0m 240 GET  /api/attendance/attendance/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+967419ms[0m [36m[backend][0m 241 GET  /api/future-bookings/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+967420ms[0m [36m[backend][0m 242 GET  /api/outstanding-balances/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+975334ms[0m [35m[frontend][0m Compiling...
+[2m+978026ms[0m [35m[frontend][0m Compiled successfully!
+[2m+978036ms[0m [35m[frontend][0m webpack compiled successfully
+[2m+1088025ms[0m [36m[backend][0m 243 200 GET  /dev/health 1ms
+[2m+1088343ms[0m [36m[backend][0m 244 200 GET  /health 1ms
+[2m+1088353ms[0m [36m[backend][0m 245 GET  /api/enquiries-unified/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1089277ms[0m [36m[backend][0m [RecoveredFees] Firm-wide query (no user filter)
+[2m+1089278ms[0m [36m[backend][0m [RecoveredFees] Date ranges: Current=2026-04-01 to 2026-04-30, Prev=2026-03-01 to 2026-03-31
+[2m+1089295ms[0m [36m[backend][0m 248 200 POST /attendance/getAttendance?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 42ms
+[2m+1089306ms[0m [36m[backend][0m 249 200 POST /attendance/getAnnualLeave?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 51ms
+[2m+1089461ms[0m [36m[backend][0m [RecoveredFees] Results (FIRM): Current=82620.58999999968 (0h), Previous=389681.10999999987 (0h)
+[2m+1089579ms[0m [36m[backend][0m 250 304 GET  /home-wip/team?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 61ms  OLD  team aggregate stale 121s, background refresh
+[2m+1089717ms[0m [36m[backend][0m 247 304 GET  /reporting/management-datasets?datasets=recoveredFeesSummary&firm=true&clioId=141740&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c&email=lz%40helix-law.com&initials=LZ 480ms  SQL  recoveredFeesSummary fresh
+[2m+1089990ms[0m [36m[backend][0m 246 200 GET  /enquiries-unified?email=lz%40helix-law.com&initials=lz&dateFrom=2025-03-31&dateTo=2026-04-21&includeTeamInbox=true&bypassCache=true&fetchAll=true&limit=999999&sourcePolicy=operational&sourceBias=new-only&processingApproach=area-personalised&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1.1s  SQL  bypass-cache
+[2m+1089999ms[0m [36m[backend][0m 253 200 GET  /doc-workspace/pending-actions?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms  MEM   (prod: ~1-3s from Redis/SQL) 3 actions, TTL 56s
+[2m+1090042ms[0m [36m[backend][0m 251 304 GET  /home-enquiries?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 431ms  SQL  fresh from 2 DBs
+[2m+1090110ms[0m [36m[backend][0m 252 304 GET  /matters-new-space?limit=50&email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 483ms  RDS  50 new-space matters (limit=50)
+[2m+1090732ms[0m [36m[backend][0m 254 GET  /api/attendance/annual-leave/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1090764ms[0m [36m[backend][0m 255 GET  /api/data-operations/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1090934ms[0m [36m[backend][0m 256 GET  /api/attendance/attendance/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1090968ms[0m [36m[backend][0m 257 GET  /api/future-bookings/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1090974ms[0m [36m[backend][0m 258 GET  /api/outstanding-balances/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1129228ms[0m [35m[frontend][0m Compiling...
+[2m+1131105ms[0m [35m[frontend][0m Compiled successfully!
+[2m+1131108ms[0m [35m[frontend][0m webpack compiled successfully
+[2m+1131139ms[0m [35m[frontend][0m Compiling...
+[2m+1132045ms[0m [35m[frontend][0m Compiled successfully!
+[2m+1132048ms[0m [35m[frontend][0m webpack compiled successfully
+[2m+1152783ms[0m [36m[backend][0m 259 200 GET  /dev/health 0ms
+[2m+1153396ms[0m [36m[backend][0m 260 200 GET  /health 0ms
+[2m+1153445ms[0m [36m[backend][0m 261 GET  /api/enquiries-unified/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1153958ms[0m [36m[backend][0m [teamData] Summary { active: 20, inactive: 12 }
+[2m+1153960ms[0m [36m[backend][0m 263 304 GET  /team-data?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 93ms  SQL  20 active, 12 inactive
+[2m+1154656ms[0m [36m[backend][0m 262 200 GET  /enquiries-unified?email=lz%40helix-law.com&initials=lz&dateFrom=2025-03-31&dateTo=2026-04-21&includeTeamInbox=true&bypassCache=true&fetchAll=true&limit=999999&sourcePolicy=operational&sourceBias=new-only&processingApproach=area-personalised&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 816ms  SQL  bypass-cache
+[2m+1155186ms[0m [36m[backend][0m 265 304 GET  /reporting/management-datasets?datasets=recoveredFeesSummary&firm=true&clioId=141740&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c&email=lz%40helix-law.com&initials=LZ 0ms  MEM   (prod: ~1-3s from Redis/SQL) TTL 55s remaining
+[2m+1155379ms[0m [36m[backend][0m 267 200 POST /attendance/getAnnualLeave?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 191ms
+[2m+1155442ms[0m [36m[backend][0m 268 200 GET  /home-wip/team?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 67ms  RDS   (prod: similar — Redis cache) team aggregate, TTL 120s
+[2m+1155486ms[0m [36m[backend][0m 266 200 POST /attendance/getAttendance?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 299ms
+[2m+1155701ms[0m [36m[backend][0m 264 304 GET  /ccl/DEMO-3311402?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 517ms
+[2m+1155740ms[0m [36m[backend][0m 270 304 GET  /matters-new-space?limit=50&email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 44ms  RDS   (prod: similar — Redis cache) 50 new-space matters (limit=50)
+[2m+1155763ms[0m [36m[backend][0m 269 304 GET  /home-enquiries?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 268ms  SQL  fresh from 2 DBs
+[2m+1156461ms[0m [36m[backend][0m 271 200 GET  /doc-workspace/pending-actions?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 387ms  SQL  3 actions from blob scan
+[2m+1156677ms[0m [36m[backend][0m 272 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1158559ms[0m [36m[backend][0m 273 200 GET  /matters-new-space?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 2ms  OLD  new-space stale - refreshing in background
+[2m+1158688ms[0m [36m[backend][0m 274 GET  /api/attendance/annual-leave/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1158689ms[0m [36m[backend][0m 275 GET  /api/data-operations/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1158872ms[0m [36m[backend][0m 276 GET  /api/attendance/attendance/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1158900ms[0m [36m[backend][0m 277 GET  /api/future-bookings/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1158903ms[0m [36m[backend][0m 278 GET  /api/outstanding-balances/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1159700ms[0m [36m[backend][0m 279 200 POST /ccl/batch-status 362ms
+[2m+1171034ms[0m [36m[backend][0m 280 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1171651ms[0m [36m[backend][0m 282 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1171652ms[0m [36m[backend][0m 283 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1171653ms[0m [36m[backend][0m 284 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1171835ms[0m [36m[backend][0m 285 304 GET  /reporting/management-datasets?datasets=recoveredFeesSummary&bypassCache=true&firm=true&clioId=141740&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c&email=lz%40helix-law.com&initials=LZ 182ms  SQL  recoveredFeesSummary fresh
+[2m+1171963ms[0m [36m[backend][0m 286 GET  /api/attendance/annual-leave/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1171964ms[0m [36m[backend][0m 287 GET  /api/data-operations/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1171966ms[0m [36m[backend][0m 288 GET  /api/attendance/attendance/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1172148ms[0m [36m[backend][0m 289 GET  /api/future-bookings/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1173115ms[0m [36m[backend][0m 281 200 POST /home-enquiries/pitch-lookup?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1.8s [live] pitch-lookup pids=3430 emails=1566
+[2m+1173425ms[0m [36m[backend][0m 290 GET  /api/outstanding-balances/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1199277ms[0m [36m[backend][0m [nodemon] restarting due to changes...
+[2m+1199400ms[0m [36m[backend][0m [nodemon] restarting due to changes...
+[2m+1200376ms[0m [36m[backend][0m [nodemon] restarting due to changes...
+[2m+1200398ms[0m [36m[backend][0m [nodemon] restarting due to changes...
+[2m+1200422ms[0m [36m[backend][0m [nodemon] restarting due to changes...
+[2m+1200436ms[0m [36m[backend][0m [nodemon] starting `node server/index.js`
+[2m+1200453ms[0m [36m[backend][0m [AppInsights] No connection string — telemetry disabled (local dev)
+[2m+1204331ms[0m [36m[backend][0m [Secrets] SQL_CONNECTION_STRING resolved via Key Vault
+[2m+1204336ms[0m [36m[backend][0m [Secrets] INSTRUCTIONS_SQL_CONNECTION_STRING resolved via Key Vault
+[2m+1204350ms[0m [36m[backend][0m ──────────────────────────────────────────────────────────
+[2m+1204353ms[0m [36m[backend][0m HELIX HUB  dev server
+[2m+1204354ms[0m [36m[backend][0m ──────────────────────────────────────────────────────────
+[2m+1204355ms[0m [36m[backend][0m Port            8080
+[2m+1204356ms[0m [36m[backend][0m Redis           ● connecting...
+[2m+1204357ms[0m [36m[backend][0m Core SQL        ● connecting...
+[2m+1204359ms[0m [36m[backend][0m Instructions SQL ● connecting...
+[2m+1204359ms[0m [36m[backend][0m Clio creds      ● warming...
+[2m+1204360ms[0m [36m[backend][0m Scheduler       ● off
+[2m+1204361ms[0m [36m[backend][0m Event poller    ● polling (skipped (HELIX_LAZY_INIT)s)
+[2m+1204361ms[0m [36m[backend][0m ──────────────────────────────────────────────────────────
+[2m+1204362ms[0m [36m[backend][0m Source badges:  MEM  memory   RDS  redis   SQL  sql   CLO  clio
+[2m+1204362ms[0m [36m[backend][0m Timing: < 200ms < 1s < 3s > 3s
+[2m+1204363ms[0m [36m[backend][0m Telemetry + static assets hidden. Set LOG_LEVEL=debug for all.
+[2m+1204364ms[0m [36m[backend][0m ──────────────────────────────────────────────────────────
+[2m+1205064ms[0m [36m[backend][0m [status] Instructions SQL ● pool ready
+[2m+1205079ms[0m [36m[backend][0m [status] Core SQL ● pool ready
+[2m+1205153ms[0m [36m[backend][0m 1 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 798ms
+[2m+1205250ms[0m [36m[backend][0m 3 GET  /api/enquiries-unified/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1205430ms[0m [36m[backend][0m 2 200 POST /ccl/batch-status 1.1s
+[2m+1205688ms[0m [36m[backend][0m [status] Redis ● connected
+[2m+1205730ms[0m [36m[backend][0m [status] Clio creds ● pre-warmed
+[2m+1207080ms[0m [36m[backend][0m 4 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1210083ms[0m [36m[backend][0m 5 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1213093ms[0m [36m[backend][0m 6 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1216078ms[0m [36m[backend][0m 7 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1219086ms[0m [36m[backend][0m 8 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1222075ms[0m [36m[backend][0m 9 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1225081ms[0m [36m[backend][0m 10 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1228078ms[0m [36m[backend][0m 11 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1231090ms[0m [36m[backend][0m 12 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1234079ms[0m [36m[backend][0m 13 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1237002ms[0m [36m[backend][0m 15 GET  /api/attendance/annual-leave/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1237004ms[0m [36m[backend][0m 16 GET  /api/data-operations/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1237006ms[0m [36m[backend][0m 17 GET  /api/attendance/attendance/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1237007ms[0m [36m[backend][0m 18 GET  /api/future-bookings/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1237010ms[0m [36m[backend][0m [RecoveredFees] Firm-wide query (no user filter)
+[2m+1237011ms[0m [36m[backend][0m [RecoveredFees] Date ranges: Current=2026-04-01 to 2026-04-30, Prev=2026-03-01 to 2026-03-31
+[2m+1237181ms[0m [36m[backend][0m [RecoveredFees] Results (FIRM): Current=82620.58999999968 (0h), Previous=389681.10999999987 (0h)
+[2m+1237387ms[0m [36m[backend][0m 14 200 GET  /reporting/management-datasets?datasets=recoveredFeesSummary&bypassCache=true&firm=true&clioId=141740&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c&email=lz%40helix-law.com&initials=LZ 418ms  SQL  recoveredFeesSummary fresh
+[2m+1237697ms[0m [36m[backend][0m 19 GET  /api/outstanding-balances/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1352030ms[0m [36m[backend][0m 20 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1352348ms[0m [36m[backend][0m 21 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1352350ms[0m [36m[backend][0m 22 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1352352ms[0m [36m[backend][0m 23 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1352353ms[0m [36m[backend][0m 24 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1352667ms[0m [36m[backend][0m 25 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1352669ms[0m [36m[backend][0m 26 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1352672ms[0m [36m[backend][0m 27 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1352674ms[0m [36m[backend][0m 28 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1352675ms[0m [36m[backend][0m 29 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1352975ms[0m [36m[backend][0m 30 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1352976ms[0m [36m[backend][0m 31 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1352980ms[0m [36m[backend][0m 32 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1352981ms[0m [36m[backend][0m 33 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1353286ms[0m [36m[backend][0m 34 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1353289ms[0m [36m[backend][0m 35 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1353292ms[0m [36m[backend][0m 36 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1353296ms[0m [36m[backend][0m 37 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1353299ms[0m [36m[backend][0m 38 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1353609ms[0m [36m[backend][0m 39 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1353611ms[0m [36m[backend][0m 40 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1353612ms[0m [36m[backend][0m 41 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1353614ms[0m [36m[backend][0m 42 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1353616ms[0m [36m[backend][0m 43 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1353927ms[0m [36m[backend][0m 44 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1353929ms[0m [36m[backend][0m 45 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1353932ms[0m [36m[backend][0m 46 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1353933ms[0m [36m[backend][0m 47 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1353935ms[0m [36m[backend][0m 48 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1354253ms[0m [36m[backend][0m 49 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1354255ms[0m [36m[backend][0m 50 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1354258ms[0m [36m[backend][0m 51 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1354261ms[0m [36m[backend][0m 52 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1354575ms[0m [36m[backend][0m 53 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1354577ms[0m [36m[backend][0m 54 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1354579ms[0m [36m[backend][0m 55 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1354580ms[0m [36m[backend][0m 56 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1354583ms[0m [36m[backend][0m 57 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1354885ms[0m [36m[backend][0m 58 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1354891ms[0m [36m[backend][0m 59 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1357459ms[0m [36m[backend][0m 61 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1357461ms[0m [36m[backend][0m 62 GET  /api/attendance/annual-leave/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1357461ms[0m [36m[backend][0m 63 GET  /api/data-operations/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1357463ms[0m [36m[backend][0m 64 GET  /api/attendance/attendance/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1357465ms[0m [36m[backend][0m [RecoveredFees] Firm-wide query (no user filter)
+[2m+1357466ms[0m [36m[backend][0m [RecoveredFees] Date ranges: Current=2026-04-01 to 2026-04-30, Prev=2026-03-01 to 2026-03-31
+[2m+1357552ms[0m [36m[backend][0m [RecoveredFees] Results (FIRM): Current=82620.58999999968 (0h), Previous=389681.10999999987 (0h)
+[2m+1357730ms[0m [36m[backend][0m 60 304 GET  /reporting/management-datasets?datasets=recoveredFeesSummary&bypassCache=true&firm=true&clioId=141740&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c&email=lz%40helix-law.com&initials=LZ 306ms  SQL  recoveredFeesSummary fresh
+[2m+1357764ms[0m [36m[backend][0m 65 GET  /api/future-bookings/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1358044ms[0m [36m[backend][0m 66 GET  /api/outstanding-balances/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1366118ms[0m [36m[backend][0m 67 200 POST /ccl/batch-status 503ms
+[2m+1366140ms[0m [36m[backend][0m 68 200 POST /ccl/batch-status 496ms
+[2m+1368441ms[0m [36m[backend][0m 69 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1368493ms[0m [36m[backend][0m 70 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1368583ms[0m [36m[backend][0m 71 GET  /api/home-metrics/stream?metrics=futureBookings%2CoutstandingBalances&email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1368586ms[0m [36m[backend][0m 72 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1368730ms[0m [36m[backend][0m 73 304 GET  /reporting/management-datasets?datasets=recoveredFeesSummary&bypassCache=true&firm=true&clioId=141740&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c&email=lz%40helix-law.com&initials=LZ 283ms  SQL  recoveredFeesSummary fresh
+[2m+1368750ms[0m [36m[backend][0m 74 GET  /api/attendance/annual-leave/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1368751ms[0m [36m[backend][0m 75 GET  /api/data-operations/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1368752ms[0m [36m[backend][0m 76 GET  /api/attendance/attendance/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1369034ms[0m [36m[backend][0m 77 GET  /api/future-bookings/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1369814ms[0m [36m[backend][0m 78 GET  /api/outstanding-balances/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1395209ms[0m [36m[backend][0m 79 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1395211ms[0m [36m[backend][0m 82 GET  /api/data-operations/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1395211ms[0m [36m[backend][0m 83 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1395519ms[0m [36m[backend][0m 84 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1395521ms[0m [36m[backend][0m 85 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1395827ms[0m [36m[backend][0m 86 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1395828ms[0m [36m[backend][0m 87 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1396132ms[0m [36m[backend][0m 88 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1396135ms[0m [36m[backend][0m 89 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1396440ms[0m [36m[backend][0m 90 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1396749ms[0m [36m[backend][0m 91 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1397506ms[0m [36m[backend][0m 80 200 GET  /home-journey?initials=LZ&limit=100&scope=all&email=lz%40helix-law.com&sources=activities&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 2.3s
+[2m+1398773ms[0m [36m[backend][0m 81 200 GET  /home-journey?initials=LZ&limit=100&scope=all&email=lz%40helix-law.com&sources=calls%2Cnotes%2Cemails&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 3.6s
+[2m+1399523ms[0m [36m[backend][0m 92 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1402511ms[0m [36m[backend][0m 93 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1405512ms[0m [36m[backend][0m 94 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1408522ms[0m [36m[backend][0m 95 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1411511ms[0m [36m[backend][0m 96 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1414526ms[0m [36m[backend][0m 97 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1417520ms[0m [36m[backend][0m 98 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1420533ms[0m [36m[backend][0m 99 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1423532ms[0m [36m[backend][0m 100 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1426522ms[0m [36m[backend][0m 101 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1429511ms[0m [36m[backend][0m 102 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1432514ms[0m [36m[backend][0m 103 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1435514ms[0m [36m[backend][0m 104 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1438511ms[0m [36m[backend][0m 105 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1441516ms[0m [36m[backend][0m 106 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1444526ms[0m [36m[backend][0m 107 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1447529ms[0m [36m[backend][0m 108 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1450506ms[0m [36m[backend][0m 109 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1453512ms[0m [36m[backend][0m 110 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1460519ms[0m [36m[backend][0m 111 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1520516ms[0m [36m[backend][0m 112 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1534769ms[0m [36m[backend][0m [RecoveredFees] Firm-wide query (no user filter)
+[2m+1534773ms[0m [36m[backend][0m [RecoveredFees] Date ranges: Current=2026-04-01 to 2026-04-30, Prev=2026-03-01 to 2026-03-31
+[2m+1534853ms[0m [36m[backend][0m [RecoveredFees] Results (FIRM): Current=82620.58999999968 (0h), Previous=389681.10999999987 (0h)
+[2m+1534928ms[0m [36m[backend][0m 115 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1534982ms[0m [36m[backend][0m 116 GET  /api/attendance/annual-leave/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1535140ms[0m [36m[backend][0m 113 304 GET  /reporting/management-datasets?datasets=recoveredFeesSummary&bypassCache=true&firm=true&clioId=141740&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c&email=lz%40helix-law.com&initials=LZ 413ms  SQL  recoveredFeesSummary fresh
+[2m+1535238ms[0m [36m[backend][0m 117 GET  /api/data-operations/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1535454ms[0m [36m[backend][0m 118 GET  /api/attendance/attendance/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1535521ms[0m [36m[backend][0m 114 200 GET  /home-journey?initials=LZ&limit=100&scope=all&email=lz%40helix-law.com&since=1776678630000&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 671ms
+[2m+1535836ms[0m [36m[backend][0m 119 GET  /api/future-bookings/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1542659ms[0m [36m[backend][0m 120 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1542661ms[0m [36m[backend][0m 121 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1542687ms[0m [36m[backend][0m 124 GET  /api/attendance/annual-leave/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1542802ms[0m [36m[backend][0m 123 304 GET  /home-journey?initials=LZ&limit=100&scope=all&email=lz%40helix-law.com&since=1776678630000&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 138ms
+[2m+1542860ms[0m [36m[backend][0m 122 304 GET  /reporting/management-datasets?datasets=recoveredFeesSummary&bypassCache=true&firm=true&clioId=141740&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c&email=lz%40helix-law.com&initials=LZ 197ms  SQL  recoveredFeesSummary fresh
+[2m+1542966ms[0m [36m[backend][0m 125 GET  /api/data-operations/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1542967ms[0m [36m[backend][0m 126 GET  /api/attendance/attendance/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1543108ms[0m [36m[backend][0m 127 GET  /api/future-bookings/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1543169ms[0m [36m[backend][0m 128 GET  /api/outstanding-balances/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1544983ms[0m [36m[backend][0m 130 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1545019ms[0m [36m[backend][0m 131 GET  /api/data-operations/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1545487ms[0m [36m[backend][0m 129 200 GET  /home-journey?initials=LZ&limit=80&scope=all&email=lz%40helix-law.com&since=1776678630000&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 506ms
+[2m+1546519ms[0m [36m[backend][0m 132 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1549509ms[0m [36m[backend][0m 133 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1552517ms[0m [36m[backend][0m 134 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1555516ms[0m [36m[backend][0m 135 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1558519ms[0m [36m[backend][0m 136 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1560199ms[0m [36m[backend][0m 138 GET  /api/attendance/annual-leave/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1560259ms[0m [36m[backend][0m 139 GET  /api/matters/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1560354ms[0m [36m[backend][0m 137 304 GET  /reporting/management-datasets?datasets=recoveredFeesSummary&bypassCache=true&firm=true&clioId=141740&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c&email=lz%40helix-law.com&initials=LZ 182ms  SQL  recoveredFeesSummary fresh
+[2m+1561577ms[0m [36m[backend][0m 140 200 GET  /dev/health 0ms
+[2m+1561588ms[0m [36m[backend][0m 141 200 GET  /health 1ms
+[2m+1562213ms[0m [36m[backend][0m 143 GET  /api/enquiries-unified/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1562811ms[0m [36m[backend][0m 142 200 GET  /enquiries-unified?email=lz%40helix-law.com&initials=lz&dateFrom=2025-03-31&dateTo=2026-04-21&includeTeamInbox=true&bypassCache=true&fetchAll=true&limit=999999&sourcePolicy=operational&sourceBias=new-only&processingApproach=area-personalised&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 906ms  SQL  bypass-cache
+[2m+1563018ms[0m [36m[backend][0m 144 304 GET  /reporting/management-datasets?datasets=recoveredFeesSummary&firm=true&clioId=141740&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c&email=lz%40helix-law.com&initials=LZ 0ms  MEM   (prod: ~1-3s from Redis/SQL) TTL 117s remaining
+[2m+1563184ms[0m [36m[backend][0m 146 200 POST /attendance/getAnnualLeave?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 164ms
+[2m+1563465ms[0m [36m[backend][0m 147 200 GET  /home-wip/team?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 444ms  OLD  team aggregate stale 472s, background refresh
+[2m+1563466ms[0m [36m[backend][0m 145 200 POST /attendance/getAttendance?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 447ms
+[2m+1563495ms[0m [36m[backend][0m 149 304 GET  /matters-new-space?limit=50&email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 74ms  RDS   (prod: similar — Redis cache) 50 new-space matters (limit=50)
+[2m+1563653ms[0m [36m[backend][0m 148 304 GET  /home-enquiries?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 326ms  SQL  fresh from 2 DBs
+[2m+1564919ms[0m [36m[backend][0m 151 GET  /api/attendance/annual-leave/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1565030ms[0m [36m[backend][0m 152 GET  /api/data-operations/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1565071ms[0m [36m[backend][0m 153 GET  /api/attendance/attendance/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1565339ms[0m [36m[backend][0m 154 GET  /api/future-bookings/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1565478ms[0m [36m[backend][0m 150 200 GET  /doc-workspace/pending-actions?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 2.0s  SQL  3 actions from blob scan
+[2m+1565787ms[0m [36m[backend][0m 155 GET  /api/outstanding-balances/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1597687ms[0m [36m[backend][0m 156 GET  /api/home-metrics/stream?metrics=futureBookings%2CoutstandingBalances&email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1597688ms[0m [36m[backend][0m 157 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1598014ms[0m [36m[backend][0m 158 200 GET  /matters-new-space?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 220ms  RDS  new-space matters
+[2m+1598314ms[0m [36m[backend][0m 159 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1598316ms[0m [36m[backend][0m 160 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1598327ms[0m [36m[backend][0m 161 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1598631ms[0m [36m[backend][0m 162 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1598632ms[0m [36m[backend][0m 163 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1598634ms[0m [36m[backend][0m 164 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1598639ms[0m [36m[backend][0m 165 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1598642ms[0m [36m[backend][0m 166 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1598963ms[0m [36m[backend][0m 167 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1598966ms[0m [36m[backend][0m 168 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1598968ms[0m [36m[backend][0m 169 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1599287ms[0m [36m[backend][0m 171 GET  /api/attendance/annual-leave/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1599290ms[0m [36m[backend][0m 172 GET  /api/data-operations/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1599292ms[0m [36m[backend][0m 173 GET  /api/attendance/attendance/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1599478ms[0m [36m[backend][0m 170 200 GET  /reporting/management-datasets?datasets=recoveredFeesSummary&bypassCache=true&firm=true&clioId=141740&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c&email=lz%40helix-law.com&initials=LZ 193ms  SQL  recoveredFeesSummary fresh
+[2m+1599599ms[0m [36m[backend][0m 174 GET  /api/future-bookings/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1599794ms[0m [36m[backend][0m 175 GET  /api/outstanding-balances/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1683071ms[0m [36m[backend][0m 176 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1683081ms[0m [36m[backend][0m 177 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1683083ms[0m [36m[backend][0m 178 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms
+[2m+1683085ms[0m [36m[backend][0m 179 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1683086ms[0m [36m[backend][0m 180 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1685201ms[0m [36m[backend][0m 181 200 GET  /dev/health 0ms
+[2m+1685825ms[0m [36m[backend][0m 182 200 GET  /health 0ms
+[2m+1685833ms[0m [36m[backend][0m 183 GET  /api/enquiries-unified/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1686481ms[0m [36m[backend][0m 184 200 GET  /enquiries-unified?email=lz%40helix-law.com&initials=lz&dateFrom=2025-03-31&dateTo=2026-04-21&includeTeamInbox=true&bypassCache=true&fetchAll=true&limit=999999&sourcePolicy=operational&sourceBias=new-only&processingApproach=area-personalised&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 360ms  SQL  bypass-cache
+[2m+1687329ms[0m [36m[backend][0m 185 304 GET  /reporting/management-datasets?datasets=recoveredFeesSummary&firm=true&clioId=141740&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c&email=lz%40helix-law.com&initials=LZ 0ms  MEM   (prod: ~1-3s from Redis/SQL) TTL 32s remaining
+[2m+1687514ms[0m [36m[backend][0m 186 200 POST /attendance/getAttendance?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 44ms
+[2m+1687557ms[0m [36m[backend][0m 187 200 POST /attendance/getAnnualLeave?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 86ms
+[2m+1687615ms[0m [36m[backend][0m 188 304 GET  /home-wip/team?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 144ms  OLD  team aggregate stale 122s, background refresh
+[2m+1687683ms[0m [36m[backend][0m 190 304 GET  /matters-new-space?limit=50&email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 42ms  RDS   (prod: similar — Redis cache) 50 new-space matters (limit=50)
+[2m+1687807ms[0m [36m[backend][0m 189 304 GET  /home-enquiries?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 335ms  SQL  fresh from 2 DBs
+[2m+1688200ms[0m [36m[backend][0m 191 200 GET  /doc-workspace/pending-actions?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 1ms  MEM   (prod: ~1-3s from Redis/SQL) 3 actions, TTL 55s
+[2m+1688562ms[0m [36m[backend][0m 192 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+1689124ms[0m [36m[backend][0m 193 GET  /api/attendance/annual-leave/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1689125ms[0m [36m[backend][0m 194 GET  /api/data-operations/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1689126ms[0m [36m[backend][0m 195 GET  /api/attendance/attendance/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1689126ms[0m [36m[backend][0m 196 GET  /api/future-bookings/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1689425ms[0m [36m[backend][0m 198 GET  /api/outstanding-balances/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+1689899ms[0m [36m[backend][0m 197 200 POST /ccl/batch-status 562ms
+[2m+2060994ms[0m [36m[backend][0m 199 200 GET  /dev/health 0ms
+[2m+2061620ms[0m [36m[backend][0m 200 200 GET  /health 0ms
+[2m+2061621ms[0m [36m[backend][0m 201 GET  /api/enquiries-unified/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+2062176ms[0m [36m[backend][0m [teamData] Summary { active: 20, inactive: 12 }
+[2m+2062177ms[0m [36m[backend][0m 203 304 GET  /team-data?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 84ms  SQL  20 active, 12 inactive
+[2m+2062565ms[0m [36m[backend][0m 202 200 GET  /enquiries-unified?email=lz%40helix-law.com&initials=lz&dateFrom=2025-03-31&dateTo=2026-04-21&includeTeamInbox=true&bypassCache=true&fetchAll=true&limit=999999&sourcePolicy=operational&sourceBias=new-only&processingApproach=area-personalised&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 633ms  SQL  bypass-cache
+[2m+2063098ms[0m [36m[backend][0m [RecoveredFees] Firm-wide query (no user filter)
+[2m+2063099ms[0m [36m[backend][0m [RecoveredFees] Date ranges: Current=2026-04-01 to 2026-04-30, Prev=2026-03-01 to 2026-03-31
+[2m+2063106ms[0m [36m[backend][0m 206 200 POST /attendance/getAnnualLeave?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 50ms
+[2m+2063183ms[0m [36m[backend][0m [RecoveredFees] Results (FIRM): Current=82620.58999999968 (0h), Previous=389681.10999999987 (0h)
+[2m+2063212ms[0m [36m[backend][0m 207 304 GET  /home-wip/team?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 88ms  OLD  team aggregate stale 374s, background refresh
+[2m+2063319ms[0m [36m[backend][0m 205 200 POST /attendance/getAttendance?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 263ms
+[2m+2063762ms[0m [36m[backend][0m 204 304 GET  /reporting/management-datasets?datasets=recoveredFeesSummary&firm=true&clioId=141740&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c&email=lz%40helix-law.com&initials=LZ 707ms  SQL  recoveredFeesSummary fresh
+[2m+2063998ms[0m [36m[backend][0m 208 304 GET  /home-enquiries?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 256ms  SQL  fresh from 2 DBs
+[2m+2064053ms[0m [36m[backend][0m 209 304 GET  /matters-new-space?limit=50&email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 290ms  RDS  50 new-space matters (limit=50)
+[2m+2064127ms[0m [36m[backend][0m 210 200 GET  /doc-workspace/pending-actions?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 363ms  SQL  3 actions from blob scan
+[2m+2064931ms[0m [36m[backend][0m 211 GET  /api/attendance/annual-leave/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+2064992ms[0m [36m[backend][0m 212 GET  /api/data-operations/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+2065008ms[0m [36m[backend][0m 213 GET  /api/attendance/attendance/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+2065009ms[0m [36m[backend][0m 214 GET  /api/future-bookings/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+2065056ms[0m [36m[backend][0m 215 GET  /api/outstanding-balances/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+2183134ms[0m [36m[backend][0m 216 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 84ms
+[2m+2186370ms[0m [36m[backend][0m 217 200 GET  /dev/health 0ms
+[2m+2186993ms[0m [36m[backend][0m 218 200 GET  /health 0ms
+[2m+2186994ms[0m [36m[backend][0m 219 GET  /api/enquiries-unified/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+2188087ms[0m [36m[backend][0m 220 200 GET  /enquiries-unified?email=lz%40helix-law.com&initials=lz&dateFrom=2025-03-31&dateTo=2026-04-21&includeTeamInbox=true&bypassCache=true&fetchAll=true&limit=999999&sourcePolicy=operational&sourceBias=new-only&processingApproach=area-personalised&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 907ms  SQL  bypass-cache
+[2m+2188446ms[0m [36m[backend][0m 221 200 POST /attendance/getAttendance?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 42ms
+[2m+2188451ms[0m [36m[backend][0m [RecoveredFees] Firm-wide query (no user filter)
+[2m+2188452ms[0m [36m[backend][0m [RecoveredFees] Date ranges: Current=2026-04-01 to 2026-04-30, Prev=2026-03-01 to 2026-03-31
+[2m+2188459ms[0m [36m[backend][0m 223 200 POST /attendance/getAnnualLeave?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 52ms
+[2m+2188475ms[0m [36m[backend][0m 224 304 GET  /home-wip/team?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 68ms  OLD  team aggregate stale 123s, background refresh
+[2m+2188635ms[0m [36m[backend][0m [RecoveredFees] Results (FIRM): Current=82620.58999999968 (0h), Previous=389681.10999999987 (0h)
+[2m+2188775ms[0m [36m[backend][0m 227 200 GET  /doc-workspace/pending-actions?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms  MEM   (prod: ~1-3s from Redis/SQL) 3 actions, TTL 55s
+[2m+2188802ms[0m [36m[backend][0m 226 304 GET  /matters-new-space?limit=50&email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 42ms  RDS   (prod: similar — Redis cache) 50 new-space matters (limit=50)
+[2m+2188832ms[0m [36m[backend][0m 225 304 GET  /home-enquiries?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 257ms  SQL  fresh from 2 DBs
+[2m+2188842ms[0m [36m[backend][0m 222 304 GET  /reporting/management-datasets?datasets=recoveredFeesSummary&firm=true&clioId=141740&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c&email=lz%40helix-law.com&initials=LZ 437ms  SQL  recoveredFeesSummary fresh
+[2m+2189771ms[0m [36m[backend][0m 228 GET  /api/attendance/annual-leave/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+2189772ms[0m [36m[backend][0m 229 GET  /api/data-operations/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+2190021ms[0m [36m[backend][0m 230 GET  /api/attendance/attendance/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+2190037ms[0m [36m[backend][0m 231 GET  /api/future-bookings/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+2190038ms[0m [36m[backend][0m 232 GET  /api/outstanding-balances/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+2308394ms[0m [36m[backend][0m 233 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+2311590ms[0m [36m[backend][0m 234 200 GET  /dev/health 0ms
+[2m+2312224ms[0m [36m[backend][0m 235 200 GET  /health 0ms
+[2m+2312239ms[0m [36m[backend][0m 236 GET  /api/enquiries-unified/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+2312745ms[0m [36m[backend][0m 237 200 GET  /enquiries-unified?email=lz%40helix-law.com&initials=lz&dateFrom=2025-03-31&dateTo=2026-04-21&includeTeamInbox=true&bypassCache=true&fetchAll=true&limit=999999&sourcePolicy=operational&sourceBias=new-only&processingApproach=area-personalised&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 309ms  SQL  bypass-cache
+[2m+2313769ms[0m [36m[backend][0m 238 200 POST /attendance/getAttendance?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 41ms
+[2m+2314027ms[0m [36m[backend][0m [RecoveredFees] Firm-wide query (no user filter)
+[2m+2314028ms[0m [36m[backend][0m [RecoveredFees] Date ranges: Current=2026-04-01 to 2026-04-30, Prev=2026-03-01 to 2026-03-31
+[2m+2314214ms[0m [36m[backend][0m [RecoveredFees] Results (FIRM): Current=82620.58999999968 (0h), Previous=389681.10999999987 (0h)
+[2m+2314290ms[0m [36m[backend][0m 241 304 GET  /home-wip/team?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 308ms  OLD  team aggregate stale 124s, background refresh
+[2m+2314291ms[0m [36m[backend][0m 243 304 GET  /matters-new-space?limit=50&email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 206ms  RDS  50 new-space matters (limit=50)
+[2m+2314435ms[0m [36m[backend][0m 240 304 GET  /reporting/management-datasets?datasets=recoveredFeesSummary&firm=true&clioId=141740&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c&email=lz%40helix-law.com&initials=LZ 455ms  SQL  recoveredFeesSummary fresh
+[2m+2314476ms[0m [36m[backend][0m 242 304 GET  /home-enquiries?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 494ms  SQL  fresh from 2 DBs
+[2m+2314664ms[0m [36m[backend][0m 239 200 POST /attendance/getAnnualLeave?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 683ms
+[2m+2315366ms[0m [36m[backend][0m 244 200 GET  /doc-workspace/pending-actions?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 376ms  SQL  3 actions from blob scan
+[2m+2315535ms[0m [36m[backend][0m 246 GET  /api/attendance/annual-leave/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+2315673ms[0m [36m[backend][0m 247 GET  /api/data-operations/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+2315674ms[0m [36m[backend][0m 248 GET  /api/attendance/attendance/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+2315677ms[0m [36m[backend][0m 245 200 GET  /matters-new-space?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 268ms  RDS  new-space matters
+[2m+2315846ms[0m [36m[backend][0m 249 GET  /api/future-bookings/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+2315988ms[0m [36m[backend][0m 250 GET  /api/outstanding-balances/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+2433676ms[0m [36m[backend][0m 251 200 GET  /dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms
+[2m+2436907ms[0m [36m[backend][0m 252 200 GET  /dev/health 0ms
+[2m+2437533ms[0m [36m[backend][0m 253 200 GET  /health 1ms
+[2m+2437534ms[0m [36m[backend][0m 254 GET  /api/enquiries-unified/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+2438141ms[0m [36m[backend][0m 255 200 GET  /enquiries-unified?email=lz%40helix-law.com&initials=lz&dateFrom=2025-03-31&dateTo=2026-04-21&includeTeamInbox=true&bypassCache=true&fetchAll=true&limit=999999&sourcePolicy=operational&sourceBias=new-only&processingApproach=area-personalised&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 328ms  SQL  bypass-cache
+[2m+2438921ms[0m [36m[backend][0m [RecoveredFees] Firm-wide query (no user filter)
+[2m+2438922ms[0m [36m[backend][0m [RecoveredFees] Date ranges: Current=2026-04-01 to 2026-04-30, Prev=2026-03-01 to 2026-03-31
+[2m+2439006ms[0m [36m[backend][0m [RecoveredFees] Results (FIRM): Current=82620.58999999968 (0h), Previous=389681.10999999987 (0h)
+[2m+2439116ms[0m [36m[backend][0m 258 200 POST /attendance/getAnnualLeave?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 218ms
+[2m+2439273ms[0m [36m[backend][0m 259 304 GET  /home-wip/team?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 374ms  OLD  team aggregate stale 123s, background refresh
+[2m+2439274ms[0m [36m[backend][0m 257 200 POST /attendance/getAttendance?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 377ms
+[2m+2439426ms[0m [36m[backend][0m 256 304 GET  /reporting/management-datasets?datasets=recoveredFeesSummary&firm=true&clioId=141740&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c&email=lz%40helix-law.com&initials=LZ 544ms  SQL  recoveredFeesSummary fresh
+[2m+2439457ms[0m [36m[backend][0m 260 304 GET  /home-enquiries?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 477ms  SQL  fresh from 2 DBs
+[2m+2439463ms[0m [36m[backend][0m 261 304 GET  /matters-new-space?limit=50&email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 40ms  RDS   (prod: similar — Redis cache) 50 new-space matters (limit=50)
+[2m+2439766ms[0m [36m[backend][0m 262 200 GET  /doc-workspace/pending-actions?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c 0ms  MEM   (prod: ~1-3s from Redis/SQL) 3 actions, TTL 55s
+[2m+2440512ms[0m [36m[backend][0m 263 GET  /api/attendance/annual-leave/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+2440513ms[0m [36m[backend][0m 264 GET  /api/data-operations/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+2440666ms[0m [36m[backend][0m 265 GET  /api/attendance/attendance/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+2440698ms[0m [36m[backend][0m 266 GET  /api/future-bookings/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+2440699ms[0m [36m[backend][0m 267 GET  /api/outstanding-balances/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c SSE connected
+[2m+13765610ms[0m [36m[backend][0m Retrying SQL request (attempt 2/3) after undefined...
+[2m+24692587ms[0m [36m[backend][0m [nodemon] app crashed - waiting for file changes before starting...
+[2m+24692645ms[0m [35m[frontend][0m process exited with code=4294967295 signal=null
+[31m[dev:all][0m shutting down (frontend exited)
+[2m+24692966ms[0m [36m[backend][0m process exited with code=null signal=SIGINT

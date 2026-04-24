@@ -1,15 +1,15 @@
 // src/app/styles/CustomTabs.tsx
 
 import React from 'react';
-import { AiOutlineHome, AiFillHome } from 'react-icons/ai';
 import {
-  FaInbox,
-  FaClipboardList,
-  FaFolderOpen,
-  FaWpforms,
-  FaBookOpen,
-  FaChartLine,
-} from 'react-icons/fa';
+  FiHome,
+  FiInbox,
+  FiClipboard,
+  FiFolder,
+  FiFileText,
+  FiBookOpen,
+  FiBarChart2,
+} from 'react-icons/fi';
 import { colours } from './colours';
 import './CustomTabs.css';
 import { useTheme } from '../../app/functionality/ThemeContext';
@@ -41,7 +41,6 @@ interface CustomTabsProps {
   hasImmediateActions?: boolean;
   onRefreshEnquiries?: () => Promise<void> | void;
   onRefreshMatters?: () => Promise<void> | void;
-  onFeatureToggle?: (feature: string, enabled: boolean) => void;
   featureToggles?: Record<string, boolean>;
   onShowTestEnquiry?: () => void;
   demoModeEnabled?: boolean;
@@ -74,7 +73,6 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
   hasImmediateActions = false,
   onRefreshEnquiries,
   onRefreshMatters,
-  onFeatureToggle,
   featureToggles = {},
   onShowTestEnquiry,
   demoModeEnabled,
@@ -131,7 +129,9 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
   const textResting = isDarkMode ? 'rgba(160, 160, 160, 0.55)' : 'rgba(107, 107, 107, 0.6)';
   const textHover = isDarkMode ? colours.dark.text : colours.darkBlue;
   const activeColour = isDarkMode ? colours.accent : colours.blue;
-  const activeTextColour = isDarkMode ? '#d1d5db' : colours.darkBlue;
+  // Active-tab text — brighter than hover so the selected tab has more
+  // weight than a hovered inactive one (Apple pattern: commitment > hint).
+  const activeTextColour = isDarkMode ? '#f3f4f6' : colours.darkBlue;
   const homeColour = selectedKey === 'home'
     ? activeTextColour
     : textResting;
@@ -146,14 +146,18 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
   };
 
   const getTabIcon = (key: string) => {
+    // Feather (thin stroke) — matches CallsAndNotes, OperationsDashboard and
+    // the rest of the modern Helix surfaces. Previously FontAwesome (chunky
+    // filled) + Ant Design Home — three icon families in one bar read as
+    // dated next to the new chrome.
     switch (key) {
-      case 'enquiries':    return <FaInbox size={15} />;
-      case 'instructions': return <FaClipboardList size={15} />;
-      case 'matters':      return <FaFolderOpen size={15} />;
-      case 'forms':        return <FaWpforms size={15} />;
-      case 'resources':    return <FaBookOpen size={15} />;
-      case 'reporting':    return <FaChartLine size={15} />;
-      default:             return <FaClipboardList size={15} />;
+      case 'enquiries':    return <FiInbox size={15} strokeWidth={1.8} />;
+      case 'instructions': return <FiClipboard size={15} strokeWidth={1.8} />;
+      case 'matters':      return <FiFolder size={15} strokeWidth={1.8} />;
+      case 'forms':        return <FiFileText size={15} strokeWidth={1.8} />;
+      case 'resources':    return <FiBookOpen size={15} strokeWidth={1.8} />;
+      case 'reporting':    return <FiBarChart2 size={15} strokeWidth={1.8} />;
+      default:             return <FiClipboard size={15} strokeWidth={1.8} />;
     }
   };
 
@@ -212,8 +216,10 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
           alignItems: 'center',
           justifyContent: 'center',
         }}>
-          <AiOutlineHome className="icon-outline" size={20} />
-          <AiFillHome className="icon-filled" size={20} />
+          {/* Single Feather stroke icon — active state is carried by colour
+              (homeColour) + background fill; a separate filled glyph was
+              mixing icon families unnecessarily. */}
+          <FiHome size={18} strokeWidth={1.8} />
         </div>
 
         {/* CTA notification dot */}
@@ -237,19 +243,14 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
       <span
         className="tab-separator"
         aria-hidden="true"
-        title="Home separator"
         style={{
-          color: isDarkMode ? 'rgba(135, 243, 243, 0.45)' : 'rgba(54, 144, 206, 0.4)',
-          fontSize: 16,
-          fontWeight: 600,
-          lineHeight: 1,
+          width: 1,
+          height: 20,
+          background: isDarkMode ? 'rgba(135, 243, 243, 0.22)' : 'rgba(54, 144, 206, 0.22)',
           marginRight: 10,
-          userSelect: 'none',
           flexShrink: 0,
         }}
-      >
-        |
-      </span>
+      />
 
       {/* ── Tab strip ────────────────────────────────────────── */}
       <div
@@ -278,6 +279,8 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
                 onClick={() => handleTabClick(tab)}
                 onMouseEnter={() => onTabWarm?.(tab.key)}
                 onFocus={() => onTabWarm?.(tab.key)}
+                onPointerDown={() => onTabWarm?.(tab.key)}
+                onTouchStart={() => onTabWarm?.(tab.key)}
                 title={tab.text}
                 className={`custom-tab-btn${active ? ' custom-tab-active' : ''}`}
                 style={{
@@ -289,7 +292,7 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
                   border: 'none',
                   position: 'relative' as const,
                   fontSize: 13,
-                  fontWeight: 500,
+                  fontWeight: active ? 600 : 500,
                   fontFamily: 'inherit',
                   letterSpacing: '0.01em',
                   cursor: 'pointer',
@@ -300,7 +303,7 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
                   '--tab-underline-colour': activeColour,
                   '--tab-text-color': active ? activeTextColour : textResting,
                   '--tab-text-hover': active ? activeTextColour : textHover,
-                  '--tab-hover-fill': isDarkMode ? 'rgba(135, 243, 243, 0.06)' : 'rgba(54, 144, 206, 0.04)',
+                  '--tab-hover-fill': isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.06)',
                   '--tab-active-fill': 'transparent',
                 } as React.CSSProperties}
               >
@@ -320,21 +323,14 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
                   className="tab-section-separator"
                   aria-hidden="true"
                   style={{
-                    color: isDarkMode ? 'rgba(135, 243, 243, 0.40)' : 'rgba(54, 144, 206, 0.35)',
-                    fontSize: 16,
-                    fontWeight: 600,
-                    lineHeight: 1,
-                    margin: '0 4px',
-                    userSelect: 'none',
+                    width: 1,
+                    height: 18,
+                    background: isDarkMode ? 'rgba(135, 243, 243, 0.18)' : 'rgba(54, 144, 206, 0.18)',
+                    margin: '0 6px',
                     flexShrink: 0,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    height: 48,
+                    alignSelf: 'center',
                   }}
-                >
-                  |
-                </span>
+                />
               )}
             </React.Fragment>
           );
@@ -345,20 +341,13 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
       {(isLocalDev || user) && (
         <UserBubble
           user={bubbleUser}
-          isLocalDev={isLocalDev}
           onAreasChange={onAreaChange}
           availableUsers={teamData || undefined}
           onUserChange={onUserChange}
           onReturnToAdmin={onReturnToAdmin}
           originalAdminUser={originalAdminUser}
-          onRefreshEnquiries={onRefreshEnquiries}
-          onRefreshMatters={onRefreshMatters}
-          onFeatureToggle={onFeatureToggle}
           featureToggles={featureToggles}
-          onShowTestEnquiry={onShowTestEnquiry}
           demoModeEnabled={demoModeEnabled}
-          onToggleDemoMode={onToggleDemoMode}
-          onOpenReleaseNotesModal={canSeeReleaseNotes ? () => setShowReleaseNotesModal(true) : undefined}
         />
       )}
 

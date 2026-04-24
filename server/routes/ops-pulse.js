@@ -18,8 +18,9 @@ const { createLogger } = require('../utils/logger');
 const { getStatus } = require('../utils/serverStatus');
 const { getSchedulerState } = require('../utils/dataOperationsScheduler');
 const { getRecentRequests, getRequestStats } = require('../utils/requestTracker');
-const { getActiveSessions, getSessionStats } = require('../utils/sessionTracker');
-const { getPresence, getPresenceStats } = require('../utils/presenceTracker');
+const { getActiveSessions, getSessionStats, register, unregister } = require('../utils/sessionTracker');
+const { getPresence, getPresenceStats, update } = require('../utils/presenceTracker');
+const { listSessionTraces } = require('../utils/sessionTraceTracker');
 
 const router = express.Router();
 const log = createLogger('OpsPulse');
@@ -55,9 +56,25 @@ function isDevGroup(req) {
   return ['LZ', 'AC'].includes(initials);
 }
 
+function getMonitorUser(req) {
+  const initials = (req.user?.initials || req.query?.initials || '').toUpperCase().trim();
+  if (!initials) return null;
+
+  return {
+    initials,
+    name: req.user?.fullName || req.query?.name || initials,
+    email: req.user?.email || req.query?.email || '',
+  };
+}
+
 // ── REST snapshot (for initial load) ──
 router.get('/snapshot', (req, res) => {
   if (!isDevGroup(req)) return res.status(403).json({ error: 'forbidden' });
+
+  const monitorUser = getMonitorUser(req);
+  if (monitorUser) {
+    update(monitorUser, 'activity');
+  }
 
   const serverStatus = getStatus();
   const schedulerState = getSchedulerState();
@@ -77,6 +94,7 @@ router.get('/snapshot', (req, res) => {
       ...sessionStats,
       list: getActiveSessions(),
     },
+    sessionTraces: listSessionTraces(12),
     requests: getRecentRequests(50),
     presence: {
       ...getPresenceStats(),
@@ -88,6 +106,12 @@ router.get('/snapshot', (req, res) => {
 // ── SSE stream (real-time updates) ──
 router.get('/stream', (req, res) => {
   if (!isDevGroup(req)) return res.status(403).json({ error: 'forbidden' });
+
+  const monitorUser = getMonitorUser(req);
+  if (monitorUser) {
+    update(monitorUser, 'activity');
+  }
+  const sessionId = register(monitorUser?.initials || req.query?.initials || 'unknown', 'ops-pulse');
 
   res.writeHead(200, {
     'Content-Type': 'text/event-stream; charset=utf-8',
@@ -121,6 +145,7 @@ router.get('/stream', (req, res) => {
   writeSse('scheduler', getSchedulerState());
   writeSse('errors', getRecentErrors(50));
   writeSse('sessions', { ...getSessionStats(), list: getActiveSessions() });
+  writeSse('sessionTraces', listSessionTraces(12));
   writeSse('requests', getRecentRequests(50));
   writeSse('presence', { ...getPresenceStats(), list: getPresence() });
 
@@ -141,6 +166,7 @@ router.get('/stream', (req, res) => {
   // Sessions + presence every 10s
   const sessionInterval = setInterval(() => {
     writeSse('sessions', { ...getSessionStats(), list: getActiveSessions() });
+    writeSse('sessionTraces', listSessionTraces(12));
     writeSse('presence', { ...getPresenceStats(), list: getPresence() });
   }, 10000);
 
@@ -162,6 +188,7 @@ router.get('/stream', (req, res) => {
   // Cleanup on disconnect
   req.on('close', () => {
     alive = false;
+    unregister(sessionId);
     clearInterval(pulseInterval);
     clearInterval(sessionInterval);
     clearInterval(requestInterval);

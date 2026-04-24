@@ -2829,6 +2829,7 @@ router.get('/preview/:table', async (req, res) => {
   const allowedTables = [
     'collectedTime',
     'wip',
+    'outstandingBalancesCurrent',
     'enquiries',
     'matters',
     'team',
@@ -2855,6 +2856,21 @@ router.get('/preview/:table', async (req, res) => {
         connectionString: coreConnStr,
         query: `SELECT TOP ${limit} * FROM wip ORDER BY date DESC, created_at_date DESC`,
         countQuery: `SELECT COUNT(*) as cnt FROM wip`,
+      },
+      outstandingBalancesCurrent: {
+        connectionString: coreConnStr,
+        query: `SELECT TOP ${limit}
+                  balance_id,
+                  contact_id,
+                  contact_name,
+                  total_outstanding_balance,
+                  last_payment_date,
+                  associated_matter_ids_raw,
+                  source_synced_at,
+                  updated_at
+                FROM outstanding_balances_current
+                ORDER BY total_outstanding_balance DESC, contact_name ASC`,
+        countQuery: `SELECT COUNT(*) as cnt FROM outstanding_balances_current`,
       },
       enquiries: {
         connectionString: coreConnStr,

@@ -11,6 +11,12 @@
 const express = require('express');
 const sql = require('mssql');
 const { withRequest, getPool } = require('../utils/db');
+const {
+  recordSubmission,
+  recordStep,
+  markComplete,
+  markFailed,
+} = require('../utils/formSubmissionLog');
 
 const router = express.Router();
 
@@ -546,6 +552,55 @@ router.delete('/item/:type/:id', async (req, res) => {
   }
 });
 
+function toDisplayString(value) {
+  if (value === null || value === undefined) return '';
+  return String(value).trim();
+}
+
+function buildTechIdeaNotes(payload, { headingSuffix = '' } = {}) {
+  const title = toDisplayString(payload?.title);
+  const submittedBy = toDisplayString(payload?.submitted_by || payload?.submittedBy);
+  const submittedByInitials = toDisplayString(
+    payload?.submitted_by_initials || payload?.submittedByInitials || payload?.submittedBy
+  );
+  const area = toDisplayString(payload?.area);
+  const priority = toDisplayString(payload?.priority);
+  const businessValue = toDisplayString(payload?.business_value || payload?.businessValue);
+  const description = toDisplayString(payload?.description);
+
+  const lines = [
+    `**Tech Development Idea**${headingSuffix}`,
+    '',
+  ];
+
+  const summaryFields = [
+    ['Title', title],
+    ['Submitted by', submittedBy],
+    ['Submitted by initials', submittedByInitials],
+    ['Area', area],
+    ['Priority', priority],
+  ];
+
+  summaryFields.forEach(([label, value]) => {
+    if (!value) return;
+    lines.push(`**${label}:** ${value}`);
+  });
+
+  if (businessValue || description) {
+    lines.push('', '---', '');
+  }
+
+  if (businessValue) {
+    lines.push('**Business value / impact:**', businessValue, '');
+  }
+
+  if (description) {
+    lines.push('**Description:**', description);
+  }
+
+  return lines.join('\n').trim();
+}
+
 /**
  * POST /api/tech-tickets/idea
  * Submit a tech development idea
@@ -558,6 +613,7 @@ router.delete('/item/:type/:id', async (req, res) => {
  * - submittedBy: string (initials)
  */
 router.post('/idea', async (req, res) => {
+  let submissionId = null;
   try {
     const {
       title,
@@ -577,6 +633,14 @@ router.post('/idea', async (req, res) => {
     const submittedLabel = submitted_by || submittedBy || 'Unknown';
     const submittedByValue = submitterInitials ? submitterInitials.slice(0, 10) : null;
 
+    submissionId = await recordSubmission({
+      formKey: 'tech-idea',
+      submittedBy: submitterInitials || 'UNK',
+      lane: 'Request',
+      payload: req.body,
+      summary: `Tech idea: ${title}`.slice(0, 400),
+    });
+
     // Get LZ's Asana user ID for collaborator
     let lzAsanaId = KNOWN_TEAM_MEMBERS.LZ.asanaUserId;
 
@@ -594,20 +658,20 @@ router.post('/idea', async (req, res) => {
       console.warn('[tech-tickets] Could not fetch LZ Asana ID from DB, using default');
     }
 
-    // Build task description
-    const notes = [
-      `**Tech Development Idea**`,
-      ``,
-      `**Submitted by:** ${submittedLabel}`,
-      `**Area:** ${area}`,
-      `**Priority:** ${priority}`,
-      ``,
-      `---`,
-      ``,
-      description,
-    ].join('\n');
+    const notes = buildTechIdeaNotes({
+      ...req.body,
+      submitted_by: submittedLabel,
+      submitted_by_initials: submitterInitials,
+      area,
+      priority,
+    });
 
     const ideaRecord = await tryInsertIdeaRecord({ title, description, priority, area, submittedBy: submittedByValue });
+    await recordStep(submissionId, {
+      name: 'tech_ideas.insert',
+      status: ideaRecord?.id ? 'success' : 'failed',
+      ...(ideaRecord?.id ? { output: { id: ideaRecord.id } } : { error: 'Insert returned no record' }),
+    });
 
     const techRecipientIds = await tryGetTechRecipientAsanaUserIds();
     const collaboratorIds = Array.from(
@@ -640,8 +704,17 @@ router.post('/idea', async (req, res) => {
         code: asanaErr?.code,
         message: asanaErr?.message,
       });
+      await recordStep(submissionId, {
+        name: 'asana.create',
+        status: 'failed',
+        error: `${asanaErr?.code || 'asana_error'}: ${asanaErr?.message || 'unknown'}`,
+      });
 
       if (asanaErr?.code === 'ASANA_CREDENTIALS_MISSING') {
+        await markFailed(submissionId, {
+          lastEvent: 'asana.create:missing_credentials',
+          error: asanaErr,
+        });
         return res.status(201).json({
           success: true,
           taskId: null,
@@ -656,6 +729,12 @@ router.post('/idea', async (req, res) => {
     }
 
     await tryMarkIdeaAsanaCreated({ id: ideaRecord?.id });
+    await recordStep(submissionId, {
+      name: 'asana.create',
+      status: 'success',
+      output: { taskId: task.gid },
+    });
+    await markComplete(submissionId, { lastEvent: 'idea ticket created' });
 
     console.log(`[tech-tickets] Created idea task: ${task.gid}`);
     return res.status(201).json({
@@ -665,6 +744,9 @@ router.post('/idea', async (req, res) => {
     });
 
   } catch (error) {
+    if (submissionId) {
+      await markFailed(submissionId, { lastEvent: 'tech-idea:failed', error });
+    }
     const serialized = serializeUnknownError(error);
     console.error('[tech-tickets] Idea submission error:', serialized);
     const status = (error && error.status) ? error.status : 500;
@@ -687,6 +769,7 @@ router.post('/idea', async (req, res) => {
  * - submittedBy: string (initials)
  */
 router.post('/problem', async (req, res) => {
+  let submissionId = null;
   try {
     const { 
       system, 
@@ -715,6 +798,14 @@ router.post('/problem', async (req, res) => {
     const submitterInitials = (submitted_by_initials || submittedBy || '').trim();
     const submittedLabel = submitted_by || submittedBy || 'Unknown';
     const submittedByValue = submitterInitials ? submitterInitials.slice(0, 10) : null;
+
+    submissionId = await recordSubmission({
+      formKey: 'tech-problem',
+      submittedBy: submitterInitials || 'UNK',
+      lane: 'Escalate',
+      payload: req.body,
+      summary: `Tech problem [${system}]: ${summary}`.slice(0, 400),
+    });
 
     const notes = [
       `**Technical Problem Report** ${urgencyEmoji}`,
@@ -751,6 +842,11 @@ router.post('/problem', async (req, res) => {
       expectedVsActual,
       urgency,
       submittedBy: submittedByValue,
+    });
+    await recordStep(submissionId, {
+      name: 'tech_problems.insert',
+      status: problemRecord?.id ? 'success' : 'failed',
+      ...(problemRecord?.id ? { output: { id: problemRecord.id } } : { error: 'Insert returned no record' }),
     });
 
     // Create Asana task - assign to LZ (first assignee), others as collaborators
@@ -789,8 +885,17 @@ router.post('/problem', async (req, res) => {
         code: asanaErr?.code,
         message: asanaErr?.message,
       });
+      await recordStep(submissionId, {
+        name: 'asana.create',
+        status: 'failed',
+        error: `${asanaErr?.code || 'asana_error'}: ${asanaErr?.message || 'unknown'}`,
+      });
 
       if (asanaErr?.code === 'ASANA_CREDENTIALS_MISSING') {
+        await markFailed(submissionId, {
+          lastEvent: 'asana.create:missing_credentials',
+          error: asanaErr,
+        });
         return res.status(201).json({
           success: true,
           taskId: null,
@@ -805,6 +910,12 @@ router.post('/problem', async (req, res) => {
     }
 
     await tryMarkProblemAsanaCreated({ id: problemRecord?.id });
+    await recordStep(submissionId, {
+      name: 'asana.create',
+      status: 'success',
+      output: { taskId: task.gid },
+    });
+    await markComplete(submissionId, { lastEvent: 'problem ticket created' });
 
     console.log(`[tech-tickets] Created problem task: ${task.gid}`);
     return res.status(201).json({
@@ -814,6 +925,9 @@ router.post('/problem', async (req, res) => {
     });
 
   } catch (error) {
+    if (submissionId) {
+      await markFailed(submissionId, { lastEvent: 'tech-problem:failed', error });
+    }
     const serialized = serializeUnknownError(error);
     console.error('[tech-tickets] Problem submission error:', serialized);
     const status = (error && error.status) ? error.status : 500;
@@ -874,3 +988,222 @@ router.get('/projects', async (req, res) => {
 });
 
 module.exports = router;
+
+// ── Retrigger handlers (B5b) ────────────────────────────────────────────
+// Re-run the Asana side-effect of a previously-submitted form using the
+// stored payload from `dbo.form_submissions`. The dispatcher in
+// `server/routes/processHub.js` invokes these from
+// `POST /api/process-hub/submissions/:id/retrigger`.
+//
+// Contract (per processHub.js dispatcher):
+//   - Function receives (submission, { triggeredBy }).
+//   - Function MUST recordStep() each external attempt.
+//   - On success the dispatcher will markComplete(); on throw it will markFailed().
+
+function findInsertedRecordId(submission, stepName) {
+  const steps = Array.isArray(submission?.steps) ? submission.steps : [];
+  for (const step of steps) {
+    if (step?.name === stepName && step?.status === 'success' && step?.output?.id) {
+      return step.output.id;
+    }
+  }
+  return null;
+}
+
+function resolveRetriggerSubmitter(submission, fallback) {
+  return (submission?.payload?.submitted_by_initials
+    || submission?.payload?.submittedBy
+    || submission?.submitted_by
+    || fallback
+    || ''
+  ).toString().trim();
+}
+
+async function retriggerIdea(submission /* , { triggeredBy } */) {
+  const submissionId = submission.id;
+  const payload = submission.payload || {};
+  const recordId = findInsertedRecordId(submission, 'tech_ideas.insert');
+  const submitterInitials = resolveRetriggerSubmitter(submission);
+
+  const {
+    title,
+    description,
+    priority = 'Medium',
+    area = 'Hub',
+  } = payload;
+  const submittedLabel = payload.submitted_by || payload.submittedBy || submission.submitted_by || 'Unknown';
+
+  if (!title || !description) {
+    const err = createHttpError(400, 'INVALID_PAYLOAD', 'Stored payload missing title/description');
+    await recordStep(submissionId, { name: 'asana.create', status: 'failed', error: err.message });
+    throw err;
+  }
+  if (!submitterInitials) {
+    const err = createHttpError(400, 'ASANA_CREDENTIALS_MISSING', 'Submitter initials missing for retrigger');
+    await recordStep(submissionId, { name: 'asana.create', status: 'failed', error: err.message });
+    throw err;
+  }
+
+  // Resolve LZ asana id (same as initial handler).
+  let lzAsanaId = KNOWN_TEAM_MEMBERS.LZ.asanaUserId;
+  try {
+    const pool = await getTeamSqlPool();
+    const result = await pool.request()
+      .input('initials', sql.NVarChar, 'LZ')
+      .query('SELECT [ASANAUser_ID] FROM [dbo].[team] WHERE [Initials] = @initials');
+    if (result.recordset?.[0]?.ASANAUser_ID) {
+      lzAsanaId = result.recordset[0].ASANAUser_ID;
+    }
+  } catch {
+    // fall through with default
+  }
+
+  const techRecipientIds = await tryGetTechRecipientAsanaUserIds();
+  const collaboratorIds = Array.from(
+    new Set([lzAsanaId, ...techRecipientIds].filter((v) => typeof v === 'string' && v.length > 0))
+  );
+
+  const notes = buildTechIdeaNotes({
+    ...payload,
+    submitted_by: submittedLabel,
+    submitted_by_initials: submitterInitials,
+    area,
+    priority,
+  }, { headingSuffix: ' (retrigger)' });
+
+  try {
+    const asanaCredentials = await getAsanaCredentials(submitterInitials);
+    if (!asanaCredentials) {
+      throw createHttpError(400, 'ASANA_CREDENTIALS_MISSING', 'Asana credentials not found for the provided initials.');
+    }
+    const accessToken = await getAsanaAccessToken(asanaCredentials);
+    const task = await createAsanaTask({
+      accessToken,
+      name: `[Idea] ${title}`,
+      notes,
+      projectId: TECH_PROJECT_ID,
+      collaboratorIds,
+    });
+
+    await tryMarkIdeaAsanaCreated({ id: recordId });
+    await recordStep(submissionId, {
+      name: 'asana.create',
+      status: 'success',
+      output: { taskId: task.gid, retrigger: true },
+    });
+    return { taskId: task.gid };
+  } catch (asanaErr) {
+    await tryUpdateIdeaFailure({
+      id: recordId,
+      code: asanaErr?.code,
+      message: asanaErr?.message,
+    });
+    await recordStep(submissionId, {
+      name: 'asana.create',
+      status: 'failed',
+      error: `${asanaErr?.code || 'asana_error'}: ${asanaErr?.message || 'unknown'}`,
+    });
+    throw asanaErr;
+  }
+}
+
+async function retriggerProblem(submission /* , { triggeredBy } */) {
+  const submissionId = submission.id;
+  const payload = submission.payload || {};
+  const recordId = findInsertedRecordId(submission, 'tech_problems.insert');
+  const submitterInitials = resolveRetriggerSubmitter(submission);
+
+  const {
+    system,
+    summary,
+    stepsToReproduce,
+    expectedVsActual,
+    urgency = 'Annoying',
+  } = payload;
+  const submittedLabel = payload.submitted_by || payload.submittedBy || submission.submitted_by || 'Unknown';
+
+  if (!system || !summary || !expectedVsActual) {
+    const err = createHttpError(400, 'INVALID_PAYLOAD', 'Stored payload missing system/summary/expectedVsActual');
+    await recordStep(submissionId, { name: 'asana.create', status: 'failed', error: err.message });
+    throw err;
+  }
+  if (!submitterInitials) {
+    const err = createHttpError(400, 'ASANA_CREDENTIALS_MISSING', 'Submitter initials missing for retrigger');
+    await recordStep(submissionId, { name: 'asana.create', status: 'failed', error: err.message });
+    throw err;
+  }
+
+  const urgencyEmoji = { Blocking: '🔴', Annoying: '🟡', Minor: '🟢' }[urgency] || '🟡';
+  const notes = [
+    `**Technical Problem Report** ${urgencyEmoji} (retrigger)`,
+    ``,
+    `**Submitted by:** ${submittedLabel}`,
+    `**System:** ${system}`,
+    `**Urgency:** ${urgency}`,
+    ``,
+    `---`,
+    ``,
+    `**Summary:**`,
+    summary,
+    ``,
+    stepsToReproduce ? `**Steps to Reproduce:**\n${stepsToReproduce}\n` : '',
+    `**Expected vs Actual:**`,
+    expectedVsActual,
+  ].filter(Boolean).join('\n');
+
+  const now = new Date();
+  let dueOn;
+  if (urgency === 'Blocking') {
+    dueOn = now.toISOString().split('T')[0];
+  } else if (urgency === 'Annoying') {
+    now.setDate(now.getDate() + 3);
+    dueOn = now.toISOString().split('T')[0];
+  }
+
+  const techRecipientIds = await tryGetTechRecipientAsanaUserIds();
+  const fallbackAssignees = [KNOWN_TEAM_MEMBERS.LZ.asanaUserId, KNOWN_TEAM_MEMBERS.KW.asanaUserId]
+    .filter((v) => typeof v === 'string' && v.length > 0);
+  const assigneeIds = techRecipientIds.length > 0 ? techRecipientIds : fallbackAssignees;
+  const primaryAssignee = assigneeIds[0];
+  const collaborators = assigneeIds.slice(1);
+
+  try {
+    const asanaCredentials = await getAsanaCredentials(submitterInitials);
+    if (!asanaCredentials) {
+      throw createHttpError(400, 'ASANA_CREDENTIALS_MISSING', 'Asana credentials not found for the provided initials.');
+    }
+    const accessToken = await getAsanaAccessToken(asanaCredentials);
+    const task = await createAsanaTask({
+      accessToken,
+      name: `[Problem: ${system}] ${summary}`,
+      notes,
+      projectId: TECH_PROJECT_ID,
+      assigneeId: primaryAssignee,
+      collaboratorIds: collaborators,
+      dueOn,
+    });
+
+    await tryMarkProblemAsanaCreated({ id: recordId });
+    await recordStep(submissionId, {
+      name: 'asana.create',
+      status: 'success',
+      output: { taskId: task.gid, retrigger: true },
+    });
+    return { taskId: task.gid };
+  } catch (asanaErr) {
+    await tryUpdateProblemFailure({
+      id: recordId,
+      code: asanaErr?.code,
+      message: asanaErr?.message,
+    });
+    await recordStep(submissionId, {
+      name: 'asana.create',
+      status: 'failed',
+      error: `${asanaErr?.code || 'asana_error'}: ${asanaErr?.message || 'unknown'}`,
+    });
+    throw asanaErr;
+  }
+}
+
+module.exports.retriggerIdea = retriggerIdea;
+module.exports.retriggerProblem = retriggerProblem;

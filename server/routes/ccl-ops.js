@@ -804,6 +804,28 @@ router.post('/upload-nd', async (req, res) => {
       });
     }
 
+    // 2026-04-24: auto-close any matching `review-ccl` hub_todo now that the
+    // solicitor has explicitly approved and uploaded. Best-effort — telemetry
+    // inside the helper; never throws.
+    try {
+      const { reconcileAllByRef } = require('../utils/hubTodoLog');
+      const matterRef = matterDisplayNumber || String(matterId || '');
+      if (matterRef) {
+        await reconcileAllByRef({
+          kind: 'review-ccl',
+          matterRef,
+          completedVia: 'ccl-ops.upload-nd',
+          lastEvent: ndDocumentId ? `Uploaded · doc ${ndDocumentId}` : 'Uploaded',
+        });
+      }
+    } catch (todoErr) {
+      trackEvent('Todo.Card.Reconcile.Failed', {
+        kind: 'review-ccl',
+        matterId: String(matterId || ''),
+        error: todoErr?.message || String(todoErr),
+      });
+    }
+
     const durationMs = Date.now() - startMs;
     trackEvent('CCL.Upload.ND.Completed', {
       matterId: String(matterDisplayNumber || matterId || ''),
@@ -838,5 +860,10 @@ router.post('/upload-nd', async (req, res) => {
   }
 });
 
+
+// 2026-04-24: autoUploadCclToNetDocuments helper deleted. ND upload is now
+// solicitor-initiated only, via POST /upload-nd above. No background / chain
+// callers remain (see server/routes/ccl.js autopilot chain — ND stage is
+// permanently 'awaiting-approval').
 
 module.exports = router;

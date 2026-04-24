@@ -579,37 +579,63 @@ export const getFormSystemNoteIconStyle = (
 // TEXTAREA STYLES
 // ============================================================================
 
-/** Shared textarea field styles — borderRadius 0, token colours, 44px min-height
- *  with multiline expanding to rows. */
-export const getFormTextareaStyles = (isDarkMode: boolean, rows = 4) => ({
-  fieldGroup: {
-    borderRadius: 0,
-    border: '1px solid var(--home-tile-border)',
-    background: 'var(--surface-card)',
-    minHeight: `${Math.max(44, rows * 24)}px`,
-  },
-  field: {
-    background: 'transparent',
-    color: 'var(--text-primary)',
-    fontSize: '14px',
-    fontFamily: formFont,
-    lineHeight: 1.5,
-    resize: 'vertical' as const,
-    '::placeholder': {
-      color: 'var(--text-muted)',
+/** Shared textarea field styles — borderRadius 0, token colours, rows-driven
+ *  height. FluentUI's multiline TextField renders a `<textarea>` inside a
+ *  wrapper div. The wrapper (`fieldGroup`) is where height lives; the textarea
+ *  (`field`) fills it. Do NOT set `height` on `field` — FluentUI sizes the
+ *  textarea via `height: 100%` internally and overriding it (even with `auto`)
+ *  collapses the textarea to a single row, causing placeholder lines to stack
+ *  on top of each other. Also keep `lineHeight` as an explicit CSS string:
+ *  FluentUI serializes numeric values to px, so `1.5` becomes `1.5px` and
+ *  multiline placeholder rows render on top of each other. */
+export const getFormTextareaStyles = (isDarkMode: boolean, rows = 4) => {
+  const lineHeightPx = 21; // 14px font × 1.5 line-height
+  const verticalPaddingPx = 20; // 10px top + 10px bottom
+  const computedMinHeight = Math.max(44, rows * lineHeightPx + verticalPaddingPx);
+  return {
+    fieldGroup: {
+      borderRadius: 0,
+      border: '1px solid var(--home-tile-border)',
+      background: 'var(--surface-card)',
+      minHeight: `${computedMinHeight}px`,
+      height: `${computedMinHeight}px`,
+      padding: 0,
     },
-  },
-  label: {
-    fontWeight: 600 as const,
-    fontSize: '13px',
-    fontFamily: formFont,
-    color: 'var(--text-primary)',
-    marginBottom: '6px',
-  },
-  errorMessage: {
-    color: colours.cta,
-  },
-});
+    field: {
+      background: 'transparent',
+      color: 'var(--text-primary)',
+      fontSize: '14px',
+      fontFamily: formFont,
+      lineHeight: `${lineHeightPx}px`,
+      resize: 'vertical' as const,
+      padding: '10px 12px',
+      boxSizing: 'border-box' as const,
+      whiteSpace: 'pre-wrap' as const,
+      overflowWrap: 'break-word' as const,
+      selectors: {
+        '&::placeholder': {
+          color: 'var(--text-muted)',
+          opacity: 0.72,
+          transition: 'opacity 160ms ease, color 160ms ease',
+        },
+        '&:focus::placeholder': {
+          opacity: 0,
+          color: 'transparent',
+        },
+      },
+    },
+    label: {
+      fontWeight: 600 as const,
+      fontSize: '13px',
+      fontFamily: formFont,
+      color: 'var(--text-primary)',
+      marginBottom: '6px',
+    },
+    errorMessage: {
+      color: colours.cta,
+    },
+  };
+};
 
 // ============================================================================
 // SUBMIT FEEDBACK STYLES

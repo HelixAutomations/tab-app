@@ -1,8 +1,16 @@
 const express = require('express');
 const sql = require('mssql');
 const { withRequest, getPool } = require('../utils/db');
+const { getSecret } = require('../utils/getSecret');
+const {
+  attachMattersStream,
+} = require('../utils/matters-stream');
 
 const router = express.Router();
+
+// Register the stream before generic parameter routes so /stream is not
+// swallowed by /:id.
+attachMattersStream(router);
 
 const getInstrConnStr = () => {
   const s = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;

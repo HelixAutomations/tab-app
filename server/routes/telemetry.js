@@ -9,6 +9,7 @@ const router = express.Router();
 const opLog = require('../utils/opLog');
 const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
 const presenceTracker = require('../utils/presenceTracker');
+const { recordTrace } = require('../utils/sessionTraceTracker');
 
 const EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 const LONG_NUMBER_PATTERN = /\b\d{6,}\b/g;
@@ -44,6 +45,20 @@ router.post('/', (req, res) => {
     if (source === 'Nav' && type === 'heartbeat' && req.user) {
       presenceTracker.update(req.user, sanitizedData?.tab);
     }
+
+    recordTrace({
+      sessionId,
+      user: req.user ? {
+        initials: req.user.initials || req.user.Initials || 'unknown',
+        name: req.user.fullName || req.user.name || req.user.initials || 'unknown',
+      } : null,
+      source,
+      type,
+      data: sanitizedData,
+      error: sanitizedError,
+      durationMs: Number.isFinite(durationNumber) ? durationNumber : null,
+      clientTimestamp: timestamp,
+    });
 
     // Log to opLog for local persistence
     opLog.append({

@@ -5,7 +5,8 @@ const express = require('express');
 const router = express.Router();
 
 // Import our copied Tiller integration utilities
-const { submitVerification } = require('../utils/tillerApi');
+const { submitVerification, submitRawVerification, buildTillerPayload } = require('../utils/tillerApi');
+const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
 const { insertIDVerification } = require('../utils/idVerificationDb');
 const { deleteCachePattern, CACHE_CONFIG } = require('../utils/redisClient');
 
@@ -916,6 +917,315 @@ router.post('/:instructionRef/draft-request', async (req, res) => {
       error: 'Internal server error',
       details: error.message
     });
+  }
+});
+
+/**
+ * List recent instructions with a sufficiency flag so the Verify ID form can
+ * show them in a dropdown and mark which are ready for a Tiller check.
+ * GET /api/verify-id/adhoc/instructions?limit=50
+ */
+router.get('/adhoc/instructions', async (req, res) => {
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 200);
+  try {
+    const result = await runInstructionQuery((request, s) =>
+      request.query(`
+        SELECT TOP (${limit})
+          i.InstructionRef, i.FirstName, i.LastName, i.Email, i.DOB,
+          i.Postcode, i.PassportNumber, i.DriversLicenseNumber, i.Stage,
+          i.SubmissionDate
+        FROM Instructions i
+        WHERE i.InstructionRef IS NOT NULL
+          AND i.SubmissionDate >= DATEADD(month, -6, GETDATE())
+        ORDER BY i.SubmissionDate DESC
+      `)
+    );
+    const rows = (result.recordset || []).map(r => {
+      const missing = [];
+      if (!r.FirstName || !r.LastName) missing.push('name');
+      if (!r.DOB) missing.push('dob');
+      if (!r.Email) missing.push('email');
+      if (!r.Postcode) missing.push('postcode');
+      if (!r.PassportNumber && !r.DriversLicenseNumber) missing.push('passport/licence');
+      const displayName = [r.FirstName, r.LastName].filter(Boolean).join(' ').trim() || '(no name)';
+      return {
+        ref: r.InstructionRef,
+        displayName,
+        stage: r.Stage || null,
+        sufficient: missing.length === 0,
+        missing,
+      };
+    });
+    return res.json({ instructions: rows });
+  } catch (err) {
+    console.error('[verify-id adhoc instructions] list failed:', err.message);
+    return res.status(500).json({ error: 'Failed to list instructions', details: err.message });
+  }
+});
+
+/**
+ * Prefill the ad-hoc verification form from an existing Instruction.
+ * GET /api/verify-id/adhoc/prefill/:instructionRef
+ *
+ * Returns the same field shape the form uses so the user can tweak before
+ * submitting. No Tiller call, no DB writes.
+ */
+router.get('/adhoc/prefill/:instructionRef', async (req, res) => {
+  const { instructionRef } = req.params;
+  if (!instructionRef) return res.status(400).json({ error: 'Missing instructionRef' });
+
+  try {
+    const result = await runInstructionQuery((request, s) =>
+      request
+        .input('ref', s.NVarChar, instructionRef)
+        .query(`
+          SELECT
+            i.InstructionRef, i.ClientId, i.Email,
+            i.FirstName, i.LastName, i.CompanyName,
+            i.Title, i.Gender, i.DOB, i.Phone, i.Nationality,
+            i.PassportNumber, i.DriversLicenseNumber,
+            i.HouseNumber, i.Street, i.City, i.County, i.Postcode,
+            i.Country, i.CountryCode
+          FROM Instructions i
+          WHERE i.InstructionRef = @ref
+        `)
+    );
+    if (!result.recordset?.length) {
+      return res.status(404).json({ error: 'Instruction not found', instructionRef });
+    }
+    const r = result.recordset[0];
+
+    // Count prior verifications for the awareness strip.
+    let priorCount = 0;
+    let lastResult = null;
+    let lastCheckedDate = null;
+    try {
+      const prior = await runInstructionQuery((request, s) =>
+        request
+          .input('ref', s.NVarChar, instructionRef)
+          .query(`
+            SELECT COUNT(*) AS n,
+                   MAX(EIDCheckedDate) AS lastDate
+            FROM IDVerifications WHERE InstructionRef = @ref
+          `)
+      );
+      const row = prior.recordset?.[0];
+      priorCount = row?.n || 0;
+      lastCheckedDate = row?.lastDate || null;
+
+      if (priorCount > 0) {
+        const latest = await runInstructionQuery((request, s) =>
+          request
+            .input('ref', s.NVarChar, instructionRef)
+            .query(`
+              SELECT TOP 1 EIDOverallResult
+              FROM IDVerifications
+              WHERE InstructionRef = @ref
+              ORDER BY EIDCheckedDate DESC, EIDCheckedTime DESC
+            `)
+        );
+        lastResult = latest.recordset?.[0]?.EIDOverallResult || null;
+      }
+    } catch (err) {
+      console.warn('[verify-id adhoc prefill] Failed to count prior verifications:', err.message);
+    }
+
+    const dobIso = r.DOB
+      ? (r.DOB instanceof Date ? r.DOB.toISOString().slice(0, 10) : String(r.DOB).slice(0, 10))
+      : '';
+
+    return res.json({
+      instructionRef: r.InstructionRef,
+      clientId: r.ClientId || null,
+      companyName: r.CompanyName || '',
+      prefill: {
+        title: r.Title || '',
+        gender: r.Gender || '',
+        firstName: r.FirstName || '',
+        lastName: r.LastName || '',
+        dob: dobIso,
+        email: r.Email || '',
+        phone: r.Phone || '',
+        nationality: r.Nationality || '',
+        passportNumber: r.PassportNumber || '',
+        driversLicenseNumber: r.DriversLicenseNumber || '',
+        houseNumber: r.HouseNumber || '',
+        street: r.Street || '',
+        city: r.City || '',
+        county: r.County || '',
+        postcode: r.Postcode || '',
+        country: r.Country || '',
+        countryCode: r.CountryCode || '',
+      },
+      priorVerifications: {
+        count: priorCount,
+        lastResult,
+        lastCheckedDate,
+      },
+    });
+  } catch (error) {
+    const transient = isTransientSqlError(error);
+    trackException(error, { operation: 'adhocPrefill', phase: 'readInstruction', entity: 'Instruction' });
+    return res.status(transient ? 503 : 500).json({ error: 'Prefill failed', details: error.message, transient });
+  }
+});
+
+/**
+ * Ad-hoc verification check.
+ * POST /api/verify-id/adhoc
+ *
+ * Body: {
+ *   instructionRef?,               // optional — when present, result is INSERTed into IDVerifications
+ *   title, gender, firstName, lastName,
+ *   dob (DD/MM/YYYY or YYYY-MM-DD),
+ *   email, phone, nationality,
+ *   passportNumber?, driversLicenseNumber?,   // at least one required
+ *   houseNumber, street, city, county, postcode, country, countryCode,
+ *   externalReferenceId?           // informational; Tiller customer ref is fixed at 18207 in buildTillerPayload
+ * }
+ *
+ * Both Address (type 1) and PEP & Sanctions (type 2) checks always run.
+ * When an instructionRef is supplied, every successful call adds a new row to
+ * IDVerifications (history is append-only).
+ */
+router.post('/adhoc', async (req, res) => {
+  const started = Date.now();
+  const triggeredBy = req.user?.initials || '';
+  const body = req.body || {};
+  const {
+    instructionRef,
+    title, gender, firstName, lastName, dob, email, phone, nationality,
+    passportNumber, driversLicenseNumber,
+    houseNumber, street, city, county, postcode, country, countryCode,
+    externalReferenceId,
+  } = body;
+
+  const missing = [];
+  if (!firstName) missing.push('firstName');
+  if (!lastName) missing.push('lastName');
+  if (!dob) missing.push('dob');
+  if (!email) missing.push('email');
+  if (!nationality) missing.push('nationality');
+  if (!houseNumber) missing.push('houseNumber');
+  if (!street) missing.push('street');
+  if (!city) missing.push('city');
+  if (!postcode) missing.push('postcode');
+  if (!countryCode) missing.push('countryCode');
+  if (!passportNumber && !driversLicenseNumber) missing.push('passportNumber_or_driversLicenseNumber');
+  if (missing.length) {
+    return res.status(400).json({ error: 'Missing required fields', missing });
+  }
+
+  const ref = externalReferenceId || (instructionRef ? `adhoc-${instructionRef}-${Date.now()}` : `adhoc-${Date.now()}`);
+
+  trackEvent('Verify.Adhoc.Started', {
+    operation: 'adhoc', triggeredBy, ref,
+    linkedInstruction: instructionRef || '',
+  });
+
+  try {
+    const payload = buildTillerPayload({
+      title, gender, firstName, lastName,
+      dob, email, phone, nationality,
+      passportNumber, driversLicenseNumber,
+      houseNumber, street, city, county,
+      postcode, country, countryCode,
+    });
+    // Always run both Address + PEP. buildTillerPayload already defaults to this;
+    // re-assert here so future edits cannot silently drop a check.
+    payload.checks = [
+      { checkTypeId: 1, maximumSources: 3, CheckMethod: 1, matchesRequired: 1 },
+      { checkTypeId: 2 },
+    ];
+
+    const tillerResponse = await submitRawVerification(payload);
+    const durationMs = Date.now() - started;
+    const correlationId = tillerResponse?.correlationId || tillerResponse?.checkId || tillerResponse?.id || null;
+
+    // Persist when linked to an instruction — always INSERT a new row.
+    let persisted = null;
+    if (instructionRef) {
+      try {
+        persisted = await insertIDVerification(instructionRef, email, tillerResponse, null);
+        try {
+          await Promise.all([
+            deleteCachePattern(`${CACHE_CONFIG.PREFIXES.UNIFIED}:*`),
+            deleteCachePattern(`${CACHE_CONFIG.PREFIXES.INSTRUCTIONS}:*`),
+          ]);
+        } catch (cacheErr) {
+          console.warn('[verify-id adhoc] Cache invalidation failed:', cacheErr?.message || cacheErr);
+        }
+      } catch (persistErr) {
+        trackException(persistErr, { operation: 'adhoc', phase: 'insertIDVerification', entity: 'IDVerifications', instructionRef });
+        console.error('[verify-id adhoc] Failed to insert IDVerifications row:', persistErr.message);
+      }
+    }
+
+    trackEvent('Verify.Adhoc.Completed', {
+      operation: 'adhoc', triggeredBy, ref, durationMs,
+      linkedInstruction: instructionRef || '',
+      persisted: persisted ? 'true' : 'false',
+      overall: persisted?.overall || 'n/a',
+    });
+    trackMetric('Verify.Adhoc.Duration', durationMs, { operation: 'adhoc', linked: instructionRef ? 'true' : 'false' });
+
+    return res.status(200).json({
+      success: true,
+      externalReferenceId: ref,
+      correlationId,
+      instructionRef: instructionRef || null,
+      persisted: !!persisted,
+      persistedSummary: persisted || null,
+      response: tillerResponse,
+    });
+  } catch (error) {
+    trackException(error, { operation: 'adhoc', phase: 'tillerSubmit', entity: 'AdhocVerification' });
+    trackEvent('Verify.Adhoc.Failed', { operation: 'adhoc', triggeredBy, ref, error: error.message, linkedInstruction: instructionRef || '' });
+    const validationErrors = error?.response?.data?.ValidationErrors;
+    return res.status(error?.response?.status || 500).json({
+      error: 'Ad-hoc verification failed',
+      details: error.message,
+      ...(validationErrors ? { validationErrors } : {}),
+    });
+  }
+});
+
+/**
+ * Ad-hoc history — list prior IDVerifications rows for an instruction.
+ * GET /api/verify-id/adhoc/history/:instructionRef
+ */
+router.get('/adhoc/history/:instructionRef', async (req, res) => {
+  const { instructionRef } = req.params;
+  if (!instructionRef) return res.status(400).json({ error: 'Missing instructionRef' });
+  try {
+    const result = await runInstructionQuery((request, s) =>
+      request.input('ref', s.NVarChar, instructionRef).query(`
+        SELECT TOP 25
+          EIDCheckId, EIDStatus, EIDOverallResult,
+          AddressVerificationResult, PEPAndSanctionsCheckResult,
+          EIDProvider, EIDCheckedDate, EIDCheckedTime, CheckExpiry, ClientEmail
+        FROM IDVerifications
+        WHERE InstructionRef = @ref
+        ORDER BY EIDCheckedDate DESC, EIDCheckedTime DESC
+      `)
+    );
+    const rows = (result.recordset || []).map((r) => ({
+      checkId: r.EIDCheckId,
+      status: r.EIDStatus,
+      overall: r.EIDOverallResult,
+      address: r.AddressVerificationResult,
+      pep: r.PEPAndSanctionsCheckResult,
+      provider: r.EIDProvider,
+      email: r.ClientEmail,
+      checkedAt: r.EIDCheckedDate
+        ? `${(r.EIDCheckedDate instanceof Date ? r.EIDCheckedDate.toISOString().slice(0, 10) : String(r.EIDCheckedDate).slice(0, 10))}${r.EIDCheckedTime ? ` ${String(r.EIDCheckedTime).slice(0, 8)}` : ''}`
+        : null,
+      expiry: r.CheckExpiry || null,
+    }));
+    return res.json({ instructionRef, count: rows.length, rows });
+  } catch (error) {
+    trackException(error, { operation: 'adhocHistory', phase: 'read', entity: 'IDVerifications' });
+    return res.status(500).json({ error: 'History load failed', details: error.message });
   }
 });
 

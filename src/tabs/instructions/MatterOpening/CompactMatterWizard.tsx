@@ -17,7 +17,6 @@ import {
   FaClock,
   FaEnvelope,
   FaExclamationTriangle,
-  FaFileAlt,
   FaFolder,
   FaFolderOpen,
   FaGavel,
@@ -50,6 +49,8 @@ import {
 import type { ProcessingStep } from './ProcessingSection';
 import type { TeamData } from '../../../app/functionality/types';
 import type { Toast, ToastType } from '../../../components/feedback/ToastProvider';
+import DemoModeStripe from './DemoModeStripe';
+import MatterOpenedHandoff from '../../../components/modern/matter-opening/MatterOpenedHandoff';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -1287,6 +1288,7 @@ const CompactMatterWizard: React.FC<CompactMatterWizardProps> = ({
 
     return (
       <div ref={wizardSurfaceRef} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {demoModeEnabled && <DemoModeStripe isDarkMode={isDarkMode} />}
         {/* Header */}
         <div style={{ ...sectionStyle, padding: '12px 14px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1299,7 +1301,7 @@ const CompactMatterWizard: React.FC<CompactMatterWizardProps> = ({
               <Icon iconName="Shield" style={{ fontSize: 12, color: colours.highlight }} />
             </div>
             <span style={{ fontSize: 12, fontWeight: 700, color: isDarkMode ? 'rgba(243, 244, 246, 0.95)' : '#061733' }}>
-              Confirm Details
+              {demoModeEnabled ? 'Demo simulation — confirm details' : 'Confirm Details'}
             </span>
           </div>
         </div>
@@ -1535,8 +1537,8 @@ const CompactMatterWizard: React.FC<CompactMatterWizardProps> = ({
       : matterId.current;
     const clioMatterUrl = clioMatterId ? `https://eu.app.clio.com/nc/#/matters/${encodeURIComponent(clioMatterId)}` : null;
     const clioContactUrl = primaryClioContactId.current ? `https://eu.app.clio.com/nc/#/contacts/${encodeURIComponent(primaryClioContactId.current)}` : null;
-    const continueToMatterView = () => {
-      // Dispatch navigation event so App.tsx switches to the Matters tab with auto-select
+    const goToMatterView = () => {
+      // Ghost-link path: open the Matters tab for deeper editing / history.
       window.dispatchEvent(new CustomEvent('navigateToMatter', {
         detail: { matterId: matterId.current || undefined }
       }));
@@ -1550,8 +1552,15 @@ const CompactMatterWizard: React.FC<CompactMatterWizardProps> = ({
     const closeSuccessView = () => {
       if (onCancel) onCancel();
     };
+    // The CCL hand-off surface polls /api/ccl/batch-status for the opened matter.
+    // For demo mode, the demo branch posts /service/run against the underlying
+    // Clio id (strip the DEMO- prefix so the poller sees the real entry).
+    const handoffMatterId = demoModeEnabled && matterId.current?.startsWith('DEMO-')
+      ? matterId.current.replace('DEMO-', '')
+      : (matterId.current || null);
     return (
       <div ref={wizardSurfaceRef} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {demoModeEnabled && <DemoModeStripe isDarkMode={isDarkMode} />}
         <div style={{
           ...sectionStyle, padding: '14px 14px',
           borderLeft: `2px solid ${colours.green}`,
@@ -1660,28 +1669,21 @@ const CompactMatterWizard: React.FC<CompactMatterWizardProps> = ({
             )}
           </div>
 
-          {/* Demo CCL draft indicator */}
-          {demoModeEnabled && (
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 8,
-              padding: '8px 10px',
-              background: isDarkMode ? 'rgba(135, 243, 243, 0.06)' : 'rgba(54, 144, 206, 0.05)',
-              border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.18)' : 'rgba(54, 144, 206, 0.15)'}`,
-              borderRadius: 0,
-            }}>
-              <FaFileAlt size={12} style={{ color: isDarkMode ? colours.accent : colours.highlight, flexShrink: 0 }} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: isDarkMode ? colours.accent : colours.highlight }}>
-                  CCL Draft Auto-Generated
-                </div>
-                <div style={{ fontSize: 9, color: isDarkMode ? colours.subtleGrey : colours.greyText, marginTop: 1 }}>
-                  Navigate to the Matter record to review and refine the Client Care Letter.
-                </div>
-              </div>
-            </div>
+          {/* Live CCL autopilot state — polls /api/ccl/batch-status so real and
+            * demo runs are indistinguishable. "Review CCL" inside this surface
+            * routes directly to the Home modern review modal (openHomeCclReview
+            * → navigateToHome), bypassing the old Matters-tab workbench. */}
+          {handoffMatterId && (
+            <MatterOpenedHandoff
+              openedMatterId={handoffMatterId}
+              matterOpenSucceeded={true}
+              isDarkMode={isDarkMode}
+              onGoToMatter={goToMatterView}
+              onDismiss={closeSuccessView}
+            />
           )}
         </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 10 }}>
           <button
             type="button"
             onClick={closeSuccessView}
@@ -1703,29 +1705,6 @@ const CompactMatterWizard: React.FC<CompactMatterWizardProps> = ({
             }}
           >
             Close
-          </button>
-          <button
-            type="button"
-            onClick={continueToMatterView}
-            style={{
-              width: 'auto',
-              minWidth: 190,
-              padding: '10px 16px',
-              background: colours.green,
-              border: 'none',
-              borderRadius: 0,
-              color: '#FFFFFF',
-              fontSize: 12,
-              fontWeight: 700,
-              fontFamily: 'inherit',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 8,
-            }}
-          >
-            <FaCheck size={10} /> Continue to Matter Record
           </button>
         </div>
       </div>
@@ -1750,6 +1729,7 @@ const CompactMatterWizard: React.FC<CompactMatterWizardProps> = ({
 
     return (
       <div ref={wizardSurfaceRef} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {demoModeEnabled && <DemoModeStripe isDarkMode={isDarkMode} />}
         {/* Progress header */}
         <div style={{ ...sectionStyle, padding: '14px 14px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
@@ -1992,6 +1972,7 @@ const CompactMatterWizard: React.FC<CompactMatterWizardProps> = ({
   /* ---- render: form mode ---- */
   return (
     <div ref={wizardSurfaceRef} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {demoModeEnabled && <DemoModeStripe isDarkMode={isDarkMode} />}
       {!skipConfirmedPreview && (
         <>
           {/* Prerequisites strip */}

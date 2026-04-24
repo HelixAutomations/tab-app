@@ -2,7 +2,7 @@ export type FeedStatus = 'success' | 'error' | 'active' | 'info';
 
 export interface ActivityFeedItem {
   id: string;
-  source: 'teams.bot' | 'teams.card' | 'activity.cardlab' | 'teams.bot.action' | 'activity.dm.send';
+  source: 'teams.bot' | 'teams.card' | 'activity.cardlab' | 'activity.card.send' | 'teams.bot.action' | 'activity.dm.send';
   sourceLabel: string;
   status: FeedStatus;
   title: string;
@@ -18,13 +18,16 @@ export interface CardLabTemplateMeta {
   description: string;
   defaultRoute: string;
   summary: string;
+  originLabel?: string;
 }
 
 export interface CardLabRouteOption {
   key: string;
   label: string;
-  teamId: string;
-  channelId: string;
+  teamId: string | null;
+  channelId: string | null;
+  deliveryMode?: 'channel' | 'dm';
+  userEmail?: string;
 }
 
 export interface CardLabRecentItem {
@@ -38,6 +41,8 @@ export interface CardLabRecentItem {
   teamsLink: string | null;
   messageId: string | null;
   timestamp: string;
+  originLabel?: string;
+  deliveryMode?: 'channel' | 'dm';
 }
 
 export interface CardLabCatalogResponse {

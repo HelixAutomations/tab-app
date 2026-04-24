@@ -1338,7 +1338,7 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
     
     // Verify passcode - handles both migrate and undo actions
     const handlePasscodeSubmit = useCallback(() => {
-        if (passcodeInput === '2011') {
+        if (passcodeInput === '11112011') {
             setShowPasscodeModal(false);
             setPasscodeInput('');
             setPasscodeError('');

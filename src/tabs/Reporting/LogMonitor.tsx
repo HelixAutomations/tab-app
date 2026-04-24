@@ -4,6 +4,8 @@ import { Spinner, SpinnerSize } from '@fluentui/react/lib/Spinner';
 import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
 import { colours } from '../../app/styles/colours';
 import { useTheme } from '../../app/functionality/ThemeContext';
+import { useFreshIds } from '../../hooks/useFreshIds';
+import { disposeOnHmr, onServerBounced } from '../../utils/devHmr';
 
 interface LogEntry {
   id: string;
@@ -33,6 +35,7 @@ const LogMonitor: React.FC<LogMonitorProps> = ({ onBack }) => {
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const logContainerRef = useRef<HTMLDivElement>(null);
+  const freshLogIds = useFreshIds(logs, (log) => log.id);
   const eventSourceRef = useRef<EventSource | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pausedLogsRef = useRef<LogEntry[]>([]);
@@ -304,6 +307,22 @@ const LogMonitor: React.FC<LogMonitorProps> = ({ onBack }) => {
   useEffect(() => {
     mountedRef.current = true;
     connectSSE();
+
+    const undoHmr = disposeOnHmr(() => {
+      if (eventSourceRef.current) {
+        try { eventSourceRef.current.close(); } catch { /* */ }
+        eventSourceRef.current = null;
+      }
+    });
+    const undoBounce = onServerBounced(() => {
+      if (eventSourceRef.current) {
+        try { eventSourceRef.current.close(); } catch { /* */ }
+        eventSourceRef.current = null;
+      }
+      sseRetryCountRef.current = 0;
+      if (mountedRef.current) connectSSE();
+    });
+
     return () => {
       mountedRef.current = false;
       if (eventSourceRef.current) {
@@ -314,6 +333,8 @@ const LogMonitor: React.FC<LogMonitorProps> = ({ onBack }) => {
         clearInterval(pollTimerRef.current);
         pollTimerRef.current = null;
       }
+      undoHmr();
+      undoBounce();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -506,6 +527,7 @@ const LogMonitor: React.FC<LogMonitorProps> = ({ onBack }) => {
           logs.map((log) => (
             <div
               key={log.id}
+              data-fresh={freshLogIds.has(log.id) ? 'true' : undefined}
               style={{
                 display: 'flex',
                 padding: '2px 0',

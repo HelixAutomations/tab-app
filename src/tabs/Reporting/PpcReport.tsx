@@ -11,7 +11,6 @@ import { Stack } from '@fluentui/react/lib/Stack';
 import { Icon } from '@fluentui/react/lib/Icon';
 import { TooltipHost } from '@fluentui/react/lib/Tooltip';
 import { DirectionalHint } from '@fluentui/react/lib/Callout';
-import { initializeIcons } from '@fluentui/react/lib/Icons';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';
 import { debugLog, debugWarn } from '../../utils/debug';
@@ -26,8 +25,9 @@ const surface = (isDark: boolean, overrides: CSSProperties = {}): CSSProperties 
   ...overrides,
 });
 
-// Ensure Fluent UI icons are available (fixes warnings for 'target', 'trendingup', etc.)
-initializeIcons();
+// Fluent UI icons are initialised once in src/index.tsx (initializeIcons()).
+// Calling it again here triggered "Icon already registered" warnings on every
+// PpcReport mount.
 
 export interface PpcIncomePayment {
   paymentDate: string;

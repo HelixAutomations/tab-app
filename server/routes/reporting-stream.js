@@ -935,6 +935,12 @@ function sanitizeDays(value, defaultCap = 90) {
   return Math.min(days, defaultCap);
 }
 
+function getInternalApiPort() {
+  return process.env.PORT || 8080;
+}
+
+const INTERNAL_META_TIMEOUT_MS = 50000;
+
 // Google Analytics data fetcher
 async function fetchGoogleAnalyticsData(months = 3) {
   const http = require('http');
@@ -951,7 +957,7 @@ async function fetchGoogleAnalyticsData(months = 3) {
   });
 
   return new Promise((resolve, reject) => {
-    const port = process.env.PORT || 3000;
+    const port = getInternalApiPort();
     const isNamedPipe = typeof port === 'string' && port.startsWith('\\\\.\\pipe\\');
     
     const options = {
@@ -1009,7 +1015,7 @@ async function fetchGoogleAdsData(months = 3) {
   });
 
   return new Promise((resolve, reject) => {
-    const port = process.env.PORT || 3000;
+    const port = getInternalApiPort();
     const isNamedPipe = typeof port === 'string' && port.startsWith('\\\\.\\pipe\\');
     
     const options = {
@@ -1067,7 +1073,7 @@ async function fetchMetaMetrics(daysBack = 30, bypassCache = false) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       const result = await new Promise((resolve, reject) => {
-        const port = process.env.PORT || 3000;
+        const port = getInternalApiPort();
         const isNamedPipe = typeof port === 'string' && port.startsWith('\\\\.\\pipe\\');
         
         const options = {
@@ -1083,7 +1089,7 @@ async function fetchMetaMetrics(daysBack = 30, bypassCache = false) {
             keepAlive: true,
             keepAliveMsecs: 1000,
             maxSockets: 5,
-            timeout: 15000 // 15 second socket timeout
+            timeout: INTERNAL_META_TIMEOUT_MS
           })
         };
 
@@ -1147,7 +1153,7 @@ async function fetchMetaMetrics(daysBack = 30, bypassCache = false) {
         });
 
         // Set request timeout
-        req.setTimeout(15000);
+        req.setTimeout(INTERNAL_META_TIMEOUT_MS);
         req.end();
       });
       

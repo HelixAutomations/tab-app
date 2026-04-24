@@ -3,8 +3,16 @@
  * Each framework defines a persona, structural rules, and red flags
  * for the AI pressure-test pass.
  *
+ * Voice: every framework's systemPrompt is automatically prepended with
+ * `HELIX_VOICE_BLOCK` from `./helixVoice` at consumption time, so the
+ * tone rules stay in one place across CCL + comms + future surfaces.
+ *
  * Usage: getFrameworkPrompt('communication') → { systemPrompt, description }
  */
+
+const { HELIX_VOICE_BLOCK } = require('./helixVoice');
+
+const COMMS_FRAMEWORKS_PROMPT_VERSION = 'comms-frameworks-v2-voice';
 
 const FRAMEWORKS = {
   communication: {
@@ -161,19 +169,30 @@ OUTPUT FORMAT (JSON):
 };
 
 /**
- * Get the prompt template for a given framework key.
+ * Get the prompt template for a given framework key. The Helix Voice
+ * block is prepended to the framework's systemPrompt so every comms
+ * pressure test scores against the same tone rules as CCL.
  * @param {string} key — one of: communication, management, tasking, feedback, projects
- * @returns {{ systemPrompt: string, description: string }} or null if unknown key
+ * @returns {{ systemPrompt: string, description: string, promptVersion: string }} or null if unknown key
  */
 function getFrameworkPrompt(key) {
   const fw = FRAMEWORKS[key];
   if (!fw) return null;
-  return { systemPrompt: fw.systemPrompt, description: fw.description };
+  return {
+    systemPrompt: `${HELIX_VOICE_BLOCK}\n\n${fw.systemPrompt}`,
+    description: fw.description,
+    promptVersion: COMMS_FRAMEWORKS_PROMPT_VERSION,
+  };
 }
 
-/** List all available framework keys with descriptions */
+/** List all available framework keys with descriptions (voice block applied) */
 function listFrameworks() {
-  return Object.entries(FRAMEWORKS).map(([key, { description }]) => ({ key, description }));
+  return Object.entries(FRAMEWORKS).map(([key, { description, systemPrompt }]) => ({
+    key,
+    description,
+    systemPrompt: `${HELIX_VOICE_BLOCK}\n\n${systemPrompt}`,
+    promptVersion: COMMS_FRAMEWORKS_PROMPT_VERSION,
+  }));
 }
 
-module.exports = { getFrameworkPrompt, listFrameworks };
+module.exports = { getFrameworkPrompt, listFrameworks, COMMS_FRAMEWORKS_PROMPT_VERSION };

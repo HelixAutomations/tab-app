@@ -2,9 +2,11 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { colours } from '../../app/styles/colours';
 import { UserData } from '../../app/functionality/types';
 import { ErrorCollector } from '../ErrorTracker';
+import { useFreshIds } from '../../hooks/useFreshIds';
 import { buildStreamItem, createLedgerSeed, LEDGER_VISIBLE_STATUSES, prependStoredStreamItem } from '../../tabs/forms/processStreamStore';
 import { streamStatusMeta } from '../../tabs/forms/processHubData';
 import { CommandCentreTokens } from './types';
+import HelixToggleRow from '../controls/HelixToggleRow';
 import './CommandDeck.css';
 
 /* ─── Types ─── */
@@ -55,11 +57,13 @@ export interface CommandDeckProps {
     // Tool callbacks
     onDevDashboard: () => void;
     onErrorTracker: () => void;
-    onErrorPreview: () => void;
+    /** @deprecated Removed from Command Deck (consolidation 2026-04-21). Kept optional for back-compat with callers. */
+    onErrorPreview?: () => void;
     onLoadingDebug: () => void;
     onDemoPrompts: () => void;
     onMigrationTool: () => void;
     onOpenDemoMatter?: (showCcl?: boolean) => void;
+    /** @deprecated Changelog now reachable only via QuickActionsBar. Kept optional for back-compat. */
     onOpenReleaseNotesModal?: () => void;
     // Actions
     openReportingUtility: (view: 'logMonitor' | 'dataCentre') => void;
@@ -119,8 +123,6 @@ const icons = {
     loading: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M12 2v4"/><path d="M12 18v4"/><path d="M4.93 4.93l2.83 2.83"/><path d="M16.24 16.24l2.83 2.83"/><path d="M2 12h4"/><path d="M18 12h4"/><path d="M4.93 19.07l2.83-2.83"/><path d="M16.24 7.76l2.83-2.83"/></svg>,
     replay: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>,
     matter: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>,
-    ccl: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>,
-    rateTracker: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M12 1v22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>,
     prompts: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>,
     migration: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M4 4h16v16H4z"/><path d="M9 4v16"/><path d="M4 9h16"/></svg>,
     release: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22v-7"/></svg>,
@@ -140,8 +142,7 @@ const CommandDeck: React.FC<CommandDeckProps> = (props) => {
         healthData, healthLoading, routeResults, onRefreshRoutes,
         enquiriesLiveRefreshInFlight, enquiriesUsingSnapshot, enquiriesLastLiveSyncAt,
         featureToggles, onFeatureToggle, demoModeEnabled, onToggleDemoMode,
-        isAdminEligible, canSwitchUser, onUserChange, availableUsers,
-        onReturnToAdmin, originalAdminUser,
+        isAdminEligible,
         onDevDashboard, onErrorTracker, onErrorPreview, onLoadingDebug,
         onDemoPrompts, onMigrationTool, onOpenDemoMatter, onOpenReleaseNotesModal,
         openReportingUtility, setShowRefreshModal,
@@ -152,6 +153,24 @@ const CommandDeck: React.FC<CommandDeckProps> = (props) => {
     const [healthExpanded, setHealthExpanded] = useState(false);
     const [errorCount, setErrorCount] = useState(0);
     const [recentErrors, setRecentErrors] = useState<TrackedError[]>([]);
+    const freshErrorIds = useFreshIds(recentErrors, (err) => err.id);
+
+    // Bump counter so localStorage-backed toggles (UX overlay, Home layout
+    // toggles) re-read their state after a click. Without this the write
+    // succeeds but the checkbox only reflects the change on next panel open.
+    const [lsTick, setLsTick] = useState(0);
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const bump = () => setLsTick(t => t + 1);
+        window.addEventListener('helix:uxDebugToggled', bump);
+        window.addEventListener('helix:homeLayoutToggled', bump);
+        window.addEventListener('storage', bump); // cross-tab sync
+        return () => {
+            window.removeEventListener('helix:uxDebugToggled', bump);
+            window.removeEventListener('helix:homeLayoutToggled', bump);
+            window.removeEventListener('storage', bump);
+        };
+    }, []);
 
     // Subscribe to error collector for live badge + inline strip
     useEffect(() => {
@@ -167,15 +186,21 @@ const CommandDeck: React.FC<CommandDeckProps> = (props) => {
         return unsub;
     }, []);
 
-    /* ─── Toggle definitions ─── */
+    /* ─── Toggle definitions ───
+       Consolidation 2026-04-21:
+       - Demo mode now lives canonically in UserBubble (any admin). Kept here too
+         because LZ/AC use it as a quick context flip alongside Prod view.
+       - `forceShowOpsQueue` moved to the Home bottom-left layout overlay so all
+         Home view toggles share one surface.
+    */
     const toggleDefs = useMemo(() => {
-        const items: Array<{ key: string; label: string; enabled: boolean; colour: string; onToggle: () => void }> = [];
+        const items: Array<{ key: string; label: string; enabled: boolean; accent: string; onToggle: () => void }> = [];
 
         items.push({
             key: 'demo',
-            label: 'Demo',
+            label: 'Demo mode',
             enabled: demoModeEnabled,
-            colour: colours.green,
+            accent: colours.green,
             onToggle: () => {
                 const next = !demoModeEnabled;
                 onToggleDemoMode?.(next);
@@ -184,9 +209,9 @@ const CommandDeck: React.FC<CommandDeckProps> = (props) => {
         });
         items.push({
             key: 'prod',
-            label: 'Prod',
+            label: 'View as prod',
             enabled: !!featureToggles.viewAsProd,
-            colour: colours.cta,
+            accent: colours.cta,
             onToggle: () => {
                 const next = !featureToggles.viewAsProd;
                 onFeatureToggle?.('viewAsProd', next);
@@ -196,9 +221,9 @@ const CommandDeck: React.FC<CommandDeckProps> = (props) => {
         if (onFeatureToggle) {
             items.push({
                 key: 'showAttendance',
-                label: 'Attendance',
+                label: 'Attendance strip',
                 enabled: !!featureToggles.showAttendance,
-                colour: colours.green,
+                accent: colours.green,
                 onToggle: () => {
                     const next = !featureToggles.showAttendance;
                     onFeatureToggle('showAttendance', next);
@@ -207,49 +232,103 @@ const CommandDeck: React.FC<CommandDeckProps> = (props) => {
             });
             items.push({
                 key: 'showHomeOpsCclDates',
-                label: 'CCL dates',
+                label: 'CCL dates on Home',
                 enabled: !!featureToggles.showHomeOpsCclDates,
-                colour: isDarkMode ? colours.accent : colours.highlight,
+                accent: isDarkMode ? colours.accent : colours.highlight,
                 onToggle: () => {
                     const next = !featureToggles.showHomeOpsCclDates;
                     onFeatureToggle('showHomeOpsCclDates', next);
                     showToast(next ? 'CCL dates on' : 'CCL dates off', 'success');
                 },
             });
-            items.push({
-                key: 'forceShowOpsQueue',
-                label: 'Ops Queue',
-                enabled: !!featureToggles.forceShowOpsQueue,
-                colour: colours.cta,
-                onToggle: () => {
-                    const next = !featureToggles.forceShowOpsQueue;
-                    onFeatureToggle('forceShowOpsQueue', next);
-                    showToast(next ? 'Ops queue on' : 'Ops queue off', 'success');
-                },
-            });
         }
+        // UX latency overlay — localStorage-backed toggle. Previously always-on
+        // for LZ/AC after the first tracked interaction; now opt-in via this row.
+        const uxOverlayOn = typeof window !== 'undefined'
+            && (() => { try { return window.localStorage.getItem('helixUxDebug') === '1'; } catch { return false; } })();
+        items.push({
+            key: 'uxLatencyOverlay',
+            label: 'UX latency overlay',
+            enabled: uxOverlayOn,
+            accent: colours.cta,
+            onToggle: () => {
+                if (typeof window === 'undefined') return;
+                const next = !uxOverlayOn;
+                try {
+                    if (next) window.localStorage.setItem('helixUxDebug', '1');
+                    else window.localStorage.removeItem('helixUxDebug');
+                } catch { /* ignore */ }
+                try { window.dispatchEvent(new CustomEvent('helix:uxDebugToggled')); } catch { /* ignore */ }
+                showToast(next ? 'UX overlay on' : 'UX overlay off', 'success');
+            },
+        });
+        // Home layout toggle — the single surviving layout switch. `Replace
+        // pipeline/matters with ToDo` swaps the pipeline+matters blocks for the
+        // ImmediateActionsBar ToDo box; Home.tsx listens for
+        // `helix:homeLayoutToggled` to re-sync from localStorage.
+        const readLs = (key: string) => {
+            if (typeof window === 'undefined') return false;
+            try { return window.localStorage.getItem(key) === '1'; } catch { return false; }
+        };
+        const writeLs = (key: string, value: boolean) => {
+            if (typeof window === 'undefined') return;
+            try { window.localStorage.setItem(key, value ? '1' : '0'); } catch { /* ignore */ }
+            try { window.dispatchEvent(new CustomEvent('helix:homeLayoutToggled', { detail: { key, value } })); } catch { /* ignore */ }
+        };
+        const replacePipelineOn = readLs('helix.home.replacePipelineAndMatters');
+        items.push({
+            key: 'homeReplacePipeline',
+            label: 'Replace pipeline/matters with ToDo',
+            enabled: replacePipelineOn,
+            accent: isDarkMode ? colours.accent : colours.highlight,
+            onToggle: () => {
+                const next = !replacePipelineOn;
+                writeLs('helix.home.replacePipelineAndMatters', next);
+                showToast(next ? 'ToDo replaces pipeline/matters' : 'Pipeline/matters restored', 'success');
+            },
+        });
         return items;
-    }, [demoModeEnabled, featureToggles, onFeatureToggle, onToggleDemoMode, isDarkMode, showToast]);
+    }, [demoModeEnabled, featureToggles, onFeatureToggle, onToggleDemoMode, isDarkMode, showToast, lsTick]);
 
-    /* ─── Tool grid definitions ─── */
-    const toolDefs = useMemo(() => {
-        const tools: Array<{ key: string; label: string; icon: React.ReactNode; badge?: number; onClick: () => void }> = [
-            { key: 'devDash', label: 'Dev Dashboard', icon: icons.dashboard, onClick: onDevDashboard },
-            { key: 'errorTracker', label: 'Error Tracker', icon: icons.error, badge: errorCount || undefined, onClick: onErrorTracker },
-            { key: 'errorPreview', label: 'Error Preview', icon: icons.errorPreview, onClick: onErrorPreview },
-            { key: 'loadingDebug', label: 'Loading Debug', icon: icons.loading, onClick: onLoadingDebug },
-            { key: 'replay', label: 'Replay Anims', icon: icons.replay, onClick: () => { window.dispatchEvent(new CustomEvent('replayHomeAnimations')); showToast('Replaying animations', 'info'); } },
+    /* ─── Tool grid definitions ───
+       Consolidation 2026-04-21 (revised 2026-04-22):
+       - `Replay Anims` stays out (no listener anywhere — dead).
+       - Every other option surfaces here so the Tools popover is the single
+         place every admin-only action lives. Demo chip is one-click toggle only.
+       - Tools grouped: Diagnostics / Demo lab / Utilities.
+    */
+    type ToolGroup = 'diag' | 'demo' | 'utils';
+    type Tool = { key: string; label: string; icon: React.ReactNode; badge?: number; onClick: () => void; group: ToolGroup };
+    const toolDefs = useMemo<Tool[]>(() => {
+        const tools: Tool[] = [
+            { key: 'devDash', label: 'Dev Dashboard', icon: icons.dashboard, onClick: onDevDashboard, group: 'diag' },
+            { key: 'errorTracker', label: 'Error Tracker', icon: icons.error, badge: errorCount || undefined, onClick: onErrorTracker, group: 'diag' },
+            { key: 'loadingDebug', label: 'Loading Debug', icon: icons.loading, onClick: onLoadingDebug, group: 'diag' },
         ];
-        if (onOpenDemoMatter) {
-            tools.push({ key: 'demoMatter', label: 'Demo Matter', icon: icons.matter, onClick: () => onOpenDemoMatter(false) });
-            tools.push({ key: 'demoCcl', label: 'Demo CCL', icon: icons.ccl, onClick: () => onOpenDemoMatter(true) });
+        if (onErrorPreview) {
+            tools.push({ key: 'errorPreview', label: 'Error Preview', icon: icons.errorPreview, onClick: onErrorPreview, group: 'diag' });
         }
+        if (onOpenDemoMatter) {
+            tools.push({ key: 'demoMatter', label: 'Demo Matter', icon: icons.matter, onClick: () => onOpenDemoMatter(false), group: 'demo' });
+        }
+        tools.push({ key: 'prompts', label: 'Prompt Seeds', icon: icons.prompts, onClick: onDemoPrompts, group: 'demo' });
+        tools.push({
+            key: 'realtimePulse',
+            label: 'Realtime Pulse',
+            icon: icons.activity,
+            group: 'demo',
+            onClick: () => {
+                try { window.dispatchEvent(new CustomEvent('demoRealtimePulse')); } catch { /* noop */ }
+                showToast('Pulse sent', 'success');
+            },
+        });
         if (demoModeEnabled && isAdminEligible) {
             LEDGER_VISIBLE_STATUSES.forEach((status) => {
                 tools.push({
                     key: `ledger-${status}`,
                     label: `Ledger ${streamStatusMeta[status].label}`,
                     icon: icons.activity,
+                    group: 'demo',
                     onClick: () => {
                         const seed = createLedgerSeed(status, 'demo');
                         prependStoredStreamItem(buildStreamItem({
@@ -263,23 +342,44 @@ const CommandDeck: React.FC<CommandDeckProps> = (props) => {
                     },
                 });
             });
+            tools.push({
+                key: 'resetDemo',
+                label: 'Reset Demo State',
+                icon: icons.refresh,
+                group: 'demo',
+                onClick: () => {
+                    try {
+                        const keys = Object.keys(localStorage).filter((k) => {
+                            const l = k.toLowerCase();
+                            return l.startsWith('helix.demo.') || l.startsWith('ccldraftcache.');
+                        });
+                        keys.forEach((k) => localStorage.removeItem(k));
+                        localStorage.setItem('demoModeEnabled', 'false');
+                    } catch { /* ignore */ }
+                    onToggleDemoMode?.(false);
+                    showToast('Demo state reset', 'success');
+                },
+            });
         }
-        tools.push({ key: 'rateTracker', label: 'Rate Tracker', icon: icons.rateTracker, onClick: () => { window.dispatchEvent(new CustomEvent('openRateChangeModal')); onClose(); } });
-        tools.push({ key: 'prompts', label: 'Prompt Seeds', icon: icons.prompts, onClick: onDemoPrompts });
-        tools.push({ key: 'migration', label: 'Migration', icon: icons.migration, onClick: onMigrationTool });
+        tools.push({ key: 'migration', label: 'Migration', icon: icons.migration, onClick: onMigrationTool, group: 'utils' });
         if (onOpenReleaseNotesModal) {
-            tools.push({ key: 'release', label: 'Release Notes', icon: icons.release, onClick: () => { onOpenReleaseNotesModal(); onClose(); } });
+            tools.push({ key: 'changelog', label: 'Changelog', icon: icons.release, onClick: () => { onOpenReleaseNotesModal(); onClose(); }, group: 'utils' });
         }
         return tools;
-    }, [demoModeEnabled, errorCount, isAdminEligible, onDevDashboard, onErrorTracker, onErrorPreview, onLoadingDebug, onDemoPrompts, onMigrationTool, onOpenDemoMatter, onOpenReleaseNotesModal, onClose, showToast]);
+    }, [demoModeEnabled, errorCount, isAdminEligible, onDevDashboard, onErrorTracker, onErrorPreview, onLoadingDebug, onDemoPrompts, onMigrationTool, onOpenDemoMatter, onOpenReleaseNotesModal, onToggleDemoMode, onClose, showToast]);
 
-    const handleUserChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
-        const sel = availableUsers?.find(u => u.Initials === e.target.value);
-        if (sel && onUserChange) {
-            onUserChange(sel);
-            showToast(`Switched to ${sel.FullName || `${sel.First} ${sel.Last}`}`, 'success');
-        }
-    }, [availableUsers, onUserChange, showToast]);
+    const toolGroups = useMemo<{ id: ToolGroup; label: string; tools: Tool[] }[]>(() => {
+        const groups: { id: ToolGroup; label: string; tools: Tool[] }[] = [
+            { id: 'diag', label: 'Diagnostics', tools: [] },
+            { id: 'demo', label: 'Demo lab', tools: [] },
+            { id: 'utils', label: 'Utilities', tools: [] },
+        ];
+        toolDefs.forEach((t) => {
+            const g = groups.find((x) => x.id === t.group);
+            if (g) g.tools.push(t);
+        });
+        return groups.filter((g) => g.tools.length > 0);
+    }, [toolDefs]);
 
     const envDotColour = useCallback((r: EnvResult): string => {
         if (r.status === 'loading') return colours.subtleGrey;
@@ -382,27 +482,19 @@ const CommandDeck: React.FC<CommandDeckProps> = (props) => {
                         </div>
                     </div>
 
-                    {/* Toggles */}
+                    {/* Toggles — Helix toggle row chrome (matches Home layout overlay) */}
                     <div>
                         <div className="cmd-deck__section-label">Controls</div>
-                        <div className="cmd-deck__toggles" style={{ marginTop: 6 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 6 }}>
                             {toggleDefs.map(t => (
-                                <button
+                                <HelixToggleRow
                                     key={t.key}
-                                    type="button"
-                                    className={`cmd-deck__toggle${t.enabled ? ' cmd-deck__toggle--on' : ''}`}
-                                    style={t.enabled ? { borderColor: `${t.colour}88`, background: `${t.colour}22` } : undefined}
-                                    onClick={t.onToggle}
-                                >
-                                    <span
-                                        className="cmd-deck__toggle-dot"
-                                        style={{
-                                            background: t.enabled ? t.colour : 'var(--text-muted)',
-                                            boxShadow: t.enabled ? `0 0 6px ${t.colour}66` : 'none',
-                                        }}
-                                    />
-                                    <span className="cmd-deck__toggle-label">{t.label}</span>
-                                </button>
+                                    label={t.label}
+                                    value={t.enabled}
+                                    onChange={t.onToggle}
+                                    isDarkMode={isDarkMode}
+                                    accent={t.accent}
+                                />
                             ))}
                         </div>
                     </div>
@@ -419,7 +511,7 @@ const CommandDeck: React.FC<CommandDeckProps> = (props) => {
                                 </button>
                             </div>
                             {recentErrors.map(err => (
-                                <div key={err.id} className="cmd-deck__error-row">
+                                <div key={err.id} data-fresh={freshErrorIds.has(err.id) ? 'true' : undefined} className="cmd-deck__error-row">
                                     <span className={`cmd-deck__error-type cmd-deck__error-type--${err.type}`}>{err.type}</span>
                                     <span className="cmd-deck__error-msg">{err.message}</span>
                                 </div>
@@ -427,52 +519,34 @@ const CommandDeck: React.FC<CommandDeckProps> = (props) => {
                         </div>
                     )}
 
-                    {/* Tools grid */}
-                    <div>
-                        <div className="cmd-deck__section-label">Tools</div>
-                        <div className="cmd-deck__grid" style={{ marginTop: 6 }}>
-                            {toolDefs.map(tool => (
-                                <button
-                                    key={tool.key}
-                                    type="button"
-                                    className="cmd-deck__card"
-                                    onClick={tool.onClick}
-                                >
-                                    <span className="cmd-deck__card-icon">{tool.icon}</span>
-                                    <span className="cmd-deck__card-label">{tool.label}</span>
-                                    {tool.badge != null && tool.badge > 0 && (
-                                        <span className="cmd-deck__card-badge">{tool.badge}</span>
-                                    )}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-
-                    {/* Admin strip */}
-                    {isAdminEligible && canSwitchUser && onUserChange && availableUsers && (
-                        <div>
-                            <div className="cmd-deck__section-label">User</div>
-                            <div className="cmd-deck__admin" style={{ marginTop: 6 }}>
-                                <select
-                                    className="cmd-deck__admin-select"
-                                    onChange={handleUserChange}
-                                    defaultValue=""
-                                >
-                                    <option value="">Switch user…</option>
-                                    {availableUsers
-                                        .filter(u => !u.status || String(u.status).toLowerCase() === 'active')
-                                        .map(u => (
-                                            <option key={u.Initials} value={u.Initials}>
-                                                {u.FullName || `${u.First} ${u.Last}`}
-                                            </option>
-                                        ))}
-                                </select>
+                    {/* Tools — grouped (Diagnostics / Demo lab / Utilities) */}
+                    {toolGroups.map((group) => (
+                        <div key={group.id}>
+                            <div className="cmd-deck__section-label">{group.label}</div>
+                            <div className="cmd-deck__grid" style={{ marginTop: 6 }}>
+                                {group.tools.map((tool) => (
+                                    <button
+                                        key={tool.key}
+                                        type="button"
+                                        className="cmd-deck__card"
+                                        onClick={tool.onClick}
+                                    >
+                                        <span className="cmd-deck__card-icon">{tool.icon}</span>
+                                        <span className="cmd-deck__card-label">{tool.label}</span>
+                                        {tool.badge != null && tool.badge > 0 && (
+                                            <span className="cmd-deck__card-badge">{tool.badge}</span>
+                                        )}
+                                    </button>
+                                ))}
                             </div>
                         </div>
-                    )}
+                    ))}
                 </div>
 
-                {/* ─── Footer ─── */}
+                {/* ─── Footer ───
+                    Switch user / Return-to-admin removed (UserBubble is canonical for those).
+                    Refresh kept here as a one-click for dev/diagnostic flows.
+                */}
                 <div className="cmd-deck__footer">
                     <button type="button" className="cmd-deck__footer-btn" onClick={() => openReportingUtility('logMonitor')}>
                         {icons.activity}
@@ -486,12 +560,6 @@ const CommandDeck: React.FC<CommandDeckProps> = (props) => {
                         {icons.refresh}
                         Refresh
                     </button>
-                    {originalAdminUser && onReturnToAdmin && (
-                        <button type="button" className="cmd-deck__footer-btn cmd-deck__footer-btn--cta" onClick={() => { onReturnToAdmin(); onClose(); }}>
-                            {icons.returnArrow}
-                            Return
-                        </button>
-                    )}
                 </div>
             </div>
         </>

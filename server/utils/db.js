@@ -435,6 +435,7 @@ async function withRequest(connStr, fn, retries = 2) {
       } catch (err) {
         lastErr = err;
         const code = err?.code || err?.originalError?.code || err?.cause?.code;
+        const message = String(err?.message || '').toLowerCase();
         
         // Log detailed error for diagnostics
         if (attempt === 0) {
@@ -456,7 +457,10 @@ async function withRequest(connStr, fn, retries = 2) {
           "EPIPE", // Broken pipe
           "ENOTFOUND", // DNS resolution failure
         ]);
-        const retryable = transientCodes.has(String(code));
+        const retryableByMessage = message.includes("operation timed out for an unknown reason")
+          || message.includes("connection established but not responding to queries")
+          || message.includes("failed to connect to");
+        const retryable = transientCodes.has(String(code)) || retryableByMessage;
         
         if (!retryable || attempt === retries) {
           totalErrors++;

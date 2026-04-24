@@ -1,0 +1,456 @@
+[2m+  3294ms[0m [36m[backend][0m [clio-webhook] CLIO_WEBHOOK_SECRET not set — signature verification disabled (dev mode only).
+[2m+ 43395ms[0m [35m[frontend][0m (node:44180) [DEP_WEBPACK_DEV_SERVER_ON_AFTER_SETUP_MIDDLEWARE] DeprecationWarning: 'onAfterSetupMiddleware' option is deprecated. Please use the 'setupMiddlewares' option.
+[2m+ 43445ms[0m [35m[frontend][0m (Use `node --trace-deprecation ...` to show where the warning was created)
+[2m+ 43509ms[0m [35m[frontend][0m (node:44180) [DEP_WEBPACK_DEV_SERVER_ON_BEFORE_SETUP_MIDDLEWARE] DeprecationWarning: 'onBeforeSetupMiddleware' option is deprecated. Please use the 'setupMiddlewares' option.
+[2m+1199520ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1199579ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1199580ms[0m [35m[frontend][0m errno: -4077,
+[2m+1199581ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1199596ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1199598ms[0m [35m[frontend][0m }
+[2m+1199598ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1199599ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1199600ms[0m [35m[frontend][0m errno: -4077,
+[2m+1199600ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1199601ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1199601ms[0m [35m[frontend][0m }
+[2m+1199602ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1199603ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1199603ms[0m [35m[frontend][0m errno: -4077,
+[2m+1199604ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1199604ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1199605ms[0m [35m[frontend][0m }
+[2m+1199606ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1199606ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1199607ms[0m [35m[frontend][0m errno: -4077,
+[2m+1199607ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1199608ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1199609ms[0m [35m[frontend][0m }
+[2m+1199610ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1199610ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1199611ms[0m [35m[frontend][0m errno: -4077,
+[2m+1199612ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1199614ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1199615ms[0m [35m[frontend][0m }
+[2m+1199616ms[0m [35m[frontend][0m Proxy error for /api/future-bookings/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c: read ECONNRESET
+[2m+1199617ms[0m [35m[frontend][0m [HPM] Error occurred while proxying request localhost:3000/api/future-bookings/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNRESET] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+[2m+1199618ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1199619ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1199620ms[0m [35m[frontend][0m errno: -4077,
+[2m+1199621ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1199621ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1199622ms[0m [35m[frontend][0m }
+[2m+1199622ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1199623ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1199624ms[0m [35m[frontend][0m errno: -4077,
+[2m+1199624ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1199625ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1199625ms[0m [35m[frontend][0m }
+[2m+1199626ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1199629ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1199629ms[0m [35m[frontend][0m errno: -4077,
+[2m+1199630ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1199631ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1199631ms[0m [35m[frontend][0m }
+[2m+1199632ms[0m [35m[frontend][0m Proxy error for /api/outstanding-balances/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c: read ECONNRESET
+[2m+1199633ms[0m [35m[frontend][0m [HPM] Error occurred while proxying request localhost:3000/api/outstanding-balances/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNRESET] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+[2m+1199633ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1199634ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1199635ms[0m [35m[frontend][0m errno: -4077,
+[2m+1199635ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1199636ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1199636ms[0m [35m[frontend][0m }
+[2m+1199637ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1199638ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1199638ms[0m [35m[frontend][0m errno: -4077,
+[2m+1199639ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1199640ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1199641ms[0m [35m[frontend][0m }
+[2m+1199643ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1199644ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1199645ms[0m [35m[frontend][0m errno: -4077,
+[2m+1199646ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1199646ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1199647ms[0m [35m[frontend][0m }
+[2m+1199647ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1199648ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1199649ms[0m [35m[frontend][0m errno: -4077,
+[2m+1199649ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1199650ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1199650ms[0m [35m[frontend][0m }
+[2m+1199651ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1199652ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1199652ms[0m [35m[frontend][0m errno: -4077,
+[2m+1199653ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1199654ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1199655ms[0m [35m[frontend][0m }
+[2m+1199655ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1199656ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1199657ms[0m [35m[frontend][0m errno: -4077,
+[2m+1199657ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1199658ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1199660ms[0m [35m[frontend][0m }
+[2m+1199660ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1199661ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1199662ms[0m [35m[frontend][0m errno: -4077,
+[2m+1199663ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1199663ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1199665ms[0m [35m[frontend][0m }
+[2m+1199666ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1199666ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1199667ms[0m [35m[frontend][0m errno: -4077,
+[2m+1199668ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1199668ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1199670ms[0m [35m[frontend][0m }
+[2m+1199671ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1199671ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1199672ms[0m [35m[frontend][0m errno: -4077,
+[2m+1199673ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1199675ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1199675ms[0m [35m[frontend][0m }
+[2m+1199676ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1199676ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1199677ms[0m [35m[frontend][0m errno: -4077,
+[2m+1199678ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1199678ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1199679ms[0m [35m[frontend][0m }
+[2m+1199679ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1199680ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1199681ms[0m [35m[frontend][0m errno: -4077,
+[2m+1199681ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1199682ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1199682ms[0m [35m[frontend][0m }
+[2m+1199683ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1199684ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1199684ms[0m [35m[frontend][0m errno: -4077,
+[2m+1199685ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1199685ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1199686ms[0m [35m[frontend][0m }
+[2m+1199688ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1199689ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1199690ms[0m [35m[frontend][0m errno: -4077,
+[2m+1199691ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1199692ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1199693ms[0m [35m[frontend][0m }
+[2m+1199694ms[0m [35m[frontend][0m SSE proxy error for /api/enquiries-unified/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c: read ECONNRESET
+[2m+1199694ms[0m [35m[frontend][0m [HPM] Error occurred while proxying request localhost:3000/api/enquiries-unified/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNRESET] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+[2m+1199696ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1199697ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1199697ms[0m [35m[frontend][0m errno: -4077,
+[2m+1199698ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1199699ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1199699ms[0m [35m[frontend][0m }
+[2m+1199705ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1199738ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1199754ms[0m [35m[frontend][0m errno: -4077,
+[2m+1199773ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1199791ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1199814ms[0m [35m[frontend][0m }
+[2m+1199836ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1199850ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1199869ms[0m [35m[frontend][0m errno: -4077,
+[2m+1199891ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1199906ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1199923ms[0m [35m[frontend][0m }
+[2m+1200018ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1200030ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1200039ms[0m [35m[frontend][0m errno: -4077,
+[2m+1200044ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1200047ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1200054ms[0m [35m[frontend][0m }
+[2m+1200055ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1200056ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1200057ms[0m [35m[frontend][0m errno: -4077,
+[2m+1200057ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1200058ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1200059ms[0m [35m[frontend][0m }
+[2m+1200059ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1200060ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1200061ms[0m [35m[frontend][0m errno: -4077,
+[2m+1200061ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1200062ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1200063ms[0m [35m[frontend][0m }
+[2m+1200063ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1200064ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1200064ms[0m [35m[frontend][0m errno: -4077,
+[2m+1200065ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1200066ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1200067ms[0m [35m[frontend][0m }
+[2m+1200068ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1200070ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1200071ms[0m [35m[frontend][0m errno: -4077,
+[2m+1200071ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1200072ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1200072ms[0m [35m[frontend][0m }
+[2m+1200073ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1200074ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1200074ms[0m [35m[frontend][0m errno: -4077,
+[2m+1200075ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1200076ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1200076ms[0m [35m[frontend][0m }
+[2m+1200077ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1200077ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1200078ms[0m [35m[frontend][0m errno: -4077,
+[2m+1200079ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1200079ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1200080ms[0m [35m[frontend][0m }
+[2m+1200081ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1200081ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1200082ms[0m [35m[frontend][0m errno: -4077,
+[2m+1200084ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1200084ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1200085ms[0m [35m[frontend][0m }
+[2m+1200086ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1200088ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1200088ms[0m [35m[frontend][0m errno: -4077,
+[2m+1200089ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1200089ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1200090ms[0m [35m[frontend][0m }
+[2m+1200091ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1200092ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1200093ms[0m [35m[frontend][0m errno: -4077,
+[2m+1200094ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1200095ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1200097ms[0m [35m[frontend][0m }
+[2m+1200098ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1200098ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1200099ms[0m [35m[frontend][0m errno: -4077,
+[2m+1200100ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1200100ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1200101ms[0m [35m[frontend][0m }
+[2m+1200101ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1200102ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1200103ms[0m [35m[frontend][0m errno: -4077,
+[2m+1200103ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1200104ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1200105ms[0m [35m[frontend][0m }
+[2m+1200105ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1200106ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1200107ms[0m [35m[frontend][0m errno: -4077,
+[2m+1200107ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1200108ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1200108ms[0m [35m[frontend][0m }
+[2m+1200109ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1200110ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1200110ms[0m [35m[frontend][0m errno: -4077,
+[2m+1200111ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1200112ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1200112ms[0m [35m[frontend][0m }
+[2m+1200113ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1200114ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1200114ms[0m [35m[frontend][0m errno: -4077,
+[2m+1200115ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1200115ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1200116ms[0m [35m[frontend][0m }
+[2m+1200117ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1200117ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1200118ms[0m [35m[frontend][0m errno: -4077,
+[2m+1200119ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1200119ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1200120ms[0m [35m[frontend][0m }
+[2m+1200121ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1200121ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1200122ms[0m [35m[frontend][0m errno: -4077,
+[2m+1200124ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1200125ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1200126ms[0m [35m[frontend][0m }
+[2m+1200126ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1200127ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1200128ms[0m [35m[frontend][0m errno: -4077,
+[2m+1200128ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1200129ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1200129ms[0m [35m[frontend][0m }
+[2m+1200130ms[0m [35m[frontend][0m Proxy error for /api/attendance/attendance/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c: read ECONNRESET
+[2m+1200131ms[0m [35m[frontend][0m [HPM] Error occurred while proxying request localhost:3000/api/attendance/attendance/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNRESET] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+[2m+1200131ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1200132ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1200132ms[0m [35m[frontend][0m errno: -4077,
+[2m+1200133ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1200134ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1200134ms[0m [35m[frontend][0m }
+[2m+1200135ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1200135ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1200136ms[0m [35m[frontend][0m errno: -4077,
+[2m+1200137ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1200137ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1200138ms[0m [35m[frontend][0m }
+[2m+1200138ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1200139ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1200152ms[0m [35m[frontend][0m errno: -4077,
+[2m+1200153ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1200154ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1200155ms[0m [35m[frontend][0m }
+[2m+1200155ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1200156ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1200156ms[0m [35m[frontend][0m errno: -4077,
+[2m+1200157ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1200158ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1200159ms[0m [35m[frontend][0m }
+[2m+1200159ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1200161ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1200161ms[0m [35m[frontend][0m errno: -4077,
+[2m+1200162ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1200168ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1200182ms[0m [35m[frontend][0m }
+[2m+1200202ms[0m [35m[frontend][0m Proxy error for /api/attendance/annual-leave/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c: read ECONNRESET
+[2m+1200215ms[0m [35m[frontend][0m [HPM] Error occurred while proxying request localhost:3000/api/attendance/annual-leave/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNRESET] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+[2m+1200230ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+1200245ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+1200259ms[0m [35m[frontend][0m errno: -4077,
+[2m+1200273ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+1200296ms[0m [35m[frontend][0m syscall: 'read'
+[2m+1200325ms[0m [35m[frontend][0m }
+[2m+1200343ms[0m [35m[frontend][0m Proxy error for /api/data-operations/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c: read ECONNRESET
+[2m+1200359ms[0m [35m[frontend][0m [HPM] Error occurred while proxying request localhost:3000/api/data-operations/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNRESET] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+[2m+1200472ms[0m [35m[frontend][0m Proxy error for /api/dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+[2m+1200485ms[0m [35m[frontend][0m [HPM] Error occurred while proxying request localhost:3000/api/dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+[2m+1200506ms[0m [35m[frontend][0m Proxy error for /api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+[2m+1200528ms[0m [35m[frontend][0m [HPM] Error occurred while proxying request localhost:3000/api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+[2m+1200541ms[0m [35m[frontend][0m Proxy error for /api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+[2m+1200554ms[0m [35m[frontend][0m [HPM] Error occurred while proxying request localhost:3000/api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+[2m+1200568ms[0m [35m[frontend][0m Proxy error for /api/dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+[2m+1200582ms[0m [35m[frontend][0m [HPM] Error occurred while proxying request localhost:3000/api/dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+[2m+1200596ms[0m [35m[frontend][0m Proxy error for /api/dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+[2m+1200610ms[0m [35m[frontend][0m [HPM] Error occurred while proxying request localhost:3000/api/dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+[2m+1200628ms[0m [35m[frontend][0m Proxy error for /api/dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+[2m+1200643ms[0m [35m[frontend][0m [HPM] Error occurred while proxying request localhost:3000/api/dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+[2m+1200656ms[0m [35m[frontend][0m Proxy error for /api/dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+[2m+1200678ms[0m [35m[frontend][0m [HPM] Error occurred while proxying request localhost:3000/api/dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+[2m+1200691ms[0m [35m[frontend][0m Proxy error for /api/dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+[2m+1200713ms[0m [35m[frontend][0m [HPM] Error occurred while proxying request localhost:3000/api/dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+[2m+1200729ms[0m [35m[frontend][0m Proxy error for /api/dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+[2m+1200744ms[0m [35m[frontend][0m [HPM] Error occurred while proxying request localhost:3000/api/dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+[2m+1200768ms[0m [35m[frontend][0m Proxy error for /api/dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+[2m+1200848ms[0m [35m[frontend][0m [HPM] Error occurred while proxying request localhost:3000/api/dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+[2m+1200849ms[0m [35m[frontend][0m Proxy error for /api/dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+[2m+1200849ms[0m [35m[frontend][0m [HPM] Error occurred while proxying request localhost:3000/api/dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+[2m+1200850ms[0m [35m[frontend][0m Proxy error for /api/dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+[2m+1200851ms[0m [35m[frontend][0m [HPM] Error occurred while proxying request localhost:3000/api/dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+[2m+1200851ms[0m [35m[frontend][0m Proxy error for /api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+[2m+1200852ms[0m [35m[frontend][0m [HPM] Error occurred while proxying request localhost:3000/api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+[2m+1200853ms[0m [36m[backend][0m [clio-webhook] CLIO_WEBHOOK_SECRET not set — signature verification disabled (dev mode only).
+[2m+1201041ms[0m [35m[frontend][0m Proxy error for /api/reporting/management-datasets?datasets=recoveredFeesSummary&bypassCache=true&firm=true&clioId=141740&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c&email=lz%40helix-law.com&initials=LZ:
+[2m+1201042ms[0m [35m[frontend][0m [HPM] Error occurred while proxying request localhost:3000/api/reporting/management-datasets?datasets=recoveredFeesSummary&bypassCache=true&firm=true&clioId=141740&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c&email=lz%40helix-law.com&initials=LZ to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+[2m+1201305ms[0m [35m[frontend][0m Proxy error for /api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+[2m+1201306ms[0m [35m[frontend][0m [HPM] Error occurred while proxying request localhost:3000/api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+[2m+1201322ms[0m [35m[frontend][0m Proxy error for /api/dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+[2m+1201323ms[0m [35m[frontend][0m [HPM] Error occurred while proxying request localhost:3000/api/dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+[2m+1201398ms[0m [35m[frontend][0m Proxy error for /api/attendance/annual-leave/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+[2m+1201399ms[0m [35m[frontend][0m [HPM] Error occurred while proxying request localhost:3000/api/attendance/annual-leave/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+[2m+1201400ms[0m [35m[frontend][0m Proxy error for /api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+[2m+1201401ms[0m [35m[frontend][0m [HPM] Error occurred while proxying request localhost:3000/api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+[2m+1201401ms[0m [35m[frontend][0m Proxy error for /api/data-operations/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+[2m+1201402ms[0m [35m[frontend][0m [HPM] Error occurred while proxying request localhost:3000/api/data-operations/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+[2m+1201402ms[0m [35m[frontend][0m Proxy error for /api/attendance/attendance/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+[2m+1201403ms[0m [35m[frontend][0m [HPM] Error occurred while proxying request localhost:3000/api/attendance/attendance/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+[2m+1201404ms[0m [35m[frontend][0m Proxy error for /api/future-bookings/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+[2m+1201406ms[0m [35m[frontend][0m [HPM] Error occurred while proxying request localhost:3000/api/future-bookings/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+[2m+1201407ms[0m [35m[frontend][0m Proxy error for /api/outstanding-balances/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+[2m+1201407ms[0m [35m[frontend][0m [HPM] Error occurred while proxying request localhost:3000/api/outstanding-balances/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+[2m+1201410ms[0m [35m[frontend][0m Proxy error for /api/ops-queue/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+[2m+1201410ms[0m [35m[frontend][0m [HPM] Error occurred while proxying request localhost:3000/api/ops-queue/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+[2m+1201411ms[0m [35m[frontend][0m Proxy error for /api/doc-workspace/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+[2m+1201412ms[0m [35m[frontend][0m [HPM] Error occurred while proxying request localhost:3000/api/doc-workspace/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+[2m+1201413ms[0m [35m[frontend][0m Proxy error for /api/matters/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+[2m+1201414ms[0m [35m[frontend][0m [HPM] Error occurred while proxying request localhost:3000/api/matters/stream?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+[2m+1201602ms[0m [35m[frontend][0m Proxy error for /api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+[2m+1201603ms[0m [35m[frontend][0m [HPM] Error occurred while proxying request localhost:3000/api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+[2m+1201663ms[0m [35m[frontend][0m Proxy error for /api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+[2m+1201664ms[0m [35m[frontend][0m [HPM] Error occurred while proxying request localhost:3000/api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+[2m+1201664ms[0m [35m[frontend][0m Proxy error for /api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+[2m+1201665ms[0m [35m[frontend][0m [HPM] Error occurred while proxying request localhost:3000/api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+[2m+1201666ms[0m [35m[frontend][0m Proxy error for /api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+[2m+1201666ms[0m [35m[frontend][0m [HPM] Error occurred while proxying request localhost:3000/api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+[2m+1201667ms[0m [35m[frontend][0m Proxy error for /api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+[2m+1201668ms[0m [35m[frontend][0m [HPM] Error occurred while proxying request localhost:3000/api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+[2m+1201668ms[0m [35m[frontend][0m Proxy error for /api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+[2m+1201669ms[0m [35m[frontend][0m [HPM] Error occurred while proxying request localhost:3000/api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+[2m+1201670ms[0m [35m[frontend][0m Proxy error for /api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+[2m+1201670ms[0m [35m[frontend][0m [HPM] Error occurred while proxying request localhost:3000/api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+[2m+1201671ms[0m [35m[frontend][0m Proxy error for /api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+[2m+1201671ms[0m [35m[frontend][0m [HPM] Error occurred while proxying request localhost:3000/api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+[2m+1563913ms[0m [36m[backend][0m [home-wip] Clio 401 detected; refreshing access token...
+[2m+2191659ms[0m [36m[backend][0m [Redis] Redis error: Socket closed unexpectedly
+[2m+2251831ms[0m [36m[backend][0m [Redis] Redis error: Socket closed unexpectedly
+[2m+2311826ms[0m [36m[backend][0m [Redis] Redis error: Socket closed unexpectedly
+[2m+2371846ms[0m [36m[backend][0m [Redis] Redis error: Socket closed unexpectedly
+[2m+2432054ms[0m [36m[backend][0m [Redis] Redis error: Socket closed unexpectedly
+[2m+2492226ms[0m [36m[backend][0m [Redis] Redis error: Socket closed unexpectedly
+[2m+13765606ms[0m [36m[backend][0m SQL pool error: operation timed out for an unknown reason
+[2m+13765607ms[0m [36m[backend][0m SQL error on attempt 1: {
+[2m+13765608ms[0m [36m[backend][0m code: undefined,
+[2m+13765609ms[0m [36m[backend][0m message: 'operation timed out for an unknown reason',
+[2m+13765609ms[0m [36m[backend][0m originalCode: undefined
+[2m+13765610ms[0m [36m[backend][0m }
+[2m+13765611ms[0m [36m[backend][0m SQL pool error: operation timed out for an unknown reason
+[2m+13765612ms[0m [36m[backend][0m Health check failed for pool, removing: operation timed out for an unknown reason
+[2m+13766797ms[0m [36m[backend][0m [Redis] Redis error: read ECONNRESET
+[2m+15880189ms[0m [36m[backend][0m [Redis] Redis error: 94E20000:error:0A00042E:SSL routines:ssl3_read_bytes:tlsv1 alert protocol version:c:\ws\deps\openssl\openssl\ssl\record\rec_layer_s3.c:1590:SSL alert number 70
+[2m+15881467ms[0m [36m[backend][0m [Redis] Redis error: 94E20000:error:0A00042E:SSL routines:ssl3_read_bytes:tlsv1 alert protocol version:c:\ws\deps\openssl\openssl\ssl\record\rec_layer_s3.c:1590:SSL alert number 70
+[2m+15882199ms[0m [36m[backend][0m [Redis] Redis error: 94E20000:error:0A00042E:SSL routines:ssl3_read_bytes:tlsv1 alert protocol version:c:\ws\deps\openssl\openssl\ssl\record\rec_layer_s3.c:1590:SSL alert number 70
+[2m+15882853ms[0m [36m[backend][0m [Redis] Redis error: 94E20000:error:0A00042E:SSL routines:ssl3_read_bytes:tlsv1 alert protocol version:c:\ws\deps\openssl\openssl\ssl\record\rec_layer_s3.c:1590:SSL alert number 70
+[2m+15883452ms[0m [36m[backend][0m [Redis] Redis error: 94E20000:error:0A00042E:SSL routines:ssl3_read_bytes:tlsv1 alert protocol version:c:\ws\deps\openssl\openssl\ssl\record\rec_layer_s3.c:1590:SSL alert number 70
+[2m+15884047ms[0m [36m[backend][0m [Redis] Redis error: 94E20000:error:0A00042E:SSL routines:ssl3_read_bytes:tlsv1 alert protocol version:c:\ws\deps\openssl\openssl\ssl\record\rec_layer_s3.c:1590:SSL alert number 70
+[2m+15884872ms[0m [36m[backend][0m [Redis] Redis error: 94E20000:error:0A00042E:SSL routines:ssl3_read_bytes:tlsv1 alert protocol version:c:\ws\deps\openssl\openssl\ssl\record\rec_layer_s3.c:1590:SSL alert number 70
+[2m+15885462ms[0m [36m[backend][0m [Redis] Redis error: 94E20000:error:0A00042E:SSL routines:ssl3_read_bytes:tlsv1 alert protocol version:c:\ws\deps\openssl\openssl\ssl\record\rec_layer_s3.c:1590:SSL alert number 70
+[2m+15886060ms[0m [36m[backend][0m [Redis] Redis error: 94E20000:error:0A00042E:SSL routines:ssl3_read_bytes:tlsv1 alert protocol version:c:\ws\deps\openssl\openssl\ssl\record\rec_layer_s3.c:1590:SSL alert number 70
+[2m+15886663ms[0m [36m[backend][0m [Redis] Redis error: 94E20000:error:0A00042E:SSL routines:ssl3_read_bytes:tlsv1 alert protocol version:c:\ws\deps\openssl\openssl\ssl\record\rec_layer_s3.c:1590:SSL alert number 70
+[2m+15887269ms[0m [36m[backend][0m [Redis] Redis error: 94E20000:error:0A00042E:SSL routines:ssl3_read_bytes:tlsv1 alert protocol version:c:\ws\deps\openssl\openssl\ssl\record\rec_layer_s3.c:1590:SSL alert number 70
+[2m+15887865ms[0m [36m[backend][0m [Redis] Redis error: 94E20000:error:0A00042E:SSL routines:ssl3_read_bytes:tlsv1 alert protocol version:c:\ws\deps\openssl\openssl\ssl\record\rec_layer_s3.c:1590:SSL alert number 70
+[2m+15888450ms[0m [36m[backend][0m [Redis] Redis error: 94E20000:error:0A00042E:SSL routines:ssl3_read_bytes:tlsv1 alert protocol version:c:\ws\deps\openssl\openssl\ssl\record\rec_layer_s3.c:1590:SSL alert number 70
+[2m+15889047ms[0m [36m[backend][0m [Redis] Redis error: 94E20000:error:0A00042E:SSL routines:ssl3_read_bytes:tlsv1 alert protocol version:c:\ws\deps\openssl\openssl\ssl\record\rec_layer_s3.c:1590:SSL alert number 70
+[2m+15889646ms[0m [36m[backend][0m [Redis] Redis error: 94E20000:error:0A00042E:SSL routines:ssl3_read_bytes:tlsv1 alert protocol version:c:\ws\deps\openssl\openssl\ssl\record\rec_layer_s3.c:1590:SSL alert number 70
+[2m+15890236ms[0m [36m[backend][0m [Redis] Redis error: 94E20000:error:0A00042E:SSL routines:ssl3_read_bytes:tlsv1 alert protocol version:c:\ws\deps\openssl\openssl\ssl\record\rec_layer_s3.c:1590:SSL alert number 70
+[2m+15900799ms[0m [36m[backend][0m [Redis] Redis error: Connection timeout
+[2m+15911330ms[0m [36m[backend][0m [Redis] Redis error: Connection timeout
+[2m+15921853ms[0m [36m[backend][0m [Redis] Redis error: Connection timeout
+[2m+15932376ms[0m [36m[backend][0m [Redis] Redis error: Connection timeout
+[2m+15942893ms[0m [36m[backend][0m [Redis] Redis error: Connection timeout
+[2m+15953430ms[0m [36m[backend][0m [Redis] Redis error: Connection timeout
+[2m+15963933ms[0m [36m[backend][0m [Redis] Redis error: Connection timeout
+[2m+15974448ms[0m [36m[backend][0m [Redis] Redis error: Connection timeout
+[2m+15984964ms[0m [36m[backend][0m [Redis] Redis error: Connection timeout
+[2m+15995479ms[0m [36m[backend][0m [Redis] Redis error: Connection timeout
+[2m+16005986ms[0m [36m[backend][0m [Redis] Redis error: Connection timeout
+[2m+16016503ms[0m [36m[backend][0m [Redis] Redis error: Connection timeout
+[2m+16027021ms[0m [36m[backend][0m [Redis] Redis error: Connection timeout
+[2m+16037539ms[0m [36m[backend][0m [Redis] Redis error: Connection timeout
+[2m+16048063ms[0m [36m[backend][0m [Redis] Redis error: Connection timeout
+[2m+16058578ms[0m [36m[backend][0m [Redis] Redis error: Connection timeout
+[2m+16069092ms[0m [36m[backend][0m [Redis] Redis error: Connection timeout
+[2m+16079618ms[0m [36m[backend][0m [Redis] Redis error: Connection timeout
+[2m+16090130ms[0m [36m[backend][0m [Redis] Redis error: Connection timeout
+[2m+16100653ms[0m [36m[backend][0m [Redis] Redis error: Connection timeout
+[2m+16111170ms[0m [36m[backend][0m [Redis] Redis error: Connection timeout
+[2m+16121693ms[0m [36m[backend][0m [Redis] Redis error: Connection timeout
+[2m+16132210ms[0m [36m[backend][0m [Redis] Redis error: Connection timeout
+[2m+16142721ms[0m [36m[backend][0m [Redis] Redis error: Connection timeout
+[2m+16153248ms[0m [36m[backend][0m [Redis] Redis error: Connection timeout
+[2m+16163774ms[0m [36m[backend][0m [Redis] Redis error: Connection timeout
+[2m+16174280ms[0m [36m[backend][0m [Redis] Redis error: Connection timeout
+[2m+16184796ms[0m [36m[backend][0m [Redis] Redis error: Connection timeout
+[2m+16195354ms[0m [36m[backend][0m [Redis] Redis error: Connection timeout
+[2m+16205869ms[0m [36m[backend][0m [Redis] Redis error: Connection timeout
+[2m+16216385ms[0m [36m[backend][0m [Redis] Redis error: Connection timeout
+[2m+16226912ms[0m [36m[backend][0m [Redis] Redis error: Connection timeout
+[2m+16237426ms[0m [36m[backend][0m [Redis] Redis error: Connection timeout
+[2m+16247949ms[0m [36m[backend][0m [Redis] Redis error: Connection timeout
+[2m+16258470ms[0m [36m[backend][0m [Redis] Redis error: Connection timeout
+[2m+16268982ms[0m [36m[backend][0m [Redis] Redis error: Connection timeout
+[2m+16279491ms[0m [36m[backend][0m [Redis] Redis error: Connection timeout
+[2m+16290009ms[0m [36m[backend][0m [Redis] Redis error: Connection timeout
+[2m+16300526ms[0m [36m[backend][0m [Redis] Redis error: Connection timeout
+[2m+16311045ms[0m [36m[backend][0m [Redis] Redis error: Connection timeout
+[2m+16321557ms[0m [36m[backend][0m [Redis] Redis error: Connection timeout
+[2m+24692575ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+24692576ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+24692577ms[0m [35m[frontend][0m errno: -4077,
+[2m+24692577ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+24692578ms[0m [35m[frontend][0m syscall: 'read'
+[2m+24692579ms[0m [35m[frontend][0m }
+[2m+24692581ms[0m [35m[frontend][0m [HPM] ECONNRESET: Error: read ECONNRESET
+[2m+24692581ms[0m [35m[frontend][0m at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+[2m+24692582ms[0m [35m[frontend][0m errno: -4077,
+[2m+24692582ms[0m [35m[frontend][0m code: 'ECONNRESET',
+[2m+24692584ms[0m [35m[frontend][0m syscall: 'read'
+[2m+24692584ms[0m [35m[frontend][0m }

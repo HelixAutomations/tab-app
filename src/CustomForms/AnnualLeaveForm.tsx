@@ -22,6 +22,8 @@ import 'react-date-range/dist/styles.css';
 import 'react-date-range/dist/theme/default.css';
 import '../app/styles/CustomDateRange.css';
 import { getFormDefaultButtonStyles, getFormDecisionButtonStyles, getFormAccentOutlineButtonStyles, getChoiceGroupStyles, formFont } from './shared/formStyles';
+import { useFormReadinessPulse } from './shared/useFormReadinessPulse';
+import { FormReadinessCue } from './shared/FormReadinessCue';
 
 // Helper: Get fiscal year start for a given date (April 1 - March 31)
 function getFiscalYearStart(date: Date): Date {
@@ -248,6 +250,7 @@ function AnnualLeaveForm({
 }: AnnualLeaveFormProps) {
   const safeTotals = totals ?? { standard: 0, unpaid: 0, sale: 0 };
   const { isDarkMode } = useTheme();
+  const readiness = useFormReadinessPulse('annual-leave-request');
   const [dateRanges, setDateRanges] = useState<DateRangeSelection[]>([]);
   const [totalDays, setTotalDays] = useState<number>(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -813,6 +816,9 @@ function AnnualLeaveForm({
         `}
       </style>
       <Stack tokens={{ childrenGap: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', minHeight: 16 }}>
+          <FormReadinessCue state={readiness.state} detail={readiness.detail} readyAnnouncement="Annual leave form ready" />
+        </div>
         <div className="bespokeFormContainer">
           <BespokeForm
             fields={initialFormFields}

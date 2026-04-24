@@ -67,11 +67,8 @@ async function getToken() {
     return refreshToken();
 }
 
-async function submitVerification(instructionData) {
+async function submitRawVerification(payload) {
     const token = await getToken();
-    const payload = buildTillerPayload(instructionData);
-    // Tiller payload prepared
-    
     try {
         const res = await axios.post(
             'https://verify-api.tiller-verify.com/api/v1/verifications',
@@ -83,7 +80,6 @@ async function submitVerification(instructionData) {
                 },
             }
         );
-    // Tiller response received
         return res.data;
     } catch (err) {
         if (err.response) {
@@ -95,6 +91,15 @@ async function submitVerification(instructionData) {
         } else {
             console.error('[Tiller] Request error:', err.message);
         }
+        throw err;
+    }
+}
+
+async function submitVerification(instructionData) {
+    const payload = buildTillerPayload(instructionData);
+    try {
+        return await submitRawVerification(payload);
+    } catch (err) {
         console.error(
             '[Tiller] Failed payload for',
             instructionData.instructionRef || instructionData.InstructionRef
@@ -132,11 +137,21 @@ function buildTillerPayload(data) {
         return undefined;
     };
 
-    // Format date to ISO string if needed
+    // Format date to ISO string if needed. Handles UK DD/MM/YYYY which
+    // `new Date()` otherwise parses as Invalid Date (silent DOB drop).
     const formatDate = (dateValue) => {
         if (!dateValue) return undefined;
-        
+
         try {
+            if (typeof dateValue === 'string') {
+                const dmy = dateValue.trim().match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+                if (dmy) {
+                    const [, d, m, y] = dmy;
+                    return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                }
+                const ymd = dateValue.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+                if (ymd) return dateValue.trim();
+            }
             const date = new Date(dateValue);
             if (isNaN(date.getTime())) {
                 console.warn('Invalid date format:', dateValue);
@@ -228,4 +243,4 @@ function buildTillerPayload(data) {
     };
 }
 
-module.exports = { submitVerification, buildTillerPayload };
+module.exports = { submitVerification, submitRawVerification, buildTillerPayload };

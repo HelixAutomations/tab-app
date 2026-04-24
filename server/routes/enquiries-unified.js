@@ -4,6 +4,7 @@ const { cacheUnified, generateCacheKey, CACHE_CONFIG, deleteCachePattern } = req
 const { loggers } = require('../utils/logger');
 const { attachEnquiriesStream, broadcastEnquiriesChanged } = require('../utils/enquiries-stream');
 const { emitEvent } = require('../utils/eventEmitter');
+const { trackEvent, trackMetric } = require('../utils/appInsights');
 const { VALID_SOURCE_BIASES, resolveSourceSelection, getDefaultSourceBiasForPolicy } = require('../utils/enquirySourcePolicy');
 const router = express.Router();
 const { annotate } = require('../utils/devConsole');
@@ -13,33 +14,122 @@ const VALID_SOURCE_BIASES_SET = new Set(VALID_SOURCE_BIASES);
 const VALID_PROCESSING_APPROACHES = new Set(['unified', 'area-personalised']);
 const MEMORY_UNIFIED_CACHE_TTL_MS = 15 * 1000;
 const MEMORY_UNIFIED_CACHE_STALE_MS = 60 * 1000;
+const MEMORY_UNIFIED_CACHE_MAX_ENTRIES = Math.max(20, Number.parseInt(process.env.ENQUIRIES_UNIFIED_MEMORY_CACHE_MAX_ENTRIES || '120', 10) || 120);
+const MEMORY_UNIFIED_CACHE_TELEMETRY_INTERVAL_MS = 60 * 1000;
 const unifiedMemoryCache = new Map();
 const instructionsColumnPresenceCache = new Map();
 const INSTRUCTIONS_COLUMN_CACHE_TTL_MS = 10 * 60 * 1000;
+let lastUnifiedMemoryTelemetryAt = 0;
+
+function reportUnifiedMemoryCachePrune(reason, expiredEntries, cappedEntries) {
+  if (!expiredEntries && !cappedEntries) return;
+
+  const now = Date.now();
+  if (cappedEntries === 0 && now - lastUnifiedMemoryTelemetryAt < MEMORY_UNIFIED_CACHE_TELEMETRY_INTERVAL_MS) {
+    return;
+  }
+
+  lastUnifiedMemoryTelemetryAt = now;
+
+  trackEvent('EnquiriesUnified.MemoryCachePruned', {
+    reason,
+    expiredEntries: String(expiredEntries),
+    cappedEntries: String(cappedEntries),
+    sizeAfter: String(unifiedMemoryCache.size),
+    maxEntries: String(MEMORY_UNIFIED_CACHE_MAX_ENTRIES),
+  });
+  trackMetric('EnquiriesUnified.MemoryCacheSize', unifiedMemoryCache.size, { reason });
+}
+
+function pruneUnifiedMemoryCache(reason = 'read') {
+  const now = Date.now();
+  let expiredEntries = 0;
+
+  for (const [cacheKey, entry] of unifiedMemoryCache.entries()) {
+    if (now - entry.ts >= MEMORY_UNIFIED_CACHE_TTL_MS + MEMORY_UNIFIED_CACHE_STALE_MS) {
+      unifiedMemoryCache.delete(cacheKey);
+      expiredEntries += 1;
+    }
+  }
+
+  let cappedEntries = 0;
+  if (unifiedMemoryCache.size > MEMORY_UNIFIED_CACHE_MAX_ENTRIES) {
+    const overflow = unifiedMemoryCache.size - MEMORY_UNIFIED_CACHE_MAX_ENTRIES;
+    const evictionCandidates = [...unifiedMemoryCache.entries()]
+      .sort(([, left], [, right]) => {
+        const leftProtected = left.refreshPromise ? 1 : 0;
+        const rightProtected = right.refreshPromise ? 1 : 0;
+        if (leftProtected !== rightProtected) {
+          return leftProtected - rightProtected;
+        }
+
+        const leftAccess = left.lastAccessedAt || left.ts;
+        const rightAccess = right.lastAccessedAt || right.ts;
+        return leftAccess - rightAccess;
+      });
+
+    for (const [cacheKey] of evictionCandidates.slice(0, overflow)) {
+      unifiedMemoryCache.delete(cacheKey);
+      cappedEntries += 1;
+    }
+  }
+
+  reportUnifiedMemoryCachePrune(reason, expiredEntries, cappedEntries);
+}
 
 function getMemoryUnifiedEntry(cacheKey) {
+  pruneUnifiedMemoryCache('read');
+
   const entry = unifiedMemoryCache.get(cacheKey);
   if (!entry) return null;
 
-  const ageMs = Date.now() - entry.ts;
+  const now = Date.now();
+  const ageMs = now - entry.ts;
   if (ageMs >= MEMORY_UNIFIED_CACHE_TTL_MS + MEMORY_UNIFIED_CACHE_STALE_MS) {
     unifiedMemoryCache.delete(cacheKey);
     return null;
   }
 
+  entry.lastAccessedAt = now;
+
   return {
-    ...entry,
+    data: entry.data,
+    ts: entry.ts,
+    refreshPromise: entry.refreshPromise,
     ageMs,
     isFresh: ageMs < MEMORY_UNIFIED_CACHE_TTL_MS,
   };
 }
 
 function setMemoryUnifiedEntry(cacheKey, data) {
+  const now = Date.now();
+
   unifiedMemoryCache.set(cacheKey, {
     data,
-    ts: Date.now(),
+    ts: now,
+    lastAccessedAt: now,
     refreshPromise: null,
   });
+
+  pruneUnifiedMemoryCache('write');
+}
+
+function setMemoryUnifiedRefreshPromise(cacheKey, refreshPromise) {
+  const currentEntry = unifiedMemoryCache.get(cacheKey);
+  if (!currentEntry) return;
+
+  currentEntry.refreshPromise = refreshPromise;
+  currentEntry.lastAccessedAt = Date.now();
+  unifiedMemoryCache.set(cacheKey, currentEntry);
+}
+
+function clearMemoryUnifiedRefreshPromise(cacheKey) {
+  const currentEntry = unifiedMemoryCache.get(cacheKey);
+  if (!currentEntry) return;
+
+  currentEntry.refreshPromise = null;
+  currentEntry.lastAccessedAt = Date.now();
+  unifiedMemoryCache.set(cacheKey, currentEntry);
 }
 
 function clearUnifiedMemoryCache() {
@@ -290,20 +380,18 @@ router.get('/', async (req, res) => {
       }
 
       if (memoryEntry && !memoryEntry.refreshPromise) {
-        memoryEntry.refreshPromise = (async () => {
+        const refreshPromise = (async () => {
           try {
             const freshData = await performUnifiedEnquiriesQuery(req.query);
             setMemoryUnifiedEntry(memoryCacheKey, freshData);
           } catch (error) {
             log.warn('Background enquiries memory refresh failed:', error?.message || error);
           } finally {
-            const currentEntry = unifiedMemoryCache.get(memoryCacheKey);
-            if (currentEntry) {
-              currentEntry.refreshPromise = null;
-            }
+            clearMemoryUnifiedRefreshPromise(memoryCacheKey);
           }
         })();
-        unifiedMemoryCache.set(memoryCacheKey, memoryEntry);
+
+        setMemoryUnifiedRefreshPromise(memoryCacheKey, refreshPromise);
       }
 
       if (memoryEntry) {

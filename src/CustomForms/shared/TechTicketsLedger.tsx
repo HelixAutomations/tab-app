@@ -213,7 +213,7 @@ export default function TechTicketsLedger(props: TechTicketsLedgerProps) {
 
       try {
         const baseUrl = getProxyBaseUrl();
-        const response = await fetch(`${baseUrl}/api/tech-tickets/ledger?limit=20&type=${encodeURIComponent(type)}`);
+        const response = await fetch(`${baseUrl}/tech-tickets/ledger?limit=20&type=${encodeURIComponent(type)}`);
         if (!response.ok) {
           throw new Error(`Failed to load ledger (${response.status})`);
         }

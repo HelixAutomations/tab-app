@@ -1,30 +1,8 @@
 import React from 'react';
-import {
-  FaFolder,
-  FaFolderOpen,
-  FaIdBadge,
-  FaUserCheck,
-  FaMobileAlt,
-  FaShieldAlt,
-  FaPaperPlane,
-  FaCheck,
-  FaUmbrellaBeach,
-  FaEdit,
-  FaFileInvoiceDollar,
-  FaClock,
-  FaFileAlt,
-} from 'react-icons/fa';
-import {
-  MdArticle,
-  MdEventSeat,
-  MdSlideshow,
-  MdFactCheck,
-  MdLocationOn,
-} from 'react-icons/md';
-import { Icon } from '@fluentui/react/lib/Icon';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours, withAlpha } from '../../app/styles/colours';
 import './home-tokens.css';
+import { getChipIcon } from './ImmediateActionChip.icons';
 
 // Category types for immediate action styling
 export type ImmediateActionCategory = 'critical' | 'standard' | 'success' | 'warning';
@@ -45,38 +23,8 @@ export interface ImmediateActionChipProps {
   fillWidth?: boolean;
 }
 
-type IconComponent = React.ComponentType<{ style?: React.CSSProperties; className?: string }>;
-
-const CalendarDayIcon: IconComponent = (props) => (
-  <Icon iconName="CalendarDay" style={props?.style} className={props?.className} />
-);
-
-const chipIconMap: Record<string, IconComponent> = {
-  OpenFile: FaFolderOpen,
-  Folder: FaFolder,
-  Phone: FaMobileAlt,
-  Calendar: CalendarDayIcon,
-  CalendarCheck: CalendarDayIcon,
-  Accept: FaCheck,
-  ContactCard: FaIdBadge,
-  Verify: FaUserCheck,
-  IdCheck: FaIdBadge,
-  Shield: FaShieldAlt,
-  Send: FaPaperPlane,
-  ReviewRequestMirrored: MdFactCheck,
-  Presentation: MdSlideshow,
-  PalmTree: FaUmbrellaBeach,
-  Edit: FaEdit,
-  Money: FaFileInvoiceDollar,
-  KnowledgeArticle: MdArticle,
-  Room: MdEventSeat,
-  Attendance: MdLocationOn,
-  Timer: FaClock,
-  CCL: FaFileAlt,
-  DocumentSet: FaFileAlt,
-};
-
-const getChipIcon = (name: string): React.ComponentType<any> => chipIconMap[name] || FaFolder;
+// Icon mapping lives in a sibling helper module so this file exports only the
+// chip component + types, keeping it compatible with React Fast Refresh.
 
 export const ImmediateActionChip: React.FC<ImmediateActionChipProps> = ({
   title,
@@ -128,10 +76,10 @@ export const ImmediateActionChip: React.FC<ImmediateActionChipProps> = ({
         alignItems: 'center',
         gap: dense ? 6 : 7,
         width: fillWidth ? '100%' : 'fit-content',
-        minHeight: allowWrap ? (dense ? 32 : 34) : 28,
+        minHeight: allowWrap ? (dense ? 34 : 36) : (dense ? 32 : 34),
         padding: allowWrap
-          ? (dense ? '3px 10px 3px 12px' : '4px 10px 4px 14px')
-          : (dense ? '2px 9px 2px 12px' : '2px 10px 2px 14px'),
+          ? (dense ? '4px 10px 4px 12px' : '5px 10px 5px 14px')
+          : (dense ? '4px 9px 4px 12px' : '5px 10px 5px 14px'),
         minWidth: fillWidth ? 0 : 'fit-content',
         maxWidth: '100%',
         boxSizing: 'border-box' as const,

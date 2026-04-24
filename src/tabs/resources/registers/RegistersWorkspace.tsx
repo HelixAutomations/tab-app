@@ -6,6 +6,7 @@ import { Spinner, SpinnerSize } from '@fluentui/react/lib/Spinner';
 import { Modal } from '@fluentui/react/lib/Modal';
 import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
 import { colours } from '../../../app/styles/colours';
+import { isAdminUser } from '../../../app/admin';
 import { useTheme } from '../../../app/functionality/ThemeContext';
 import type { UserData, TeamData } from '../../../app/functionality/types';
 
@@ -85,9 +86,11 @@ interface RegistersWorkspaceProps {
   userData?: UserData[] | null;
   teamData?: TeamData[] | null;
   isDarkMode: boolean;
+  initialTab?: RegisterTab;
+  lockedTab?: RegisterTab | null;
+  onRequestForm?: (formTitle: string) => void;
+  onMutationSuccess?: () => void;
 }
-
-const ADMIN_INITIALS = new Set(['LZ', 'AC', 'JW']);
 
 const LD_CATEGORIES = [
   { key: 'course', text: 'Course / Training' },
@@ -173,10 +176,18 @@ function getStatusStyle(status: string, isDarkMode: boolean): React.CSSPropertie
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
 
-const RegistersWorkspace: React.FC<RegistersWorkspaceProps> = ({ userData, teamData, isDarkMode }) => {
+const RegistersWorkspace: React.FC<RegistersWorkspaceProps> = ({
+  userData,
+  teamData,
+  isDarkMode,
+  initialTab = 'ld',
+  lockedTab = null,
+  onRequestForm,
+  onMutationSuccess,
+}) => {
   const currentUser = userData?.[0];
   const userInitials = (currentUser?.Initials || '').toUpperCase();
-  const isAdmin = ADMIN_INITIALS.has(userInitials);
+  const isAdmin = isAdminUser(currentUser || null);
   const currentUserFullName = useMemo(() => {
     const directName = currentUser?.FullName?.trim();
     if (directName) return directName;
@@ -189,7 +200,7 @@ const RegistersWorkspace: React.FC<RegistersWorkspaceProps> = ({ userData, teamD
     return fallbackName;
   }, [currentUser, teamData, userInitials]);
 
-  const [activeTab, setActiveTab] = useState<RegisterTab>('ld');
+  const [activeTab, setActiveTab] = useState<RegisterTab>(lockedTab || initialTab);
   const [refreshKey, setRefreshKey] = useState(0);
 
   // L&D state
@@ -230,6 +241,20 @@ const RegistersWorkspace: React.FC<RegistersWorkspaceProps> = ({ userData, teamD
       .map(t => ({ key: t.Initials!, text: `${t['Full Name'] || t.First || ''} (${t.Initials})` }));
   }, [teamData]);
 
+  const registerRequestHeaders = useMemo((): Record<string, string> => {
+    if (!userInitials) return {};
+    return { 'x-helix-initials': userInitials };
+  }, [userInitials]);
+
+  useEffect(() => {
+    if (lockedTab) {
+      setActiveTab(lockedTab);
+      return;
+    }
+
+    setActiveTab(initialTab);
+  }, [initialTab, lockedTab]);
+
   // ── Fetchers ──────────────────────────────────────────────────────────────
 
   const fetchLDPlans = useCallback(async () => {
@@ -237,7 +262,9 @@ const RegistersWorkspace: React.FC<RegistersWorkspaceProps> = ({ userData, teamD
     setLdLoading(true);
     setLdError(null);
     try {
-      const res = await fetch(`/api/registers/learning-dev?initials=${encodeURIComponent(userInitials)}&year=${ldYear}`);
+      const res = await fetch(`/api/registers/learning-dev?year=${ldYear}`, {
+        headers: registerRequestHeaders,
+      });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || 'Failed to load L&D plans');
       setLdPlans(data.plans || []);
@@ -246,14 +273,16 @@ const RegistersWorkspace: React.FC<RegistersWorkspaceProps> = ({ userData, teamD
     } finally {
       setLdLoading(false);
     }
-  }, [userInitials, ldYear]);
+  }, [userInitials, ldYear, registerRequestHeaders]);
 
   const fetchUndertakings = useCallback(async () => {
     if (!userInitials) return;
     setUtLoading(true);
     setUtError(null);
     try {
-      const res = await fetch(`/api/registers/undertakings?initials=${encodeURIComponent(userInitials)}`);
+      const res = await fetch('/api/registers/undertakings', {
+        headers: registerRequestHeaders,
+      });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || 'Failed to load undertakings');
       setUndertakings(data.undertakings || []);
@@ -262,14 +291,16 @@ const RegistersWorkspace: React.FC<RegistersWorkspaceProps> = ({ userData, teamD
     } finally {
       setUtLoading(false);
     }
-  }, [userInitials]);
+  }, [userInitials, registerRequestHeaders]);
 
   const fetchComplaints = useCallback(async () => {
     if (!userInitials) return;
     setCpLoading(true);
     setCpError(null);
     try {
-      const res = await fetch(`/api/registers/complaints?initials=${encodeURIComponent(userInitials)}`);
+      const res = await fetch('/api/registers/complaints', {
+        headers: registerRequestHeaders,
+      });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || 'Failed to load complaints');
       setComplaints(data.complaints || []);
@@ -278,7 +309,7 @@ const RegistersWorkspace: React.FC<RegistersWorkspaceProps> = ({ userData, teamD
     } finally {
       setCpLoading(false);
     }
-  }, [userInitials]);
+  }, [userInitials, registerRequestHeaders]);
 
   useEffect(() => {
     if (activeTab === 'ld') fetchLDPlans();
@@ -375,9 +406,8 @@ const RegistersWorkspace: React.FC<RegistersWorkspaceProps> = ({ userData, teamD
     try {
       const res = await fetch('/api/registers/learning-dev', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...registerRequestHeaders },
         body: JSON.stringify({
-          initials: userInitials,
           target_initials: targetInitials,
           full_name: fullName,
           year: ldYear,
@@ -391,10 +421,11 @@ const RegistersWorkspace: React.FC<RegistersWorkspaceProps> = ({ userData, teamD
       setShowCreatePlan(false);
       resetForm();
       setRefreshKey(k => k + 1);
+      onMutationSuccess?.();
     } catch (err) {
       showToast('error', (err as Error).message);
     }
-  }, [formFields, userInitials, currentUserFullName, ldYear, showToast, resetForm]);
+  }, [formFields, userInitials, currentUserFullName, ldYear, onMutationSuccess, showToast, resetForm, registerRequestHeaders]);
 
   const handleAddActivity = useCallback(async () => {
     if (!selectedPlanId || !formFields.title || !formFields.activity_date) {
@@ -405,9 +436,8 @@ const RegistersWorkspace: React.FC<RegistersWorkspaceProps> = ({ userData, teamD
     try {
       const res = await fetch('/api/registers/learning-dev/activity', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...registerRequestHeaders },
         body: JSON.stringify({
-          initials: userInitials,
           plan_id: selectedPlanId,
           activity_date: formFields.activity_date,
           title: formFields.title,
@@ -425,10 +455,11 @@ const RegistersWorkspace: React.FC<RegistersWorkspaceProps> = ({ userData, teamD
       setSelectedPlanId(null);
       resetForm();
       setRefreshKey(k => k + 1);
+      onMutationSuccess?.();
     } catch (err) {
       showToast('error', (err as Error).message);
     }
-  }, [formFields, selectedPlanId, userInitials, showToast, resetForm]);
+  }, [formFields, onMutationSuccess, selectedPlanId, showToast, resetForm, registerRequestHeaders]);
 
   const handleCreateUndertaking = useCallback(async () => {
     if (!formFields.given_to || !formFields.given_date || !formFields.description) {
@@ -439,9 +470,8 @@ const RegistersWorkspace: React.FC<RegistersWorkspaceProps> = ({ userData, teamD
     try {
       const res = await fetch('/api/registers/undertakings', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...registerRequestHeaders },
         body: JSON.stringify({
-          initials: userInitials,
           matter_ref: formFields.matter_ref || null,
           given_to: formFields.given_to,
           given_date: formFields.given_date,
@@ -456,10 +486,11 @@ const RegistersWorkspace: React.FC<RegistersWorkspaceProps> = ({ userData, teamD
       setShowAddUndertaking(false);
       resetForm();
       setRefreshKey(k => k + 1);
+      onMutationSuccess?.();
     } catch (err) {
       showToast('error', (err as Error).message);
     }
-  }, [formFields, userInitials, showToast, resetForm]);
+  }, [formFields, onMutationSuccess, showToast, resetForm, registerRequestHeaders]);
 
   const handleUpdateUndertaking = useCallback(async () => {
     if (!editUndertaking) return;
@@ -467,9 +498,8 @@ const RegistersWorkspace: React.FC<RegistersWorkspaceProps> = ({ userData, teamD
     try {
       const res = await fetch(`/api/registers/undertakings/${editUndertaking.id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...registerRequestHeaders },
         body: JSON.stringify({
-          initials: userInitials,
           matter_ref: formFields.matter_ref || null,
           given_to: formFields.given_to || editUndertaking.given_to,
           given_date: formFields.given_date || editUndertaking.given_date,
@@ -487,10 +517,11 @@ const RegistersWorkspace: React.FC<RegistersWorkspaceProps> = ({ userData, teamD
       setEditUndertaking(null);
       resetForm();
       setRefreshKey(k => k + 1);
+      onMutationSuccess?.();
     } catch (err) {
       showToast('error', (err as Error).message);
     }
-  }, [formFields, editUndertaking, userInitials, showToast, resetForm]);
+  }, [formFields, editUndertaking, onMutationSuccess, showToast, resetForm, registerRequestHeaders]);
 
   const handleCreateComplaint = useCallback(async () => {
     if (!formFields.complainant || !formFields.respondent || !formFields.received_date || !formFields.description) {
@@ -501,9 +532,8 @@ const RegistersWorkspace: React.FC<RegistersWorkspaceProps> = ({ userData, teamD
     try {
       const res = await fetch('/api/registers/complaints', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...registerRequestHeaders },
         body: JSON.stringify({
-          initials: userInitials,
           matter_ref: formFields.matter_ref || null,
           complainant: formFields.complainant,
           respondent: formFields.respondent,
@@ -519,10 +549,11 @@ const RegistersWorkspace: React.FC<RegistersWorkspaceProps> = ({ userData, teamD
       setShowAddComplaint(false);
       resetForm();
       setRefreshKey(k => k + 1);
+      onMutationSuccess?.();
     } catch (err) {
       showToast('error', (err as Error).message);
     }
-  }, [formFields, userInitials, showToast, resetForm]);
+  }, [formFields, onMutationSuccess, showToast, resetForm, registerRequestHeaders]);
 
   const handleUpdateComplaint = useCallback(async () => {
     if (!editComplaint) return;
@@ -530,9 +561,8 @@ const RegistersWorkspace: React.FC<RegistersWorkspaceProps> = ({ userData, teamD
     try {
       const res = await fetch(`/api/registers/complaints/${editComplaint.id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...registerRequestHeaders },
         body: JSON.stringify({
-          initials: userInitials,
           matter_ref: formFields.matter_ref || null,
           complainant: formFields.complainant || editComplaint.complainant,
           respondent: formFields.respondent || editComplaint.respondent,
@@ -552,10 +582,11 @@ const RegistersWorkspace: React.FC<RegistersWorkspaceProps> = ({ userData, teamD
       setEditComplaint(null);
       resetForm();
       setRefreshKey(k => k + 1);
+      onMutationSuccess?.();
     } catch (err) {
       showToast('error', (err as Error).message);
     }
-  }, [formFields, editComplaint, userInitials, showToast, resetForm]);
+  }, [formFields, editComplaint, onMutationSuccess, showToast, resetForm, registerRequestHeaders]);
 
   // ── Render helpers ────────────────────────────────────────────────────────
 
@@ -894,13 +925,28 @@ const RegistersWorkspace: React.FC<RegistersWorkspaceProps> = ({ userData, teamD
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <span style={sectionHeaderStyle}>Undertaking Register</span>
-        <DefaultButton
-          text="New undertaking"
-          iconProps={{ iconName: 'Add' }}
-          onClick={() => { resetForm(); setShowAddUndertaking(true); }}
-          styles={{ root: { borderRadius: 0, fontSize: 12 } }}
-        />
+        {onRequestForm ? (
+          <DefaultButton
+            text="New undertaking"
+            iconProps={{ iconName: 'NavigateExternalInline' }}
+            onClick={() => onRequestForm('New Undertaking')}
+            styles={{ root: { borderRadius: 0, fontSize: 12 } }}
+          />
+        ) : (
+          <DefaultButton
+            text="New undertaking"
+            iconProps={{ iconName: 'Add' }}
+            onClick={() => { resetForm(); setShowAddUndertaking(true); }}
+            styles={{ root: { borderRadius: 0, fontSize: 12 } }}
+          />
+        )}
       </div>
+
+      {onRequestForm && (
+        <MessageBar styles={{ root: { borderRadius: 0, marginBottom: 12 } }}>
+          New undertakings now start in Forms. Use this dashboard for monitoring, due dates, and status updates.
+        </MessageBar>
+      )}
 
       {utLoading && renderLoading()}
       {utError && renderError(utError)}
@@ -958,7 +1004,14 @@ const RegistersWorkspace: React.FC<RegistersWorkspaceProps> = ({ userData, teamD
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <span style={sectionHeaderStyle}>Complaints Register</span>
-        {isAdmin && (
+        {isAdmin && onRequestForm ? (
+          <DefaultButton
+            text="New complaint"
+            iconProps={{ iconName: 'NavigateExternalInline' }}
+            onClick={() => onRequestForm('New Complaint')}
+            styles={{ root: { borderRadius: 0, fontSize: 12 } }}
+          />
+        ) : isAdmin && (
           <DefaultButton
             text="New complaint"
             iconProps={{ iconName: 'Add' }}
@@ -996,6 +1049,12 @@ const RegistersWorkspace: React.FC<RegistersWorkspaceProps> = ({ userData, teamD
           }}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+
+      {onRequestForm && (
+        <MessageBar styles={{ root: { borderRadius: 0, marginBottom: 12 } }}>
+          Complaints now start through structured intake in Forms. Use this oversight view for investigation state and controlled updates.
+        </MessageBar>
+      )}
             <div style={{ flex: 1 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                 <Text style={{ fontWeight: 600, fontSize: 13, color: textPrimary, fontFamily: 'Raleway, sans-serif' }}>
@@ -1034,21 +1093,22 @@ const RegistersWorkspace: React.FC<RegistersWorkspaceProps> = ({ userData, teamD
         </MessageBar>
       )}
 
-      {/* Tab bar */}
-      <div style={{ display: 'flex', gap: 0, borderBottom: `1px solid ${borderCol}`, marginBottom: 16 }}>
-        <button style={tabStyle(activeTab === 'ld')} onClick={() => setActiveTab('ld')}>
-          <Icon iconName="Education" style={{ marginRight: 6, fontSize: 13 }} />
-          L&D
-        </button>
-        <button style={tabStyle(activeTab === 'undertakings')} onClick={() => setActiveTab('undertakings')}>
-          <Icon iconName="Handshake" style={{ marginRight: 6, fontSize: 13 }} />
-          Undertakings
-        </button>
-        <button style={tabStyle(activeTab === 'complaints')} onClick={() => setActiveTab('complaints')}>
-          <Icon iconName="Feedback" style={{ marginRight: 6, fontSize: 13 }} />
-          Complaints
-        </button>
-      </div>
+      {!lockedTab && (
+        <div style={{ display: 'flex', gap: 0, borderBottom: `1px solid ${borderCol}`, marginBottom: 16 }}>
+          <button style={tabStyle(activeTab === 'ld')} onClick={() => setActiveTab('ld')}>
+            <Icon iconName="Education" style={{ marginRight: 6, fontSize: 13 }} />
+            L&D
+          </button>
+          <button style={tabStyle(activeTab === 'undertakings')} onClick={() => setActiveTab('undertakings')}>
+            <Icon iconName="Permissions" style={{ marginRight: 6, fontSize: 13 }} />
+            Undertakings
+          </button>
+          <button style={tabStyle(activeTab === 'complaints')} onClick={() => setActiveTab('complaints')}>
+            <Icon iconName="Feedback" style={{ marginRight: 6, fontSize: 13 }} />
+            Complaints
+          </button>
+        </div>
+      )}
 
       {/* Tab content */}
       {activeTab === 'ld' && renderLDTab()}
@@ -1104,7 +1164,7 @@ const RegistersWorkspace: React.FC<RegistersWorkspaceProps> = ({ userData, teamD
         showAddUndertaking,
         () => { setShowAddUndertaking(false); resetForm(); },
         'Record Undertaking',
-        'Handshake',
+        'Permissions',
         colours.orange,
         'Record',
         handleCreateUndertaking,
@@ -1127,7 +1187,7 @@ const RegistersWorkspace: React.FC<RegistersWorkspaceProps> = ({ userData, teamD
         !!editUndertaking,
         () => { setEditUndertaking(null); resetForm(); },
         'Update Undertaking',
-        'Handshake',
+        'Permissions',
         colours.orange,
         'Update',
         handleUpdateUndertaking,

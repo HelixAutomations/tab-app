@@ -1,10 +1,11 @@
 /* eslint-disable no-console */
 const express = require('express');
+const path = require('path');
 const sql = require('mssql');
 const https = require('https');
 const { randomUUID } = require('crypto');
 const opLog = require('../utils/opLog');
-const { getPool } = require('../utils/db');
+const { getPool, withRequest } = require('../utils/db');
 const { getClioAccessToken, CLIO_API_BASE } = require('../utils/clioAuth');
 const { getClioId } = require('../utils/teamLookup');
 const { chatCompletion } = require('../utils/aiClient');
@@ -16,6 +17,70 @@ const {
 } = require('docx');
 
 const router = express.Router();
+
+const isUsableConnectionString = (value) => typeof value === 'string'
+  && value.trim().length > 0
+  && !value.includes('***')
+  && !value.includes('REDACTED')
+  && !value.includes('<REDACTED>');
+
+let cachedInstructionsConnStr = null;
+
+function buildInstructionsConnectionString(password) {
+  const server = process.env.INSTRUCTIONS_SQL_SERVER || 'instructions.database.windows.net';
+  const database = process.env.INSTRUCTIONS_SQL_DATABASE || 'instructions';
+  const user = process.env.INSTRUCTIONS_SQL_USER || 'instructionsadmin';
+  return `Server=tcp:${server},1433;Initial Catalog=${database};Persist Security Info=False;User ID=${user};Password=${password};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;`;
+}
+
+function shouldRefreshInstructionsConnection(err) {
+  const code = String(err?.code || err?.originalError?.code || err?.cause?.code || '').toUpperCase();
+  const message = String(err?.message || '').toLowerCase();
+  if (['ECONNCLOSED', 'ETIMEOUT', 'ETIMEDOUT', 'ESOCKET', 'ELOGIN', 'ECONNRESET', 'EPIPE', 'ENOTFOUND'].includes(code)) {
+    return true;
+  }
+  return message.includes('operation timed out')
+    || message.includes('failed to connect to')
+    || message.includes('login failed')
+    || message.includes('getaddrinfo');
+}
+
+async function resolveInstructionsConnectionString({ forceRefresh = false } = {}) {
+  if (!forceRefresh && isUsableConnectionString(cachedInstructionsConnStr)) {
+    return cachedInstructionsConnStr;
+  }
+
+  const envConnStr = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+  if (!forceRefresh && isUsableConnectionString(envConnStr)) {
+    cachedInstructionsConnStr = envConnStr;
+    return envConnStr;
+  }
+
+  const secretName = process.env.INSTRUCTIONS_SQL_PASSWORD_SECRET_NAME || 'instructions-sql-password';
+  const password = await getSecret(secretName);
+  if (!password) {
+    throw new Error(`Missing Instructions SQL password secret: ${secretName}`);
+  }
+
+  const nextConnStr = buildInstructionsConnectionString(password);
+  process.env.INSTRUCTIONS_SQL_CONNECTION_STRING = nextConnStr;
+  cachedInstructionsConnStr = nextConnStr;
+  return nextConnStr;
+}
+
+async function withInstructionsRequest(executor, { retries = 2, forceRefresh = false, refreshOnFailure = true } = {}) {
+  const connStr = await resolveInstructionsConnectionString({ forceRefresh });
+  try {
+    return await withRequest(connStr, executor, retries);
+  } catch (err) {
+    if (!refreshOnFailure || forceRefresh || !shouldRefreshInstructionsConnection(err)) {
+      throw err;
+    }
+
+    const freshConnStr = await resolveInstructionsConnectionString({ forceRefresh: true });
+    return withRequest(freshConnStr, executor, retries);
+  }
+}
 
 // ── Azure Blob Storage for attendance notes ────────────────────────────────
 const STORAGE_ACCOUNT_NAME = process.env.INSTRUCTIONS_STORAGE_ACCOUNT_NAME || 'instructionfiles';
@@ -48,16 +113,22 @@ async function getNdAccessToken() {
   const now = Math.floor(Date.now() / 1000);
   if (_ndTokenCache && _ndTokenCache.exp > now + 90) return _ndTokenCache.token;
 
-  const [authUrl, basicKey, clientId, clientSecret] = await Promise.all([
-    getSecret('nd-authurl'), getSecret('nd-basic-key'),
+  const [authUrl, clientId, clientSecret, repository, scope] = await Promise.all([
+    getSecret('nd-authurl'),
     getSecret('nd-serviceaccount-clientid'), getSecret('nd-serviceaccount-clientsecret'),
+    getSecret('nd-repository'), getSecret('nd-scope').catch(() => null),
   ]);
-  const bodyStr = `grant_type=client_credentials&scope=datatables_full+full&client_id=${encodeURIComponent(clientId)}&client_secret=${encodeURIComponent(clientSecret)}`;
+  // Append |repository to clientId if not already present (matches resources-core auth)
+  const needsRepoSuffix = repository && !String(clientId).includes('|');
+  const finalClientId = needsRepoSuffix ? `${clientId}|${repository}` : String(clientId);
+  const tokenBasic = Buffer.from(`${finalClientId}:${clientSecret}`).toString('base64');
+  // Use literal space in scope (ND API requires it, not URL-encoded +)
+  const bodyStr = `grant_type=client_credentials&scope=${scope || 'full'}`;
   const urlObj = new URL(String(authUrl));
   const tokenData = await new Promise((resolve, reject) => {
     const req = https.request({
       hostname: urlObj.hostname, path: urlObj.pathname + urlObj.search, method: 'POST',
-      headers: { Authorization: `Basic ${basicKey}`, 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(bodyStr) },
+      headers: { Authorization: `Basic ${tokenBasic}`, 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(bodyStr) },
     }, (res) => {
       let d = ''; res.on('data', c => { d += c; }); res.on('end', () => { try { resolve(JSON.parse(d)); } catch { reject(new Error(d)); } });
     });
@@ -71,23 +142,40 @@ async function getNdAccessToken() {
   return accessToken;
 }
 
+function clearNdTokenCache() { _ndTokenCache = null; }
+
 async function ndApiRequest(path, accessToken) {
   const baseUrl = await getSecret('nd-baseurl');
   const urlObj = new URL(`${String(baseUrl).replace(/\/$/, '')}${path}`);
-  return new Promise((resolve, reject) => {
-    const req = https.request({
-      hostname: urlObj.hostname, path: urlObj.pathname + urlObj.search, method: 'GET',
-      headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' },
-    }, (res) => {
-      let d = ''; res.on('data', c => { d += c; }); res.on('end', () => {
-        if ((res.statusCode || 500) >= 400) { reject(new Error(d || `ND API ${res.statusCode}`)); return; }
-        try { resolve(JSON.parse(d)); } catch { resolve({}); }
+
+  function execute(token) {
+    return new Promise((resolve, reject) => {
+      const req = https.request({
+        hostname: urlObj.hostname, path: urlObj.pathname + urlObj.search, method: 'GET',
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+      }, (res) => {
+        let d = ''; res.on('data', c => { d += c; }); res.on('end', () => {
+          if ((res.statusCode || 500) >= 400) { reject({ status: res.statusCode, message: d || `ND API ${res.statusCode}` }); return; }
+          try { resolve(JSON.parse(d)); } catch { resolve({}); }
+        });
       });
+      req.on('error', reject);
+      req.setTimeout(15000, () => { req.destroy(); reject(new Error('ND API timeout')); });
+      req.end();
     });
-    req.on('error', reject);
-    req.setTimeout(15000, () => { req.destroy(); reject(new Error('ND API timeout')); });
-    req.end();
-  });
+  }
+
+  try {
+    return await execute(accessToken);
+  } catch (err) {
+    // Retry once on 401 with a fresh token (matches resources-core pattern)
+    if (err && err.status === 401) {
+      clearNdTokenCache();
+      const freshToken = await getNdAccessToken();
+      return await execute(freshToken);
+    }
+    throw err;
+  }
 }
 
 function buildNdMultipartBody({ workspaceId, fileName, fileBuffer, cabinet }) {
@@ -177,10 +265,18 @@ async function generateAttendanceNoteDocx(note) {
 }
 
 /** Get the Instructions DB pool (Dubber tables live here). */
-function instrPool() {
-  const connStr = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
-  if (!connStr) throw new Error('INSTRUCTIONS_SQL_CONNECTION_STRING not configured');
-  return getPool(connStr);
+async function instrPool({ forceRefresh = false } = {}) {
+  const connStr = await resolveInstructionsConnectionString({ forceRefresh });
+  try {
+    return await getPool(connStr);
+  } catch (err) {
+    if (forceRefresh || !shouldRefreshInstructionsConnection(err)) {
+      throw err;
+    }
+
+    const freshConnStr = await resolveInstructionsConnectionString({ forceRefresh: true });
+    return getPool(freshConnStr);
+  }
 }
 
 /** Get the Core Data DB pool (enquiries live here). */
@@ -204,6 +300,27 @@ async function resolveMatterDisplayNumberById(matterId) {
     return result.recordset[0]?.display_number || null;
   } catch (err) {
     console.warn('[dubber] matter display lookup failed:', err.message);
+    return null;
+  }
+}
+
+/** Opposite direction of `resolveMatterDisplayNumberById`: display number → Clio Unique ID. */
+async function resolveClioMatterIdFromDisplayNumber(displayNumber) {
+  const display = String(displayNumber || '').trim();
+  if (!display) return null;
+  try {
+    const pool = await corePool();
+    const result = await pool.request()
+      .input('display', sql.NVarChar, display)
+      .query(`
+        SELECT TOP 1 [Unique ID] AS unique_id
+        FROM matters
+        WHERE [Display Number] = @display
+      `);
+    const id = result.recordset[0]?.unique_id;
+    return id != null ? String(id) : null;
+  } catch (err) {
+    console.warn('[dubber] matter id lookup failed:', err.message);
     return null;
   }
 }
@@ -466,41 +583,62 @@ router.post('/dubberCalls/search', async (req, res) => {
  */
 router.get('/dubberCalls/:recordingId/transcript', async (req, res) => {
   const reqId = randomUUID();
+  const started = Date.now();
   try {
     const recordingId = String(req.params.recordingId || '').trim();
     if (!recordingId) {
       return res.status(400).json({ error: 'Missing recordingId' });
     }
 
-    const pool = await instrPool();
+    trackEvent('Dubber.Transcript.Fetch.Started', { reqId, recordingId, triggeredBy: 'home-journey' });
 
-    // Fetch sentences + recording meta in parallel
-    const [sentenceResult, recResult, summaryResult] = await Promise.all([
-      pool.request()
-        .input('rid', sql.NVarChar, recordingId)
-        .query(`
-          SELECT sentence_index, speaker, content, sentiment
-          FROM dbo.dubber_transcript_sentences
-          WHERE recording_id = @rid
-          ORDER BY sentence_index
-        `),
-      pool.request()
-        .input('rid', sql.NVarChar, recordingId)
-        .query(`
-          SELECT document_sentiment_score, ai_document_sentiment, document_emotion_json,
-                 from_party, from_label, to_party, to_label, call_type, duration_seconds,
-                 start_time_utc, matched_team_initials, channel
-          FROM dbo.dubber_recordings
-          WHERE recording_id = @rid
-        `),
-      pool.request()
-        .input('rid', sql.NVarChar, recordingId)
-        .query(`
-          SELECT summary_source, summary_type, summary_text
-          FROM dbo.dubber_recording_summaries
-          WHERE recording_id = @rid
-        `),
-    ]);
+    const { sentenceResult, recResult, summaryResult } = await withInstructionsRequest(async (request, sqlClient) => {
+      const pool = request.parent;
+      const [nextSentenceResult, nextRecResult, nextSummaryResult] = await Promise.all([
+        new sqlClient.Request(pool)
+          .input('rid', sqlClient.NVarChar, recordingId)
+          .query(`
+            SELECT sentence_index, speaker, content, sentiment
+            FROM dbo.dubber_transcript_sentences
+            WHERE recording_id = @rid
+            ORDER BY sentence_index
+          `),
+        new sqlClient.Request(pool)
+          .input('rid', sqlClient.NVarChar, recordingId)
+          .query(`
+            SELECT document_sentiment_score, ai_document_sentiment, document_emotion_json,
+                   from_party, from_label, to_party, to_label, call_type, duration_seconds,
+                   start_time_utc, matched_team_initials, channel
+            FROM dbo.dubber_recordings
+            WHERE recording_id = @rid
+          `),
+        new sqlClient.Request(pool)
+          .input('rid', sqlClient.NVarChar, recordingId)
+          .query(`
+            SELECT summary_source, summary_type, summary_text
+            FROM dbo.dubber_recording_summaries
+            WHERE recording_id = @rid
+          `),
+      ]);
+
+      return {
+        sentenceResult: nextSentenceResult,
+        recResult: nextRecResult,
+        summaryResult: nextSummaryResult,
+      };
+    });
+
+    const durationMs = Date.now() - started;
+    trackEvent('Dubber.Transcript.Fetch.Completed', {
+      reqId,
+      recordingId,
+      triggeredBy: 'home-journey',
+      durationMs: String(durationMs),
+      sentenceCount: String(sentenceResult.recordset.length),
+      summaryCount: String(summaryResult.recordset.length),
+      recordingFound: String(recResult.recordset.length > 0),
+    });
+    trackMetric('Dubber.Transcript.Fetch.Duration', durationMs, { recordingId, triggeredBy: 'home-journey' });
 
     return res.json({
       recordingId,
@@ -510,7 +648,20 @@ router.get('/dubberCalls/:recordingId/transcript', async (req, res) => {
       summaries: summaryResult.recordset,
     });
   } catch (err) {
+    const durationMs = Date.now() - started;
     console.error(`[dubber ${reqId}] transcript error:`, err?.message || err);
+    trackException(err instanceof Error ? err : new Error(String(err)), {
+      operation: 'Dubber.Transcript.Fetch',
+      reqId,
+      phase: 'query',
+      durationMs: String(durationMs),
+    });
+    trackEvent('Dubber.Transcript.Fetch.Failed', {
+      reqId,
+      triggeredBy: 'home-journey',
+      durationMs: String(durationMs),
+      error: String(err?.message || err),
+    });
     return res.status(500).json({ error: 'Failed to fetch transcript' });
   }
 });
@@ -849,17 +1000,21 @@ router.post('/dubberCalls/:recordingId/attendance-note', async (req, res) => {
     const sentences = sentenceResult.recordset;
     const existingSummary = summaryResult.recordset[0]?.summary_text || '';
 
+    if (sentences.length === 0 && !existingSummary) {
+      return res.status(422).json({ error: 'No transcript available for this call', code: 'NO_TRANSCRIPT' });
+    }
+
     // Build transcript text for AI
     const transcriptText = sentences.length > 0
       ? sentences.map(s => `${s.speaker}: ${s.content}`).join('\n')
-      : existingSummary || 'No transcript available.';
+      : existingSummary;
 
     const fromParty = recording.from_label || recording.from_party || 'Unknown';
     const toParty = recording.to_label || recording.to_party || 'Unknown';
     const callDate = recording.start_time_utc ? new Date(recording.start_time_utc).toISOString().slice(0, 10) : 'Unknown';
     const durationMins = recording.duration_seconds ? Math.ceil(recording.duration_seconds / 60) : 0;
 
-    const systemPrompt = `You are a legal attendance note writer for Helix Law, a UK commercial law firm. Generate a professional attendance note from the following telephone call transcript. The note should be suitable for filing in the client matter.
+    const systemPrompt = `You are a legal attendance note writer for Helix Law, a specialist litigation firm regulated by the SRA. Helix Law acts across four core practice areas: commercial disputes, property disputes, construction disputes, and employment law. Generate a professional attendance note from the following telephone call transcript. The note should be suitable for filing in the client matter.
 
 Return JSON with this structure:
 {
@@ -880,7 +1035,21 @@ Return JSON with this structure:
 Transcript:
 ${transcriptText}`;
 
-    const aiResult = await chatCompletion(systemPrompt, userPrompt, { temperature: 0.3 });
+    let aiResult;
+    try {
+      aiResult = await chatCompletion(systemPrompt, userPrompt, { temperature: 0.3 });
+    } catch (aiErr) {
+      const durationMs = Date.now() - started;
+      console.error(`[dubber ${reqId}] AI call failed:`, aiErr?.message || aiErr);
+      trackException(aiErr instanceof Error ? aiErr : new Error(String(aiErr)), { operation: 'Dubber.AttendanceNote.AI', reqId, recordingId, durationMs: String(durationMs) });
+      return res.status(502).json({ error: 'AI service unavailable', code: 'AI_UNAVAILABLE' });
+    }
+
+    if (aiResult?._parseError) {
+      const durationMs = Date.now() - started;
+      trackEvent('Dubber.AttendanceNote.ParseError', { reqId, recordingId, durationMs: String(durationMs), raw: String(aiResult._raw || '').slice(0, 500) });
+      return res.status(502).json({ error: 'AI returned invalid response', code: 'AI_PARSE_ERROR' });
+    }
 
     const durationMs = Date.now() - started;
     trackEvent('Dubber.AttendanceNote.Generated', { reqId, recordingId, durationMs: String(durationMs), sentenceCount: String(sentences.length) });
@@ -896,12 +1065,14 @@ ${transcriptText}`;
         date: callDate,
         parties: { from: fromParty, to: toParty },
         teamMember: recording.matched_team_initials || null,
+        systemPrompt,
+        userPrompt,
       },
     });
   } catch (err) {
     console.error(`[dubber ${reqId}] attendance-note error:`, err?.message || err);
     trackException(err, { operation: 'Dubber.AttendanceNote.Generate', reqId });
-    return res.status(500).json({ error: 'Failed to generate attendance note' });
+    return res.status(500).json({ error: 'Failed to generate attendance note', code: 'DB_ERROR' });
   }
 });
 
@@ -1185,6 +1356,229 @@ router.post('/dubberCalls/:recordingId/save-note', async (req, res) => {
   }
 });
 
+// ── Prospect AC contact-id resolver (feature-flagged) ──────────────────────
+// Mirrors src/utils/resolveActiveCampaignContactId.ts precedence:
+//   enquiries.acid → Deals.ProspectId
+async function resolveProspectAcContactId(enquiryId) {
+  if (!enquiryId) return { acContactId: null, source: null };
+  try {
+    const pool = await instrPool();
+    // Try new-space enquiries.acid first
+    try {
+      const acidResult = await pool.request()
+        .input('id', sql.Int, Number(enquiryId))
+        .query('SELECT TOP 1 acid FROM dbo.enquiries WHERE id = @id');
+      const acid = acidResult?.recordset?.[0]?.acid;
+      if (acid != null && String(acid).trim() && String(acid).trim() !== '0') {
+        return { acContactId: String(acid).trim(), source: 'acid' };
+      }
+    } catch (e) {
+      // table/column might differ in this env — swallow and fall through
+    }
+    // Fallback: Deals.ProspectId by enquiry id
+    try {
+      const dealResult = await pool.request()
+        .input('id', sql.NVarChar, String(enquiryId))
+        .query("SELECT TOP 1 ProspectId FROM dbo.Deals WHERE CAST(ProspectId AS NVARCHAR(50)) = @id ORDER BY DealId DESC");
+      const pid = dealResult?.recordset?.[0]?.ProspectId;
+      if (pid != null && String(pid).trim()) {
+        return { acContactId: String(pid).trim(), source: 'deal-prospect' };
+      }
+    } catch (e) {
+      // non-fatal
+    }
+  } catch (e) {
+    // pool unavailable — non-fatal
+  }
+  return { acContactId: null, source: null };
+}
+
+// Fire-and-log AC contact note. Non-fatal. Returns { ok, error? }.
+async function postAcContactNote({ acContactId, noteBody, reqId }) {
+  if (!acContactId || !noteBody) return { ok: false, error: 'missing-inputs' };
+  const startedAc = Date.now();
+  try {
+    const [apiToken, baseUrlSecret] = await Promise.all([
+      getSecret('ac-automations-apitoken').catch(() => null),
+      getSecret('ac-base-url').catch(() => null),
+    ]);
+    if (!apiToken) return { ok: false, error: 'no-token' };
+    const baseUrl = String(baseUrlSecret || 'https://helix-law54533.api-us1.com/api/3').replace(/\/$/, '');
+    const body = JSON.stringify({ note: { note: String(noteBody).slice(0, 4000), relid: String(acContactId), reltype: 'Subscriber' } });
+    const urlObj = new URL(`${baseUrl}/notes`);
+    const result = await new Promise((resolve) => {
+      const request = https.request({
+        hostname: urlObj.hostname,
+        path: urlObj.pathname + urlObj.search,
+        method: 'POST',
+        headers: {
+          'Api-Token': apiToken,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Content-Length': Buffer.byteLength(body),
+        },
+      }, (r) => {
+        let d = ''; r.on('data', c => { d += c; });
+        r.on('end', () => {
+          const status = r.statusCode || 0;
+          if (status >= 200 && status < 300) resolve({ ok: true });
+          else resolve({ ok: false, error: `status ${status}: ${d.slice(0, 180)}` });
+        });
+      });
+      request.on('error', (e) => resolve({ ok: false, error: e?.message || 'network-error' }));
+      request.setTimeout(10000, () => { request.destroy(); resolve({ ok: false, error: 'timeout' }); });
+      request.write(body); request.end();
+    });
+    const durationMs = Date.now() - startedAc;
+    if (result.ok) {
+      trackEvent('ActiveCampaign.Note.Posted', { reqId, acContactId: String(acContactId), durationMs: String(durationMs) });
+    } else {
+      trackEvent('ActiveCampaign.Note.Failed', { reqId, acContactId: String(acContactId), error: String(result.error || '').slice(0, 180) });
+    }
+    return result;
+  } catch (e) {
+    trackEvent('ActiveCampaign.Note.Failed', { reqId, acContactId: String(acContactId), error: e?.message || 'exception' });
+    return { ok: false, error: e?.message || 'exception' };
+  }
+}
+
+// ── POST /api/dubberCalls/:recordingId/save-prospect-note ──────────────────
+/**
+ * File a telephone attendance note against a prospect's doc-workspace.
+ *
+ * Body: {
+ *   note: AttendanceNote,
+ *   enquiryId: number | string,
+ *   passcode?: string,        // auto-resolved via resolveLatestWorkspace if missing
+ *   contactName?: string,     // used for filename
+ * }
+ * Returns: { ok, blobName, sasUrl, acSynced?: boolean, acError?: string }
+ *
+ * The recordingId param may be a real Dubber recording id OR a synthetic
+ * "manual-<uuid>" when the user files a standalone note without a call.
+ */
+router.post('/dubberCalls/:recordingId/save-prospect-note', async (req, res) => {
+  const reqId = randomUUID();
+  const started = Date.now();
+  try {
+    const recordingId = String(req.params.recordingId || '').trim();
+    if (!recordingId) return res.status(400).json({ error: 'Missing recordingId' });
+
+    const { note, enquiryId: enquiryIdRaw, passcode: passcodeRaw, contactName: contactNameRaw } = req.body || {};
+    if (!note || !note.attendanceNote) return res.status(400).json({ error: 'Missing attendance note content' });
+
+    const enquiryId = Number.parseInt(String(enquiryIdRaw ?? ''), 10);
+    if (!Number.isFinite(enquiryId) || enquiryId <= 0) {
+      return res.status(400).json({ error: 'Missing or invalid enquiryId' });
+    }
+
+    // Load the shared helpers from doc-workspace.js.
+    const docWorkspace = require('./doc-workspace');
+    const internals = docWorkspace.internals;
+    if (!internals) {
+      return res.status(500).json({ error: 'doc-workspace internals unavailable' });
+    }
+    const { getBlobServiceClient: getDwBlobClient, resolveLatestWorkspace, generateBlobReadSasUrl, PROSPECT_CONTAINER } = internals;
+
+    const svc = getDwBlobClient();
+    const containerClient = svc.getContainerClient(PROSPECT_CONTAINER);
+
+    // Resolve passcode if not supplied.
+    let passcode = String(passcodeRaw || '').trim();
+    if (!passcode) {
+      const workspace = await resolveLatestWorkspace(containerClient, enquiryId);
+      passcode = workspace?.passcode || '';
+    }
+    if (!passcode) {
+      return res.status(404).json({ error: 'No workspace found for this enquiry. Create a doc-request workspace first.' });
+    }
+
+    // Build docx.
+    const docxBuffer = await generateAttendanceNoteDocx(note);
+
+    // Filename: "Attendance Note - YYYYMMDD - {contactName}.docx"
+    const datePart = (note.date || new Date().toISOString().slice(0, 10)).replace(/-/g, '');
+    const safeContactName = String(contactNameRaw || note.parties?.from || 'Prospect')
+      .replace(/[^\w\-() ]/g, '_')
+      .replace(/\s+/g, '_')
+      .slice(0, 80);
+    const filename = `Attendance_Note-${datePart}-${safeContactName}.docx`;
+    const subfolder = 'Telephone Attendance Notes';
+
+    // Ensure keep marker (idempotent).
+    const keepBlobName = `enquiries/${enquiryId}/${passcode}/${subfolder}/.keep`;
+    try {
+      const keepBlob = containerClient.getBlockBlobClient(keepBlobName);
+      const exists = await keepBlob.exists();
+      if (!exists) {
+        await keepBlob.uploadData(Buffer.from(''), { blobHTTPHeaders: { blobContentType: 'text/plain' } });
+      }
+    } catch { /* non-fatal */ }
+
+    const blobName = `enquiries/${enquiryId}/${passcode}/${subfolder}/${filename}`;
+    const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+    await blockBlobClient.uploadData(docxBuffer, {
+      blobHTTPHeaders: { blobContentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
+      metadata: {
+        enquiryId: String(enquiryId),
+        passcode,
+        subfolder,
+        documentType: 'telephone-attendance-note',
+        uploadedBy: String(req.headers['x-user-initials'] || 'Hub'),
+        uploadedAt: new Date().toISOString(),
+        recordingId,
+        source: 'hub-call-centre',
+      },
+    });
+
+    const sasUrl = await generateBlobReadSasUrl(PROSPECT_CONTAINER, blobName, filename, 60);
+
+    // Optional: AC contact note (feature-flagged).
+    let acSynced;
+    let acError;
+    if (String(process.env.ENABLE_AC_CONTACT_NOTES || '').toLowerCase() === 'true') {
+      const { acContactId } = await resolveProspectAcContactId(enquiryId);
+      if (acContactId) {
+        const noteBody = `${(note.summary || '').trim()}\n\n${(note.attendanceNote || '').trim()}`.trim();
+        const acResult = await postAcContactNote({ acContactId, noteBody, reqId });
+        acSynced = !!acResult.ok;
+        if (!acResult.ok) acError = String(acResult.error || '').slice(0, 180);
+      } else {
+        acSynced = false;
+        acError = 'no-contact-id';
+      }
+    }
+
+    const durationMs = Date.now() - started;
+    trackEvent('Dubber.ProspectNote.Saved', {
+      reqId,
+      recordingId,
+      enquiryId: String(enquiryId),
+      passcode,
+      blobName,
+      durationMs: String(durationMs),
+      acSynced: acSynced == null ? '' : String(acSynced),
+    });
+    trackMetric('Dubber.ProspectNote.Duration', durationMs, { operation: 'save-prospect-note' });
+
+    return res.json({
+      ok: true,
+      blobName,
+      sasUrl,
+      filename,
+      subfolder,
+      acSynced,
+      acError,
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    });
+  } catch (err) {
+    console.error(`[dubber ${reqId}] save-prospect-note error:`, err?.message || err);
+    trackException(err, { operation: 'Dubber.ProspectNote.Save', reqId });
+    trackEvent('Dubber.ProspectNote.Failed', { reqId, error: err?.message || 'unknown' });
+    return res.status(500).json({ error: 'Failed to save prospect attendance note' });
+  }
+});
+
 // ── POST /api/dubberCalls/:recordingId/upload-note-nd ──────────────────────
 /**
  * Generate a .docx attendance note and upload it to the matter's ND workspace.
@@ -1203,7 +1597,8 @@ router.post('/dubberCalls/:recordingId/upload-note-nd', async (req, res) => {
     if (!matterRef) return res.status(400).json({ error: 'Missing matterRef for ND upload' });
 
     // Parse matterRef into clientId / matterKey for ND workspace lookup
-    // Common formats: "00123-45678", "HELIX01-00123-45678", display numbers
+    // Standard Clio display numbers: "00123-45678" → clientId=00123, matterKey=45678
+    // Non-standard (admin, custom): "HELIX01-01" → need Clio lookup to find real clientId
     const workspaceRefResolution = await resolveNdWorkspaceRef(matterRef);
     const refStr = workspaceRefResolution.resolvedRef;
     let clientId, matterKey;
@@ -1222,73 +1617,190 @@ router.post('/dubberCalls/:recordingId/upload-note-nd', async (req, res) => {
     const from = (note.parties?.from || 'Unknown').replace(/[^a-zA-Z0-9 ]/g, '').trim().replace(/\s+/g, '-');
     const fileName = `Attendance Note - ${dateStr} - ${from}.docx`;
 
-    // Step 2: Resolve ND workspace
+    // Step 2: Resolve ND workspace — try hyphen-split first, fall back to Clio lookup
     const accessToken = await getNdAccessToken();
     const cabinet = await getSecret('nd-cabinet');
-    const workspacePath = `/v1/Workspace/${encodeURIComponent(cabinet)}/${encodeURIComponent(clientId)}/${encodeURIComponent(matterKey)}`;
+    let workspacePath = `/v1/Workspace/${encodeURIComponent(cabinet)}/${encodeURIComponent(clientId)}/${encodeURIComponent(matterKey)}`;
     let workspacePayload;
     try {
       workspacePayload = await ndApiRequest(`${workspacePath}/info`, accessToken);
     } catch (wsErr) {
-      return res.status(404).json({ error: `ND workspace not found for ${refStr}: ${wsErr.message}` });
+      // Hyphen-split failed — try resolving via Clio to get real client ID
+      // e.g. "HELIX01-01" → Clio client 5257922 → ND path 5257922/HELIX01-01
+      console.log(`[dubber ${reqId}] ND workspace not found at ${clientId}/${matterKey}, trying Clio lookup for "${refStr}"`);
+      try {
+        const clioToken = await getClioAccessToken();
+        const clioRes = await fetch(`${CLIO_API_BASE}/matters.json?fields=id,display_number,client{id}&query=${encodeURIComponent(refStr)}&limit=5`, {
+          headers: { Authorization: `Bearer ${clioToken}` },
+        });
+        if (clioRes.ok) {
+          const clioData = await clioRes.json();
+          const match = (clioData.data || []).find(m => String(m.display_number || '').toLowerCase() === refStr.toLowerCase());
+          if (match?.client?.id) {
+            clientId = String(match.client.id);
+            matterKey = match.display_number || refStr;
+            workspacePath = `/v1/Workspace/${encodeURIComponent(cabinet)}/${encodeURIComponent(clientId)}/${encodeURIComponent(matterKey)}`;
+            console.log(`[dubber ${reqId}] Clio resolved: clientId=${clientId}, matterKey=${matterKey}`);
+            workspacePayload = await ndApiRequest(`${workspacePath}/info`, accessToken);
+          } else {
+            return res.status(404).json({ error: `ND workspace not found for ${refStr} (Clio lookup found no matching matter)` });
+          }
+        } else {
+          return res.status(404).json({ error: `ND workspace not found for ${refStr}: ${wsErr.message}` });
+        }
+      } catch (fallbackErr) {
+        console.warn(`[dubber ${reqId}] ND Clio-fallback also failed:`, fallbackErr.message || fallbackErr);
+        return res.status(404).json({ error: `ND workspace not found for ${refStr}: ${fallbackErr.message || wsErr.message}` });
+      }
     }
-    const workspaceId = workspacePayload?.id || workspacePayload?.EnvId;
-    if (!workspaceId) return res.status(404).json({ error: `No workspace ID resolved for ${refStr}` });
+    const workspaceId = workspacePayload?.standardAttributes?.envId || workspacePayload?.standardAttributes?.id || workspacePayload?.id || workspacePayload?.EnvId;
+    if (!workspaceId) return res.status(404).json({ error: `No workspace ID resolved for ${refStr}`, workspaceKeys: Object.keys(workspacePayload || {}), stdKeys: Object.keys(workspacePayload?.standardAttributes || {}) });
+    console.log(`[dubber ${reqId}] Workspace envId resolved: ${workspaceId}`);
 
-    // Step 3: List workspace contents to find Attendance Notes folder
+    // Step 3: Find target folder in the ND workspace
+    // The container summary returns top-level folders under Results. Each has a DocId or envId
+    // that can be used as a destination. The workspace .nev is NOT a valid folder — only use
+    // folder DocIds from the summary or its sub-containers.
+    //
+    // DEV OVERRIDE: While testing, all uploads go to "luke-sandbox" in HELIX01-01.
+    // TODO: Remove this override when ready for production — search for attendanceFolderNames.
+    const DEV_SANDBOX_OVERRIDE = true; // flip to false to use real attendance folder matching
+    const attendanceFolderNames = ['attendance', 'file note']; // production folder name matches
+    const sandboxFolderNames = ['luke-sandbox'];               // dev testing folder
+    const targetFolderNames = DEV_SANDBOX_OVERRIDE ? sandboxFolderNames : attendanceFolderNames;
+
     let attendanceFolderId = null;
     try {
-      const wsContents = await ndApiRequest(`/v1/Workspace/${encodeURIComponent(cabinet)}/${encodeURIComponent(clientId)}/${encodeURIComponent(matterKey)}`, accessToken);
-      const items = wsContents?.list || [];
-      for (const item of items) {
-        const itemId = item.envId;
-        try {
-          const info = await ndApiRequest(`/v2/container/${encodeURIComponent(itemId)}/info`, accessToken);
-          const attrs = info?.Attributes || info?.standardAttributes || {};
-          const customTitle = Array.isArray(info?.CustomAttributes)
-            ? info.CustomAttributes.find(a => a?.Id === 1003)?.Value?.[0]
-            : undefined;
-          const name = (customTitle || attrs.Name || attrs.name || '').toLowerCase();
-          const ext = String(attrs.Ext || attrs.extension || '').toLowerCase();
-          if ((name.includes('attendance') || name.includes('file note')) && ext === 'ndfld') {
-            attendanceFolderId = info?.EnvId || info?.DocId || itemId;
-            break;
+      const summary = await ndApiRequest(`/v2/container/${encodeURIComponent(workspaceId)}/summary/containers?filter=extension`, accessToken);
+      const summaryResults = summary?.Results || summary?.results || (Array.isArray(summary) ? summary : []);
+      console.log(`[dubber ${reqId}] Container summary: ${summaryResults.length} top-level containers (target: ${targetFolderNames.join('|')})`);
+
+      // Search top-level containers for target folder
+      for (const c of summaryResults) {
+        const cName = String(c?.Attributes?.Name || c?.attributes?.name || c?.name || c?.Name || '').toLowerCase();
+        const cId = c?.DocId || c?.docId || c?.Attributes?.DocId || c?.envId || c?.EnvId || c?.id;
+        if (targetFolderNames.some(n => cName.includes(n))) {
+          attendanceFolderId = cId;
+          console.log(`[dubber ${reqId}] Found target folder at top level: "${cName}" → ${attendanceFolderId}`);
+          break;
+        }
+      }
+
+      // If not at top level, drill into each container's subfolders
+      if (!attendanceFolderId) {
+        for (const c of summaryResults) {
+          const cId = c?.DocId || c?.docId || c?.Attributes?.DocId || c?.envId || c?.EnvId || c?.id;
+          if (!cId) continue;
+          try {
+            const subs = await ndApiRequest(`/v2/container/${encodeURIComponent(cId)}/sub/?recursive=true&select=StandardAttributes`, accessToken);
+            const subResults = subs?.Results || subs?.results || (Array.isArray(subs) ? subs : []);
+            for (const item of subResults) {
+              const name = String(item?.Attributes?.Name || item?.attributes?.name || item?.name || item?.Name || '').toLowerCase();
+              const docId = item?.DocId || item?.docId || item?.Attributes?.DocId || item?.id;
+              if (targetFolderNames.some(n => name.includes(n))) {
+                attendanceFolderId = docId;
+                console.log(`[dubber ${reqId}] Found target folder in sub-container: "${name}" → ${attendanceFolderId}`);
+                break;
+              }
+            }
+            if (attendanceFolderId) break;
+          } catch (subErr) {
+            // Non-fatal — try next container
           }
-        } catch { /* skip item */ }
+        }
+      }
+
+      // If still nothing, use first container as fallback (NOT the workspace .nev)
+      if (!attendanceFolderId && summaryResults.length > 0) {
+        const fallback = summaryResults[0];
+        attendanceFolderId = fallback?.DocId || fallback?.docId || fallback?.Attributes?.DocId || fallback?.envId || fallback?.EnvId || fallback?.id;
+        console.log(`[dubber ${reqId}] No target folder found, using first container as fallback: ${attendanceFolderId}`);
       }
     } catch (wsListErr) {
-      console.warn(`[dubber ${reqId}] ND workspace listing failed, uploading to workspace root:`, wsListErr.message);
+      console.warn(`[dubber ${reqId}] ND container listing failed:`, wsListErr.message);
     }
 
-    // Step 4: Upload docx to attendance folder (or workspace root)
-    const uploadTargetId = attendanceFolderId || workspaceId;
-    const { boundary, body } = buildNdMultipartBody({ workspaceId: uploadTargetId, fileName, fileBuffer: docxBuffer, cabinet });
+    // Step 4: Create blank document then upload content (matches Power Automate ND flow)
+    // CRITICAL: destination MUST be a folder/container DocId, NOT the workspace .nev envelope
+    if (!attendanceFolderId) {
+      return res.status(404).json({ error: `No valid folder found in ND workspace for ${refStr} (workspace=${workspaceId}). Cannot upload to workspace root.` });
+    }
+    console.log(`[dubber ${reqId}] ND upload target: ${attendanceFolderId} (workspace=${workspaceId})`);
     const baseUrl = await getSecret('nd-baseurl');
-    const uploadUrl = new URL(`${String(baseUrl).replace(/\/$/, '')}/v2/content/upload-document`);
+    const ndBase = String(baseUrl).replace(/\/$/, '');
+    const docName = path.parse(fileName).name;
+    const docExt = path.extname(fileName).replace(/^\./, '') || 'docx';
 
-    const uploadResult = await new Promise((resolve, reject) => {
+    // 4a: Create blank document with metadata
+    const createBodyStr = `return=full&cabinet=${encodeURIComponent(cabinet)}&profile=${encodeURIComponent(JSON.stringify([{ id: 3, value: 'Telephone Attendance Notes' }]))}&action=create&destination=${encodeURIComponent(attendanceFolderId)}`;
+    const createUrl = new URL(`${ndBase}/v1/Document?name=${encodeURIComponent(docName)}&extension=${encodeURIComponent(docExt)}`);
+
+    const createResult = await new Promise((resolve, reject) => {
       const request = https.request({
-        hostname: uploadUrl.hostname, path: uploadUrl.pathname + uploadUrl.search, method: 'POST',
+        hostname: createUrl.hostname, path: createUrl.pathname + createUrl.search, method: 'POST',
         headers: {
-          Authorization: `Bearer ${accessToken}`, Accept: 'application/json',
-          'Content-Type': `multipart/form-data; boundary=${boundary}`, 'Content-Length': body.length,
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Content-Length': Buffer.byteLength(createBodyStr),
+          Accept: 'application/json',
         },
       }, (response) => {
         let data = '';
         response.on('data', chunk => { data += chunk; });
         response.on('end', () => {
-          if ((response.statusCode || 500) >= 400) { reject(new Error(data || `ND upload failed (${response.statusCode})`)); return; }
+          if ((response.statusCode || 500) >= 400) {
+            reject(new Error(`ND document create failed (${response.statusCode}): ${data}`));
+            return;
+          }
+          try { resolve(data ? JSON.parse(data) : {}); } catch { resolve({}); }
+        });
+      });
+      request.on('error', reject);
+      request.setTimeout(20000, () => { request.destroy(); reject(new Error('ND create timeout')); });
+      request.write(createBodyStr);
+      request.end();
+    });
+
+    const ndDocId = createResult?.standardAttributes?.id || createResult?.DocId || createResult?.docId || createResult?.id || createResult?.standardAttributes?.envId || createResult?.EnvId;
+    console.log(`[dubber ${reqId}] ND document create response keys:`, JSON.stringify(Object.keys(createResult || {})));
+    if (!ndDocId) {
+      console.error(`[dubber ${reqId}] ND document create returned no ID. Full response:`, JSON.stringify(createResult));
+      throw new Error('ND document creation returned no document ID');
+    }
+    console.log(`[dubber ${reqId}] ND blank document created: ${ndDocId}`);
+
+    // 4b: Upload docx content to the blank document
+    const putUrl = new URL(`${ndBase}/v1/Document/${encodeURIComponent(ndDocId)}`);
+    const uploadResult = await new Promise((resolve, reject) => {
+      const request = https.request({
+        hostname: putUrl.hostname, path: putUrl.pathname + putUrl.search, method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'Content-Length': docxBuffer.length,
+          Accept: 'application/json',
+        },
+      }, (response) => {
+        let data = '';
+        response.on('data', chunk => { data += chunk; });
+        response.on('end', () => {
+          if ((response.statusCode || 500) >= 400) {
+            reject(new Error(`ND content upload failed (${response.statusCode}): ${data}`));
+            return;
+          }
           try { resolve(data ? JSON.parse(data) : {}); } catch { resolve({}); }
         });
       });
       request.on('error', reject);
       request.setTimeout(30000, () => { request.destroy(); reject(new Error('ND upload timeout')); });
-      request.write(body); request.end();
+      request.write(docxBuffer);
+      request.end();
     });
 
     const durationMs = Date.now() - started;
     trackEvent('Dubber.AttendanceNote.UploadedND', {
       reqId, recordingId, matterRef: refStr, requestedMatterRef: workspaceRefResolution.requestedRef, workspaceRefSource: workspaceRefResolution.source, fileName,
+      ndDocId,
       attendanceFolderId: attendanceFolderId || 'workspace-root',
       durationMs: String(durationMs),
     });
@@ -1299,7 +1811,7 @@ router.post('/dubberCalls/:recordingId/upload-note-nd', async (req, res) => {
       const pool = await instrPool();
       await pool.request()
         .input('recording_id', sql.NVarChar, recordingId)
-        .input('nd_doc_id', sql.NVarChar, String(uploadResult?.id || uploadResult?.DocId || ''))
+        .input('nd_doc_id', sql.NVarChar, ndDocId)
         .input('nd_file_name', sql.NVarChar, fileName)
         .input('matter_ref', sql.NVarChar, refStr)
         .query(`
@@ -1319,17 +1831,187 @@ router.post('/dubberCalls/:recordingId/upload-note-nd', async (req, res) => {
     return res.json({
       ok: true,
       fileName,
+      ndDocId,
       uploadedTo: attendanceFolderId ? 'Attendance Notes folder' : 'Workspace root',
       matterRef: refStr,
       requestedMatterRef: workspaceRefResolution.requestedRef,
       workspaceRefSource: workspaceRefResolution.source,
-      folderId: uploadTargetId,
-      ndResult: uploadResult,
+      folderId: attendanceFolderId,
     });
   } catch (err) {
     console.error(`[dubber ${reqId}] upload-note-nd error:`, err?.message || err);
     trackException(err, { operation: 'Dubber.AttendanceNote.UploadND', reqId });
     return res.status(500).json({ error: 'Failed to upload attendance note to NetDocuments' });
+  }
+});
+
+// ── POST /api/dubberCalls/:recordingId/clio-time-entry ─────────────────────
+/**
+ * Cut 3 of CALL_CENTRE_EXTERNAL_ATTENDANCE_NOTE_AND_CLIO_MIRROR.
+ *
+ * Writes a Clio TimeEntry activity for a call-derived attendance note. Body:
+ *   {
+ *     matterDisplayNumber: string,   // e.g. "00898-37693" — required unless clioMatterId provided
+ *     clioMatterId?: string|number,  // if already resolved via matter-chain, skip the lookup
+ *     chargeableMinutes: number,     // editable in UI; Clio stores hours to 2dp
+ *     narrative: string,             // ≤ 500 chars; Clio's `note` field
+ *     date: string,                  // YYYY-MM-DD (call date)
+ *     userInitials: string           // fee earner's initials → Clio user id
+ *   }
+ *
+ * Returns:
+ *   200 { activityId, clioMatterId, clioUserId, quantityHours, durationMs }
+ *   4xx { code, message, retriable }
+ *   5xx { code, message, retriable }
+ *
+ * Token: per-user via `getClioAccessToken(userInitials)` (audit trail), falls
+ * back to the service account if per-user creds aren't provisioned.
+ *
+ * Failure modes are returned as structured errors so the UI can decide whether
+ * to offer a retry: token refresh failures are `retriable: true`, 4xx are
+ * `retriable: false` (usually a data problem), 429 and 5xx are retriable with
+ * Retry-After respected.
+ */
+router.post('/dubberCalls/:recordingId/clio-time-entry', async (req, res) => {
+  const reqId = randomUUID();
+  const started = Date.now();
+  const recordingId = String(req.params.recordingId || '').trim();
+  const body = req.body || {};
+  const matterDisplayNumber = String(body.matterDisplayNumber || '').trim();
+  const clioMatterIdInput = body.clioMatterId != null ? String(body.clioMatterId).trim() : '';
+  const chargeableMinutesRaw = Number(body.chargeableMinutes);
+  const narrative = String(body.narrative || '').trim();
+  const date = String(body.date || '').trim();
+  const userInitials = String(body.userInitials || '').trim().toUpperCase();
+
+  if (!recordingId) return res.status(400).json({ code: 'MISSING_RECORDING_ID', message: 'Missing recordingId', retriable: false });
+  if (!clioMatterIdInput && !matterDisplayNumber) {
+    return res.status(400).json({ code: 'MISSING_MATTER', message: 'Provide clioMatterId or matterDisplayNumber', retriable: false });
+  }
+  if (!Number.isFinite(chargeableMinutesRaw) || chargeableMinutesRaw <= 0) {
+    return res.status(400).json({ code: 'INVALID_CHARGEABLE_MINUTES', message: 'chargeableMinutes must be a positive number', retriable: false });
+  }
+  if (!narrative) return res.status(400).json({ code: 'MISSING_NARRATIVE', message: 'narrative is required', retriable: false });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ code: 'INVALID_DATE', message: 'date must be YYYY-MM-DD', retriable: false });
+  if (!userInitials) return res.status(400).json({ code: 'MISSING_USER_INITIALS', message: 'userInitials is required', retriable: false });
+
+  // Clio's `note` is capped at 500 chars per field; truncate defensively.
+  const note = narrative.length > 500 ? narrative.slice(0, 500) : narrative;
+  // Convert minutes → hours to 2dp (Clio's native precision).
+  const quantityHours = Math.round((chargeableMinutesRaw / 60) * 100) / 100;
+
+  trackEvent('CallCentre.TimeEntry.Started', {
+    reqId,
+    recordingId,
+    userInitials,
+    matterDisplayNumber,
+    chargeableMinutes: chargeableMinutesRaw,
+  });
+
+  try {
+    // 1. Resolve Clio matter id — accept caller-supplied or look up via Core Data.
+    let clioMatterId = clioMatterIdInput;
+    if (!clioMatterId) {
+      clioMatterId = await resolveClioMatterIdFromDisplayNumber(matterDisplayNumber);
+      if (!clioMatterId) {
+        const err = { code: 'MATTER_NOT_FOUND', message: `No Clio matter id for display number ${matterDisplayNumber}`, retriable: false };
+        trackEvent('CallCentre.TimeEntry.Failed', { reqId, ...err });
+        return res.status(404).json(err);
+      }
+    }
+
+    // 2. Resolve Clio user id from initials.
+    let clioUserId;
+    try {
+      clioUserId = await getClioId(userInitials);
+    } catch (teamErr) {
+      console.warn(`[dubber ${reqId}] clio-time-entry: team lookup failed:`, teamErr.message);
+    }
+    if (!clioUserId) {
+      const err = { code: 'CLIO_USER_NOT_FOUND', message: `No Clio ID in [dbo].[team] for initials ${userInitials}`, retriable: false };
+      trackEvent('CallCentre.TimeEntry.Failed', { reqId, ...err });
+      return res.status(404).json(err);
+    }
+
+    // 3. Get access token (per-user, falls back to service). Token failures are retriable.
+    let accessToken;
+    try {
+      accessToken = await getClioAccessToken(userInitials);
+    } catch (tokenErr) {
+      const err = { code: 'CLIO_TOKEN_FAILED', message: tokenErr.message || 'Clio token refresh failed', retriable: true };
+      trackException(tokenErr, { operation: 'CallCentre.TimeEntry.Token', reqId, userInitials });
+      trackEvent('CallCentre.TimeEntry.Failed', { reqId, ...err });
+      return res.status(502).json(err);
+    }
+
+    // 4. POST the activity.
+    const payload = {
+      data: {
+        type: 'TimeEntry',
+        date,
+        quantity_in_hours: quantityHours,
+        note,
+        matter: { id: Number(clioMatterId) || clioMatterId },
+        user: { id: Number(clioUserId) || clioUserId },
+      },
+    };
+
+    const clioRes = await fetch(`${CLIO_API_BASE}/activities.json`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!clioRes.ok) {
+      const text = await clioRes.text().catch(() => '');
+      const retryAfterHeader = clioRes.headers.get('retry-after');
+      const is429 = clioRes.status === 429;
+      const is5xx = clioRes.status >= 500;
+      const err = {
+        code: is429 ? 'CLIO_RATE_LIMITED' : is5xx ? 'CLIO_SERVER_ERROR' : 'CLIO_WRITE_REJECTED',
+        message: text ? text.slice(0, 500) : `Clio responded ${clioRes.status}`,
+        retriable: is429 || is5xx,
+        retryAfterSeconds: retryAfterHeader ? Number(retryAfterHeader) || null : null,
+        status: clioRes.status,
+      };
+      trackEvent('CallCentre.TimeEntry.Failed', { reqId, ...err, userInitials, clioMatterId: String(clioMatterId) });
+      return res.status(is429 ? 429 : is5xx ? 502 : 422).json(err);
+    }
+
+    const clioJson = await clioRes.json().catch(() => ({}));
+    const activityId = clioJson?.data?.id ? String(clioJson.data.id) : '';
+    const durationMs = Date.now() - started;
+
+    trackEvent('CallCentre.TimeEntry.Completed', {
+      reqId,
+      recordingId,
+      userInitials,
+      matterDisplayNumber,
+      clioMatterId: String(clioMatterId),
+      clioUserId: String(clioUserId),
+      activityId,
+      quantityHours,
+      durationMs,
+    });
+    trackMetric('CallCentre.TimeEntry.Duration', durationMs, { operation: 'ClioTimeEntry' });
+
+    return res.json({
+      activityId,
+      clioMatterId: String(clioMatterId),
+      clioUserId: String(clioUserId),
+      quantityHours,
+      durationMs,
+    });
+  } catch (err) {
+    console.error(`[dubber ${reqId}] clio-time-entry error:`, err?.message || err);
+    trackException(err, { operation: 'CallCentre.TimeEntry', reqId, userInitials });
+    const payload = { code: 'UNEXPECTED', message: err?.message || 'Unexpected error writing Clio time entry', retriable: true };
+    trackEvent('CallCentre.TimeEntry.Failed', { reqId, ...payload });
+    return res.status(500).json(payload);
   }
 });
 

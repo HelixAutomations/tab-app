@@ -4,13 +4,15 @@ import { colours } from '../../../app/styles/colours';
 interface QueueLoadingSkeletonProps {
   variant: 'blocking' | 'inline';
   isDarkMode: boolean;
+  /** Set when the skeleton is about to unmount — triggers a fade-out so the swap to live data feels smooth. */
+  exiting?: boolean;
 }
 
-const QueueLoadingSkeleton: React.FC<QueueLoadingSkeletonProps> = ({ variant, isDarkMode }) => {
+const QueueLoadingSkeleton: React.FC<QueueLoadingSkeletonProps> = ({ variant, isDarkMode, exiting = false }) => {
   const rowCount = variant === 'blocking' ? 8 : 6;
   const skeletonBase = isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(6,23,51,0.04)';
   const skeletonStrong = isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(6,23,51,0.08)';
-  const shimmerTone = isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(6,23,51,0.06)';
+  const shimmerTone = isDarkMode ? 'rgba(135,243,243,0.18)' : 'rgba(54,144,206,0.14)';
   const lineColor = isDarkMode ? 'rgba(135,243,243,0.25)' : 'rgba(54,144,206,0.18)';
   const rowBorderColor = isDarkMode ? 'rgba(75, 85, 99, 0.18)' : 'rgba(0, 0, 0, 0.05)';
   // Match the real grid: Timeline | Date | ID/Value | Contact | Pipeline | Actions
@@ -21,8 +23,10 @@ const QueueLoadingSkeleton: React.FC<QueueLoadingSkeletonProps> = ({ variant, is
     height: h,
     background: `linear-gradient(90deg, ${strong ? skeletonStrong : skeletonBase} 0%, ${shimmerTone} 50%, ${strong ? skeletonStrong : skeletonBase} 100%)`,
     backgroundSize: '220% 100%',
-    animation: `enq-skeleton-breathe 2.4s ease-in-out infinite`,
-    animationDelay: `${delay}s`,
+    backgroundPosition: '140% 0',
+    // Two layered animations: slow opacity breathe + directional shimmer sweep.
+    animation: `enq-skeleton-breathe 2.4s ease-in-out ${delay}s infinite, enq-skeleton-shimmer 1.8s linear ${delay * 0.4}s infinite`,
+    willChange: 'background-position, opacity',
   });
 
   // Vary widths per row so skeletons look organic, not stamped
@@ -31,12 +35,17 @@ const QueueLoadingSkeleton: React.FC<QueueLoadingSkeletonProps> = ({ variant, is
   const chipCounts = [3, 2, 4, 2, 3, 1, 3, 2];
 
   return (
-    <div style={{
-      width: '100%',
-      display: 'flex',
-      flexDirection: 'column',
-      padding: variant === 'blocking' ? '0 16px' : '0',
-    }}>
+    <div
+      className="enq-queue-skeleton"
+      style={{
+        width: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        padding: variant === 'blocking' ? '0 16px' : '0',
+        animation: exiting ? 'enq-skeleton-fade-out 220ms ease-out both' : 'fadeIn 180ms ease-out both',
+        willChange: 'opacity',
+      }}
+    >
       {/* Skeleton header — mirrors the real sticky header */}
       <div style={{
         display: 'grid',

@@ -3,10 +3,19 @@ const sql = require('mssql');
 const { withRequest } = require('../utils/db');
 const { trackEvent, trackMetric, trackException } = require('../utils/appInsights');
 const { sendCardToDM } = require('../utils/teamsNotificationClient');
+const {
+  loadSubmission,
+  bumpRetrigger,
+  archiveSubmission,
+  markComplete,
+  markFailed,
+  recordStep,
+} = require('../utils/formSubmissionLog');
 
 const router = express.Router();
 const PROCESS_HEALTH_ALERT_RECIPIENT = 'lz@helix-law.com';
 const PROCESS_HEALTH_ALERT_COOLDOWN_MS = 15 * 60 * 1000;
+const ADMIN_INITIALS = new Set(['LZ', 'AC', 'KW', 'JW', 'LA', 'EA']);
 let lastProcessHubAlert = {
   reason: '',
   sentAt: 0,
@@ -85,43 +94,93 @@ function getTriggeredBy(req) {
 }
 
 function getConnectionString() {
-  const connectionString = process.env.PROJECTS_SQL_CONNECTION_STRING || process.env.SQL_CONNECTION_STRING;
+  // form_submissions now lives on the Helix Operations Platform DB
+  // (helix-operations). Two-stage gate identical to formSubmissionLog so reads
+  // and writes always agree on which database they hit.
+  //
+  // Emergency rollback: FORM_SUBMISSIONS_USE_LEGACY=true forces the rail back
+  // onto legacy helix-core-data (via SQL_CONNECTION_STRING).
+  const useLegacy = String(process.env.FORM_SUBMISSIONS_USE_LEGACY || '').toLowerCase() === 'true';
+  if (useLegacy) {
+    const legacy = process.env.SQL_CONNECTION_STRING;
+    if (!legacy) throw new Error('Process hub legacy connection string not configured');
+    return legacy;
+  }
+  if (String(process.env.OPS_PLATFORM_ENABLED || '').toLowerCase() !== 'true') {
+    throw new Error('Process hub: OPS_PLATFORM_ENABLED is not "true"');
+  }
+  const connectionString = process.env.OPS_SQL_CONNECTION_STRING;
   if (!connectionString) {
-    throw new Error('Process hub connection string not configured');
+    throw new Error('Process hub: OPS_SQL_CONNECTION_STRING is not configured');
   }
   return connectionString;
 }
 
+function normaliseInitials(value) {
+  return typeof value === 'string' ? value.trim().toUpperCase() : '';
+}
+
+function resolveActorInitials(req) {
+  return normaliseInitials(
+    req.query?.initials
+      || req.body?.initials
+      || req.headers?.['x-user-initials']
+      || req.user?.initials
+      || req.user?.Initials
+      || req.userContext?.initials
+  );
+}
+
 function toProcessStatus(status) {
   const normalized = String(status || '').toLowerCase();
-  if (normalized === 'asana_failed') {
-    return 'failed';
-  }
-  if (normalized === 'asana_created') {
-    return 'processing';
-  }
-  if (normalized === 'submitted') {
-    return 'queued';
-  }
-
+  if (normalized === 'failed') return 'failed';
+  if (normalized === 'complete') return 'complete';
+  if (normalized === 'processing') return 'processing';
+  if (normalized === 'queued') return 'queued';
   return 'awaiting_human';
 }
 
+function parseStepsJson(raw) {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function summariseLastEvent(row, status) {
+  if (row.last_event) return row.last_event;
+  if (status === 'failed') return 'Submission failed';
+  if (status === 'complete') return 'Completed';
+  if (status === 'processing') return 'Processing';
+  if (status === 'queued') return 'Queued';
+  return 'Awaiting triage';
+}
+
 function toProcessItem(row) {
-  const isIdea = row.type === 'idea';
-  const sourceTitle = isIdea ? 'Tech Development Idea' : 'Report Technical Problem';
-  const status = toProcessStatus(row.status);
+  const status = toProcessStatus(row.processing_status);
+  const steps = parseStepsJson(row.processing_steps_json);
+  const lane = row.lane || 'Log';
+  const formKey = row.form_key || 'unknown';
+  const id = String(row.id);
 
   return {
-    id: `tech-${row.type}-${row.id}`,
+    id: `submission-${id}`,
+    submissionId: id,
+    formKey,
     currentStatus: status,
-    lane: 'Escalate',
-    lastEvent: status === 'failed' ? 'Asana handoff failed' : status === 'processing' ? 'Logged into Asana' : 'Awaiting triage',
-    processTitle: sourceTitle,
-    source: 'techTickets',
-    startedAt: row.created_at,
+    lane,
+    lastEvent: summariseLastEvent(row, status),
+    processTitle: row.summary || formKey,
+    source: 'form_submissions',
+    startedAt: row.submitted_at,
     submittedBy: row.submitted_by || null,
-    summary: row.title,
+    summary: row.summary || formKey,
+    payloadAvailable: true,
+    steps,
+    retriggerCount: row.retrigger_count ?? 0,
   };
 }
 
@@ -215,44 +274,44 @@ async function notifyProcessHubFailure({ baseUrl, checks, errorMessage }) {
   };
 }
 
-async function probeProcessHub(limit) {
+async function probeProcessHub(limit, { initials, scope } = {}) {
+  const isAdmin = initials ? ADMIN_INITIALS.has(initials) : false;
+  const requestedScope = scope === 'mine' || scope === 'all' ? scope : null;
+  // Default scope: admins see all, non-admins (with initials) see their own,
+  // unauthenticated callers see all (back-compat with the old tech-tickets adapter).
+  const effectiveScope = requestedScope
+    || (isAdmin ? 'all' : (initials ? 'mine' : 'all'));
+
   const rows = await withRequest(getConnectionString(), async (request) => {
-    const result = await request
-      .input('limit', sql.Int, limit)
-      .query(`
-        SELECT TOP (@limit)
-          x.[type],
-          x.[id],
-          x.[created_at],
-          x.[submitted_by],
-          x.[title],
-          x.[status]
-        FROM (
-          SELECT
-            'idea' AS [type],
-            [id],
-            [created_at],
-            [submitted_by],
-            [title],
-            [status]
-          FROM [dbo].[tech_ideas]
-          UNION ALL
-          SELECT
-            'problem' AS [type],
-            [id],
-            [created_at],
-            [submitted_by],
-            [summary] AS [title],
-            [status]
-          FROM [dbo].[tech_problems]
-        ) x
-        ORDER BY x.[created_at] DESC
-      `);
+    request.input('limit', sql.Int, limit);
+    let whereClause = 'WHERE archived_at IS NULL';
+    if (effectiveScope === 'mine' && initials) {
+      request.input('initials', sql.NVarChar(16), initials);
+      whereClause += ' AND submitted_by = @initials';
+    }
+
+    const result = await request.query(`
+      SELECT TOP (@limit)
+        id,
+        form_key,
+        submitted_by,
+        submitted_at,
+        lane,
+        summary,
+        processing_status,
+        processing_steps_json,
+        last_event,
+        last_event_at,
+        retrigger_count
+      FROM dbo.form_submissions
+      ${whereClause}
+      ORDER BY submitted_at DESC
+    `);
 
     return result.recordset || [];
   }, 1);
 
-  return rows;
+  return { rows, scope: effectiveScope, isAdmin };
 }
 
 router.get('/definitions', async (req, res) => {
@@ -310,6 +369,8 @@ router.get('/definitions', async (req, res) => {
 router.get('/submissions', async (req, res) => {
   const startedAt = Date.now();
   const triggeredBy = getTriggeredBy(req);
+  const initials = resolveActorInitials(req);
+  const requestedScope = typeof req.query?.scope === 'string' ? req.query.scope : null;
   const rawLimit = req.query?.limit;
   const parsedLimit = typeof rawLimit === 'string' ? parseInt(rawLimit, 10) : NaN;
   const limit = Number.isFinite(parsedLimit) ? parsedLimit : 12;
@@ -321,11 +382,13 @@ router.get('/submissions', async (req, res) => {
   trackEvent('ProcessHub.Submissions.Started', {
     operation: 'submissions',
     triggeredBy,
+    initials: initials || 'unknown',
+    scope: requestedScope || 'auto',
     limit: String(limit),
   });
 
   try {
-    const rows = await probeProcessHub(limit);
+    const { rows, scope, isAdmin } = await probeProcessHub(limit, { initials, scope: requestedScope });
 
     const items = rows.map(toProcessItem);
     const durationMs = Date.now() - startedAt;
@@ -333,6 +396,9 @@ router.get('/submissions', async (req, res) => {
     trackEvent('ProcessHub.Submissions.Completed', {
       operation: 'submissions',
       triggeredBy,
+      initials: initials || 'unknown',
+      scope,
+      isAdmin: String(isAdmin),
       count: String(items.length),
       durationMs: String(durationMs),
     });
@@ -342,7 +408,8 @@ router.get('/submissions', async (req, res) => {
 
     return res.json({
       items,
-      source: 'techTickets-adapter',
+      source: 'form_submissions',
+      scope,
     });
   } catch (error) {
     const durationMs = Date.now() - startedAt;
@@ -363,6 +430,223 @@ router.get('/submissions', async (req, res) => {
       failed: 'true',
     });
     return res.status(500).json({ error: 'Failed to load process submissions' });
+  }
+});
+
+/**
+ * Retrigger dispatcher.
+ *
+ * Each entry maps a `form_key` to an async function that re-runs the
+ * side-effects of that form using the stored payload. The function receives
+ * `(submission, { triggeredBy })` and should:
+ *   - re-run external integrations (Asana, Teams, Clio, …) idempotently,
+ *   - call `recordStep` for each external attempt,
+ *   - call `markComplete` on success or `markFailed` on failure.
+ *
+ * Per-form retrigger functions are registered below. Each handler receives
+ * `(submission, { triggeredBy })` and is responsible for calling
+ * `recordStep()` for each external attempt. The dispatcher in
+ * `POST /:id/retrigger` calls `markComplete()` if the handler resolves and
+ * `markFailed()` if it throws. Handlers for unknown form_keys return 501.
+ */
+const RETRIGGER_DISPATCH = Object.create(null);
+
+// B5b: tech-ticket retrigger handlers (re-run Asana create from stored payload).
+const techTickets = require('./techTickets');
+if (typeof techTickets.retriggerIdea === 'function') {
+  RETRIGGER_DISPATCH['tech-idea'] = techTickets.retriggerIdea;
+}
+if (typeof techTickets.retriggerProblem === 'function') {
+  RETRIGGER_DISPATCH['tech-problem'] = techTickets.retriggerProblem;
+}
+
+function isAdminInitials(initials) {
+  return Boolean(initials) && ADMIN_INITIALS.has(initials);
+}
+
+function authoriseSubmissionAccess(submission, initials) {
+  if (!submission) return { allowed: false, status: 404, reason: 'Submission not found' };
+  if (isAdminInitials(initials)) return { allowed: true };
+  if (initials && submission.submitted_by === initials) return { allowed: true };
+  return { allowed: false, status: 403, reason: 'Not authorised' };
+}
+
+function toSubmissionPayload(submission) {
+  return {
+    id: String(submission.id),
+    formKey: submission.form_key,
+    lane: submission.lane || null,
+    submittedBy: submission.submitted_by,
+    submittedAt: submission.submitted_at,
+    summary: submission.summary,
+    status: submission.processing_status,
+    lastEvent: submission.last_event || null,
+    lastEventAt: submission.last_event_at || null,
+    retriggerCount: submission.retrigger_count ?? 0,
+    lastRetriggeredAt: submission.last_retriggered_at || null,
+    lastRetriggeredBy: submission.last_retriggered_by || null,
+    archivedAt: submission.archived_at || null,
+    payload: submission.payload ?? null,
+    steps: submission.steps ?? [],
+  };
+}
+
+router.get('/submissions/:id', async (req, res) => {
+  const startedAt = Date.now();
+  const triggeredBy = getTriggeredBy(req);
+  const initials = resolveActorInitials(req);
+  const submissionId = req.params.id;
+
+  trackEvent('ProcessHub.Submission.LoadStarted', {
+    operation: 'submission.load',
+    triggeredBy,
+    submissionId,
+  });
+
+  try {
+    const submission = await loadSubmission(submissionId);
+    const auth = authoriseSubmissionAccess(submission, initials);
+    if (!auth.allowed) {
+      return res.status(auth.status).json({ error: auth.reason });
+    }
+
+    trackEvent('ProcessHub.Submission.Loaded', {
+      operation: 'submission.load',
+      triggeredBy,
+      submissionId,
+      formKey: submission.form_key,
+      durationMs: String(Date.now() - startedAt),
+    });
+
+    return res.json({ submission: toSubmissionPayload(submission) });
+  } catch (error) {
+    trackException(error, {
+      component: 'ProcessHub',
+      operation: 'submission.load',
+      submissionId,
+      triggeredBy,
+    });
+    trackEvent('ProcessHub.Submission.LoadFailed', {
+      operation: 'submission.load',
+      triggeredBy,
+      submissionId,
+      error: error.message,
+    });
+    return res.status(500).json({ error: 'Failed to load submission' });
+  }
+});
+
+router.post('/submissions/:id/retrigger', async (req, res) => {
+  const startedAt = Date.now();
+  const triggeredBy = getTriggeredBy(req);
+  const initials = resolveActorInitials(req);
+  const submissionId = req.params.id;
+
+  trackEvent('ProcessHub.Submission.RetriggerStarted', {
+    operation: 'submission.retrigger',
+    triggeredBy,
+    submissionId,
+  });
+
+  try {
+    const submission = await loadSubmission(submissionId);
+    const auth = authoriseSubmissionAccess(submission, initials);
+    if (!auth.allowed) {
+      return res.status(auth.status).json({ error: auth.reason });
+    }
+
+    const handler = RETRIGGER_DISPATCH[submission.form_key];
+    if (typeof handler !== 'function') {
+      trackEvent('ProcessHub.Submission.RetriggerUnsupported', {
+        triggeredBy,
+        submissionId,
+        formKey: submission.form_key,
+      });
+      return res.status(501).json({
+        error: 'Retrigger not yet supported for this form',
+        formKey: submission.form_key,
+      });
+    }
+
+    await bumpRetrigger(submissionId, { triggeredBy: initials || triggeredBy });
+    await recordStep(submissionId, {
+      name: 'retrigger.invoked',
+      status: 'processing',
+      output: { triggeredBy: initials || triggeredBy },
+    });
+
+    // Fire-and-forget the retrigger so the client can poll /:id for progress.
+    Promise.resolve()
+      .then(() => handler(submission, { triggeredBy: initials || triggeredBy }))
+      .then(() => markComplete(submissionId, { lastEvent: 'retrigger:complete' }))
+      .catch((handlerErr) => {
+        trackException(handlerErr, {
+          component: 'ProcessHub',
+          operation: 'submission.retrigger.handler',
+          submissionId,
+          formKey: submission.form_key,
+        });
+        return markFailed(submissionId, {
+          lastEvent: 'retrigger:failed',
+          error: handlerErr,
+        });
+      });
+
+    trackEvent('ProcessHub.Submission.RetriggerDispatched', {
+      operation: 'submission.retrigger',
+      triggeredBy,
+      submissionId,
+      formKey: submission.form_key,
+      durationMs: String(Date.now() - startedAt),
+    });
+
+    return res.status(202).json({ ok: true, submissionId, status: 'processing' });
+  } catch (error) {
+    trackException(error, {
+      component: 'ProcessHub',
+      operation: 'submission.retrigger',
+      submissionId,
+      triggeredBy,
+    });
+    trackEvent('ProcessHub.Submission.RetriggerFailed', {
+      operation: 'submission.retrigger',
+      triggeredBy,
+      submissionId,
+      error: error.message,
+    });
+    return res.status(500).json({ error: 'Failed to retrigger submission' });
+  }
+});
+
+router.delete('/submissions/:id', async (req, res) => {
+  const triggeredBy = getTriggeredBy(req);
+  const initials = resolveActorInitials(req);
+  const submissionId = req.params.id;
+
+  if (!isAdminInitials(initials)) {
+    return res.status(403).json({ error: 'Admin only' });
+  }
+
+  try {
+    const archived = await archiveSubmission(submissionId);
+    trackEvent('ProcessHub.Submission.ArchiveAttempted', {
+      operation: 'submission.archive',
+      triggeredBy,
+      submissionId,
+      archived: String(archived),
+    });
+    if (!archived) {
+      return res.status(404).json({ error: 'Submission not found or already archived' });
+    }
+    return res.status(204).send();
+  } catch (error) {
+    trackException(error, {
+      component: 'ProcessHub',
+      operation: 'submission.archive',
+      submissionId,
+      triggeredBy,
+    });
+    return res.status(500).json({ error: 'Failed to archive submission' });
   }
 });
 
@@ -387,7 +671,7 @@ router.get('/health', async (req, res) => {
   });
 
   try {
-    const rows = await probeProcessHub(1);
+    const { rows } = await probeProcessHub(1, { scope: 'all' });
     checks.submissions.sampleCount = rows.length;
 
     const durationMs = Date.now() - startedAt;

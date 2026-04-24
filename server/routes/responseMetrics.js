@@ -27,13 +27,24 @@ router.get('/batch', async (req, res) => {
         'x-api-key': '2011',
       },
     });
-    const data = await response.json();
-    if (!response.ok) return res.status(response.status).json(data);
+    const text = await response.text();
+    let data;
+    try { data = JSON.parse(text); } catch { data = text; }
+    if (!response.ok) {
+      // Decorative enrichment — degrade gracefully so the UI still renders.
+      trackEvent('ResponseMetrics.Batch.UpstreamFailed', {
+        ids,
+        status: String(response.status),
+        body: typeof data === 'string' ? data.slice(0, 500) : JSON.stringify(data).slice(0, 500),
+      });
+      return res.json([]);
+    }
     trackEvent('ResponseMetrics.Batch.Completed', { ids, count: Array.isArray(data) ? String(data.length) : '0' });
     return res.json(data);
   } catch (err) {
     trackException(err, { operation: 'ResponseMetrics.Batch', ids });
-    return res.status(500).json({ error: 'Failed to fetch response metrics' });
+    // Decorative enrichment — return empty payload so the UI keeps working.
+    return res.json([]);
   }
 });
 

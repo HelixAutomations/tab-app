@@ -6,6 +6,8 @@ import { useTheme } from '../app/functionality/ThemeContext';
 import { isDevOwner } from '../app/admin';
 import { colours } from '../app/styles/colours';
 import { getFormModeToggleStyles, formFont } from './shared/formStyles';
+import { useFormReadinessPulse } from './shared/useFormReadinessPulse';
+import { FormReadinessCue } from './shared/FormReadinessCue';
 import { UserData, NormalizedMatter } from '../app/functionality/types';
 import { checkIsLocalDev } from '../utils/useIsLocalDev';
 
@@ -79,6 +81,7 @@ const TransactionIntake: React.FC<TransactionIntakeProps> = ({
   matters = [],
 }) => {
   const { isDarkMode } = useTheme();
+  const readiness = useFormReadinessPulse('transactions-v2');
   const userInitials = currentUser?.Initials || '';
   const showModeToggle = isDevOwner(currentUser) && checkIsLocalDev();
   const [mode, setMode] = useState<'cognito' | 'bespoke'>(showModeToggle ? 'bespoke' : 'cognito');
@@ -259,6 +262,9 @@ const TransactionIntake: React.FC<TransactionIntakeProps> = ({
   return (
     <div style={{ width: '100%', height: '100%', padding: '16px 0 28px', boxSizing: 'border-box' }}>
       <div style={shellStyle}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', minHeight: 16 }}>
+        <FormReadinessCue state={readiness.state} detail={readiness.detail} readyAnnouncement="Transaction form ready" />
+      </div>
       {showModeToggle && (
         <div style={{ display: 'grid', gap: 6, justifyItems: 'center' }}>
           <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: isDarkMode ? colours.accent : colours.highlight, fontFamily: formFont }}>

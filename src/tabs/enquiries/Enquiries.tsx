@@ -169,6 +169,69 @@ interface EnquiriesProps {
   onPendingEnquiryHandled?: () => void;
 }
 
+const STRUCTURED_AREA_FILTER_KEYS = ['Commercial', 'Construction', 'Employment', 'Property', 'Other/Unsure'] as const;
+const OTHER_AREA_FILTER_KEY = 'Other/Unsure';
+
+const matchStructuredAreaFilterKey = (rawArea: unknown): string | null => {
+  const area = String(rawArea ?? '').trim().toLowerCase();
+
+  if (!area || area === 'general') {
+    return OTHER_AREA_FILTER_KEY;
+  }
+  if (area.includes('commercial') || area.includes('business')) {
+    return 'Commercial';
+  }
+  if (area.includes('construction') || area.includes('building')) {
+    return 'Construction';
+  }
+  if (area.includes('employment') || area.includes('hr') || area.includes('workplace')) {
+    return 'Employment';
+  }
+  if (area.includes('property') || area.includes('real estate') || area.includes('conveyancing')) {
+    return 'Property';
+  }
+  if (area.includes('other') || area.includes('unsure') || area.includes('misc')) {
+    return OTHER_AREA_FILTER_KEY;
+  }
+
+  return null;
+};
+
+const normaliseSelectedAreaKey = (rawArea: unknown): string => {
+  const matchedArea = matchStructuredAreaFilterKey(rawArea);
+  if (matchedArea) {
+    return matchedArea;
+  }
+
+  const area = String(rawArea ?? '').trim();
+  if (!area) {
+    return OTHER_AREA_FILTER_KEY;
+  }
+
+  const areaLower = area.toLowerCase();
+  return areaLower.charAt(0).toUpperCase() + areaLower.slice(1);
+};
+
+const getEnquiryAreaFilterKey = (rawArea: unknown): string => {
+  const matchedArea = matchStructuredAreaFilterKey(rawArea);
+  return matchedArea ?? OTHER_AREA_FILTER_KEY;
+};
+
+const buildDefaultAreaSelection = (rawAreas: string[], extras: string[] = []): string[] => {
+  const selection = new Set<string>();
+
+  rawAreas
+    .map(normaliseSelectedAreaKey)
+    .forEach((area) => {
+      if (STRUCTURED_AREA_FILTER_KEYS.includes(area as typeof STRUCTURED_AREA_FILTER_KEYS[number])) {
+        selection.add(area);
+      }
+    });
+
+  extras.forEach((area) => selection.add(area));
+  return Array.from(selection);
+};
+
 // Add keyframes for loading spinner
 if (typeof document !== 'undefined') {
   const style = document.createElement('style');
@@ -194,8 +257,22 @@ if (typeof document !== 'undefined' && !document.head.querySelector('style[data-
       50% { opacity: 1; transform: scaleX(1); }
     }
     @keyframes enq-skeleton-breathe {
-      0%, 100% { opacity: 0.72; }
+      0%, 100% { opacity: 0.78; }
       50% { opacity: 1; }
+    }
+    @keyframes enq-skeleton-shimmer {
+      0%   { background-position: 140% 0; }
+      100% { background-position: -40% 0; }
+    }
+    @keyframes enq-skeleton-fade-out {
+      from { opacity: 1; }
+      to   { opacity: 0; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .enq-queue-skeleton,
+      .enq-queue-skeleton * {
+        animation: none !important;
+      }
     }
     .enq-filter-cluster,
     .enq-filter-secondary-cluster {
@@ -241,15 +318,26 @@ if (typeof document !== 'undefined' && !document.head.querySelector('style[data-
     .enq-chip, .enq-scope-chip {
       position: relative;
       overflow: hidden;
-      transform: translateY(0);
+      transform: scale(1);
       border: none;
-      transition: background 140ms ease, color 140ms ease, opacity 140ms ease, box-shadow 140ms ease;
+      transform-origin: center 60%;
+      will-change: transform, background-color, color, box-shadow;
+      transition:
+        background 180ms cubic-bezier(0.32, 0.72, 0, 1),
+        color 180ms cubic-bezier(0.32, 0.72, 0, 1),
+        box-shadow 180ms cubic-bezier(0.32, 0.72, 0, 1),
+        transform 90ms cubic-bezier(0.4, 0, 0.2, 1),
+        opacity 90ms cubic-bezier(0.4, 0, 0.2, 1);
     }
     .enq-chip:hover, .enq-scope-chip:hover {
       background: var(--enq-chip-hover-bg) !important;
       box-shadow: inset 0 0 0 1px var(--enq-chip-hover-border) !important;
     }
-    .enq-chip:active, .enq-scope-chip:active { transform: scale(0.98); }
+    /* Tactile press — match CustomTabs: scale(0.97) + opacity 0.85, no y-shift */
+    .enq-chip:active:not(:disabled), .enq-scope-chip:active:not(:disabled) {
+      transform: scale(0.97);
+      opacity: 0.85;
+    }
     [data-theme="dark"] .enq-chip, [data-theme="dark"] .enq-scope-chip {
       --enq-chip-hover-bg: rgba(255,255,255,0.04);
       --enq-chip-hover-border: rgba(135,243,243,0.35);
@@ -376,9 +464,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   pendingEnquiryPitchScenario,
   onPendingEnquiryHandled,
 }) => {
-  const isLocalDevHost = typeof window !== 'undefined'
-    && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-
   // Function to check if an enquiry has been promoted to pitch/instruction
   const getPromotionStatus = useCallback((enquiry: Enquiry): { promoted: boolean; type: 'pitch' | 'instruction' | null; count: number } => {
     if (!instructionData || !enquiry.ID) {
@@ -1614,7 +1699,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   }, []);
 
   const refreshVisibleEnquiriesDataset = useCallback((reason: string) => {
-    const shouldRefreshTeamWide = !showMineOnly || activeState !== 'Claimed' || hasFetchedAllData.current;
+    const shouldRefreshTeamWide = !showMineOnly || activeState !== 'Claimed';
     const isRealtimeReason = reason === 'pulse' || reason.startsWith('stream-');
 
     if (isRealtimeReason) {
@@ -2408,12 +2493,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     
     if (userData && userData.length > 0 && userData[0].AOW) {
       const userAOW = userData[0].AOW.split(',').map(a => a.trim());
-      
-      // Check if this would actually change the selection
-      const newSelection = [...userAOW];
-      if (!newSelection.includes('Other/Unsure')) {
-        newSelection.push('Other/Unsure');
-      }
+      const newSelection = buildDefaultAreaSelection(userAOW, [OTHER_AREA_FILTER_KEY]);
       
       // Only update if the selection would actually change
       const currentSorted = [...selectedAreas].sort();
@@ -2425,6 +2505,25 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       }
     }
   }, [userData, userManuallyChangedAreas]); // Added userManuallyChangedAreas to dependencies
+
+  useEffect(() => {
+    if (userManuallyChangedAreas || activeState !== 'Claimable') {
+      return;
+    }
+
+    if (userData && userData.length > 0 && userData[0].AOW) {
+      const userAOW = userData[0].AOW.split(',').map(a => a.trim());
+      const newSelection = buildDefaultAreaSelection(userAOW, [OTHER_AREA_FILTER_KEY]);
+
+      const currentSorted = [...selectedAreas].sort();
+      const newSorted = [...newSelection].sort();
+      const isActuallyDifferent = JSON.stringify(currentSorted) !== JSON.stringify(newSorted);
+
+      if (isActuallyDifferent) {
+        setSelectedAreas(newSelection);
+      }
+    }
+  }, [activeState, selectedAreas, userData, userManuallyChangedAreas]);
 
   // Custom handler for manual area changes to prevent useEffect overrides
   const handleManualAreaChange = useCallback((newAreas: string[]) => {
@@ -2462,20 +2561,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       for (const enquiry of sourceDataset) {
         const poc = norm((enquiry as any).Point_of_Contact || (enquiry as any).poc || '');
         if (poc === userEmailNorm) {
-          const area = (enquiry.Area_of_Work || '').trim();
-          if (area) {
-            // Normalize area names to match filter names
-            const areaLower = area.toLowerCase();
-            if (areaLower.includes('other') || areaLower.includes('unsure')) {
-              areasInClaimed.add('Other/Unsure');
-            } else {
-              // Capitalize first letter of each word for standard areas
-              const normalizedArea = area.charAt(0).toUpperCase() + area.slice(1).toLowerCase();
-              areasInClaimed.add(normalizedArea);
-            }
-          } else {
-            areasInClaimed.add('Other/Unsure');
-          }
+          areasInClaimed.add(getEnquiryAreaFilterKey(enquiry.Area_of_Work));
         }
       }
 
@@ -2506,7 +2592,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     });
 
     if (isAdmin && !userManuallyChangedAreas) {
-      const allAreas = ['Commercial', 'Construction', 'Property', 'Employment', 'Misc/Other'];
+      const allAreas = [...ALL_AREAS_OF_WORK];
       
       // Check if current selection matches all areas
       const currentSorted = [...selectedAreas].sort();
@@ -2543,6 +2629,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   // Memoize user email to prevent unnecessary effect triggers
   const userEmail = useMemo(() => userData?.[0]?.Email?.toLowerCase() || '', [userData]);
+  const selectedAreaLookup = useMemo(() => new Set(selectedAreas.map(area => area.toLowerCase())), [selectedAreas]);
 
   // Fetch all enquiries when switching to "All" mode, Claimable, or Triaged
   // Mine+Claimed uses prop data (user's own claimed items are already there)
@@ -2551,7 +2638,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     
     // Mine+Claimed: user's claimed items are already in allEnquiries from props.
     // No need to fetch the full team-wide dataset on initial load.
-    // The full fetch will fire lazily via the background prefetch below.
+    // Keep the focused Mine view on the scoped prop dataset until the user opens a team-wide queue.
     if (showMineOnly && activeState === 'Claimed') {
       debugLog('🔄 Mine+Claimed mode - using prop data, no team-wide fetch needed');
       if (allEnquiries.length > 0) {
@@ -2580,51 +2667,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       triggerFetchAllEnquiries('mode:all');
     }
   }, [showMineOnly, activeState, userEmail, triggerFetchAllEnquiries, isAdmin]); // Simplified dependencies
-
-  // Background prefetch: after initial render with prop data, lazily fetch team-wide data
-  // so it's ready when user switches to All/Claimable/Triaged views
-  useEffect(() => {
-    if (!isActive) return;
-    if (!showMineOnly || activeState !== 'Claimed') return; // Only for initial Mine+Claimed
-    if (hasFetchedAllData.current || isLoadingAllData) return;
-    if (allEnquiries.length === 0) return; // Wait for prop data to load first
-
-    const prefetchDelayMs = isLocalDevHost ? 2400 : 700;
-    let timerId: number | null = null;
-    let idleId: number | null = null;
-
-    const runPrefetch = () => {
-      if (document.visibilityState === 'hidden') return;
-      if (hasFetchedAllData.current || isLoadingAllData) return;
-
-      debugLog('🔄 Background prefetch: warming team-wide data after initial settle');
-      triggerFetchAllEnquiries('background-prefetch');
-    };
-
-    timerId = window.setTimeout(() => {
-      if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
-        idleId = (window as typeof window & {
-          requestIdleCallback: (cb: IdleRequestCallback, options?: IdleRequestOptions) => number;
-        }).requestIdleCallback(() => {
-          runPrefetch();
-        }, { timeout: isLocalDevHost ? 1800 : 900 });
-        return;
-      }
-
-      runPrefetch();
-    }, prefetchDelayMs);
-
-    return () => {
-      if (timerId !== null) {
-        window.clearTimeout(timerId);
-      }
-      if (idleId !== null && typeof window !== 'undefined' && 'cancelIdleCallback' in window) {
-        (window as typeof window & {
-          cancelIdleCallback: (id: number) => void;
-        }).cancelIdleCallback(idleId);
-      }
-    };
-  }, [allEnquiries.length, showMineOnly, activeState, isLoadingAllData, triggerFetchAllEnquiries, isActive, isLocalDevHost]);
 
   const [currentSliderStart, setCurrentSliderStart] = useState<number>(0);
   const [currentSliderEnd, setCurrentSliderEnd] = useState<number>(0);
@@ -4004,49 +4046,16 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       // Users can still optionally filter by area using the area toggles if they choose
       if (selectedAreas.length > 0) {
         filtered = filtered.filter(enquiry => {
-          const enquiryArea = (enquiry.Area_of_Work || '').toLowerCase().trim();
-          
-          // Check if this is an unknown/unmatched area
-          const isUnknownArea = !enquiryArea || 
-            (!['commercial', 'construction', 'employment', 'property', 'claim'].some(known => 
-              enquiryArea === known || enquiryArea.includes(known) || known.includes(enquiryArea)
-            ));
-          
-          // If enquiry has no area or doesn't match known areas, it falls under "Other/Unsure"
-          if (isUnknownArea && selectedAreas.some(area => area.toLowerCase() === 'other/unsure')) {
-            return true;
-          }
-          
-          return selectedAreas.some(area => 
-            enquiryArea === area.toLowerCase() || 
-            enquiryArea.includes(area.toLowerCase()) || 
-            area.toLowerCase().includes(enquiryArea)
-          );
+          const areaKey = getEnquiryAreaFilterKey(enquiry.Area_of_Work);
+          return selectedAreaLookup.has(areaKey.toLowerCase());
         });
       }
       // If no areas selected, show ALL unclaimed enquiries (no filtering)
     } else if (selectedAreas.length > 0 && showMineOnly) {
       // Apply area filter to other Mine states (not Claimed, not Claimable)
       filtered = filtered.filter(enquiry => {
-        const enquiryArea = (enquiry.Area_of_Work || '').toLowerCase().trim();
-        
-        // If enquiry has no area or doesn't match known areas, it falls under "Other/Unsure"
-        const isUnknownArea = !enquiryArea || 
-          (!['commercial', 'construction', 'employment', 'property', 'claim'].some(known => 
-            enquiryArea === known || enquiryArea.includes(known) || known.includes(enquiryArea)
-          ));
-        
-        // Check if "Other/Unsure" is selected and this is an unknown area
-        if (isUnknownArea && selectedAreas.some(area => area.toLowerCase() === 'other/unsure')) {
-          return true;
-        }
-        
-        // Otherwise, match against selected areas normally
-        return selectedAreas.some(area => 
-          enquiryArea === area.toLowerCase() || 
-          enquiryArea.includes(area.toLowerCase()) || 
-          area.toLowerCase().includes(enquiryArea)
-        );
+        const areaKey = getEnquiryAreaFilterKey(enquiry.Area_of_Work);
+        return selectedAreaLookup.has(areaKey.toLowerCase());
       });
     }
 
@@ -4181,6 +4190,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     numericSearchTerm,
     showMineOnly,
     isUnclaimedPoc,
+    selectedAreaLookup,
     selectedPersonInitials,
     teamData,
     enrichmentMap, // For Triaged filter and pipeline filters
@@ -4481,22 +4491,35 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   // ─── New-arrival animation ──────────────────────────────────
   // After each render with updated displayedItems, detect IDs that
   // weren't in the previous set and apply a CSS entrance animation
-  // via the DOM.  On the very first render we seed the ref (no animation).
+  // via the DOM. We only "arm" the detector AFTER the first non-empty
+  // render — otherwise every row appears new compared to the empty
+  // seed and pulses in unison on initial data load (the separator-
+  // pulse bug). We also gate on realtime SSE + filter transitions so
+  // filter switches / scope changes don't mass-animate.
   useEffect(() => {
     const currentIds = new Set<string>();
     for (const item of displayedItems) {
       if (isGroupedEnquiry(item)) {
-        // Use the group's clientKey as its identity
         currentIds.add(`group-${item.clientKey}`);
       } else if ((item as any).ID) {
         currentIds.add(String((item as any).ID));
       }
     }
 
+    // Arm the detector only once we have a real dataset. The first empty /
+    // single-render during boot is NOT a "previous state" we can diff against.
     if (!initialRenderDoneRef.current) {
-      // First render — seed the ref, no animation
+      if (currentIds.size > 0) {
+        prevDisplayedIdsRef.current = currentIds;
+        initialRenderDoneRef.current = true;
+      }
+      return;
+    }
+
+    // Skip animation bursts triggered by filter/scope transitions or the
+    // manual refresh loading state — those are not genuine "new" events.
+    if (manualFilterTransitioning || isLoadingAllData) {
       prevDisplayedIdsRef.current = currentIds;
-      initialRenderDoneRef.current = true;
       return;
     }
 
@@ -4506,9 +4529,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       if (!prev.has(id)) newIds.push(id);
     });
 
-    if (newIds.length > 0 && newIds.length <= 12) {
-      // Apply animation class to newly-arrived rows via DOM
-      // (capped at 12 to avoid mass-animation on filter changes / initial loads)
+    // Tight cap: only animate for true real-time arrivals (1–4 rows).
+    // Anything larger is almost certainly a background refetch / reshape.
+    if (newIds.length > 0 && newIds.length <= 4) {
       for (const id of newIds) {
         const el = document.querySelector(`[data-enquiry-id="${CSS.escape(id)}"]`) as HTMLElement | null;
         if (el) {
@@ -4522,7 +4545,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     }
 
     prevDisplayedIdsRef.current = currentIds;
-  }, [displayedItems]);
+  }, [displayedItems, manualFilterTransitioning, isLoadingAllData]);
 
   const handleLoadMore = useCallback(() => {
     setItemsToShow((prev) => Math.min(prev + 20, filteredEnquiries.length));
@@ -5488,8 +5511,12 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     };
   }, []);
 
-  // Global Navigator: list vs detail
-  useEffect(() => {
+  // Global Navigator: list vs detail.
+  // useLayoutEffect (not useEffect) so the FilterBanner is written synchronously
+  // before paint — otherwise there's a frame during processing/re-renders where
+  // Navigator.tsx sees `content=null` and fades the banner out (opacity 0).
+  // Matches the pattern in Home.tsx.
+  useLayoutEffect(() => {
     // Add CSS animation for spinning refresh icon
     if (typeof document !== 'undefined' && !document.getElementById('refreshSpinAnimation')) {
       const style = document.createElement('style');
@@ -5713,9 +5740,12 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     isActive,
   ]);
 
-  useEffect(() => () => {
-    setContent(null);
-  }, [setContent]);
+  // NOTE: deliberately no unmount cleanup that calls setContent(null).
+  // Enquiries is a keep-alive tab (wrapped in `enquiriesEverVisited &&` in App.tsx
+  // with display:none toggling), so it rarely unmounts. When it DOES unmount
+  // (error boundary recovery, route change, HMR), clearing content here races
+  // with the newly-active tab's setContent and wipes its banner. The app-level
+  // effect in App.tsx already nulls content when navigating to non-banner tabs.
 
   // ─── Prop bundles for <ProspectTableRow /> ──────────────────
   const renderClaimPromptChip = useCallback(
@@ -8395,7 +8425,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                           alert('Passcode input is not supported in this client.');
                                           return;
                                         }
-                                        if (passcode === '2011') {
+                                        if (passcode === '11112011') {
                                           const enquiryName = `${childEnquiry.First_Name || ''} ${childEnquiry.Last_Name || ''}`.trim() || 'Unnamed enquiry';
                                           const confirmMessage = `Are you sure you want to permanently delete "${enquiryName}"?\n\nThis action cannot be undone.`;
                                           if (window.confirm(confirmMessage)) {

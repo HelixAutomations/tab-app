@@ -13,6 +13,7 @@ import { InstructionData, CCLJson, UserData } from '../../app/functionality/type
 import { schema as cclSchema, tokens as cclTokens } from '../../app/functionality/cclSchema';
 import localUserData from '../../localData/localUserData.json';
 import { dashboardTokens } from './componentTokens';
+import { buildCclApiUrl } from '../matters/ccl/cclAiService';
 import '../../app/styles/MatterOpeningCard.css';
 
 interface DocumentEditorPageProps {
@@ -114,7 +115,7 @@ const DocumentEditorPage: React.FC<DocumentEditorPageProps> = ({
     // Load existing document data
     useEffect(() => {
         if (matterId) {
-            fetch(`/api/ccl/${matterId}`)
+            fetch(buildCclApiUrl(`/api/ccl/${matterId}`), { credentials: 'include' })
                 .then(r => (r.ok ? r.json() : null))
                 .then(d => {
                     if (d) {
@@ -161,8 +162,9 @@ const DocumentEditorPage: React.FC<DocumentEditorPageProps> = ({
         setMessage(null);
         
         try {
-            const response = await fetch(`/api/ccl/${matterId}`, {
+            const response = await fetch(buildCclApiUrl(`/api/ccl/${matterId}`), {
                 method: 'PATCH',
+                credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
                     content: documentData.content,

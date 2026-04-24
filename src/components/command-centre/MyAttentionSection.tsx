@@ -37,32 +37,11 @@ const MyAttentionSection: React.FC<MyAttentionSectionProps> = ({ tokens, userIni
         (async () => {
             const attention: AttentionItem[] = [];
 
-            // Check attendance
-            try {
-                const today = new Date().toISOString().slice(0, 10);
-                const res = await fetch(
-                    `/api/attendance?date=${today}&initials=${encodeURIComponent(userInitials)}`,
-                    { signal: controller.signal }
-                );
-                if (res.ok) {
-                    const data = await res.json();
-                    const confirmed = data?.confirmed ?? data?.isConfirmed ?? false;
-                    if (!confirmed) {
-                        attention.push({
-                            id: 'attendance',
-                            title: 'Confirm Attendance',
-                            subtitle: 'Not yet confirmed today',
-                            colour: colours.cta,
-                            icon: (
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={colours.cta} strokeWidth="2">
-                                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
-                                </svg>
-                            ),
-                            onClick: () => navigateTo('navigateToHome'),
-                        });
-                    }
-                }
-            } catch { /* silently skip */ }
+            // NOTE: there is no `GET /api/attendance?date=...` endpoint — the existing
+            // route is `POST /api/attendance/getAttendance` which returns the whole
+            // team's week, not a per-user daily-confirmed flag. The previous fetch
+            // 404'd silently and produced no item. Re-wire when a per-user
+            // confirmation endpoint exists. Tracked in ROADMAP.md.
 
             // Check pending instructions (CCLs, matters to open, etc.)
             try {

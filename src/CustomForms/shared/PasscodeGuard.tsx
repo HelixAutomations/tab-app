@@ -16,7 +16,7 @@ import {
   getFormDefaultButtonStyles,
 } from './formStyles';
 
-const REQUIRED_PASSCODE = '2011';
+const REQUIRED_PASSCODE = '11112011';
 
 interface PasscodeGuardProps {
   children: React.ReactNode;
@@ -90,7 +90,16 @@ const PasscodeGuard: React.FC<PasscodeGuardProps> = ({ children, title, onBack }
   return (
     <div style={containerStyle}>
       <div style={cardStyle}>
-        <Stack tokens={{ childrenGap: 16 }}>
+        {/* Wrap in a <form> so the password field has an enclosing form
+            (silences Chrome's "Password field is not contained in a form"
+            warning and lets autofill / password managers work). */}
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (passcode) handleVerify();
+          }}
+        >
+          <Stack tokens={{ childrenGap: 16 }}>
           <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 10 }}>
             <Icon iconName="Lock" style={{ fontSize: 20, color: isDarkMode ? '#A0A0A0' : '#6B6B6B' }} />
             {title && (
@@ -130,6 +139,7 @@ const PasscodeGuard: React.FC<PasscodeGuardProps> = ({ children, title, onBack }
             />
           </Stack>
         </Stack>
+        </form>
       </div>
     </div>
   );

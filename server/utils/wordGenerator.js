@@ -5,6 +5,7 @@ const {
     BorderStyle,
     Document,
     ExternalHyperlink,
+    Footer,
     HeadingLevel,
     Packer,
     Paragraph,
@@ -38,6 +39,9 @@ const BODY_LINE = 276; // ~1.15 line spacing
 const BODY_AFTER = 120;
 const PAGE_MARGIN = 1440;
 const LINK_RE = /(https?:\/\/[^\s,)]+)|(\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b)|(\b0\d{4}\s?\d{3}\s?\d{3}\b)/g;
+
+const FIRM_SIGNATURE_CONTACT = 'Second Floor, Britannia House, 21 Station Street, Brighton, BN1 4DE  \u00B7  0345 314 2044  \u00B7  info@helix-law.com  \u00B7  www.helix-law.com';
+const FIRM_REGULATORY_PARAGRAPH = 'Helix Law Limited is a limited liability company registered in England and Wales. Registration Number 07845461. A list of Directors is available for inspection at the Registered Office: Second Floor, Britannia House, 21 Station Street, Brighton, BN1 4DE. Authorised and regulated by the Solicitors Regulation Authority. Helix\u00AE and Helix Law\u00AE are registered trademarks (UK00003984532 and UK00003984535).';
 
 const TEMPLATE_FIELDS = [
     'insert_clients_name', 'client_address', 'client_email', 'letter_date',
@@ -526,6 +530,30 @@ function buildDocument(data) {
                         left: PAGE_MARGIN,
                     },
                 },
+                titlePage: true,
+            },
+            footers: {
+                first: new Footer({
+                    children: [
+                        new Paragraph({
+                            alignment: AlignmentType.CENTER,
+                            spacing: { before: 0, after: 80, line: 240 },
+                            border: {
+                                top: { style: BorderStyle.SINGLE, size: 4, color: 'D5DBE3', space: 6 },
+                            },
+                            children: [
+                                new TextRun({ text: FIRM_SIGNATURE_CONTACT, font: FONT_FAMILY, size: 15, color: HELIX.greyText }),
+                            ],
+                        }),
+                        new Paragraph({
+                            alignment: AlignmentType.JUSTIFIED,
+                            spacing: { before: 0, after: 0, line: 220 },
+                            children: [
+                                new TextRun({ text: FIRM_REGULATORY_PARAGRAPH, font: FONT_FAMILY, size: 13, color: HELIX.greyText, italics: true }),
+                            ],
+                        }),
+                    ],
+                }),
             },
             children: [
                 ...buildHeaderChildren(data),

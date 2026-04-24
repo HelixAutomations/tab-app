@@ -112,7 +112,9 @@ const AppLoadingScreen: React.FC<AppLoadingScreenProps> = ({
         : colours.light.background,
       color: isDarkMode ? colours.dark.text : colours.light.text,
       fontFamily: "'Raleway', -apple-system, BlinkMacSystemFont, sans-serif",
-      zIndex: 1000
+      zIndex: 1000,
+      animation: 'appLoadingScreenEnter 260ms ease-out both',
+      willChange: 'opacity',
     }}>
 
       
@@ -126,7 +128,8 @@ const AppLoadingScreen: React.FC<AppLoadingScreenProps> = ({
         textAlign: 'center',
         zIndex: 1
       }}>
-        {/* Helix Mark */}
+        {/* Helix Mark — single calm breathing animation on the mark only
+            (counter-pulsing the outer card + inner mark made the logo wobble). */}
         <div style={{
           display: 'flex',
           alignItems: 'center',
@@ -137,10 +140,22 @@ const AppLoadingScreen: React.FC<AppLoadingScreenProps> = ({
           background: isDarkMode ? colours.darkBlue : colours.light.cardBackground,
           border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : colours.light.border}`,
           color: isDarkMode ? colours.accent : colours.highlight,
-          animation: 'gentlePulse 3s ease-in-out infinite',
-          marginBottom: 32
+          marginBottom: 32,
+          position: 'relative',
+          overflow: 'hidden',
         }}>
-          <div style={{ animation: 'markPulse 3s ease-in-out infinite' }}>
+          {/* Soft ambient glow that drifts behind the mark */}
+          <div
+            aria-hidden
+            style={{
+              position: 'absolute',
+              inset: -2,
+              background: `radial-gradient(circle at 50% 50%, ${isDarkMode ? 'rgba(135, 243, 243, 0.18)' : 'rgba(54, 144, 206, 0.14)'}, transparent 70%)`,
+              animation: 'appLoadingGlow 3.2s ease-in-out infinite',
+              pointerEvents: 'none',
+            }}
+          />
+          <div style={{ animation: 'appLoadingMarkBreathe 3.2s ease-in-out infinite', position: 'relative' }}>
             {helixMark()}
           </div>
         </div>
@@ -167,41 +182,51 @@ const AppLoadingScreen: React.FC<AppLoadingScreenProps> = ({
             }}>
               {getStageMessage()}
             </div>
-            <div style={{
-              fontSize: 12,
-              color: isDarkMode ? colours.subtleGrey : colours.greyText,
-              fontWeight: '500',
-              marginBottom: 10
-            }}>
+            <div
+              key={`${stage}-${microProcessIndex}`}
+              style={{
+                fontSize: 12,
+                color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                fontWeight: '500',
+                marginBottom: 10,
+                animation: 'appLoadingSubFade 360ms ease-out both',
+              }}
+            >
               {getStageSubMessage()}
             </div>
-            {/* Centered three-dot progression */}
+            {/* Travelling highlight across three dots — no abrupt reset on loop. */}
             <div style={{
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: 4
+              gap: 6
             }}>
-              {[0, 1, 2].map(i => (
-                <div
-                  key={i}
-                  style={{
-                    width: 5,
-                    height: 5,
-                    borderRadius: '50%',
-                    background: microProcessIndex >= i 
-                      ? (isDarkMode ? colours.accent : colours.highlight)
-                      : (isDarkMode ? 'rgba(54, 144, 206, 0.25)' : colours.light.border),
-                    transform: microProcessIndex === i ? 'scale(1.3)' : 'scale(1)',
-                    transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
-                    opacity: microProcessIndex === i ? 1 : 0.8
-                  }}
-                />
-              ))}
+              {[0, 1, 2].map(i => {
+                const isActive = microProcessIndex === i;
+                return (
+                  <div
+                    key={i}
+                    style={{
+                      width: 5,
+                      height: 5,
+                      borderRadius: '50%',
+                      background: isActive
+                        ? (isDarkMode ? colours.accent : colours.highlight)
+                        : (isDarkMode ? 'rgba(54, 144, 206, 0.28)' : colours.light.border),
+                      transform: isActive ? 'scale(1.35)' : 'scale(1)',
+                      boxShadow: isActive
+                        ? `0 0 6px ${isDarkMode ? 'rgba(135, 243, 243, 0.45)' : 'rgba(54, 144, 206, 0.35)'}`
+                        : 'none',
+                      transition: 'transform 0.4s cubic-bezier(0.22, 1, 0.36, 1), background 0.4s ease, box-shadow 0.4s ease',
+                    }}
+                  />
+                );
+              })}
             </div>
           </div>
           
-          {/* Progress indicator */}
+          {/* Progress indicator — determinate fill plus a subtle indeterminate
+              shimmer so the bar stays alive between real updates. */}
           <div style={{
             width: '100%',
             height: 2,
@@ -215,31 +240,56 @@ const AppLoadingScreen: React.FC<AppLoadingScreenProps> = ({
               background: isDarkMode ? colours.accent : colours.highlight,
               borderRadius: 0,
               width: `${Math.max(5, animatedProgress)}%`,
-              transition: 'width 0.8s cubic-bezier(0.4, 0, 0.2, 1)'
+              transition: 'width 0.8s cubic-bezier(0.22, 1, 0.36, 1)'
             }} />
+            <div
+              aria-hidden
+              style={{
+                position: 'absolute',
+                inset: 0,
+                background: `linear-gradient(90deg, transparent 0%, ${isDarkMode ? 'rgba(135, 243, 243, 0.45)' : 'rgba(54, 144, 206, 0.35)'} 50%, transparent 100%)`,
+                animation: 'appLoadingBarShimmer 1.8s linear infinite',
+                pointerEvents: 'none',
+              }}
+            />
           </div>
         </div>
       </div>
       
       <style>{`
-        @keyframes gentlePulse {
-          0%, 100% { 
+        @keyframes appLoadingScreenEnter {
+          from { opacity: 0; }
+          to   { opacity: 1; }
+        }
+        @keyframes appLoadingMarkBreathe {
+          0%, 100% {
             transform: scale(1);
             opacity: 1;
           }
-          50% { 
-            transform: scale(1.03);
-            opacity: 0.92;
+          50% {
+            transform: scale(1.04);
+            opacity: 0.94;
           }
         }
-        @keyframes markPulse {
-          0%, 100% { 
-            transform: scale(1);
-            opacity: 1;
-          }
-          50% { 
-            transform: scale(0.95);
-            opacity: 0.85;
+        @keyframes appLoadingGlow {
+          0%, 100% { opacity: 0.55; transform: scale(0.96); }
+          50%      { opacity: 1;    transform: scale(1.08); }
+        }
+        @keyframes appLoadingBarShimmer {
+          0%   { transform: translateX(-100%); }
+          100% { transform: translateX(100%); }
+        }
+        @keyframes appLoadingSubFade {
+          from { opacity: 0; transform: translateY(3px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          div[style*="appLoadingMarkBreathe"],
+          div[style*="appLoadingGlow"],
+          div[style*="appLoadingBarShimmer"],
+          div[style*="appLoadingSubFade"],
+          div[style*="appLoadingScreenEnter"] {
+            animation: none !important;
           }
         }
       `}</style>

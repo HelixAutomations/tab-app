@@ -104,7 +104,7 @@ export function isDevGroupOrHigher(user?: UserData | null): boolean {
 
 export function canSeeActivityTab(user?: UserData | null, isLocalDev = false): boolean {
     if (isLocalDev) return true;
-    return isDevOwner(user);
+    return isDevGroupOrHigher(user);
 }
 
 // Helper to determine if a user can access the Instructions tab

@@ -10,6 +10,42 @@ const userCache = new Map();
 const CACHE_TTL = 15 * 60 * 1000; // 15 minutes
 const CACHE_MAX_SIZE = 500;        // LRU cap — prevents unbounded growth
 
+function asString(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function parseClientPrincipal(headerValue) {
+  const raw = asString(headerValue);
+  if (!raw) return null;
+
+  try {
+    const decoded = Buffer.from(raw, 'base64').toString('utf8');
+    const parsed = JSON.parse(decoded);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function getClientPrincipalClaim(clientPrincipal, claimTypes) {
+  if (!clientPrincipal || !Array.isArray(clientPrincipal.claims) || !Array.isArray(claimTypes)) {
+    return '';
+  }
+
+  const wanted = new Set(claimTypes.map((claimType) => String(claimType).toLowerCase()));
+  for (const claim of clientPrincipal.claims) {
+    const claimType = asString(claim?.typ || claim?.type).toLowerCase();
+    if (!claimType || !wanted.has(claimType)) continue;
+
+    const claimValue = asString(claim?.val || claim?.value);
+    if (claimValue) {
+      return claimValue;
+    }
+  }
+
+  return '';
+}
+
 /**
  * Evict expired entries and enforce max size (oldest-first) when setting.
  */
@@ -134,11 +170,32 @@ async function getUserByEmailOrInitials(email, initials) {
  */
 async function userContextMiddleware(req, res, next) {
   const startTime = Date.now();
+  const clientPrincipal = parseClientPrincipal(req.headers?.['x-ms-client-principal']);
   
   // Extract user identifiers from query/body/headers
-  const entraId = req.query.entraId || req.body?.entraId || req.headers?.['x-helix-entra-id'];
-  const email = req.query.email || req.body?.email || req.headers?.['x-user-email'] || req.headers?.['x-ms-client-principal-name'];
-  const initials = req.query.initials || req.body?.initials || req.headers?.['x-helix-initials'];
+  const entraId = asString(req.query?.entraId)
+    || asString(req.body?.entraId)
+    || asString(req.headers?.['x-helix-entra-id'])
+    || getClientPrincipalClaim(clientPrincipal, [
+      'http://schemas.microsoft.com/identity/claims/objectidentifier',
+      'oid',
+    ])
+    || asString(req.headers?.['x-ms-client-principal-id']);
+  const email = asString(req.query?.email)
+    || asString(req.body?.email)
+    || asString(req.headers?.['x-user-email'])
+    || asString(req.headers?.['x-ms-client-principal-name'])
+    || asString(clientPrincipal?.userDetails)
+    || getClientPrincipalClaim(clientPrincipal, [
+      'preferred_username',
+      'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress',
+      'emails',
+      'upn',
+      'name',
+    ]);
+  const initials = asString(req.query?.initials)
+    || asString(req.body?.initials)
+    || asString(req.headers?.['x-helix-initials']);
 
   // Try to get user details
   let user = null;

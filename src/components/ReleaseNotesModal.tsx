@@ -254,7 +254,7 @@ const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({ isOpen, onClose, 
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
             <div>
               <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: t.text, letterSpacing: '-0.3px' }}>
-                Release Notes
+                Changelog
               </h2>
               <div style={{ fontSize: 12, color: t.muted, marginTop: 3 }}>
                 {groups.length > 0 ? `Latest: ${groups[0].version} · ${groups[0].label}` : 'Platform updates and improvements'}

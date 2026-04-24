@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const { getRedisClient, generateCacheKey } = require('../utils/redisClient');
+const futureBookingsRoute = require('./futureBookings');
+const outstandingBalancesRoute = require('./outstandingBalances');
 
 // Helper: write SSE event safely
 function writeSse(res, obj) {
@@ -30,11 +32,42 @@ function getSelfBaseUrl() {
   return `http://localhost:${port}`;
 }
 
-// Fetch helpers using internal routes to reuse existing logic/caching
-async function fetchJson(pathname) {
+// Forward auth-related headers from the originating client request so that
+// self-fetches pass App Service Easy Auth (otherwise self-calls to
+// https://${WEBSITE_HOSTNAME}/api/... return 401).
+function buildForwardHeaders(originReq) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (!originReq || !originReq.headers) return headers;
+  const passthrough = [
+    'cookie',
+    'authorization',
+    'x-ms-client-principal',
+    'x-ms-client-principal-id',
+    'x-ms-client-principal-name',
+    'x-ms-client-principal-idp',
+    'x-ms-token-aad-id-token',
+    'x-ms-token-aad-access-token',
+    'x-ms-token-aad-refresh-token',
+    // Helix identity headers — required by requireUser middleware in production.
+    // Without these the self-fetch to /api/future-bookings and /api/outstanding-balances
+    // is rejected with 401 by middleware/requireUser.js.
+    'x-helix-entra-id',
+    'x-user-email',
+    'x-helix-initials',
+  ];
+  for (const name of passthrough) {
+    const value = originReq.headers[name];
+    if (value) headers[name] = value;
+  }
+  return headers;
+}
+
+// HTTP fallback is retained only for explicit metrics that do not yet expose a
+// local snapshot helper.
+async function fetchJson(pathname, originReq) {
   const base = getSelfBaseUrl();
   const url = `${base}${pathname.startsWith('/') ? '' : '/'}${pathname}`;
-  const response = await fetch(url, { method: 'GET', headers: { 'Content-Type': 'application/json' } });
+  const response = await fetch(url, { method: 'GET', headers: buildForwardHeaders(originReq) });
   if (!response.ok) throw new Error(`${url} -> ${response.status}`);
   return response.json();
 }
@@ -117,13 +150,17 @@ router.get('/stream', async (req, res) => {
       if (!payload) {
         switch (name) {
           case 'transactions':
-            payload = await fetchJson('/api/transactions');
+            payload = await fetchJson('/api/transactions', req);
             break;
           case 'futureBookings':
-            payload = await fetchJson('/api/future-bookings');
+            payload = await futureBookingsRoute.getFutureBookingsSnapshot({
+              forceRefresh: bypassCache,
+            });
             break;
           case 'outstandingBalances':
-            payload = await fetchJson('/api/outstanding-balances');
+            payload = await outstandingBalancesRoute.getOutstandingBalancesSnapshot({
+              forceLive: false,
+            });
             break;
           default:
             throw new Error(`Unknown metric: ${name}`);

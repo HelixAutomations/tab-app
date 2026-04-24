@@ -1,111 +1,153 @@
 /* ─── Custom Tabs — Unified Navigation Surface ─────────
    Frosted glass surface with architectural underlines.
+   Interaction model (Apple-inspired, 2026-04-21):
+     • Easing token: cubic-bezier(0.32, 0.72, 0, 1) — fast start, soft settle
+     • Hover: text brightens + background fills in 180ms
+     • Press: scale(0.97) + opacity 0.85 in 90ms (tactile, no y-shift)
+     • Active: confident full-width underline (scaleX 1) + text colour
+     • Focus: inset ring (keyboard-only via :focus-visible)
+     • Disabled: 0.4 opacity, not-allowed cursor, no hover/press response
    ────────────────────────────────────────────────────── */
+
+:root {
+  --tab-ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --tab-ease-press: cubic-bezier(0.4, 0, 0.2, 1);
+  --tab-dur-hover: 180ms;
+  --tab-dur-press: 90ms;
+  --tab-dur-underline: 260ms;
+}
 
 /* Tab entrance animation */
 .custom-tab-btn {
   opacity: 0;
-  animation: dropIn 0.3s ease forwards;
+  animation: dropIn 0.3s var(--tab-ease) forwards;
   position: relative;
   color: var(--tab-text-color, inherit);
-  background: var(--tab-active-fill, transparent);
+  background: transparent;
   transform: scale(1);
-  transition: color 0.2s ease, background 0.2s ease, transform 0.1s ease, opacity 0.1s ease,
-              padding 0.25s ease, height 0.25s ease, gap 0.2s ease, font-size 0.2s ease;
+  transform-origin: center 60%;
+  will-change: transform, background-color, color;
+  transition:
+    color var(--tab-dur-hover) var(--tab-ease),
+    background-color var(--tab-dur-hover) var(--tab-ease),
+    transform var(--tab-dur-press) var(--tab-ease-press),
+    opacity var(--tab-dur-press) var(--tab-ease-press),
+    padding 0.25s var(--tab-ease),
+    height 0.25s var(--tab-ease),
+    gap 0.2s var(--tab-ease),
+    font-size 0.2s var(--tab-ease);
 }
 
+/* Hover — text brightens, fill eases in */
 .custom-tab-btn:hover {
   color: var(--tab-text-hover, var(--tab-text-color, inherit));
   background: var(--tab-hover-fill, transparent);
 }
 
-.custom-tab-btn:active {
-  transform: scale(0.96);
-  opacity: 0.75;
+/* Press — tactile squeeze, no y-shift (feels like a hardware key) */
+.custom-tab-btn:active:not(:disabled):not([aria-disabled='true']) {
+  transform: scale(0.97);
+  opacity: 0.85;
+  transition:
+    transform var(--tab-dur-press) var(--tab-ease-press),
+    opacity var(--tab-dur-press) var(--tab-ease-press);
 }
 
+/* Active (selected) — colour only; underline handles the rest */
 .custom-tab-btn.custom-tab-active {
   background: var(--tab-active-fill, transparent);
+  color: var(--tab-text-color, inherit);
 }
 
-/* ─── Tab underline — inside tab bar ──────────────────── */
+/* Disabled — flat, quiet, no interactive affordance */
+.custom-tab-btn:disabled,
+.custom-tab-btn[aria-disabled='true'] {
+  opacity: 0.38;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* ─── Tab underline — the structural indicator ──────────
+   Resting: collapsed (scaleX 0) and invisible.
+   Hover: 35% width hint at 45% opacity.
+   Active: full width at 100% opacity — confident, committed.
+   ───────────────────────────────────────────────────── */
 
 .custom-tab-btn::after {
   content: '';
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 1px;
-  height: 1.5px;
-  width: 100%;
+  left: 10%;
+  right: 10%;
+  bottom: 4px;
+  height: 2px;
   background-color: var(--tab-underline-colour, #3690CE);
   transform: scaleX(0);
   transform-origin: center;
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease;
+  transition:
+    transform var(--tab-dur-underline) var(--tab-ease),
+    opacity var(--tab-dur-underline) var(--tab-ease),
+    background-color var(--tab-dur-hover) var(--tab-ease);
   opacity: 0;
-  border-radius: 0;
+  border-radius: 1px;
+  pointer-events: none;
 }
 
-/* Hover — subtle partial expand */
-.custom-tab-btn:hover::after {
+/* Hover — subtle partial hint */
+.custom-tab-btn:not(.custom-tab-active):hover::after {
   transform: scaleX(0.35);
-  opacity: 0.4;
+  opacity: 0.45;
 }
 
-/* Active — partial underline inside bar */
+/* Active — full committed underline */
 .custom-tab-btn.custom-tab-active::after {
-  transform: scaleX(0.6);
-  opacity: 0.7;
+  transform: scaleX(1);
+  opacity: 1;
 }
 
-/* Active + hover */
-.custom-tab-btn.custom-tab-active:hover::after {
-  transform: scaleX(0.85);
-  opacity: 0.9;
-}
-
-/* Focus ring */
+/* Focus ring (keyboard only) */
 .custom-tab-btn:focus-visible {
   outline: 2px solid var(--helix-highlight, #3690CE);
-  outline-offset: -2px;
+  outline-offset: -3px;
+  border-radius: 2px;
 }
 
-/* ─── Home Icon ───────────────────────────────────────── */
-
-.home-icon .icon-outline,
-.home-icon .icon-filled {
-  position: absolute;
-  transition: opacity 0.18s ease;
-}
+/* ─── Home Icon ─────────────────────────────────────────
+   Same interaction language as tabs: hover fill, press squeeze.
+   Single Feather stroke icon — active state via colour + fill.
+   ───────────────────────────────────────────────────── */
 
 .home-icon {
   background: var(--home-resting-bg, transparent);
-  transition: background 0.2s ease, opacity 0.1s ease, width 0.25s ease, height 0.25s ease, min-width 0.25s ease;
+  transform: scale(1);
+  transition:
+    background var(--tab-dur-hover) var(--tab-ease),
+    color var(--tab-dur-hover) var(--tab-ease),
+    transform var(--tab-dur-press) var(--tab-ease-press),
+    opacity var(--tab-dur-press) var(--tab-ease-press),
+    width 0.25s var(--tab-ease),
+    height 0.25s var(--tab-ease),
+    min-width 0.25s var(--tab-ease);
 }
 
 .home-icon:hover {
   background: var(--home-hover-bg, transparent);
 }
 
+.home-icon:active {
+  transform: scale(0.93);
+  opacity: 0.85;
+}
+
 .home-icon.active {
   background: var(--home-resting-bg, transparent);
 }
 
-.home-icon .icon-outline { opacity: 1; }
-.home-icon .icon-filled  { opacity: 0; }
-
-.home-icon:hover .icon-outline,
-.home-icon.active .icon-outline { opacity: 0; }
-
-.home-icon:hover .icon-filled,
-.home-icon.active .icon-filled { opacity: 1; }
-
-.home-icon:active { opacity: 0.7; }
 .home-icon:focus  { outline: none; }
 
 .home-icon:focus-visible {
   outline: 2px solid var(--helix-highlight, #3690CE);
   outline-offset: -2px;
+  border-radius: 2px;
 }
 
 /* ─── Notification Dot ────────────────────────────────── */

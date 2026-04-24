@@ -12,7 +12,9 @@ import React, {
   lazy,
   Suspense,
 } from 'react';
-import type { ConversionComparisonBucket, ConversionComparisonPayload, UnclaimedSummaryPayload } from '../../components/modern/OperationsDashboard';
+import OperationsDashboard, { type ConversionComparisonAowItem, type ConversionComparisonBucket, type ConversionComparisonItem, type ConversionComparisonPayload, type ConversionComparisonProspect, type UnclaimedSummaryPayload } from '../../components/modern/OperationsDashboard';
+import { LivePulse, LiveIndicatorDot } from '../../components/realtime/LivePulse';
+import { useRealtimeChannel } from '../../hooks/useRealtimeChannel';
 import { createPortal } from 'react-dom';
 import { debugLog, debugWarn } from '../../utils/debug';
 import { safeSetItem, safeGetItem, cleanupLocalStorage, logStorageUsage } from '../../utils/storageUtils';
@@ -32,6 +34,7 @@ import { FaCheck } from 'react-icons/fa';
 import { colours } from '../../app/styles/colours';
 // Removed legacy MetricCard usage
 import { useHomeMetricsStream } from '../../hooks/useHomeMetricsStream';
+import usePageVisible from '../../hooks/usePageVisible';
 import GreyHelixMark from '../../assets/grey helix mark.png';
 import InAttendanceImg from '../../assets/in_attendance.png';
 import WfhImg from '../../assets/wfh.png';
@@ -70,6 +73,7 @@ import { normalizeMatterData } from '../../utils/matterNormalization';
 // Local JSON fixtures loaded dynamically (only when REACT_APP_USE_LOCAL_DATA=true) to keep ~75KB out of the production bundle
 import { checkIsLocalDev } from '../../utils/useIsLocalDev';
 import { isAdminUser, isDevOwner } from '../../app/admin';
+import { useFirstHydration } from '../../utils/useFirstHydration';
 
 // Enhanced components
 import SectionCard from './SectionCard';
@@ -78,11 +82,14 @@ import SectionCard from './SectionCard';
 // NEW: Import the updated QuickActionsCard component
 import QuickActionsCard from './QuickActionsCard';
 import QuickActionsBar from './QuickActionsBar';
-import { getQuickActionIcon } from './QuickActionsCard';
+import { getQuickActionIcon } from './QuickActionsCard.icons';
 import ImmediateActionsBar from './ImmediateActionsBar';
+import { trackClientEvent } from '../../utils/telemetry';
 import type { ImmediateActionCategory } from './ImmediateActionChip';
-import { enrichImmediateActions, type HomeImmediateAction } from './ImmediateActionModel';
-import { getActionableInstructions } from './InstructionsPrompt';
+import { enrichImmediateActions, type HomeImmediateAction, type ToDoCard } from './ImmediateActionModel';
+import { getActionableInstructions } from './InstructionsPrompt.helpers';
+import type { InstructionSummary } from './InstructionsPrompt';
+import { HomeTeamInsightSkeleton } from './HomeSkeletons';
 
 import RateChangeModal from './RateChangeModal';
 import { useRateChangeData } from './useRateChangeData';
@@ -93,50 +100,44 @@ import TransactionApprovalPopup from '../transactions/TransactionApprovalPopup';
 
 import OutstandingBalanceCard from '../transactions/OutstandingBalanceCard'; // Adjust the path if needed
 import UnclaimedEnquiries from '../enquiries/UnclaimedEnquiries';
+import RegistersWorkspace from '../resources/registers/RegistersWorkspace';
 
+const HOME_BOOT_MONITOR_LOG_KEY = '__helix_home_boot_monitor_log_v1';
 const proxyBaseUrl = getProxyBaseUrl();
 
-// Helper to dynamically update localEnquiries.json's first record to always have today's date in local mode
-export function getLiveLocalEnquiries(currentUserEmail?: string) {
+function appendHomeBootMonitorEvent(source: string, status: string, timestamp: number): void {
+  if (typeof window === 'undefined') return;
+
   try {
-    // Only do this in local mode
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const localEnquiries = require('../../localData/localEnquiries.json');
-    if (Array.isArray(localEnquiries) && localEnquiries.length > 0) {
-      const today = new Date();
-      const yyyy = today.getFullYear();
-      const mm = String(today.getMonth() + 1).padStart(2, '0');
-      const dd = String(today.getDate()).padStart(2, '0');
-      const todayStr = `${yyyy}-${mm}-${dd}`;
-      localEnquiries[0].Touchpoint_Date = todayStr;
-      localEnquiries[0].Date_Created = todayStr;
-      // Set Point_of_Contact for all records to current user email in local mode
-      if (currentUserEmail) {
-        localEnquiries.forEach((enq: any) => {
-          enq.Point_of_Contact = currentUserEmail;
-        });
-      }
-    }
-    return localEnquiries;
-  } catch (e) {
-    // ignore if not found
-    return [];
+    const raw = window.sessionStorage.getItem(HOME_BOOT_MONITOR_LOG_KEY);
+    const current = raw ? JSON.parse(raw) : [];
+    const next = Array.isArray(current) ? current : [];
+    next.push({ source, status, timestamp });
+    window.sessionStorage.setItem(HOME_BOOT_MONITOR_LOG_KEY, JSON.stringify(next.slice(-200)));
+  } catch {
+    // sessionStorage is best-effort only for the boot monitor.
   }
 }
+
+// `getLiveLocalEnquiries` moved to ./liveLocalEnquiries on 2026-04-21 so
+// Home.tsx exports only a React component. This restores React Fast Refresh
+// state-preservation for Home edits (a single non-component export here was
+// forcing every save to trigger a full page reload).
 
 // Lazy-loaded form components
 const Tasking = lazy(() => import('../../CustomForms/Tasking'));
 const TelephoneAttendance = lazy(() => import('../../CustomForms/TelephoneAttendance'));
-const AnnualLeaveModal = lazy(() => import('../../CustomForms/AnnualLeaveModal').then(m => ({ default: m.AnnualLeaveModal })));
+import { AnnualLeaveModal } from '../../CustomForms/AnnualLeaveModal';
 // NEW: Import placeholders for approvals & bookings
 const AnnualLeaveApprovals = lazy(() => import('../../CustomForms/AnnualLeaveApprovals').then(m => ({ default: m.default || m })));
 const AnnualLeaveBookings = lazy(() => import('../../CustomForms/AnnualLeaveBookings').then(m => ({ default: m.default || m })));
 const BookSpaceForm = lazy(() => import('../../CustomForms/BookSpaceForm').then(m => ({ default: m.default || m })));
 const SnippetEditsApproval = lazy(() => import('../../CustomForms/SnippetEditsApproval'));
-const OperationsDashboard = lazy(() => import('../../components/modern/OperationsDashboard').then((m) => ({ default: m.default || m })));
-const PersonalAttendanceConfirm = lazy(() => import('./PersonalAttendanceConfirm'));
-const AttendancePortal = lazy(() => import('./AttendancePortal'));
-const TeamInsight = lazy(() => import('./TeamInsight'));
+const VerificationCheckForm = lazy(() => import('../../CustomForms/VerificationCheckForm'));
+const LearningDevelopmentForm = lazy(() => import('../../CustomForms/LearningDevelopmentForm'));
+import PersonalAttendanceConfirm from './PersonalAttendanceConfirm';
+import AttendancePortal from './AttendancePortal';
+import TeamInsight from './TeamInsight';
 const OutstandingBalancesList = lazy(() => import('../transactions/OutstandingBalancesList'));
 
 // Icons initialized in index.tsx
@@ -228,6 +229,7 @@ interface HomeProps {
   onImmediateActionsChange?: (hasActions: boolean) => void;
   originalAdminUser?: any; // For admin user switching context
   featureToggles?: Record<string, boolean>;
+  onFeatureToggle?: (feature: string, enabled: boolean) => void;
   demoModeEnabled?: boolean;
   isActive?: boolean;
   isSwitchingUser?: boolean;
@@ -251,6 +253,75 @@ interface Person {
   initials: string;
   presence: PersonaPresence;
   nickname?: string;
+}
+
+type FormsTodoRegisterTab = 'ld' | 'undertakings' | 'complaints';
+
+// Kinds surfaced on Home via the dbo.hub_todo registry. `review-ccl` is the
+// CCL autopilot pickup card — when matter opening fires autopilot and the
+// Safety Net flags fields (score ≤7), the server creates a hub_todo card so
+// the fee earner sees it on Home even if they weren't at the modal when
+// autopilot finished. Keeps the registry-sourced kinds visible even though
+// the historical name is "FORMS" — kept for blame/git-log continuity.
+const FORMS_TODO_KINDS = new Set(['ld-review', 'undertaking-request', 'complaint-followup', 'review-ccl']);
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function readStringValue(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function readNumberValue(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function formatRegisterTodoDate(value: unknown): string | null {
+  const raw = readStringValue(value);
+  if (!raw) return null;
+
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return raw;
+  return parsed.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function daysUntilIso(value: unknown): number | null {
+  const raw = readStringValue(value);
+  if (!raw) return null;
+
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return null;
+
+  const msPerDay = 24 * 60 * 60 * 1000;
+  return Math.ceil((parsed.getTime() - Date.now()) / msPerDay);
+}
+
+function formatSlaSummary(daysRemaining: number | null): string {
+  if (daysRemaining == null) return 'SLA pending';
+  if (daysRemaining < 0) return 'SLA exceeded';
+  if (daysRemaining === 0) return 'SLA due today';
+  if (daysRemaining === 1) return '1 day to SLA';
+  return `${daysRemaining} days to SLA`;
+}
+
+function formatDueSummary(daysRemaining: number | null, formattedDate: string | null): string {
+  if (daysRemaining == null) return formattedDate ? `Due ${formattedDate}` : 'No due date';
+  if (daysRemaining < 0) {
+    const overdueDays = Math.abs(daysRemaining);
+    return `Overdue by ${overdueDays} day${overdueDays === 1 ? '' : 's'}`;
+  }
+  if (daysRemaining === 0) return 'Due today';
+  if (daysRemaining === 1) return 'Due tomorrow';
+  return formattedDate ? `Due ${formattedDate}` : `Due in ${daysRemaining} days`;
 }
 
 // Removed legacy CollapsibleSectionProps interface
@@ -299,25 +370,29 @@ interface MatterBalance {
 
 const quickActionOrder: Record<string, number> = {
   'Approve Annual Leave': 0,
-  'Update Attendance': 1,
-  'Confirm Attendance': 1,
-  'Open Matter': 2,
-  'Review Instructions': 3,
+  'Review Complaint': 1,
+  'Review L&D': 2,
+  'Review Undertaking': 3,
+  'Update Attendance': 4,
+  'Confirm Attendance': 4,
+  'Open Matter': 5,
+  'Review Instructions': 6,
   // Instruction workflow actions
-  'Review ID': 3,
-  'Verify ID': 3,
-  'Assess Risk': 4,
-  'CCL Service': 5,
-  'Review CCL': 5,
+  'Review ID': 6,
+  'Verify ID': 6,
+  'Assess Risk': 7,
+  'CCL Service': 8,
+  'Review CCL': 8,
 
-  'Create a Task': 4,
-  'Request CollabSpace': 5,
-  'Save Telephone Note': 6,
-  'Save Attendance Note': 7,
-  'Request ID': 8,
-  'Open a Matter': 9,
-  'Request Annual Leave': 10,
-  'Unclaimed Enquiries': 11,
+  'Create a Task': 9,
+  'Request CollabSpace': 10,
+  'Save Telephone Note': 11,
+  'Save Attendance Note': 12,
+  'Request ID': 13,
+  'Open a Matter': 14,
+  'Request Annual Leave': 15,
+  'Log L&D': 15,
+  'Unclaimed Enquiries': 16,
 };
 
 //////////////////////
@@ -330,6 +405,8 @@ const quickActions: QuickLink[] = [
   { title: 'Save Telephone Note', icon: 'Comment' },
   { title: 'Request Annual Leave', icon: 'PalmTree' }, // Icon resolved to umbrella for consistency
   { title: 'Book Space', icon: 'Room' },
+  { title: 'Verify ID', icon: 'ContactCard' },
+  { title: 'Log L&D', icon: 'Education' },
 ];
 
 //////////////////////
@@ -669,16 +746,20 @@ function sanitizeSavedConversionComparison(
   return Array.isArray(todayItem.buckets) && todayItem.buckets.length > 0 ? payload : null;
 }
 
+// Holds the last value seen while the host was active. When the host goes
+// inactive (e.g. user navigates to another tab) the previous snapshot stays
+// pinned, so consumers downstream of useDeferredValue / useMemo don't see
+// reference identity churn or null/empty flashes when the host returns.
+//
+// Implementation note: this MUST be a ref (not state) — using setState here
+// causes a second render-pass when isActive flips true, which blocks the tab
+// click for hundreds of ms while downstream useMemo chains recompute twice.
 function useActiveSnapshot<T>(value: T, isActive: boolean): T {
   const snapshotRef = useRef(value);
-
-  useEffect(() => {
-    if (isActive) {
-      snapshotRef.current = value;
-    }
-  }, [isActive, value]);
-
-  return isActive ? value : snapshotRef.current;
+  if (isActive) {
+    snapshotRef.current = value;
+  }
+  return snapshotRef.current;
 }
 
 function readHomeMetricsSnapshot(userKey: string | null): HomeMetricsSnapshot | null {
@@ -732,6 +813,17 @@ const CACHE_INVALIDATION_KEY = 'matters-cache-v3';
 let cachedOutstandingBalances: any | null = null;
 let cachedTransactions: Transaction[] | null = null;
 
+// Module-level SWR cache for the Home dashboard's parallel fetch. Keyed by the
+// parallel-fetch requestKey so admin/user switches naturally invalidate. While
+// fresh (within HOME_DATA_FRESH_MS) the cached value is hydrated synchronously
+// and the network call is skipped — this is what stops the enquiry/matter
+// boxes from "rerendering" when returning to Home from another tab.
+const HOME_DATA_FRESH_MS = 60_000;
+type CachedHomeMatters = { key: string; matters: any[]; ts: number };
+type CachedEnquiryMetrics = { key: string; payload: any; ts: number };
+let cachedHomeMattersEntry: CachedHomeMatters | null = null;
+let cachedEnquiryMetricsEntry: CachedEnquiryMetrics | null = null;
+
 const getMetricsAlias = (
   _fullName: string | undefined,
   _initials: string | undefined,
@@ -772,7 +864,13 @@ const CognitoForm: React.FC<{ dataKey: string; dataForm: string }> = ({ dataKey,
 // Home Component
 //////////////////////
 
-const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsingSnapshot = false, enquiriesLiveRefreshInFlight = false, enquiriesLastLiveSyncAt = null, matters: providedMatters, instructionData: propInstructionData, onAllMattersFetched, onOutstandingBalancesFetched, onTransactionsFetched, teamData, onBoardroomBookingsFetched, onSoundproofBookingsFetched, isInMatterOpeningWorkflow = false, onImmediateActionsChange, originalAdminUser, featureToggles = {}, demoModeEnabled = false, isActive = true, isSwitchingUser = false }) => {
+// DEV-ONLY opt-in: when explicitly enabled, local/dev builds force dev-owner
+// accounts onto a mine-only Home instead of the firm-wide aggregates.
+// Default local behaviour stays aligned with production unless the override is
+// requested via REACT_APP_HOME_FORCE_MINE_LOCAL=true.
+const HOME_FORCE_MINE_LOCAL = String(process.env.REACT_APP_HOME_FORCE_MINE_LOCAL || '').trim().toLowerCase() === 'true';
+
+const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsingSnapshot = false, enquiriesLiveRefreshInFlight = false, enquiriesLastLiveSyncAt = null, matters: providedMatters, instructionData: propInstructionData, onAllMattersFetched, onOutstandingBalancesFetched, onTransactionsFetched, teamData, onBoardroomBookingsFetched, onSoundproofBookingsFetched, isInMatterOpeningWorkflow = false, onImmediateActionsChange, originalAdminUser, featureToggles = {}, onFeatureToggle, demoModeEnabled = false, isActive = true, isSwitchingUser = false }) => {
   const { isDarkMode, toggleTheme } = useTheme();
   const hasAdminContext = isAdminUser(userData?.[0]) || isAdminUser(originalAdminUser || null);
   const [showReleaseNotes, setShowReleaseNotes] = useState(false);
@@ -780,10 +878,41 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
   const inTeams = isInTeams();
   const useLocalData =
     process.env.REACT_APP_USE_LOCAL_DATA === 'true';
+
+  // Read the warm-boot snapshot synchronously so the first render paints with
+  // real data instead of skeletons. The post-mount restore effect below stays
+  // in place as a safety net for cases where userData arrives late.
+  const [bootSnapshot] = useState<HomeMetricsSnapshot | null>(() => {
+    if (useLocalData) return null;
+    const rawEmail = String(userData?.[0]?.Email || '').toLowerCase().trim();
+    const rawInitials = String(userData?.[0]?.Initials || '').toUpperCase().trim();
+    const userKey = rawEmail || rawInitials ? `${rawEmail}|${rawInitials}` : null;
+    if (!userKey) return null;
+    const snap = readHomeMetricsSnapshot(userKey);
+    if (snap) {
+      // Mirror to module-level caches so non-state consumers see the snapshot too.
+      cachedWipClio = snap.wipClioData;
+      cachedRecovered = snap.recoveredData;
+      cachedPrevRecovered = snap.prevRecoveredData;
+      cachedRecoveredHours = snap.recoveredHours;
+      cachedPrevRecoveredHours = snap.prevRecoveredHours;
+      if (snap.attendanceData) cachedAttendance = snap.attendanceData;
+      if (snap.annualLeaveRecords) cachedAnnualLeave = snap.annualLeaveRecords;
+      if (snap.futureLeaveRecords) cachedFutureLeaveRecords = snap.futureLeaveRecords;
+    }
+    return snap;
+  });
+  const snapEnq = bootSnapshot?.enquiryMetrics ?? null;
+
   const [secondaryPanelsReady, setSecondaryPanelsReady] = useState(false);
   // Coordinated reveal gate — true when minimum viable Home data is present.
   // Sections stay as skeletons until this flips, then all reveal together.
   const [homeDataReady, setHomeDataReady] = useState(false);
+  // Pause realtime SSE streams while the browser tab/window is hidden so we
+  // don't burn network + CPU on auto-reconnect storms when the user is in
+  // another tab. Streams reconnect on visibility regain (catch-up via the
+  // existing delta-fetch on connect).
+  const isPageVisible = usePageVisible();
   const activeEnquiries = useActiveSnapshot(enquiries, isActive);
   const activeProvidedMatters = useActiveSnapshot(providedMatters, isActive);
   const activeTeamData = useActiveSnapshot(teamData, isActive);
@@ -793,7 +922,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
   
   // Component mounted successfully
 
-  const [attendanceTeam, setAttendanceTeam] = useState<any[]>([]);
+  const [attendanceTeam, setAttendanceTeam] = useState<any[]>(() => bootSnapshot?.attendanceData?.team || []);
   const [annualLeaveTeam, setAnnualLeaveTeam] = useState<any[]>([]);
   // Transform teamData into our lite TeamMember type
   const transformedTeamData = useMemo<TeamMember[]>(() => {
@@ -922,10 +1051,10 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
   const lastRecoveredFetchAt = useRef<number>(0); // Cooldown for visibility handler
 
   // State declarations...
-  const [enquiriesToday, setEnquiriesToday] = useState<number>(0);
-  const [enquiriesWeekToDate, setEnquiriesWeekToDate] = useState<number>(0);
-  const [enquiriesMonthToDate, setEnquiriesMonthToDate] = useState<number>(0);
-  const [enquiryMetricsBreakdown, setEnquiryMetricsBreakdown] = useState<unknown>(null);
+  const [enquiriesToday, setEnquiriesToday] = useState<number>(snapEnq?.enquiriesToday ?? 0);
+  const [enquiriesWeekToDate, setEnquiriesWeekToDate] = useState<number>(snapEnq?.enquiriesWeekToDate ?? 0);
+  const [enquiriesMonthToDate, setEnquiriesMonthToDate] = useState<number>(snapEnq?.enquiriesMonthToDate ?? 0);
+  const [enquiryMetricsBreakdown, setEnquiryMetricsBreakdown] = useState<unknown>(snapEnq?.enquiryMetricsBreakdown ?? null);
   const [todaysTasks, setTodaysTasks] = useState<number>(10);
   const [tasksDueThisWeek, setTasksDueThisWeek] = useState<number>(20);
   const [completedThisWeek, setCompletedThisWeek] = useState<number>(15);
@@ -933,18 +1062,18 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
     hours: 120,
     money: 1000,
   });
-  const [prevEnquiriesToday, setPrevEnquiriesToday] = useState<number>(8);
-  const [prevEnquiriesWeekToDate, setPrevEnquiriesWeekToDate] = useState<number>(18);
-  const [prevEnquiriesMonthToDate, setPrevEnquiriesMonthToDate] = useState<number>(950);
-  const [prevEnquiriesWeekFull, setPrevEnquiriesWeekFull] = useState<number>(0);
-  const [prevEnquiriesMonthFull, setPrevEnquiriesMonthFull] = useState<number>(0);
-  const [pitchedEnquiriesToday, setPitchedEnquiriesToday] = useState<number>(0);
-  const [pitchedEnquiriesWeekToDate, setPitchedEnquiriesWeekToDate] = useState<number>(0);
-  const [pitchedEnquiriesMonthToDate, setPitchedEnquiriesMonthToDate] = useState<number>(0);
-  const [prevPitchedEnquiriesToday, setPrevPitchedEnquiriesToday] = useState<number>(0);
-  const [prevPitchedEnquiriesWeekToDate, setPrevPitchedEnquiriesWeekToDate] = useState<number>(0);
-  const [prevPitchedEnquiriesMonthToDate, setPrevPitchedEnquiriesMonthToDate] = useState<number>(0);
-  const [savedConversionComparison, setSavedConversionComparison] = useState<ConversionComparisonPayload | null>(null);
+  const [prevEnquiriesToday, setPrevEnquiriesToday] = useState<number>(snapEnq?.prevEnquiriesToday ?? 8);
+  const [prevEnquiriesWeekToDate, setPrevEnquiriesWeekToDate] = useState<number>(snapEnq?.prevEnquiriesWeekToDate ?? 18);
+  const [prevEnquiriesMonthToDate, setPrevEnquiriesMonthToDate] = useState<number>(snapEnq?.prevEnquiriesMonthToDate ?? 950);
+  const [prevEnquiriesWeekFull, setPrevEnquiriesWeekFull] = useState<number>(snapEnq?.prevEnquiriesWeekFull ?? 0);
+  const [prevEnquiriesMonthFull, setPrevEnquiriesMonthFull] = useState<number>(snapEnq?.prevEnquiriesMonthFull ?? 0);
+  const [pitchedEnquiriesToday, setPitchedEnquiriesToday] = useState<number>(snapEnq?.pitchedEnquiriesToday ?? 0);
+  const [pitchedEnquiriesWeekToDate, setPitchedEnquiriesWeekToDate] = useState<number>(snapEnq?.pitchedEnquiriesWeekToDate ?? 0);
+  const [pitchedEnquiriesMonthToDate, setPitchedEnquiriesMonthToDate] = useState<number>(snapEnq?.pitchedEnquiriesMonthToDate ?? 0);
+  const [prevPitchedEnquiriesToday, setPrevPitchedEnquiriesToday] = useState<number>(snapEnq?.prevPitchedEnquiriesToday ?? 0);
+  const [prevPitchedEnquiriesWeekToDate, setPrevPitchedEnquiriesWeekToDate] = useState<number>(snapEnq?.prevPitchedEnquiriesWeekToDate ?? 0);
+  const [prevPitchedEnquiriesMonthToDate, setPrevPitchedEnquiriesMonthToDate] = useState<number>(snapEnq?.prevPitchedEnquiriesMonthToDate ?? 0);
+  const [savedConversionComparison, setSavedConversionComparison] = useState<ConversionComparisonPayload | null>(() => sanitizeSavedConversionComparison(snapEnq?.conversionComparison ?? null));
   const [prevTodaysTasks, setPrevTodaysTasks] = useState<number>(12);
   const [prevTasksDueThisWeek, setPrevTasksDueThisWeek] = useState<number>(18);
   const [prevCompletedThisWeek, setPrevCompletedThisWeek] = useState<number>(17);
@@ -953,6 +1082,67 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
     money: 900,
   });
   const [isContextsExpanded, setIsContextsExpanded] = useState<boolean>(false);
+
+  // Home layout toggles — two independent booleans, each persisted in localStorage.
+  // Visible only locally (useLocalData) or to LZ/AC dev preview. Default: off (legacy behaviour preserved).
+  //   1. `hideAsanaAndTransactions` — hides OperationsQueue (CCL batch queue) + Transactions & Balances.
+  //   2. `replacePipelineAndMatters` — renders ImmediateActionsBar inline as a ToDo box above the dashboard,
+  //      and flags OperationsDashboard via `hidePipelineAndMatters` so it can drop its pipeline+matters
+  //      sub-blocks. Sub-block gating inside OperationsDashboard is a follow-up slice.
+  const LAYOUT_TOGGLE_KEYS = {
+    hideAsanaAndTransactions: 'helix.home.hideAsanaAndTransactions',
+    replacePipelineAndMatters: 'helix.home.replacePipelineAndMatters',
+  } as const;
+  // Home layout overlay removed 2026-04-21 — see CommandDeck Controls group.
+  const readBoolToggle = (key: string): boolean => {
+    try {
+      if (typeof window !== 'undefined') {
+        return window.localStorage.getItem(key) === '1';
+      }
+    } catch {
+      // ignore storage errors
+    }
+    return false;
+  };
+  const writeBoolToggle = (key: string, value: boolean) => {
+    try {
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(key, value ? '1' : '0');
+      }
+    } catch {
+      // ignore
+    }
+  };
+  const [hideAsanaAndTransactions, setHideAsanaAndTransactionsState] = useState<boolean>(() => readBoolToggle(LAYOUT_TOGGLE_KEYS.hideAsanaAndTransactions));
+  const [replacePipelineAndMatters, setReplacePipelineAndMattersState] = useState<boolean>(() => readBoolToggle(LAYOUT_TOGGLE_KEYS.replacePipelineAndMatters));
+  const setHideAsanaAndTransactions = useCallback((v: boolean) => {
+    setHideAsanaAndTransactionsState(v);
+    writeBoolToggle(LAYOUT_TOGGLE_KEYS.hideAsanaAndTransactions, v);
+  }, [LAYOUT_TOGGLE_KEYS.hideAsanaAndTransactions]);
+  const setReplacePipelineAndMatters = useCallback((v: boolean) => {
+    setReplacePipelineAndMattersState(v);
+    writeBoolToggle(LAYOUT_TOGGLE_KEYS.replacePipelineAndMatters, v);
+  }, [LAYOUT_TOGGLE_KEYS.replacePipelineAndMatters]);
+
+  // Consolidation 2026-04-21: the Home layout overlay is gone. CommandDeck
+  // (via HubToolsChip) is now the single surface for these toggles. It writes
+  // the same localStorage keys and fires `helix:homeLayoutToggled` so this
+  // component re-syncs its state without a reload.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handler = (ev: Event) => {
+      const detail = (ev as CustomEvent).detail as { key?: string; value?: boolean } | undefined;
+      if (!detail) return;
+      if (detail.key === LAYOUT_TOGGLE_KEYS.hideAsanaAndTransactions) {
+        setHideAsanaAndTransactionsState(!!detail.value);
+      } else if (detail.key === LAYOUT_TOGGLE_KEYS.replacePipelineAndMatters) {
+        setReplacePipelineAndMattersState(!!detail.value);
+      }
+    };
+    window.addEventListener('helix:homeLayoutToggled', handler as EventListener);
+    return () => window.removeEventListener('helix:homeLayoutToggled', handler as EventListener);
+  }, [LAYOUT_TOGGLE_KEYS.hideAsanaAndTransactions, LAYOUT_TOGGLE_KEYS.replacePipelineAndMatters]);
+
   const [formsFavorites, setFormsFavorites] = useState<FormItem[]>([]);
   const [resourcesFavorites, setResourcesFavorites] = useState<Resource[]>([]);
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
@@ -972,24 +1162,24 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
     const rawInitials = String(userData?.[0]?.Initials || '').toUpperCase().trim();
     return rawEmail || rawInitials ? `${rawEmail}|${rawInitials}` : null;
   }, [userData]);
-  const [attendanceRecords, setAttendanceRecords] = useState<any[]>([]);
+  const [attendanceRecords, setAttendanceRecords] = useState<any[]>(() => bootSnapshot?.attendanceData?.attendance || []);
   const [attendanceError, setAttendanceError] = useState<string | null>(null);
-  const [annualLeaveRecords, setAnnualLeaveRecords] = useState<AnnualLeaveRecord[]>([]);
+  const [annualLeaveRecords, setAnnualLeaveRecords] = useState<AnnualLeaveRecord[]>(() => bootSnapshot?.annualLeaveRecords || []);
   const [annualLeaveError, setAnnualLeaveError] = useState<string | null>(null);
   const [isLoadingAttendance, setIsLoadingAttendance] = useState<boolean>(false);
   const [isLoadingAnnualLeave, setIsLoadingAnnualLeave] = useState<boolean>(false);
-  const [wipClioData, setWipClioData] = useState<any | null>(null);
+  const [wipClioData, setWipClioData] = useState<any | null>(bootSnapshot?.wipClioData ?? null);
   const [wipClioError, setWipClioError] = useState<string | null>(null);
-  const [recoveredData, setRecoveredData] = useState<number | null>(null);
-  const [prevRecoveredData, setPrevRecoveredData] = useState<number | null>(null);
-  const [recoveredHours, setRecoveredHours] = useState<number | null>(null);
-  const [prevRecoveredHours, setPrevRecoveredHours] = useState<number | null>(null);
+  const [recoveredData, setRecoveredData] = useState<number | null>(bootSnapshot?.recoveredData ?? null);
+  const [prevRecoveredData, setPrevRecoveredData] = useState<number | null>(bootSnapshot?.prevRecoveredData ?? null);
+  const [recoveredHours, setRecoveredHours] = useState<number | null>(bootSnapshot?.recoveredHours ?? null);
+  const [prevRecoveredHours, setPrevRecoveredHours] = useState<number | null>(bootSnapshot?.prevRecoveredHours ?? null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [recoveredError, setRecoveredError] = useState<string | null>(null);
   const [prevRecoveredError, setPrevRecoveredError] = useState<string | null>(null);
-  const [isLoadingWipClio, setIsLoadingWipClio] = useState<boolean>(true);
-  const [isLoadingRecovered, setIsLoadingRecovered] = useState<boolean>(true);
-  const [isLoadingEnquiryMetrics, setIsLoadingEnquiryMetrics] = useState<boolean>(true);
+  const [isLoadingWipClio, setIsLoadingWipClio] = useState<boolean>(() => !bootSnapshot?.wipClioData);
+  const [isLoadingRecovered, setIsLoadingRecovered] = useState<boolean>(() => bootSnapshot?.recoveredData == null && bootSnapshot?.prevRecoveredData == null);
+  const [isLoadingEnquiryMetrics, setIsLoadingEnquiryMetrics] = useState<boolean>(() => !bootSnapshot?.enquiryMetrics);
   const [recentEnquirySnapshotRecords, setRecentEnquirySnapshotRecords] = useState<Array<{
     id?: string;
     enquiryId?: string;
@@ -999,8 +1189,8 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
     source?: string;
     name?: string;
     stage?: string;
-  }>>([]);
-  const [futureLeaveRecords, setFutureLeaveRecords] = useState<AnnualLeaveRecord[]>([]);
+  }>>(() => bootSnapshot?.recentEnquiryRecords ?? []);
+  const [futureLeaveRecords, setFutureLeaveRecords] = useState<AnnualLeaveRecord[]>(() => bootSnapshot?.futureLeaveRecords || []);
   const [annualLeaveTotals, setAnnualLeaveTotals] = useState<any>(null);
   const [isActionsLoading, setIsActionsLoading] = useState<boolean>(true);
   const [hasStartedParallelFetch, setHasStartedParallelFetch] = useState<boolean>(false);
@@ -1008,10 +1198,22 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
   const [allMatters, setAllMatters] = useState<Matter[] | null>(null);
   const [allMattersError, setAllMattersError] = useState<string | null>(null);
   const [isLoadingAllMatters, setIsLoadingAllMatters] = useState<boolean>(false);
+  const [homeMatters, setHomeMatters] = useState<NormalizedMatter[]>([]);
+  const [isLoadingHomeMatters, setIsLoadingHomeMatters] = useState<boolean>(true);
 
   // State for refreshing time metrics
   const [isRefreshingTimeMetrics, setIsRefreshingTimeMetrics] = useState<boolean>(false);
-  const hasSeededEnquiryMetricsRef = useRef(false);
+  const hasSeededEnquiryMetricsRef = useRef(!!bootSnapshot?.enquiryMetrics);
+
+  // Section-specific reveal gates — allow each section to appear independently
+  // as its data arrives, rather than waiting for all data.
+  const mattersBootReady = Array.isArray(providedMatters)
+    || !isLoadingHomeMatters
+    || allMatters != null
+    || allMattersError != null;
+  const dashboardSectionReady = hasStartedParallelFetch && !isLoadingWipClio;
+  const teamSectionReady = hasStartedParallelFetch && !isLoadingAttendance;
+  const opsSectionReady = homeDataReady;
 
   // Dev-only diagnostics for Time Metrics (WIP daily totals)
   const lastTimeMetricsLogRef = useRef<string>('');
@@ -1096,14 +1298,30 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
 
   const [annualLeaveAllData, setAnnualLeaveAllData] = useState<any[]>([]);
 
-  const [outstandingBalancesData, setOutstandingBalancesData] = useState<any | null>(null);
+  const [outstandingBalancesData, setOutstandingBalancesData] = useState<any | null>(() => {
+    if (useLocalData) return null;
+    try {
+      const raw = safeGetItem('outstandingBalancesData');
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  });
   // Track whether the SSE stream has already provided firm-wide outstanding balances.
   // The user-specific useEffect must NOT overwrite richer stream data.
   const streamOutstandingReceivedRef = useRef(false);
 
-  const [futureBookings, setFutureBookings] = useState<FutureBookingsResponse>({
-    boardroomBookings: [],
-    soundproofBookings: []
+  const [futureBookings, setFutureBookings] = useState<FutureBookingsResponse>(() => {
+    if (!useLocalData) {
+      try {
+        const raw = safeGetItem('futureBookingsSnapshot');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && Array.isArray(parsed.boardroomBookings) && Array.isArray(parsed.soundproofBookings)) {
+            return parsed as FutureBookingsResponse;
+          }
+        }
+      } catch { /* ignore */ }
+    }
+    return { boardroomBookings: [], soundproofBookings: [] };
   });
 
   const [attendanceRealtimePulseNonce, setAttendanceRealtimePulseNonce] = useState(0);
@@ -1113,6 +1331,38 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
     | { nonce: number; id?: string; spaceType?: 'Boardroom' | 'Soundproof Pod'; changeType?: string }
     | null
   >(null);
+
+  // R7: realtime pulse nonces for already-live channels (no bespoke metadata needed —
+  // tile-level border-pulse cue when the underlying data refreshes via SSE).
+  const [dataOpsPulseNonce, setDataOpsPulseNonce] = useState(0);
+  const [annualLeavePulseNonce, setAnnualLeavePulseNonce] = useState(0);
+  const [outstandingBalancesPulseNonce, setOutstandingBalancesPulseNonce] = useState(0);
+  const [opsQueuePulseNonce, setOpsQueuePulseNonce] = useState(0);
+  const [docWorkspacePulseNonce, setDocWorkspacePulseNonce] = useState(0);
+  const [mattersPulseNonce, setMattersPulseNonce] = useState(0);
+  const [enquiriesPulseNonce, setEnquiriesPulseNonce] = useState(0);
+  // Per-channel SSE connection status, used by the persistent <LiveIndicatorDot />.
+  const [realtimeChannelStatus, setRealtimeChannelStatus] = useState<{
+    annualLeave: 'open' | 'connecting' | 'closed';
+    dataOps: 'open' | 'connecting' | 'closed';
+    attendance: 'open' | 'connecting' | 'closed';
+    futureBookings: 'open' | 'connecting' | 'closed';
+    outstandingBalances: 'open' | 'connecting' | 'closed';
+    opsQueue: 'open' | 'connecting' | 'closed';
+    docWorkspace: 'open' | 'connecting' | 'closed';
+    matters: 'open' | 'connecting' | 'closed';
+    enquiries: 'open' | 'connecting' | 'closed';
+  }>({
+    annualLeave: 'closed',
+    dataOps: 'closed',
+    attendance: 'closed',
+    futureBookings: 'closed',
+    outstandingBalances: 'closed',
+    opsQueue: 'closed',
+    docWorkspace: 'closed',
+    matters: 'closed',
+    enquiries: 'closed',
+  });
 
   // Pending snippet edits for approval
   const [snippetEdits, setSnippetEdits] = useState<SnippetEdit[]>([]);
@@ -1127,6 +1377,22 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
   }
   const [pendingDocActions, setPendingDocActions] = useState<PendingDocAction[]>([]);
   const [pendingDocActionsLoading, setPendingDocActionsLoading] = useState<boolean>(true);
+  const [todoRegistryCards, setTodoRegistryCards] = useState<ToDoCard[]>([]);
+  const [isLoadingTodoRegistry, setIsLoadingTodoRegistry] = useState<boolean>(() => Boolean(userData?.[0]?.Initials));
+  // Dev-owner (LZ) god-view scope toggle for the Home to-do registry.
+  // 'mine' = current user's own cards (default, identical to pre-change behaviour).
+  // 'all'  = firm-wide read; non-LZ cards become read-only with owner chip.
+  // Persisted to localStorage so the choice survives reloads.
+  const [homeTodoScope, setHomeTodoScope] = useState<'mine' | 'all'>(() => {
+    if (typeof window === 'undefined') return 'mine';
+    try {
+      const v = window.localStorage.getItem('helix.homeTodoScope');
+      return v === 'all' ? 'all' : 'mine';
+    } catch {
+      return 'mine';
+    }
+  });
+  const canSeeTodoGodView = isDevOwner(userData?.[0]);
 
   const immediateActionsReady = hasStartedParallelFetch
     && !isActionsLoading
@@ -1156,6 +1422,23 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
     }
   }, [hasStartedParallelFetch, isLoadingAttendance, isLoadingWipClio, homeDataReady]);
 
+  // ── Round 4: per-section hydration probes ──
+  // Each fires hydrate.home.{section} exactly once when that section's data
+  // becomes available. Captures time-to-meaningful-content per section so we
+  // can see which one settles last on warm-server cold reload.
+  useFirstHydration('home.attendance', hasStartedParallelFetch && !isLoadingAttendance, { count: attendanceRecords.length });
+  useFirstHydration('home.annualLeave', hasStartedParallelFetch && !isLoadingAnnualLeave, { count: annualLeaveRecords.length });
+  useFirstHydration('home.wipClio', !isLoadingWipClio);
+  useFirstHydration('home.enquiryMetrics', !isLoadingEnquiryMetrics);
+  useFirstHydration('home.recoveredFees', !isLoadingRecovered);
+  useFirstHydration('home.matters', homeMatters.length > 0 || !isLoadingHomeMatters, { count: homeMatters.length });
+  useFirstHydration('home.outstandingBalances', outstandingBalancesData != null, { hasData: outstandingBalancesData != null });
+  useFirstHydration('home.futureBookings', (futureBookings.boardroomBookings.length + futureBookings.soundproofBookings.length) > 0 || hasStartedParallelFetch);
+  useFirstHydration('home.snippetEdits', snippetEdits.length > 0 || hasStartedParallelFetch, { count: snippetEdits.length });
+  useFirstHydration('home.pendingDocActions', !pendingDocActionsLoading, { count: pendingDocActions.length });
+  useFirstHydration('home.immediateActions', immediateActionsReady);
+  useFirstHydration('home.dataReady', homeDataReady);
+
   // ── Boot monitor event emitter (dev-only) ──
   const bootMonitorPrevRef = useRef<Record<string, string>>({});
   useEffect(() => {
@@ -1170,18 +1453,22 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
       wipClio: isLoadingWipClio ? 'loading' : 'done',
       enquiryMetrics: isLoadingEnquiryMetrics ? 'loading' : 'done',
       recoveredFees: isLoadingRecovered ? 'loading' : 'done',
-      allMatters: isLoadingAllMatters ? 'loading' : allMatters != null ? 'done' : 'pending',
+      allMatters: isLoadingAllMatters || isLoadingHomeMatters ? 'loading' : mattersBootReady ? 'done' : 'pending',
       pendingDocActions: pendingDocActionsLoading ? 'loading' : 'done',
       parallelFetch: hasStartedParallelFetch ? 'done' : 'pending',
       homePrimaryReady: homePrimaryReady ? 'done' : 'pending',
       secondaryPanelsReady: secondaryPanelsReady ? 'done' : 'pending',
       immediateActionsReady: immediateActionsReady ? 'done' : 'pending',
       homeDataReady: homeDataReady ? 'done' : 'pending',
+      dashboardSection: dashboardSectionReady ? 'done' : 'pending',
+      teamSection: teamSectionReady ? 'done' : 'pending',
+      opsSection: opsSectionReady ? 'done' : 'pending',
     };
     const prev = bootMonitorPrevRef.current;
     const now = performance.now();
     for (const [source, status] of Object.entries(sources)) {
       if (prev[source] !== status) {
+        appendHomeBootMonitorEvent(source, status, now);
         window.dispatchEvent(new CustomEvent('homeBootEvent', {
           detail: { source, status, timestamp: now },
         }));
@@ -1192,8 +1479,10 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
     enquiries, providedMatters, propInstructionData, teamData,
     isLoadingAttendance, isLoadingAnnualLeave, isLoadingWipClio,
     isLoadingRecovered, isLoadingEnquiryMetrics, isLoadingAllMatters,
-    pendingDocActionsLoading, hasStartedParallelFetch, homePrimaryReady,
+    isLoadingHomeMatters, pendingDocActionsLoading, hasStartedParallelFetch, homePrimaryReady,
     secondaryPanelsReady, immediateActionsReady, homeDataReady, allMatters,
+    allMattersError, mattersBootReady,
+    dashboardSectionReady, teamSectionReady, opsSectionReady,
   ]);
 
   useEffect(() => {
@@ -1270,29 +1559,29 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
     }
   }, [homeMetricsUserKey, useLocalData]);
 
+  const fetchPendingDocActions = useCallback(async () => {
+    try {
+      setPendingDocActionsLoading(true);
+      const url = '/api/doc-workspace/pending-actions';
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        setPendingDocActions(data.pendingActions || []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch pending doc actions:', err);
+    } finally {
+      setPendingDocActionsLoading(false);
+    }
+  }, []);
+
   // Fetch pending doc workspace actions on mount
   useEffect(() => {
     if (!homePrimaryReady) {
       return;
     }
-
-    const fetchPendingDocActions = async () => {
-      try {
-        setPendingDocActionsLoading(true);
-        const url = '/api/doc-workspace/pending-actions';
-        const res = await fetch(url);
-        if (res.ok) {
-          const data = await res.json();
-          setPendingDocActions(data.pendingActions || []);
-        }
-      } catch (err) {
-        console.error('Failed to fetch pending doc actions:', err);
-      } finally {
-        setPendingDocActionsLoading(false);
-      }
-    };
     fetchPendingDocActions();
-  }, [homePrimaryReady]);
+  }, [homePrimaryReady, fetchPendingDocActions]);
 
   // Rate change notification modal state
   const [showRateChangeModal, setShowRateChangeModal] = useState<boolean>(false);
@@ -1583,10 +1872,15 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
     let intervalId: ReturnType<typeof setInterval> | null = null;
 
     const fetchRecoveredFeesSummary = async (bypassCache = false) => {
-      if (!userData?.[0]) return;
+      if (!userData?.[0]) {
+        if (isMounted) {
+          setIsLoadingRecovered(false);
+        }
+        return;
+      }
 
       const currentUserData = userData[0];
-      const isFirmWide = isDevOwner(currentUserData) && !originalAdminUser;
+      const isFirmWide = isDevOwner(currentUserData) && !originalAdminUser && !HOME_FORCE_MINE_LOCAL;
       let userClioId = currentUserData?.['Clio ID'] ? String(currentUserData['Clio ID']) : null;
       let userEntraId = currentUserData?.['Entra ID'] || currentUserData?.EntraID 
         ? String(currentUserData['Entra ID'] || currentUserData.EntraID) 
@@ -1594,6 +1888,9 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
 
       if (!isFirmWide && !userClioId && !userEntraId) {
         console.warn('⚠️ No Clio ID or Entra ID available for recovered fees');
+        if (isMounted) {
+          setIsLoadingRecovered(false);
+        }
         return;
       }
 
@@ -1650,6 +1947,10 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
         lastRecoveredFetchAt.current = Date.now();
       } catch (error) {
         console.error('❌ Error fetching recovered fees summary:', error);
+      } finally {
+        if (isMounted) {
+          setIsLoadingRecovered(false);
+        }
       }
     };
 
@@ -1660,6 +1961,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
       setPrevRecoveredData(cachedPrevRecovered ?? 0);
       setRecoveredHours(cachedRecoveredHours ?? 0);
       setPrevRecoveredHours(cachedPrevRecoveredHours ?? 0);
+      setIsLoadingRecovered(false);
     }
     // Always fetch fresh on mount (bypassCache on subsequent loads)
     fetchRecoveredFeesSummary(recoveredFeesInitialized.current);
@@ -1718,7 +2020,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
         (async () => {
           try {
             // Dev-owner god mode: fetch team-aggregated WIP (unless user has switched to another person)
-            const useTeamEndpoint = isDevOwner(currentUserData) && !originalAdminUser;
+            const useTeamEndpoint = isDevOwner(currentUserData) && !originalAdminUser && !HOME_FORCE_MINE_LOCAL;
             const wipUrl = useTeamEndpoint
               ? '/api/home-wip/team'
               : userEntraId ? `/api/home-wip?entraId=${encodeURIComponent(userEntraId)}` : null;
@@ -1790,12 +2092,13 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
 
   const userFullName = userData?.[0]?.FullName || '';
 
-  // Use app-provided normalized matters when available; otherwise normalize local allMatters
+  // Use Home-fetched matters first (fast, limited); then app-provided; then legacy allMatters
   const normalizedMatters = useMemo<NormalizedMatter[]>(() => {
+    if (homeMatters && homeMatters.length > 0) return homeMatters;
     if (deferredProvidedMatters && deferredProvidedMatters.length > 0) return deferredProvidedMatters;
     if (!allMatters) return [];
     return allMatters.map(matter => normalizeMatterData(matter, userFullName, 'legacy_all'));
-  }, [deferredProvidedMatters, allMatters, userData, userFullName]);
+  }, [homeMatters, deferredProvidedMatters, allMatters, userData, userFullName]);
 
   const demoModeActive = useMemo(() => {
     if (demoModeEnabled) return true;
@@ -1866,13 +2169,14 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
         matterId: m.matterId || '',
         displayNumber: m.displayNumber || '',
         clientName: m.clientName || '',
+        description: m.description || '',
         practiceArea: m.practiceArea || '',
         openDate: m.openDate || '',
         responsibleSolicitor: m.responsibleSolicitor || '',
         originatingSolicitor: m.originatingSolicitor || '',
         status: (m.status === 'closed' ? 'closed' : 'active') as 'active' | 'closed',
         instructionRef: m.instructionRef,
-        sourceVersion: m.dataSource === 'vnet_direct' ? 'v4' : 'v3',
+        sourceVersion: (m.dataSource === 'vnet_direct' ? 'v4' : 'v3') as 'v4' | 'v3',
       }));
 
     if (!isDemo) return mapped;
@@ -2057,115 +2361,174 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
   // Now anywhere we used userInitials, we can do:
   const userInitials = storedUserInitials.current || rawUserInitials;
 
-  // Realtime: when annual leave changes (approved/edited/created), refresh so other users' approvals update.
-  useEffect(() => {
-    if (!userInitials || !isActive) return;
-
-    let eventSource: EventSource | null = null;
-    let refreshTimer: number | null = null;
-
-    const scheduleRefresh = () => {
-      if (refreshTimer) {
-        window.clearTimeout(refreshTimer);
-      }
-      refreshTimer = window.setTimeout(() => {
-        void refreshAnnualLeaveData(undefined, { forceRefresh: true });
-      }, 350);
-    };
-
-    try {
-      eventSource = new EventSource('/api/attendance/annual-leave/stream');
-      eventSource.addEventListener('annualLeave.changed', scheduleRefresh as EventListener);
-      eventSource.addEventListener('connected', () => {
-        // Optional: on connect, do nothing; initial fetch happens via existing flows.
-      });
-      eventSource.onerror = () => {
-        // Browser will auto-retry; keep handler light.
-      };
-    } catch (error) {
-      console.warn('[Home] Failed to connect annual leave realtime stream:', error);
+  const fetchTodoRegistryCards = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
+    const ownerInitials = String(userInitials || '').trim().toUpperCase();
+    const useAllScope = canSeeTodoGodView && homeTodoScope === 'all';
+    if (!ownerInitials && !useAllScope) {
+      setTodoRegistryCards([]);
+      setIsLoadingTodoRegistry(false);
+      return;
     }
 
-    return () => {
-      if (refreshTimer) {
-        window.clearTimeout(refreshTimer);
+    if (!silent) {
+      setIsLoadingTodoRegistry(true);
+    }
+
+    try {
+      const url = useAllScope
+        ? '/api/todo?scope=all'
+        : `/api/todo?owner=${encodeURIComponent(ownerInitials)}`;
+      const response = await fetch(url, {
+        headers: { 'x-user-initials': ownerInitials },
+      });
+      const data = await response.json();
+      if (!response.ok || !data?.ok) {
+        throw new Error(data?.error || 'Failed to load Home to-do items');
       }
-      try {
-        if (eventSource) {
-          eventSource.close();
-        }
-      } catch {
-        // ignore
+
+      const cards = Array.isArray(data.cards) ? data.cards : [];
+      setTodoRegistryCards(cards.filter((card: ToDoCard) => FORMS_TODO_KINDS.has(card.kind)));
+    } catch (error) {
+      debugWarn('Failed to load forms to-do registry', error);
+    } finally {
+      if (!silent) {
+        setIsLoadingTodoRegistry(false);
       }
-    };
-  }, [isActive, userInitials]);
+    }
+  }, [userInitials, canSeeTodoGodView, homeTodoScope]);
+
+  useEffect(() => {
+    if (!isActive) return;
+
+    const ownerInitials = String(userInitials || '').trim().toUpperCase();
+    const useAllScope = canSeeTodoGodView && homeTodoScope === 'all';
+    if (!ownerInitials && !useAllScope) {
+      setTodoRegistryCards([]);
+      setIsLoadingTodoRegistry(false);
+      return;
+    }
+
+    void fetchTodoRegistryCards();
+    const intervalId = window.setInterval(() => {
+      void fetchTodoRegistryCards({ silent: true });
+    }, 15000);
+
+    return () => window.clearInterval(intervalId);
+  }, [fetchTodoRegistryCards, isActive, userInitials, canSeeTodoGodView, homeTodoScope]);
+
+  const openRegisterTodoPanel = useCallback((tab: FormsTodoRegisterTab, title: string, description: string, icon: string) => {
+    setBespokePanelWidth('78%');
+    setBespokePanelContent(
+      <div data-helix-region={`home/todo/${tab}`}>
+        <RegistersWorkspace
+          userData={userData}
+          teamData={teamData}
+          isDarkMode={isDarkMode}
+          initialTab={tab}
+          lockedTab={tab}
+          onMutationSuccess={() => {
+            void fetchTodoRegistryCards({ silent: true });
+          }}
+        />
+      </div>
+    );
+    setBespokePanelTitle(title);
+    setBespokePanelDescription(description);
+    setBespokePanelIcon(icon);
+    setIsBespokePanelOpen(true);
+  }, [fetchTodoRegistryCards, isDarkMode, teamData, userData]);
+
+  const handleApproveLdTodo = useCallback(async (card: ToDoCard) => {
+    const payload = asRecord(card.payload);
+    const activityId = readNumberValue(payload?.activityId);
+    const reviewerInitials = String(userInitials || '').trim().toUpperCase();
+
+    if (!activityId) {
+      showToast('Missing L&D review details', 'error', 'The activity id was not present on this To Do card.');
+      return;
+    }
+    if (!reviewerInitials) {
+      showToast('Missing reviewer initials', 'error');
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/registers/learning-dev/activity/${activityId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-helix-initials': reviewerInitials,
+        },
+        body: JSON.stringify({ status: 'verified' }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data?.ok) {
+        throw new Error(data?.error || 'Failed to approve L&D entry');
+      }
+
+      showToast('L&D entry approved', 'success');
+      await fetchTodoRegistryCards({ silent: true });
+    } catch (error) {
+      showToast(
+        'Failed to approve L&D entry',
+        'error',
+        error instanceof Error ? error.message : 'Please try again.',
+      );
+    }
+  }, [fetchTodoRegistryCards, showToast, userInitials]);
+
+  // Realtime: when annual leave changes (approved/edited/created), refresh so other users' approvals update.
+  // Migrated to useRealtimeChannel (R7 D6 follow-up: home-realtime-channel-migration).
+  const { status: annualLeaveStatus } = useRealtimeChannel(
+    '/api/attendance/annual-leave/stream',
+    {
+      event: 'annualLeave.changed',
+      name: 'annualLeave',
+      enabled: !!userInitials && isActive && homeDataReady && isPageVisible,
+      debounceMs: 350,
+      onChange: () => {
+        setAnnualLeavePulseNonce((n) => n + 1);
+        void refreshAnnualLeaveData(undefined, { forceRefresh: true });
+      },
+    }
+  );
+  useEffect(() => {
+    setRealtimeChannelStatus((s) => (s.annualLeave === annualLeaveStatus ? s : { ...s, annualLeave: annualLeaveStatus }));
+  }, [annualLeaveStatus]);
 
   // Realtime: when data-ops sync completes (collectedTime or WIP), refresh time metrics.
-  useEffect(() => {
-    if (!userInitials || !isActive) return;
-
-    let eventSource: EventSource | null = null;
-    let refreshTimer: number | null = null;
-
-    const scheduleRefresh = () => {
-      if (refreshTimer) {
-        window.clearTimeout(refreshTimer);
-      }
-      refreshTimer = window.setTimeout(() => {
+  // Migrated to useRealtimeChannel.
+  const { status: dataOpsStatus } = useRealtimeChannel(
+    '/api/data-operations/stream',
+    {
+      event: 'dataOps.synced',
+      name: 'dataOps',
+      enabled: !!userInitials && isActive && homeDataReady && isPageVisible,
+      debounceMs: 500,
+      onChange: () => {
+        setDataOpsPulseNonce((n) => n + 1);
         void handleRefreshTimeMetrics();
-      }, 500);
-    };
-
-    try {
-      eventSource = new EventSource('/api/data-operations/stream');
-      eventSource.addEventListener('dataOps.synced', scheduleRefresh as EventListener);
-      eventSource.onerror = () => {
-        // Browser auto-retries; keep handler light.
-      };
-    } catch (error) {
-      console.warn('[Home] Failed to connect data-ops realtime stream:', error);
+      },
     }
-
-    return () => {
-      if (refreshTimer) {
-        window.clearTimeout(refreshTimer);
-      }
-      try {
-        if (eventSource) {
-          eventSource.close();
-        }
-      } catch {
-        // ignore
-      }
-    };
-  }, [isActive, userInitials, handleRefreshTimeMetrics]);
+  );
+  useEffect(() => {
+    setRealtimeChannelStatus((s) => (s.dataOps === dataOpsStatus ? s : { ...s, dataOps: dataOpsStatus }));
+  }, [dataOpsStatus]);
 
   // Realtime: when attendance changes (someone confirms), refresh team attendance view.
-  useEffect(() => {
-    if (!userInitials || !isActive) return;
-
-    let eventSource: EventSource | null = null;
-    let refreshTimer: number | null = null;
-
-    const scheduleRefresh = (evt?: Event) => {
-      if (refreshTimer) {
-        window.clearTimeout(refreshTimer);
-      }
-
-      try {
-        const messageEvent = evt as MessageEvent | undefined;
-        const raw = typeof messageEvent?.data === 'string' ? messageEvent.data : '';
-        const payload = raw ? JSON.parse(raw) : null;
+  // Migrated to useRealtimeChannel — hook handles debounce; payload last-write-wins captures most recent initials.
+  type AttendancePayload = { initials?: string };
+  const { status: attendanceStatus } = useRealtimeChannel<AttendancePayload>(
+    '/api/attendance/attendance/stream',
+    {
+      event: 'attendance.changed',
+      name: 'attendance',
+      enabled: !!userInitials && isActive && homeDataReady && isPageVisible,
+      debounceMs: 350,
+      onChange: async (payload) => {
         const initials = payload?.initials ? String(payload.initials).toUpperCase() : null;
-        if (initials) {
-          setAttendanceRealtimeHighlightInitials(initials);
-        }
+        if (initials) setAttendanceRealtimeHighlightInitials(initials);
         setAttendanceRealtimePulseNonce((n) => n + 1);
-      } catch {
-        // Non-blocking
-      }
-
-      refreshTimer = window.setTimeout(async () => {
         try {
           const response = await fetch('/api/attendance/getAttendance', {
             method: 'POST',
@@ -2198,102 +2561,171 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
         } catch (error) {
           console.warn('[Home] Failed to refresh attendance (realtime):', error);
         }
-      }, 350);
-    };
-
-    try {
-      eventSource = new EventSource('/api/attendance/attendance/stream');
-      eventSource.addEventListener('attendance.changed', scheduleRefresh as EventListener);
-      eventSource.onerror = () => {
-        // Browser will auto-retry
-      };
-    } catch (error) {
-      console.warn('[Home] Failed to connect attendance realtime stream:', error);
+      },
     }
-
-    return () => {
-      if (refreshTimer) {
-        window.clearTimeout(refreshTimer);
-      }
-      try {
-        if (eventSource) {
-          eventSource.close();
-        }
-      } catch {
-        // ignore
-      }
-    };
-  }, [isActive, userInitials]);
+  );
+  useEffect(() => {
+    setRealtimeChannelStatus((s) => (s.attendance === attendanceStatus ? s : { ...s, attendance: attendanceStatus }));
+  }, [attendanceStatus]);
 
   // Realtime: when future bookings change, refresh bookings so other users see updates.
-  useEffect(() => {
-    if (!userInitials || !isActive) return;
-
-    let eventSource: EventSource | null = null;
-    let refreshTimer: number | null = null;
-
-    const scheduleRefresh = (evt?: Event) => {
-      if (refreshTimer) {
-        window.clearTimeout(refreshTimer);
-      }
-
-      try {
-        const messageEvent = evt as MessageEvent | undefined;
-        const raw = typeof messageEvent?.data === 'string' ? messageEvent.data : '';
-        const payload = raw ? JSON.parse(raw) : null;
+  // Migrated to useRealtimeChannel with reducePayload to merge per-event metadata across debounce window.
+  type FutureBookingsPayload = {
+    id?: string | number;
+    spaceType?: string;
+    changeType?: string;
+  };
+  const { status: futureBookingsStatus } = useRealtimeChannel<FutureBookingsPayload>(
+    '/api/future-bookings/stream',
+    {
+      event: 'futureBookings.changed',
+      name: 'futureBookings',
+      enabled: !!userInitials && isActive && homeDataReady && isPageVisible,
+      debounceMs: 350,
+      // Last-write-wins for meta (matches pre-migration behaviour).
+      reducePayload: (_prev, incoming) => incoming || _prev,
+      onChange: async (payload) => {
         const id = payload?.id !== undefined ? String(payload.id) : undefined;
-        const spaceType = payload?.spaceType ? String(payload.spaceType) : undefined;
+        const spaceTypeRaw = payload?.spaceType ? String(payload.spaceType) : undefined;
         const changeType = payload?.changeType ? String(payload.changeType) : undefined;
-
-        if (id || spaceType || changeType) {
-          setFutureBookingsRealtimePulse((prev) => ({
-            nonce: (prev?.nonce || 0) + 1,
-            id,
-            spaceType: (spaceType === 'Boardroom' || spaceType === 'Soundproof Pod') ? spaceType : undefined,
-            changeType,
-          }));
-        } else {
-          setFutureBookingsRealtimePulse((prev) => ({ nonce: (prev?.nonce || 0) + 1 }));
-        }
-      } catch {
-        setFutureBookingsRealtimePulse((prev) => ({ nonce: (prev?.nonce || 0) + 1 }));
-      }
-
-      refreshTimer = window.setTimeout(async () => {
+        const spaceType: 'Boardroom' | 'Soundproof Pod' | undefined =
+          spaceTypeRaw === 'Boardroom' || spaceTypeRaw === 'Soundproof Pod' ? spaceTypeRaw : undefined;
+        setFutureBookingsRealtimePulse((prev) => ({
+          nonce: (prev?.nonce || 0) + 1,
+          id,
+          spaceType,
+          changeType,
+        }));
         try {
           const response = await fetch('/api/future-bookings');
           if (!response.ok) return;
           const data = await response.json();
           setFutureBookings(data);
+          try { safeSetItem('futureBookingsSnapshot', JSON.stringify(data)); } catch { /* ignore */ }
         } catch (error) {
           console.warn('[Home] Failed to refresh future bookings (realtime):', error);
         }
-      }, 350);
-    };
-
-    try {
-      eventSource = new EventSource('/api/future-bookings/stream');
-      eventSource.addEventListener('futureBookings.changed', scheduleRefresh as EventListener);
-      eventSource.onerror = () => {
-        // Browser will auto-retry
-      };
-    } catch (error) {
-      console.warn('[Home] Failed to connect future bookings realtime stream:', error);
+      },
     }
+  );
+  useEffect(() => {
+    setRealtimeChannelStatus((s) => (s.futureBookings === futureBookingsStatus ? s : { ...s, futureBookings: futureBookingsStatus }));
+  }, [futureBookingsStatus]);
 
-    return () => {
-      if (refreshTimer) {
-        window.clearTimeout(refreshTimer);
-      }
-      try {
-        if (eventSource) {
-          eventSource.close();
-        }
-      } catch {
-        // ignore
-      }
+  // R7: Hub Tools → "Demo Realtime Pulse" — staggered cue across every wired
+  // tile so a dev can preview the live-update visual without waiting for a
+  // real server event. Listens for `demoRealtimePulse` CustomEvent.
+  useEffect(() => {
+    const handler = () => {
+      // Stagger so each tile pulses ~120ms apart — feels like a wave.
+      let i = 0;
+      const fire = (fn: () => void) => window.setTimeout(fn, (i++) * 120);
+      fire(() => setDataOpsPulseNonce((n) => n + 1));
+      fire(() => setOpsQueuePulseNonce((n) => n + 1));
+      fire(() => setOutstandingBalancesPulseNonce((n) => n + 1));
+      fire(() => setMattersPulseNonce((n) => n + 1));
+      fire(() => setDocWorkspacePulseNonce((n) => n + 1));
+      fire(() => setEnquiriesPulseNonce((n) => n + 1));
+      fire(() => setAnnualLeavePulseNonce((n) => n + 1));
+      fire(() => setAttendanceRealtimePulseNonce((n) => n + 1));
+      fire(() => {
+        setFutureBookingsRealtimePulse((prev) => ({
+          nonce: (prev?.nonce || 0) + 1,
+          changeType: 'demo',
+        }));
+      });
     };
-  }, [isActive, userInitials]);
+    window.addEventListener('demoRealtimePulse', handler);
+    return () => window.removeEventListener('demoRealtimePulse', handler);
+  }, []);
+
+  // R7 B1: Outstanding balances stream — bumps tile pulse on sync completion.
+  // Migrated to useRealtimeChannel.
+  const { status: outstandingBalancesStatus } = useRealtimeChannel(
+    '/api/outstanding-balances/stream',
+    {
+      event: 'outstandingBalances.changed',
+      name: 'outstandingBalances',
+      enabled: !!userInitials && isActive && homeDataReady && isPageVisible,
+      onChange: () => {
+        setOutstandingBalancesPulseNonce((n) => n + 1);
+        try { window.dispatchEvent(new CustomEvent('helix:outstandingBalancesChanged')); } catch { /* ignore */ }
+      },
+    }
+  );
+  useEffect(() => {
+    setRealtimeChannelStatus((s) => (s.outstandingBalances === outstandingBalancesStatus ? s : { ...s, outstandingBalances: outstandingBalancesStatus }));
+  }, [outstandingBalancesStatus]);
+
+  // R7 B6: Ops queue stream — bumps OperationsQueue tile pulse on any mutation.
+  // Migrated to useRealtimeChannel.
+  const { status: opsQueueStatus } = useRealtimeChannel(
+    '/api/ops-queue/stream',
+    {
+      event: 'opsQueue.changed',
+      name: 'opsQueue',
+      enabled: !!userInitials && isActive && homeDataReady && isPageVisible,
+      onChange: () => {
+        setOpsQueuePulseNonce((n) => n + 1);
+        try { window.dispatchEvent(new CustomEvent('helix:opsQueueChanged')); } catch { /* ignore */ }
+      },
+    }
+  );
+  useEffect(() => {
+    setRealtimeChannelStatus((s) => (s.opsQueue === opsQueueStatus ? s : { ...s, opsQueue: opsQueueStatus }));
+  }, [opsQueueStatus]);
+
+  // R7 B3: Doc workspace stream — refetches pending-actions tile on upload.
+  // Migrated to useRealtimeChannel.
+  const { status: docWorkspaceStatus } = useRealtimeChannel(
+    '/api/doc-workspace/stream',
+    {
+      event: 'docWorkspace.changed',
+      name: 'docWorkspace',
+      enabled: !!userInitials && isActive && homeDataReady && isPageVisible,
+      debounceMs: 400,
+      onChange: () => {
+        setDocWorkspacePulseNonce((n) => n + 1);
+        void fetchPendingDocActions();
+      },
+    }
+  );
+  useEffect(() => {
+    setRealtimeChannelStatus((s) => (s.docWorkspace === docWorkspaceStatus ? s : { ...s, docWorkspace: docWorkspaceStatus }));
+  }, [docWorkspaceStatus]);
+
+  // R7 B2: Matters stream — bumps tile pulse when a matter is created/updated.
+  // Migrated to useRealtimeChannel.
+  const { status: mattersStatus } = useRealtimeChannel(
+    '/api/matters/stream',
+    {
+      event: 'matters.changed',
+      name: 'matters',
+      enabled: !!userInitials && isActive && homeDataReady && isPageVisible,
+      onChange: () => {
+        setMattersPulseNonce((n) => n + 1);
+        try { window.dispatchEvent(new CustomEvent('helix:mattersChanged')); } catch { /* ignore */ }
+      },
+    }
+  );
+  useEffect(() => {
+    setRealtimeChannelStatus((s) => (s.matters === mattersStatus ? s : { ...s, matters: mattersStatus }));
+  }, [mattersStatus]);
+
+  // R7 B4 client wiring: app shell holds the sole enquiries EventSource and
+  // dispatches `helix:enquiriesChanged` for any consumer to pulse on. Also
+  // serves as the activity-feed pulse (B7).
+  useEffect(() => {
+    const handler = () => setEnquiriesPulseNonce((n) => n + 1);
+    window.addEventListener('helix:enquiriesChanged', handler);
+    return () => window.removeEventListener('helix:enquiriesChanged', handler);
+  }, []);
+  // Mark enquiries channel open if app-shell SSE has dispatched at least one event.
+  useEffect(() => {
+    if (enquiriesPulseNonce > 0) {
+      setRealtimeChannelStatus((s) => (s.enquiries === 'open' ? s : { ...s, enquiries: 'open' }));
+    }
+  }, [enquiriesPulseNonce]);
 
   // Quick Actions bar ready state - show skeletons until user data is available
   const quickActionsReady = hasStartedParallelFetch && Boolean(userInitials);
@@ -2372,7 +2804,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
       // for Home enquiry counts so Home and Prospects stay aligned.
 
       const effectiveEmail = currentUserEmail;
-      const isGodMode = isDevOwner(userData?.[0]);
+      const isGodMode = isDevOwner(userData?.[0]) && !HOME_FORCE_MINE_LOCAL;
 
       const today = new Date();
       const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -2572,6 +3004,10 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
   // Fires all requests simultaneously to reduce waterfall delay by ~600-800ms
   // ═════════════════════════════════════════════════════════════════════════════
   useEffect(() => {
+    if (!isActive) {
+      return;
+    }
+
     // Dev owners still need WIP even in local-data mode
     const devOwnerLocal = useLocalData && isDevOwner(userData?.[0]);
 
@@ -2581,6 +3017,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
       setIsLoadingAnnualLeave(false);
       setIsLoadingWipClio(false);
       setIsLoadingEnquiryMetrics(false);
+      setIsLoadingHomeMatters(false);
       setIsActionsLoading(false);
       return;
     }
@@ -2599,6 +3036,53 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
     
     // Dedupe: skip if same request already in progress
     const requestKey = `parallel:${email}:${initials}:${entraId}`;
+
+    // SWR hydration: if we have cached data for this key, hand it back to React
+    // synchronously before any fetch fires. This keeps matter/enquiry boxes
+    // populated when the user returns to Home (or an admin switches users back
+    // to a previously seen profile) without waiting for the network.
+    const now = Date.now();
+    const homeMattersCacheFresh = cachedHomeMattersEntry
+      && cachedHomeMattersEntry.key === requestKey
+      && now - cachedHomeMattersEntry.ts < HOME_DATA_FRESH_MS;
+    const enquiryMetricsCacheFresh = cachedEnquiryMetricsEntry
+      && cachedEnquiryMetricsEntry.key === requestKey
+      && now - cachedEnquiryMetricsEntry.ts < HOME_DATA_FRESH_MS;
+
+    if (cachedHomeMattersEntry && cachedHomeMattersEntry.key === requestKey) {
+      setHomeMatters(cachedHomeMattersEntry.matters as any);
+      setIsLoadingHomeMatters(false);
+    }
+    if (cachedEnquiryMetricsEntry && cachedEnquiryMetricsEntry.key === requestKey) {
+      const data = cachedEnquiryMetricsEntry.payload;
+      const hasUnifiedFromProps = Array.isArray(enquiries) && enquiries.length > 0 && Boolean(currentUserEmail);
+      if (!hasUnifiedFromProps) {
+        setEnquiriesToday(data.enquiriesToday ?? 0);
+        setEnquiriesWeekToDate(data.enquiriesWeekToDate ?? 0);
+        setEnquiriesMonthToDate(data.enquiriesMonthToDate ?? 0);
+        setPrevEnquiriesToday(data.prevEnquiriesToday ?? 0);
+        setPrevEnquiriesWeekToDate(data.prevEnquiriesWeekToDate ?? 0);
+        setPrevEnquiriesMonthToDate(data.prevEnquiriesMonthToDate ?? 0);
+      }
+      setPitchedEnquiriesToday(data.pitchedToday ?? 0);
+      setPitchedEnquiriesWeekToDate(data.pitchedWeekToDate ?? 0);
+      setPitchedEnquiriesMonthToDate(data.pitchedMonthToDate ?? 0);
+      setPrevPitchedEnquiriesToday(data.prevPitchedToday ?? 0);
+      setPrevPitchedEnquiriesWeekToDate(data.prevPitchedWeekToDate ?? 0);
+      setPrevPitchedEnquiriesMonthToDate(data.prevPitchedMonthToDate ?? 0);
+      setIsLoadingEnquiryMetrics(false);
+      hasSeededEnquiryMetricsRef.current = true;
+    }
+
+    // If both caches are still fresh for this user, skip the network entirely.
+    // The dedupe key below also stops re-runs, but this short-circuits the
+    // first run after a remount/user-switch when cache is warm.
+    if (homeMattersCacheFresh && enquiryMetricsCacheFresh
+        && parallelFetchKeyRef.current === requestKey) {
+      setHasStartedParallelFetch(true);
+      return;
+    }
+
     if (parallelFetchKeyRef.current === requestKey) {
       setHasStartedParallelFetch(true);
       return;
@@ -2616,7 +3100,12 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
       setIsLoadingAnnualLeave(true);
       setIsActionsLoading(true);
       setIsLoadingWipClio(true);
-      setIsLoadingEnquiryMetrics(!hasSeededEnquiryMetricsRef.current);
+      // Only flip the matter/enquiry skeletons on if we don't already have
+      // cached/seeded data — prevents the visible flash on tab return.
+      if (!homeMattersCacheFresh) {
+        setIsLoadingHomeMatters(true);
+      }
+      setIsLoadingEnquiryMetrics(!hasSeededEnquiryMetricsRef.current && !enquiryMetricsCacheFresh);
 
       let attendanceDone = false;
       let annualLeaveDone = false;
@@ -2761,7 +3250,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
         });
 
       // Dev-owner god mode: use team aggregate endpoint on boot (no user switch yet → no originalAdminUser)
-      const useTeamWip = isDevOwner(userData?.[0]) && !originalAdminUser;
+      const useTeamWip = isDevOwner(userData?.[0]) && !originalAdminUser && !HOME_FORCE_MINE_LOCAL;
       const wipFetchUrl = useTeamWip
         ? '/api/home-wip/team'
         : entraId ? `/api/home-wip?entraId=${encodeURIComponent(entraId)}` : null;
@@ -2825,6 +3314,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
           const data = await enquiriesRes.json();
           if (!isLatestRun()) return;
           hasSeededEnquiryMetricsRef.current = true;
+          cachedEnquiryMetricsEntry = { key: requestKey, payload: data, ts: Date.now() };
           if (!hasUnifiedEnquiryDataset) {
             setEnquiriesToday(data.enquiriesToday ?? 0);
             setEnquiriesWeekToDate(data.enquiriesWeekToDate ?? 0);
@@ -2863,11 +3353,39 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
         enquiriesRequest = runEnquiryMetricsFetch();
       }
 
+      // Matters: fetch recent new-space matters directly for the Home dashboard.
+      // Dev owner gets all (no name filter); others scope to their name.
+      const fullName = userData[0]?.FullName || '';
+      const isOwner = isDevOwner(userData[0]) && !HOME_FORCE_MINE_LOCAL;
+      const mattersQueryName = isOwner ? '' : fullName;
+      const mattersUrl = `/api/matters-new-space?limit=50${mattersQueryName ? `&fullName=${encodeURIComponent(mattersQueryName)}` : ''}`;
+      const mattersRequest = fetch(mattersUrl, { headers: { Accept: 'application/json' } })
+        .then(async (mattersRes) => {
+          if (!isLatestRun() || !mattersRes.ok) return;
+          const data = await mattersRes.json();
+          if (!isLatestRun()) return;
+          const newSpaceMatters = Array.isArray(data.matters) ? data.matters : [];
+          const normalized = newSpaceMatters.map((matter: any) =>
+            normalizeMatterData(matter, fullName, 'vnet_direct')
+          );
+          cachedHomeMattersEntry = { key: requestKey, matters: normalized, ts: Date.now() };
+          setHomeMatters(normalized);
+        })
+        .catch((error: any) => {
+          if (!isLatestRun()) return;
+          console.error('[parallel-fetch] Matters error:', error);
+        })
+        .finally(() => {
+          if (!isLatestRun()) return;
+          setIsLoadingHomeMatters(false);
+        });
+
       await Promise.allSettled([
         attendanceRequest,
         annualLeaveRequest,
         wipRequest,
         enquiriesRequest,
+        mattersRequest,
       ]);
 
       if (isLatestRun()) {
@@ -2881,7 +3399,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
       // Only reset on unmount (user switches) — NOT on dep-change re-fires,
       // which would defeat the parallelFetchKeyRef dedup.
     };
-  }, [userData?.[0]?.EntraID, userData?.[0]?.['Entra ID'], userData?.[0]?.Email, useLocalData, teamData]);
+  }, [isActive, userData?.[0]?.EntraID, userData?.[0]?.['Entra ID'], userData?.[0]?.Email, useLocalData, teamData]);
 
   // ═════════════════════════════════════════════════════════════════════════════
   // LEGACY EFFECTS BELOW - Now skipped when parallel fetch completes
@@ -3101,7 +3619,8 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
     lastTimeMetricsLogRef.current = snapshot;
   }, [wipClioData, isLoadingWipClio, wipClioError]);
 
-  // Home no longer fetches matters itself; it receives normalized matters from App.
+  // Home fetches recent new-space matters directly via parallel fetch (limit=50).
+  // Falls back to app-provided matters if home fetch hasn't completed yet.
   // Keep the effect boundary to clear local cache if that logic remains elsewhere.
   useEffect(() => {
     const fullName = userData?.[0]?.FullName || '';
@@ -3164,13 +3683,14 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
   // Transactions removed — Home doesn't render raw transactions (only in useLocalData dev mode).
   // Fees Recovered uses /api/reporting/management-datasets instead.
   useHomeMetricsStream({
-    autoStart: !demoModeEnabled && homePrimaryReady,
+    autoStart: !demoModeEnabled && isActive && homeDataReady,
     metrics: ['futureBookings', 'outstandingBalances'],
     bypassCache: false,
     onMetric: (name, data) => {
       switch (name) {
         case 'futureBookings':
           setFutureBookings(data as any);
+          try { safeSetItem('futureBookingsSnapshot', JSON.stringify(data)); } catch { /* ignore */ }
           onBoardroomBookingsFetched?.((data as any).boardroomBookings || []);
           onSoundproofBookingsFetched?.((data as any).soundproofBookings || []);
           break;
@@ -3404,11 +3924,22 @@ const handleAttendanceUpdated = (updatedRecords: AttendanceRecord[]) => {
     const url = `/api/attendance/updateAttendance`;
     const payload = { initials, weekStart, attendanceDays };
   debugLog('API call:', url, payload);
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
+    // Dev proxy can be slow when many SSE streams are occupying the HTTP/1
+    // connection pool, so we give the save 20s before aborting. Without this
+    // the fetch could hang indefinitely and trap the user in the modal.
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 20000);
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
   debugLog('API status:', res.status);
     if (!res.ok) {
       console.error('🔍 API call failed with status:', res.status);
@@ -3739,7 +4270,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         return null; // Data not ready yet — will show as loading/skeleton
       }
       // Dev owner god mode: show firm-wide total directly
-      const isFirmWide = isDevOwner(userData?.[0]) && !originalAdminUser;
+      const isFirmWide = isDevOwner(userData?.[0]) && !originalAdminUser && !HOME_FORCE_MINE_LOCAL;
       if (isFirmWide) {
         return outstandingBalancesData.data.reduce(
           (sum: number, record: any) => sum + (Number(record.total_outstanding_balance) || 0),
@@ -3800,7 +4331,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
 
       let effectiveEmail = String(userData?.[0]?.Email || currentUserEmail || '').toLowerCase().trim();
       let effectiveInitials = String(userData?.[0]?.Initials || '').toUpperCase().trim();
-      const godMode = isDevOwner(userData?.[0]);
+      const godMode = isDevOwner(userData?.[0]) && !HOME_FORCE_MINE_LOCAL;
 
       if (!effectiveEmail && !effectiveInitials) return null;
 
@@ -3864,18 +4395,23 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         .map((enquiry: any) => {
           const parsedDate = parseDateValue(enquiry.Touchpoint_Date);
           if (!parsedDate || !matchesUser(enquiry)) return null;
+          const firstName = String(enquiry.First_Name || '').trim();
+          const lastName = String(enquiry.Last_Name || '').trim();
+          const fullName = `${firstName} ${lastName}`.trim() || String(enquiry.Email || '').trim() || '—';
           return {
             id: String(enquiry.ID || '').trim(),
             date: parsedDate,
             dayKey: parsedDate.toISOString().slice(0, 10),
             weekKey: formatWeekFragment(parsedDate),
             hourKey: formatHourFragment(parsedDate),
-            name: `${String(enquiry.First_Name || '').trim()} ${String(enquiry.Last_Name || '').trim()}`.trim() || String(enquiry.Email || '').trim() || '—',
+            name: fullName,
+            firstName,
+            lastName,
             poc: String(enquiry.Point_of_Contact || '').trim(),
             aow: String(enquiry.Area_of_Work || enquiry.aow || 'Other').trim() || 'Other',
           };
         })
-        .filter(Boolean) as Array<{ id: string; date: Date; dayKey: string; weekKey: string; hourKey: string; name: string; poc: string; aow: string }>;
+        .filter(Boolean) as Array<{ id: string; date: Date; dayKey: string; weekKey: string; hourKey: string; name: string; firstName: string; lastName: string; poc: string; aow: string }>;
 
       const userMatters = (normalizedMatters || []).filter((matter) => godMode || namesMatchForOutstanding(matter.responsibleSolicitor, userResponsibleName));
 
@@ -3944,6 +4480,154 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
           .sort((a, b) => b.count - a.count);
       };
 
+      // ── Phase C: prospect chip baskets ──
+      // Privacy: redact full name to "F. Lastname" (first initial + last name).
+      const redactName = (first: string, last: string, fallback: string) => {
+        const f = first.trim();
+        const l = last.trim();
+        if (f && l) return `${f.charAt(0).toUpperCase()}. ${l}`;
+        if (l) return l;
+        if (f) return f;
+        return fallback || '—';
+      };
+      // Derive tiny fee-earner initials badge from poc (email, initials, or
+      // free text). Keeps to 2 chars for chip density.
+      const derivePocInitials = (poc: string): string | undefined => {
+        const raw = String(poc || '').trim();
+        if (!raw) return undefined;
+        if (raw.includes('@')) {
+          const local = raw.split('@')[0].replace(/[^a-zA-Z]/g, '');
+          if (!local) return undefined;
+          return local.slice(0, 2).toUpperCase();
+        }
+        if (raw.length <= 3) return raw.toUpperCase();
+        const parts = raw.split(/\s+/).filter(Boolean);
+        if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+        return raw.slice(0, 2).toUpperCase();
+      };
+
+      const collectEnquiryProspectsInRange = (
+        rangeStart: Date,
+        rangeEnd: Date,
+        cap = 20,
+      ): ConversionComparisonProspect[] => {
+        const startBoundary = startOfDay(rangeStart);
+        const endBoundary = endOfDay(rangeEnd);
+        const seenId = new Set<string>();
+        const matched = userEnquiries
+          .filter((enquiry) => enquiry.date >= startBoundary && enquiry.date <= endBoundary)
+          .sort((a, b) => b.date.getTime() - a.date.getTime());
+        const out: ConversionComparisonProspect[] = [];
+        for (const enq of matched) {
+          const dedupeKey = enq.id || `${enq.firstName}|${enq.lastName}|${enq.aow}`;
+          if (seenId.has(dedupeKey)) continue;
+          seenId.add(dedupeKey);
+          const fullName = [enq.firstName, enq.lastName].filter(Boolean).join(' ').trim() || String(enq.name || '').trim();
+          out.push({
+            id: dedupeKey,
+            displayName: redactName(enq.firstName, enq.lastName, enq.name),
+            feeEarnerInitials: derivePocInitials(enq.poc),
+            aow: enq.aow,
+            matterOpened: false,
+            fullName: fullName || undefined,
+            occurredAt: enq.date instanceof Date ? enq.date.toISOString() : undefined,
+          });
+          if (out.length >= cap) break;
+        }
+        return out;
+      };
+
+      const collectMatterProspectsInRange = (
+        rangeStart: Date,
+        rangeEnd: Date,
+        cap = 20,
+      ): ConversionComparisonProspect[] => {
+        const startBoundary = startOfDay(rangeStart);
+        const endBoundary = endOfDay(rangeEnd);
+        const matched = userMatters
+          .map((matter) => ({
+            matter,
+            openDate: parseOpenDate((matter as any).openDate),
+          }))
+          .filter((entry) => entry.openDate && entry.openDate >= startBoundary && entry.openDate <= endBoundary)
+          .sort((a, b) => (b.openDate?.getTime() || 0) - (a.openDate?.getTime() || 0));
+        const out: ConversionComparisonProspect[] = [];
+        for (const { matter, openDate } of matched) {
+          const raw = String((matter as any).clientName || '').trim();
+          if (!raw) continue;
+          // Client names may already be "Last, First" or "First Last" — split pragmatically.
+          let first = '';
+          let last = raw;
+          if (raw.includes(',')) {
+            const [lastPart, firstPart] = raw.split(',').map((s: string) => s.trim());
+            last = lastPart;
+            first = firstPart || '';
+          } else {
+            const parts = raw.split(/\s+/).filter(Boolean);
+            if (parts.length >= 2) {
+              first = parts[0];
+              last = parts.slice(1).join(' ');
+            }
+          }
+          const feKey = String((matter as any).responsibleSolicitor || (matter as any).originatingSolicitor || '').trim();
+          const rawDisplayNumber = String((matter as any).displayNumber || '').trim();
+          const rawClioId = String((matter as any).matterId || (matter as any).clioMatterId || '').trim();
+          const isDemoRow = rawDisplayNumber.toUpperCase().startsWith('HELIX01-')
+            || rawDisplayNumber.toUpperCase().startsWith('DEMO-');
+          out.push({
+            id: String((matter as any).matterId || (matter as any).displayNumber || `${raw}|${out.length}`),
+            displayName: redactName(first, last, raw),
+            feeEarnerInitials: derivePocInitials(feKey),
+            aow: String((matter as any).practiceArea || (matter as any).aow || 'Other') || 'Other',
+            matterOpened: true,
+            fullName: raw || undefined,
+            occurredAt: openDate instanceof Date ? openDate.toISOString() : undefined,
+            displayNumber: rawDisplayNumber || undefined,
+            clioMatterId: !isDemoRow && rawClioId ? rawClioId : undefined,
+          });
+          if (out.length >= cap) break;
+        }
+        return out;
+      };
+
+      const collectMatterProspectsAcrossRanges = (
+        ranges: Array<{ start: Date; end: Date; isFuture?: boolean }>,
+        cap = 20,
+      ): ConversionComparisonProspect[] => {
+        const seen = new Set<string>();
+        const out: ConversionComparisonProspect[] = [];
+        for (const range of ranges) {
+          if (range.isFuture || range.end < range.start) continue;
+          const chunk = collectMatterProspectsInRange(range.start, range.end, cap);
+          for (const prospect of chunk) {
+            if (seen.has(prospect.id)) continue;
+            seen.add(prospect.id);
+            out.push(prospect);
+            if (out.length >= cap) return out;
+          }
+        }
+        return out;
+      };
+
+      const collectEnquiryProspectsAcrossRanges = (
+        ranges: Array<{ start: Date; end: Date; isFuture?: boolean }>,
+        cap = 20,
+      ): ConversionComparisonProspect[] => {
+        const seen = new Set<string>();
+        const out: ConversionComparisonProspect[] = [];
+        for (const range of ranges) {
+          if (range.isFuture || range.end < range.start) continue;
+          const chunk = collectEnquiryProspectsInRange(range.start, range.end, cap);
+          for (const prospect of chunk) {
+            if (seen.has(prospect.id)) continue;
+            seen.add(prospect.id);
+            out.push(prospect);
+            if (out.length >= cap) return out;
+          }
+        }
+        return out;
+      };
+
       const pctFromCounts = (matters: number, enquiryCount: number) => enquiryCount > 0
         ? Number(((matters / enquiryCount) * 100).toFixed(1))
         : 0;
@@ -4009,25 +4693,33 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         })
       );
 
+      // 2026-04-20: Month chart switched from 4 weekly buckets to one bucket
+      // per day. Weekly aggregation collapsed a whole month into 4 chunky
+      // points which read as "almost nothing happens" on compact charts. A
+      // daily series across ~30 dots is dense enough to read as granular
+      // progress while still compact on 260–320px viewBoxes. `monthRanges`
+      // below mirrors the same day-by-day breakdown so prospect collection
+      // stays aligned with the chart.
       const buildMonthBuckets = (currentMonthDate: Date, previousMonthDate: Date) => {
         const currentMonthDays = new Date(currentMonthDate.getFullYear(), currentMonthDate.getMonth() + 1, 0).getDate();
         const previousMonthDays = new Date(previousMonthDate.getFullYear(), previousMonthDate.getMonth() + 1, 0).getDate();
-        const currentBucketSize = Math.ceil(currentMonthDays / 4);
-        const previousBucketSize = Math.ceil(previousMonthDays / 4);
-
-        return Array.from({ length: 4 }, (_, index) => {
-          const currentStart = new Date(currentMonthDate.getFullYear(), currentMonthDate.getMonth(), 1 + index * currentBucketSize);
-          const currentEnd = new Date(currentMonthDate.getFullYear(), currentMonthDate.getMonth(), Math.min(currentMonthDays, (index + 1) * currentBucketSize));
-          const previousStart = new Date(previousMonthDate.getFullYear(), previousMonthDate.getMonth(), 1 + index * previousBucketSize);
-          const previousEnd = new Date(previousMonthDate.getFullYear(), previousMonthDate.getMonth(), Math.min(previousMonthDays, (index + 1) * previousBucketSize));
-          const isFuture = currentStart > today;
+        return Array.from({ length: currentMonthDays }, (_, index) => {
+          const currentDay = new Date(currentMonthDate.getFullYear(), currentMonthDate.getMonth(), 1 + index);
+          // Align previous-period day by its day-of-month index, capped at
+          // the previous month's length (Feb 28 → Mar 28).
+          const prevDayIndex = Math.min(index, previousMonthDays - 1);
+          const previousDay = new Date(previousMonthDate.getFullYear(), previousMonthDate.getMonth(), 1 + prevDayIndex);
+          const isFuture = currentDay > today;
+          const dayNum = index + 1;
           return {
-            label: `Week ${index + 1}`,
-            axisLabel: index < 3 ? `W${index + 1}` : 'W4+',
-            currentEnquiries: isFuture ? 0 : countEnquiriesInRange(currentStart, currentEnd > today ? today : currentEnd, 'week'),
-            previousEnquiries: countEnquiriesInRange(previousStart, previousEnd, 'week'),
-            currentMatters: isFuture ? 0 : countMattersInRange(currentStart, currentEnd > today ? today : currentEnd),
-            previousMatters: countMattersInRange(previousStart, previousEnd),
+            label: `Day ${dayNum}`,
+            // Sparse axis label: first of each week only (chart rarely shows
+            // them but keeps data shape consistent with quarter buckets).
+            axisLabel: dayNum === 1 || dayNum % 7 === 1 ? String(dayNum) : undefined,
+            currentEnquiries: isFuture ? 0 : countEnquiriesInRange(currentDay, currentDay, 'day'),
+            previousEnquiries: countEnquiriesInRange(previousDay, previousDay, 'day'),
+            currentMatters: isFuture ? 0 : countMattersInRange(currentDay, currentDay),
+            previousMatters: countMattersInRange(previousDay, previousDay),
             isFuture,
             currentAvailable: !isFuture,
           };
@@ -4060,12 +4752,10 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
       const sameDaysWeekBuckets = markCurrentEndpoint(buildWorkingDayBuckets(startOfWeek, prevWeekStart, true));
       const monthBuckets = markCurrentEndpoint(buildMonthBuckets(startOfMonth, prevMonthStart));
       const quarterBuckets = markCurrentEndpoint(buildQuarterBuckets(startOfQuarter, prevQuarterStart));
+      // 2026-04-20: daily month buckets → one range per day.
       const monthRanges = monthBuckets.map((bucket, index) => {
-        const daysInMonth = new Date(startOfMonth.getFullYear(), startOfMonth.getMonth() + 1, 0).getDate();
-        const bucketSize = Math.ceil(daysInMonth / 4);
-        const start = new Date(startOfMonth.getFullYear(), startOfMonth.getMonth(), 1 + index * bucketSize);
-        const end = new Date(startOfMonth.getFullYear(), startOfMonth.getMonth(), Math.min(daysInMonth, (index + 1) * bucketSize));
-        return { start, end: end > today ? today : end, isFuture: bucket.isFuture };
+        const day = new Date(startOfMonth.getFullYear(), startOfMonth.getMonth(), 1 + index);
+        return { start: day, end: day > today ? today : day, isFuture: bucket.isFuture };
       });
       const quarterRanges = quarterBuckets.map((bucket, index) => {
         const start = addDays(startOfQuarter, index * 7);
@@ -4104,6 +4794,16 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         return countAowMixInRange(range.start, range.end, 'week');
       }));
 
+      // Phase C: per-section prospect lists (redacted, capped).
+      const todayEnquiryProspects = collectEnquiryProspectsInRange(todayEffective, todayEffective);
+      const todayMatterProspects = collectMatterProspectsInRange(todayEffective, todayEffective);
+      const thisWeekEnquiryProspects = collectEnquiryProspectsInRange(startOfWeek, today);
+      const thisWeekMatterProspects = collectMatterProspectsInRange(startOfWeek, today);
+      const thisMonthEnquiryProspects = collectEnquiryProspectsAcrossRanges(monthRanges);
+      const thisMonthMatterProspects = collectMatterProspectsAcrossRanges(monthRanges);
+      const thisQuarterEnquiryProspects = collectEnquiryProspectsAcrossRanges(quarterRanges);
+      const thisQuarterMatterProspects = collectMatterProspectsAcrossRanges(quarterRanges);
+
       return {
         items: [
           {
@@ -4121,6 +4821,8 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
             chartMode: 'hourly',
             buckets: todayHourlyBuckets,
             currentAowMix: todayAowMix,
+            currentEnquiryProspects: todayEnquiryProspects,
+            currentMatterProspects: todayMatterProspects,
           },
           {
             key: 'week-vs-last',
@@ -4137,6 +4839,8 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
             chartMode: 'working-days',
             buckets: fullWeekBuckets,
             currentAowMix: thisWeekAowMix,
+            currentEnquiryProspects: thisWeekEnquiryProspects,
+            currentMatterProspects: thisWeekMatterProspects,
           },
 
           {
@@ -4154,6 +4858,8 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
             chartMode: 'month-weeks',
             buckets: monthBuckets,
             currentAowMix: thisMonthAowMix,
+            currentEnquiryProspects: thisMonthEnquiryProspects,
+            currentMatterProspects: thisMonthMatterProspects,
           },
           {
             key: 'quarter-vs-last',
@@ -4170,6 +4876,8 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
             chartMode: 'quarter-weeks',
             buckets: quarterBuckets,
             currentAowMix: thisQuarterAowMix,
+            currentEnquiryProspects: thisQuarterEnquiryProspects,
+            currentMatterProspects: thisQuarterMatterProspects,
           },
         ],
       };
@@ -4329,7 +5037,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     const avgAmountLastWeekToDate = lastWeekToDateAmount / effectiveDaysSoFarLastWeek;
     const adjustedTarget = (5 - leaveDays) * 6;
 
-    const isFirmWideView = isDevOwner(userData?.[0]) && !originalAdminUser;
+    const isFirmWideView = isDevOwner(userData?.[0]) && !originalAdminUser && !HOME_FORCE_MINE_LOCAL;
 
     return [
       {
@@ -4513,8 +5221,77 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
       ? demoNames[demoDow === 1 ? 5 : 4] // Mon→Fri→Thu; Sat/Sun→Fri→Thu
       : 'Yesterday';
     const demoTitle = demoIsWeekend ? 'Friday' : 'Today';
-    return {
-    items: [
+
+    // 2026-04-21: synthesise demo prospect chips so the trail in the
+    // Conversion panel renders themed AoW bezels (icon + colour + +N
+    // overflow button) rather than neutral skeleton dashes. Distribution
+    // mirrors `currentAowMix`; matter mix is scaled proportionally so the
+    // matters trail also reflects the AoW palette without inheriting the
+    // enquiry totals. Names are anonymous demo placeholders; matters get
+    // synthetic HLX display numbers but no Clio ids — keeps the demo
+    // self-contained and prevents accidental link leaks.
+    const DEMO_LASTS = ['Smith','Patel','Khan','Brown','Wilson','Taylor','Davies','Evans','Walker','Robinson','Wright','Hughes','Edwards','Green','Hall','Turner','Cooper','King','Hill','Ward'];
+    const DEMO_FE = ['LZ','AC','KW','JW','LA','EA','RC'];
+    const expandMixToCount = (mix: ConversionComparisonAowItem[] | undefined, target: number): string[] => {
+      const out: string[] = [];
+      for (const m of (mix || [])) {
+        for (let i = 0; i < (m?.count || 0); i++) out.push(m.key);
+      }
+      if (out.length > target) out.length = target;
+      while (out.length < target) out.push((mix?.[0]?.key) || 'Other');
+      return out;
+    };
+    const scaleMix = (mix: ConversionComparisonAowItem[] | undefined, target: number): ConversionComparisonAowItem[] => {
+      const total = (mix || []).reduce((s, m) => s + (m?.count || 0), 0);
+      if (!mix || total <= 0 || target <= 0) return [];
+      const scaled = mix.map((m) => ({ key: m.key, count: Math.max(0, Math.round((m.count * target) / total)) }));
+      let sum = scaled.reduce((s, m) => s + m.count, 0);
+      let cursor = 0;
+      // Pad up
+      while (sum < target && scaled.length > 0) {
+        scaled[cursor % scaled.length].count += 1;
+        sum += 1;
+        cursor += 1;
+      }
+      // Trim down
+      while (sum > target) {
+        const idx = scaled.findIndex((m) => m.count > 0);
+        if (idx === -1) break;
+        scaled[idx].count -= 1;
+        sum -= 1;
+      }
+      return scaled;
+    };
+    const buildDemoProspects = (
+      total: number,
+      mix: ConversionComparisonAowItem[] | undefined,
+      section: 'enquiries' | 'matters',
+      bucketKey: string,
+    ): ConversionComparisonProspect[] => {
+      if (total <= 0) return [];
+      const aows = expandMixToCount(mix, total);
+      const seedChar = bucketKey.charCodeAt(0) || 0;
+      const offset = seedChar % DEMO_LASTS.length;
+      const feOffset = seedChar % DEMO_FE.length;
+      return aows.map((aow, i) => {
+        const lastIdx = (i + offset) % DEMO_LASTS.length;
+        const item: ConversionComparisonProspect = {
+          id: `demo-${section}-${bucketKey}-${i}`,
+          displayName: DEMO_LASTS[lastIdx],
+          feeEarnerInitials: DEMO_FE[(i + feOffset) % DEMO_FE.length],
+          aow,
+          matterOpened: section === 'matters',
+        };
+        if (section === 'matters') {
+          const num1 = String(10000 + (((i + 1) * 17 + bucketKey.length * 7) % 90000)).padStart(5, '0');
+          const num2 = String(10000 + (((i + 1) * 31 + bucketKey.length * 13) % 90000)).padStart(5, '0');
+          item.displayNumber = `HLX-${num1}-${num2}`;
+        }
+        return item;
+      });
+    };
+
+    const baseItems: ConversionComparisonItem[] = [
       {
         key: 'today',
         title: demoTitle,
@@ -4594,12 +5371,34 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
           { key: 'Property', count: 18 },
           { key: 'Employment', count: 8 },
         ],
-        buckets: [
-          { label: 'Week 1', axisLabel: 'W1', currentEnquiries: 18, previousEnquiries: 16, currentMatters: 4, previousMatters: 3 },
-          { label: 'Week 2', axisLabel: 'W2', currentEnquiries: 20, previousEnquiries: 18, currentMatters: 4, previousMatters: 3 },
-          { label: 'Week 3', axisLabel: 'W3', currentEnquiries: 22, previousEnquiries: 17, currentMatters: 4, previousMatters: 3 },
-          { label: 'Week 4', axisLabel: 'W4+', currentEnquiries: 12, previousEnquiries: 17, currentMatters: 2, previousMatters: 3 },
-        ],
+        // 2026-04-20: daily buckets (30) for a granular month shape. Demo
+        // rhythm: weekdays trend up 2–4 enquiries, weekends drop to 0–1,
+        // previous month runs a touch below. Current series truncated at
+        // demoDayOfMonth to keep the ghost-future tail visible.
+        buckets: (() => {
+          const demoDayOfMonth = Math.min(demoNow.getDate(), 22);
+          return Array.from({ length: 30 }, (_, i) => {
+            const dayNum = i + 1;
+            const isWeekendDemo = (i % 7 === 5) || (i % 7 === 6);
+            const cur = i < demoDayOfMonth
+              ? (isWeekendDemo ? (i % 3) : 2 + (i % 4))
+              : 0;
+            const prev = isWeekendDemo ? Math.max(0, (i + 1) % 3 - 1) : 1 + ((i * 3) % 4);
+            const curMatters = i < demoDayOfMonth && !isWeekendDemo && (i % 4 === 2) ? 1 : 0;
+            const prevMatters = !isWeekendDemo && (i % 5 === 1) ? 1 : 0;
+            const isFuture = i >= demoDayOfMonth;
+            return {
+              label: `Day ${dayNum}`,
+              axisLabel: dayNum === 1 || dayNum % 7 === 1 ? String(dayNum) : undefined,
+              currentEnquiries: cur,
+              previousEnquiries: prev,
+              currentMatters: curMatters,
+              previousMatters: prevMatters,
+              isFuture,
+              currentAvailable: !isFuture,
+            };
+          });
+        })(),
       },
       {
         key: 'quarter-vs-last',
@@ -4636,10 +5435,22 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
           { label: 'Week 13', axisLabel: 'Apr', currentEnquiries: 12, previousEnquiries: 13, currentMatters: 1, previousMatters: 2 },
         ],
       },
-    ],
-  }; }, []);
+    ];
+    return {
+      items: baseItems.map((item) => ({
+        ...item,
+        currentEnquiryProspects: buildDemoProspects(item.currentEnquiries, item.currentAowMix, 'enquiries', item.key),
+        currentMatterProspects: buildDemoProspects(
+          item.currentMatters,
+          scaleMix(item.currentAowMix, item.currentMatters),
+          'matters',
+          item.key,
+        ),
+      })),
+    };
+  }, []);
 
-  const displayTimeMetrics = demoModeEnabled ? demoTimeMetrics : timeMetrics;
+  const displayTimeMetrics = (demoModeEnabled ? demoTimeMetrics : timeMetrics) as MetricItem[];
   const displayEnquiriesToday = demoModeEnabled ? demoEnquiryMetrics.today : enquiriesToday;
   const displayPrevEnquiriesToday = demoModeEnabled ? demoEnquiryMetrics.prevToday : prevEnquiriesToday;
   const displayEnquiriesWeekToDate = demoModeEnabled ? demoEnquiryMetrics.week : enquiriesWeekToDate;
@@ -4676,11 +5487,11 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     const rawInitials = String(userData?.[0]?.Initials || '').trim().toUpperCase();
     return { email: rawEmail, initials: rawInitials };
   }, [userData]);
-  const isFirmWideDashboard = isDevOwner(userData?.[0]) && !originalAdminUser;
+  const isFirmWideDashboard = isDevOwner(userData?.[0]) && !originalAdminUser && !HOME_FORCE_MINE_LOCAL;
   const recentEnquiryRecords = useMemo(() => {
     const effectiveEmail = String(effectiveDashboardIdentity.email || '').toLowerCase().trim();
     const effectiveInitials = String(effectiveDashboardIdentity.initials || '').toUpperCase().trim();
-    if (!Array.isArray(deferredEnquiries) || deferredEnquiries.length === 0 || !effectiveEmail) return [];
+    if (!Array.isArray(deferredEnquiries) || deferredEnquiries.length === 0 || (!effectiveEmail && !effectiveInitials)) return [];
     const isAdmin = isFirmWideDashboard;
     const uniqueStrings = (values: unknown[]): string[] => Array.from(new Set(
       values
@@ -4795,6 +5606,10 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
   }, [recentEnquiryRecords, recentEnquirySnapshotRecords]);
 
   const seededRecentEnquiryRecords = recentEnquiryRecords.length > 0 ? recentEnquiryRecords : recentEnquirySnapshotRecords;
+  const homeBillingTileCount = useMemo(
+    () => Math.max(1, displayTimeMetrics.filter((metric: MetricItem) => !metric.title.toLowerCase().includes('outstanding')).length || 4),
+    [displayTimeMetrics],
+  );
 
   useEffect(() => {
     if (useLocalData || !homeMetricsUserKey) return;
@@ -4962,8 +5777,11 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
   };
 
   // Leave action handlers
+  // Always open — AnnualLeaveApprovals renders its own empty state ("All clear")
+  // when there are no pending approvals. Silent no-op made the action feel
+  // broken when the queue was empty.
   const handleApproveLeaveClick = () => {
-    if (approvalsNeeded.length > 0) {
+    {
       setBespokePanelContent(
         <Suspense fallback={<ModalSkeleton variant="annual-leave-approve" />}>
           <AnnualLeaveApprovals
@@ -5361,6 +6179,8 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
       'Update Attendance': { shortTitle: 'Confirm Your Attendance', description: 'Plan your 14-day schedule' },
       'Confirm Attendance': { shortTitle: 'Confirm Attendance', description: 'Plan your 14-day schedule' },
       'Book Space': { shortTitle: 'Book Room', description: 'Reserve a meeting room or workspace' },
+      'Verify ID': { shortTitle: 'Verify ID', description: 'Run a Tiller identity verification (address + PEP & sanctions)' },
+      'Log L&D': { shortTitle: 'Log L&D', description: 'Record a learning & development activity or plan' },
       'Team Attendance': { shortTitle: 'Team Leave', description: 'View who is away, upcoming leave, and leave history' },
       'Team Leave': { shortTitle: 'Team Leave', description: 'View who is away, upcoming leave, and leave history' },
     };
@@ -5475,25 +6295,23 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
             .finally(() => setIsLoadingAnnualLeave(false));
         }
         content = (
-          <Suspense fallback={<ModalSkeleton variant="annual-leave-request" />}>
-            <AnnualLeaveModal
-              userData={enrichedUserData}
-              totals={annualLeaveTotals ?? { standard: 0, unpaid: 0, sale: 0 }}
-              bankHolidays={bankHolidays}
-              futureLeave={futureLeaveRecords}
-              allLeave={annualLeaveAllData}
-              team={transformedTeamData}
-              isAdmin={hasAdminContext}
-              isLoadingAnnualLeave={isLoadingAnnualLeave}
-              onSubmitSuccess={async () => {
-                // Refresh annual leave data after successful submission
-                await refreshAnnualLeaveData(String(userData?.[0]?.Initials || ''), { forceRefresh: true });
-                setIsBespokePanelOpen(false);
-                setBespokePanelContent(null);
-                resetQuickActionsSelection();
-              }}
-            />
-          </Suspense>
+          <AnnualLeaveModal
+            userData={enrichedUserData}
+            totals={annualLeaveTotals ?? { standard: 0, unpaid: 0, sale: 0 }}
+            bankHolidays={bankHolidays}
+            futureLeave={futureLeaveRecords}
+            allLeave={annualLeaveAllData}
+            team={transformedTeamData}
+            isAdmin={hasAdminContext}
+            isLoadingAnnualLeave={isLoadingAnnualLeave}
+            onSubmitSuccess={async () => {
+              // Refresh annual leave data after successful submission
+              await refreshAnnualLeaveData(String(userData?.[0]?.Initials || ''), { forceRefresh: true });
+              setIsBespokePanelOpen(false);
+              setBespokePanelContent(null);
+              resetQuickActionsSelection();
+            }}
+          />
         );
         break;
       case 'Review Instructions':
@@ -5561,6 +6379,47 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         );
         break;
       case 'Verify ID':
+        content = (
+          <Suspense fallback={<ModalSkeleton variant="generic" />}>
+            <VerificationCheckForm
+              currentUser={userData?.[0]}
+              embedded
+              onBack={() => {
+                setIsBespokePanelOpen(false);
+                resetQuickActionsSelection();
+              }}
+              onSubmitSuccess={(msg) => {
+                showToast(msg, 'success');
+              }}
+              onSubmitError={(err) => {
+                showToast(err, 'error');
+              }}
+            />
+          </Suspense>
+        );
+        break;
+      case 'Log L&D':
+        content = (
+          <Suspense fallback={<ModalSkeleton variant="generic" />}>
+            <LearningDevelopmentForm
+              userData={userData ?? undefined}
+              teamData={teamData ?? null}
+              onBack={() => {
+                setIsBespokePanelOpen(false);
+                resetQuickActionsSelection();
+              }}
+              onSubmitSuccess={(message) => {
+                showToast(message || 'L&D entry saved', 'success');
+                setIsBespokePanelOpen(false);
+                resetQuickActionsSelection();
+              }}
+              onSubmitError={(error) => {
+                showToast('L&D entry failed', 'error', error);
+              }}
+            />
+          </Suspense>
+        );
+        break;
       case 'Review ID':
       case 'Review Risk':
         try {
@@ -5614,7 +6473,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
 
   // Group instruction next actions by type with counts and sample detail
   const groupedInstructionActions = useMemo(() => {
-    const actionGroups: Record<string, { count: number; icon: string; disabled?: boolean; sampleDetail: string }> = {};
+    const actionGroups: Record<string, { count: number; icon: string; disabled?: boolean; sampleDetail: string; firstSummary?: InstructionSummary }> = {};
     
     actionableSummaries.forEach(summary => {
       const action = summary.nextAction;
@@ -5636,12 +6495,222 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
           icon,
           disabled: summary.disabled,
           sampleDetail: detail,
+          firstSummary: summary,
         };
       }
     });
     
     return actionGroups;
   }, [actionableSummaries]);
+      const formsTodoActions = useMemo<HomeImmediateAction[]>(() => {
+        const allScopeActive = canSeeTodoGodView && homeTodoScope === 'all';
+        // In god-view, the canonical "is this card mine?" identity is always LZ.
+        // (Per the brief: dev owner is Luke; non-LZ cards become read-only.)
+        const decorate = (
+          card: ToDoCard,
+          baseAction: HomeImmediateAction,
+        ): HomeImmediateAction => {
+          if (!allScopeActive) return baseAction;
+          const cardOwner = String(card.ownerInitials || '').trim().toUpperCase();
+          const isOwn = cardOwner === 'LZ';
+          const ownerChip = cardOwner ? `\u00b7 @${cardOwner}` : '';
+          const subtitle = baseAction.subtitle
+            ? `${baseAction.subtitle} ${ownerChip}`.trim()
+            : ownerChip || baseAction.subtitle;
+          if (isOwn) {
+            return { ...baseAction, subtitle };
+          }
+          // Read-only: keep the row clickable for navigation but strip
+          // destructive actions and disable the chip-level onClick.
+          const safeExpansion = baseAction.expansion
+            ? {
+                ...baseAction.expansion,
+                description: `Owned by ${cardOwner} \u2014 view only. ${baseAction.expansion.description || ''}`.trim(),
+                actions: (baseAction.expansion.actions || []).filter((a) => a.tone === 'ghost' || /open/i.test(a.label)),
+              }
+            : baseAction.expansion;
+          return {
+            ...baseAction,
+            subtitle,
+            disabled: true,
+            onClick: () => {},
+            expansion: safeExpansion,
+          };
+        };
+
+        return todoRegistryCards.map((card) => {
+          const payload = asRecord(card.payload);
+
+          if (card.kind === 'review-ccl') {
+            // CCL autopilot surfaced fields that need fee-earner review. Card
+            // created server-side by /api/ccl/service/run when the Safety Net
+            // flags scores ≤7; payload carries the matterId so we can open
+            // the review rail directly via the existing openHomeCclReview
+            // CustomEvent (handled by OperationsDashboard).
+            const matterRef = String(card.matterRef || '').trim();
+            const matterId = readStringValue(payload?.matterId) || matterRef || undefined;
+            const flaggedCount = readNumberValue(payload?.flaggedCount);
+            const subtitleParts: string[] = [];
+            if (matterRef) subtitleParts.push(matterRef);
+            if (flaggedCount != null && flaggedCount > 0) {
+              subtitleParts.push(`${flaggedCount} to check`);
+            } else if (card.lastEvent) {
+              subtitleParts.push(card.lastEvent);
+            }
+            const openReview = () => openHomeCclReview(matterId);
+            return decorate(card, {
+              title: 'Review CCL',
+              subtitle: subtitleParts.filter(Boolean).join(' \u00b7 ') || (card.summary || 'Client Care Letter'),
+              icon: 'Send',
+              category: (flaggedCount != null && flaggedCount > 0 ? 'critical' : 'standard') as ImmediateActionCategory,
+              onClick: openReview,
+              expansion: {
+                kind: 'generic',
+                primary: card.summary || (matterRef ? `Review CCL \u00b7 ${matterRef}` : 'Review CCL'),
+                secondary: card.lastEvent || (flaggedCount != null ? `${flaggedCount} field${flaggedCount === 1 ? '' : 's'} surfaced by Safety Net` : 'Safety Net finished'),
+                description: 'The autopilot generated the CCL and the Safety Net surfaced fields for fee-earner review. Open the review to sign-off or adjust wording before upload.',
+                fields: [
+                  ...(matterRef ? [{ label: 'Matter', value: matterRef }] : []),
+                  ...(flaggedCount != null ? [{ label: 'Flagged', value: `${flaggedCount}` }] : []),
+                  ...(card.stage ? [{ label: 'Stage', value: String(card.stage) }] : []),
+                ],
+                actions: [
+                  { label: 'Open review', onClick: openReview, tone: 'primary' },
+                ],
+              },
+            });
+          }
+
+          if (card.kind === 'ld-review') {
+            const fullName = readStringValue(payload?.fullName) || readStringValue(payload?.planInitials) || 'Learning & Development';
+            const activityTitle = readStringValue(payload?.title) || 'Review submitted activity';
+            const provider = readStringValue(payload?.provider);
+            const category = readStringValue(payload?.category);
+            const activityDate = formatRegisterTodoDate(payload?.activityDate);
+            const hours = readNumberValue(payload?.hours);
+            const description = readStringValue(payload?.description);
+            const openRegister = () => openRegisterTodoPanel(
+              'ld',
+              'Review Learning & Development',
+              'Review and verify submitted learning and development entries for Alex.',
+              'ReviewRequestMirrored',
+            );
+
+            return decorate(card, {
+              title: 'Review L&D',
+              subtitle: [fullName, hours != null ? `${hours}h` : null].filter(Boolean).join(' · '),
+              icon: 'ReviewRequestMirrored',
+              category: 'standard',
+              onClick: openRegister,
+              expansion: {
+                kind: 'generic',
+                primary: fullName,
+                secondary: [activityTitle, provider].filter(Boolean).join(' · ') || 'Learning & Development entry',
+                description: description || 'Review the submitted learning and development activity and mark it verified when satisfied.',
+                fields: [
+                  ...(activityDate ? [{ label: 'Date', value: activityDate }] : []),
+                  ...(hours != null ? [{ label: 'Hours', value: `${hours}` }] : []),
+                  ...(category ? [{ label: 'Category', value: category }] : []),
+                  ...(provider ? [{ label: 'Provider', value: provider }] : []),
+                ],
+                actions: [
+                  { label: 'Approve entry', onClick: () => { void handleApproveLdTodo(card); }, tone: 'primary' },
+                  { label: 'Open register', onClick: openRegister, tone: 'ghost' },
+                ],
+              },
+            });
+          }
+
+          if (card.kind === 'complaint-followup') {
+            const complainant = readStringValue(payload?.complainant) || 'Complaint review';
+            const respondent = readStringValue(payload?.respondent);
+            const receivedDate = formatRegisterTodoDate(payload?.receivedDate);
+            const slaDate = formatRegisterTodoDate(payload?.slaDeadline);
+            const slaDays = daysUntilIso(payload?.slaDeadline);
+            const matterReference = readStringValue(payload?.matterReference);
+            const category = slaDays != null && slaDays < 0
+              ? 'critical'
+              : slaDays != null && slaDays < 14
+                ? 'warning'
+                : 'critical';
+            const openRegister = () => openRegisterTodoPanel(
+              'complaints',
+              'Review Complaints',
+              'Review, investigate, and resolve complaint items assigned to Alex.',
+              'Shield',
+            );
+
+            return decorate(card, {
+              title: 'Review Complaint',
+              subtitle: [respondent ? `Against ${respondent}` : null, formatSlaSummary(slaDays)].filter(Boolean).join(' · '),
+              icon: 'Shield',
+              category,
+              onClick: openRegister,
+              expansion: {
+                kind: 'generic',
+                primary: complainant,
+                secondary: formatSlaSummary(slaDays),
+                aow: readStringValue(payload?.areaOfWork) || undefined,
+                description: slaDays != null && slaDays < 0
+                  ? 'SLA exceeded — review urgently and update the complaints register.'
+                  : 'Open the complaints register to investigate, update status, and reconcile this item when resolved.',
+                fields: [
+                  ...(respondent ? [{ label: 'Respondent', value: respondent }] : []),
+                  ...(receivedDate ? [{ label: 'Received', value: receivedDate }] : []),
+                  ...(slaDate ? [{ label: 'SLA', value: slaDate }] : []),
+                  ...(matterReference ? [{ label: 'Matter', value: matterReference }] : []),
+                ],
+                actions: [
+                  { label: 'Open register', onClick: openRegister, tone: 'primary' },
+                ],
+              },
+            });
+          }
+
+          const givenBy = readStringValue(payload?.givenBy);
+          const givenTo = readStringValue(payload?.givenTo) || 'Undertaking review';
+          const givenDate = formatRegisterTodoDate(payload?.givenDate);
+          const dueDate = formatRegisterTodoDate(payload?.dueDate);
+          const dueDays = daysUntilIso(payload?.dueDate);
+          const matterReference = readStringValue(payload?.matterReference);
+          const description = readStringValue(payload?.description);
+          const category = dueDays != null && dueDays < 0
+            ? 'critical'
+            : dueDays != null && dueDays < 3
+              ? 'warning'
+              : 'standard';
+          const openRegister = () => openRegisterTodoPanel(
+            'undertakings',
+            'Review Undertakings',
+            'Monitor and reconcile undertaking items assigned to Alex.',
+            'DocumentSet',
+          );
+
+          return decorate(card, {
+            title: 'Review Undertaking',
+            subtitle: [givenBy ? `From ${givenBy}` : null, formatDueSummary(dueDays, dueDate)].filter(Boolean).join(' · '),
+            icon: 'DocumentSet',
+            category,
+            onClick: openRegister,
+            expansion: {
+              kind: 'generic',
+              primary: givenTo,
+              secondary: formatDueSummary(dueDays, dueDate),
+              aow: readStringValue(payload?.areaOfWork) || undefined,
+              description: description || 'Open the undertakings register to discharge or update this item.',
+              fields: [
+                ...(givenBy ? [{ label: 'Given by', value: givenBy }] : []),
+                { label: 'Given to', value: givenTo },
+                ...(givenDate ? [{ label: 'Given', value: givenDate }] : []),
+                ...(matterReference ? [{ label: 'Matter', value: matterReference }] : []),
+              ],
+              actions: [
+                { label: 'Open register', onClick: openRegister, tone: 'primary' },
+              ],
+            },
+          });
+        });
+      }, [handleApproveLdTodo, openHomeCclReview, openRegisterTodoPanel, todoRegistryCards, canSeeTodoGodView, homeTodoScope]);
   const immediateActionsList: Action[] = useMemo(() => {
     const actions: Action[] = [];
     if (!isLoadingAttendance && (demoModeEnabled || !currentUserConfirmed)) {
@@ -5666,22 +6735,48 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         return 'critical';
       };
 
-      Object.entries(groupedInstructionActions).forEach(([actionType, { count, icon, disabled, sampleDetail }]) => {
+      Object.entries(groupedInstructionActions).forEach(([actionType, { count, icon, disabled, sampleDetail, firstSummary }]) => {
         const title = actionType;
         // Show client name or "+X more" if multiple
         const subtitle = count > 1 
           ? `${sampleDetail} +${count - 1} more`
           : sampleDetail || '';
+        const openInstructionAction = disabled
+          ? () => debugLog('CCL action disabled in production')
+          : () => handleActionClick({ title, icon });
+
+        // Phase E — matter-kind expansion. Surfaces the first instruction's context
+        // so the user can read who's next before clicking through. Only wire when
+        // not disabled and we have a concrete summary to describe.
+        const expansionPayload = (!disabled && firstSummary) ? {
+          kind: 'matter' as const,
+          primary: firstSummary.clientName || 'Unknown client',
+          secondary: count > 1
+            ? `${firstSummary.service} · +${count - 1} more waiting`
+            : firstSummary.service,
+          description: count > 1
+            ? `${count} instructions need "${actionType}". Opening the workflow starts with ${firstSummary.clientName || 'the first client'}; the rest queue behind.`
+            : `Next step on this instruction is "${actionType}". Open the workflow to action it.`,
+          fields: [
+            { label: 'Instruction', value: firstSummary.id },
+            { label: 'Service', value: firstSummary.service },
+            { label: 'Next step', value: actionType },
+            ...(count > 1 ? [{ label: 'Queue', value: `${count} waiting` }] : []),
+          ],
+          actions: [
+            { label: count > 1 ? 'Open first workflow' : 'Open workflow', onClick: openInstructionAction, tone: 'primary' as const },
+          ],
+        } : undefined;
+
         actions.push({
           title,
           subtitle,
           icon,
           disabled,
           count: count > 1 ? count : undefined,
-          onClick: disabled 
-            ? () => debugLog('CCL action disabled in production') 
-            : () => handleActionClick({ title, icon }),
+          onClick: openInstructionAction,
           category: instructionCategoryFor(actionType),
+          expansion: expansionPayload,
         });
       });
     }
@@ -5694,6 +6789,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         subtitle: a.subtitle, // Preserve subtitle property
       }))
     );
+    actions.push(...formsTodoActions);
 
     // Rate Change Notices removed from immediate actions - now only accessible via UserBubble (localhost only)
 
@@ -5711,26 +6807,136 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         ? `${firstName} +${pendingDocActions.length - 1} more`
         : firstName;
 
+      const openFirstEnquiry = () => {
+        try {
+          window.dispatchEvent(new CustomEvent('navigateToEnquiry', {
+            detail: { enquiryId: firstAction.enquiryId, timelineItem: 'doc-workspace' },
+          }));
+        } catch (error) {
+          console.error('Failed to dispatch navigation event:', error);
+        }
+      };
+
+      const expansionAow = (firstEnquiry?.Area_of_Work as string | undefined)
+        || (firstEnquiry as unknown as { area_of_work?: string } | undefined)?.area_of_work;
+      const expansionFields: { label: string; value: string }[] = [
+        { label: 'Enquiry ref', value: String(firstAction.enquiryId) },
+        { label: 'In holding', value: `${firstAction.holdingCount} file${firstAction.holdingCount === 1 ? '' : 's'}` },
+      ];
+      if (firstEnquiry?.Point_of_Contact) {
+        expansionFields.push({ label: 'POC', value: String(firstEnquiry.Point_of_Contact) });
+      }
+      if (expansionAow) {
+        expansionFields.push({ label: 'Area', value: String(expansionAow) });
+      }
+
       actions.push({
         title: 'Allocate Documents',
         subtitle,
         icon: 'DocumentSet',
         count: totalFiles,
-        onClick: () => {
-          // Navigate to enquiries tab and select the first enquiry with pending docs
-          try {
-            window.dispatchEvent(new CustomEvent('navigateToEnquiry', {
-              detail: { enquiryId: firstAction.enquiryId, timelineItem: 'doc-workspace' },
-            }));
-          } catch (error) {
-            console.error('Failed to dispatch navigation event:', error);
-          }
-        },
+        onClick: openFirstEnquiry,
         category: 'standard' as ImmediateActionCategory,
+        expansion: {
+          kind: 'enquiry',
+          primary: firstName,
+          secondary: pendingDocActions.length > 1
+            ? `${pendingDocActions.length} enquiries · ${totalFiles} files total`
+            : `${firstAction.holdingCount} file${firstAction.holdingCount === 1 ? '' : 's'} awaiting allocation`,
+          aow: expansionAow,
+          description: pendingDocActions.length > 1
+            ? 'Open the first enquiry to clear its workspace, or use "Open enquiry" below to start there.'
+            : 'Files dropped into this enquiry\'s holding area are waiting to be assigned to the active workspace.',
+          fields: expansionFields,
+          actions: [
+            { label: 'Open enquiry', onClick: openFirstEnquiry, tone: 'primary' },
+          ],
+        },
       });
     }
 
     // Demo mode: CCL review chip removed — real CCL actions surface inline via CclOpsPanel
+
+    // Phase E demo seeds — when demo mode is on, always surface one example of each
+    // TodoExpansion kind (enquiry / matter / generic) so the expanded pane can be
+    // showcased without waiting on real data.
+    if (demoModeEnabled) {
+      const demoToast = (label: string) => showToast(`Demo: ${label}`, 'info');
+
+      // enquiry-kind expansion — blue accent (or Commercial accent via aow)
+      actions.push({
+        title: 'Allocate Documents',
+        subtitle: 'Demo Enquiry · Jane Holloway',
+        icon: 'DocumentSet',
+        count: 3,
+        onClick: () => demoToast('open enquiry workspace'),
+        category: 'standard',
+        expansion: {
+          kind: 'enquiry',
+          primary: 'Jane Holloway',
+          secondary: '3 files awaiting allocation',
+          aow: 'Commercial',
+          description: 'Files dropped into this enquiry\'s holding area are waiting to be assigned to the active workspace.',
+          fields: [
+            { label: 'Enquiry ref', value: 'DEMO-ENQ-5521' },
+            { label: 'In holding', value: '3 files' },
+            { label: 'POC', value: 'LZ' },
+            { label: 'Area', value: 'Commercial' },
+          ],
+          actions: [
+            { label: 'Open enquiry', onClick: () => demoToast('open enquiry'), tone: 'primary' },
+          ],
+        },
+      });
+
+      // matter-kind expansion — green accent
+      actions.push({
+        title: 'Verify ID',
+        subtitle: 'Demo Matter · Patel Construction Ltd',
+        icon: 'ContactCard',
+        count: 2,
+        onClick: () => demoToast('open instruction workflow'),
+        category: 'critical',
+        expansion: {
+          kind: 'matter',
+          primary: 'Patel Construction Ltd',
+          secondary: 'New Commercial Dispute · +1 more waiting',
+          description: '2 instructions need "Verify ID". Opening the workflow starts with Patel Construction Ltd; the rest queue behind.',
+          fields: [
+            { label: 'Instruction', value: 'HLX-30112-58411' },
+            { label: 'Service', value: 'New Commercial Dispute' },
+            { label: 'Next step', value: 'Verify ID' },
+            { label: 'Queue', value: '2 waiting' },
+          ],
+          actions: [
+            { label: 'Open first workflow', onClick: () => demoToast('open instruction'), tone: 'primary' },
+          ],
+        },
+      });
+
+      // generic-kind expansion — neutral accent, no aow, no primary-entity navigation
+      actions.push({
+        title: 'Review CCL',
+        subtitle: 'Demo Draft · ready for sign-off',
+        icon: 'Send',
+        onClick: () => demoToast('open CCL review'),
+        category: 'standard',
+        expansion: {
+          kind: 'generic',
+          primary: 'CCL draft ready to review',
+          secondary: 'Generated 12 minutes ago · passed Safety Net',
+          description: 'The Safety Net pass scored 9+ across all intake fields. Review and send, or edit inline before approving.',
+          fields: [
+            { label: 'Matter', value: 'DEMO-3311402' },
+            { label: 'Confidence', value: 'Full' },
+            { label: 'Safety Net', value: 'Passed' },
+          ],
+          actions: [
+            { label: 'Open review', onClick: () => demoToast('open CCL review'), tone: 'primary' },
+          ],
+        },
+      });
+    }
 
     // Normalize titles (strip count suffix like " (3)") when sorting
     const sortKey = (title: string) => {
@@ -5748,12 +6954,14 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     groupedInstructionActions,
     instructionsActionDone,
     immediateALActions,
+    formsTodoActions,
     handleActionClick,
     hasActivePitch,
     userInitials,
     isLocalhost,
     pendingDocActions,
     enquiries,
+    showToast,
   ]);
 
   // Notify parent component when immediate actions state changes
@@ -5933,6 +7141,67 @@ const conversionRate = displayEnquiriesMonthToDate
   }, []);
 
   // Portal for app-level immediate actions
+  const handleTodoScopeChange = useCallback((next: 'mine' | 'all') => {
+    setHomeTodoScope((prev) => {
+      if (prev === next) return prev;
+      try { window.localStorage.setItem('helix.homeTodoScope', next); } catch { /* ignore */ }
+      try {
+        trackClientEvent('home', 'todo-scope-switched', {
+          from: prev,
+          to: next,
+          rowCount: todoRegistryCards.length,
+        });
+      } catch { /* ignore */ }
+      return next;
+    });
+  }, [todoRegistryCards.length]);
+
+  const todoScopeToggle = canSeeTodoGodView ? (
+    <div
+      role="group"
+      aria-label="Home to-do scope"
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 0,
+        background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)',
+        borderRadius: 999,
+        padding: 2,
+        fontFamily: 'var(--font-primary)',
+      }}
+    >
+      {(['mine', 'all'] as const).map((opt) => {
+        const active = homeTodoScope === opt;
+        const label = opt === 'mine' ? 'Mine' : 'Everyone';
+        return (
+          <button
+            key={opt}
+            type="button"
+            onClick={(e) => { e.stopPropagation(); handleTodoScopeChange(opt); }}
+            style={{
+              border: 'none',
+              borderRadius: 999,
+              padding: '3px 10px',
+              fontSize: 11,
+              fontWeight: 600,
+              cursor: 'pointer',
+              background: active
+                ? (isDarkMode ? colours.accent : colours.highlight)
+                : 'transparent',
+              color: active
+                ? (isDarkMode ? colours.dark.background : '#ffffff')
+                : colours.subtleGrey,
+              transition: 'background 0.15s ease, color 0.15s ease',
+              fontFamily: 'var(--font-primary)',
+            }}
+          >
+            {label}
+          </button>
+        );
+      })}
+    </div>
+  ) : null;
+
   const appLevelImmediateActions = (
     <ImmediateActionsBar
       isDarkMode={isDarkMode}
@@ -5940,6 +7209,7 @@ const conversionRate = displayEnquiriesMonthToDate
       immediateActionsList={immediateActionsList}
       highlighted={Boolean(homeCclReviewRequest)}
       seamless={false}
+      scopeSlot={todoScopeToggle}
     />
   );
 
@@ -5951,10 +7221,18 @@ const conversionRate = displayEnquiriesMonthToDate
           100% { transform: rotate(360deg); }
         }
       `}</style>
-      {/* Portal immediate actions to app level */}
-      {typeof document !== 'undefined' && document.getElementById('app-level-immediate-actions') && 
+      {/* Portal immediate actions to app level (suppressed when inline ToDo box is rendered). */}
+      {!replacePipelineAndMatters && typeof document !== 'undefined' && document.getElementById('app-level-immediate-actions') && 
         createPortal(appLevelImmediateActions, document.getElementById('app-level-immediate-actions')!)
       }
+
+      {/* R7 dev-preview floating Demo pulse button removed 2026-04-21 —
+          Pulse is now a satellite chip in the HubToolsChip strip (next to Demo). */}
+
+      {/* Home layout overlay removed 2026-04-21 — all operator toggles now live
+          inside CommandDeck (via HubToolsChip). The keys + state wiring here are
+          the source of truth; CommandDeck writes the same localStorage and fires
+          `helix:homeLayoutToggled` to keep this component in sync. */}
 
       {isSwitchingUser && (
         <div style={{
@@ -5993,214 +7271,80 @@ const conversionRate = displayEnquiriesMonthToDate
 
       {/* Operations hub — cohesive home surface (metrics + team availability) */}
       <div className={operationsHubStyle(isDarkMode)}>
-        {/* OperationsDashboard — unified for all users */}
-        <div className={`${homeDataReady ? 'home-cascade-1' : 'home-cascade-pending'} home-stable-shell home-stable-shell-dashboard`}>
-          <Suspense fallback={
-            <div className="home-stable-shell-panel home-stable-shell-loading" style={{ padding: '4px 8px 0' }}>
-              {/* Billing skeleton */}
-              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', padding: '2px 0 3px', letterSpacing: '0.2px' }}>Billing</div>
-              <div style={{ background: 'var(--home-card-bg)', border: '1px solid var(--home-card-border)', boxShadow: 'var(--home-card-shadow)', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)' }}>
-                {[0,1,2,3].map(i => (
-                  <div key={i} style={{ padding: '16px 18px 14px', borderRight: i < 3 ? '1px solid var(--home-row-border)' : 'none' }}>
-                    <div style={{ width: 52, height: 22, background: 'var(--home-skel-fill)', borderRadius: 2, animation: 'homeSkelPulse 1.5s ease-in-out infinite', animationDelay: `${i * 0.12}s` }} />
-                    <div style={{ width: 60, height: 9, marginTop: 6, background: 'var(--home-skel-fill-weak)', borderRadius: 2 }} />
-                    <div style={{ width: 54, height: 9, marginTop: 5, background: 'var(--home-skel-fill-weak)', borderRadius: 2 }} />
-                    <div style={{ width: '100%', height: 2, marginTop: 8, background: 'var(--home-skel-fill-faint)', borderRadius: 1 }} />
-                  </div>
-                ))}
-              </div>
-              <div style={{ padding: '10px 16px', border: '1px solid var(--home-card-border)', borderTop: 'none', background: 'var(--home-card-bg)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <div style={{ width: 76, height: 10, background: 'var(--home-skel-fill-weak)', borderRadius: 2 }} />
-                <div style={{ width: 68, height: 10, background: 'var(--home-skel-fill-weak)', borderRadius: 2 }} />
-                <div style={{ width: 86, height: 10, background: 'var(--home-skel-fill-weak)', borderRadius: 2 }} />
-              </div>
-              {/* Conversion + Pipeline skeleton */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 6, paddingTop: 6 }}>
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', padding: '2px 0 3px', letterSpacing: '0.2px' }}>Conversion</div>
-                  <div style={{ background: 'var(--home-card-bg)', border: '1px solid var(--home-card-border)', minHeight: 520, display: 'flex', flexDirection: 'column' }}>
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '10px 12px', borderBottom: '1px solid var(--home-card-border)' }}>
-                      {[
-                        { key: 'today', width: 56, active: true },
-                        { key: 'week', width: 62, active: false },
-                        { key: 'month', width: 62, active: false },
-                        { key: 'quarter', width: 68, active: false },
-                      ].map((tab, index) => (
-                        <div key={tab.key} style={{ width: tab.width, height: 21, border: tab.active ? '1px solid var(--home-card-border)' : '1px solid transparent', background: tab.active ? 'var(--home-skel-fill)' : 'var(--home-skel-fill-faint)', animation: 'homeSkelPulse 1.5s ease-in-out infinite', animationDelay: `${index * 0.08}s` }} />
-                      ))}
-                    </div>
-                    <div style={{ padding: '14px 14px 12px', display: 'grid', gap: 12, flex: 1, alignContent: 'start' }}>
-                      <div style={{ display: 'grid', gap: 8 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-                          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-                            <div style={{ width: 94, height: 36, background: 'var(--home-skel-fill)', borderRadius: 2, animation: 'homeSkelPulse 1.5s ease-in-out infinite' }} />
-                            <div style={{ width: 42, height: 10, background: 'var(--home-skel-fill-weak)', borderRadius: 2 }} />
-                          </div>
-                          <div style={{ width: 104, height: 9, background: 'var(--home-skel-fill-faint)', borderRadius: 2 }} />
-                        </div>
-                        <div style={{ width: '76%', height: 11, background: 'var(--home-skel-fill-weak)', borderRadius: 2 }} />
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-                          {[0, 1].map(i => (
-                            <div key={i} style={{ padding: '7px 9px', border: '1px solid var(--home-card-border)', background: i === 0 ? 'var(--home-skel-fill-faint)' : 'var(--home-skel-fill-faint)', display: 'grid', gap: 4 }}>
-                              <div style={{ width: i === 0 ? '34%' : '40%', height: 8, background: 'var(--home-skel-fill)', borderRadius: 2 }} />
-                              <div style={{ width: '70%', height: 10, background: 'var(--home-skel-fill-faint)', borderRadius: 2 }} />
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                      <div style={{ display: 'grid', gap: 6 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                            {[0, 1].map(i => (
-                              <div key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                                  <span style={{ width: 10, height: 0, borderTop: '1.8px solid var(--home-card-border)', display: 'inline-block' }} />
-                                  <span style={{ width: 10, height: i === 0 ? 0 : 8, borderTop: i === 0 ? 'none' : '1px dashed var(--home-skel-fill-weak)', display: 'inline-block' }} />
-                                </span>
-                                <div style={{ width: 56, height: 8, background: 'var(--home-skel-fill-faint)', borderRadius: 2 }} />
-                              </div>
-                            ))}
-                          </div>
-                          <div style={{ width: 56, height: 8, background: 'var(--home-skel-fill-faint)', borderRadius: 2 }} />
-                        </div>
-                        <div style={{ height: 144, border: '1px solid var(--home-card-border)', background: isDarkMode ? 'linear-gradient(180deg, rgba(255,255,255,0.02) 0%, transparent 100%)' : 'linear-gradient(180deg, rgba(13,47,96,0.025) 0%, transparent 100%)', padding: '10px 12px 12px', display: 'grid', gap: 8 }}>
-                          <svg viewBox="0 0 240 144" width="100%" height="100%" preserveAspectRatio="none" aria-hidden="true">
-                            <line x1="10" y1="132" x2="230" y2="132" stroke="var(--home-chart-gridline)" strokeWidth="1" />
-                            {[28, 56, 84].map(y => <line key={y} x1="10" y1={y} x2="230" y2={y} stroke="var(--home-chart-gridline)" strokeWidth="1" />)}
-                            <polyline points="10,78 32,74 54,70 76,68 98,60 120,58 142,62 164,54 186,50 208,56 230,52" fill="none" stroke="var(--home-skel-fill-weak)" strokeWidth="1.6" strokeDasharray="4 4" strokeLinecap="round" strokeLinejoin="round" />
-                            <polyline points="10,70 32,62 54,66 76,54 98,50 120,44 142,52 164,42 186,38 208,46 230,40" fill="none" stroke="var(--home-card-border)" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(11, minmax(0, 1fr))', gap: 4 }}>
-                            {['8', '9', '10', '11', '12', '1', '2', '3', '4', '5', '6'].map((tick, index) => (
-                              <div key={tick} style={{ display: 'grid', justifyItems: 'center' }}>
-                                <div style={{ width: index % 2 === 0 ? 16 : 12, height: 7, background: 'var(--home-skel-fill-faint)', borderRadius: 2 }} />
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                      <div style={{ paddingTop: 8, borderTop: '1px solid var(--home-card-border)', display: 'grid', gap: 6 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                          <div style={{ width: 68, height: 8, background: 'var(--home-skel-fill)', borderRadius: 2 }} />
-                          <div style={{ width: 74, height: 8, background: 'var(--home-skel-fill-faint)', borderRadius: 2 }} />
-                        </div>
-                        <div style={{ width: '100%', minHeight: 8, border: '1px solid var(--home-card-border)', background: 'var(--home-skel-fill-faint)', overflow: 'hidden', display: 'flex' }}>
-                          {[22, 24, 18, 14, 22].map((width, index) => (
-                            <div key={index} style={{ width: `${width}%`, minHeight: 8, background: index % 2 === 0 ? 'var(--home-skel-fill)' : 'var(--home-skel-fill-weak)', animation: 'homeSkelPulse 1.5s ease-in-out infinite', animationDelay: `${index * 0.06}s` }} />
-                          ))}
-                        </div>
-                        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                          {[0, 1, 2].map(index => (
-                            <div key={index} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                              <span style={{ width: 6, height: 6, borderRadius: '50%', background: index === 1 ? 'var(--home-skel-fill-weak)' : 'var(--home-skel-fill)' }} />
-                              <div style={{ width: index === 0 ? 58 : 48, height: 8, background: 'var(--home-skel-fill-faint)', borderRadius: 2 }} />
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', padding: '2px 0 3px', letterSpacing: '0.2px' }}>Pipeline</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minHeight: 520 }}>
-                    {[0,1].map(cardIndex => (
-                      <div key={cardIndex} style={{ background: 'var(--home-card-bg)', border: '1px solid var(--home-card-border)', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-                        {cardIndex === 0 ? (
-                          <div style={{ display: 'flex', borderBottom: '1px solid var(--home-card-border)' }}>
-                            {[0,1,2].map(i => (
-                              <div key={i} style={{ flex: 1, padding: '9px 6px 7px', textAlign: 'center', background: i === 0 ? 'var(--home-tile-bg)' : 'transparent', borderBottom: i === 0 ? `2px solid ${isDarkMode ? colours.accent : colours.highlight}` : '2px solid transparent' }}>
-                                <div style={{ width: 48, height: 9, margin: '0 auto', background: 'var(--home-skel-fill)', borderRadius: 2, animation: 'homeSkelPulse 1.5s ease-in-out infinite', animationDelay: `${i * 0.08}s` }} />
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <div style={{ padding: '9px 14px 7px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--home-tile-bg)', borderBottom: `2px solid ${isDarkMode ? colours.accent : colours.highlight}` }}>
-                            <div style={{ width: 46, height: 10, background: 'var(--home-skel-fill)', borderRadius: 2 }} />
-                            <div style={{ width: 48, height: 8, background: 'var(--home-skel-fill-weak)', borderRadius: 2 }} />
-                          </div>
-                        )}
-                        <div style={{ display: 'grid', gridTemplateColumns: '20px 62px minmax(0,1fr) 34px 52px', alignItems: 'center', padding: '7px 0 5px', background: isDarkMode ? 'rgba(255,255,255,0.02)' : colours.helixBlue, borderBottom: '1px solid var(--home-card-border)' }}>
-                          <div />
-                          <div style={{ width: 32, height: 8, background: isDarkMode ? 'var(--home-skel-fill-weak)' : 'rgba(255,255,255,0.18)', borderRadius: 2, marginLeft: 8 }} />
-                          <div style={{ width: 42, height: 8, background: isDarkMode ? 'var(--home-skel-fill-weak)' : 'rgba(255,255,255,0.18)', borderRadius: 2 }} />
-                          <div style={{ width: 18, height: 8, background: isDarkMode ? 'var(--home-skel-fill-weak)' : 'rgba(255,255,255,0.18)', borderRadius: 2, justifySelf: 'center' }} />
-                          <div style={{ width: 34, height: 8, background: isDarkMode ? 'var(--home-skel-fill-weak)' : 'rgba(255,255,255,0.18)', borderRadius: 2, justifySelf: 'center' }} />
-                        </div>
-                        {Array.from({ length: 6 }).map((_, i) => (
-                          <div key={i} style={{ display: 'grid', gridTemplateColumns: '20px 62px minmax(0,1fr) 34px 52px', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--home-row-border)', animation: 'homeSkelPulse 1.5s ease-in-out infinite', animationDelay: `${i * 0.06}s` }}>
-                            <div style={{ display: 'flex', justifyContent: 'center' }}><span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--home-skel-fill)', display: 'inline-block' }} /></div>
-                            <div style={{ width: 44, height: 8, background: 'var(--home-skel-fill-weak)', borderRadius: 2, marginLeft: 8 }} />
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                              {cardIndex === 0 ? <div style={{ width: 13, height: 13, borderRadius: 2, background: 'var(--home-skel-fill-faint)' }} /> : null}
-                              <div style={{ width: '100%', height: 9, maxWidth: cardIndex === 0 ? 118 : 128, background: 'var(--home-skel-fill-weak)', borderRadius: 2 }} />
-                            </div>
-                            <div style={{ width: 18, height: 8, background: 'var(--home-skel-fill-weak)', borderRadius: 2, justifySelf: 'center' }} />
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
-                              {cardIndex === 0 ? [0,1,2,3,4].map(dot => <span key={dot} style={{ width: dot === 2 ? 5 : 4, height: dot === 2 ? 5 : 4, borderRadius: '50%', background: 'var(--home-skel-fill-weak)', display: 'inline-block' }} />) : <><span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--home-skel-fill-weak)', display: 'inline-block' }} /><span style={{ width: 14, height: 14, borderRadius: 2, background: 'var(--home-skel-fill-faint)', display: 'inline-block' }} /></>}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-              {/* homeSkelPulse keyframe now provided by home-tokens.css */}
-            </div>
-          }>
-            <div className="home-stable-shell-panel home-stable-shell-live">
-              <OperationsDashboard
-                metrics={displayTimeMetrics}
-                enquiryMetrics={memoEnquiryMetrics}
-                enquiryMetricsBreakdown={enquiryMetricsBreakdown}
-                conversionComparison={resolvedConversionComparison}
-                enableConversionComparison={showExperimentalConversionComparison}
-                isResolvingConversionComparison={isResolvingConversionComparison}
-                unclaimedSummary={unclaimedSummary}
-                recentEnquiryRecords={seededRecentEnquiryRecords}
-                unclaimedQueueCount={unclaimedEnquiries.length}
-                unclaimedToday={unclaimedToday}
-                unclaimedThisWeek={unclaimedThisWeek}
-                unclaimedLastWeek={unclaimedLastWeek}
-                canClaimUnclaimed={['LZ', 'JW', 'AC'].includes(userInitials)}
-                isProcessingView={isDashboardProcessing}
-                processingLabel={dashboardProcessingLabel}
-                processingDetail={dashboardProcessingDetail}
-                isDarkMode={isDarkMode}
-                enquiriesUsingSnapshot={enquiriesUsingSnapshot}
-                enquiriesLiveRefreshInFlight={enquiriesLiveRefreshInFlight}
-                enquiriesLastLiveSyncAt={enquiriesLastLiveSyncAt}
-                isTeamWideEnquiryView={isFirmWideDashboard}
-                userEmail={isWaitingForLocalDashboardIdentity ? '' : effectiveDashboardIdentity.email}
-                userInitials={isWaitingForLocalDashboardIdentity ? '' : effectiveDashboardIdentity.initials}
-                recentMatters={recentMatters}
-                demoModeEnabled={demoModeEnabled}
-                isActive={isActive}
-                teamData={deferredTeamData ?? undefined}
-                wipDailyData={memoWipDailyData}
-                onRefresh={handleRefreshTimeMetrics}
-                isRefreshing={isRefreshingTimeMetrics}
-                isLoading={isLoadingWipClio}
-                isOutstandingLoading={!outstandingBalancesData?.data || outstandingTotal === null}
-                isLoadingEnquiryMetrics={isLoadingEnquiryMetrics}
-                hasOutstandingBreakdown={filteredBalancesForPanel.length > 0}
-                onOpenOutstandingBreakdown={handleOpenOutstandingBreakdown}
-              />
-            </div>
-          </Suspense>
+        {/* OperationsDashboard — always rendered. Enquiries + matters metric tiles
+            (plus conversion chart) remain visible regardless of layout toggles.
+            When `replacePipelineAndMatters` is on, the dashboard swaps its right
+            pipeline column for the `todoSlot` below (50/50 with Conversion). */}
+        <div className={`${dashboardSectionReady ? 'home-cascade-1' : 'home-cascade-pending'} home-stable-shell home-stable-shell-dashboard`}>
+          <div className="home-stable-shell-panel home-stable-shell-live">
+            <LivePulse nonce={dataOpsPulseNonce} variant="border">
+            <OperationsDashboard
+              metrics={displayTimeMetrics}
+              enquiryMetrics={memoEnquiryMetrics}
+              enquiryMetricsBreakdown={enquiryMetricsBreakdown}
+              conversionComparison={resolvedConversionComparison}
+              enableConversionComparison={showExperimentalConversionComparison}
+              isResolvingConversionComparison={isResolvingConversionComparison}
+              unclaimedSummary={unclaimedSummary}
+              recentEnquiryRecords={seededRecentEnquiryRecords}
+              unclaimedQueueCount={unclaimedEnquiries.length}
+              unclaimedToday={unclaimedToday}
+              unclaimedThisWeek={unclaimedThisWeek}
+              unclaimedLastWeek={unclaimedLastWeek}
+              canClaimUnclaimed={['LZ', 'JW', 'AC'].includes(userInitials)}
+              isProcessingView={isDashboardProcessing}
+              processingLabel={dashboardProcessingLabel}
+              processingDetail={dashboardProcessingDetail}
+              isDarkMode={isDarkMode}
+              enquiriesUsingSnapshot={enquiriesUsingSnapshot}
+              enquiriesLiveRefreshInFlight={enquiriesLiveRefreshInFlight}
+              enquiriesLastLiveSyncAt={enquiriesLastLiveSyncAt}
+              isTeamWideEnquiryView={isFirmWideDashboard}
+              userEmail={isWaitingForLocalDashboardIdentity ? '' : effectiveDashboardIdentity.email}
+              userInitials={isWaitingForLocalDashboardIdentity ? '' : effectiveDashboardIdentity.initials}
+              recentMatters={recentMatters}
+              demoModeEnabled={demoModeEnabled}
+              isActive={isActive}
+              teamData={deferredTeamData ?? undefined}
+              wipDailyData={memoWipDailyData}
+              onRefresh={handleRefreshTimeMetrics}
+              isRefreshing={isRefreshingTimeMetrics}
+              isLoading={isLoadingWipClio}
+              isOutstandingLoading={!outstandingBalancesData?.data || outstandingTotal === null}
+              isLoadingEnquiryMetrics={isLoadingEnquiryMetrics}
+              hasOutstandingBreakdown={filteredBalancesForPanel.length > 0}
+              onOpenOutstandingBreakdown={handleOpenOutstandingBreakdown}
+              hidePipelineAndMatters={replacePipelineAndMatters}
+              todoCount={replacePipelineAndMatters
+                ? immediateActionsList.reduce((sum, a) => sum + ((a as { count?: number }).count ?? 1), 0)
+                : undefined}
+              todoSlot={replacePipelineAndMatters ? (
+                <ImmediateActionsBar
+                  isDarkMode={isDarkMode}
+                  immediateActionsReady={immediateActionsReady}
+                  immediateActionsList={immediateActionsList}
+                  highlighted={Boolean(homeCclReviewRequest)}
+                  seamless={true}
+                  scopeSlot={todoScopeToggle}
+                />
+              ) : null}
+            />
+            </LivePulse>
+          </div>
         </div>
 
-        {/* Operations queue — DEV PREVIEW: locked to LZ+AC only until ready for wider rollout */}
-        {(() => {
+        {/* Operations queue — DEV PREVIEW: locked to LZ+AC only until ready for wider rollout.
+            Also hidden when the `hideAsanaAndTransactions` layout toggle is on. */}
+        {!hideAsanaAndTransactions && (() => {
           const userRole = (userData?.[0]?.Role || '').toLowerCase();
           const isOpsRole = /operations|ops|tech|technology/i.test(userRole);
           const isLzOrAc = ['LZ', 'AC'].includes((userData?.[0]?.Initials || '').toUpperCase().trim());
           const userIsAdmin = isAdminUser(userData?.[0]) || isOpsRole;
           const showOpsQueue = featureToggles.showOpsQueue !== false && (isLzOrAc || featureToggles.forceShowOpsQueue);
           return showOpsQueue ? (
-            <div className={`${homeDataReady ? 'home-cascade-2' : 'home-cascade-pending'} home-stable-shell home-stable-shell-ops`} style={{ padding: '0 6px 6px 6px' }}>
+            <div className={`${opsSectionReady ? 'home-cascade-2' : 'home-cascade-pending'} home-stable-shell home-stable-shell-ops`} style={{ padding: '0 6px 6px 6px' }}>
               <div className="home-stable-shell-panel home-stable-shell-live">
+                <LivePulse nonce={dataOpsPulseNonce} variant="border">
                 <OperationsQueue
                   isDarkMode={isDarkMode}
                   userInitials={userInitials}
@@ -6212,75 +7356,19 @@ const conversionRate = displayEnquiriesMonthToDate
                   showHomeOpsCclDates={featureToggles.showHomeOpsCclDates === true}
                   isActive={isActive}
                 />
+                </LivePulse>
               </div>
             </div>
           ) : null;
         })()}
 
         {/* Team insight — attendance + leave in one panel */}
-        <div className={`${homeDataReady ? 'home-cascade-3' : 'home-cascade-pending'} home-stable-shell home-stable-shell-team`} style={{ padding: '0 6px 6px 6px' }}>
+        <div className={`${teamSectionReady ? 'home-cascade-3' : 'home-cascade-pending'} home-stable-shell home-stable-shell-team`} style={{ padding: '0 6px 6px 6px' }}>
             <Suspense fallback={
-              <div className="home-stable-shell-panel home-stable-shell-loading" style={{ padding: '12px 0' }}>
-                <div style={{
-                  background: isDarkMode ? 'var(--helix-website-blue)' : 'var(--surface-section)',
-                  border: '1px solid var(--home-card-border)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                }}>
-                  <div style={{ padding: '14px 16px', display: 'grid', gap: 12 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: 18 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <div style={{ width: 11, height: 11, borderRadius: 2, background: isDarkMode ? 'rgba(135,243,243,0.18)' : 'rgba(54,144,206,0.16)' }} />
-                        <div style={{ width: 108, height: 11, background: 'var(--home-skel-fill)', borderRadius: 2, animation: 'homeSkelPulse 1.4s ease-in-out infinite' }} />
-                      </div>
-                      <div style={{ width: 56, height: 10, background: 'var(--home-skel-fill-weak)', borderRadius: 2, animation: 'homeSkelPulse 1.4s ease-in-out infinite 0.08s' }} />
-                    </div>
-                    <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-                      {[0, 1, 2].map((group) => (
-                        <React.Fragment key={group}>
-                          {group > 0 ? <div style={{ width: 1, alignSelf: 'stretch', background: 'var(--home-section-divider)' }} /> : null}
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                            <div style={{ width: 52, height: 9, background: 'var(--home-skel-fill)', borderRadius: 2, animation: `homeSkelPulse 1.4s ease-in-out infinite ${group * 0.05}s` }} />
-                            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', maxWidth: 160 }}>
-                              {[0, 1, 2, 3].map((tile) => (
-                                <div key={tile} style={{ width: 34, height: 34, background: 'var(--home-tile-bg)', border: '1px solid var(--home-tile-border)', animation: `homeSkelPulse 1.4s ease-in-out infinite ${group * 0.05 + tile * 0.03}s` }} />
-                              ))}
-                            </div>
-                          </div>
-                        </React.Fragment>
-                      ))}
-                    </div>
-                  </div>
-                  <div style={{ height: 1, background: 'var(--home-section-divider)' }} />
-                  <div style={{ padding: '14px 16px', display: 'grid', gap: 12 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: 18 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <div style={{ width: 11, height: 11, borderRadius: 2, background: isDarkMode ? 'rgba(135,243,243,0.18)' : 'rgba(54,144,206,0.16)' }} />
-                        <div style={{ width: 82, height: 11, background: 'var(--home-skel-fill)', borderRadius: 2, animation: 'homeSkelPulse 1.4s ease-in-out infinite 0.12s' }} />
-                      </div>
-                      <div style={{ width: 86, height: 10, background: 'var(--home-skel-fill-weak)', borderRadius: 2, animation: 'homeSkelPulse 1.4s ease-in-out infinite 0.18s' }} />
-                    </div>
-                    <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-                      {[0, 1, 2].map((group) => (
-                        <React.Fragment key={group}>
-                          {group > 0 ? <div style={{ width: 1, alignSelf: 'stretch', background: 'var(--home-section-divider)' }} /> : null}
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 120 }}>
-                            <div style={{ width: 64, height: 9, background: 'var(--home-skel-fill)', borderRadius: 2, animation: `homeSkelPulse 1.4s ease-in-out infinite ${0.22 + group * 0.05}s` }} />
-                            {[0, 1].map((row) => (
-                              <div key={row} style={{ display: 'grid', gridTemplateColumns: '18px 1fr', gap: 8, alignItems: 'center' }}>
-                                <div style={{ width: 18, height: 18, background: 'var(--home-tile-bg)', border: '1px solid var(--home-tile-border)', animation: `homeSkelPulse 1.4s ease-in-out infinite ${0.26 + group * 0.05 + row * 0.03}s` }} />
-                                <div style={{ height: 10, width: row === 0 ? '78%' : '62%', background: 'var(--home-skel-fill)', borderRadius: 2, animation: `homeSkelPulse 1.4s ease-in-out infinite ${0.3 + group * 0.05 + row * 0.03}s` }} />
-                              </div>
-                            ))}
-                          </div>
-                        </React.Fragment>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <HomeTeamInsightSkeleton isDarkMode={isDarkMode} />
             }>
               <div className="home-stable-shell-panel home-stable-shell-live">
+                <LivePulse nonce={attendanceRealtimePulseNonce} variant="border">
                 <TeamInsight
                   isDarkMode={isDarkMode}
                   attendanceRecords={attendanceRecords}
@@ -6290,6 +7378,8 @@ const conversionRate = displayEnquiriesMonthToDate
                   isLoadingAttendance={isLoadingAttendance}
                   isLoadingLeave={isLoadingAnnualLeave}
                   onShowToast={showToast}
+                  currentUserInitials={userData?.[0]?.Initials}
+                  onOpenSelfConfirmPanel={() => handleActionClick({ title: officeAttendanceButtonText, icon: 'Attendance' })}
                   onConfirmAttendance={async (initials: string, weekStart: string, attendanceDays: string) => {
                     const res = await fetch('/api/attendance/updateAttendance', {
                       method: 'POST',
@@ -6340,13 +7430,15 @@ const conversionRate = displayEnquiriesMonthToDate
                     handleAttendanceUpdated([cleared]);
                   }}
                 />
+                </LivePulse>
               </div>
             </Suspense>
         </div>
       </div>
 
-      {/* Transactions & Balances - only show in local environment */}
-      {useLocalData && (
+      {/* Transactions & Balances - only show in local environment; hidden by the
+          `hideAsanaAndTransactions` layout toggle. */}
+      {useLocalData && !hideAsanaAndTransactions && (
         <div style={{ margin: '6px 8px' }}>
           <SectionCard 
             title="Transactions & Balances" 

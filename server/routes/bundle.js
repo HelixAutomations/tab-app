@@ -1,5 +1,12 @@
 const express = require('express');
 const path = require('path');
+const {
+  recordSubmission,
+  recordStep,
+  markComplete,
+  markFailed,
+} = require('../utils/formSubmissionLog');
+const { trackException } = require('../utils/appInsights');
 // Ensure a fetch implementation is available.  In some production
 // environments the global `fetch` API is missing which would cause the
 // route handler to throw a ReferenceError.  Fallback to `node-fetch` when
@@ -52,6 +59,20 @@ router.post('/', async (req, res) => {
 
     if (!name || !matterReference || !bundleLink) {
         return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    let submissionId = null;
+    try {
+        const submitter = (user && (user.Initials || user.initials)) || req.body?.submitted_by || req.body?.submittedBy || 'UNK';
+        submissionId = await recordSubmission({
+            formKey: 'bundle',
+            submittedBy: String(submitter || 'UNK').slice(0, 10),
+            lane: 'Request',
+            payload: req.body,
+            summary: `Bundle: ${matterReference} — ${name}`.slice(0, 400),
+        });
+    } catch (logErr) {
+        trackException(logErr, { phase: 'bundle.recordSubmission' });
     }
 
     // Credentials may be supplied directly on the payload or nested under a
@@ -246,13 +267,28 @@ router.post('/', async (req, res) => {
                 // Don't fail the whole request if email fails
             }
 
+            await recordStep(submissionId, {
+                name: 'asana.create',
+                status: 'success',
+                output: { taskId: data?.data?.gid },
+            });
+            await markComplete(submissionId, { lastEvent: 'bundle task created' });
             return res.json({ ok: true, task: data.data, mode: 'live' });
         } else {
             console.log('Simulated mode - skipping Asana task creation and email notification');
+            await recordStep(submissionId, {
+                name: 'asana.create',
+                status: 'success',
+                output: { simulated: true },
+            });
+            await markComplete(submissionId, { lastEvent: 'bundle simulated' });
             return res.json({ ok: true, simulated: true, mode: forceSimulate ? 'forced' : (usingTestCreds ? 'test-credentials' : (inLocalMode() ? 'local' : 'auto-skip')) });
         }
     } catch (err) {
         console.error('Bundle submission failed', err);
+        if (submissionId) {
+            await markFailed(submissionId, { lastEvent: 'bundle:failed', error: err });
+        }
         res.status(500).json({ error: 'Bundle submission failed' });
     }
 });

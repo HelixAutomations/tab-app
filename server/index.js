@@ -10,6 +10,24 @@ trackEvent('Server.Boot.Started', {
     env: process.env.NODE_ENV || 'development',
 });
 
+// Dev-only boot timing markers. Set HELIX_BOOT_TIMING=1 to print elapsed-ms
+// for each landmark, so we can pinpoint which require chain or top-level
+// await is eating the wall-clock budget during `npm run dev:all`.
+// `dev-all-with-logs.mjs` enables this by default; pass HELIX_BOOT_TIMING=0
+// to silence.
+const _bootTimingEnabled =
+    process.env.NODE_ENV !== 'production' &&
+    process.env.HELIX_BOOT_TIMING &&
+    process.env.HELIX_BOOT_TIMING !== '0' &&
+    process.env.HELIX_BOOT_TIMING !== 'false';
+function _bootMark(label) {
+    if (_bootTimingEnabled) {
+        const elapsed = Date.now() - serverBootStartedAt;
+        console.log(`[boot-timing] +${String(elapsed).padStart(6, ' ')}ms  ${label}`);
+    }
+}
+_bootMark('appinsights:ready');
+
 //
 // 🟢 THIS IS THE MAIN SERVER FILE - server/index.js 🟢
 //
@@ -35,6 +53,7 @@ require('dotenv').config({ path: path.join(__dirname, '../.env'), override: fals
 // Validate env vars immediately after loading — crash fast in prod, warn in dev
 const { validateEnv } = require('./utils/envSchema');
 validateEnv();
+_bootMark('env:validated');
 
 const express = require('express');
 const cors = require('cors');
@@ -51,6 +70,7 @@ const { startDataOperationsScheduler, stopScheduler, getSchedulerState } = requi
 const { startEventPoller, POLL_INTERVAL_MS } = require('./utils/eventPoller');
 const { requestTrackerMiddleware } = require('./utils/requestTracker');
 const { setStatus: setServerStatus } = require('./utils/serverStatus');
+_bootMark('core-utils:loaded');
 
 const isRedacted = (value) => typeof value === 'string' && value.includes('<REDACTED>');
 
@@ -239,6 +259,20 @@ async function warmupConnections() {
         setTimeout(() => {
             trackEvent('Server.Boot.Warmup.Tier2.Started', { port, label: 'Team WIP (aggregate)' });
             warmup({ path: '/api/home-wip/team', method: 'GET', label: 'Team WIP (aggregate)' });
+
+            // Periodic pre-warm: keep team WIP aggregate cache permanently warm so
+            // dev-owner Home boots after a quiet period don't pay for the cold
+            // Clio fan-out. Cheap (~one Clio fan-out every 90s) but eliminates the
+            // worst-case Home boot latency for the dev-owner view.
+            try {
+                if (typeof homeWipRouter.startTeamWipPrewarm === 'function') {
+                    homeWipRouter.startTeamWipPrewarm();
+                }
+            } catch (err) {
+                trackEvent('Server.Boot.Warmup.TeamWipPrewarm.Failed', {
+                    error: err?.message || String(err),
+                });
+            }
         }, 5000);
 
         // Periodic cache warming — re-heats high-value datasets when TTL drops below 5 min
@@ -251,10 +285,12 @@ async function warmupConnections() {
 // Stored as a module-level promise so the readiness gate middleware can await it.
 let _hydrationDone = false;
 const _hydrationReady = (async () => {
+    _bootMark('hydration:started');
     const startedAt = Date.now();
     try {
         await hydrateSqlConnectionStringsFromKeyVault();
         const durationMs = Date.now() - startedAt;
+        _bootMark('hydration:completed');
         trackEvent('Server.Boot.Secrets.Completed', {});
         trackMetric('Server.Boot.Secrets.Duration', durationMs, {});
         warmupConnections();
@@ -273,6 +309,7 @@ const _hydrationReady = (async () => {
         _hydrationDone = true;
     }
 })();
+_bootMark('routes:require:start');
 const keysRouter = require('./routes/keys');
 const refreshRouter = require('./routes/refresh');
 const matterRequestsRouter = require('./routes/matterRequests');
@@ -293,6 +330,7 @@ const { router: cclRouter, CCL_DIR } = require('./routes/ccl');
 const cclAiRouter = require('./routes/ccl-ai');
 const commsFrameworkRouter = require('./routes/comms-framework');
 const cclAdminRouter = require('./routes/ccl-admin');
+const formsAiRouter = require('./routes/formsAi');
 
 const updateEnquiryPOCRouter = require('./routes/updateEnquiryPOC');
 const pitchesRouter = require('./routes/pitches');
@@ -316,6 +354,7 @@ const proxyToAzureFunctionsRouter = require('./routes/proxyToAzureFunctions');
 const fileMapRouter = require('./routes/fileMap');
 const paymentLinkRouter = require('./routes/paymentLink');
 const stripeWebhookRouter = require('./routes/stripeWebhook');
+const clioWebhookRouter = require('./routes/clio-webhook');
 const opsRouter = require('./routes/ops');
 const sendEmailRouter = require('./routes/sendEmail');
 const createDraftRouter = require('./routes/createDraft');
@@ -333,6 +372,7 @@ const homeMetricsStreamRouter = require('./routes/home-metrics-stream');
 const complianceRouter = require('./routes/compliance');
 const homeWipRouter = require('./routes/home-wip');
 const homeEnquiriesRouter = require('./routes/home-enquiries');
+const mattersNewSpaceRouter = require('./routes/mattersNewSpace');
 const poidRouter = require('./routes/poid');
 const futureBookingsRouter = require('./routes/futureBookings');
 const outstandingBalancesRouter = require('./routes/outstandingBalances');
@@ -358,21 +398,25 @@ const syncInstructionClientRouter = require('./routes/sync-instruction-client');
 const techTicketsRouter = require('./routes/techTickets');
 const logsStreamRouter = require('./routes/logs-stream');
 const telemetryRouter = require('./routes/telemetry');
+const todoRouter = require('./routes/todo');
 const bookSpaceRouter = require('./routes/bookSpace');
 const financialTaskRouter = require('./routes/financialTask');
 const activityFeedRouter = require('./routes/activity-feed');
 const releaseNotesRouter = require('./routes/release-notes');
+const stashBriefsRouter = require('./routes/stash-briefs');
 const opsQueueRouter = require('./routes/opsQueue');
 const processHubRouter = require('./routes/processHub');
 const { router: dataOperationsRouter } = require('./routes/dataOperations');
 const yoyComparisonRouter = require('./routes/yoy-comparison');
 const formHealthCheckRouter = require('./routes/formHealthCheck');
+const notableCaseInfoRouter = require('./routes/notableCaseInfo');
 const teamsBotRouter = require('./routes/teamsBot');
 const teamsNotifyRouter = require('./routes/teamsNotify');
 const activityCardLabRouter = require('./routes/activity-card-lab');
 const { router: opsPulseRouter } = require('./routes/ops-pulse');
 const { userContextMiddleware } = require('./middleware/userContext');
 const errorHandler = require('./middleware/errorHandler');
+_bootMark('routes:require:done');
 
 const app = express();
 // Enable gzip compression if available, but skip SSE endpoints
@@ -442,6 +486,7 @@ if (isProd) {
     });
     app.use('/api/ccl-ai', aiLimiter);
     app.use('/api/ai', aiLimiter);
+    app.use('/api/forms-ai', aiLimiter);
 }
 
 // Initialize persistent operations log and add request logging middleware
@@ -486,7 +531,8 @@ app.use(cors((req, callback) => {
         credentials: true,
         methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
         // EventSource reconnects may include Last-Event-ID; some environments add Cache-Control.
-        allowedHeaders: ['Content-Type', 'Authorization', 'Cache-Control', 'Last-Event-ID'],
+        // x-user-initials is sent by CallsAndNotes save-note; x-user-* is a general pattern.
+        allowedHeaders: ['Content-Type', 'Authorization', 'Cache-Control', 'Last-Event-ID', 'x-user-initials'],
     };
 
     return callback(null, corsOptions);
@@ -500,6 +546,10 @@ if (process.env.NODE_ENV !== 'production') {
 // Stripe webhooks require the *raw* request body for signature verification.
 // This must be registered before express.json().
 app.use('/api/stripe/webhook', stripeWebhookRouter);
+
+// Clio outbound webhooks — same constraint (signature over raw body).
+// See server/routes/clio-webhook.js and docs/notes/_archive/CLIO_WEBHOOK_BRIDGE.md.
+app.use('/api/clio/webhook', clioWebhookRouter);
 
 // Financial forms can include base64 file uploads; default 100kb limit is too small.
 app.use(express.json({ limit: '20mb' }));
@@ -543,11 +593,13 @@ app.use('/api/getAllMatters', (req, res) => {
 app.use('/api/ccl', cclRouter);
 app.use('/api/ccl-ai', cclAiRouter);
 app.use('/api/ai', commsFrameworkRouter);
+app.use('/api/forms-ai', formsAiRouter);
 app.use('/api/ccl-admin', cclAdminRouter);
 app.use('/api/ccl-ops', cclOpsRouter);
 app.use('/api/enquiries-unified', enquiriesUnifiedRouter);
 app.use('/api/home-wip', homeWipRouter);
 app.use('/api/home-enquiries', homeEnquiriesRouter);
+app.use('/api/matters-new-space', mattersNewSpaceRouter);
 app.use('/api/home-journey', homeJourneyRouter);
 app.use('/api/updateEnquiryPOC', updateEnquiryPOCRouter);
 app.use('/api/claimEnquiry', claimEnquiryRouter);
@@ -603,6 +655,7 @@ app.use('/api/people-search', peopleSearchRouter);
 app.use('/api/logs', logsStreamRouter);
 app.use('/api/activity-feed', activityFeedRouter);
 app.use('/api/release-notes', releaseNotesRouter);
+app.use('/api', stashBriefsRouter);
 app.use('/api/ops-queue', opsQueueRouter);
 app.use('/api/messages', teamsBotRouter);
 app.use('/api/teams-notify', teamsNotifyRouter);
@@ -625,6 +678,11 @@ app.use('/api/tech-tickets', techTicketsRouter);
 // Telemetry endpoint for pitch builder and client-side event tracking
 app.use('/api/telemetry', telemetryRouter);
 
+// Hub ToDo registry (HOME_TODO_SINGLE_PICKUP_SURFACE) — dbo.hub_todo on
+// helix-operations. Feeds Home immediate-actions bar + activity feed from
+// one INSERT. Gated by OPS_PLATFORM_ENABLED + OPS_SQL_CONNECTION_STRING.
+app.use('/api/todo', todoRouter);
+
 // Data operations (collected time, WIP sync) - manual triggers for Data Centre
 app.use('/api/data-operations', dataOperationsRouter);
 
@@ -643,6 +701,9 @@ app.use('/api/financial-task', financialTaskRouter);
 // Form health checks (admin-only, non-destructive endpoint probes)
 app.use('/api/form-health', formHealthCheckRouter);
 
+// Notable case info proxy (records + forwards to downstream Azure Function)
+app.use('/api/notable-case-info', notableCaseInfoRouter);
+
 // Unified process definitions and submission feed foundation
 app.use('/api/process-hub', processHubRouter);
 
@@ -656,6 +717,13 @@ app.use('/api/route-health', routeHealthRouter);
 // Server component health
 const healthRouter = require('./routes/health');
 app.use('/api/health', healthRouter);
+
+// Dev-only: stable boot id so the browser can detect nodemon restarts
+// (used by useDevServerBoot to fire `helix:server-bounced` and reconnect SSE).
+// Production safety: this route is never mounted outside dev.
+if (process.env.NODE_ENV !== 'production') {
+    app.use('/api/dev/health', require('./routes/devHealth'));
+}
 
 // Metrics routes (migrated from Azure Functions to fix cold start issues)
 app.use('/api/poid', poidRouter);
@@ -741,24 +809,43 @@ app.use(errorHandler);
 // until secrets are ready, but the process is reachable for health probes.
 app.listen(PORT, () => {
     const bootDurationMs = Date.now() - serverBootStartedAt;
+    _bootMark('listen:ready');
     trackEvent('Server.Boot.ListenReady', { port: PORT, hydrated: _hydrationDone });
     trackMetric('Server.Boot.Listen.Duration', bootDurationMs, { port: PORT });
 
     // Defer scheduler + event poller until hydration completes
     _hydrationReady.then(() => {
+        // Dev opt-in: HELIX_LAZY_INIT skips the scheduler + event poller so the
+        // local boot is snappy and nodemon restarts don't re-spin all of them.
+        // Always runs in production, regardless of the env flag.
+        const skipBackground =
+            process.env.NODE_ENV !== 'production' && process.env.HELIX_LAZY_INIT === '1';
+
         banner({
             port: PORT,
             redis: _connStatus.redis,
             sql: _connStatus.sql,
             instructionsSql: _connStatus.instructionsSql,
             clio: _connStatus.clio,
-            scheduler: true,
-            eventPoller: POLL_INTERVAL_MS / 1000,
+            scheduler: !skipBackground,
+            eventPoller: skipBackground ? 'skipped (HELIX_LAZY_INIT)' : POLL_INTERVAL_MS / 1000,
         });
-        setServerStatus('scheduler', true);
-        startDataOperationsScheduler();
-        startEventPoller();
-        setServerStatus('eventPoller', true);
+
+        if (skipBackground) {
+            try {
+                trackEvent('Server.Boot.LazyInit.Skipped', {
+                    reason: 'HELIX_LAZY_INIT',
+                    skipped: 'scheduler,eventPoller',
+                });
+            } catch { /* */ }
+            setServerStatus('scheduler', false);
+            setServerStatus('eventPoller', false);
+        } else {
+            setServerStatus('scheduler', true);
+            startDataOperationsScheduler();
+            startEventPoller();
+            setServerStatus('eventPoller', true);
+        }
     });
 });
 
@@ -766,6 +853,13 @@ app.listen(PORT, () => {
 async function gracefulShutdown(signal) {
     schedulerLogger.info(`${signal} received — initiating graceful shutdown`);
     stopScheduler();
+
+    // Stop background pre-warm timers so Node can exit cleanly.
+    try {
+        if (typeof homeWipRouter.stopTeamWipPrewarm === 'function') {
+            homeWipRouter.stopTeamWipPrewarm();
+        }
+    } catch { /* non-fatal */ }
 
     // Wait for mutex to drain (in-flight sync to finish)
     const { getState: getMutexState } = require('./utils/syncMutex');

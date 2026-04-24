@@ -11,6 +11,13 @@
 const express = require('express');
 const sql = require('mssql');
 const { withRequest } = require('../utils/db');
+const {
+  recordSubmission,
+  recordStep,
+  markComplete,
+  markFailed,
+} = require('../utils/formSubmissionLog');
+const { trackException } = require('../utils/appInsights');
 
 const router = express.Router();
 
@@ -137,6 +144,7 @@ router.get('/:id', async (req, res) => {
  * Create new counsel recommendation
  */
 router.post('/', async (req, res) => {
+  let submissionId = null;
   try {
     const {
       submitted_by,
@@ -168,6 +176,18 @@ router.post('/', async (req, res) => {
     }
     if (!price_tier) {
       return res.status(400).json({ error: 'price_tier is required' });
+    }
+
+    try {
+      submissionId = await recordSubmission({
+        formKey: 'counsel-recommendation',
+        submittedBy: String(submitted_by || 'UNK').slice(0, 10),
+        lane: 'Request',
+        payload: req.body,
+        summary: `Counsel: ${first_name} ${last_name} (${chambers_name || area_of_work || ''})`.trim().slice(0, 400),
+      });
+    } catch (logErr) {
+      trackException(logErr, { phase: 'counsel.recordSubmission' });
     }
 
     const result = await withRequest(getConnectionString(), async (request) => {
@@ -204,6 +224,12 @@ router.post('/', async (req, res) => {
     }, 2);
 
     console.log(`[counsel] Created counsel ID: ${result?.id}`);
+    await recordStep(submissionId, {
+      name: 'counsel_recommendations.insert',
+      status: 'success',
+      output: { id: result?.id },
+    });
+    await markComplete(submissionId, { lastEvent: 'counsel recommendation recorded' });
     return res.status(201).json({
       success: true,
       id: result?.id,
@@ -212,6 +238,9 @@ router.post('/', async (req, res) => {
 
   } catch (error) {
     console.error('[counsel] POST error:', error);
+    if (submissionId) {
+      await markFailed(submissionId, { lastEvent: 'counsel:insert:failed', error });
+    }
     return res.status(500).json({ error: 'Failed to create counsel', details: error.message });
   }
 });

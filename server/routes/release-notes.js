@@ -4,13 +4,18 @@ const path = require('path');
 
 const router = express.Router();
 
-function getRepoRoot() {
-  return path.resolve(__dirname, '..', '..');
+function getChangelogPath() {
+  const candidates = [
+    path.resolve(__dirname, '..', '..', 'logs', 'changelog.md'),
+    path.resolve(__dirname, '..', 'logs', 'changelog.md'),
+  ];
+
+  return candidates.find((candidate) => fs.existsSync(candidate)) || candidates[0];
 }
 
 router.get('/', (req, res) => {
   try {
-    const filePath = path.join(getRepoRoot(), 'logs', 'changelog.md');
+    const filePath = getChangelogPath();
     if (!fs.existsSync(filePath)) {
       return res.status(404).type('text/plain').send('Changelog not found');
     }

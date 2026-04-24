@@ -18,17 +18,46 @@ interface SessionFiltersSectionProps {
     onAreasChange?: (areas: string[]) => void;
     areasOfWork: string[];
     setAreasOfWork: React.Dispatch<React.SetStateAction<string[]>>;
+    /** The user's profile default AoWs. When `areasOfWork` deviates from
+     *  this set, a "Reset to my profile" affordance appears so the user can
+     *  return to their baseline scope. */
+    defaultAreasOfWork?: string[];
 }
 
+const sameSet = (a: string[], b: string[]): boolean => {
+    if (a.length !== b.length) return false;
+    const s = new Set(a);
+    return b.every(x => s.has(x));
+};
+
+/**
+ * "Working areas" picker — controls the Areas of Work that drive the user's
+ * enquiries, matters and pickups for the rest of this session. This is a
+ * scope override, not a transient filter: toggling it mutates the effective
+ * user.AOW so every downstream tab reacts.
+ */
 const SessionFiltersSection: React.FC<SessionFiltersSectionProps> = ({
     tokens,
     onAreasChange,
     areasOfWork,
     setAreasOfWork,
+    defaultAreasOfWork,
 }) => {
-    const { isDarkMode, textPrimary, textMuted, borderLight } = tokens;
+    const { isDarkMode, textPrimary, textMuted, borderLight, sectionTitle } = tokens;
 
     if (!onAreasChange) return null;
+
+    const canReset = !!defaultAreasOfWork && !sameSet(areasOfWork, defaultAreasOfWork);
+
+    const commit = (next: string[]) => {
+        setAreasOfWork(next);
+        onAreasChange(next);
+    };
+
+    const handleReset = () => {
+        if (!defaultAreasOfWork) return;
+        commit(defaultAreasOfWork);
+    };
 
     /** Short display labels */
     const shortLabel = (area: string): string => {
@@ -41,55 +70,83 @@ const SessionFiltersSection: React.FC<SessionFiltersSectionProps> = ({
     };
 
     return (
-        <div style={{ display: 'flex', gap: 6, marginBottom: 0 }}>
-            {AVAILABLE_AREAS.map(area => {
-                const checked = areasOfWork.includes(area);
-                const areaCol = aowColour(area, isDarkMode);
-                return (
+        <div style={{ marginBottom: 0 }}>
+            <div style={{ ...sectionTitle, display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                <span>Areas of work</span>
+                {canReset && (
                     <button
-                        key={area}
-                        title={area}
-                        aria-label={`Filter ${area}${checked ? ' (active)' : ''}`}
-                        aria-pressed={checked}
-                        onClick={() => {
-                            const newAreas = checked
-                                ? areasOfWork.filter(a => a !== area)
-                                : [...areasOfWork, area];
-                            setAreasOfWork(newAreas);
-                            onAreasChange(newAreas);
-                        }}
-                        onMouseEnter={e => {
-                            if (!checked) e.currentTarget.style.background = isDarkMode ? `${areaCol}10` : `${areaCol}0A`;
-                        }}
-                        onMouseLeave={e => {
-                            if (!checked) e.currentTarget.style.background = 'transparent';
-                        }}
+                        type="button"
+                        onClick={handleReset}
+                        title="Return to your profile's default Areas of Work"
                         style={{
-                            flex: '1 1 0',
-                            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                            gap: 3, padding: '6px 4px',
-                            background: checked
-                                ? (isDarkMode ? `${areaCol}20` : `${areaCol}18`)
-                                : 'transparent',
-                            border: `1px solid ${checked ? areaCol : borderLight}`,
-                            borderBottom: `2px solid ${checked ? areaCol : 'transparent'}`,
-                            borderRadius: 0,
+                            background: 'transparent',
+                            border: 'none',
+                            padding: 0,
+                            color: isDarkMode ? colours.accent : colours.highlight,
+                            fontSize: 9,
+                            fontFamily: 'Raleway, sans-serif',
+                            fontWeight: 600,
+                            letterSpacing: '0.5px',
+                            textTransform: 'uppercase',
                             cursor: 'pointer',
-                            transition: 'all 0.15s ease',
                         }}
                     >
-                        <AowIcon area={area} colour={checked ? areaCol : textMuted} />
-                        <span style={{
-                            fontSize: 9, fontWeight: checked ? 700 : 500,
-                            color: checked ? textPrimary : textMuted,
-                            letterSpacing: '0.2px',
-                            transition: 'color 0.15s ease',
-                        }}>
-                            {shortLabel(area)}
-                        </span>
+                        Reset
                     </button>
-                );
-            })}
+                )}
+            </div>
+
+            <div style={{ display: 'flex', gap: 4 }}>
+                {AVAILABLE_AREAS.map(area => {
+                    const checked = areasOfWork.includes(area);
+                    const areaCol = aowColour(area, isDarkMode);
+                    return (
+                        <button
+                            key={area}
+                            title={area}
+                            aria-label={`${area}${checked ? ' (included)' : ''}`}
+                            aria-pressed={checked}
+                            onClick={() => commit(checked ? areasOfWork.filter(a => a !== area) : [...areasOfWork, area])}
+                            onMouseEnter={e => {
+                                if (!checked) {
+                                    e.currentTarget.style.background = isDarkMode ? `${areaCol}14` : `${areaCol}0D`;
+                                    e.currentTarget.style.borderColor = areaCol;
+                                }
+                            }}
+                            onMouseLeave={e => {
+                                if (!checked) {
+                                    e.currentTarget.style.background = 'transparent';
+                                    e.currentTarget.style.borderColor = borderLight;
+                                }
+                            }}
+                            style={{
+                                flex: '1 1 0',
+                                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                                gap: 4, padding: '8px 4px',
+                                background: checked
+                                    ? (isDarkMode ? `${areaCol}1F` : `${areaCol}14`)
+                                    : 'transparent',
+                                border: `1px solid ${checked ? areaCol : borderLight}`,
+                                borderRadius: 0,
+                                cursor: 'pointer',
+                                transition: 'background 0.15s ease, border-color 0.15s ease',
+                            }}
+                        >
+                            <AowIcon area={area} colour={checked ? areaCol : textMuted} />
+                            <span style={{
+                                fontSize: 9,
+                                fontWeight: checked ? 700 : 500,
+                                color: checked ? textPrimary : textMuted,
+                                letterSpacing: '0.3px',
+                                textTransform: 'uppercase',
+                                transition: 'color 0.15s ease',
+                            }}>
+                                {shortLabel(area)}
+                            </span>
+                        </button>
+                    );
+                })}
+            </div>
         </div>
     );
 };

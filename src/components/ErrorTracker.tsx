@@ -4,6 +4,7 @@
 import React, { useState, useEffect } from 'react';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { colours } from '../app/styles/colours';
+import { useFreshIds } from '../hooks/useFreshIds';
 
 interface TrackedError {
   id: string;
@@ -138,6 +139,7 @@ export const ErrorTracker: React.FC<ErrorTrackerProps> = ({ onClose }) => {
 
   const activeErrors = errors.filter(e => !e.dismissed);
   const dismissedErrors = errors.filter(e => e.dismissed);
+  const freshErrorIds = useFreshIds(activeErrors, (err) => err.id);
 
   const bgOverlay = 'rgba(0, 0, 0, 0.4)';
   const bgPanel = isDarkMode ? 'rgba(17, 24, 39, 0.95)' : 'rgba(255, 255, 255, 0.95)';
@@ -263,6 +265,7 @@ export const ErrorTracker: React.FC<ErrorTrackerProps> = ({ onClose }) => {
                 {activeErrors.map(error => (
                   <div
                     key={error.id}
+                    data-fresh={freshErrorIds.has(error.id) ? 'true' : undefined}
                     onClick={() => setSelectedError(error)}
                     style={{
                       background: selectedError?.id === error.id ? bgHover : bgCard,

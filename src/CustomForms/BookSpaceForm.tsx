@@ -20,6 +20,8 @@ import {
   FutureBookingsResponse
 } from '../app/functionality/types';
 import { getFormSelectionButtonStyles, getFormDefaultButtonStyles, getFormSectionStyle, getFormSectionHeaderStyle, getInfoBoxTextStyle } from './shared/formStyles';
+import { useFormReadinessPulse } from './shared/useFormReadinessPulse';
+import { FormReadinessCue } from './shared/FormReadinessCue';
 
 
 
@@ -63,6 +65,7 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
   realtimePulse,
 }) => {
   const { isDarkMode } = useTheme();
+  const readiness = useFormReadinessPulse('book-space');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionSuccess, setSubmissionSuccess] = useState(false);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
@@ -478,6 +481,9 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
 
   return (
     <Stack tokens={{ childrenGap: 20 }} styles={{ root: { padding: '20px', position: 'relative' } }}>
+      <Stack horizontal horizontalAlign="end" verticalAlign="center" styles={{ root: { minHeight: 16 } }}>
+        <FormReadinessCue state={readiness.state} detail={readiness.detail} readyAnnouncement="Book space form ready" />
+      </Stack>
       {!selectedSpaceType ? (
         <Stack horizontal tokens={{ childrenGap: 24 }} horizontalAlign="center">
           <DefaultButton

@@ -1279,36 +1279,46 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
     >
       {/* Toast Notification */}
       {toast && (
-        <div style={{
-          position: 'fixed',
-          top: '20px',
-          right: '20px',
-          zIndex: 10000,
-          display: 'flex',
-          alignItems: 'center',
-          gap: '10px',
-          padding: '12px 18px',
-          borderRadius: 0,
-          boxShadow: '0 4px 20px rgba(0, 0, 0, 0.25)',
-          animation: 'slideInRight 0.3s ease-out',
-          backgroundColor: toast.type === 'success' 
-            ? colours.green
-            : toast.type === 'error'
-            ? colours.cta
-            : colours.highlight,
-          color: colours.dark.text,
-          fontWeight: 500,
-          fontSize: '13px',
-          maxWidth: '350px',
-          backdropFilter: 'blur(8px)'
-        }}>
+        <div
+          className={
+            toast.type === 'success'
+              ? 'helix-toast-success'
+              : toast.type === 'error'
+              ? 'helix-toast-error'
+              : undefined
+          }
+          style={{
+            position: 'fixed',
+            top: '20px',
+            right: '20px',
+            zIndex: 10000,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            padding: toast.type === 'info' ? '10px 14px' : undefined,
+            borderRadius: 0,
+            boxShadow: '0 6px 18px rgba(0, 3, 25, 0.24)',
+            animation: 'slideInRight 0.3s ease-out',
+            fontFamily: 'Raleway, sans-serif',
+            maxWidth: '360px',
+            ...(toast.type === 'info'
+              ? {
+                  background: 'rgba(54, 144, 206, 0.12)',
+                  border: '1px solid rgba(54, 144, 206, 0.3)',
+                  color: colours.highlight,
+                  fontSize: '12px',
+                  fontWeight: 600,
+                }
+              : null),
+          }}
+        >
           <span>{toast.text}</span>
           <IconButton
             iconProps={{ iconName: 'Cancel' }}
             onClick={() => setToast(null)}
             styles={{
-              root: { color: `${colours.dark.text}CC`, height: '20px', width: '20px' },
-              rootHovered: { color: colours.dark.text, background: `${colours.dark.text}1A` },
+              root: { color: 'currentColor', height: '20px', width: '20px', opacity: 0.75 },
+              rootHovered: { opacity: 1, background: 'rgba(0,0,0,0.04)' },
               icon: { fontSize: '10px' }
             }}
           />
@@ -1350,6 +1360,21 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
           0%, 100% { opacity: 1; }
           50% { opacity: 0.5; }
         }
+        @keyframes almShimmer {
+          0% { background-position: -200px 0; }
+          100% { background-position: calc(200px + 100%) 0; }
+        }
+        .alm-skeleton-bar {
+          background-image: linear-gradient(
+            90deg,
+            ${isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(6,23,51,0.04)'} 0,
+            ${isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(6,23,51,0.08)'} 40px,
+            ${isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(6,23,51,0.04)'} 80px
+          );
+          background-size: 200px 100%;
+          background-repeat: no-repeat;
+          animation: almShimmer 1.4s ease-in-out infinite;
+        }
         @keyframes cascadeIn {
           0% { opacity: 0; transform: translateY(12px); }
           100% { opacity: 1; transform: translateY(0); }
@@ -1365,15 +1390,15 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
           animation: cascadeIn 0.4s ease-out forwards;
         }
         .cascade-item:nth-child(1) { animation-delay: 0ms; }
-        .cascade-item:nth-child(2) { animation-delay: 60ms; }
-        .cascade-item:nth-child(3) { animation-delay: 120ms; }
-        .cascade-item:nth-child(4) { animation-delay: 180ms; }
-        .cascade-item:nth-child(5) { animation-delay: 240ms; }
-        .cascade-item:nth-child(6) { animation-delay: 300ms; }
-        .cascade-item:nth-child(7) { animation-delay: 360ms; }
-        .cascade-item:nth-child(8) { animation-delay: 420ms; }
-        .cascade-item:nth-child(9) { animation-delay: 480ms; }
-        .cascade-item:nth-child(10) { animation-delay: 540ms; }
+        .cascade-item:nth-child(2) { animation-delay: 20ms; }
+        .cascade-item:nth-child(3) { animation-delay: 40ms; }
+        .cascade-item:nth-child(4) { animation-delay: 60ms; }
+        .cascade-item:nth-child(5) { animation-delay: 80ms; }
+        .cascade-item:nth-child(6) { animation-delay: 100ms; }
+        .cascade-item:nth-child(7) { animation-delay: 120ms; }
+        .cascade-item:nth-child(8) { animation-delay: 140ms; }
+        .cascade-item:nth-child(9) { animation-delay: 160ms; }
+        .cascade-item:nth-child(10) { animation-delay: 180ms; }
       `}</style>
 
       {message && (
@@ -2702,7 +2727,7 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                   background: isDarkMode ? colours.darkBlue : colours.grey
                 }}>
                   {isHistoryLoading ? (
-                    <span style={{ display: 'inline-block', width: '26px', height: '8px', borderRadius: 2, background: skeletonStrong }} />
+                    <span className="alm-skeleton-bar" style={{ display: 'inline-block', width: '26px', height: '8px', borderRadius: 0 }} />
                   ) : (
                     `${leaveHistoryData.length}`
                   )}
@@ -2717,7 +2742,7 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                   background: isDarkMode ? `${colours.accent}1F` : `${colours.highlight}14`
                 }}>
                   {isHistoryLoading ? (
-                    <span style={{ display: 'inline-block', width: '32px', height: '8px', borderRadius: 2, background: skeletonBase }} />
+                    <span className="alm-skeleton-bar" style={{ display: 'inline-block', width: '32px', height: '8px', borderRadius: 0 }} />
                   ) : (
                     isAdmin && selectedEmployee ? `${filteredLeaveHistory.length} ${selectedEmployee}` : `${filteredLeaveHistory.length} yours`
                   )}
@@ -2866,12 +2891,12 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                     >
                       <div style={{ width: '3px', height: '28px', background: skeletonStrong }} />
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ width: idx === 0 ? '148px' : idx === 1 ? '132px' : '156px', height: '10px', borderRadius: 0, background: skeletonStrong, marginBottom: '6px' }} />
-                        <div style={{ width: idx === 1 ? '58%' : '74%', height: '8px', borderRadius: 0, background: skeletonBase, marginBottom: '5px' }} />
-                        <div style={{ width: idx === 2 ? '62%' : '48%', height: '7px', borderRadius: 0, background: skeletonBase }} />
+                        <div className="alm-skeleton-bar" style={{ width: idx === 0 ? '148px' : idx === 1 ? '132px' : '156px', height: '10px', borderRadius: 0, marginBottom: '6px' }} />
+                        <div className="alm-skeleton-bar" style={{ width: idx === 1 ? '58%' : '74%', height: '8px', borderRadius: 0, marginBottom: '5px' }} />
+                        <div className="alm-skeleton-bar" style={{ width: idx === 2 ? '62%' : '48%', height: '7px', borderRadius: 0 }} />
                       </div>
-                      <div style={{ width: '26px', height: '14px', borderRadius: 0, background: skeletonBase }} />
-                      <div style={{ width: idx === 0 ? '54px' : '68px', height: '14px', borderRadius: 0, background: skeletonStrong }} />
+                      <div className="alm-skeleton-bar" style={{ width: '26px', height: '14px', borderRadius: 0 }} />
+                      <div className="alm-skeleton-bar" style={{ width: idx === 0 ? '54px' : '68px', height: '14px', borderRadius: 0 }} />
                     </div>
                   ))}
                 </div>

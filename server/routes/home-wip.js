@@ -15,6 +15,7 @@ const fetch = require('node-fetch');
 const { withRequest } = require('../utils/db');
 const { getRedisClient, generateCacheKey, setCache, getCache } = require('../utils/redisClient');
 const { getClient } = require('../utils/getSecret');
+const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
 
 const router = express.Router();
 const { annotate } = require('../utils/devConsole');
@@ -22,9 +23,20 @@ const { annotate } = require('../utils/devConsole');
 // Cache TTL: 60s fresh for individual, 120s for team aggregate
 const CACHE_TTL_SECONDS = 60;
 const TEAM_CACHE_TTL_SECONDS = 120;
+const TEAM_STALE_SERVE_WINDOW_MS = Number(process.env.HOME_WIP_TEAM_STALE_SERVE_WINDOW_MS || 15 * 60 * 1000);
 // Keep stale data for longer so transient Key Vault / Clio blips don't zero the UI.
 // Freshness is still governed by CACHE_TTL_SECONDS; this just controls fallback retention.
 const STALE_TTL_SECONDS = 6 * 60 * 60; // 6 hours
+
+// Periodic pre-warm of the team aggregate cache. With TEAM_CACHE_TTL_SECONDS=120
+// and a 15min stale-serve window, any dev-owner Home boot after ~15min idle
+// triggers a cold Clio fan-out across the whole team. A modest background
+// refresh keeps the cache permanently warm in production for negligible cost.
+// Override via HOME_WIP_TEAM_PREWARM_INTERVAL_MS=0 to disable.
+const TEAM_PREWARM_INTERVAL_MS = Number(
+  process.env.HOME_WIP_TEAM_PREWARM_INTERVAL_MS
+  ?? 90 * 1000,
+);
 
 // In-memory fallback when Redis unavailable
 const memoryCache = new Map();
@@ -406,12 +418,22 @@ async function fetchClioActivities(accessToken, clioId, startDate, endDate) {
   const fields = 'id,date,quantity_in_hours,total,price,type,note,matter{display_number,description},activity_description{name}';
   const baseUrl = 'https://eu.app.clio.com/api/v4/activities.json';
 
-  const formatDate = (d) => d.toISOString().replace(/\.\d{3}Z$/, 'Z');
+  // Filter by the activity's work date (start_date / end_date), NOT by record creation
+  // timestamps. Using created_since/created_before misses any time logged retroactively
+  // (e.g. Monday's hours entered on Tuesday) and was causing Home tiles to render as
+  // zero for users who hadn't re-logged time in the current window. Matches the
+  // pattern used in dataOperations.js::Clio WIP validate.
+  const formatDay = (d) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
 
   while (true) {
     const params = new URLSearchParams({
-      created_since: formatDate(startDate),
-      created_before: formatDate(endDate),
+      start_date: formatDay(startDate),
+      end_date: formatDay(endDate),
       user_id: clioId.toString(),
       fields,
       limit: limit.toString(),
@@ -532,7 +554,7 @@ async function getCached(key, allowStale = false, ttlOverride) {
         const stale = age > ttl * 1000;
 
         if (!stale || allowStale) {
-          return { data: parsed.data, stale };
+          return { data: parsed.data, stale, ageMs: age };
         }
       }
     } catch { /* ignore */ }
@@ -544,7 +566,7 @@ async function getCached(key, allowStale = false, ttlOverride) {
     const age = Date.now() - mem.timestamp;
     const stale = age > ttl * 1000;
     if (!stale || allowStale) {
-      return { data: mem.data, stale };
+      return { data: mem.data, stale, ageMs: age };
     }
   }
 
@@ -571,6 +593,161 @@ router.warmupClioCredentials = () => getClioCredentialsCached();
 // Team aggregation mode
 // ─────────────────────────────────────────────────────────────────────────────
 
+async function buildTeamAggregateData(connectionString) {
+  const teamMembers = await withRequest(connectionString, async (request) => {
+    const result = await request.query(`
+      SELECT [Entra ID], [Clio ID], [First], [Initials]
+      FROM [dbo].[team]
+      WHERE [Entra ID] IS NOT NULL AND [Entra ID] <> ''
+        AND [Clio ID] IS NOT NULL AND [Clio ID] <> ''
+    `);
+    return result.recordset || [];
+  });
+
+  if (!teamMembers || teamMembers.length === 0) {
+    return {
+      current_week: { daily_data: {} },
+      last_week: { daily_data: {} },
+      memberCount: 0,
+      requestedMemberCount: 0,
+    };
+  }
+
+  const CONCURRENCY = 8;
+  const results = [];
+  for (let i = 0; i < teamMembers.length; i += CONCURRENCY) {
+    const chunk = teamMembers.slice(i, i + CONCURRENCY);
+    const chunkResults = await Promise.allSettled(
+      chunk.map((member) => {
+        const entraId = member['Entra ID'];
+        const clioId = member['Clio ID'];
+        const userCacheKey = generateCacheKey('homeWip', entraId);
+        return getCached(userCacheKey).then((userCached) => {
+          if (userCached && !userCached.stale) return userCached.data;
+          if (inflightRequests.has(userCacheKey)) return inflightRequests.get(userCacheKey);
+          const inFlight = fetchUserWipTwoWeeksWithClioId(clioId).then((freshData) => {
+            setCached(userCacheKey, freshData).catch(() => {});
+            return freshData;
+          }).finally(() => inflightRequests.delete(userCacheKey));
+          inflightRequests.set(userCacheKey, inFlight);
+          return inFlight;
+        });
+      })
+    );
+    results.push(...chunkResults);
+  }
+
+  const { currentStart, currentEnd, lastStart, lastEnd } = getTwoWeekBounds();
+  const aggregatedCurrent = {};
+  const aggregatedLast = {};
+
+  const initDays = (store, start, end) => {
+    const cursor = new Date(start);
+    while (cursor <= end) {
+      const key = formatDayKey(cursor);
+      store[key] = { total_hours: 0, total_amount: 0, entries: [] };
+      cursor.setDate(cursor.getDate() + 1);
+    }
+  };
+  initDays(aggregatedCurrent, currentStart, currentEnd);
+  initDays(aggregatedLast, lastStart, lastEnd);
+
+  let successCount = 0;
+  for (const result of results) {
+    if (result.status !== 'fulfilled') continue;
+    successCount++;
+    const data = result.value;
+
+    const cDaily = data.current_week?.daily_data || {};
+    for (const [day, vals] of Object.entries(cDaily)) {
+      if (!aggregatedCurrent[day]) aggregatedCurrent[day] = { total_hours: 0, total_amount: 0, entries: [] };
+      aggregatedCurrent[day].total_hours += vals.total_hours || 0;
+      aggregatedCurrent[day].total_amount += vals.total_amount || 0;
+      if (vals.entries) aggregatedCurrent[day].entries.push(...vals.entries);
+    }
+
+    const lDaily = data.last_week?.daily_data || {};
+    for (const [day, vals] of Object.entries(lDaily)) {
+      if (!aggregatedLast[day]) aggregatedLast[day] = { total_hours: 0, total_amount: 0, entries: [] };
+      aggregatedLast[day].total_hours += vals.total_hours || 0;
+      aggregatedLast[day].total_amount += vals.total_amount || 0;
+      if (vals.entries) aggregatedLast[day].entries.push(...vals.entries);
+    }
+  }
+
+  for (const day of Object.keys(aggregatedCurrent)) {
+    aggregatedCurrent[day].total_hours = Math.round(aggregatedCurrent[day].total_hours * 10) / 10;
+    aggregatedCurrent[day].total_amount = Math.round(aggregatedCurrent[day].total_amount * 100) / 100;
+  }
+  for (const day of Object.keys(aggregatedLast)) {
+    aggregatedLast[day].total_hours = Math.round(aggregatedLast[day].total_hours * 10) / 10;
+    aggregatedLast[day].total_amount = Math.round(aggregatedLast[day].total_amount * 100) / 100;
+  }
+
+  return {
+    current_week: { daily_data: aggregatedCurrent },
+    last_week: { daily_data: aggregatedLast },
+    memberCount: successCount,
+    requestedMemberCount: teamMembers.length,
+  };
+}
+
+async function refreshTeamAggregateCache(connectionString, cacheKey, triggeredBy) {
+  const operation = 'home-wip-team-aggregate';
+  const startedAt = Date.now();
+
+  trackEvent('HomeWip.TeamAggregate.Started', {
+    operation,
+    triggeredBy,
+  });
+
+  try {
+    const freshData = await buildTeamAggregateData(connectionString);
+    await setCached(cacheKey, freshData, TEAM_CACHE_TTL_SECONDS);
+
+    const durationMs = Date.now() - startedAt;
+    trackEvent('HomeWip.TeamAggregate.Completed', {
+      operation,
+      triggeredBy,
+      durationMs: String(durationMs),
+      memberCount: String(freshData.memberCount || 0),
+      requestedMemberCount: String(freshData.requestedMemberCount || 0),
+    });
+    trackMetric('HomeWip.TeamAggregate.Duration', durationMs, {
+      operation,
+      triggeredBy,
+    });
+
+    return freshData;
+  } catch (error) {
+    const durationMs = Date.now() - startedAt;
+    trackException(error, {
+      operation,
+      phase: 'aggregate-refresh',
+      triggeredBy,
+      durationMs: String(durationMs),
+    });
+    trackEvent('HomeWip.TeamAggregate.Failed', {
+      operation,
+      triggeredBy,
+      durationMs: String(durationMs),
+      error: error?.message || String(error),
+    });
+    throw error;
+  }
+}
+
+function getOrStartTeamAggregateRefresh(connectionString, cacheKey, triggeredBy) {
+  if (inflightRequests.has(cacheKey)) {
+    return inflightRequests.get(cacheKey);
+  }
+
+  const inFlight = refreshTeamAggregateCache(connectionString, cacheKey, triggeredBy)
+    .finally(() => inflightRequests.delete(cacheKey));
+  inflightRequests.set(cacheKey, inFlight);
+  return inFlight;
+}
+
 /**
  * GET /api/home-wip/team
  *
@@ -583,134 +760,41 @@ router.get('/team', async (req, res) => {
   const cacheKey = generateCacheKey('homeWip', 'team-aggregate');
 
   try {
-    // Check cache first (team aggregate uses longer TTL)
-    const cached = await getCached(cacheKey, false, TEAM_CACHE_TTL_SECONDS);
+    const cached = await getCached(cacheKey, true, TEAM_CACHE_TTL_SECONDS);
     if (cached && !cached.stale) {
       annotate(res, { source: 'redis', note: `team aggregate, TTL ${TEAM_CACHE_TTL_SECONDS}s` });
       return res.json({ ...cached.data, cached: true, stale: false });
     }
 
-    // Fetch all team members' Entra IDs
-    const teamMembers = await withRequest(connectionString, async (request) => {
-      const result = await request.query(`
-        SELECT [Entra ID], [Clio ID], [First], [Initials]
-        FROM [dbo].[team]
-        WHERE [Entra ID] IS NOT NULL AND [Entra ID] <> ''
-          AND [Clio ID] IS NOT NULL AND [Clio ID] <> ''
-      `);
-      return result.recordset || [];
-    });
-
-    if (!teamMembers || teamMembers.length === 0) {
-      return res.json({
-        current_week: { daily_data: {} },
-        last_week: { daily_data: {} },
-        cached: false,
-        stale: false,
-        memberCount: 0,
+    if (cached && cached.stale && (cached.ageMs || 0) <= TEAM_STALE_SERVE_WINDOW_MS) {
+      void getOrStartTeamAggregateRefresh(connectionString, cacheKey, 'stale-cache-background').catch((err) => {
+        console.warn('[home-wip/team] Background refresh failed:', err.message);
       });
+
+      annotate(res, {
+        source: 'stale',
+        note: `team aggregate stale ${Math.round((cached.ageMs || 0) / 1000)}s, background refresh`,
+      });
+      return res.json({ ...cached.data, cached: true, stale: true, refreshing: true });
     }
 
-    // Fetch WIP for each team member with concurrency limiting.
-    // Use the already-known Clio ID to skip 32 redundant resolveClioId SQL queries.
-    // Check per-user cache first to skip Clio API for recently-fetched users.
-    // Batch into chunks of 8 to avoid flooding Clio API with 30+ simultaneous requests.
-    const CONCURRENCY = 8;
-    const results = [];
-    for (let i = 0; i < teamMembers.length; i += CONCURRENCY) {
-      const chunk = teamMembers.slice(i, i + CONCURRENCY);
-      const chunkResults = await Promise.allSettled(
-        chunk.map(member => {
-          const entraId = member['Entra ID'];
-          const clioId = member['Clio ID'];
-          const userCacheKey = generateCacheKey('homeWip', entraId);
-          return getCached(userCacheKey).then(userCached => {
-            if (userCached && !userCached.stale) return userCached.data;
-            // De-dup: if another request is already fetching this user, await it
-            if (inflightRequests.has(userCacheKey)) return inflightRequests.get(userCacheKey);
-            const inFlight = fetchUserWipTwoWeeksWithClioId(clioId).then(freshData => {
-              setCached(userCacheKey, freshData).catch(() => {});
-              return freshData;
-            }).finally(() => inflightRequests.delete(userCacheKey));
-            inflightRequests.set(userCacheKey, inFlight);
-            return inFlight;
-          });
-        })
-      );
-      results.push(...chunkResults);
-    }
+    const freshData = await getOrStartTeamAggregateRefresh(
+      connectionString,
+      cacheKey,
+      cached ? 'expired-cache-blocking' : 'request-miss'
+    );
 
-    // Aggregate daily data across all members
-    const { currentStart, currentEnd, lastStart, lastEnd } = getTwoWeekBounds();
-    const aggregatedCurrent = {};
-    const aggregatedLast = {};
-
-    // Initialize day keys
-    const initDays = (store, start, end) => {
-      const cursor = new Date(start);
-      while (cursor <= end) {
-        const key = formatDayKey(cursor);
-        store[key] = { total_hours: 0, total_amount: 0, entries: [] };
-        cursor.setDate(cursor.getDate() + 1);
-      }
-    };
-    initDays(aggregatedCurrent, currentStart, currentEnd);
-    initDays(aggregatedLast, lastStart, lastEnd);
-
-    let successCount = 0;
-    for (const result of results) {
-      if (result.status !== 'fulfilled') continue;
-      successCount++;
-      const data = result.value;
-
-      // Merge current week
-      const cDaily = data.current_week?.daily_data || {};
-      for (const [day, vals] of Object.entries(cDaily)) {
-        if (!aggregatedCurrent[day]) aggregatedCurrent[day] = { total_hours: 0, total_amount: 0, entries: [] };
-        aggregatedCurrent[day].total_hours += vals.total_hours || 0;
-        aggregatedCurrent[day].total_amount += vals.total_amount || 0;
-        if (vals.entries) aggregatedCurrent[day].entries.push(...vals.entries);
-      }
-
-      // Merge last week
-      const lDaily = data.last_week?.daily_data || {};
-      for (const [day, vals] of Object.entries(lDaily)) {
-        if (!aggregatedLast[day]) aggregatedLast[day] = { total_hours: 0, total_amount: 0, entries: [] };
-        aggregatedLast[day].total_hours += vals.total_hours || 0;
-        aggregatedLast[day].total_amount += vals.total_amount || 0;
-        if (vals.entries) aggregatedLast[day].entries.push(...vals.entries);
-      }
-    }
-
-    // Round final values
-    for (const day of Object.keys(aggregatedCurrent)) {
-      aggregatedCurrent[day].total_hours = Math.round(aggregatedCurrent[day].total_hours * 10) / 10;
-      aggregatedCurrent[day].total_amount = Math.round(aggregatedCurrent[day].total_amount * 100) / 100;
-    }
-    for (const day of Object.keys(aggregatedLast)) {
-      aggregatedLast[day].total_hours = Math.round(aggregatedLast[day].total_hours * 10) / 10;
-      aggregatedLast[day].total_amount = Math.round(aggregatedLast[day].total_amount * 100) / 100;
-    }
-
-    const freshData = {
-      current_week: { daily_data: aggregatedCurrent },
-      last_week: { daily_data: aggregatedLast },
-      memberCount: successCount,
-    };
-
-    // Cache team aggregate with longer TTL (fire-and-forget)
-    setCached(cacheKey, freshData, TEAM_CACHE_TTL_SECONDS).catch(err => {
-      console.warn('[home-wip/team] Cache set failed:', err.message);
+    annotate(res, {
+      source: 'clio',
+      note: `team aggregate: ${freshData.memberCount || 0}/${freshData.requestedMemberCount || 0} members`,
     });
-
-    annotate(res, { source: 'clio', note: `team aggregate: ${successCount}/${teamMembers.length} members` });
     return res.json({ ...freshData, cached: false, stale: false });
   } catch (err) {
     console.error('[home-wip/team] Error:', err?.stack || err?.message);
 
     // Try stale cache
     try {
-      const stale = await getCached(cacheKey, true);
+      const stale = await getCached(cacheKey, true, TEAM_CACHE_TTL_SECONDS);
       if (stale) {
         return res.json({ ...stale.data, cached: true, stale: true });
       }
@@ -725,5 +809,54 @@ router.get('/team', async (req, res) => {
     });
   }
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Periodic team aggregate pre-warm
+// ─────────────────────────────────────────────────────────────────────────────
+
+let _teamPrewarmTimer = null;
+
+function startTeamWipPrewarm() {
+  if (_teamPrewarmTimer) return;
+  if (!Number.isFinite(TEAM_PREWARM_INTERVAL_MS) || TEAM_PREWARM_INTERVAL_MS <= 0) {
+    trackEvent('HomeWip.TeamAggregate.PrewarmDisabled', { reason: 'interval-non-positive' });
+    return;
+  }
+
+  const connectionString = process.env.SQL_CONNECTION_STRING;
+  if (!connectionString) {
+    trackEvent('HomeWip.TeamAggregate.PrewarmDisabled', { reason: 'no-sql-connection-string' });
+    return;
+  }
+
+  const cacheKey = generateCacheKey('homeWip', 'team-aggregate');
+
+  const tick = () => {
+    getOrStartTeamAggregateRefresh(connectionString, cacheKey, 'periodic-prewarm').catch((err) => {
+      // refreshTeamAggregateCache already logs to App Insights; keep console quiet.
+      trackEvent('HomeWip.TeamAggregate.PrewarmTickFailed', {
+        error: err?.message || String(err),
+      });
+    });
+  };
+
+  _teamPrewarmTimer = setInterval(tick, TEAM_PREWARM_INTERVAL_MS);
+  if (typeof _teamPrewarmTimer.unref === 'function') _teamPrewarmTimer.unref();
+
+  trackEvent('HomeWip.TeamAggregate.PrewarmStarted', {
+    intervalMs: String(TEAM_PREWARM_INTERVAL_MS),
+  });
+}
+
+function stopTeamWipPrewarm() {
+  if (_teamPrewarmTimer) {
+    clearInterval(_teamPrewarmTimer);
+    _teamPrewarmTimer = null;
+    trackEvent('HomeWip.TeamAggregate.PrewarmStopped', {});
+  }
+}
+
+router.startTeamWipPrewarm = startTeamWipPrewarm;
+router.stopTeamWipPrewarm = stopTeamWipPrewarm;
 
 module.exports = router;

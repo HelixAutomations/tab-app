@@ -55,54 +55,88 @@ export function getStorageUsage(): { used: number; available: number; percentUse
 }
 
 /**
- * Clean up old cache entries if storage is getting full
+ * Clean up old cache entries if storage is getting full.
+ *
+ * Tiered eviction — the gentler passes only run when storage is mildly full;
+ * aggressive passes kick in when we're near/over quota. This prevents the
+ * "116% full, cleanup warning fires every reload, nothing actually freed"
+ * loop where age-gated cleanup can't evict <15min old entries.
  */
 export function cleanupOldCache(): void {
   if (!isStorageAvailable()) return;
 
   try {
     const { percentUsed } = getStorageUsage();
-    
-    // If we're above warning threshold, clean up old entries
-    if (percentUsed > STORAGE_QUOTA_WARNING_THRESHOLD * 100) {
-      console.warn(`⚠️ Storage usage at ${percentUsed.toFixed(1)}% - cleaning up old cache`);
-      
-      const now = Date.now();
-      const keysToRemove: string[] = [];
-      
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (!key) continue;
-        
-        // Check if this is a cached data entry
-        if (key.includes('userData-') || key.includes('enquiries-') || 
-            key.includes('matters-') || key.startsWith('normalizedMatters-') ||
-            key.startsWith('vnetMatters-') || key === 'allMatters') {
-          try {
-            const value = localStorage.getItem(key);
-            if (value) {
-              const parsed = JSON.parse(value) as CachedData<unknown>;
-              // Remove if older than cache age
-              if (now - parsed.timestamp > MAX_CACHE_AGE_MS) {
-                keysToRemove.push(key);
-              }
-            }
-          } catch {
-            // If we can't parse it, it's probably corrupt - remove it
-            keysToRemove.push(key);
-          }
-        }
-      }
-      
-      keysToRemove.forEach(key => {
-        try {
-          localStorage.removeItem(key);
-        } catch {
-          // Ignore removal errors
-        }
-      });
-      
-      // Cleanup is silent - no need to log routine cache management
+    if (percentUsed <= STORAGE_QUOTA_WARNING_THRESHOLD * 100) return;
+
+    console.warn(`⚠️ Storage usage at ${percentUsed.toFixed(1)}% - cleaning up old cache`);
+
+    const now = Date.now();
+
+    // Collect every key + size once; we'll choose what to remove per tier.
+    interface KeyMeta { key: string; size: number; timestamp?: number; isCache: boolean; }
+    const entries: KeyMeta[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key) continue;
+      const value = localStorage.getItem(key) || '';
+      const size = key.length + value.length;
+      let timestamp: number | undefined;
+      const lower = key.toLowerCase();
+      const isCache =
+        key.includes('userData-') || key.includes('enquiries-') ||
+        key.includes('matters-') || key.startsWith('normalizedMatters-') ||
+        key.startsWith('vnetMatters-') || key === 'allMatters' ||
+        key === 'teamData' || lower.startsWith('outstandingbalancesdata') ||
+        lower.startsWith('futurebookingssnapshot') || lower.startsWith('ccldraftcache.') ||
+        lower.startsWith('helix.demo.') || lower.startsWith('pitchbuilder.') ||
+        lower.startsWith('reporting-') || lower.startsWith('home-');
+      try {
+        const parsed = JSON.parse(value) as { timestamp?: number };
+        if (parsed && typeof parsed.timestamp === 'number') timestamp = parsed.timestamp;
+      } catch { /* not a timestamped cache entry */ }
+      entries.push({ key, size, timestamp, isCache });
+    }
+
+    const keysToRemove = new Set<string>();
+
+    // Tier 1 — prefix-matched + age-gated (preserves fresh, intentional caches).
+    for (const e of entries) {
+      if (!e.isCache) continue;
+      if (e.timestamp && now - e.timestamp > MAX_CACHE_AGE_MS) keysToRemove.add(e.key);
+    }
+
+    // Tier 2 (≥90%) — drop ALL prefix-matched cache entries regardless of age,
+    // largest first. Fresh caches get rebuilt on next fetch; stale data in
+    // storage is worse than a one-request penalty.
+    if (percentUsed >= 90) {
+      const cacheEntries = entries
+        .filter((e) => e.isCache && !keysToRemove.has(e.key))
+        .sort((a, b) => b.size - a.size);
+      for (const e of cacheEntries) keysToRemove.add(e.key);
+    }
+
+    // Tier 3 (≥100%, quota breached) — drop ANY JSON-shaped timestamped entry,
+    // largest first. Non-timestamped keys (user prefs, flags) are preserved.
+    if (percentUsed >= 100) {
+      const timestamped = entries
+        .filter((e) => typeof e.timestamp === 'number' && !keysToRemove.has(e.key))
+        .sort((a, b) => b.size - a.size);
+      for (const e of timestamped) keysToRemove.add(e.key);
+    }
+
+    let freedBytes = 0;
+    keysToRemove.forEach((key) => {
+      const match = entries.find((e) => e.key === key);
+      if (match) freedBytes += match.size;
+      try { localStorage.removeItem(key); } catch { /* ignore */ }
+    });
+
+    if (keysToRemove.size > 0) {
+      // One-line summary so ops can see eviction actually happened.
+      /* eslint-disable no-console */
+      console.info(`🧹 Evicted ${keysToRemove.size} cache entries (~${(freedBytes / 1024).toFixed(0)}KB freed)`);
+      /* eslint-enable no-console */
     }
   } catch (error) {
     console.error('Error during cache cleanup:', error);

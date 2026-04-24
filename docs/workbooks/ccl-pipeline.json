@@ -1,0 +1,87 @@
+{
+  "version": "Notebook/1.0",
+  "items": [
+    {
+      "type": 1,
+      "content": {
+        "json": "# CCL Pipeline\n\nAuto-fill → Pressure test → Approve → ND upload. Filter by matter id or practice area in the parameters below."
+      },
+      "name": "text - intro"
+    },
+    {
+      "type": 9,
+      "content": {
+        "version": "KqlParameterItem/1.0",
+        "parameters": [
+          {
+            "id": "p-timerange",
+            "version": "KqlParameterItem/1.0",
+            "name": "TimeRange",
+            "type": 4,
+            "value": {
+              "durationMs": 604800000
+            },
+            "typeSettings": {
+              "selectableValues": [
+                { "durationMs": 86400000 },
+                { "durationMs": 604800000 },
+                { "durationMs": 2592000000 }
+              ]
+            }
+          },
+          {
+            "id": "p-matterid",
+            "version": "KqlParameterItem/1.0",
+            "name": "MatterId",
+            "type": 1,
+            "value": "",
+            "description": "Optional — leave blank for all matters"
+          }
+        ],
+        "style": "pills"
+      },
+      "name": "parameters"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "customEvents\n| where timestamp {TimeRange}\n| where name in ('CCL.AutoFill.Started','CCL.AutoFill.Completed','CCL.AutoFill.Failed','CCL.PressureTest.Started','CCL.PressureTest.Completed','CCL.PressureTest.Failed','CCL.Approve.Completed','CCL.NdUpload.Completed')\n| summarize Count = count() by bin(timestamp, 1h), name\n| render timechart",
+        "size": 0,
+        "title": "Pipeline phases over time"
+      },
+      "name": "query - phases"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "customEvents\n| where timestamp {TimeRange}\n| where name startswith 'CCL.' and name endswith '.Failed'\n| extend error = tostring(customDimensions.error)\n| summarize Count = count(), Samples = make_list(error, 5) by name\n| order by Count desc",
+        "size": 0,
+        "title": "Failure hotspots"
+      },
+      "name": "query - failures"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let filled = customEvents | where timestamp {TimeRange} | where name == 'CCL.AutoFill.Completed' | extend matterId = tostring(customDimensions.matterId) | project matterId, filledAt = timestamp;\nlet tested = customEvents | where timestamp {TimeRange} | where name == 'CCL.PressureTest.Completed' | extend matterId = tostring(customDimensions.matterId) | project matterId, testedAt = timestamp;\nlet approved = customEvents | where timestamp {TimeRange} | where name == 'CCL.Approve.Completed' | extend matterId = tostring(customDimensions.matterId) | project matterId, approvedAt = timestamp;\nfilled\n| join kind=leftouter tested on matterId\n| join kind=leftouter approved on matterId\n| extend fillToTestMin = datetime_diff('minute', testedAt, filledAt)\n| extend testToApproveMin = datetime_diff('minute', approvedAt, testedAt)\n| project matterId, filledAt, testedAt, approvedAt, fillToTestMin, testToApproveMin\n| order by filledAt desc",
+        "size": 0,
+        "title": "Latency between phases"
+      },
+      "name": "query - latency"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "customEvents\n| where timestamp {TimeRange}\n| where name startswith 'CCL.'\n| extend matterId = tostring(customDimensions.matterId)\n| where isempty('{MatterId}') or matterId == '{MatterId}'\n| project timestamp, name, matterId, customDimensions\n| order by timestamp desc\n| take 200",
+        "size": 0,
+        "title": "Recent CCL events (filter by matter)"
+      },
+      "name": "query - recent"
+    }
+  ],
+  "$schema": "https://github.com/Microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json"
+}

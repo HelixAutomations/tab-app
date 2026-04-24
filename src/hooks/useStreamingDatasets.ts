@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { startInteraction } from '../utils/interactionTracker';
+import { disposeOnHmr } from '../utils/devHmr';
 
 interface DatasetUpdate {
   type: 'init' | 'dataset-complete' | 'dataset-error' | 'complete';
@@ -129,6 +131,7 @@ export function useStreamingDatasets(options: UseStreamingDatasetsOptions = {}):
     // Track timings for a concise summary at the end
     const streamStart = Date.now();
     const starts: Record<string, number> = {};
+    const handles: Record<string, ReturnType<typeof startInteraction>> = {};
     let cachedCount = 0;
     let cachedElapsed = 0;
     let freshCount = 0;
@@ -176,6 +179,7 @@ export function useStreamingDatasets(options: UseStreamingDatasetsOptions = {}):
                 const next: Record<string, DatasetState> = {};
                 update.datasets!.forEach(({ name, status }) => {
                   starts[name] = Date.now();
+                  handles[name] = startInteraction(`hydrate.stream.${name}`);
                   next[name] = {
                     status: status as 'loading',
                     data: null,
@@ -203,6 +207,11 @@ export function useStreamingDatasets(options: UseStreamingDatasetsOptions = {}):
                   freshElapsed += elapsed;
                 }
               }
+              const handle = handles[update.dataset!];
+              if (handle) {
+                handle.end({ cached: !!update.cached, count: update.count || 0 });
+                delete handles[update.dataset!];
+              }
               const elapsedMs = started ? Date.now() - started : 0;
               // Dataset ready - tracked via state
               setDatasetStates(prev => ({
@@ -222,8 +231,13 @@ export function useStreamingDatasets(options: UseStreamingDatasetsOptions = {}):
           case 'dataset-error':
             if (update.dataset) {
               const started = starts[update.dataset!];
+              const handle = handles[update.dataset!];
+              if (handle) {
+                handle.end({ error: true, message: update.error });
+                delete handles[update.dataset!];
+              }
 
-              
+
               setDatasetStates(prev => ({
                 ...prev,
                 [update.dataset!]: {
@@ -305,11 +319,18 @@ export function useStreamingDatasets(options: UseStreamingDatasetsOptions = {}):
   useEffect(() => {
     if (!autoStart) return;
     start();
+    const undoHmr = disposeOnHmr(() => {
+      if (eventSourceRef.current) {
+        try { eventSourceRef.current.close(); } catch { /* */ }
+        eventSourceRef.current = null;
+      }
+    });
     return () => {
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
         eventSourceRef.current = null;
       }
+      undoHmr();
       setIsConnected(false);
       setIsComplete(false);
     };

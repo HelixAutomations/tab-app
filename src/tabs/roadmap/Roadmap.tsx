@@ -5,17 +5,21 @@ import { Spinner } from '@fluentui/react/lib/Spinner';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';
 import { UserData } from '../../app/functionality/types';
-import { isDevGroupOrHigher } from '../../app/admin';
+import { getUserTier, isDevGroupOrHigher } from '../../app/admin';
 import HomeBootMonitor from './HomeBootMonitor';
 import ActivityFeedSection from './parts/ActivityFeedSection';
 import ActivityCardLabPanel from './parts/ActivityCardLabPanel';
-import PlatformPulseStrip from './parts/PlatformPulseStrip';
-import SyncTimelineSection from './parts/SyncTimelineSection';
-import ErrorStreamSection from './parts/ErrorStreamSection';
-import SessionsPanel from './parts/SessionsPanel';
-import PresencePanel from './parts/PresencePanel';
 import ApiHeatSection from './parts/ApiHeatSection';
+import FormsStreamPanel, { getFormsTodayCount } from './parts/FormsStreamPanel';
+import ActivityHero, { ActivityLens, KpiSpec, LensSpec } from './parts/ActivityHero';
+import ActivityAlertsStrip from './parts/ActivityAlertsStrip';
+import FocalSurface from './parts/FocalSurface';
+import SideRail from './parts/SideRail';
+import ToolsDrawer from './parts/ToolsDrawer';
+import { PROCESS_STREAM_UPDATED_EVENT } from '../forms/processStreamStore';
 import { useOpsPulse } from './hooks/useOpsPulse';
+import { useActivityLayout } from './hooks/useActivityLayout';
+import { ActivityProvider } from './ActivityContext';
 import { ActivityFeedItem } from './parts/types';
 import './Activity.css';
 
@@ -119,12 +123,6 @@ const containerStyles = (isDarkMode: boolean): React.CSSProperties => ({
   transition: 'background-color 0.2s',
 });
 
-const headerStyles = (isDarkMode: boolean): React.CSSProperties => ({
-  marginBottom: 28,
-  paddingBottom: 20,
-  borderBottom: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-});
-
 const FilterChip: React.FC<{
   label: string;
   count: number;
@@ -211,8 +209,14 @@ const EntryRow: React.FC<{
 
 const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, isLocalDev = false }) => {
   const { isDarkMode } = useTheme();
-  const showLiveMonitor = isDevGroupOrHigher(Array.isArray(userData) ? userData[0] : null);
+  const primaryUser = Array.isArray(userData) ? userData[0] : null;
+  const showLiveMonitor = isDevGroupOrHigher(primaryUser);
+  const userTier = getUserTier(primaryUser);
+  const userInitials = (primaryUser?.Initials || '').toString().toUpperCase().trim();
+  const isDevOwner = userInitials === 'LZ';
   const opsPulse = useOpsPulse(showLiveMonitor);
+  const [formsTodayCount, setFormsTodayCount] = useState<number>(() => getFormsTodayCount());
+  const [briefsOpenCount, setBriefsOpenCount] = useState<number | null>(null);
   const [content, setContent] = useState('');
   const [activityItems, setActivityItems] = useState<ActivityFeedItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -224,8 +228,8 @@ const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, 
   const [filter, setFilter] = useState<ReleaseCategory | 'all'>('all');
   const [expandedMonths, setExpandedMonths] = useState<Set<string>>(new Set());
   const [expandedEntries, setExpandedEntries] = useState<Set<string>>(new Set());
-  const [showReleaseNotes, setShowReleaseNotes] = useState(false);
-  const [showOpsDetail, setShowOpsDetail] = useState(false);
+  const layout = useActivityLayout();
+  const { lens, setLens } = layout;
   const activityItemsRef = useRef<ActivityFeedItem[]>([]);
 
   // Coordinated reveal — flips once when initial data arrives, never resets
@@ -233,6 +237,46 @@ const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, 
   useEffect(() => {
     if (!loading && !dashReady) setDashReady(true);
   }, [loading, dashReady]);
+
+  // Forms today count — refresh on stream updates
+  useEffect(() => {
+    const refresh = () => setFormsTodayCount(getFormsTodayCount());
+    refresh();
+    window.addEventListener(PROCESS_STREAM_UPDATED_EVENT, refresh);
+    const tick = window.setInterval(refresh, 60000);
+    return () => {
+      window.removeEventListener(PROCESS_STREAM_UPDATED_EVENT, refresh);
+      window.clearInterval(tick);
+    };
+  }, []);
+
+  // Stashed briefs open count (dev-owner only)
+  useEffect(() => {
+    if (!isDevOwner) return;
+    let disposed = false;
+    const load = async () => {
+      try {
+        const res = await fetch(`/api/stash-briefs?initials=${encodeURIComponent(userInitials)}`, {
+          headers: { 'x-user-initials': userInitials },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (disposed) return;
+        const open = Array.isArray(data?.items)
+          ? data.items.filter((i: { status?: string; shipped?: boolean }) => !i.shipped && i.status === '\uD83D\uDFE1').length
+          : 0;
+        setBriefsOpenCount(open);
+      } catch {
+        if (!disposed) setBriefsOpenCount(null);
+      }
+    };
+    void load();
+    const tick = window.setInterval(load, 120000);
+    return () => {
+      disposed = true;
+      window.clearInterval(tick);
+    };
+  }, [isDevOwner, userInitials]);
 
   useEffect(() => {
     activityItemsRef.current = activityItems;
@@ -332,16 +376,6 @@ const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, 
   const filtered = useMemo(() => (filter === 'all' ? allEntries : allEntries.filter((entry) => entry.category === filter)), [allEntries, filter]);
   const groups = useMemo(() => groupByMonth(filtered), [filtered]);
 
-  useEffect(() => {
-    if (!groups.length) return;
-    setExpandedMonths((prev) => {
-      if (prev.size > 0) return prev;
-      const initial = new Set<string>();
-      groups.slice(0, 2).forEach((group) => initial.add(group.monthKey));
-      return initial;
-    });
-  }, [groups]);
-
   const toggleMonth = useCallback((key: string) => {
     setExpandedMonths((prev) => {
       const next = new Set(prev);
@@ -366,8 +400,6 @@ const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, 
     return counts;
   }, [allEntries]);
 
-  const recentCardLabItems = useMemo(() => activityItems.filter((item) => item.source === 'activity.cardlab' || item.source === 'activity.dm.send'), [activityItems]);
-
   const handleCardLabItemSent = useCallback((item: ActivityFeedItem) => {
     setActivityItems((current) => [item, ...current.filter((existing) => existing.id !== item.id)].slice(0, 24));
     setActivityFeedLastSyncAt(Date.now());
@@ -382,93 +414,166 @@ const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, 
   const surfaceColour = isDarkMode ? 'rgba(255,255,255,0.06)' : colours.light.sectionBackground;
 
   return (
+    <ActivityProvider value={layout}>
     <div style={containerStyles(isDarkMode)}>
-      {/* ═══ Header — slim, data-rich ═══ */}
-      <div style={headerStyles(isDarkMode)}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: textColour, letterSpacing: '-0.3px', fontFamily: 'Raleway, sans-serif' }}>
-            Activity
-          </h1>
-          {showLiveMonitor && (
-            <div style={{ width: 8, height: 8, borderRadius: '50%', background: opsPulse.connected ? colours.green : colours.cta, flexShrink: 0 }} />
-          )}
-        </div>
+      {/* ═══ Hero — title, lens chips, KPI tiles ═══ */}
+      {(() => {
+        const lenses: LensSpec[] = showLiveMonitor
+          ? [
+              { key: 'all', label: 'All', count: activityItems.length },
+              { key: 'forms', label: 'Forms', count: formsTodayCount },
+              { key: 'matters', label: 'Matters' },
+              { key: 'sync', label: 'Sync' },
+              {
+                key: 'trace',
+                label: 'Trace',
+                count: opsPulse.sessionTraces?.active ?? 0,
+                tone: (opsPulse.sessionTraces?.degraded ?? 0) > 0
+                  ? 'danger'
+                  : (opsPulse.sessionTraces?.busy ?? 0) > 0
+                    ? 'warning'
+                    : (opsPulse.sessionTraces?.active ?? 0) > 0
+                      ? 'success'
+                      : 'neutral',
+              },
+              {
+                key: 'errors',
+                label: 'Errors',
+                count: opsPulse.errors?.length || 0,
+                tone: (opsPulse.errors?.length || 0) > 0 ? 'danger' : 'neutral',
+              },
+              ...(isDevOwner
+                ? [{
+                    key: 'briefs' as ActivityLens,
+                    label: 'Briefs',
+                    count: briefsOpenCount ?? undefined,
+                    tone: (briefsOpenCount ?? 0) > 0 ? 'warning' as const : 'neutral' as const,
+                  }]
+                : []),
+            ]
+          : [];
 
-        {/* Metric strip (dev group) or subtitle (everyone else) */}
-        {showLiveMonitor && opsPulse.connected ? (
-          <div style={{ display: 'flex', gap: 16, marginTop: 8, flexWrap: 'wrap', alignItems: 'baseline' }}>
-            {[
-              { label: 'Online', value: opsPulse.presence?.online ?? 0, colour: colours.green },
-              { label: 'Streams', value: opsPulse.sessions?.totalConnections ?? 0, colour: accentColour },
-              { label: 'Errors', value: opsPulse.errors?.length ?? 0, colour: (opsPulse.errors?.length ?? 0) > 0 ? colours.cta : colours.green },
-              { label: 'RPM', value: opsPulse.pulse?.requests?.rpm ?? 0, colour: accentColour },
-            ].map((metric) => (
-              <div key={metric.label} style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-                <span style={{ fontSize: 18, fontWeight: 800, color: metric.colour, fontFamily: 'Raleway, sans-serif' }}>
-                  {metric.value}
-                </span>
-                <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.3px', color: mutedColour, fontFamily: 'Raleway, sans-serif' }}>
-                  {metric.label}
-                </span>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div style={{ fontSize: 12, color: mutedColour, marginTop: 4 }}>
-            {`${activityItems.length > 0 ? `${activityItems.length} live signals` : ''}${activityItems.length > 0 && allEntries.length > 0 ? ' · ' : ''}${allEntries.length > 0 ? `${allEntries.length} updates` : 'Platform updates and improvements'}`}
-          </div>
-        )}
-      </div>
+        const kpis: KpiSpec[] = showLiveMonitor && opsPulse.connected
+          ? [
+              {
+                key: 'online',
+                label: 'Online',
+                value: opsPulse.presence?.online ?? 0,
+                accent: colours.green,
+                hint: opsPulse.sessions ? `${opsPulse.sessions.totalConnections} streams` : undefined,
+                group: 'health',
+              },
+              {
+                key: 'errors',
+                label: 'Errors',
+                value: opsPulse.errors?.length ?? 0,
+                accent: (opsPulse.errors?.length ?? 0) > 0 ? colours.cta : colours.green,
+                lens: 'errors',
+                group: 'health',
+              },
+              {
+                key: 'trace',
+                label: 'Session trace',
+                value: opsPulse.sessionTraces?.active ?? 0,
+                accent: (opsPulse.sessionTraces?.degraded ?? 0) > 0
+                  ? colours.cta
+                  : (opsPulse.sessionTraces?.busy ?? 0) > 0
+                    ? colours.orange
+                    : colours.green,
+                hint: opsPulse.sessionTraces
+                  ? `${opsPulse.sessionTraces.degraded} degraded · ${opsPulse.sessionTraces.busy} busy`
+                  : undefined,
+                lens: 'trace',
+                group: 'health',
+              },
+              {
+                key: 'forms',
+                label: 'Forms today',
+                value: formsTodayCount,
+                accent: formsTodayCount > 0 ? accentColour : undefined,
+                lens: 'forms',
+                group: 'workload',
+              },
+              {
+                key: 'rpm',
+                label: 'RPM',
+                value: opsPulse.pulse?.requests?.rpm ?? 0,
+                accent: accentColour,
+                hint: opsPulse.pulse ? `p95 ${opsPulse.pulse.requests.p95Ms}ms` : undefined,
+                group: 'performance',
+              },
+              ...(isDevOwner && briefsOpenCount != null
+                ? [{
+                    key: 'briefs',
+                    label: 'Briefs open',
+                    value: briefsOpenCount,
+                    accent: briefsOpenCount > 0 ? colours.orange : colours.green,
+                    lens: 'briefs' as ActivityLens,
+                    group: 'workload' as const,
+                  }]
+                : []),
+            ]
+          : !showLiveMonitor && formsTodayCount > 0
+            ? [{ key: 'forms', label: 'Forms today', value: formsTodayCount, accent: accentColour }]
+            : [];
 
-      {/* ═══ Tier 1: Live Dashboard — 3-col grid (dev group) ═══ */}
+        return (
+          <ActivityHero
+            isDarkMode={isDarkMode}
+            title="Activity"
+            connected={showLiveMonitor ? opsPulse.connected : null}
+            showLiveDot={showLiveMonitor}
+            lastSyncAt={activityFeedLastSyncAt}
+            kpis={kpis}
+            lenses={lenses}
+            activeLens={lens}
+            onLensChange={setLens}
+            subtitle={
+              userTier === 'devGroup'
+                ? 'Dev group preview'
+                : !showLiveMonitor
+                ? `${activityItems.length > 0 ? `${activityItems.length} live signals` : ''}${activityItems.length > 0 && allEntries.length > 0 ? ' · ' : ''}${allEntries.length > 0 ? `${allEntries.length} updates` : 'Platform updates and improvements'}`
+                : undefined
+            }
+          />
+        );
+      })()}
+
+      {/* ═══ Alerts strip (conditional) ═══ */}
+      {showLiveMonitor && (
+        <ActivityAlertsStrip isDarkMode={isDarkMode} opsPulse={opsPulse} />
+      )}
+
+      {/* ═══ Tier 1: Dashboard shell — focal surface + side rail (dev group) ═══ */}
       {showLiveMonitor && (
         <div className={dashReady ? 'activity-cascade-1' : 'activity-cascade-pending'} style={{ marginBottom: 28 }}>
-          <PlatformPulseStrip pulse={opsPulse.pulse} connected={opsPulse.connected} isDarkMode={isDarkMode} />
-
-          <div className="activity-live-grid">
-            {/* Col 1 — Who's Here (hero) */}
-            <PresencePanel presence={opsPulse.presence} isDarkMode={isDarkMode} />
-
-            {/* Col 2 — Live Feed */}
-            <ActivityFeedSection
-              items={activityItems}
-              isDarkMode={isDarkMode}
-              isRefreshing={activityFeedRefreshing}
-              isSnapshot={activityFeedUsingSnapshot}
-              lastLiveSyncAt={activityFeedLastSyncAt}
-              error={activityError}
-            />
-
-            {/* Col 3 — Health stack */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <ErrorStreamSection errors={opsPulse.errors} isDarkMode={isDarkMode} />
-              <SessionsPanel sessions={opsPulse.sessions} isDarkMode={isDarkMode} />
+          <div className="activity-shell">
+            <div style={{ minWidth: 0 }}>
+              <FocalSurface
+                lens={lens}
+                isDarkMode={isDarkMode}
+                activityItems={activityItems}
+                opsPulse={opsPulse}
+                initials={userInitials || null}
+                isDevOwner={isDevOwner}
+                selectedSessionId={layout.selectedSessionId}
+                selectedErrorTs={layout.selectedErrorTs}
+              />
+            </div>
+            <div className="activity-shell-rail">
+              <SideRail
+                isDarkMode={isDarkMode}
+                presence={opsPulse.presence}
+                sessions={opsPulse.sessions}
+                requests={opsPulse.requests || []}
+                pulse={opsPulse.pulse}
+                scheduler={opsPulse.scheduler}
+                sessionTraces={opsPulse.sessionTraces}
+                connected={opsPulse.connected}
+                layers={layout.layers}
+              />
             </div>
           </div>
-
-          {/* Collapsible Ops Detail */}
-          <button
-            onClick={() => setShowOpsDetail((prev) => !prev)}
-            style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'transparent', border: 'none', cursor: 'pointer', padding: '14px 0 8px', fontFamily: 'Raleway, sans-serif' }}
-          >
-            <span style={{ fontSize: 10, color: mutedColour, transform: showOpsDetail ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s', display: 'inline-block' }}>
-              &#9654;
-            </span>
-            <span style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: textColour, fontFamily: 'Raleway, sans-serif' }}>
-              Ops Detail
-            </span>
-          </button>
-
-          {showOpsDetail && (
-            <div className="activity-ops-detail-grid">
-              <SyncTimelineSection scheduler={opsPulse.scheduler} isDarkMode={isDarkMode} />
-              <ApiHeatSection requests={opsPulse.requests} isDarkMode={isDarkMode} />
-            </div>
-          )}
-
-          {isLocalDev && (
-            <ActivityCardLabPanel recentItems={recentCardLabItems} onItemSent={handleCardLabItemSent} />
-          )}
         </div>
       )}
 
@@ -483,6 +588,9 @@ const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, 
             lastLiveSyncAt={activityFeedLastSyncAt}
             error={activityError}
           />
+          <div style={{ marginTop: 12 }}>
+            <FormsStreamPanel isDarkMode={isDarkMode} />
+          </div>
         </div>
       )}
 
@@ -498,21 +606,15 @@ const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, 
         </div>
       )}
 
-      {/* ═══ Tier 2: Release Notes (collapsed secondary) ═══ */}
-      {!loading && !error && allEntries.length > 0 && (
-        <div className={dashReady ? 'activity-cascade-2' : 'activity-cascade-pending'} style={{ marginBottom: 28 }}>
-          <button
-            onClick={() => setShowReleaseNotes((prev) => !prev)}
-            style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'transparent', border: 'none', cursor: 'pointer', padding: '0 0 12px', fontFamily: 'Raleway, sans-serif', width: '100%', textAlign: 'left' as const }}
-          >
-            <span style={{ fontSize: 10, color: mutedColour, transform: showReleaseNotes ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s', display: 'inline-block' }}>
-              &#9654;
-            </span>
-            <span style={{ fontSize: 16, fontWeight: 700, color: textColour, letterSpacing: '-0.2px' }}>Release Notes</span>
-            <span style={{ fontSize: 11, color: mutedColour, fontWeight: 600, padding: '2px 8px', borderRadius: 0, background: surfaceColour }}>{allEntries.length}</span>
-          </button>
-
-          {showReleaseNotes && (
+      {/* ═══ Tools drawer (Release Notes / API Heat / Card Lab / Boot Trace) ═══ */}
+      {!loading && !error && (
+        <ToolsDrawer
+          isDarkMode={isDarkMode}
+          hasReleaseNotes={allEntries.length > 0}
+          showLiveMonitor={showLiveMonitor}
+          isLocalDev={isLocalDev}
+          showBootMonitor={showBootMonitor}
+          releaseNotesContent={
             <>
               {/* Filter chips */}
               <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
@@ -579,17 +681,14 @@ const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, 
                 </div>
               )}
             </>
-          )}
-        </div>
-      )}
-
-      {/* ═══ HomeBootMonitor (dev tool, bottom of page) ═══ */}
-      {showBootMonitor && (
-        <div className={dashReady ? 'activity-cascade-3' : 'activity-cascade-pending'} style={{ marginTop: 16, borderTop: `1px solid ${borderColour}`, paddingTop: 16 }}>
-          <HomeBootMonitor />
-        </div>
+          }
+          apiHeatContent={<ApiHeatSection requests={opsPulse.requests} isDarkMode={isDarkMode} />}
+          cardLabContent={<ActivityCardLabPanel onItemSent={handleCardLabItemSent} />}
+          bootTraceContent={<HomeBootMonitor />}
+        />
       )}
     </div>
+    </ActivityProvider>
   );
 };
 

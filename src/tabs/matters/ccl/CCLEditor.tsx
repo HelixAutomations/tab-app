@@ -17,7 +17,7 @@ import {
   type DisbursementsChoice,
 } from '../../../shared/ccl';
 import { CCL_SECTIONS, autoFillFromMatter, DEMO_FIELDS, type EditorStepType } from './cclSections';
-import { fetchAiFillStream, type AiFillResponse, type AiDebugTrace } from './cclAiService';
+import { buildCclApiUrl, fetchAiFillStream, type AiFillResponse, type AiDebugTrace } from './cclAiService';
 import QuestionnaireStep from './QuestionnaireStep';
 import EditorStep from './EditorStep';
 import PreviewStep from './PreviewStep';
@@ -127,7 +127,7 @@ const CCLEditor: React.FC<CCLEditorProps> = ({ matter, teamData, demoModeEnabled
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`/api/ccl/${encodeURIComponent(matterId)}`);
+        const res = await fetch(buildCclApiUrl(`/api/ccl/${encodeURIComponent(matterId)}`), { credentials: 'include' });
         if (!res.ok) return;
         const data = await res.json();
         if (!cancelled) {
@@ -290,8 +290,9 @@ const CCLEditor: React.FC<CCLEditorProps> = ({ matter, teamData, demoModeEnabled
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(async () => {
       try {
-        await fetch(`/api/ccl/${encodeURIComponent(matterId)}`, {
+        await fetch(buildCclApiUrl(`/api/ccl/${encodeURIComponent(matterId)}`), {
           method: 'PATCH',
+          credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ draftJson: fields, initials: userInitials || '' }),
         });

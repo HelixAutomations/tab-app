@@ -880,6 +880,8 @@ async function markAssessmentApplied(assessmentId, appliedBy) {
 
 /**
  * Persist a pressure-test result against the latest CclContent row for a matter.
+ * Links back to the generation trace via PressureTestAiTraceId when the column
+ * exists (migration: scripts/migrate-add-pressure-test-aitraceid.mjs).
  */
 async function savePressureTestResult(matterId, result) {
     const connStr = await getConnStr();
@@ -888,27 +890,53 @@ async function savePressureTestResult(matterId, result) {
     const pool = await getPool(connStr);
     if (!(await tableExists(pool, 'CclContent'))) return;
 
-    await pool.request()
+    // Detect whether PressureTestAiTraceId column exists; skip the write
+    // gracefully if the migration hasn't been applied yet.
+    let hasAiTraceIdCol = false;
+    try {
+        const colResult = await pool.request().query(
+            `SELECT COL_LENGTH('dbo.CclContent','PressureTestAiTraceId') AS L`,
+        );
+        hasAiTraceIdCol = colResult.recordset[0]?.L != null;
+    } catch { /* swallow — treat as absent */ }
+
+    const req = pool.request()
         .input('MatterId', sql.NVarChar(50), matterId)
         .input('PressureTestJson', sql.NVarChar(sql.MAX), JSON.stringify(result.fieldScores || result))
         .input('PressureTestAt', sql.DateTime2, new Date())
         .input('PressureTestFlaggedCount', sql.Int, result.flaggedCount ?? null)
         .input('PressureTestDataSources', sql.NVarChar(500), result.dataSources ? JSON.stringify(result.dataSources) : null)
         .input('PressureTestDurationMs', sql.Int, result.durationMs ?? null)
-        .input('PressureTestTrackingId', sql.NVarChar(50), result.trackingId ?? null)
-        .query(`UPDATE CclContent
-                SET PressureTestJson = @PressureTestJson,
-                    PressureTestAt = @PressureTestAt,
-                    PressureTestFlaggedCount = @PressureTestFlaggedCount,
-                    PressureTestDataSources = @PressureTestDataSources,
-                    PressureTestDurationMs = @PressureTestDurationMs,
-                    PressureTestTrackingId = @PressureTestTrackingId
+        .input('PressureTestTrackingId', sql.NVarChar(50), result.trackingId ?? null);
+
+    const setClauses = [
+        'PressureTestJson = @PressureTestJson',
+        'PressureTestAt = @PressureTestAt',
+        'PressureTestFlaggedCount = @PressureTestFlaggedCount',
+        'PressureTestDataSources = @PressureTestDataSources',
+        'PressureTestDurationMs = @PressureTestDurationMs',
+        'PressureTestTrackingId = @PressureTestTrackingId',
+    ];
+
+    if (hasAiTraceIdCol) {
+        req.input('PressureTestAiTraceId', sql.Int, result.aiTraceId ?? null);
+        setClauses.push('PressureTestAiTraceId = @PressureTestAiTraceId');
+    }
+
+    await req.query(`UPDATE CclContent
+                SET ${setClauses.join(',\n                    ')}
                 WHERE CclContentId = (
                     SELECT TOP 1 CclContentId FROM CclContent
                     WHERE MatterId = @MatterId ORDER BY Version DESC
                 )`);
 
-    trackEvent('CCL.PressureTest.Persisted', { matterId, flaggedCount: String(result.flaggedCount ?? 0), trackingId: result.trackingId ?? '' });
+    trackEvent('CCL.PressureTest.Persisted', {
+        matterId,
+        flaggedCount: String(result.flaggedCount ?? 0),
+        trackingId: result.trackingId ?? '',
+        aiTraceId: String(result.aiTraceId ?? ''),
+        promptVersion: result.promptVersion ?? '',
+    });
 }
 
 module.exports = {

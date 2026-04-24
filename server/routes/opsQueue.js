@@ -3,6 +3,10 @@ const sql = require('mssql');
 const { trackEvent, trackException } = require('../utils/appInsights');
 const { withRequest, getPool } = require('../utils/db');
 const { getCache, setCache, generateCacheKey, deleteCache } = require('../utils/redisClient');
+const {
+  attachOpsQueueStream,
+  broadcastOpsQueueChanged,
+} = require('../utils/ops-queue-stream');
 
 // Cache TTLs for ops-queue read endpoints (seconds)
 const OPS_CACHE_TTL = {
@@ -30,6 +34,8 @@ async function invalidateOpsCache() {
       OPS_CACHE_KEYS.transactions('mtd'),
     ]);
   } catch { /* best-effort */ }
+  // R7: notify connected clients so the Home OperationsQueue pulses + refetches.
+  try { broadcastOpsQueueChanged({}); } catch { /* best-effort */ }
 }
 const {
   ASANA_BASE_URL,
@@ -592,7 +598,7 @@ router.get('/stripe-recent', async (req, res) => {
 
 // Short-lived in-memory cache for Asana tasks (external API, ~1.5-3s)
 const asanaCache = { data: null, expires: 0 };
-const ASANA_CACHE_TTL = 30_000; // 30s
+const ASANA_CACHE_TTL = 120_000; // 120s — Asana is an external API; aggressive polling adds latency
 
 // GET /api/ops-queue/asana-account-tasks - Fetch incomplete tasks from the accounts Asana project
 router.get('/asana-account-tasks', async (req, res) => {
@@ -670,5 +676,8 @@ router.get('/asana-account-tasks', async (req, res) => {
     res.status(500).json({ success: false, error: error.message || 'Failed to fetch Asana account tasks.' });
   }
 });
+
+// R7: realtime change notifications.
+attachOpsQueueStream(router);
 
 module.exports = router;

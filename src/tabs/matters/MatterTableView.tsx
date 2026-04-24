@@ -18,6 +18,13 @@ interface MatterTableViewProps {
   showCclColumns?: boolean;
   cclStatusByMatterId?: Map<string, { stage: string; label: string }>;
   onRowClick?: (matter: NormalizedMatter) => void;
+  /**
+   * Invoked when the CCL status pill is clicked for a matter whose CCL is
+   * in an actionable stage (draft/generated/reviewed). Consumers typically
+   * wire this to dispatch the `openHomeCclReview` CustomEvent so the review
+   * modal opens on the target matter. When omitted the pill stays visual-only.
+   */
+  onOpenCclReview?: (matterId: string) => void;
   loading?: boolean;
 }
 
@@ -68,6 +75,7 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
   showCclColumns = false,
   cclStatusByMatterId,
   onRowClick,
+  onOpenCclReview,
   loading = false,
 }) => {
   const [sortColumn, setSortColumn] = useState<SortColumn>('openDate');
@@ -442,41 +450,74 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
 
               {showCclColumns && (
                 <div style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
-                  <span
-                    style={{
+                  {(() => {
+                    const pillBorder = `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.35)' : 'rgba(160, 160, 160, 0.22)'}`;
+                    const pillBackground = cclStatusStage === 'sent'
+                      ? (isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.1)')
+                      : cclStatusStage === 'generated' || cclStatusStage === 'reviewed'
+                        ? (isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(214, 232, 255, 0.95)')
+                        : 'transparent';
+                    const pillColor = cclStatusStage === 'sent'
+                      ? colours.green
+                      : cclStatusStage === 'generated' || cclStatusStage === 'reviewed'
+                        ? colours.highlight
+                        : mutedText;
+                    const pillTitle = cclStatusStage === 'sent'
+                      ? `Tracked ${formatFullDateTime(matter.cclDate || null)}`
+                      : cclStatusStage === 'reviewed'
+                        ? 'Generated and reviewed'
+                        : cclStatusStage === 'generated'
+                          ? 'Generated and awaiting review'
+                          : 'Not started yet';
+                    // Actionable when a draft exists OR after review; `sent` reopens
+                    // the sealed view. `pending` is not clickable — nothing to open.
+                    const canOpenReview = !!onOpenCclReview && !!matter.matterId
+                      && (cclStatusStage === 'draft'
+                        || cclStatusStage === 'generated'
+                        || cclStatusStage === 'reviewed'
+                        || cclStatusStage === 'sent');
+                    const pillSharedStyle: React.CSSProperties = {
                       display: 'inline-flex',
                       alignItems: 'center',
                       justifyContent: 'center',
                       minWidth: 72,
                       height: 22,
                       padding: '0 8px',
-                      border: `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.35)' : 'rgba(160, 160, 160, 0.22)'}`,
-                      background: cclStatusStage === 'sent'
-                        ? (isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.1)')
-                        : cclStatusStage === 'generated' || cclStatusStage === 'reviewed'
-                          ? (isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(214, 232, 255, 0.95)')
-                          : 'transparent',
-                      color: cclStatusStage === 'sent'
-                        ? colours.green
-                        : cclStatusStage === 'generated' || cclStatusStage === 'reviewed'
-                          ? colours.highlight
-                          : mutedText,
+                      border: pillBorder,
+                      background: pillBackground,
+                      color: pillColor,
                       fontSize: 10,
                       fontWeight: 600,
                       letterSpacing: '0.06em',
                       textTransform: 'uppercase',
                       whiteSpace: 'nowrap',
-                    }}
-                    title={cclStatusStage === 'sent'
-                      ? `Tracked ${formatFullDateTime(matter.cclDate || null)}`
-                      : cclStatusStage === 'reviewed'
-                        ? 'Generated and reviewed'
-                        : cclStatusStage === 'generated'
-                          ? 'Generated and awaiting review'
-                        : 'Not started yet'}
-                  >
-                    {cclStatus}
-                  </span>
+                    };
+                    if (canOpenReview) {
+                      return (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (matter.matterId) onOpenCclReview!(matter.matterId);
+                          }}
+                          title={`${pillTitle} — click to open review`}
+                          style={{
+                            ...pillSharedStyle,
+                            cursor: 'pointer',
+                            borderRadius: 0,
+                            fontFamily: 'inherit',
+                          }}
+                        >
+                          {cclStatus}
+                        </button>
+                      );
+                    }
+                    return (
+                      <span style={pillSharedStyle} title={pillTitle}>
+                        {cclStatus}
+                      </span>
+                    );
+                  })()}
                 </div>
               )}
 

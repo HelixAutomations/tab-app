@@ -1,0 +1,133 @@
+﻿DIR: D:\helix projects\workspace\tab apps\helix hub v1\logs\dev-all\2026-04-21T19-11-42-725Z
+=== TAIL 100 ===
+2026-04-21T20:29:24.756Z +4662030ms [frontend:stderr] code: 'ECONNRESET',
+2026-04-21T20:29:24.756Z +4662030ms [frontend:stderr] syscall: 'read'
+2026-04-21T20:29:24.756Z +4662030ms [frontend:stderr] }
+2026-04-21T20:29:24.756Z +4662030ms [frontend:stderr] [HPM] ECONNRESET: Error: read ECONNRESET
+2026-04-21T20:29:24.756Z +4662030ms [frontend:stderr] at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+2026-04-21T20:29:24.756Z +4662030ms [frontend:stderr] errno: -4077,
+2026-04-21T20:29:24.756Z +4662030ms [frontend:stderr] code: 'ECONNRESET',
+2026-04-21T20:29:24.757Z +4662031ms [frontend:stderr] syscall: 'read'
+2026-04-21T20:29:24.757Z +4662031ms [frontend:stderr] }
+2026-04-21T20:29:24.758Z +4662032ms [frontend:stderr] [HPM] ECONNRESET: Error: read ECONNRESET
+2026-04-21T20:29:24.758Z +4662032ms [frontend:stderr] at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+2026-04-21T20:29:24.758Z +4662032ms [frontend:stderr] errno: -4077,
+2026-04-21T20:29:24.758Z +4662032ms [frontend:stderr] code: 'ECONNRESET',
+2026-04-21T20:29:24.759Z +4662033ms [frontend:stderr] syscall: 'read'
+2026-04-21T20:29:24.759Z +4662033ms [frontend:stderr] }
+2026-04-21T20:29:24.759Z +4662033ms [frontend:stderr] [HPM] ECONNRESET: Error: read ECONNRESET
+2026-04-21T20:29:24.759Z +4662033ms [frontend:stderr] at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+2026-04-21T20:29:24.759Z +4662033ms [frontend:stderr] errno: -4077,
+2026-04-21T20:29:24.759Z +4662033ms [frontend:stderr] code: 'ECONNRESET',
+2026-04-21T20:29:24.759Z +4662033ms [frontend:stderr] syscall: 'read'
+2026-04-21T20:29:24.759Z +4662033ms [frontend:stderr] }
+2026-04-21T20:29:24.762Z +4662036ms [frontend:stderr] [HPM] ECONNRESET: Error: read ECONNRESET
+2026-04-21T20:29:24.762Z +4662036ms [frontend:stderr] at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+2026-04-21T20:29:24.762Z +4662036ms [frontend:stderr] errno: -4077,
+2026-04-21T20:29:24.762Z +4662036ms [frontend:stderr] code: 'ECONNRESET',
+2026-04-21T20:29:24.762Z +4662036ms [frontend:stderr] syscall: 'read'
+2026-04-21T20:29:24.762Z +4662036ms [frontend:stderr] }
+2026-04-21T20:29:24.763Z +4662037ms [frontend:stderr] [HPM] ECONNRESET: Error: read ECONNRESET
+2026-04-21T20:29:24.763Z +4662037ms [frontend:stderr] at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+2026-04-21T20:29:24.763Z +4662037ms [frontend:stderr] errno: -4077,
+2026-04-21T20:29:24.763Z +4662037ms [frontend:stderr] code: 'ECONNRESET',
+2026-04-21T20:29:24.763Z +4662037ms [frontend:stderr] syscall: 'read'
+2026-04-21T20:29:24.763Z +4662037ms [frontend:stderr] }
+2026-04-21T20:29:24.763Z +4662037ms [frontend:stderr] Proxy error for /api/home-wip/team?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c: read ECONNRESET
+2026-04-21T20:29:24.764Z +4662038ms [frontend:stderr] [HPM] Error occurred while proxying request localhost:3000/api/home-wip/team?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNRESET] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+2026-04-21T20:29:24.765Z +4662039ms [frontend:stderr] [HPM] ECONNRESET: Error: read ECONNRESET
+2026-04-21T20:29:24.765Z +4662039ms [frontend:stderr] at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+2026-04-21T20:29:24.765Z +4662039ms [frontend:stderr] errno: -4077,
+2026-04-21T20:29:24.765Z +4662039ms [frontend:stderr] code: 'ECONNRESET',
+2026-04-21T20:29:24.765Z +4662039ms [frontend:stderr] syscall: 'read'
+2026-04-21T20:29:24.765Z +4662039ms [frontend:stderr] }
+2026-04-21T20:29:24.771Z +4662045ms [frontend:stderr] [HPM] ECONNRESET: Error: read ECONNRESET
+2026-04-21T20:29:24.771Z +4662045ms [frontend:stderr] at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+2026-04-21T20:29:24.771Z +4662045ms [frontend:stderr] errno: -4077,
+2026-04-21T20:29:24.771Z +4662045ms [frontend:stderr] code: 'ECONNRESET',
+2026-04-21T20:29:24.771Z +4662045ms [frontend:stderr] syscall: 'read'
+2026-04-21T20:29:24.771Z +4662045ms [frontend:stderr] }
+2026-04-21T20:29:24.773Z +4662047ms [frontend:stderr] [HPM] ECONNRESET: Error: read ECONNRESET
+2026-04-21T20:29:24.773Z +4662047ms [frontend:stderr] at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+2026-04-21T20:29:24.774Z +4662048ms [frontend:stderr] errno: -4077,
+2026-04-21T20:29:24.774Z +4662048ms [frontend:stderr] code: 'ECONNRESET',
+2026-04-21T20:29:24.774Z +4662048ms [frontend:stderr] syscall: 'read'
+2026-04-21T20:29:24.774Z +4662048ms [frontend:stderr] }
+2026-04-21T20:29:24.774Z +4662048ms [frontend:stderr] [HPM] ECONNRESET: Error: read ECONNRESET
+2026-04-21T20:29:24.774Z +4662048ms [frontend:stderr] at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+2026-04-21T20:29:24.774Z +4662048ms [frontend:stderr] errno: -4077,
+2026-04-21T20:29:24.775Z +4662049ms [frontend:stderr] code: 'ECONNRESET',
+2026-04-21T20:29:24.775Z +4662049ms [frontend:stderr] syscall: 'read'
+2026-04-21T20:29:24.775Z +4662049ms [frontend:stderr] }
+2026-04-21T20:29:24.780Z +4662054ms [frontend:stderr] [HPM] ECONNRESET: Error: read ECONNRESET
+2026-04-21T20:29:24.780Z +4662054ms [frontend:stderr] at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+2026-04-21T20:29:24.780Z +4662054ms [frontend:stderr] errno: -4077,
+2026-04-21T20:29:24.780Z +4662054ms [frontend:stderr] code: 'ECONNRESET',
+2026-04-21T20:29:24.780Z +4662054ms [frontend:stderr] syscall: 'read'
+2026-04-21T20:29:24.780Z +4662054ms [frontend:stderr] }
+2026-04-21T20:29:24.781Z +4662055ms [frontend:stderr] [HPM] ECONNRESET: Error: read ECONNRESET
+2026-04-21T20:29:24.781Z +4662055ms [frontend:stderr] at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+2026-04-21T20:29:24.781Z +4662055ms [frontend:stderr] errno: -4077,
+2026-04-21T20:29:24.781Z +4662055ms [frontend:stderr] code: 'ECONNRESET',
+2026-04-21T20:29:24.781Z +4662055ms [frontend:stderr] syscall: 'read'
+2026-04-21T20:29:24.781Z +4662055ms [frontend:stderr] }
+2026-04-21T20:29:24.785Z +4662059ms [frontend:stderr] [HPM] ECONNRESET: Error: read ECONNRESET
+2026-04-21T20:29:24.785Z +4662059ms [frontend:stderr] at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+2026-04-21T20:29:24.785Z +4662059ms [frontend:stderr] errno: -4077,
+2026-04-21T20:29:24.785Z +4662059ms [frontend:stderr] code: 'ECONNRESET',
+2026-04-21T20:29:24.786Z +4662060ms [frontend:stderr] syscall: 'read'
+2026-04-21T20:29:24.786Z +4662060ms [frontend:stderr] }
+2026-04-21T20:29:24.984Z +4662258ms [frontend:stderr] Proxy error for /api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+2026-04-21T20:29:24.984Z +4662258ms [frontend:stderr] [HPM] Error occurred while proxying request localhost:3000/api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+2026-04-21T20:29:24.995Z +4662269ms [frontend:stderr] Proxy error for /api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+2026-04-21T20:29:24.995Z +4662269ms [frontend:stderr] [HPM] Error occurred while proxying request localhost:3000/api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+2026-04-21T20:29:26.252Z +4663526ms [frontend:stderr] Proxy error for /api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+2026-04-21T20:29:26.252Z +4663526ms [frontend:stderr] [HPM] Error occurred while proxying request localhost:3000/api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+2026-04-21T20:29:26.258Z +4663532ms [frontend:stdout] Compiled successfully!
+2026-04-21T20:29:26.268Z +4663542ms [frontend:stdout] webpack compiled successfully
+2026-04-21T20:29:26.325Z +4663599ms [frontend:stdout] Compiling...
+2026-04-21T20:29:27.016Z +4664290ms [frontend:stderr] Proxy error for /api/dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+2026-04-21T20:29:27.017Z +4664291ms [frontend:stderr] [HPM] Error occurred while proxying request localhost:3000/api/dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+2026-04-21T20:29:27.021Z +4664295ms [frontend:stdout] Compiled successfully!
+2026-04-21T20:29:27.025Z +4664299ms [frontend:stdout] webpack compiled successfully
+2026-04-21T20:29:27.139Z +4664413ms [frontend:stderr] Proxy error for /api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+2026-04-21T20:29:27.139Z +4664413ms [frontend:stderr] [HPM] Error occurred while proxying request localhost:3000/api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+2026-04-21T20:29:29.826Z +4667100ms [frontend:stderr] Proxy error for /api/dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+2026-04-21T20:29:29.827Z +4667101ms [frontend:stderr] [HPM] Error occurred while proxying request localhost:3000/api/dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+2026-04-21T20:29:32.827Z +4670101ms [frontend:stderr] Proxy error for /api/dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+2026-04-21T20:29:32.827Z +4670101ms [frontend:stderr] [HPM] Error occurred while proxying request localhost:3000/api/dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+2026-04-21T20:29:32.963Z +4670237ms [frontend:stderr] Proxy error for /api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+2026-04-21T20:29:32.964Z +4670238ms [frontend:stderr] [HPM] Error occurred while proxying request localhost:3000/api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+2026-04-21T20:29:35.826Z +4673100ms [frontend:stderr] Proxy error for /api/dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+2026-04-21T20:29:35.826Z +4673100ms [frontend:stderr] [HPM] Error occurred while proxying request localhost:3000/api/dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+=== MATCHES LAST 30 ===
+2026-04-21T20:29:24.781Z +4662055ms [frontend:stderr] syscall: 'read'
+2026-04-21T20:29:24.781Z +4662055ms [frontend:stderr] }
+2026-04-21T20:29:24.785Z +4662059ms [frontend:stderr] [HPM] ECONNRESET: Error: read ECONNRESET
+2026-04-21T20:29:24.785Z +4662059ms [frontend:stderr] at TCP.onStreamRead (node:internal/stream_base_commons:218:20) {
+2026-04-21T20:29:24.785Z +4662059ms [frontend:stderr] errno: -4077,
+2026-04-21T20:29:24.785Z +4662059ms [frontend:stderr] code: 'ECONNRESET',
+2026-04-21T20:29:24.786Z +4662060ms [frontend:stderr] syscall: 'read'
+2026-04-21T20:29:24.786Z +4662060ms [frontend:stderr] }
+2026-04-21T20:29:24.984Z +4662258ms [frontend:stderr] Proxy error for /api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+2026-04-21T20:29:24.984Z +4662258ms [frontend:stderr] [HPM] Error occurred while proxying request localhost:3000/api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+2026-04-21T20:29:24.995Z +4662269ms [frontend:stderr] Proxy error for /api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+2026-04-21T20:29:24.995Z +4662269ms [frontend:stderr] [HPM] Error occurred while proxying request localhost:3000/api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+2026-04-21T20:29:26.252Z +4663526ms [frontend:stderr] Proxy error for /api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+2026-04-21T20:29:26.252Z +4663526ms [frontend:stderr] [HPM] Error occurred while proxying request localhost:3000/api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+2026-04-21T20:29:26.258Z +4663532ms [frontend:stdout] Compiled successfully!
+2026-04-21T20:29:26.268Z +4663542ms [frontend:stdout] webpack compiled successfully
+2026-04-21T20:29:27.016Z +4664290ms [frontend:stderr] Proxy error for /api/dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+2026-04-21T20:29:27.017Z +4664291ms [frontend:stderr] [HPM] Error occurred while proxying request localhost:3000/api/dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+2026-04-21T20:29:27.021Z +4664295ms [frontend:stdout] Compiled successfully!
+2026-04-21T20:29:27.025Z +4664299ms [frontend:stdout] webpack compiled successfully
+2026-04-21T20:29:27.139Z +4664413ms [frontend:stderr] Proxy error for /api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+2026-04-21T20:29:27.139Z +4664413ms [frontend:stderr] [HPM] Error occurred while proxying request localhost:3000/api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+2026-04-21T20:29:29.826Z +4667100ms [frontend:stderr] Proxy error for /api/dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+2026-04-21T20:29:29.827Z +4667101ms [frontend:stderr] [HPM] Error occurred while proxying request localhost:3000/api/dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+2026-04-21T20:29:32.827Z +4670101ms [frontend:stderr] Proxy error for /api/dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+2026-04-21T20:29:32.827Z +4670101ms [frontend:stderr] [HPM] Error occurred while proxying request localhost:3000/api/dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+2026-04-21T20:29:32.963Z +4670237ms [frontend:stderr] Proxy error for /api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+2026-04-21T20:29:32.964Z +4670238ms [frontend:stderr] [HPM] Error occurred while proxying request localhost:3000/api/telemetry?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)
+2026-04-21T20:29:35.826Z +4673100ms [frontend:stderr] Proxy error for /api/dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c:
+2026-04-21T20:29:35.826Z +4673100ms [frontend:stderr] [HPM] Error occurred while proxying request localhost:3000/api/dev/health?email=lz%40helix-law.com&initials=LZ&entraId=8318a6fd-47aa-4792-855d-4d82a3a9ac7c to http://localhost:8080/ [ECONNREFUSED] (https://nodejs.org/api/errors.html#errors_common_system_errors)

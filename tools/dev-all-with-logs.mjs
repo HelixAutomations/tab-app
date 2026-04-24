@@ -91,6 +91,43 @@ function createLinePump(childStream, onLine) {
   });
 }
 
+function isPortListening(port, host = '127.0.0.1', timeoutMs = 250) {
+  return new Promise((resolve) => {
+    const sock = createConnection({ port, host });
+    let settled = false;
+
+    const finish = (result) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      sock.destroy();
+      resolve(result);
+    };
+
+    sock.setTimeout(timeoutMs);
+    sock.once('connect', () => finish(true));
+    sock.once('timeout', () => finish(false));
+    sock.once('error', () => finish(false));
+  });
+}
+
+async function assertPortsAvailable(ports) {
+  const occupied = [];
+
+  for (const port of ports) {
+    if (await isPortListening(port)) {
+      occupied.push(port);
+    }
+  }
+
+  if (occupied.length > 0) {
+    throw new Error(
+      `Port${occupied.length > 1 ? 's' : ''} ${occupied.join(', ')} ${occupied.length > 1 ? 'are' : 'is'} already in use before starting dev:all. Stop the existing listener${occupied.length > 1 ? 's' : ''} and retry.`
+    );
+  }
+}
+
 async function main() {
   await mkdir(runDir, { recursive: true });
 
@@ -139,6 +176,8 @@ async function main() {
     return;
   }
 
+  await assertPortsAvailable([8080, 3000]);
+
   const shutdown = (reason, exitCode = 0) => {
     if (shuttingDown) {
       return;
@@ -176,9 +215,35 @@ async function main() {
 
   // ── Helper: spawn a command and wire up logging ──────────────────────
   function spawnCommand(item) {
+    // Frontend gets BROWSER=none so CRA doesn't spawn an extra browser tab
+    // that competes with the VS Code Simple Browser, and FAST_REFRESH=true
+    // to ensure React Refresh isn't disabled by some inherited env var.
+    // GENERATE_SOURCEMAP=false skips the slow full sourcemap build (webpack
+    // still gives cheap eval maps via devtool, so devtools debugging works).
+    // DISABLE_ESLINT_PLUGIN=true removes the 10–30s ESLint pass from every
+    // compile — VS Code's ESLint extension still lints in-editor, and
+    // `npm run lint` still works on demand. TS errors keep surfacing.
+    const childEnv = item.key === 'frontend'
+      ? {
+          ...process.env,
+          BROWSER: 'none',
+          FAST_REFRESH: 'true',
+          GENERATE_SOURCEMAP: process.env.GENERATE_SOURCEMAP ?? 'false',
+          DISABLE_ESLINT_PLUGIN: process.env.DISABLE_ESLINT_PLUGIN ?? 'true',
+        }
+      : {
+          ...process.env,
+          // Print elapsed-ms landmarks during boot so we can see what's slow
+          // across nodemon restarts. Set HELIX_BOOT_TIMING=0 to silence.
+          HELIX_BOOT_TIMING: process.env.HELIX_BOOT_TIMING ?? '1',
+          // Node's libuv threadpool defaults to 4, which serialises
+          // Key Vault/Redis/SQL/disk I/O during warmup. Bumping to 16
+          // lets the async hydration tasks overlap properly.
+          UV_THREADPOOL_SIZE: process.env.UV_THREADPOOL_SIZE ?? '16',
+        };
     const child = spawn(item.command, {
       cwd,
-      env: process.env,
+      env: childEnv,
       shell: true,
       stdio: ['inherit', 'pipe', 'pipe'],
       windowsHide: false,
@@ -223,7 +288,7 @@ async function main() {
       const status = `process exited with code=${code ?? 'null'} signal=${signal ?? 'null'}`;
       writeEvent('system', status);
       if (!shuttingDown) {
-        shutdown(`${item.key} exited`, code ?? 0);
+        shutdown(`${item.key} exited unexpectedly`, code === 0 ? 1 : code ?? 1);
       }
     });
 
@@ -273,16 +338,38 @@ async function main() {
   const backendItem = commands.find((c) => c.key === 'backend');
   const frontendItem = commands.find((c) => c.key === 'frontend');
 
+  // Pre-warm az CLI token for Key Vault in the background before spawning
+  // backend. If the token is stale, @azure/identity inside Node can stall
+  // for 60–200s. Refreshing here is visible and fast (~2–5s).
+  const azWarm = (async () => {
+    try {
+      const t0 = Date.now();
+      const az = spawn('az', ['account', 'get-access-token', '--resource', 'https://vault.azure.net', '--output', 'none'], {
+        shell: true,
+        stdio: 'ignore',
+      });
+      await new Promise((resolve) => {
+        az.once('exit', resolve);
+        az.once('error', resolve);
+      });
+      announce(`az token pre-warmed (+${Date.now() - t0}ms)`);
+    } catch {
+      // best-effort; backend will fall back to its own auth path
+    }
+  })();
+
   spawnCommand(backendItem);
   announce('backend spawned — waiting for port 8080 before starting frontend…');
 
   try {
-    await waitForPort(8080);
+    await waitForPort(8080, '127.0.0.1', 240_000);
     const readyMs = relMs(startedAtMs);
     announce(`backend ready on port 8080 (+${readyMs}ms) — starting frontend`);
   } catch {
     announce('backend port 8080 wait timed out — starting frontend anyway', 'error');
   }
+  // Make sure the az warmup promise doesn't trigger an unhandled rejection.
+  await azWarm.catch(() => {});
 
   spawnCommand(frontendItem);
   announce('frontend spawned — webpack compiling (this takes ~60-90s)…');
@@ -299,6 +386,9 @@ async function main() {
 }
 
 main().catch((error) => {
-  process.stderr.write(`${colour.error}[dev:all]${colour.reset} ${error instanceof Error ? error.stack || error.message : String(error)}\n`);
+  const message = error instanceof Error
+    ? ((process.env.LOG_LEVEL === 'debug' && error.stack) ? error.stack : error.message)
+    : String(error);
+  process.stderr.write(`${colour.error}[dev:all]${colour.reset} ${message}\n`);
   process.exit(1);
 });

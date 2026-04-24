@@ -1,0 +1,107 @@
+/* FormReadinessCue — subtle on-mount probe indicator.
+ * Dot pulses while checking, morphs into ✓, holds, fades out. Degraded state
+ * stays visible as a muted orange dot.
+ *
+ * Tokens only — no raw hex. See src/app/styles/design-tokens.css.
+ */
+
+.form-readiness-cue {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  color: var(--helix-green, #20b26c);
+  vertical-align: middle;
+  pointer-events: auto;
+}
+
+.form-readiness-cue__dot {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.55;
+  transform: scale(1);
+  transition: opacity 240ms ease, transform 240ms ease, background-color 240ms ease;
+}
+
+.form-readiness-cue__tick {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  opacity: 0;
+  transform: scale(0.6);
+  transition: opacity 220ms ease, transform 220ms ease;
+}
+
+/* ── checking ──────────────────────────────────────────────────────────── */
+.form-readiness-cue--checking {
+  color: var(--helix-highlight, #3690ce);
+}
+
+.form-readiness-cue--checking .form-readiness-cue__dot {
+  animation: form-readiness-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes form-readiness-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.9); }
+  50%      { opacity: 0.85; transform: scale(1.15); }
+}
+
+/* ── ready: dot fades out, tick morphs in, then whole cue fades ───────── */
+.form-readiness-cue--ready {
+  color: var(--helix-green, #20b26c);
+  animation: form-readiness-fade 1.19s ease-out forwards;
+}
+
+.form-readiness-cue--ready .form-readiness-cue__dot {
+  opacity: 0;
+  transform: scale(0.4);
+}
+
+.form-readiness-cue--ready .form-readiness-cue__tick {
+  opacity: 0.9;
+  transform: scale(1);
+}
+
+@keyframes form-readiness-fade {
+  0%   { opacity: 1; }
+  55%  { opacity: 1; }      /* 0 → 650ms hold */
+  100% { opacity: 0; }      /* 650 → 1190ms fade */
+}
+
+/* ── degraded: muted orange, stays visible ─────────────────────────────── */
+.form-readiness-cue--degraded {
+  color: var(--helix-orange, #ff8c00);
+  cursor: help;
+}
+
+.form-readiness-cue--degraded .form-readiness-cue__dot {
+  opacity: 0.85;
+  animation: none;
+}
+
+.form-readiness-cue--degraded .form-readiness-cue__tick {
+  opacity: 0;
+}
+
+/* ── reduced motion: skip animations, snap to ready ────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .form-readiness-cue--checking .form-readiness-cue__dot {
+    animation: none;
+    opacity: 0.6;
+  }
+  .form-readiness-cue--ready {
+    animation-duration: 500ms;
+  }
+  .form-readiness-cue__tick {
+    transition: opacity 80ms ease;
+  }
+  .form-readiness-cue__dot {
+    transition: opacity 80ms ease, transform 80ms ease;
+  }
+}

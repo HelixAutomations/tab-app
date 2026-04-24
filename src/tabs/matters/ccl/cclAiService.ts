@@ -3,6 +3,38 @@
  * Calls POST /api/ccl-ai/fill and returns the generated intake fields.
  */
 
+import getProxyBaseUrl from '../../../utils/getProxyBaseUrl';
+
+const LOCAL_DEV_CCL_BACKEND_ORIGIN = 'http://localhost:8080';
+
+export function getCclApiBaseUrl(): string {
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    const port = window.location.port;
+    if ((host === 'localhost' || host === '127.0.0.1') && port === '3000') {
+      return LOCAL_DEV_CCL_BACKEND_ORIGIN;
+    }
+    // Deployed browser: use same-origin. The app server (server/index.js)
+    // mounts /api/ccl, /api/ccl-ai, /api/ccl-admin, /api/ccl-ops directly.
+    // Routing through the keys-proxy was producing /api/api/ccl/... and
+    // tripping CORS (wildcard origin + credentials: 'include').
+    return '';
+  }
+  return getProxyBaseUrl();
+}
+
+export function buildCclApiUrl(path: string): string {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  return `${getCclApiBaseUrl()}${normalizedPath}`;
+}
+
+async function cclFetch(path: string, init?: RequestInit): Promise<Response> {
+  return fetch(buildCclApiUrl(path), {
+    credentials: 'include',
+    ...init,
+  });
+}
+
 export interface AiFillRequest {
   matterId: string;
   initials?: string;
@@ -21,6 +53,8 @@ export interface CclServiceRunRequest extends AiFillRequest {
   draftJson?: Record<string, string>;
   stage?: string;
   skipCompilePersistence?: boolean;
+  overrideMode?: 'preserve-existing' | 'replace-ai-fields';
+  baseVersion?: number | null;
 }
 
 export interface CclCompileSummary {
@@ -147,7 +181,7 @@ async function readErrorMessage(res: Response, fallback: string): Promise<string
 }
 
 export async function fetchAiFill(request: AiFillRequest): Promise<AiFillResponse> {
-  const res = await fetch('/api/ccl-ai/fill', {
+  const res = await cclFetch('/api/ccl-ai/fill', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
@@ -165,7 +199,7 @@ export async function fetchAiFill(request: AiFillRequest): Promise<AiFillRespons
 }
 
 export async function runCclService(request: CclServiceRunRequest): Promise<CclServiceRunResponse> {
-  const res = await fetch('/api/ccl/service/run', {
+  const res = await cclFetch('/api/ccl/service/run', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
@@ -183,7 +217,7 @@ export async function runCclService(request: CclServiceRunRequest): Promise<CclS
 }
 
 export async function fetchCclCompile(request: AiFillRequest): Promise<{ ok: boolean; matterId: string; compile: CclCompileResponse }> {
-  const res = await fetch('/api/ccl/service/compile', {
+  const res = await cclFetch('/api/ccl/service/compile', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
@@ -198,6 +232,56 @@ export async function fetchCclCompile(request: AiFillRequest): Promise<{ ok: boo
     throw new Error('CCL compile returned an invalid response.');
   }
   return data;
+}
+
+// ─── Rerun preview (above/below comparison for the override modal) ─────────
+export interface CclRerunPreviewCurrent {
+  version: number | null;
+  cclContentId: number | null;
+  status: string | null;
+  model: string | null;
+  promptVersion: string | null;
+  templateVersion: string | null;
+  confidence: string | null;
+  generatedFieldCount: number | null;
+  aiTraceId: number | null;
+  updatedAt: string | null;
+  updatedBy: string | null;
+  pressureTest: { flaggedCount: number | null; completedAt: string | null } | null;
+  overrideHistory: {
+    overrideCount: number;
+    lastOverrideAt: string | null;
+    lastOverrideReplacedVersion: number | null;
+  };
+}
+
+export interface CclRerunPreviewProjected {
+  version: number | null;
+  model: string | null;
+  promptVersion: string | null;
+  templateVersion: string | null;
+  overrideMode: 'replace-ai-fields';
+  note: string;
+}
+
+export interface CclRerunPreviewResponse {
+  ok: boolean;
+  matterId: string;
+  current: CclRerunPreviewCurrent;
+  projected: CclRerunPreviewProjected;
+  schemaShape: 'v1' | 'v2';
+}
+
+export async function fetchCclRerunPreview(matterId: string): Promise<CclRerunPreviewResponse | null> {
+  if (!matterId) return null;
+  try {
+    const res = await cclFetch(`/api/ccl/${encodeURIComponent(matterId)}/rerun-preview`);
+    if (!res.ok) return null;
+    const data = await readJsonResponse<CclRerunPreviewResponse>(res);
+    return data || null;
+  } catch {
+    return null;
+  }
 }
 
 // ─── Streaming AI fill (SSE) ────────────────────────────────────────────────
@@ -215,7 +299,7 @@ export async function fetchAiFillStream(
   callbacks: AiFillStreamCallbacks,
 ): Promise<void> {
   try {
-    const res = await fetch('/api/ccl-ai/fill-stream', {
+    const res = await cclFetch('/api/ccl-ai/fill-stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(request),
@@ -288,7 +372,7 @@ export async function fetchAiFillStream(
 }
 
 export async function fetchPracticeAreaDefaults(practiceArea: string): Promise<Record<string, string>> {
-  const res = await fetch(`/api/ccl-ai/practice-defaults/${encodeURIComponent(practiceArea)}`);
+  const res = await cclFetch(`/api/ccl-ai/practice-defaults/${encodeURIComponent(practiceArea)}`);
   if (!res.ok) return {};
   const data = await readJsonResponse<{ fields?: Record<string, string> }>(res);
   return data?.fields || {};
@@ -296,7 +380,7 @@ export async function fetchPracticeAreaDefaults(practiceArea: string): Promise<R
 
 export async function submitAiFeedback(feedback: AiFeedbackRequest): Promise<boolean> {
   try {
-    const res = await fetch('/api/ccl-ai/feedback', {
+    const res = await cclFetch('/api/ccl-ai/feedback', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...feedback, timestamp: new Date().toISOString() }),
@@ -322,7 +406,7 @@ export interface ContextPreviewResponse {
 }
 
 export async function fetchContextPreview(request: AiFillRequest): Promise<ContextPreviewResponse> {
-  const res = await fetch('/api/ccl-ai/context-preview', {
+  const res = await cclFetch('/api/ccl-ai/context-preview', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
@@ -340,6 +424,10 @@ export interface PressureTestFieldScore {
   score: number;
   reason: string;
   flag: boolean;
+  // Voice axis is captured server-side for trace analysis only.
+  // Never surfaced to fee earners; never drives the flag.
+  voiceScore?: number | null;
+  voiceIssues?: string[];
 }
 
 export interface PressureTestRequest {
@@ -360,10 +448,12 @@ export interface PressureTestResponse {
   dataSources: string[];
   durationMs: number;
   trackingId: string;
+  aiTraceId?: number | null;
+  promptVersion?: string;
 }
 
 export async function fetchPressureTest(request: PressureTestRequest): Promise<PressureTestResponse> {
-  const res = await fetch('/api/ccl-ai/pressure-test', {
+  const res = await cclFetch('/api/ccl-ai/pressure-test', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
@@ -405,7 +495,7 @@ export interface CclSupportTicket {
 
 export async function submitCclSupportTicket(ticket: CclSupportTicket): Promise<{ ok: boolean; message: string }> {
   try {
-    const res = await fetch('/api/ccl-ops/report', {
+    const res = await cclFetch('/api/ccl-ops/report', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(ticket),
@@ -443,7 +533,7 @@ export async function checkCclIntegrations(matterId: string): Promise<CclIntegra
   };
 
   try {
-    const res = await fetch(`/api/ccl-ops/integrations?matterId=${encodeURIComponent(matterId)}`);
+    const res = await cclFetch(`/api/ccl-ops/integrations?matterId=${encodeURIComponent(matterId)}`);
     if (!res.ok) return fallback;
     const data = await readJsonResponse<{ clio?: CclIntegrations['clio']; nd?: CclIntegrations['nd'] }>(res);
     return {
@@ -481,7 +571,7 @@ export async function uploadToClio(params: {
   fields?: Record<string, string>;
 }): Promise<{ ok: boolean; error?: string; docxPath?: string; unresolvedPlaceholders?: string[]; unresolvedCount?: number }> {
   try {
-    const res = await fetch('/api/ccl-ops/upload-clio', {
+    const res = await cclFetch('/api/ccl-ops/upload-clio', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(params),
@@ -501,7 +591,7 @@ export async function uploadToNetDocuments(params: {
   fields?: Record<string, string>;
 }): Promise<{ ok: boolean; error?: string; docxPath?: string; unresolvedPlaceholders?: string[]; unresolvedCount?: number }> {
   try {
-    const res = await fetch('/api/ccl-ops/upload-nd', {
+    const res = await cclFetch('/api/ccl-ops/upload-nd', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(params),
@@ -538,7 +628,7 @@ export interface CclReconstructVersionResult {
 
 export async function reconstructCclVersion(cclContentId: number): Promise<CclReconstructVersionResult> {
   try {
-    const res = await fetch('/api/ccl-ops/reconstruct-version', {
+    const res = await cclFetch('/api/ccl-ops/reconstruct-version', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ cclContentId }),
@@ -720,7 +810,7 @@ export interface CclMatterDetail {
 
 export async function fetchCclAdminStats(): Promise<CclAdminStats | null> {
   try {
-    const res = await fetch('/api/ccl-admin/stats');
+    const res = await cclFetch('/api/ccl-admin/stats');
     if (!res.ok) return null;
     return await readJsonResponse<CclAdminStats>(res);
   } catch {
@@ -730,7 +820,7 @@ export async function fetchCclAdminStats(): Promise<CclAdminStats | null> {
 
 export async function fetchCclMatterDetail(matterId: string): Promise<CclMatterDetail | null> {
   try {
-    const res = await fetch(`/api/ccl-admin/matters/${encodeURIComponent(matterId)}`);
+    const res = await cclFetch(`/api/ccl-admin/matters/${encodeURIComponent(matterId)}`);
     if (!res.ok) return null;
     return await readJsonResponse<CclMatterDetail>(res);
   } catch {
@@ -740,7 +830,7 @@ export async function fetchCclMatterDetail(matterId: string): Promise<CclMatterD
 
 export async function fetchCclAiTraces(matterId: string): Promise<CclAiTraceRecord[]> {
   try {
-    const res = await fetch(`/api/ccl-admin/traces/${encodeURIComponent(matterId)}`);
+    const res = await cclFetch(`/api/ccl-admin/traces/${encodeURIComponent(matterId)}`);
     if (!res.ok) return [];
     const data = await readJsonResponse<{ traces?: CclAiTraceRecord[] }>(res);
     return data?.traces || [];
@@ -751,7 +841,7 @@ export async function fetchCclAiTraces(matterId: string): Promise<CclAiTraceReco
 
 export async function fetchCclTraceDetail(trackingId: string): Promise<CclAiTraceRecord | null> {
   try {
-    const res = await fetch(`/api/ccl-admin/trace/${encodeURIComponent(trackingId)}`);
+    const res = await cclFetch(`/api/ccl-admin/trace/${encodeURIComponent(trackingId)}`);
     if (!res.ok) return null;
     const data = await readJsonResponse<{ trace?: CclAiTraceRecord | null }>(res);
     return data?.trace || null;
@@ -765,7 +855,7 @@ export async function fetchCclTraceDetail(trackingId: string): Promise<CclAiTrac
 
 export async function submitCclAssessment(payload: CclAssessmentPayload): Promise<{ ok: boolean; assessmentId?: number; error?: string }> {
   try {
-    const res = await fetch('/api/ccl-admin/assessments', {
+    const res = await cclFetch('/api/ccl-admin/assessments', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -779,7 +869,7 @@ export async function submitCclAssessment(payload: CclAssessmentPayload): Promis
 
 export async function fetchCclAssessments(matterId: string): Promise<CclAssessmentRecord[]> {
   try {
-    const res = await fetch(`/api/ccl-admin/assessments/${encodeURIComponent(matterId)}`);
+    const res = await cclFetch(`/api/ccl-admin/assessments/${encodeURIComponent(matterId)}`);
     if (!res.ok) return [];
     const data = await readJsonResponse<{ assessments?: CclAssessmentRecord[] }>(res);
     return data?.assessments || [];
@@ -790,7 +880,7 @@ export async function fetchCclAssessments(matterId: string): Promise<CclAssessme
 
 export async function markAssessmentAsApplied(assessmentId: number, appliedBy: string): Promise<boolean> {
   try {
-    const res = await fetch(`/api/ccl-admin/assessments/${assessmentId}/applied`, {
+    const res = await cclFetch(`/api/ccl-admin/assessments/${assessmentId}/applied`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ appliedBy }),
@@ -822,7 +912,7 @@ export async function approveCcl(
   targetStatus: 'pressure-tested' | 'approved' | 'uploaded' = 'approved',
 ): Promise<CclApprovalResponse> {
   try {
-    const res = await fetch(`/api/ccl/${encodeURIComponent(matterId)}/approve`, {
+    const res = await cclFetch(`/api/ccl/${encodeURIComponent(matterId)}/approve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ targetStatus }),

@@ -1,12 +1,12 @@
 # Realtime Context
 
-Auto-generated: 2026-04-13T16:51:55.747Z
+Auto-generated: 2026-04-16T18:02:38.725Z
 
 ## Git State
 
 - **Branch**: main
-- **Uncommitted changes**: 86
-- **Last commit**: abbfe819 normal4
+- **Uncommitted changes**: 28
+- **Last commit**: 7ef60e42 gitswitch backup
 
 ## Submodules
 
@@ -33,25 +33,25 @@ Auto-generated: 2026-04-13T16:51:55.747Z
 ## Recent Changes (last 5 commits)
 
 - .github/copilot-instructions.md
-- .github/instructions/DATABASE_SCHEMA_REFERENCE.md
+- .github/instructions/CCL_ROADMAP.md
 - .github/instructions/REALTIME_CONTEXT.md
 - .github/instructions/ROADMAP.md
-- .github/instructions/components.instructions.md
 - .github/instructions/server.instructions.md
-- .github/instructions/styles.instructions.md
 - .github/instructions/tabs.instructions.md
-- .github/prompts/health-check.prompt.md
-- .github/prompts/optimise.prompt.md
-- .github/prompts/plan.prompt.md
-- .github/prompts/security-review.prompt.md
 - .github/workflows/ci.yml
-- .gitignore
-- appPackage/manifest.json
+- README.md
 - build-and-deploy-staging.ps1
 - build-and-deploy.ps1
 - craco.config.js
+- git
 - jest.server.config.js
 - logs/changelog.md
+- npm
+- package-lock.json
+- package.json
+- server.js
+- server/__tests__/middleware/errorHandler.test.js
+- server/__tests__/middleware/requireUser.test.js
 
 ---
 *Run `node tools/sync-context.mjs` to refresh (you will be asked each run whether to sync submodules)*

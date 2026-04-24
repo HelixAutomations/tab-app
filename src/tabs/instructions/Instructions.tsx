@@ -7189,7 +7189,7 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                             <button
                               onClick={() => {
                                 const passcode = (document.getElementById('payment-delete-passcode') as HTMLInputElement)?.value;
-                                if (passcode !== '2011') {
+                                if (passcode !== '11112011') {
                                   alert('Incorrect passcode');
                                   return;
                                 }
@@ -7211,7 +7211,7 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                             <button
                               onClick={() => {
                                 const passcode = (document.getElementById('payment-delete-passcode') as HTMLInputElement)?.value;
-                                if (passcode !== '2011') {
+                                if (passcode !== '11112011') {
                                   alert('Incorrect passcode');
                                   return;
                                 }

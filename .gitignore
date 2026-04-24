@@ -8,6 +8,7 @@
 .env.*
 !.env.example
 .env.local
+.secrets-cache.json
 
 # TeamsFx files
 env/.env.*.user

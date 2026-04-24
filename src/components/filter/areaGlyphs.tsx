@@ -12,6 +12,9 @@ export interface AreaGlyphMeta {
 export const getAreaGlyphMeta = (areaOfWork: string): AreaGlyphMeta => {
   const area = (areaOfWork || '').toLowerCase().trim();
 
+  if (!area || area === 'general') {
+    return { key: 'Other/Unsure', color: colours.greyText };
+  }
   if (area.includes('triage')) {
     return { key: 'Triage', color: colours.greyText };
   }

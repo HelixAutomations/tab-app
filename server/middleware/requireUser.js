@@ -14,6 +14,7 @@ const PUBLIC_PREFIXES = [
     '/api/messages',        // Teams bot webhook (Bot Framework auth)
     '/api/teams-notify',    // Teams proactive messages
     '/api/logs',            // SSE log stream (EventSource can't send auth headers; UI is admin-gated)
+    '/api/team-data',       // EntryGate bootstrap outside Teams (route returns slim active-user payload when anonymous)
 ];
 
 function requireUser(req, res, next) {

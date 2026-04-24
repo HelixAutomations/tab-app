@@ -39,6 +39,11 @@ function userSecretNames(initials) {
 // Per-key token cache: 'service' → service account, 'lz' → user, etc.
 const tokenCaches = new Map();
 
+function clearClioAccessTokenCache(initials) {
+  const cacheKey = initials ? initials.toLowerCase() : 'service';
+  tokenCaches.delete(cacheKey);
+}
+
 /**
  * Get a Clio access token.
  * @param {string} [initials] — if provided, uses per-user credentials for audit trail.
@@ -133,4 +138,4 @@ async function getClioAccessToken(initials) {
   return accessToken;
 }
 
-module.exports = { getClioAccessToken, CLIO_API_BASE };
+module.exports = { getClioAccessToken, clearClioAccessTokenCache, CLIO_API_BASE };

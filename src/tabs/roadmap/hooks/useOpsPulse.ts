@@ -1,7 +1,8 @@
 // src/tabs/roadmap/hooks/useOpsPulse.ts — SSE hook for the Live Monitor dashboard
 
 import { useEffect, useRef, useCallback, useState } from 'react';
-import type { OpsPulseState, PulseData, SchedulerData, ErrorEntry, SessionsData, RequestEntry, PresenceData } from '../parts/ops-pulse-types';
+import type { OpsPulseState, PulseData, SchedulerData, ErrorEntry, SessionsData, SessionTraceData, RequestEntry, PresenceData } from '../parts/ops-pulse-types';
+import { disposeOnHmr, onServerBounced } from '../../../utils/devHmr';
 
 const INITIAL_STATE: OpsPulseState = {
   connected: false,
@@ -9,6 +10,7 @@ const INITIAL_STATE: OpsPulseState = {
   scheduler: null,
   errors: [],
   sessions: null,
+  sessionTraces: null,
   requests: [],
   presence: null,
 };
@@ -35,12 +37,39 @@ export function useOpsPulse(enabled: boolean): OpsPulseState {
     // Probe auth first — EventSource doesn't expose HTTP status codes,
     // so a 401 would cause an infinite reconnect loop.
     fetch('/api/ops-pulse/snapshot', { credentials: 'same-origin' })
-      .then((res) => {
+      .then(async (res) => {
         if (res.status === 401 || res.status === 403) {
           // Not authorised — stop trying
           gaveUpRef.current = true;
           setState((prev) => ({ ...prev, connected: false }));
           return;
+        }
+
+        if (!res.ok) {
+          throw new Error(`ops-pulse snapshot failed (${res.status})`);
+        }
+
+        const snapshot = await res.json().catch(() => null) as {
+          pulse?: PulseData | null;
+          scheduler?: SchedulerData | null;
+          errors?: ErrorEntry[];
+          sessions?: SessionsData | null;
+          sessionTraces?: SessionTraceData | null;
+          requests?: RequestEntry[];
+          presence?: PresenceData | null;
+        } | null;
+
+        if (snapshot) {
+          setState((prev) => ({
+            ...prev,
+            pulse: snapshot.pulse ?? prev.pulse,
+            scheduler: snapshot.scheduler ?? prev.scheduler,
+            errors: Array.isArray(snapshot.errors) ? snapshot.errors : prev.errors,
+            sessions: snapshot.sessions ?? prev.sessions,
+            sessionTraces: snapshot.sessionTraces ?? prev.sessionTraces,
+            requests: Array.isArray(snapshot.requests) ? snapshot.requests : prev.requests,
+            presence: snapshot.presence ?? prev.presence,
+          }));
         }
 
         const es = new EventSource('/api/ops-pulse/stream');
@@ -93,6 +122,13 @@ export function useOpsPulse(enabled: boolean): OpsPulseState {
           } catch { /* ignore */ }
         });
 
+        es.addEventListener('sessionTraces', (e: MessageEvent) => {
+          try {
+            const data = JSON.parse(e.data) as SessionTraceData;
+            setState((prev) => ({ ...prev, sessionTraces: data }));
+          } catch { /* ignore */ }
+        });
+
         es.addEventListener('requests', (e: MessageEvent) => {
           try {
             const data = JSON.parse(e.data) as RequestEntry[];
@@ -141,6 +177,21 @@ export function useOpsPulse(enabled: boolean): OpsPulseState {
       connect();
     }
 
+    const undoHmr = disposeOnHmr(() => {
+      if (esRef.current) {
+        try { esRef.current.close(); } catch { /* */ }
+        esRef.current = null;
+      }
+    });
+
+    const undoBounce = onServerBounced(() => {
+      if (esRef.current) {
+        try { esRef.current.close(); } catch { /* */ }
+        esRef.current = null;
+      }
+      if (enabled) connect();
+    });
+
     return () => {
       if (esRef.current) {
         esRef.current.close();
@@ -150,6 +201,8 @@ export function useOpsPulse(enabled: boolean): OpsPulseState {
         clearTimeout(timerRef.current);
         timerRef.current = null;
       }
+      undoHmr();
+      undoBounce();
     };
   }, [enabled, connect]);
 

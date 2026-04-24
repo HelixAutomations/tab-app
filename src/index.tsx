@@ -1,4 +1,4 @@
-import React, { useState, useEffect, lazy, Suspense } from "react";
+import React, { useState, useEffect, useLayoutEffect, lazy, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import "./app/styles/index.css";
 import App from "./app/App";
@@ -7,13 +7,20 @@ import { colours } from "./app/styles/colours";
 import { app } from "@microsoft/teams-js";
 import { isInTeams } from "./app/functionality/isInTeams";
 import { Matter, UserData, Enquiry, TeamData, NormalizedMatter } from "./app/functionality/types";
-import { mergeMattersFromSources } from "./utils/matterNormalization";
+import { normalizeMatterData } from "./utils/matterNormalization";
 import { getCachedData, setCachedData, cleanupOldCache } from "./utils/storageHelpers";
 import { debugLog } from "./utils/debug";
 import { isDevOwner } from "./app/admin";
 import { appendDefaultEnquiryProcessingParams, enquiryReferencesId } from "./app/functionality/enquiryProcessingModel";
 import { trackBootStage, trackBootSummary, trackClientError, trackClientEvent } from "./utils/telemetry";
 import actionLog from "./utils/actionLog";
+import { clearRequestAuthContext, writeRequestAuthContext } from "./utils/requestAuthContext";
+import { disposeOnHmr, onServerBounced } from "./utils/devHmr";
+import { stampBuildAttribute, registerWayfindingDebugApi } from "./utils/devWayfinding";
+import { useDevServerBoot } from "./hooks/useDevServerBoot";
+const WayfindingOverlay = process.env.NODE_ENV !== 'production'
+  ? lazy(() => import('./components/dev/WayfindingOverlay'))
+  : null;
 
 import "./utils/callLogger";
 import { initializeIcons } from '@fluentui/react/lib/Icons';
@@ -29,6 +36,11 @@ if (typeof window !== 'undefined' && !(window as any).__iconsInitialized) {
   initializeIcons();
   (window as any).__iconsInitialized = true;
 }
+
+// Wayfinding: stamp build id on <html> and register the dev debug API.
+// Both are safe in production; the debug API self-gates to dev.
+stampBuildAttribute();
+registerWayfindingDebugApi();
 
 // Define the custom Fluent UI theme
 // invisible change 2
@@ -91,6 +103,24 @@ if (typeof window !== "undefined") {
     (window as any).__unhandledRejectionHandlerAdded = true;
 
     const hasChunkReloadedKey = '__helix_chunk_reload_once__';
+    // 2026-04-21: previously a single sessionStorage flag blocked all future
+    // reloads after the first chunk-load failure. In dev that meant any
+    // webpack rebuild + page refresh would trap the tab in the error
+    // boundary forever (sessionStorage survives reloads). Two changes:
+    //   1. Tag the guard with a timestamp and only suppress reloads within a
+    //      30s window — long enough to prevent a true reload loop, short
+    //      enough that a *new* stale-chunk error gets a fresh attempt.
+    //   2. Tag the guard with the current build id (data-helix-build set by
+    //      stampBuildAttribute()). When the build changes, the guard is
+    //      automatically stale and a reload is allowed.
+    const RELOAD_GUARD_WINDOW_MS = 30_000;
+    const getCurrentBuildId = (): string => {
+      try {
+        return document.documentElement.dataset.helixBuild || 'unknown';
+      } catch {
+        return 'unknown';
+      }
+    };
     const isChunkLoadError = (reason: unknown) => {
       const anyReason = reason as any;
       const name = typeof anyReason?.name === 'string' ? anyReason.name : '';
@@ -110,17 +140,26 @@ if (typeof window !== "undefined") {
         cooldownMs: 60000,
       });
 
+      const currentBuild = getCurrentBuildId();
       try {
-        if (sessionStorage.getItem(hasChunkReloadedKey) === 'true') {
-          console.error('[ChunkLoadError] reload already attempted; staying put', { source });
-          return;
+        const raw = sessionStorage.getItem(hasChunkReloadedKey);
+        if (raw) {
+          // Backwards compatible with old 'true' value: treat as fresh guard.
+          let parsed: { ts?: number; build?: string } = {};
+          try { parsed = JSON.parse(raw); } catch { parsed = { ts: Date.now() - 1000 }; }
+          const withinWindow = typeof parsed.ts === 'number' && (Date.now() - parsed.ts) < RELOAD_GUARD_WINDOW_MS;
+          const sameBuild = parsed.build === currentBuild;
+          if (withinWindow && sameBuild) {
+            console.error('[ChunkLoadError] reload already attempted in this build; staying put', { source, build: currentBuild });
+            return;
+          }
         }
-        sessionStorage.setItem(hasChunkReloadedKey, 'true');
+        sessionStorage.setItem(hasChunkReloadedKey, JSON.stringify({ ts: Date.now(), build: currentBuild }));
       } catch {
         // If sessionStorage is unavailable, still attempt a reload once.
       }
 
-      console.warn('[ChunkLoadError] forcing reload to recover', { source });
+      console.warn('[ChunkLoadError] forcing reload to recover', { source, build: currentBuild });
       // Hard reload is the most reliable way to pick up new chunk filenames.
       window.location.reload();
     };
@@ -309,8 +348,25 @@ const getDateRange = () => {
 };
 
 // Fetch functions
-async function fetchUserData(objectId: string): Promise<UserData[]> {
-  const cacheKey = `userData-${objectId}`;
+type UserDataLookup = {
+  objectId?: string;
+  email?: string;
+  initials?: string;
+};
+
+async function fetchUserData(identity: string | UserDataLookup): Promise<UserData[]> {
+  const lookup = typeof identity === 'string'
+    ? { objectId: identity }
+    : (identity || {});
+  const objectId = String(lookup.objectId || '').trim();
+  const email = String(lookup.email || '').trim().toLowerCase();
+  const initials = String(lookup.initials || '').trim().toUpperCase();
+
+  if (!objectId && !email && !initials) {
+    return [];
+  }
+
+  const cacheKey = `userData-${objectId || 'none'}-${email || 'none'}-${initials || 'none'}`;
   const cached = getCachedData<UserData[]>(cacheKey);
   if (cached) return cached;
 
@@ -324,7 +380,11 @@ async function fetchUserData(objectId: string): Promise<UserData[]> {
     const response = await fetch('/api/user-data', {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userObjectId: objectId }),
+      body: JSON.stringify({
+        ...(objectId ? { userObjectId: objectId } : {}),
+        ...(email ? { email } : {}),
+        ...(initials ? { initials } : {}),
+      }),
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
@@ -351,6 +411,57 @@ async function fetchUserData(objectId: string): Promise<UserData[]> {
     }
     throw error;
   }
+}
+
+function normalizeUserRecord(user?: UserData | null): UserData | null {
+  if (!user) {
+    return null;
+  }
+
+  return {
+    ...user,
+    EntraID: user.EntraID || (user as any)["Entra ID"],
+    ClioID: user.ClioID || (user as any)["Clio ID"],
+    FullName: user.FullName || (user as any)["Full Name"],
+  };
+}
+
+function mergeUserRecords(base?: UserData | null, hydrated?: UserData | null): UserData | null {
+  const normalizedBase = normalizeUserRecord(base);
+  const normalizedHydrated = normalizeUserRecord(hydrated);
+
+  if (!normalizedBase && !normalizedHydrated) {
+    return null;
+  }
+
+  return {
+    ...(normalizedBase || {}),
+    ...(normalizedHydrated || {}),
+    EntraID: normalizedHydrated?.EntraID || normalizedBase?.EntraID,
+    ClioID: normalizedHydrated?.ClioID || normalizedBase?.ClioID,
+    FullName: normalizedHydrated?.FullName || normalizedBase?.FullName,
+  } as UserData;
+}
+
+async function hydrateUserProfile(user?: UserData | null): Promise<UserData | null> {
+  const normalizedUser = normalizeUserRecord(user);
+  if (!normalizedUser) {
+    return null;
+  }
+
+  const hasEntraId = String(normalizedUser.EntraID || '').trim().length > 0;
+  const hasClioId = String(normalizedUser.ClioID || '').trim().length > 0;
+  if (hasEntraId && hasClioId) {
+    return normalizedUser;
+  }
+
+  const hydratedRows = await fetchUserData({
+    objectId: normalizedUser.EntraID,
+    email: normalizedUser.Email,
+    initials: normalizedUser.Initials,
+  });
+
+  return mergeUserRecords(normalizedUser, (hydratedRows[0] as UserData | undefined) || null) || normalizedUser;
 }
 
 // ── In-flight request dedup (prevents Strict Mode / rapid re-render duplicates) ──
@@ -768,9 +879,9 @@ async function fetchVNetMatters(fullName?: string): Promise<any[]> {
   }
 
   async function fetchAllMatterSources(fullName: string, queryFullName?: string): Promise<NormalizedMatter[]> {
-    // v5 cache key: unified server endpoint
+    // v6 cache key: new-space-only server endpoint
     // Use in-memory cache instead of localStorage (matters data is too large)
-    const cacheKey = `normalizedMatters-v5-${fullName}`;
+    const cacheKey = `normalizedMatters-v6-new-space-${fullName}`;
     const cached = getMemoryCachedData<NormalizedMatter[]>(cacheKey);
     if (cached) {
       if (process.env.NODE_ENV === 'development') {
@@ -783,28 +894,21 @@ async function fetchVNetMatters(fullName?: string): Promise<any[]> {
     try {
       const trimmedQueryName = queryFullName?.trim();
       const query = trimmedQueryName ? `?fullName=${encodeURIComponent(trimmedQueryName)}` : '';
-      const url = `/api/matters-unified${query}`;
+      const url = `/api/matters-new-space${query}`;
       let data: any;
       try {
         data = await fetchUnifiedMattersWithTimeout(url, 45_000, `mat:${url}`);
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError') {
           // eslint-disable-next-line no-console
-          console.warn('[Matters] unified fetch timed out, retrying once with extended timeout');
+          console.warn('[Matters] new-space fetch timed out, retrying once with extended timeout');
           data = await fetchUnifiedMattersWithTimeout(url, 120_000, `mat:${url}:retry`);
         } else {
           throw err;
         }
       }
-      const legacyAll = Array.isArray(data.legacyAll) ? data.legacyAll : [];
-      const vnetAll = Array.isArray(data.vnetAll) ? data.vnetAll : [];
-
-      const normalizedMatters = mergeMattersFromSources(
-        legacyAll,
-        [],
-        vnetAll,
-        fullName,
-      );
+      const newSpaceMatters = Array.isArray(data.matters) ? data.matters : [];
+      const normalizedMatters = newSpaceMatters.map((matter: any) => normalizeMatterData(matter, fullName, 'vnet_direct'));
       
       // Cache in memory instead of localStorage (too large for localStorage)
       setMemoryCachedData(cacheKey, normalizedMatters);
@@ -812,27 +916,8 @@ async function fetchVNetMatters(fullName?: string): Promise<any[]> {
       return normalizedMatters;
     } catch (err) {
       // eslint-disable-next-line no-console
-      console.warn('[Matters] unified fetch failed', err);
-      // Fallback: call previous two-source path
-      try {
-        const [allMatters, vnetAllMatters] = await Promise.all([
-          fetchAllMatters(),
-          fetchVNetMatters(),
-        ]);
-        const normalizedMatters = mergeMattersFromSources(
-          allMatters,
-          [],
-          vnetAllMatters,
-          fullName,
-        );
-        
-        // Cache in memory instead of localStorage
-        setMemoryCachedData(cacheKey, normalizedMatters);
-        
-        return normalizedMatters;
-      } catch {
-        return [];
-      }
+      console.warn('[Matters] new-space fetch failed', err);
+      return [];
     }
   }
 
@@ -910,6 +995,9 @@ function resolveEffectiveDatasetUser(
 
 // Main component
 const AppWithContext: React.FC = () => {
+  // Wayfinding + dev server-bounce reconnect (no-ops in production).
+  useDevServerBoot();
+
   const [teamsContext, setTeamsContext] =
     useState<app.Context | null>(null);
   const [userData, setUserData] = useState<UserData[] | null>(null);
@@ -980,6 +1068,16 @@ const AppWithContext: React.FC = () => {
 
   // Local development state for area selection
   const [localSelectedAreas, setLocalSelectedAreas] = useState<string[]>(['Commercial', 'Construction', 'Property']);
+
+  useLayoutEffect(() => {
+    const activeUser = normalizeUserRecord(userData?.[0] || null);
+    if (activeUser) {
+      writeRequestAuthContext(activeUser);
+      return;
+    }
+
+    clearRequestAuthContext();
+  }, [userData]);
 
   // Refresh enquiries function - can be called after claiming an enquiry
   const refreshEnquiries = async () => {
@@ -1304,6 +1402,12 @@ const AppWithContext: React.FC = () => {
       pipelineEventListenersRef.current.forEach(fn => {
         try { fn(event); } catch { /* ignore downstream errors */ }
       });
+
+      // R7 B4/B7: relay to a window event so any tile (Home pulse, activity
+      // feed, etc.) can subscribe without holding its own EventSource.
+      try {
+        window.dispatchEvent(new CustomEvent('helix:enquiriesChanged', { detail: event }));
+      } catch { /* ignore */ }
     };
 
     try {
@@ -1334,6 +1438,23 @@ const AppWithContext: React.FC = () => {
       });
     }
 
+    // Dev HMR: close the SSE before webpack swaps this module so we don't
+    // dangle behind the proxy `timeout: 0`. No-op in production.
+    const undoHmr = disposeOnHmr(() => { try { eventSource?.close(); } catch { /* */ } });
+
+    // Dev: when the local backend restarts (nodemon), reconnect immediately
+    // instead of waiting for the browser's EventSource auto-retry to notice.
+    const undoBounce = onServerBounced(() => {
+      try { eventSource?.close(); } catch { /* */ }
+      try {
+        eventSource = new EventSource('/api/enquiries-unified/stream');
+        eventSource.addEventListener('enquiries.changed', onChangedEvent as EventListener);
+        eventSource.addEventListener('pipeline.changed', onPipelineEvent as EventListener);
+        eventSource.onopen = () => setSseConnectionState('live');
+        eventSource.onerror = () => setSseConnectionState('error');
+      } catch { /* */ }
+    });
+
     return () => {
       if (bgReconcileTimerRef.current) {
         window.clearTimeout(bgReconcileTimerRef.current);
@@ -1354,6 +1475,8 @@ const AppWithContext: React.FC = () => {
       } catch {
         // ignore
       }
+      undoHmr();
+      undoBounce();
     };
   }, [userData]);
 
@@ -1505,12 +1628,10 @@ const AppWithContext: React.FC = () => {
     actionLog.start('User switch', `→ ${newUser.Initials || newUser.First || 'unknown'}`);
     setLoading(true);
 
-    const normalized: UserData = {
-      ...newUser,
-      EntraID: (newUser as any)["Entra ID"] || newUser.EntraID,
-      ClioID: (newUser as any)["Clio ID"] || newUser.ClioID,
-      FullName: newUser.FullName || (newUser as any)["Full Name"],
-    };
+    const normalized = normalizeUserRecord(newUser) as UserData;
+    const hydratedUser = await hydrateUserProfile(normalized).catch(() => normalized);
+    const activeUser = (hydratedUser || normalized) as UserData;
+    writeRequestAuthContext(activeUser);
     const returningToOriginalAdmin = !!originalAdminUser && isSameSwitchIdentity(normalized, originalAdminUser);
 
     // Store the current admin user only when moving away from the original identity.
@@ -1521,12 +1642,12 @@ const AppWithContext: React.FC = () => {
       setOriginalAdminUser(null);
     }
 
-    setUserData([normalized]);
+    setUserData([activeUser]);
     const liveTeam = teamData ?? await fetchTeamData().catch(() => null);
     if (liveTeam && liveTeam !== teamData) {
       setTeamData(liveTeam);
     }
-    const effectiveUser = resolveEffectiveDatasetUser(normalized, liveTeam);
+    const effectiveUser = resolveEffectiveDatasetUser(activeUser, liveTeam);
     const activeOriginalAdminUser = returningToOriginalAdmin ? null : originalAdminUser;
     
 
@@ -1622,11 +1743,14 @@ const AppWithContext: React.FC = () => {
         },
       } as app.Context);
 
-      const initialUserData = [{
+      const seededUser = normalizeUserRecord({
         ...selectedUserData,
-        AOW: localSelectedAreas.join(', ')
-      }];
+        AOW: selectedUserData?.AOW || localSelectedAreas.join(', '),
+      } as UserData) as UserData;
+      const hydratedUser = await hydrateUserProfile(seededUser).catch(() => seededUser);
+      const initialUserData = [(hydratedUser || seededUser) as UserData];
 
+      writeRequestAuthContext(initialUserData[0]);
       setUserData(initialUserData as UserData[]);
 
       const gateSnapshot = readShellBootSnapshot(gateSnapshotId);
@@ -1644,7 +1768,7 @@ const AppWithContext: React.FC = () => {
           hasTeamData: Boolean(gateSnapshot.teamData),
         });
       } else {
-        const cachedEffectiveUser = resolveEffectiveDatasetUser(initialUserData[0] as UserData, teamUserData);
+          const cachedEffectiveUser = resolveEffectiveDatasetUser(initialUserData[0] as UserData, teamUserData);
         const cachedEnquiries = getCachedEnquiriesSnapshot(
           cachedEffectiveUser.email,
           getDateRange().dateFrom,
@@ -1687,10 +1811,10 @@ const AppWithContext: React.FC = () => {
         });
         setEnquiriesLiveRefreshInFlight(true);
 
-        const enquiriesRes = await fetchEnquiries(enquiriesEmail, dateFrom, dateTo, initialUserData[0].AOW || "", userInitials, isDevOwner(initialUserData[0] as UserData), false)
+          const enquiriesRes = await fetchEnquiries(enquiriesEmail, dateFrom, dateTo, initialUserData[0].AOW || "", userInitials, isDevOwner(initialUserData[0] as UserData), false)
           .catch(err => {
             console.warn('⚠️ Enquiries API failed, using fallback:', err);
-            return import('./tabs/home/Home').then(m => m.getLiveLocalEnquiries(initialUserData[0].Email) as Enquiry[]);
+            return import('./tabs/home/liveLocalEnquiries').then(m => m.getLiveLocalEnquiries(initialUserData[0].Email) as Enquiry[]);
           });
 
         setEnquiries(enquiriesRes);
@@ -1730,7 +1854,7 @@ const AppWithContext: React.FC = () => {
           duration: Math.round(performance.now() - gateBoot),
           error: err instanceof Error ? err.message : String(err),
         });
-        const { getLiveLocalEnquiries } = await import('./tabs/home/Home');
+        const { getLiveLocalEnquiries } = await import('./tabs/home/liveLocalEnquiries');
         setEnquiries(getLiveLocalEnquiries(initialUserData[0].Email) as Enquiry[]);
         setEnquiriesUsingSnapshot(false);
       } finally {
@@ -1854,6 +1978,49 @@ const AppWithContext: React.FC = () => {
             const enquiriesEmail = primaryUser.Email || "";
             const deferLiveEnquiriesRefresh = restoredShellSnapshot;
 
+            // ── Round 3: parallel matters fetch for dev-owners ──
+            // Previously the dev-owner matters fetch was chained off enquiries.finally()
+            // and wrapped in requestIdleCallback({timeout: 2500}), pushing hydrate.matters
+            // to ~4.1s. The original justification ("matters is heavy") no longer applies —
+            // /api/matters-new-space returns 125 rows in ~350ms (62KB). Firing in parallel
+            // brings hydrate.matters down to ~max(enquiries, matters) instead of sum + slack.
+            if (isDevOwner(primaryUser)) {
+              const t0Matters = performance.now();
+              actionLog.start('Boot: matters (parallel)');
+              trackBootStage('teams', 'matters', 'started', {
+                entry: 'teams',
+                devOwner: true,
+                reason: 'parallel-with-enquiries',
+              });
+              fetchAllMatterSources(fullName, '')
+                .then(normalized => {
+                  const mattersMs = Math.round(performance.now() - t0Matters);
+                  console.info(`[Boot:Teams:DevOwner] Matters: ${normalized.length} rows in ${mattersMs}ms`);
+                  setMatters(normalized);
+                  actionLog.end('Boot: matters (parallel)', `${normalized.length} rows`);
+                  trackBootStage('teams', 'matters', 'completed', {
+                    entry: 'teams',
+                    devOwner: true,
+                    mattersCount: normalized.length,
+                    reason: 'parallel-with-enquiries',
+                  }, {
+                    duration: mattersMs,
+                  });
+                })
+                .catch(err => {
+                  const mattersMs = Math.round(performance.now() - t0Matters);
+                  console.warn('[Boot:Teams:DevOwner] Matters fetch failed:', err);
+                  trackBootStage('teams', 'matters', 'failed', {
+                    entry: 'teams',
+                    devOwner: true,
+                    reason: 'parallel-with-enquiries',
+                  }, {
+                    duration: mattersMs,
+                    error: err instanceof Error ? err.message : String(err),
+                  });
+                });
+            }
+
             const t0Enq = performance.now();
             setEnquiriesLiveRefreshInFlight(true);
             actionLog.start('Boot: enquiries');
@@ -1926,48 +2093,8 @@ const AppWithContext: React.FC = () => {
                 });
               }
               if (isDevOwner(primaryUser)) {
-                trackBootStage('teams', 'matters', 'skipped', {
-                  entry: 'teams',
-                  devOwner: true,
-                  reason: 'deferred-from-core-home',
-                });
-
-                const runDeferredMattersFetch = () => {
-                  trackBootStage('teams', 'matters', 'started', {
-                    entry: 'teams',
-                    devOwner: true,
-                    reason: 'deferred-from-core-home',
-                  });
-                  fetchAllMatterSources(fullName, '')
-                    .then(normalized => {
-                      console.info(`[Boot:Teams:DevOwner] Matters: ${normalized.length} rows`);
-                      setMatters(normalized);
-                      trackBootStage('teams', 'matters', 'completed', {
-                        entry: 'teams',
-                        devOwner: true,
-                        mattersCount: normalized.length,
-                        reason: 'deferred-from-core-home',
-                      });
-                    })
-                    .catch(err => {
-                      console.warn('[Boot:Teams:DevOwner] Matters fetch failed:', err);
-                      trackBootStage('teams', 'matters', 'failed', {
-                        entry: 'teams',
-                        devOwner: true,
-                        reason: 'deferred-from-core-home',
-                      }, {
-                        error: err instanceof Error ? err.message : String(err),
-                      });
-                    });
-                };
-
-                if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
-                  (window as typeof window & {
-                    requestIdleCallback: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
-                  }).requestIdleCallback(() => runDeferredMattersFetch(), { timeout: 2500 });
-                } else {
-                  (window as Window).setTimeout(runDeferredMattersFetch, 1800);
-                }
+                // Matters is now fetched in parallel with enquiries (see top of primeUserDependentData).
+                // No deferred fetch needed here.
               }
             });
           };
@@ -2256,7 +2383,7 @@ const AppWithContext: React.FC = () => {
                       duration: Math.round(performance.now() - bootStart),
                       error: err instanceof Error ? err.message : String(err),
                     });
-                    const { getLiveLocalEnquiries } = await import('./tabs/home/Home');
+                    const { getLiveLocalEnquiries } = await import('./tabs/home/liveLocalEnquiries');
                     setEnquiries(getLiveLocalEnquiries(enquiriesEmail || initialUserData[0].Email) as Enquiry[]);
                     setEnquiriesUsingSnapshot(false);
                     return { email: enquiriesEmail, initials: userInitials };
@@ -2330,7 +2457,7 @@ const AppWithContext: React.FC = () => {
                   duration: Math.round(performance.now() - bootStart),
                   error: err instanceof Error ? err.message : String(err),
                 });
-                const { getLiveLocalEnquiries } = await import('./tabs/home/Home');
+                const { getLiveLocalEnquiries } = await import('./tabs/home/liveLocalEnquiries');
                 setEnquiries(getLiveLocalEnquiries(initialUserData[0].Email) as Enquiry[]);
                 setTeamData(null);
                 setEnquiriesLiveRefreshInFlight(false);
@@ -2342,6 +2469,7 @@ const AppWithContext: React.FC = () => {
           }
         } else {
           // Production (outside Teams): require passcode + user selection
+          clearRequestAuthContext();
           setLoading(false);
           setShowEntryGate(true);
         }
@@ -2385,6 +2513,11 @@ const AppWithContext: React.FC = () => {
           handleUserSelected(userKey);
         }}
       />
+      {WayfindingOverlay && (
+        <Suspense fallback={null}>
+          <WayfindingOverlay />
+        </Suspense>
+      )}
     </>
   );
 };

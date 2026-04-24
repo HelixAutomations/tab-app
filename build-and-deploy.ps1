@@ -65,6 +65,14 @@ if (Test-Path $sigSrc) {
     Copy-Item -Path "$sigSrc\*" -Destination $sigDest -Recurse -Force
 }
 
+# Include changelog for the Activity tab release-notes surface.
+$changelogSrc = Join-Path $PSScriptRoot 'logs\changelog.md'
+if (Test-Path $changelogSrc) {
+    $logsDest = Join-Path $deployDir 'logs'
+    New-Item -ItemType Directory -Path $logsDest -Force | Out-Null
+    Copy-Item -Path $changelogSrc -Destination (Join-Path $logsDest 'changelog.md') -Force
+}
+
 Write-Host "Zipping files for deploy"
 Compress-Archive -Path (Join-Path $deployDir '*') -DestinationPath $zipPath -Force
 

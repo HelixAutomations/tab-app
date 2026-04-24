@@ -10,6 +10,7 @@ import { useTheme } from '../app/functionality/ThemeContext';
 import { isInTeams } from '../app/functionality/isInTeams';
 import type { UserData, TeamData } from '../app/functionality/types';
 import { colours } from '../app/styles/colours';
+import ComplianceWorkspace from '../tabs/resources/registers/ComplianceWorkspace';
 import RegistersWorkspace from '../tabs/resources/registers/RegistersWorkspace';
 
 // Import Custom SVG Icons (original provider logos)
@@ -174,8 +175,9 @@ const ResourceCard: React.FC<{
     showOpsBadge: boolean;
 }> = ({ resource, accentColor, isDarkMode, isFavorite, onOpen, onCopyLink, onToggleFavorite, showOpsBadge }) => {
     const [isHovered, setIsHovered] = useState(false);
-    const resourcesWithOperations = new Set(['Asana', 'Clio', 'Azure', 'NetDocuments', 'Registers']);
+    const resourcesWithOperations = new Set(['Asana', 'Clio', 'Azure', 'NetDocuments', 'Compliance']);
     const hasOperations = resourcesWithOperations.has(resource.title);
+    const hasDirectLink = Boolean(resource.url);
 
     const bg = isDarkMode ? colours.darkBlue : colours.light.cardBackground;
     const bgHover = isDarkMode ? colours.helixBlue : colours.light.cardHover;
@@ -195,7 +197,9 @@ const ResourceCard: React.FC<{
                 display: 'flex',
                 alignItems: 'stretch',
                 background: isHovered ? bgHover : bg,
-                border: `1px solid ${isHovered ? borderHover : border}`,
+                borderTop: `1px solid ${isHovered ? borderHover : border}`,
+                borderRight: `1px solid ${isHovered ? borderHover : border}`,
+                borderBottom: `1px solid ${isHovered ? borderHover : border}`,
                 borderLeft: `3px solid ${accentColor}`,
                 boxShadow: 'none',
                 transition: 'all 0.15s ease',
@@ -314,42 +318,46 @@ const ResourceCard: React.FC<{
                             },
                         }}
                     />
-                    <IconButton
-                        iconProps={{ iconName: 'Copy' }}
-                        title="Copy link"
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            onCopyLink();
-                        }}
-                        styles={{
-                            root: {
-                                width: 28,
-                                height: 28,
-                                color: textMuted,
-                            },
-                            rootHovered: {
-                                background: isDarkMode ? colours.dark.cardHover : colours.light.cardHover,
-                            },
-                        }}
-                    />
-                    <IconButton
-                        iconProps={{ iconName: 'OpenInNewWindow' }}
-                        title="Open in new tab"
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            onOpen();
-                        }}
-                        styles={{
-                            root: {
-                                width: 28,
-                                height: 28,
-                                color: textMuted,
-                            },
-                            rootHovered: {
-                                background: isDarkMode ? colours.dark.cardHover : colours.light.cardHover,
-                            },
-                        }}
-                    />
+                    {hasDirectLink && (
+                        <>
+                            <IconButton
+                                iconProps={{ iconName: 'Copy' }}
+                                title="Copy link"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onCopyLink();
+                                }}
+                                styles={{
+                                    root: {
+                                        width: 28,
+                                        height: 28,
+                                        color: textMuted,
+                                    },
+                                    rootHovered: {
+                                        background: isDarkMode ? colours.dark.cardHover : colours.light.cardHover,
+                                    },
+                                }}
+                            />
+                            <IconButton
+                                iconProps={{ iconName: 'OpenInNewWindow' }}
+                                title="Open in new tab"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onOpen();
+                                }}
+                                styles={{
+                                    root: {
+                                        width: 28,
+                                        height: 28,
+                                        color: textMuted,
+                                    },
+                                    rootHovered: {
+                                        background: isDarkMode ? colours.dark.cardHover : colours.light.cardHover,
+                                    },
+                                }}
+                            />
+                        </>
+                    )}
                 </div>
             )}
         </div>
@@ -479,7 +487,7 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
             title: 'Collaboration & HR',
             resources: [
                 { title: 'Leapsome', url: 'https://www.leapsome.com/app/#/dashboard?init=true', icon: leapsomeIcon, description: 'Performance management' },
-                { title: 'Miro', url: 'https://miro.com/login/', icon: 'Whiteboard', description: 'Collaborative whiteboard' },
+                { title: 'Miro', url: 'https://miro.com/login/', icon: 'PenWorkspace', description: 'Collaborative whiteboard' },
                 { title: 'Psychometric Testing', url: 'https://links.helix-law.co.uk/assessment', icon: 'TestBeaker', description: 'Assessments' },
                 { title: 'Cognito Forms', url: 'https://www.cognitoforms.com/helix1', icon: 'FormLibrary', description: 'Form builder' }
             ]
@@ -487,7 +495,8 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
         {
             title: 'Compliance & Practice',
             resources: [
-                { title: 'Registers', url: '', icon: 'ClipboardList', description: 'L&D, Undertakings, Complaints' }
+                { title: 'Compliance', url: '', icon: 'ClipboardList', description: 'Undertakings register, complaints oversight' },
+                { title: 'Learning & Development', url: '', icon: 'Education', description: 'CPD plans, activity logging, and evidence' }
             ]
         }
     ];
@@ -549,6 +558,14 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
         };
         void openLink();
     }, []);
+
+    const handleOpenComplianceForm = useCallback((formTitle: string) => {
+        setSelectedResource(null);
+        onDismiss();
+        if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('navigateToForms', { detail: { formTitle } }));
+        }
+    }, [onDismiss]);
 
     const toggleFavorite = useCallback((resource: Resource) => {
         setFavorites((prev) => {
@@ -1189,7 +1206,7 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
 
     const renderSelectedPanel = (resource: Resource) => {
         // Registers gets a full workspace instead of the normal resource panel
-        if (resource.title === 'Registers') {
+        if (resource.title === 'Compliance') {
             return (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -1212,10 +1229,52 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                             }}
                         />
                         <Text style={{ fontSize: 18, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                            Registers
+                            Compliance
                         </Text>
                     </div>
-                    <RegistersWorkspace userData={userData} teamData={teamData} isDarkMode={isDarkMode} />
+                    <ComplianceWorkspace
+                        userData={userData}
+                        teamData={teamData}
+                        isDarkMode={isDarkMode}
+                        onRequestForm={handleOpenComplianceForm}
+                    />
+                </div>
+            );
+        }
+
+        if (resource.title === 'Learning & Development') {
+            return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <IconButton
+                            iconProps={{ iconName: 'ChromeBack' }}
+                            title="Back"
+                            onClick={() => setSelectedResource(null)}
+                            styles={{
+                                root: {
+                                    width: 32,
+                                    height: 32,
+                                    borderRadius: 0,
+                                    border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.light.border}`,
+                                    background: isDarkMode ? colours.helixBlue : colours.light.cardBackground,
+                                },
+                                rootHovered: {
+                                    background: isDarkMode ? colours.dark.cardHover : colours.light.cardHover,
+                                },
+                                icon: { color: isDarkMode ? colours.dark.text : colours.light.text, fontSize: 14 },
+                            }}
+                        />
+                        <Text style={{ fontSize: 18, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text }}>
+                            Learning & Development
+                        </Text>
+                    </div>
+                    <RegistersWorkspace
+                        userData={userData}
+                        teamData={teamData}
+                        isDarkMode={isDarkMode}
+                        initialTab="ld"
+                        lockedTab="ld"
+                    />
                 </div>
             );
         }

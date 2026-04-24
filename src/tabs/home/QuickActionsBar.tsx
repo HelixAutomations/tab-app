@@ -205,7 +205,7 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
           display: 'flex',
           alignItems: 'center',
           gap: isCompact ? 6 : 10,
-          padding: isCompact ? '4px 10px' : '4px 20px',
+          padding: isCompact ? '4px 10px' : '4px 12px',
           minHeight: isCompact ? 30 : 32,
           fontFamily: 'var(--font-primary)',
           background: 'var(--home-strip-bg)',
@@ -240,7 +240,7 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
         display: 'flex',
         alignItems: 'center',
         gap: isCompact ? 6 : 10,
-        padding: isCompact ? '4px 10px' : '4px 20px',
+        padding: isCompact ? '4px 10px' : '4px 12px',
         minHeight: isCompact ? 30 : 32,
         fontFamily: "var(--font-primary)",
         background: 'var(--home-strip-bg)',
@@ -469,8 +469,8 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
                   transition: 'background 150ms ease, color 150ms ease',
                   animation: iconsMounted ? 'qaIconDropIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) 0.05s both' : 'none',
                 }}
-                aria-label="Release notes"
-                title="Release notes"
+                aria-label="Changelog"
+                title="Changelog"
                 onMouseEnter={(e) => {
                   e.currentTarget.style.background = interactiveHoverBg;
                   e.currentTarget.style.color = interactiveAccent;

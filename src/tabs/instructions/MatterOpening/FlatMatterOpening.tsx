@@ -38,6 +38,7 @@ import { processingActions, initialSteps, registerClientIdCallback, registerMatt
 import idVerifications from '../../../localData/localIdVerifications.json';
 import { sharedPrimaryButtonStyles, sharedDefaultButtonStyles } from '../../../app/styles/ButtonStyles';
 import { clearMatterOpeningDraft, completeMatterOpening } from '../../../app/functionality/matterOpeningUtils';
+import MatterOpenedHandoff from '../../../components/modern/matter-opening/MatterOpenedHandoff';
 
 // Local implementation of useDraftedState (draft persistence DISABLED to remove resume complexity)
 const DISABLE_DRAFT_PERSISTENCE = true;
@@ -1948,8 +1949,10 @@ const handleClearAll = () => {
         }
 
         hideToast('matter-processing');
+        // Keep processingOpen=true after success so the MatterOpenedHandoff
+        // surface stays visible. User dismisses manually. (Was auto-closing at
+        // 1.5s and swallowing the CCL outcome — see CCL_BACKEND_CHAIN brief.)
         setTimeout(() => setIsProcessing(false), 1500);
-        setProcessingOpen(false);
         return { url: '' };
     };
 
@@ -2112,8 +2115,9 @@ const handleClearAll = () => {
         } finally {
             registerOperationObserver(null);
             hideToast('matter-processing');
+            // Keep processingOpen=true so MatterOpenedHandoff stays visible.
+            // User dismisses when they've seen the outcome. (See brief.)
             setTimeout(() => setIsProcessing(false), 2000);
-            setProcessingOpen(false);
         }
         setGeneratedCclUrl(url);
         return { url };
@@ -5144,6 +5148,24 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                                     </a>
                                                                 )}
                                                             </div>
+                                                            {/* Live CCL autopilot state surface. Polls real /api/ccl/batch-status
+                                                              * so demo and real runs are indistinguishable from the user's
+                                                              * perspective \u2014 whatever actually landed in CclContent for this
+                                                              * matter is what shows. See CCL_BACKEND_CHAIN brief Phase D. */}
+                                                            {openedMatterId && (
+                                                                <MatterOpenedHandoff
+                                                                    openedMatterId={openedMatterId}
+                                                                    matterOpenSucceeded={true}
+                                                                    isDarkMode={isDarkMode}
+                                                                    initialCclUrl={generatedCclUrl || undefined}
+                                                                    onGoToMatter={() => {
+                                                                        window.dispatchEvent(new CustomEvent('navigateToMatter', {
+                                                                            detail: { matterId: openedMatterId || undefined }
+                                                                        }));
+                                                                    }}
+                                                                    onDismiss={() => setProcessingOpen(false)}
+                                                                />
+                                                            )}
                                                         </div>
                                                     )}
                                                     </>

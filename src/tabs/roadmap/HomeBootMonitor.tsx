@@ -31,6 +31,10 @@ const SOURCE_PHASES: Record<string, Phase> = {
   homePrimaryReady: 'Gates',
   secondaryPanelsReady: 'Gates',
   immediateActionsReady: 'Gates',
+  homeDataReady: 'Gates',
+  dashboardSection: 'Gates',
+  teamSection: 'Gates',
+  opsSection: 'Gates',
 };
 
 const PHASE_ORDER: Phase[] = ['Shell Props', 'Parallel Fetch', 'Deferred', 'Gates'];
@@ -41,6 +45,8 @@ const STATUS_COLOURS: Record<BootStatus, string> = {
   done: colours.green,
   error: colours.cta,
 };
+
+const HOME_BOOT_MONITOR_LOG_KEY = '__helix_home_boot_monitor_log_v1';
 
 const HomeBootMonitor: React.FC = () => {
   const { isDarkMode } = useTheme();
@@ -75,6 +81,23 @@ const HomeBootMonitor: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    try {
+      const raw = window.sessionStorage.getItem(HOME_BOOT_MONITOR_LOG_KEY);
+      const persisted = raw ? JSON.parse(raw) : [];
+      if (Array.isArray(persisted)) {
+        persisted.forEach((entry) => {
+          if (!entry || typeof entry !== 'object') return;
+          const source = typeof entry.source === 'string' ? entry.source : '';
+          const status = entry.status as BootStatus;
+          const timestamp = typeof entry.timestamp === 'number' ? entry.timestamp : Date.now();
+          if (!source || !status) return;
+          handleBootEvent(new CustomEvent('homeBootEvent', { detail: { source, status, timestamp } }));
+        });
+      }
+    } catch {
+      // Ignore corrupt persisted boot traces.
+    }
+
     window.addEventListener('homeBootEvent', handleBootEvent);
     return () => window.removeEventListener('homeBootEvent', handleBootEvent);
   }, [handleBootEvent]);
@@ -82,19 +105,27 @@ const HomeBootMonitor: React.FC = () => {
   const reset = useCallback(() => {
     setSources(new Map());
     setBootStart(null);
+
+    try {
+      window.sessionStorage.removeItem(HOME_BOOT_MONITOR_LOG_KEY);
+    } catch {
+      // Ignore storage failures.
+    }
   }, []);
+
+  const trackedEntries = Array.from(sources.entries()).filter(([name]) => Boolean(SOURCE_PHASES[name]));
 
   // Group sources by phase
   const grouped = PHASE_ORDER.map(phase => {
-    const items = Array.from(sources.entries())
+    const items = trackedEntries
       .filter(([name]) => SOURCE_PHASES[name] === phase)
       .sort(([a], [b]) => a.localeCompare(b));
     return { phase, items };
   }).filter(g => g.items.length > 0);
 
   // Total boot time
-  const allDone = sources.size > 0 && Array.from(sources.values()).every(s => s.status === 'done');
-  const latestDone = Array.from(sources.values()).reduce((max, s) => Math.max(max, s.doneAt || 0), 0);
+  const allDone = trackedEntries.length > 0 && trackedEntries.every(([, state]) => state.status === 'done');
+  const latestDone = trackedEntries.reduce((max, [, state]) => Math.max(max, state.doneAt || 0), 0);
   const totalMs = allDone && bootStart ? Math.round(latestDone - bootStart) : null;
 
   const textColour = isDarkMode ? colours.dark.text : colours.light.text;
@@ -124,7 +155,7 @@ const HomeBootMonitor: React.FC = () => {
               {totalMs}ms
             </span>
           )}
-          {sources.size > 0 && !allDone && (
+          {trackedEntries.length > 0 && !allDone && (
             <span style={{
               fontSize: 11, fontWeight: 700, color: colours.highlight,
               padding: '2px 8px', background: `${colours.highlight}18`,
@@ -148,12 +179,12 @@ const HomeBootMonitor: React.FC = () => {
         </button>
       </div>
 
-      {sources.size === 0 ? (
+      {trackedEntries.length === 0 ? (
         <div style={{
           padding: '16px 14px', fontSize: 12, color: mutedColour,
           background: surfaceColour, fontStyle: 'italic',
         }}>
-          Waiting for Home tab events…
+          Waiting for Home tab events. Open or refresh Home to capture a boot trace.
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>

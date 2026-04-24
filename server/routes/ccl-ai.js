@@ -16,9 +16,14 @@ const { trackEvent, trackException, trackMetric } = require('../utils/appInsight
 const { getPool } = require('../utils/db');
 const { saveCclAiTrace, savePressureTestResult } = require('../utils/cclPersistence');
 const { resolveRequestActor } = require('../utils/requestActor');
+const { HELIX_VOICE_BLOCK, HELIX_VOICE_PT_AXIS } = require('../prompts/helixVoice');
+const { buildVoiceExamplesBlock } = require('../prompts/cclVoiceExamples');
 
 const router = express.Router();
-const CCL_PROMPT_VERSION = 'ccl-ai-v2';
+// Bump when voice/prompt shape changes so A/B telemetry joins cleanly.
+// v3-voice: Helix Voice block + unified evidence (emails/docs/transcripts)
+// shared with Safety Net + voiceScore axis on PT.
+const CCL_PROMPT_VERSION = 'ccl-ai-v3-voice';
 const DEFAULT_CHAT_OPTIONS = {
     temperature: 0.2,
 };
@@ -240,7 +245,9 @@ COST ACCURACY RULES:
 4. Never invent costs figures that contradict agreed amounts. If the deal says £3,000 and you output £1,500, that is wrong.
 5. state_amount MUST always equal figure — they are the same value shown in different template locations.
 
-Respond with ONLY a JSON object containing these fields. No markdown, no explanation, just the JSON object.`;
+Respond with ONLY a JSON object containing these fields. No markdown, no explanation, just the JSON object.
+
+${HELIX_VOICE_BLOCK}`;
 
 // ─── Gather full workbench context from all sources ────────────────────────
 
@@ -528,16 +535,25 @@ async function gatherFullContext(matterId, instructionRef) {
                 if (row.Gender) context.clientGender = row.Gender;
             }
 
-            // Get deal data (service description, amount, pitch info)
+            // Get deal data + pitch content in parallel (both depend on resolvedInstructionRef)
             if (resolvedInstructionRef) {
-                const dealResult = await pool.request()
-                    .input('InstructionRef', sql.NVarChar(100), resolvedInstructionRef)
-                    .query(`SELECT TOP 1
-                        ServiceDescription, Amount, Status, PitchedBy,
-                        CloseDate, PitchValidUntil
-                    FROM Deals
-                    WHERE InstructionRef = @InstructionRef
-                    ORDER BY DealId DESC`);
+                const [dealResult, pitchResult] = await Promise.all([
+                    pool.request()
+                        .input('InstructionRef', sql.NVarChar(100), resolvedInstructionRef)
+                        .query(`SELECT TOP 1
+                            ServiceDescription, Amount, Status, PitchedBy,
+                            CloseDate, PitchValidUntil
+                        FROM Deals
+                        WHERE InstructionRef = @InstructionRef
+                        ORDER BY DealId DESC`),
+                    pool.request()
+                        .input('InstructionRef', sql.NVarChar(100), resolvedInstructionRef)
+                        .query(`SELECT TOP 1
+                            EmailSubject, EmailBody, Amount, ServiceDescription, Notes
+                        FROM PitchContent
+                        WHERE InstructionRef = @InstructionRef
+                        ${pitchOrderClause}`),
+                ]);
 
                 if (dealResult.recordset.length > 0) {
                     const deal = dealResult.recordset[0];
@@ -545,21 +561,10 @@ async function gatherFullContext(matterId, instructionRef) {
                     context.dealAmount = deal.Amount ? String(deal.Amount) : '';
                     context.dealPitchedBy = deal.PitchedBy || '';
                 }
-            }
-
-            // Get pitch content (the actual email sent to the client)
-            if (resolvedInstructionRef) {
-                const pitchResult = await pool.request()
-                    .input('InstructionRef', sql.NVarChar(100), resolvedInstructionRef)
-                    .query(`SELECT TOP 1
-                        EmailSubject, EmailBody, Amount, ServiceDescription, Notes
-                    FROM PitchContent
-                    WHERE InstructionRef = @InstructionRef
-                    ${pitchOrderClause}`);
 
                 if (pitchResult.recordset.length > 0) {
                     const pitch = pitchResult.recordset[0];
-                    context.pitchEmailBody = pitch.EmailBody || '';
+                    context.pitchEmailBody = sanitisePitchEmailBody(pitch.EmailBody || '');
                     context.pitchServiceDescription = pitch.ServiceDescription || '';
                     context.pitchAmount = pitch.Amount ? String(pitch.Amount) : '';
                     context.pitchNotes = pitch.Notes || '';
@@ -692,7 +697,7 @@ async function gatherFullContext(matterId, instructionRef) {
             const pitchData = await fetchJson(`${base}/api/pitches/${prospectId}`);
             if (pitchData && Array.isArray(pitchData) && pitchData.length > 0) {
                 const latest = pitchData[0];
-                context.pitchEmailBody = context.pitchEmailBody || latest.EmailBody || '';
+                context.pitchEmailBody = context.pitchEmailBody || sanitisePitchEmailBody(latest.EmailBody || '');
                 context.pitchServiceDescription = context.pitchServiceDescription || latest.ServiceDescription || '';
                 context.pitchAmount = context.pitchAmount || (latest.Amount ? String(latest.Amount) : '');
             }
@@ -774,13 +779,42 @@ function buildUserPrompt(data) {
         parts.push(`\nPITCH NOTES: ${data.pitchNotes.substring(0, 1000)}`);
     }
 
+    // Inbound emails (from client) — same source the Safety Net verifies against.
+    if (Array.isArray(data.emailsIn) && data.emailsIn.length > 0) {
+        parts.push(`\nINBOUND EMAILS (from client):`);
+        for (const email of data.emailsIn.slice(0, 5)) {
+            parts.push(`[${email.date || 'no date'}] Subject: ${email.subject || '(no subject)'}`);
+            parts.push(String(email.body || '').substring(0, 1500));
+            parts.push('---');
+        }
+    }
+
+    // Outbound emails (to client) — what we've already told them; keep consistent.
+    if (Array.isArray(data.emailsOut) && data.emailsOut.length > 0) {
+        parts.push(`\nOUTBOUND EMAILS (to client):`);
+        for (const email of data.emailsOut.slice(0, 5)) {
+            parts.push(`[${email.date || 'no date'}] Subject: ${email.subject || '(no subject)'}`);
+            parts.push(String(email.body || '').substring(0, 1500));
+            parts.push('---');
+        }
+    }
+
+    // Documents already on file — ground the "documents needed" fields so we
+    // don't ask the client for things we already hold.
+    if (Array.isArray(data.documents) && data.documents.length > 0) {
+        parts.push(`\nDOCUMENTS ALREADY ON FILE (do not request these again):`);
+        for (const doc of data.documents.slice(0, 20)) {
+            parts.push(`- ${doc.name || 'Unknown'} (${doc.type || 'unknown type'}${doc.date ? `, ${doc.date}` : ''})`);
+        }
+    }
+
     parts.push(`\nGenerate all CCL intake fields for this matter. Be specific and tailored — the client should read this letter and feel it was written specifically for their situation. Use the pitch email and deal amounts to match the costs figures. Use the call transcripts and notes to understand what the client actually needs.`);
 
     return parts.join('\n');
 }
 
 // ─── Summarise what data sources were used (for prompt transparency) ───────
-function summariseContextSources(dbContext) {
+function summariseContextSources(dbContext, externalEvidence = {}) {
     const sources = [];
     if (dbContext.initialCallNotes) sources.push('Initial call notes');
     if (dbContext.enquiryNotes) sources.push('Enquiry notes');
@@ -789,10 +823,14 @@ function summariseContextSources(dbContext) {
     if (dbContext.pitchServiceDescription) sources.push('Pitch service description');
     if (dbContext.dealServiceDescription) sources.push('Deal information');
     if (dbContext.callTranscripts) sources.push('Call transcripts');
+    if (externalEvidence.callTranscripts?.length) sources.push(`${externalEvidence.callTranscripts.length} call transcripts`);
     if (dbContext._noPhoneForCalls) sources.push('No phone (calls skipped)');
     if (dbContext.areaOfWork) sources.push('Area of work classification');
     if (dbContext.typeOfWork) sources.push('Type of work');
     if (dbContext.company) sources.push('Company details');
+    if (externalEvidence.emailsIn?.length) sources.push(`${externalEvidence.emailsIn.length} inbound emails`);
+    if (externalEvidence.emailsOut?.length) sources.push(`${externalEvidence.emailsOut.length} outbound emails`);
+    if (externalEvidence.documents?.length) sources.push(`${externalEvidence.documents.length} documents`);
     return sources;
 }
 
@@ -807,8 +845,31 @@ async function buildCclContextPackage({
     handlerName,
     handlerRole,
     handlerRate,
-}) {
+}, options = {}) {
+    // includeExternalEvidence: pull emails + document listing (same feed the
+    // Safety Net receives). Default ON so generation and verification reason
+    // over the same evidence package. Turn OFF only for fast preview paths
+    // where the extra Graph/docs hops matter.
+    const { includeExternalEvidence = true } = options;
+
     const dbContext = await gatherFullContext(matterId, instructionRef);
+
+    let externalEvidence = {};
+    if (includeExternalEvidence) {
+        try {
+            externalEvidence = await gatherVerificationEvidence(
+                matterId,
+                instructionRef,
+                dbContext.feeEarnerEmail || '',
+                dbContext.prospectEmail || '',
+                dbContext.phone || '',
+            );
+        } catch (err) {
+            console.warn('[CCL-AI] External evidence fetch failed (non-fatal):', err.message);
+            externalEvidence = {};
+        }
+    }
+
     const fullContext = {
         practiceArea: practiceArea || dbContext.areaOfWork || '',
         typeOfWork: dbContext.typeOfWork || '',
@@ -835,20 +896,29 @@ async function buildCclContextPackage({
         pitchAmount: dbContext.pitchAmount || '',
         pitchNotes: dbContext.pitchNotes || '',
         callTranscripts: dbContext.callTranscripts || '',
+        // Unified evidence: same as the Safety Net sees.
+        emailsIn: externalEvidence.emailsIn || [],
+        emailsOut: externalEvidence.emailsOut || [],
+        documents: externalEvidence.documents || [],
     };
 
     const userPrompt = buildUserPrompt(fullContext);
-    const contextSources = summariseContextSources(dbContext);
+    const contextSources = summariseContextSources(dbContext, externalEvidence);
     const debugContext = buildDebugContext(fullContext, contextSources);
+
+    // Per-area worked example appended so the model has a concrete voice
+    // anchor for the highest-risk fields. Falls back to commercial.
+    const systemPrompt = `${SYSTEM_PROMPT}\n\n${buildVoiceExamplesBlock(practiceArea)}`;
 
     return {
         dbContext,
+        externalEvidence,
         fullContext,
         userPrompt,
         contextSources,
         debugContext,
-        systemPrompt: SYSTEM_PROMPT,
-        systemPromptLength: SYSTEM_PROMPT.length,
+        systemPrompt,
+        systemPromptLength: systemPrompt.length,
         promptVersion: CCL_PROMPT_VERSION,
     };
 }
@@ -864,16 +934,21 @@ async function previewCclContext(input) {
         userPromptLength: contextPackage.userPrompt.length,
         systemPromptLength: contextPackage.systemPromptLength,
         promptVersion: contextPackage.promptVersion,
+        _contextPackage: contextPackage,
     };
 }
 
-async function runCclAiFill(input, actor = 'system') {
+async function runCclAiFill(input, actor = 'system', options = {}) {
     const {
         matterId,
         practiceArea,
         clientName,
         opponent,
     } = input || {};
+
+    // Accept a pre-built context package to avoid redundant DB queries
+    // when called from /service/run which already compiled context.
+    const { preBuiltContextPackage } = options;
 
     const trackingId = Math.random().toString(36).slice(2, 10);
     const startMs = Date.now();
@@ -887,8 +962,8 @@ async function runCclAiFill(input, actor = 'system') {
     });
 
     try {
-        const contextPackage = await buildCclContextPackage(input);
-        const aiFields = await chatCompletion(SYSTEM_PROMPT, contextPackage.userPrompt, chatOptions);
+        const contextPackage = preBuiltContextPackage || await buildCclContextPackage(input);
+        const aiFields = await chatCompletion(contextPackage.systemPrompt, contextPackage.userPrompt, chatOptions);
         const durationMs = Date.now() - startMs;
 
         const expectedKeys = [
@@ -912,7 +987,7 @@ async function runCclAiFill(input, actor = 'system') {
                 aiTraceId = await saveCclAiTrace({
                     matterId, trackingId, aiStatus: 'partial', model: DEPLOYMENT, durationMs,
                     temperature: chatOptions.temperature,
-                    systemPrompt: SYSTEM_PROMPT, userPrompt: contextPackage.userPrompt, userPromptLength: contextPackage.userPrompt.length,
+                    systemPrompt: contextPackage.systemPrompt, userPrompt: contextPackage.userPrompt, userPromptLength: contextPackage.userPrompt.length,
                     aiOutputJson: stripEmpty(aiFields), generatedFieldCount: Object.keys(stripEmpty(aiFields)).length,
                     confidence: 'partial', dataSourcesJson: contextPackage.contextSources,
                     contextFieldsJson: contextPackage.debugContext.contextFields, contextSnippetsJson: contextPackage.debugContext.snippets,
@@ -933,7 +1008,7 @@ async function runCclAiFill(input, actor = 'system') {
                 dataSources: contextPackage.contextSources,
                 contextSummary: `Used ${contextPackage.contextSources.length} data source(s): ${contextPackage.contextSources.join(', ')}`,
                 userPrompt: contextPackage.userPrompt,
-                systemPrompt: SYSTEM_PROMPT,
+                systemPrompt: contextPackage.systemPrompt,
                 fallbackReason: 'AI response was incomplete or unparsable; merged with defaults.',
                 promptVersion: contextPackage.promptVersion,
                 aiTraceId,
@@ -966,7 +1041,7 @@ async function runCclAiFill(input, actor = 'system') {
             aiTraceId = await saveCclAiTrace({
                 matterId, trackingId, aiStatus: 'complete', model: DEPLOYMENT, durationMs,
                 temperature: chatOptions.temperature,
-                systemPrompt: SYSTEM_PROMPT, userPrompt: contextPackage.userPrompt, userPromptLength: contextPackage.userPrompt.length,
+                systemPrompt: contextPackage.systemPrompt, userPrompt: contextPackage.userPrompt, userPromptLength: contextPackage.userPrompt.length,
                 aiOutputJson: aiFields, generatedFieldCount: Object.keys(stripEmpty(aiFields)).length,
                 confidence: 'full', dataSourcesJson: contextPackage.contextSources,
                 contextFieldsJson: contextPackage.debugContext.contextFields, contextSnippetsJson: contextPackage.debugContext.snippets,
@@ -986,7 +1061,7 @@ async function runCclAiFill(input, actor = 'system') {
             dataSources: contextPackage.contextSources,
             contextSummary: `Used ${contextPackage.contextSources.length} data source(s): ${contextPackage.contextSources.join(', ')}`,
             userPrompt: contextPackage.userPrompt,
-            systemPrompt: SYSTEM_PROMPT,
+            systemPrompt: contextPackage.systemPrompt,
             promptVersion: contextPackage.promptVersion,
             aiTraceId,
             debug: {
@@ -1171,6 +1246,9 @@ router.post('/fill-stream', async (req, res) => {
         const contextSources = summariseContextSources(dbContext);
         const debugContext = buildDebugContext(fullContext, contextSources);
 
+        // Per-area worked example appended (matches non-streaming path).
+        const fullSystemPrompt = `${SYSTEM_PROMPT}\n\n${buildVoiceExamplesBlock(practiceArea)}`;
+
         send('phase', {
             phase: 'calling-ai',
             message: `Generating fields from ${contextSources.length} source(s)…`,
@@ -1182,7 +1260,7 @@ router.post('/fill-stream', async (req, res) => {
         const emittedKeys = new Set();
         let fieldCount = 0;
 
-        const stream = chatCompletionStream(SYSTEM_PROMPT, userPrompt, chatOptions);
+        const stream = chatCompletionStream(fullSystemPrompt, userPrompt, chatOptions);
 
         for await (const chunk of await stream) {
             jsonBuffer += chunk;
@@ -1258,7 +1336,7 @@ router.post('/fill-stream', async (req, res) => {
         saveCclAiTrace({
             matterId, trackingId, aiStatus: confidence, model: DEPLOYMENT, durationMs,
             temperature: chatOptions.temperature,
-            systemPrompt: SYSTEM_PROMPT, userPrompt, userPromptLength: userPrompt.length,
+            systemPrompt: fullSystemPrompt, userPrompt, userPromptLength: userPrompt.length,
             aiOutputJson: strippedFields, generatedFieldCount: fieldCount,
             confidence, dataSourcesJson: contextSources,
             contextFieldsJson: debugContext.contextFields, contextSnippetsJson: debugContext.snippets,
@@ -1276,7 +1354,7 @@ router.post('/fill-stream', async (req, res) => {
             dataSources: contextSources,
             contextSummary: `Used ${contextSources.length} data source(s): ${contextSources.join(', ')}`,
             userPrompt,
-            systemPrompt: SYSTEM_PROMPT,
+            systemPrompt: fullSystemPrompt,
             debug: {
                 trackingId,
                 deployment: DEPLOYMENT,
@@ -1480,11 +1558,15 @@ SCORING RULES:
 - If a field names a document the client needs, check it's relevant to the practice area
 
 For each field, provide:
-- "score": integer 0-10
+- "score": integer 0-10 (evidence fidelity)
+- "voiceScore": integer 0-10 (Helix voice — see rubric below)
 - "reason": 1-2 sentences explaining what evidence supports or contradicts the value
-- "flag": boolean — true if score ≤ 7 (Fee Earner must check)
+- "voiceIssues": array of specific phrases from the field that break voice (empty if clean)
+- "flag": boolean — true if EITHER score ≤ 7 OR voiceScore ≤ 7 (Fee Earner must check)
 
-Respond with ONLY a JSON object where each key matches the field name, containing {score, reason, flag}. No markdown, no preamble.`;
+Respond with ONLY a JSON object where each key matches the field name, containing {score, voiceScore, reason, voiceIssues, flag}. No markdown, no preamble.
+
+${HELIX_VOICE_PT_AXIS}`;
 
 function buildPressureTestUserPrompt(generatedFields, evidencePackage) {
     const parts = [];
@@ -1685,10 +1767,49 @@ function stripHtmlForVerification(html) {
 }
 
 /**
- * Core pressure-test logic — callable from HTTP handler or background pipeline.
- * Returns { ok, fieldScores, flaggedCount, totalFields, dataSources, durationMs, trackingId }.
+ * Sanitise a stored pitch email body before it reaches the AI or the review
+ * modal. PitchContent.EmailBody is the composer's compiled HTML — including
+ * `<span class="placeholder-edited" data-original="[INSERT]">INNER</span>`
+ * wrappers. We keep INNER (that's what the client saw), drop the wrapper,
+ * then flatten remaining markup. Preserves paragraph breaks as blank lines
+ * so the model can still see structure.
  */
-async function runPressureTestInternal({ matterId, instructionRef, generatedFields, practiceArea, clientName, feeEarnerEmail, prospectEmail }) {
+function sanitisePitchEmailBody(html) {
+    if (!html) return '';
+    // Unwrap placeholder-edited spans, keeping inner text only.
+    let out = html.replace(
+        /<span\b[^>]*class\s*=\s*["'][^"']*\bplaceholder-edited\b[^"']*["'][^>]*>([\s\S]*?)<\/span>/gi,
+        '$1',
+    );
+    // Drop style/script blocks entirely.
+    out = out
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
+    // Preserve paragraph + line breaks as newlines before tag stripping.
+    out = out
+        .replace(/<\/(p|div|li|h[1-6])>/gi, '\n\n')
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<[^>]+>/g, '');
+    // Decode a handful of common entities.
+    out = out
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/&quot;/gi, '"');
+    // Collapse runs of spaces/tabs but preserve newlines; cap blank-line runs at 2.
+    return out
+        .replace(/[ \t]+/g, ' ')
+        .replace(/[ \t]*\n[ \t]*/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+}
+
+/**
+ * Core pressure-test logic — callable from HTTP handler or background pipeline.
+ * Returns { ok, fieldScores, flaggedCount, totalFields, dataSources, durationMs, trackingId, aiTraceId }.
+ */
+async function runPressureTestInternal({ matterId, instructionRef, generatedFields, practiceArea, clientName, feeEarnerEmail, prospectEmail, aiTraceId }) {
     const sanitisedGeneratedFields = sanitisePressureTestFields(generatedFields);
     if (Object.keys(sanitisedGeneratedFields).length === 0) {
         return { ok: false, error: 'No AI review fields were available to pressure test.' };
@@ -1730,16 +1851,7 @@ async function runPressureTestInternal({ matterId, instructionRef, generatedFiel
         ...externalEvidence,
     };
 
-    const dataSources = [];
-    if (evidencePackage.pitchContent) dataSources.push('Pitch email');
-    if (evidencePackage.dealAmount) dataSources.push('Deal data');
-    if (evidencePackage.initialCallNotes) dataSources.push('Initial call notes');
-    if (evidencePackage.enquiryNotes) dataSources.push('Enquiry notes');
-    if (evidencePackage.instructionNotes) dataSources.push('Instruction notes');
-    if (externalEvidence.emailsIn?.length) dataSources.push(`${externalEvidence.emailsIn.length} inbound emails`);
-    if (externalEvidence.emailsOut?.length) dataSources.push(`${externalEvidence.emailsOut.length} outbound emails`);
-    if (externalEvidence.callTranscripts?.length) dataSources.push(`${externalEvidence.callTranscripts.length} call transcripts`);
-    if (externalEvidence.documents?.length) dataSources.push(`${externalEvidence.documents.length} documents`);
+    const dataSources = summariseContextSources(dbContext, externalEvidence);
 
     // Phase 4: Call AI for verification scoring
     const userPrompt = buildPressureTestUserPrompt(sanitisedGeneratedFields, evidencePackage);
@@ -1752,7 +1864,11 @@ async function runPressureTestInternal({ matterId, instructionRef, generatedFiel
 
     const durationMs = Date.now() - startMs;
 
-    // Normalise the result
+    // Normalise the result. Flagging is EVIDENCE-ONLY (score ≤ 7).
+    // voiceScore + voiceIssues are captured for the trace record so we can
+    // track tone quality over time, but they are never surfaced to fee
+    // earners and never drive a "please review" flag — the model's opinion
+    // of our tone is not something we let push fields back to the user.
     const fieldScores = {};
     let flaggedCount = 0;
     for (const [key, value] of Object.entries(sanitisedGeneratedFields)) {
@@ -1760,16 +1876,34 @@ async function runPressureTestInternal({ matterId, instructionRef, generatedFiel
         const aiScore = verificationResult[key];
         if (aiScore && typeof aiScore === 'object') {
             const score = typeof aiScore.score === 'number' ? aiScore.score : 5;
+            const voiceScore = typeof aiScore.voiceScore === 'number' ? aiScore.voiceScore : null;
+            const voiceIssues = Array.isArray(aiScore.voiceIssues) ? aiScore.voiceIssues.filter(s => typeof s === 'string' && s.trim()).slice(0, 8) : [];
             const flag = score <= 7;
-            fieldScores[key] = { score, reason: String(aiScore.reason || 'No reason provided'), flag };
+            fieldScores[key] = {
+                score,
+                voiceScore,
+                reason: String(aiScore.reason || 'No reason provided'),
+                voiceIssues,
+                flag,
+            };
             if (flag) flaggedCount++;
         } else {
-            fieldScores[key] = { score: 5, reason: 'Verification AI did not return a score for this field — requires manual review', flag: true };
+            fieldScores[key] = { score: 5, voiceScore: null, reason: 'Verification AI did not return a score for this field — requires manual review', voiceIssues: [], flag: true };
             flaggedCount++;
         }
     }
 
-    const result = { ok: true, fieldScores, flaggedCount, totalFields: Object.keys(fieldScores).length, dataSources, durationMs, trackingId };
+    const result = {
+        ok: true,
+        fieldScores,
+        flaggedCount,
+        totalFields: Object.keys(fieldScores).length,
+        dataSources,
+        durationMs,
+        trackingId,
+        aiTraceId: aiTraceId || null,
+        promptVersion: CCL_PROMPT_VERSION,
+    };
 
     // Persist to DB (fire-and-forget when called from background)
     savePressureTestResult(matterId, result).catch(err => {
@@ -1782,6 +1916,8 @@ async function runPressureTestInternal({ matterId, instructionRef, generatedFiel
         fieldCount: String(Object.keys(fieldScores).length),
         flaggedCount: String(flaggedCount),
         dataSourceCount: String(dataSources.length),
+        promptVersion: CCL_PROMPT_VERSION,
+        aiTraceId: String(aiTraceId || ''),
     });
     trackMetric('CCL.PressureTest.Duration', durationMs, { matterId: String(matterId) });
 
@@ -1791,7 +1927,7 @@ async function runPressureTestInternal({ matterId, instructionRef, generatedFiel
 router.post('/pressure-test', async (req, res) => {
     const {
         matterId, instructionRef, generatedFields, practiceArea, clientName,
-        feeEarnerEmail, prospectEmail,
+        feeEarnerEmail, prospectEmail, aiTraceId,
     } = req.body || {};
 
     if (!matterId || !generatedFields || typeof generatedFields !== 'object') {
@@ -1801,7 +1937,7 @@ router.post('/pressure-test', async (req, res) => {
     try {
         const result = await runPressureTestInternal({
             matterId, instructionRef, generatedFields, practiceArea, clientName,
-            feeEarnerEmail, prospectEmail,
+            feeEarnerEmail, prospectEmail, aiTraceId,
         });
 
         if (!result.ok) {

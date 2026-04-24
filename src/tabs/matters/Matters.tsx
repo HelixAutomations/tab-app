@@ -1,7 +1,6 @@
 import React, { useMemo, useState, useEffect, useDeferredValue, useRef } from 'react';
 import { SpinnerSize } from '@fluentui/react/lib/Spinner';
 import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
-import { ActionButton } from '@fluentui/react/lib/Button';
 import { Icon } from '@fluentui/react/lib/Icon';
 import { mergeStyles } from '@fluentui/react/lib/Styling';
 import NavigatorDetailBar from '../../components/NavigatorDetailBar';
@@ -9,15 +8,18 @@ import ThemedSpinner from '../../components/ThemedSpinner';
 import SegmentedControl from '../../components/filter/SegmentedControl';
 import FilterBanner from '../../components/filter/FilterBanner';
 import EmptyState from '../../components/states/EmptyState';
+import { FiFolder, FiArchive, FiUser, FiTrendingUp, FiFilter, FiLayers, FiDatabase } from 'react-icons/fi';
 import { Enquiry, NormalizedMatter, TeamData, UserData } from '../../app/functionality/types';
 import {
   filterMattersByStatus,
   filterMattersByArea,
   filterMattersByRole,
   applyAdminFilter,
-  getUniquePracticeAreas
+  getUniquePracticeAreas,
+  mergeMattersFromSources
 } from '../../utils/matterNormalization';
-import { isAdminUser, isCclUser } from '../../app/admin';
+import { isAdminUser, isCclUser, isDevOwner } from '../../app/admin';
+import { buildCclApiUrl } from './ccl/cclAiService';
 import MatterOverview from './MatterOverview';
 import MatterTableView from './MatterTableView';
 import { colours } from '../../app/styles/colours';
@@ -123,28 +125,9 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
   const [activeDetailTab, setActiveDetailTab] = useState<MatterDetailTabKey>('overview');
   const [isEnteringDetail, setIsEnteringDetail] = useState<boolean>(false);
 
-  // Inject demo matter into list when demo mode is on
-  const effectiveMatters = useMemo(() => {
-    if (!demoModeEnabled) return matters;
-    // Avoid duplicating if somehow already present
-    if (matters.some(m => m.matterId === DEMO_MATTER.matterId)) return matters;
-    return [DEMO_MATTER, ...matters];
-  }, [matters, demoModeEnabled]);
-
   // Auto-open CCL when arriving from matter opening with showCcl flag
   const [autoOpenCcl, setAutoOpenCcl] = useState(false);
 
-  // Auto-select a matter when navigated to from matter opening
-  useEffect(() => {
-    if (!pendingMatterId) return;
-    const match = effectiveMatters.find(m => m.matterId === pendingMatterId || m.displayNumber === pendingMatterId);
-    if (match) {
-      setSelected(match);
-      setActiveDetailTab('overview');
-      setAutoOpenCcl(pendingShowCcl);
-      onPendingMatterHandled?.();
-    }
-  }, [pendingMatterId, pendingShowCcl, effectiveMatters, onPendingMatterHandled]);
   const detailEnterTimerRef = useRef<number | null>(null);
   const [overviewData, setOverviewData] = useState<any | null>(null);
   const [outstandingData, setOutstandingData] = useState<any | null>(null);
@@ -169,6 +152,9 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
   const [scope, setScope] = useState<'mine' | 'all'>('mine');
   // Default to new-space matters, with explicit access to all or legacy-only data.
   const [dataSourceFilter, setDataSourceFilter] = useState<MatterSourceFilter>('new');
+  const [legacyAugmentedMatters, setLegacyAugmentedMatters] = useState<NormalizedMatter[] | null>(null);
+  const [isLoadingLegacyAugmentedMatters, setIsLoadingLegacyAugmentedMatters] = useState(false);
+  const [legacyAugmentedError, setLegacyAugmentedError] = useState<string | null>(null);
   
   // Use deferred values for smoother scope/filter changes
   const deferredScope = useDeferredValue(scope);
@@ -219,7 +205,85 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
   }, [userEntraId, userInitials, userEmail, userFullName, teamData]);
   const userRoleRaw = (userRec.Role || userRecAny.role || '').toString().toLowerCase();
   const isAdmin = isAdminUser(userRec || null);
+  const canUseLegacyMattersSwitch = isAdmin;
   const userRole = isAdmin ? 'admin' : userRoleRaw;
+  const isDevOwnerUser = isDevOwner(userRec || null);
+
+  useEffect(() => {
+    if (!canUseLegacyMattersSwitch) {
+      if (dataSourceFilter !== 'new') {
+        setDataSourceFilter('new');
+      }
+      return;
+    }
+
+    if (dataSourceFilter === 'new' || legacyAugmentedMatters || isLoadingLegacyAugmentedMatters) {
+      return;
+    }
+
+    let cancelled = false;
+    const query = isDevOwnerUser ? '' : `?fullName=${encodeURIComponent(userFullName)}`;
+
+    setIsLoadingLegacyAugmentedMatters(true);
+    setLegacyAugmentedError(null);
+
+    fetch(`/api/matters-unified${query}`, {
+      headers: { Accept: 'application/json' },
+    })
+      .then((response) => (response.ok ? response.json() : Promise.reject(new Error(`Failed to load legacy fallback (${response.status})`))))
+      .then((data) => {
+        if (cancelled) {
+          return;
+        }
+
+        const legacyAll = Array.isArray(data?.legacyAll) ? data.legacyAll : [];
+        const vnetAll = Array.isArray(data?.vnetAll) ? data.vnetAll : [];
+        const normalized = mergeMattersFromSources(legacyAll, [], vnetAll, userFullName);
+        setLegacyAugmentedMatters(normalized);
+      })
+      .catch((fetchError) => {
+        if (!cancelled) {
+          setLegacyAugmentedError(fetchError instanceof Error ? fetchError.message : String(fetchError));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoadingLegacyAugmentedMatters(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canUseLegacyMattersSwitch, dataSourceFilter, legacyAugmentedMatters, isDevOwnerUser, isLoadingLegacyAugmentedMatters, userFullName]);
+
+  const sourceMatters = useMemo(() => {
+    if (dataSourceFilter === 'new') {
+      return matters;
+    }
+
+    return legacyAugmentedMatters || matters;
+  }, [dataSourceFilter, legacyAugmentedMatters, matters]);
+
+  // Inject demo matter into list when demo mode is on
+  const effectiveMatters = useMemo(() => {
+    if (!demoModeEnabled) return sourceMatters;
+    // Avoid duplicating if somehow already present
+    if (sourceMatters.some(m => m.matterId === DEMO_MATTER.matterId)) return sourceMatters;
+    return [DEMO_MATTER, ...sourceMatters];
+  }, [sourceMatters, demoModeEnabled]);
+
+  // Auto-select a matter when navigated to from matter opening
+  useEffect(() => {
+    if (!pendingMatterId) return;
+    const match = effectiveMatters.find(m => m.matterId === pendingMatterId || m.displayNumber === pendingMatterId);
+    if (match) {
+      setSelected(match);
+      setActiveDetailTab('overview');
+      setAutoOpenCcl(pendingShowCcl);
+      onPendingMatterHandled?.();
+    }
+  }, [pendingMatterId, pendingShowCcl, effectiveMatters, onPendingMatterHandled]);
   const showCclColumns = useMemo(() => {
     if (!isCclUser(userInitials) || typeof window === 'undefined') {
       return false;
@@ -370,8 +434,9 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
 
     let cancelled = false;
 
-    fetch('/api/ccl/batch-status', {
+    fetch(buildCclApiUrl('/api/ccl/batch-status'), {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ matterIds }),
     })
@@ -577,6 +642,7 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
   // Set up navigation content with filter bar
   useEffect(() => {
     if (!isActive) {
+      setContent(null);
       return;
     }
 
@@ -584,19 +650,9 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
       const StatusFilter = () => {
         const statusValue = activeFilter === 'Closed' ? 'archived' : 'open';
 
-        const iconOpen = (
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-            <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.5" fill="none" />
-            <path d="M5 8.5L7.5 11L11.5 5.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        );
-
-        const iconArchived = (
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-            <path d="M3 5h10v7H3z" stroke="currentColor" strokeWidth="1.5" fill="none" />
-            <path d="M2.5 3h11v2H2.5z" stroke="currentColor" strokeWidth="1.5" fill="none" />
-          </svg>
-        );
+        // Feather icons at strokeWidth 1.8 — matches nav bar + prospects chips
+        const iconOpen = <FiFolder size={12} strokeWidth={1.8} />;
+        const iconArchived = <FiArchive size={12} strokeWidth={1.8} />;
 
         return (
           <SegmentedControl
@@ -615,20 +671,8 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
       const RoleFilter = () => {
         const roleValue = activeRoleFilter === 'Originating' ? 'originating' : 'responsible';
 
-        const iconResponsible = (
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-            <circle cx="8" cy="5" r="3" stroke="currentColor" strokeWidth="1.5" />
-            <path d="M3 14c1.5-3 8.5-3 10 0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-          </svg>
-        );
-
-        const iconOriginating = (
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-            <path d="M8 2v7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            <path d="M5 6l3-3 3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            <path d="M3 14h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-          </svg>
-        );
+        const iconResponsible = <FiUser size={12} strokeWidth={1.8} />;
+        const iconOriginating = <FiTrendingUp size={12} strokeWidth={1.8} />;
 
         return (
           <SegmentedControl
@@ -721,11 +765,7 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
                       transition: 'all 150ms ease',
                     }}
                   >
-                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-                      <rect x="2" y="3" width="12" height="2" rx="0" fill="currentColor" />
-                      <rect x="4" y="7" width="8" height="2" rx="0" fill="currentColor" />
-                      <rect x="6" y="11" width="4" height="2" rx="0" fill="currentColor" />
-                    </svg>
+                    <FiFilter size={12} strokeWidth={1.8} />
                   </button>
                 )
               )}
@@ -738,16 +778,18 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
           }}
           middleActions={(
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {canUseLegacyMattersSwitch && (
               <button
                 type="button"
                 onClick={() => setDataSourceFilter((previous) => getNextMatterSourceFilter(previous))}
+                disabled={isLoadingLegacyAugmentedMatters}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
                   gap: 8,
                   padding: '4px 10px',
                   height: 28,
-                  borderRadius: 14,
+                  borderRadius: 0,
                   background: dataSourceFilter === 'all'
                     ? (isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.12)')
                     : dataSourceFilter === 'new'
@@ -765,11 +807,14 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
                     : dataSourceFilter === 'new'
                       ? colours.green
                       : colours.orange,
-                  cursor: 'pointer',
+                  cursor: isLoadingLegacyAugmentedMatters ? 'default' : 'pointer',
+                  opacity: isLoadingLegacyAugmentedMatters ? 0.7 : 1,
                   transition: 'all 0.15s ease',
                 }}
                 title={
-                  dataSourceFilter === 'new'
+                  isLoadingLegacyAugmentedMatters
+                    ? 'Loading legacy matters…'
+                    : dataSourceFilter === 'new'
                     ? 'Showing new-space matters only (click to show all)'
                     : dataSourceFilter === 'all'
                       ? 'Showing new + legacy matters (click for legacy only)'
@@ -783,14 +828,16 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
                       : 'Legacy matters only'
                 }
               >
-                <Icon
-                  iconName={dataSourceFilter === 'all' ? 'Database' : dataSourceFilter === 'new' ? 'FabricOpenFolderHorizontal' : 'Archive'}
-                  style={{ fontSize: 10, opacity: 0.75 }}
-                />
+                {dataSourceFilter === 'all'
+                  ? <FiLayers size={11} strokeWidth={1.8} style={{ opacity: 0.85 }} />
+                  : dataSourceFilter === 'new'
+                    ? <FiDatabase size={11} strokeWidth={1.8} style={{ opacity: 0.85 }} />
+                    : <FiArchive size={11} strokeWidth={1.8} style={{ opacity: 0.85 }} />}
                 <span style={{ fontSize: 10, whiteSpace: 'nowrap' }}>
                   {dataSourceFilter === 'new' ? 'New' : dataSourceFilter === 'all' ? 'All' : 'Legacy'}: {filtered.length}/{datasetCount}
                 </span>
               </button>
+              )}
             </div>
           )}
         >
@@ -839,6 +886,8 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
     filtered.length,
     datasetCount,
     dataSourceFilter,
+    canUseLegacyMattersSwitch,
+    isLoadingLegacyAugmentedMatters,
     activeDetailTab,
     disableFutureTabs,
     scopeCounts,
@@ -1397,11 +1446,22 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
                           activeFilter !== deferredActiveFilter || activeAreaFilter !== deferredActiveAreaFilter ||
                           activeRoleFilter !== deferredActiveRoleFilter || searchTerm !== deferredSearchTerm;
 
-  const showOverlayCue = isLoading || isTransitioning;
-  const overlayCueText = isLoading ? 'Switching user…' : 'Updating view...';
+  const showOverlayCue = isLoading || isTransitioning || isLoadingLegacyAugmentedMatters;
+  const overlayCueText = isLoading
+    ? 'Switching user…'
+    : isLoadingLegacyAugmentedMatters
+      ? 'Loading legacy matters…'
+      : 'Updating view...';
 
   return (
     <div className={containerStyle(isDarkMode)}>
+      {legacyAugmentedError && dataSourceFilter !== 'new' && (
+        <div style={{ padding: '20px 20px 0' }}>
+          <MessageBar messageBarType={MessageBarType.warning}>
+            Legacy fallback is unavailable right now. Showing new-space matters only.
+          </MessageBar>
+        </div>
+      )}
       {/* Processing overlay when transitioning between filter states */}
       {/* Spin animation for loading indicator */}
       <style>{`
@@ -1459,6 +1519,14 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
         isDarkMode={isDarkMode}
         showCclColumns={showCclColumns}
         cclStatusByMatterId={effectiveCclStatusByMatterId}
+        onOpenCclReview={(matterId) => {
+          // Delegates to the Home CCL review modal via the canonical
+          // `openHomeCclReview` CustomEvent. OperationsDashboard hosts the
+          // listener and swaps the active matter before opening the rail.
+          window.dispatchEvent(new CustomEvent('openHomeCclReview', {
+            detail: { matterId, openInspector: true },
+          }));
+        }}
         onRowClick={(matter) => {
           setSelected(matter);
           setActiveDetailTab('overview');

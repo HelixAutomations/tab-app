@@ -1,18 +1,80 @@
-import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import React, { lazy, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { colours } from '../app/styles/colours';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { UserData } from '../app/functionality/types';
 import { isAdminUser } from '../app/admin';
-import AdminDashboard from './AdminDashboard';
-import DemoPromptsModal from './DemoPromptsModal';
-import LoadingDebugModal from './debug/LoadingDebugModal';
-import { ErrorTracker } from './ErrorTracker';
-import RefreshDataModal from './RefreshDataModal';
-import LegacyMigrationTool from './LegacyMigrationTool';
-import CommandDeck from './command-centre/CommandDeck';
-import ErrorScreenPreview from './command-centre/ErrorScreenPreview';
 import { BubbleToastTone, CommandCentreTokens } from './command-centre/types';
+import CommandDeck from './command-centre/CommandDeck';
+
+// Visible Suspense fallback + error boundary around the lazy CommandDeck chunk.
+// If the chunk fails to load or throws on render, the user must SEE it rather
+// than get a silent empty overlay (prior Suspense fallback was `null`).
+class CommandDeckErrorBoundary extends React.Component<
+    { onClose: () => void; children: React.ReactNode },
+    { err: Error | null }
+> {
+    constructor(props: { onClose: () => void; children: React.ReactNode }) {
+        super(props);
+        this.state = { err: null };
+    }
+    static getDerivedStateFromError(err: Error) { return { err }; }
+    componentDidCatch(err: Error, info: React.ErrorInfo) {
+        // eslint-disable-next-line no-console
+        console.error('[CommandDeck] render crash', err, info.componentStack);
+    }
+    render() {
+        if (this.state.err) {
+            return (
+                <div role="alert" style={{
+                    position: 'fixed', right: 18, bottom: 80, zIndex: 2099,
+                    width: 360, padding: 16, background: '#1a0a0a',
+                    border: '1px solid #ff6b6b', borderRadius: 2, color: '#ffdada',
+                    fontFamily: 'Raleway, sans-serif', fontSize: 12, lineHeight: 1.5,
+                }}>
+                    <div style={{ fontWeight: 700, marginBottom: 6, color: '#ff9b9b' }}>Controls panel crashed</div>
+                    <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: 11, maxHeight: 200, overflow: 'auto' }}>
+                        {this.state.err.message}
+                    </pre>
+                    <button type="button" onClick={this.props.onClose} style={{
+                        marginTop: 10, padding: '4px 10px', background: '#3b1515',
+                        border: '1px solid #ff6b6b', color: '#ffdada', cursor: 'pointer',
+                    }}>Close</button>
+                </div>
+            );
+        }
+        return this.props.children as React.ReactElement;
+    }
+}
+
+const CommandDeckLoading: React.FC<{ isDarkMode: boolean; panelBottom: number }> = ({ isDarkMode, panelBottom }) => (
+    <div style={{
+        position: 'fixed', right: 18, bottom: panelBottom, zIndex: 2099,
+        padding: '10px 14px',
+        background: isDarkMode ? 'rgba(6, 23, 51, 0.92)' : 'rgba(255, 255, 255, 0.95)',
+        border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(6,23,51,0.12)'}`,
+        color: isDarkMode ? '#d1d5db' : '#374151',
+        fontFamily: 'Raleway, sans-serif', fontSize: 11, borderRadius: 2,
+    }}>Loading controls…</div>
+);
+// CommandDeckLoading kept (no longer used by CommandDeck since it's eagerly
+// imported) — retained only if a future lazy reintroduction needs it.
+void CommandDeckLoading;
+// CommandDeckLoading kept (no longer used by CommandDeck since it's eagerly
+// imported) \u2014 retained only if a future lazy reintroduction needs it.
+void CommandDeckLoading;
+
+// R7: lazy-load heavy modals so the floating chip mounts immediately and is
+// clickable without waiting for ~8 modal trees + their transitive deps to parse.
+// CommandDeck is eagerly imported (see top of file) — a prior lazy-load produced
+// a silent "stuck on loading" when the dev chunk graph rotated under an open tab.
+const AdminDashboard = lazy(() => import('./AdminDashboard'));
+const DemoPromptsModal = lazy(() => import('./DemoPromptsModal'));
+const LoadingDebugModal = lazy(() => import('./debug/LoadingDebugModal'));
+const ErrorTracker = lazy(() => import('./ErrorTracker').then((m) => ({ default: m.ErrorTracker })));
+const RefreshDataModal = lazy(() => import('./RefreshDataModal'));
+const LegacyMigrationTool = lazy(() => import('./LegacyMigrationTool'));
+const ErrorScreenPreview = lazy(() => import('./command-centre/ErrorScreenPreview'));
 
 interface HubToolsChipProps {
     user: UserData;
@@ -93,6 +155,24 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
     const [showErrorPreview, setShowErrorPreview] = useState(false);
     const [toast, setToast] = useState<{ message: string; tone: BubbleToastTone } | null>(null);
     const [sessionElapsed, setSessionElapsed] = useState('');
+    // UX latency overlay — localStorage-backed, mirrors CommandDeck toggle.
+    // Local state so the satellite chip re-renders on toggle (from here or CommandDeck).
+    const [uxOverlayOn, setUxOverlayOn] = useState<boolean>(() => {
+        if (typeof window === 'undefined') return false;
+        try { return window.localStorage.getItem('helixUxDebug') === '1'; } catch { return false; }
+    });
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const sync = () => {
+            try { setUxOverlayOn(window.localStorage.getItem('helixUxDebug') === '1'); } catch { /* ignore */ }
+        };
+        window.addEventListener('helix:uxDebugToggled', sync);
+        window.addEventListener('storage', sync);
+        return () => {
+            window.removeEventListener('helix:uxDebugToggled', sync);
+            window.removeEventListener('storage', sync);
+        };
+    }, []);
     const [healthData, setHealthData] = useState<HealthData | null>(null);
     const [healthLoading, setHealthLoading] = useState(false);
     const [routeResults, setRouteResults] = useState<EnvResult[]>([
@@ -396,26 +476,89 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
         showToast(next ? 'Production view on' : 'Production view off', 'success');
         if (next) openHome();
     }, [featureToggles.viewAsProd, onFeatureToggle, openHome, showToast]);
-    const stripDivider = isDarkMode ? 'rgba(255, 255, 255, 0.10)' : 'rgba(6, 23, 51, 0.10)';
+    const handleDemoPulse = useCallback(() => {
+        try { window.dispatchEvent(new CustomEvent('demoRealtimePulse')); } catch { /* noop */ }
+        showToast('Pulse sent', 'success');
+    }, [showToast]);
+    // Tray chips are one-click invocations. Multi-option demo controls live
+    // inside the Tools popover (CommandDeck → Demo lab).
+    void handleDemoPulse;
+    const handleOpenRefresh = useCallback(() => {
+        setShowRefreshModal(true);
+    }, []);
+    const handleToggleUxOverlay = useCallback(() => {
+        if (typeof window === 'undefined') return;
+        const next = !uxOverlayOn;
+        try {
+            if (next) window.localStorage.setItem('helixUxDebug', '1');
+            else window.localStorage.removeItem('helixUxDebug');
+        } catch { /* ignore */ }
+        try { window.dispatchEvent(new CustomEvent('helix:uxDebugToggled')); } catch { /* ignore */ }
+        setUxOverlayOn(next);
+        showToast(next ? 'UX overlay on' : 'UX overlay off', 'success');
+    }, [uxOverlayOn, showToast]);
+    // Prefetch the lazy modal chunks on Tools hover so the first click inside
+    // the panel doesn't pay the parse cost. Fire-and-forget; errors ignored.
+    const prefetchedRef = useRef(false);
+    const prefetchToolsChunks = useCallback(() => {
+        if (prefetchedRef.current) return;
+        prefetchedRef.current = true;
+        void import('./AdminDashboard');
+        void import('./DemoPromptsModal');
+        void import('./debug/LoadingDebugModal');
+        void import('./ErrorTracker');
+        void import('./RefreshDataModal');
+        void import('./LegacyMigrationTool');
+        void import('./command-centre/ErrorScreenPreview');
+    }, []);
+    const stripHoverBg = isDarkMode ? 'rgba(255, 255, 255, 0.07)' : 'rgba(6, 23, 51, 0.05)';
     const stripHoverText = isDarkMode ? '#ffffff' : colours.helixBlue;
     const chipBottom = bottomOffset;
     const panelBottom = bottomOffset + 48;
+    // Satellite chip chrome — Demo + Prod are secondary one-click toggles that
+    // live inside the Tools "container". Icon + short label, smooth hover expand.
     const stripSegmentBase: React.CSSProperties = {
+        position: 'relative',
         height: 26,
-        padding: '0 8px',
+        padding: '0 9px',
         background: 'transparent',
         border: 'none',
-        borderRadius: 0,
+        borderRadius: 999,
         color: textPrimary,
         cursor: 'pointer',
-        fontSize: 9,
-        fontWeight: 700,
-        letterSpacing: '0.2px',
         display: 'inline-flex',
         alignItems: 'center',
-        gap: 6,
+        justifyContent: 'center',
+        gap: 5,
         opacity: 0.82,
-        transition: 'color 0.18s ease, opacity 0.18s ease, background 0.18s ease',
+        fontFamily: 'Raleway, sans-serif',
+        fontSize: 10,
+        fontWeight: 600,
+        letterSpacing: '0.06em',
+        textTransform: 'uppercase' as const,
+        transition: 'color 0.2s ease, opacity 0.2s ease, background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease',
+    };
+    // Tools button — primary container affordance. Filled background, slightly
+    // taller, sits as the visual "box" that holds the satellite toggles.
+    const toolsButtonBase: React.CSSProperties = {
+        position: 'relative',
+        height: 28,
+        padding: '0 11px 0 10px',
+        background: isDarkMode ? 'rgba(135, 243, 243, 0.10)' : 'rgba(54, 144, 206, 0.10)',
+        border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.28)' : 'rgba(54, 144, 206, 0.28)'}`,
+        borderRadius: 999,
+        color: isDarkMode ? colours.accent : colours.highlight,
+        cursor: 'pointer',
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+        fontFamily: 'Raleway, sans-serif',
+        fontSize: 10,
+        fontWeight: 700,
+        letterSpacing: '0.08em',
+        textTransform: 'uppercase' as const,
+        transition: 'color 0.2s ease, background 0.2s ease, border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease',
     };
     const openReportingUtility = useCallback((view: 'logMonitor' | 'dataCentre') => {
         window.dispatchEvent(new CustomEvent('navigateToReporting', { detail: { view } }));
@@ -425,6 +568,7 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
     return (
         <>
             {showRefreshModal && (
+                <Suspense fallback={null}>
                 <RefreshDataModal
                     isOpen={showRefreshModal}
                     onClose={() => setShowRefreshModal(false)}
@@ -459,6 +603,7 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
                         }
                     }}
                 />
+                </Suspense>
             )}
 
             <div
@@ -473,35 +618,18 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
                     gap: 4,
                     pointerEvents: 'none',
                 }}>
-            {featureToggles.viewAsProd && (
-                <span
-                    style={{
-                        fontSize: 8,
-                        fontWeight: 700,
-                        letterSpacing: '0.6px',
-                        textTransform: 'uppercase' as const,
-                        color: '#fff',
-                        background: colours.cta,
-                        padding: '2px 7px',
-                        borderRadius: 999,
-                        lineHeight: '14px',
-                        pointerEvents: 'auto',
-                        boxShadow: isDarkMode ? '0 2px 8px rgba(214, 85, 65, 0.35)' : '0 2px 8px rgba(214, 85, 65, 0.25)',
-                    }}
-                >
-                    PROD
-                </span>
-            )}
+            {/* Floating PROD badge removed 2026-04-24 — the Local/Prod satellite
+                chip inside the tray already surfaces the active view. The badge
+                was narrower than the tray, which made the tray's left edge stick
+                out past the "header" and read as a thick left border. */}
             <div
                 style={{
                     display: 'flex',
                     pointerEvents: 'auto',
                     alignItems: 'center',
-                    gap: 0,
+                    gap: 2,
                     justifyContent: 'flex-end',
-                    maxWidth: 'min(88vw, 420px)',
-                    minHeight: 30,
-                    padding: '0 4px',
+                    padding: '3px 4px',
                     background: isDarkMode ? 'rgba(6, 23, 51, 0.84)' : 'rgba(255, 255, 255, 0.90)',
                     border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.10)' : 'rgba(6, 23, 51, 0.10)'}`,
                     borderRadius: 999,
@@ -524,6 +652,8 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
                     e.currentTarget.style.borderColor = isDarkMode ? 'rgba(255, 255, 255, 0.10)' : 'rgba(6, 23, 51, 0.10)';
                 }}
             >
+                {/* Demo — satellite one-click chip. Toggles demo mode only.
+                    Multi-option demo surface lives in Tools → Demo lab. */}
                 <button
                     type="button"
                     onClick={handleDemoView}
@@ -531,25 +661,34 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
                         ...stripSegmentBase,
                         color: demoModeEnabled ? colours.green : textPrimary,
                         opacity: demoModeEnabled ? 1 : 0.82,
+                        background: demoModeEnabled ? (isDarkMode ? 'rgba(32, 178, 108, 0.14)' : 'rgba(32, 178, 108, 0.10)') : 'transparent',
                     }}
                     onMouseEnter={(e) => {
+                        e.currentTarget.style.transform = 'translateY(-1px)';
                         if (!demoModeEnabled) {
                             e.currentTarget.style.opacity = '1';
                             e.currentTarget.style.color = stripHoverText;
+                            e.currentTarget.style.background = stripHoverBg;
                         }
                     }}
                     onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = 'translateY(0)';
                         if (!demoModeEnabled) {
                             e.currentTarget.style.opacity = '0.82';
                             e.currentTarget.style.color = textPrimary;
+                            e.currentTarget.style.background = 'transparent';
                         }
                     }}
                     aria-label={demoModeEnabled ? 'Turn off demo mode' : 'Turn on demo mode'}
+                    title={demoModeEnabled ? 'Demo mode on' : 'Demo mode'}
                 >
-                    <span style={{ width: 5, height: 5, borderRadius: 999, background: demoModeEnabled ? colours.green : 'transparent', border: demoModeEnabled ? 'none' : `1px solid ${stripDivider}`, flexShrink: 0 }} />
-                    Demo
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9z" />
+                        <path d="M19 14l.8 2 2 .8-2 .8L19 20l-.8-2-2-.8 2-.8z" />
+                    </svg>
+                    <span>Demo</span>
                 </button>
-                <span style={{ width: 1, height: 14, background: stripDivider, flexShrink: 0 }} />
+                {/* Production view — satellite one-click chip */}
                 <button
                     type="button"
                     onClick={handleProdView}
@@ -557,25 +696,104 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
                         ...stripSegmentBase,
                         color: featureToggles.viewAsProd ? colours.cta : textPrimary,
                         opacity: featureToggles.viewAsProd ? 1 : 0.82,
+                        background: featureToggles.viewAsProd ? (isDarkMode ? 'rgba(214, 85, 65, 0.14)' : 'rgba(214, 85, 65, 0.10)') : 'transparent',
                     }}
                     onMouseEnter={(e) => {
+                        e.currentTarget.style.transform = 'translateY(-1px)';
                         if (!featureToggles.viewAsProd) {
                             e.currentTarget.style.opacity = '1';
                             e.currentTarget.style.color = stripHoverText;
+                            e.currentTarget.style.background = stripHoverBg;
                         }
                     }}
                     onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = 'translateY(0)';
                         if (!featureToggles.viewAsProd) {
                             e.currentTarget.style.opacity = '0.82';
                             e.currentTarget.style.color = textPrimary;
+                            e.currentTarget.style.background = 'transparent';
                         }
                     }}
-                    aria-label={featureToggles.viewAsProd ? 'Turn off production view' : 'Turn on production view'}
+                    aria-label={featureToggles.viewAsProd ? 'Switch to local view' : 'Switch to production view'}
+                    title={featureToggles.viewAsProd ? 'Viewing as production — click for local' : 'Viewing as local — click for production'}
                 >
-                    <span style={{ width: 5, height: 5, borderRadius: 999, background: featureToggles.viewAsProd ? colours.cta : 'transparent', border: featureToggles.viewAsProd ? 'none' : `1px solid ${stripDivider}`, flexShrink: 0 }} />
-                    Prod
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="12" cy="12" r="10" />
+                        <line x1="2" y1="12" x2="22" y2="12" />
+                        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+                    </svg>
+                    <span>{featureToggles.viewAsProd ? 'Prod' : 'Local'}</span>
                 </button>
-                <span style={{ width: 1, height: 14, background: stripDivider, flexShrink: 0 }} />
+                {/* Refresh — satellite chip. High-frequency "clear caches + re-fetch"
+                    utility; opens the RefreshDataModal that already lives in this file. */}
+                <button
+                    type="button"
+                    onClick={handleOpenRefresh}
+                    style={{
+                        ...stripSegmentBase,
+                        padding: '0 9px',
+                        color: textPrimary,
+                        opacity: 0.82,
+                    }}
+                    onMouseEnter={(e) => {
+                        e.currentTarget.style.transform = 'translateY(-1px)';
+                        e.currentTarget.style.opacity = '1';
+                        e.currentTarget.style.color = stripHoverText;
+                        e.currentTarget.style.background = stripHoverBg;
+                    }}
+                    onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = 'translateY(0)';
+                        e.currentTarget.style.opacity = '0.82';
+                        e.currentTarget.style.color = textPrimary;
+                        e.currentTarget.style.background = 'transparent';
+                    }}
+                    aria-label="Refresh data"
+                    title="Clear caches &amp; refresh"
+                >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M23 4v6h-6" />
+                        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                    </svg>
+                    <span>Refresh</span>
+                </button>
+                {/* UX latency overlay — satellite chip. Mirrors the CommandDeck
+                    toggle; localStorage-backed so page reload preserves state. */}
+                <button
+                    type="button"
+                    onClick={handleToggleUxOverlay}
+                    style={{
+                        ...stripSegmentBase,
+                        color: uxOverlayOn ? colours.cta : textPrimary,
+                        opacity: uxOverlayOn ? 1 : 0.82,
+                        background: uxOverlayOn ? (isDarkMode ? 'rgba(214, 85, 65, 0.14)' : 'rgba(214, 85, 65, 0.10)') : 'transparent',
+                    }}
+                    onMouseEnter={(e) => {
+                        e.currentTarget.style.transform = 'translateY(-1px)';
+                        if (!uxOverlayOn) {
+                            e.currentTarget.style.opacity = '1';
+                            e.currentTarget.style.color = stripHoverText;
+                            e.currentTarget.style.background = stripHoverBg;
+                        }
+                    }}
+                    onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = 'translateY(0)';
+                        if (!uxOverlayOn) {
+                            e.currentTarget.style.opacity = '0.82';
+                            e.currentTarget.style.color = textPrimary;
+                            e.currentTarget.style.background = 'transparent';
+                        }
+                    }}
+                    aria-label={uxOverlayOn ? 'Turn off UX latency overlay' : 'Turn on UX latency overlay'}
+                    title={uxOverlayOn ? 'UX latency overlay on' : 'UX latency overlay'}
+                >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="12" cy="12" r="9" />
+                        <path d="M12 7v5l3 2" />
+                    </svg>
+                    <span>UX</span>
+                </button>
+                {/* Tools — primary container. Filled chip with label, env-health dot.
+                    This is the "box" — Demo + Prod are satellites sitting inside the pill. */}
                 <button
                     ref={chipRef}
                     onClick={() => {
@@ -586,52 +804,57 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
                         }
                     }}
                     style={{
-                        ...stripSegmentBase,
-                        height: 28,
-                        padding: '0 8px 0 10px',
-                        color: textPrimary,
-                        opacity: open ? 1 : 0.92,
-                        transition: 'opacity 0.18s ease, color 0.18s ease'
+                        ...toolsButtonBase,
+                        marginLeft: 2,
+                        background: open
+                            ? (isDarkMode ? 'rgba(135, 243, 243, 0.18)' : 'rgba(54, 144, 206, 0.16)')
+                            : toolsButtonBase.background,
+                        borderColor: open
+                            ? (isDarkMode ? 'rgba(135, 243, 243, 0.45)' : 'rgba(54, 144, 206, 0.45)')
+                            : (toolsButtonBase.border as string).includes('rgba') ? (isDarkMode ? 'rgba(135, 243, 243, 0.28)' : 'rgba(54, 144, 206, 0.28)') : undefined,
+                        boxShadow: open ? (isDarkMode ? '0 4px 14px rgba(135, 243, 243, 0.18)' : '0 4px 14px rgba(54, 144, 206, 0.18)') : 'none',
                     }}
                     onMouseEnter={(e) => {
-                        e.currentTarget.style.opacity = '1';
-                        e.currentTarget.style.color = stripHoverText;
+                        prefetchToolsChunks();
+                        e.currentTarget.style.transform = 'translateY(-1px)';
+                        e.currentTarget.style.background = isDarkMode ? 'rgba(135, 243, 243, 0.16)' : 'rgba(54, 144, 206, 0.14)';
+                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(135, 243, 243, 0.38)' : 'rgba(54, 144, 206, 0.38)';
+                        e.currentTarget.style.boxShadow = isDarkMode ? '0 4px 14px rgba(135, 243, 243, 0.18)' : '0 4px 14px rgba(54, 144, 206, 0.18)';
                     }}
+                    onFocus={prefetchToolsChunks}
                     onMouseLeave={(e) => {
-                        e.currentTarget.style.opacity = open ? '1' : '0.92';
-                        e.currentTarget.style.color = textPrimary;
+                        e.currentTarget.style.transform = 'translateY(0)';
+                        if (!open) {
+                            e.currentTarget.style.background = isDarkMode ? 'rgba(135, 243, 243, 0.10)' : 'rgba(54, 144, 206, 0.10)';
+                            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(135, 243, 243, 0.28)' : 'rgba(54, 144, 206, 0.28)';
+                            e.currentTarget.style.boxShadow = 'none';
+                        }
                     }}
                     aria-haspopup="dialog"
                     aria-expanded={open}
                     aria-controls={panelId}
-                    aria-label="Private hub controls"
+                    aria-label={`${user.FullName || user.Initials || 'User'} controls`}
+                    title={`${user.FullName || user.Initials || 'User'} controls`}
                 >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                        <circle cx="12" cy="7" r="4" />
+                    </svg>
+                    <span>{user.Initials || 'Me'}</span>
+                    {/* Environment-health dot, absolute top-right corner */}
                     <span style={{
-                        width: 10,
-                        height: 10,
-                        borderRadius: 0,
-                        background: 'transparent',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        color: environmentColour,
-                        flexShrink: 0
-                    }}>
-                        <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-                            <path d="M12 15v2"/><path d="M12 7v4"/><path d="M5 12h2"/><path d="M17 12h2"/><path d="M7.8 7.8l1.4 1.4"/><path d="M14.8 14.8l1.4 1.4"/><path d="M16.2 7.8l-1.4 1.4"/><path d="M9.2 14.8l-1.4 1.4"/>
-                        </svg>
-                    </span>
-                    <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.2px' }}>Tools</span>
-                    <span style={{
-                        width: 5,
-                        height: 5,
+                        position: 'absolute',
+                        top: -2,
+                        right: -2,
+                        width: 7,
+                        height: 7,
                         borderRadius: 999,
-                        flexShrink: 0,
                         background: enquiriesLiveRefreshInFlight ? colours.highlight
                             : enquiriesUsingSnapshot ? colours.orange
                             : (healthData?.overall === 'healthy' || !healthData) && enquiriesLastLiveSyncAt ? colours.green
                             : healthData?.overall === 'degraded' ? colours.orange
                             : colours.subtleGrey,
+                        boxShadow: `0 0 0 2px ${isDarkMode ? 'rgba(6, 23, 51, 0.92)' : 'rgba(255, 255, 255, 0.95)'}`,
                         transition: 'background 0.3s ease',
                     }} />
                 </button>
@@ -639,6 +862,7 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
             </div>
 
             {open && typeof document !== 'undefined' && createPortal(
+                <CommandDeckErrorBoundary onClose={() => closePanel()}>
                 <CommandDeck
                     panelRef={panelRef}
                     panelBottom={panelBottom}
@@ -676,16 +900,19 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
                     onClose={() => closePanel()}
                     showToast={showToast}
                     tokens={tokens}
-                />,
+                />
+                </CommandDeckErrorBoundary>,
                 document.body
             )}
 
-            {showDevDashboard && <AdminDashboard isOpen={showDevDashboard} onClose={() => setShowDevDashboard(false)} inspectorData={user} />}
-            {showDemoPrompts && <DemoPromptsModal isOpen={showDemoPrompts} onClose={() => setShowDemoPrompts(false)} />}
-            {showLoadingDebug && <LoadingDebugModal isOpen={showLoadingDebug} onClose={() => setShowLoadingDebug(false)} />}
-            {showErrorTracker && <ErrorTracker onClose={() => setShowErrorTracker(false)} />}
-            {showMigrationTool && <LegacyMigrationTool isOpen={showMigrationTool} onClose={() => setShowMigrationTool(false)} onToast={showToast} />}
-            {showErrorPreview && <ErrorScreenPreview onClose={() => setShowErrorPreview(false)} />}
+            <Suspense fallback={null}>
+                {showDevDashboard && <AdminDashboard isOpen={showDevDashboard} onClose={() => setShowDevDashboard(false)} inspectorData={user} />}
+                {showDemoPrompts && <DemoPromptsModal isOpen={showDemoPrompts} onClose={() => setShowDemoPrompts(false)} />}
+                {showLoadingDebug && <LoadingDebugModal isOpen={showLoadingDebug} onClose={() => setShowLoadingDebug(false)} />}
+                {showErrorTracker && <ErrorTracker onClose={() => setShowErrorTracker(false)} />}
+                {showMigrationTool && <LegacyMigrationTool isOpen={showMigrationTool} onClose={() => setShowMigrationTool(false)} onToast={showToast} />}
+                {showErrorPreview && <ErrorScreenPreview onClose={() => setShowErrorPreview(false)} />}
+            </Suspense>
         </>
     );
 };

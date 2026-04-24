@@ -100,6 +100,7 @@
         "dev-tab:teamsfx": "env-cmd --silent -f .localConfigs npm run start",
         "dev": "concurrently \"npm run start:server:watch\" \"npm start\"",
         "dev:all": "node tools/dev-all-with-logs.mjs",
+        "dev:fast": "node tools/dev-fast.mjs",
         "dev:all:raw": "concurrently \"npm run start:server:watch\" \"npm run start:dev\"",
         "dev:backend": "npm run start:server:watch",
         "start": "node server.js",
@@ -119,7 +120,12 @@
         "validate:instructions": "node tools/validate-instructions.mjs",
         "check-sizes": "node tools/check-file-sizes.mjs",
         "check-exports": "node tools/check-dead-exports.mjs",
-        "health": "npm run check-sizes && npm run check-exports"
+        "health": "npm run check-sizes && npm run check-exports",
+        "stash:new": "node tools/stash-new.mjs",
+        "stash:precheck": "node tools/stash-precheck.mjs",
+        "stash:lint": "node tools/stash-lint.mjs",
+        "stash:status": "node tools/stash-status.mjs",
+        "stash:close": "node tools/stash-close.mjs"
     },
     "eslintConfig": {
         "extends": [

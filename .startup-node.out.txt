@@ -1,0 +1,1 @@
+[AppInsights] No connection string — telemetry disabled (local dev)

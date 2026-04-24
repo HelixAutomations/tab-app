@@ -14,6 +14,22 @@ module.exports = {
         config.plugins = config.plugins.filter(
           (p) => !p.constructor.name.includes('ForkTsChecker')
         );
+
+        // Persistent filesystem cache. Cold-start rebuild times drop
+        // dramatically (often 10x) after the first build because webpack
+        // skips re-parsing unchanged modules. Cache invalidates when this
+        // file changes (buildDependencies). Stored under node_modules/.cache.
+        config.cache = {
+          type: 'filesystem',
+          buildDependencies: { config: [__filename] },
+          name: 'helix-hub-dev',
+        };
+
+        // Faster source maps for dev. CRA's default `cheap-module-source-map`
+        // is heavier than necessary for in-browser debugging — `eval-cheap-
+        // module-source-map` builds and rebuilds significantly faster while
+        // still mapping back to original TypeScript at the line level.
+        config.devtool = 'eval-cheap-module-source-map';
       }
 
       config.module.rules.push({

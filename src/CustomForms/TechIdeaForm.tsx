@@ -35,6 +35,8 @@ import {
   formFieldTokens,
   formAccentColors,
 } from './shared/formStyles';
+import { useFormReadinessPulse } from './shared/useFormReadinessPulse';
+import { FormReadinessCue } from './shared/FormReadinessCue';
 
 interface TechIdeaFormProps {
   userData?: UserData[];
@@ -66,6 +68,7 @@ const TechIdeaFormContent: React.FC<TechIdeaFormProps> = ({
   onSubmitError,
 }) => {
   const { isDarkMode } = useTheme();
+  const readiness = useFormReadinessPulse('tech-idea');
   
   const [formData, setFormData] = useState<FormData>({
     title: '',
@@ -145,12 +148,17 @@ const TechIdeaFormContent: React.FC<TechIdeaFormProps> = ({
                 Tech Development Idea
               </Text>
             </Stack>
-            {onBack && (
-              <DefaultButton 
-                text="Back" 
-                onClick={onBack} 
-                styles={getFormDefaultButtonStyles(isDarkMode)} 
-              />
+            {onBack ? (
+              <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 10 }}>
+                <FormReadinessCue state={readiness.state} detail={readiness.detail} readyAnnouncement="Tech idea form ready" />
+                <DefaultButton 
+                  text="Back" 
+                  onClick={onBack} 
+                  styles={getFormDefaultButtonStyles(isDarkMode)} 
+                />
+              </Stack>
+            ) : (
+              <FormReadinessCue state={readiness.state} detail={readiness.detail} readyAnnouncement="Tech idea form ready" />
             )}
           </Stack>
         </div>

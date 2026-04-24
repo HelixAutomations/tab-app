@@ -12,6 +12,10 @@ const { trackEvent, trackException, trackMetric } = require('../utils/appInsight
 
 const router = express.Router();
 const { annotate } = require('../utils/devConsole');
+const {
+  attachDocWorkspaceStream,
+  broadcastDocWorkspaceChanged,
+} = require('../utils/doc-workspace-stream');
 
 const STORAGE_ACCOUNT_NAME = process.env.INSTRUCTIONS_STORAGE_ACCOUNT_NAME || 'instructionfiles';
 const PROSPECT_CONTAINER = process.env.PROSPECT_FILES_CONTAINER || 'prospect-files';
@@ -870,6 +874,16 @@ router.post('/upload', upload.single('file'), async (req, res) => {
     });
     trackMetric('DocWorkspace.Upload.Duration', durationMs, { enquiryId: String(enquiryId) });
 
+    // R7: notify connected clients so the Home pending-actions tile pulses + refetches.
+    try {
+      broadcastDocWorkspaceChanged({
+        enquiryId: String(enquiryId),
+        subfolder,
+        documentType: documentType || null,
+        uploadedBy,
+      });
+    } catch { /* best-effort */ }
+
     return res.json({
       ok: true,
       blobName,
@@ -909,4 +923,16 @@ router.post('/upload', upload.single('file'), async (req, res) => {
   }
 });
 
+// R7: realtime change notifications.
+attachDocWorkspaceStream(router);
+
 module.exports = router;
+// Expose helpers for sibling routes that need to file documents into the
+// prospect-files container (e.g. dubberCalls save-prospect-note).
+module.exports.internals = {
+  getBlobServiceClient,
+  resolveLatestWorkspace,
+  generateBlobReadSasUrl,
+  PROSPECT_CONTAINER,
+  ALLOWED_SUBFOLDERS,
+};

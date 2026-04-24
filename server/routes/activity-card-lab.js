@@ -3,13 +3,24 @@ const fs = require('fs/promises');
 const path = require('path');
 const { append, list } = require('../utils/opLog');
 const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
-const { CHANNEL_ROUTES, postAdaptiveCardToChannel } = require('../utils/teamsNotificationClient');
+const { CHANNEL_ROUTES, postAdaptiveCardToChannel, sendCardToDM } = require('../utils/teamsNotificationClient');
 const { buildTeamsDeepLink } = require('../utils/teamsDeepLink');
 const { TEMPLATE_DIR, TEMPLATE_CATALOG, getPublicTemplateMeta, resolveTemplate } = require('../activity-card-lab/catalog');
+const { buildTemplateCard, NOTIFY_EMAIL } = require('../utils/hubNotifier');
 
 const router = express.Router();
 const DEFAULT_RECENT_LIMIT = 6;
 const MAX_RECENT_LIMIT = 12;
+const DM_ROUTES = [
+  {
+    key: 'lz-dm',
+    label: 'LZ DM',
+    deliveryMode: 'dm',
+    userEmail: NOTIFY_EMAIL,
+    teamId: null,
+    channelId: null,
+  },
+];
 
 function parseLimit(value) {
   const parsed = Number.parseInt(String(value || ''), 10);
@@ -82,6 +93,15 @@ async function loadTemplate(templateId) {
     throw new Error(`Unknown template: ${templateId}`);
   }
 
+  if (templateMeta.resolver === 'hub-notifier') {
+    const built = buildTemplateCard(templateMeta.id);
+    return {
+      rawJson: JSON.stringify(built.card, null, 2),
+      card: built.card,
+      templateMeta,
+    };
+  }
+
   const templatePath = path.join(TEMPLATE_DIR, templateMeta.fileName);
   const rawTemplate = await fs.readFile(templatePath, 'utf8');
   const rawJson = interpolateTemplate(rawTemplate, buildDefaultSamples(templateMeta));
@@ -120,12 +140,16 @@ async function resolveCardPayload({ templateId, rawJson, card }) {
 }
 
 function getRouteOptions() {
-  return Object.entries(CHANNEL_ROUTES).map(([key, value]) => ({
+  return [
+    ...DM_ROUTES,
+    ...Object.entries(CHANNEL_ROUTES).map(([key, value]) => ({
     key,
     label: humanizeRouteKey(key),
+      deliveryMode: 'channel',
     teamId: value.teamId,
     channelId: value.channelId,
-  }));
+    })),
+  ];
 }
 
 function mapRecentItem(event) {
@@ -140,7 +164,19 @@ function mapRecentItem(event) {
     teamsLink: event.teamsLink || null,
     messageId: event.messageId || null,
     timestamp: event.ts,
+    originLabel: event.originLabel || 'One-off send',
+    deliveryMode: event.deliveryMode || (String(event.routeKey || '').includes('dm') ? 'dm' : 'channel'),
   };
+}
+
+function getRecentCardSends(limit) {
+  return [
+    ...list({ type: 'activity.card.send', limit: limit * 2 }),
+    ...list({ type: 'activity.cardlab.send', limit: limit * 2 }),
+  ]
+    .sort((left, right) => Date.parse(right.ts || '') - Date.parse(left.ts || ''))
+    .slice(0, limit)
+    .map(mapRecentItem);
 }
 
 router.get('/catalog', async (req, res) => {
@@ -150,7 +186,7 @@ router.get('/catalog', async (req, res) => {
   try {
     const templates = TEMPLATE_CATALOG.map(getPublicTemplateMeta);
     const routes = getRouteOptions();
-    const recent = list({ type: 'activity.cardlab.send', limit: DEFAULT_RECENT_LIMIT }).map(mapRecentItem);
+    const recent = getRecentCardSends(DEFAULT_RECENT_LIMIT);
     const durationMs = Date.now() - startedAt;
 
     trackEvent('ActivityCardLab.Catalog.Completed', {
@@ -261,25 +297,33 @@ router.post('/send', async (req, res) => {
     const resolved = await resolveCardPayload({ templateId, rawJson, card });
     const warnings = validateCard(resolved.card);
 
-    const result = await postAdaptiveCardToChannel(
-      route.teamId,
-      route.channelId,
-      resolved.card,
-      summary || resolved.templateMeta?.summary || 'Activity Card Lab send',
-    );
+    const result = route.deliveryMode === 'dm'
+      ? await sendCardToDM(
+          route.userEmail,
+          resolved.card,
+          summary || resolved.templateMeta?.summary || 'Activity Card send',
+        )
+      : await postAdaptiveCardToChannel(
+          route.teamId,
+          route.channelId,
+          resolved.card,
+          summary || resolved.templateMeta?.summary || 'Activity Card send',
+        );
 
     if (!result.success) {
       throw new Error(result.error || `Teams send failed with status ${result.statusCode}`);
     }
 
-    const teamsLink = buildTeamsDeepLink(
-      route.channelId,
-      result.messageId,
-      route.teamId,
-      result.messageId,
-      null,
-      null,
-    );
+    const teamsLink = route.deliveryMode === 'channel'
+      ? buildTeamsDeepLink(
+          route.channelId,
+          result.messageId,
+          route.teamId,
+          result.messageId,
+          null,
+          null,
+        )
+      : null;
 
     const logEntry = append({
       type: 'activity.cardlab.send',
@@ -288,10 +332,12 @@ router.post('/send', async (req, res) => {
       templateLabel: resolved.templateMeta?.label || 'Manual card',
       routeKey: route.key,
       routeLabel: route.label,
-      messageId: result.messageId || null,
+      messageId: result.messageId || result.activityId || null,
       teamsLink,
       title: `Card sent to ${route.label}`,
       summary: summary || resolved.templateMeta?.summary || 'Activity Card Lab send',
+      originLabel: 'One-off send',
+      deliveryMode: route.deliveryMode,
     });
 
     const durationMs = Date.now() - startedAt;
@@ -299,7 +345,7 @@ router.post('/send', async (req, res) => {
       operation: 'send',
       templateId: resolved.templateMeta?.id || templateId || 'manual',
       routeKey: route.key,
-      messageId: result.messageId || 'none',
+      messageId: result.messageId || result.activityId || 'none',
       warningCount: warnings.length,
       durationMs,
     });
@@ -310,7 +356,7 @@ router.post('/send', async (req, res) => {
 
     return res.json({
       success: true,
-      messageId: result.messageId || null,
+      messageId: result.messageId || result.activityId || null,
       teamsLink,
       warnings,
       item: mapRecentItem(logEntry),
@@ -338,7 +384,7 @@ router.get('/recent', async (req, res) => {
   const limit = parseLimit(req.query.limit);
 
   try {
-    const items = list({ type: 'activity.cardlab.send', limit }).map(mapRecentItem);
+    const items = getRecentCardSends(limit);
     return res.json({ items });
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));

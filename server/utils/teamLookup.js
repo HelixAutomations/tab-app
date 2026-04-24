@@ -26,4 +26,22 @@ async function getTeamEmail(initials) {
     return result.recordset?.[0]?.['Email'] || null;
 }
 
-module.exports = { getClioId, getTeamEmail };
+/**
+ * Resolve a team member's initials from their email address.
+ * Case-insensitive; returns null if not matched.
+ */
+async function getTeamInitialsByEmail(email) {
+    if (!email) return null;
+    try {
+        const result = await runTeamQuery((request, s) =>
+            request
+                .input('email', s.NVarChar, String(email).trim().toLowerCase())
+                .query('SELECT TOP 1 Initials FROM dbo.team WHERE LOWER([Email]) = @email')
+        );
+        return result.recordset?.[0]?.Initials || null;
+    } catch {
+        return null;
+    }
+}
+
+module.exports = { getClioId, getTeamEmail, getTeamInitialsByEmail };

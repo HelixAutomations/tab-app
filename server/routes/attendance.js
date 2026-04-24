@@ -6,6 +6,17 @@ const { getRedisClient, generateCacheKey, cacheWrapper, deleteCachePattern, dele
 const { attachAnnualLeaveStream, broadcastAnnualLeaveChanged } = require('../utils/annual-leave-stream');
 const { attachAttendanceStream, broadcastAttendanceChanged } = require('../utils/attendance-stream');
 const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
+const {
+  recordSubmission,
+  recordStep,
+  markComplete,
+  markFailed,
+  archiveSubmission,
+} = require('../utils/formSubmissionLog');
+const {
+  createCard: createHubTodoCard,
+  reconcileAllByRef: reconcileHubTodoByRef,
+} = require('../utils/hubTodoLog');
 const router = express.Router();
 
 const TRANSIENT_SQL_CODES = new Set(['ESOCKET', 'ECONNCLOSED', 'ECONNRESET', 'ETIMEDOUT', 'ETIMEOUT']);
@@ -31,7 +42,59 @@ const shouldAutoBookAnnualLeave = (initials) => {
   return AUTO_BOOK_ANNUAL_LEAVE_USERS.has(String(initials).trim().toUpperCase());
 };
 
+/**
+ * Derive annual-leave approver initials (mirrors
+ * api/src/functions/getAnnualLeave.ts `determineApprovers`).
+ * Construction AoW → JW; everything else → AC. LZ always included.
+ */
+function determineLeaveApprovers(aow) {
+  const list = String(aow || '').toLowerCase().split(',').map((s) => s.trim()).filter(Boolean);
+  const isConstruction = list.some((item) => item === 'cs' || item.includes('construction'));
+  return ['LZ', isConstruction ? 'JW' : 'AC'];
+}
+
 const getTodayIso = () => new Date().toISOString().split('T')[0];
+
+// ── Connection string builder ──
+// Keeps the SQL template (Encrypt, MARS, Timeout) in one place so the 11
+// previously-duplicated inline strings can't drift. Password must be fetched
+// via getSqlPassword() before calling.
+const buildAttendanceConnStr = (password, catalog) =>
+  `Server=tcp:helix-database-server.database.windows.net,1433;Initial Catalog=${catalog};Persist Security Info=False;User ID=helix-database-server;Password=${password};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;`;
+
+const getAttendanceConnectionStrings = (password) => ({
+  projectDataConnStr: buildAttendanceConnStr(password, 'helix-project-data'),
+  coreDataConnStr: buildAttendanceConnStr(password, 'helix-core-data'),
+});
+
+// ── In-memory cache for attendance (avoids Redis round-trip on critical path) ──
+const attendanceMemCache = new Map();
+// 120s: attendance only changes on explicit /updateAttendance + /confirmAttendance
+// paths which already call clearAttendanceMemCached(), so we can hold longer
+// without staleness risk. Cuts Home-boot latency for the second tab open.
+const ATTENDANCE_MEM_TTL_MS = 120_000;
+
+// ── Singleflight gate for getGeneralAnnualLeaveData ──
+// Prevents stampede when /getAttendance and /getAnnualLeave fire concurrently
+// on Home boot with a cold Redis cache. Both callers share the same in-flight
+// Promise so the underlying 4-query fan-out runs once.
+const inFlightGeneralAnnualLeave = new Map();
+const getAttendanceMemCached = (key) => {
+  const entry = attendanceMemCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.timestamp > ATTENDANCE_MEM_TTL_MS) {
+    attendanceMemCache.delete(key);
+    return null;
+  }
+  return entry.data;
+};
+const setAttendanceMemCached = (key, data) => {
+  attendanceMemCache.set(key, { data, timestamp: Date.now() });
+};
+const clearAttendanceMemCached = (key) => {
+  if (key) attendanceMemCache.delete(key);
+  else attendanceMemCache.clear();
+};
 
 const PAYROLL_NOTIFICATION_LEAVE_TYPES = new Set(['purchase', 'sale']);
 
@@ -263,7 +326,16 @@ async function getGeneralAnnualLeaveData(today, { forceRefresh = false } = {}) {
     }
   }
 
-  return cacheWrapper(
+  // Singleflight gate: when /getAttendance and /getAnnualLeave fire concurrently
+  // on Home boot with a cold Redis cache, both used to run the 4-query fan-out
+  // independently. Share the in-flight Promise per cache key so only one DB
+  // round-trip runs; the second caller awaits the same result.
+  const existing = inFlightGeneralAnnualLeave.get(cacheKey);
+  if (existing) {
+    return existing;
+  }
+
+  const promise = cacheWrapper(
     cacheKey,
     async () => {
       const password = await getSqlPassword();
@@ -271,65 +343,19 @@ async function getGeneralAnnualLeaveData(today, { forceRefresh = false } = {}) {
         throw new Error('Could not retrieve database credentials');
       }
 
-      const projectDataConnStr = `Server=tcp:helix-database-server.database.windows.net,1433;Initial Catalog=helix-project-data;Persist Security Info=False;User ID=helix-database-server;Password=${password};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;`;
-      const coreDataConnStr = `Server=tcp:helix-database-server.database.windows.net,1433;Initial Catalog=helix-core-data;Persist Security Info=False;User ID=helix-database-server;Password=${password};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;`;
+      const { projectDataConnStr, coreDataConnStr } = getAttendanceConnectionStrings(password);
 
-      const [currentLeaveResult, futureLeaveResult, allLeaveResult, teamResult] = await Promise.all([
+      // Single annualLeave read covers all three legacy partitions:
+      //   - all_data: start_date within last 2 years
+      //   - annual_leave: status='booked' AND today BETWEEN start_date AND end_date
+      //     (included explicitly in case the current leave started >2 years ago)
+      //   - future_leave: start_date > today AND status IN (requested|approved|booked)
+      // Backed by IX_annualLeave_status_dates + IX_annualLeave_start_date
+      // (see scripts/migrate-add-attendance-indexes.mjs).
+      const [leaveResult, teamResult] = await Promise.all([
         attendanceQuery(projectDataConnStr, (reqSql, s) =>
           reqSql.input('today', s.Date, today).query(`
-            SELECT 
-              request_id,
-              fe AS person,
-              start_date,
-              end_date,
-              reason,
-              status,
-              days_taken,
-              leave_type,
-              rejection_notes,
-              hearing_confirmation,
-              hearing_details,
-              half_day_start,
-              half_day_end,
-              requested_at,
-              approved_at,
-              booked_at,
-              updated_at
-            FROM [dbo].[annualLeave]
-            WHERE status = 'booked'
-              AND @today BETWEEN start_date AND end_date
-            ORDER BY fe
-          `)
-        ),
-        attendanceQuery(projectDataConnStr, (reqSql, s) =>
-          reqSql.input('today', s.Date, today).query(`
-            SELECT 
-              request_id,
-              fe AS person,
-              start_date,
-              end_date,
-              reason,
-              status,
-              days_taken,
-              leave_type,
-              rejection_notes,
-              hearing_confirmation,
-              hearing_details,
-              half_day_start,
-              half_day_end,
-              requested_at,
-              approved_at,
-              booked_at,
-              updated_at
-            FROM [dbo].[annualLeave]
-            WHERE start_date > @today
-              AND status IN ('requested', 'approved', 'booked')
-            ORDER BY start_date, fe
-          `)
-        ),
-        attendanceQuery(projectDataConnStr, (reqSql) =>
-          reqSql.query(`
-            SELECT 
+            SELECT
               request_id,
               fe AS person,
               start_date,
@@ -349,6 +375,7 @@ async function getGeneralAnnualLeaveData(today, { forceRefresh = false } = {}) {
               updated_at
             FROM [dbo].[annualLeave]
             WHERE start_date >= DATEADD(year, -2, GETDATE())
+               OR (status = 'booked' AND @today BETWEEN start_date AND end_date)
             ORDER BY start_date DESC
           `)
         ),
@@ -361,15 +388,59 @@ async function getGeneralAnnualLeaveData(today, { forceRefresh = false } = {}) {
         )
       ]);
 
+      // Partition in-memory. todayStr lets us do string compare against the
+      // ISO date the DB returns (no TZ gymnastics).
+      const rows = leaveResult.recordset;
+      const toIso = (d) => {
+        if (!d) return '';
+        if (typeof d === 'string') return d.slice(0, 10);
+        const dt = d instanceof Date ? d : new Date(d);
+        return Number.isNaN(dt.getTime()) ? '' : dt.toISOString().slice(0, 10);
+      };
+      const annual_leave = [];
+      const future_leave = [];
+      const all_data = [];
+      const twoYearsAgoMs = Date.now() - (1000 * 60 * 60 * 24 * 365 * 2);
+      for (const row of rows) {
+        const startIso = toIso(row.start_date);
+        const endIso = toIso(row.end_date);
+        const startMs = startIso ? Date.parse(startIso) : NaN;
+        // all_data: last 2 years
+        if (Number.isFinite(startMs) && startMs >= twoYearsAgoMs) {
+          all_data.push(row);
+        }
+        // annual_leave: booked AND today in range
+        if (row.status === 'booked' && startIso && endIso && startIso <= today && today <= endIso) {
+          annual_leave.push(row);
+        }
+        // future_leave: starts strictly after today, status in requested/approved/booked
+        if (startIso && startIso > today && (row.status === 'requested' || row.status === 'approved' || row.status === 'booked')) {
+          future_leave.push(row);
+        }
+      }
+
+      // Match legacy ordering expectations (consumers rely on these).
+      annual_leave.sort((a, b) => String(a.person || '').localeCompare(String(b.person || '')));
+      future_leave.sort((a, b) => {
+        const d = toIso(a.start_date).localeCompare(toIso(b.start_date));
+        return d !== 0 ? d : String(a.person || '').localeCompare(String(b.person || ''));
+      });
+      // all_data already sorted by start_date DESC from SQL.
+
       return {
-        annual_leave: currentLeaveResult.recordset,
-        future_leave: futureLeaveResult.recordset,
-        all_data: allLeaveResult.recordset,
+        annual_leave,
+        future_leave,
+        all_data,
         team: teamResult.recordset
       };
     },
     1800
-  );
+  ).finally(() => {
+    inFlightGeneralAnnualLeave.delete(cacheKey);
+  });
+
+  inFlightGeneralAnnualLeave.set(cacheKey, promise);
+  return promise;
 }
 
 // Test route
@@ -419,54 +490,16 @@ router.get('/debug-team-schema', async (req, res) => {
 // Helper function to check annual leave
 async function checkAnnualLeave({ forceRefresh = false } = {}) {
   try {
-    // Cache key based on current date since leave status changes daily
-    const today = new Date().toISOString().split('T')[0];
-    const cacheKey = generateCacheKey('attendance', 'annual-leave-active', today);
+    const today = getTodayIso();
+    const generalLeaveData = await getGeneralAnnualLeaveData(today, { forceRefresh });
+    const activeLeave = Array.isArray(generalLeaveData?.annual_leave) ? generalLeaveData.annual_leave : [];
 
-    if (forceRefresh) {
-      try {
-        await deleteCache(cacheKey);
-      } catch {
-        // Non-blocking
-      }
-    }
-    
-    return await cacheWrapper(
-      cacheKey,
-      async () => {
-        const password = await getSqlPassword();
-        if (!password) {
-          return new Set();
-        }
-
-        // Connection to helix-project-data for annual leave
-        const projectDataConnStr = `Server=tcp:helix-database-server.database.windows.net,1433;Initial Catalog=helix-project-data;Persist Security Info=False;User ID=helix-database-server;Password=${password};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;`;
-
-        // Get people currently on approved annual leave
-        const leaveResult = await attendanceQuery(projectDataConnStr, (req, sql) =>
-          req.input('today', sql.Date, today)
-            .query(`
-            SELECT fe AS person
-            FROM annualLeave 
-            WHERE status = 'booked'
-            AND @today BETWEEN start_date AND end_date
-          `)
-        );
-        
-        // Prepare a serializable list of initials currently on leave
-        const peopleOnLeaveInitials = [];
-        leaveResult.recordset.forEach(row => {
-          if (row.person) peopleOnLeaveInitials.push(row.person);
-        });
-        
-        return peopleOnLeaveInitials;
-      },
-      600 // 10 minutes TTL - annual leave doesn't change frequently during the day
-    );
-    
+    return activeLeave
+      .map((row) => String(row?.person || row?.fe || '').trim().toUpperCase())
+      .filter(Boolean);
   } catch (error) {
     console.error('Error checking annual leave:', error);
-    return new Set(); // Return empty set on error
+    return [];
   }
 }
 
@@ -480,11 +513,18 @@ const getAttendanceHandler = async (req, res) => {
     const forceRefresh = String(req.query?.forceRefresh || '').toLowerCase() === 'true';
 
     if (forceRefresh) {
+      clearAttendanceMemCached(cacheKey);
       try {
         await deleteCache(cacheKey);
       } catch {
         // Non-blocking
       }
+    }
+
+    // Fast path: in-memory cache (avoids Redis round-trip on critical path)
+    const memCached = getAttendanceMemCached(cacheKey);
+    if (memCached) {
+      return res.json(memCached);
     }
     
     // Try to get cached data first
@@ -496,7 +536,7 @@ const getAttendanceHandler = async (req, res) => {
           throw new Error('Could not retrieve database credentials');
         }
         
-        const coreDataConnStr = `Server=tcp:helix-database-server.database.windows.net,1433;Initial Catalog=helix-core-data;Persist Security Info=False;User ID=helix-database-server;Password=${password};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;`;
+        const { coreDataConnStr } = getAttendanceConnectionStrings(password);
         
         // Get current attendance data from the correct attendance table
         const result = await attendanceQuery(coreDataConnStr, (req) => req.query(`
@@ -583,10 +623,15 @@ const getAttendanceHandler = async (req, res) => {
       300 // 5 minutes TTL - attendance data changes frequently but not constantly
     );
 
-    res.json({
+    const responsePayload = {
       success: true,
       ...cachedData
-    });
+    };
+
+    // Store in memory cache for fast subsequent requests
+    setAttendanceMemCached(cacheKey, responsePayload);
+
+    res.json(responsePayload);
 
   } catch (error) {
     console.error('Error fetching attendance:', error);
@@ -619,7 +664,7 @@ router.post('/updateAttendance', async (req, res) => {
       throw new Error('Could not retrieve database credentials');
     }
     
-    const coreDataConnStr = `Server=tcp:helix-database-server.database.windows.net,1433;Initial Catalog=helix-core-data;Persist Security Info=False;User ID=helix-database-server;Password=${password};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;`;
+    const { coreDataConnStr } = getAttendanceConnectionStrings(password);
     
     // Calculate week end date
     const weekEnd = new Date(weekStart);
@@ -732,6 +777,7 @@ router.post('/updateAttendance', async (req, res) => {
     }
 
     // Clear attendance cache after successful update
+    clearAttendanceMemCached(); // Clear all in-memory attendance cache
     try {
       await deleteCachePattern('attendance:*');
     } catch (cacheError) {
@@ -758,7 +804,7 @@ router.post('/unconfirmAttendance', async (req, res) => {
     const password = await getSqlPassword();
     if (!password) throw new Error('Could not retrieve database credentials');
 
-    const coreDataConnStr = `Server=tcp:helix-database-server.database.windows.net,1433;Initial Catalog=helix-core-data;Persist Security Info=False;User ID=helix-database-server;Password=${password};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;`;
+    const { coreDataConnStr } = getAttendanceConnectionStrings(password);
 
     // Set Confirmed_At to NULL and clear Attendance_Days
     await attendanceQuery(coreDataConnStr, (req, sql) =>
@@ -1112,7 +1158,7 @@ async function findOutlookEventIdForLeave(accessToken, userId, { startDate, endD
 
 async function getTeamMemberByInitials(initials, password) {
   if (!initials) return null;
-  const coreDataConnStr = `Server=tcp:helix-database-server.database.windows.net,1433;Initial Catalog=helix-core-data;Persist Security Info=False;User ID=helix-database-server;Password=${password};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;`;
+  const { coreDataConnStr } = getAttendanceConnectionStrings(password);
 
   try {
     const result = await attendanceQuery(coreDataConnStr, (req, sqlTypes) =>
@@ -1216,7 +1262,7 @@ router.post('/getAnnualLeave', async (req, res) => {
           throw new Error('Could not retrieve database credentials');
         }
 
-        const projectDataConnStr = `Server=tcp:helix-database-server.database.windows.net,1433;Initial Catalog=helix-project-data;Persist Security Info=False;User ID=helix-database-server;Password=${password};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;`;
+        const { projectDataConnStr } = getAttendanceConnectionStrings(password);
         const fiscalStartStr = fiscalStart.toISOString().split('T')[0];
         const fiscalEndStr = fiscalEnd.toISOString().split('T')[0];
 
@@ -1313,6 +1359,7 @@ router.post('/getAnnualLeave', async (req, res) => {
 
 // POST /api/attendance/annual-leave - Insert new annual leave request
 router.post('/annual-leave', async (req, res) => {
+  let submissionId = null;
   try {
     const { fe, dateRanges, reason, days_taken, leave_type, hearing_confirmation, hearing_details, admin_status } = req.body;
 
@@ -1324,6 +1371,31 @@ router.post('/annual-leave', async (req, res) => {
       });
     }
 
+    // form_submissions audit log. Different form_keys distinguish the three
+    // annual-leave intake UIs (request / booking / admin-booking) so the rail
+    // groups them correctly. `admin_status` is the proxy: explicit 'booked' =
+    // admin booking, otherwise it's a staff request. The auto-book allowlist
+    // (AC, JW) lands as 'annual-leave-booking' too because their requests
+    // skip the approval workflow.
+    const validAdminStatusesForKey = new Set(['booked', 'requested', 'approved']);
+    const isAdminBooking = typeof admin_status === 'string'
+      && validAdminStatusesForKey.has(String(admin_status).toLowerCase())
+      && String(admin_status).toLowerCase() === 'booked';
+    const formKeyForSubmission = isAdminBooking
+      ? 'annual-leave-admin'
+      : (shouldAutoBookAnnualLeave(fe) ? 'annual-leave-booking' : 'annual-leave-request');
+    try {
+      submissionId = await recordSubmission({
+        formKey: formKeyForSubmission,
+        submittedBy: String(fe || 'UNK').slice(0, 10),
+        lane: 'Request',
+        payload: req.body,
+        summary: `Annual leave (${leave_type}) \u2014 ${dateRanges.length} range${dateRanges.length === 1 ? '' : 's'}`.slice(0, 400),
+      });
+    } catch (logErr) {
+      trackException(logErr, { phase: 'annualLeave.recordSubmission' });
+    }
+
     const password = await getSqlPassword();
     if (!password) {
       return res.status(500).json({
@@ -1332,7 +1404,7 @@ router.post('/annual-leave', async (req, res) => {
       });
     }
 
-    const projectDataConnStr = `Server=tcp:helix-database-server.database.windows.net,1433;Initial Catalog=helix-project-data;Persist Security Info=False;User ID=helix-database-server;Password=${password};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;`;
+    const { projectDataConnStr } = getAttendanceConnectionStrings(password);
 
     const insertedIds = [];
     const shouldAutoBook = shouldAutoBookAnnualLeave(fe);
@@ -1408,11 +1480,66 @@ router.post('/annual-leave', async (req, res) => {
       insertedIds
     });
 
+    await recordStep(submissionId, {
+      name: 'annual_leave.insert',
+      status: 'success',
+      output: { ids: insertedIds, status: initialStatus },
+    });
+    await markComplete(submissionId, {
+      lastEvent: needsCalendarSync ? 'annual leave booked + calendar synced' : 'annual leave recorded',
+    });
+
     // Realtime notify (payload-light: clients refetch)
     try {
       broadcastAnnualLeaveChanged({ changeType: 'created', ids: insertedIds });
     } catch {
       // Non-blocking
+    }
+
+    // HOME_TODO_SINGLE_PICKUP_SURFACE — B2 wiring for annual-leave.
+    // For requested (non-auto-booked) leaves, land one card per approver on
+    // dbo.hub_todo. Each card gets matter_ref = 'leave:<id>' so
+    // reconcileAllByRef can close every approver's card when the status flips
+    // to approved/rejected/booked. Best-effort; never blocks the response.
+    if (!needsCalendarSync) {
+      try {
+        let requesterAow = '';
+        try {
+          const aowRow = await attendanceQuery(projectDataConnStr, (reqSql, s) =>
+            reqSql.input('fe', s.VarChar(50), fe).query(
+              `SELECT TOP 1 [AOW] FROM dbo.team WHERE UPPER(Initials) = UPPER(@fe)`
+            )
+          );
+          requesterAow = aowRow.recordset?.[0]?.AOW || '';
+        } catch { /* best-effort; default to AC path */ }
+        const approvers = determineLeaveApprovers(requesterAow);
+        const dateRangeSummary = dateRanges.length === 1
+          ? `${dateRanges[0].start_date} → ${dateRanges[0].end_date}`
+          : `${dateRanges.length} ranges`;
+        await Promise.all(insertedIds.map(async (leaveId) => {
+          await Promise.all(approvers.map((ownerInitials) => createHubTodoCard({
+            kind: 'annual-leave',
+            ownerInitials,
+            matterRef: `leave:${leaveId}`,
+            docType: leave_type || 'Annual leave',
+            stage: 'pending',
+            summary: `Leave · ${fe} · ${dateRangeSummary}`,
+            lastEvent: `Requested by ${fe}`,
+            payload: {
+              leaveId: String(leaveId),
+              requester: String(fe || ''),
+              leaveType: leave_type || null,
+              dateRanges,
+              reason: reason || null,
+            },
+          })));
+        }));
+      } catch (todoErr) {
+        trackEvent('Todo.Card.Created.Failed', {
+          kind: 'annual-leave',
+          error: todoErr?.message || String(todoErr),
+        });
+      }
     }
 
     // Clear annual leave cache after successful creation
@@ -1425,12 +1552,18 @@ router.post('/annual-leave', async (req, res) => {
         // Single-key cache clear failed, continue
       }
       await deleteCachePattern('attendance:annual-leave*');
+      // Attendance mem cache embeds the on-leave flag — bust so the longer
+      // 120s TTL cannot serve a stale "available" status for the requester.
+      clearAttendanceMemCached();
     } catch (cacheError) {
       // Cache clear failed, not critical
     }
 
   } catch (error) {
     console.error('Error inserting annual leave:', error.message || error);
+    if (submissionId) {
+      await markFailed(submissionId, { lastEvent: 'annual-leave:insert:failed', error });
+    }
     res.status(500).json({
       success: false,
       error: 'Failed to insert annual leave request'
@@ -1477,7 +1610,7 @@ router.post('/updateAnnualLeave', async (req, res) => {
       });
     }
 
-    const projectDataConnStr = `Server=tcp:helix-database-server.database.windows.net,1433;Initial Catalog=helix-project-data;Persist Security Info=False;User ID=helix-database-server;Password=${password};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;`;
+    const { projectDataConnStr } = getAttendanceConnectionStrings(password);
 
     let effectiveStatus = String(newStatus).toLowerCase();
 
@@ -1576,6 +1709,30 @@ router.post('/updateAnnualLeave', async (req, res) => {
       // Non-blocking
     }
 
+    // HOME_TODO_SINGLE_PICKUP_SURFACE — B2 reconcile. Status transitions out
+    // of 'requested' mean the approval decision has been made; close every
+    // open card for this leave id across all approvers.
+    try {
+      const terminalStatuses = new Set(['approved', 'booked', 'rejected', 'discarded']);
+      if (terminalStatuses.has(String(effectiveStatus).toLowerCase())) {
+        const via = String(effectiveStatus).toLowerCase() === 'rejected'
+          ? 'reject'
+          : (String(effectiveStatus).toLowerCase() === 'discarded' ? 'manual-dismiss' : 'approve');
+        await reconcileHubTodoByRef({
+          kind: 'annual-leave',
+          matterRef: `leave:${parsedId}`,
+          completedVia: via,
+          lastEvent: `Status → ${effectiveStatus}`,
+        });
+      }
+    } catch (todoErr) {
+      trackEvent('Todo.Reconcile.Failed', {
+        kind: 'annual-leave',
+        id: String(parsedId),
+        error: todoErr?.message || String(todoErr),
+      });
+    }
+
     // Clear annual leave cache after successful update
     try {
       const today = getTodayIso();
@@ -1586,6 +1743,8 @@ router.post('/updateAnnualLeave', async (req, res) => {
         // Single-key cache clear failed, continue
       }
       await deleteCachePattern('attendance:annual-leave*');
+      // Attendance mem cache embeds the on-leave flag (120s TTL).
+      clearAttendanceMemCached();
     } catch (cacheError) {
       // Cache clear failed, not critical
     }
@@ -1939,7 +2098,7 @@ router.put('/admin/annual-leave', async (req, res) => {
       });
     }
 
-    const projectDataConnStr = `Server=tcp:helix-database-server.database.windows.net,1433;Initial Catalog=helix-project-data;Persist Security Info=False;User ID=helix-database-server;Password=${password};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;`;
+    const { projectDataConnStr } = getAttendanceConnectionStrings(password);
 
     // Build dynamic update query based on provided fields
     const updates = [];
@@ -2019,6 +2178,8 @@ router.put('/admin/annual-leave', async (req, res) => {
     } catch (cacheError) {
       // Cache clear failed, not critical
     }
+    // Attendance mem cache embeds the on-leave flag (120s TTL).
+    clearAttendanceMemCached();
 
     console.log(`[Admin] Updated annual leave record ${id}: status=${newStatus || 'unchanged'}, leave_type=${leave_type || 'unchanged'}, days_taken=${days_taken ?? 'unchanged'}, reason=${reason !== undefined ? 'updated' : 'unchanged'}`);
 
@@ -2032,6 +2193,28 @@ router.put('/admin/annual-leave', async (req, res) => {
       broadcastAnnualLeaveChanged({ changeType: 'admin-updated', id: String(id), newStatus: newStatus ? String(newStatus) : undefined });
     } catch {
       // Non-blocking
+    }
+
+    // HOME_TODO_SINGLE_PICKUP_SURFACE — B2 reconcile on admin edits.
+    try {
+      const terminalStatuses = new Set(['approved', 'booked', 'rejected', 'discarded']);
+      if (newStatus && terminalStatuses.has(String(newStatus).toLowerCase())) {
+        const via = String(newStatus).toLowerCase() === 'rejected'
+          ? 'reject'
+          : (String(newStatus).toLowerCase() === 'discarded' ? 'manual-dismiss' : 'approve');
+        await reconcileHubTodoByRef({
+          kind: 'annual-leave',
+          matterRef: `leave:${id}`,
+          completedVia: via,
+          lastEvent: `Admin set status → ${newStatus}`,
+        });
+      }
+    } catch (todoErr) {
+      trackEvent('Todo.Reconcile.Failed', {
+        kind: 'annual-leave',
+        id: String(id),
+        error: todoErr?.message || String(todoErr),
+      });
     }
 
   } catch (error) {
@@ -2072,7 +2255,7 @@ router.delete('/annual-leave/:id', async (req, res) => {
       });
     }
 
-    const projectDataConnStr = `Server=tcp:helix-database-server.database.windows.net,1433;Initial Catalog=helix-project-data;Persist Security Info=False;User ID=helix-database-server;Password=${password};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;`;
+    const { projectDataConnStr } = getAttendanceConnectionStrings(password);
 
     // First, fetch the record to get Clio entry ID if it exists
     const fetchResult = await attendanceQuery(projectDataConnStr, (req, sql) =>
@@ -2200,9 +2383,27 @@ router.delete('/annual-leave/:id', async (req, res) => {
       // Non-blocking
     }
 
+    // HOME_TODO_SINGLE_PICKUP_SURFACE — B2 reconcile on delete.
+    try {
+      await reconcileHubTodoByRef({
+        kind: 'annual-leave',
+        matterRef: `leave:${parsedId}`,
+        completedVia: 'auto',
+        lastEvent: 'Leave record deleted',
+      });
+    } catch (todoErr) {
+      trackEvent('Todo.Reconcile.Failed', {
+        kind: 'annual-leave',
+        id: String(parsedId),
+        error: todoErr?.message || String(todoErr),
+      });
+    }
+
     // Clear annual leave cache after successful deletion
     try {
       await deleteCachePattern('attendance:annual-leave*');
+      // Attendance mem cache embeds the on-leave flag (120s TTL).
+      clearAttendanceMemCached();
     } catch (cacheError) {
       // Cache clear failed, not critical
     }

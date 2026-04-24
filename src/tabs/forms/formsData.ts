@@ -9,6 +9,10 @@ import CounselRecommendationForm from '../../CustomForms/CounselRecommendationFo
 import ExpertDirectory from '../../CustomForms/ExpertDirectory';
 import CounselDirectory from '../../CustomForms/CounselDirectory';
 import TransactionIntake from '../../CustomForms/TransactionIntake';
+import UndertakingForm from '../../CustomForms/UndertakingForm';
+import ComplaintForm from '../../CustomForms/ComplaintForm';
+import LearningDevelopmentForm from '../../CustomForms/LearningDevelopmentForm';
+import VerificationCheckForm from '../../CustomForms/VerificationCheckForm';
 
 // invisible change
 // Forms grouped by section (excluding Favorites which is dynamic)
@@ -103,6 +107,39 @@ export const formSections: { [key in Exclude<SectionName, 'Favorites'>]: FormIte
             component: NotableCaseInfoForm,
             requires: 'Case details, outcome, key facts',
             description: 'Record details of significant cases for legal directories and publications',
+        },
+        {
+            title: 'New Undertaking',
+            url: '',
+            icon: 'Permissions',
+            component: UndertakingForm,
+            requires: 'Recipient, date given, description, due date if known',
+            description: 'Start a new undertaking through structured intake before monitoring it in Compliance',
+        },
+        {
+            title: 'New Complaint',
+            url: '',
+            icon: 'Feedback',
+            component: ComplaintForm,
+            requires: 'Complainant, respondent, date received, formal summary',
+            description: 'Capture a formal complaint through controlled intake before managing it in Compliance',
+        },
+        {
+            title: 'New Learning Activity',
+            url: '',
+            icon: 'Education',
+            component: LearningDevelopmentForm,
+            requires: 'Activity title, date, hours',
+            description: 'Log CPD activities against your annual plan or create a new plan',
+        },
+        {
+            title: 'Verification Check',
+            url: '',
+            icon: 'ContactCard',
+            component: VerificationCheckForm,
+            requires: 'Name, DOB, address, email',
+            description: 'Run an ad-hoc Tiller identity verification (address + PEP/sanctions). No record written to Instructions.',
+            tags: ['admin-only'],
         },
     ],
     Financial: financialForms,

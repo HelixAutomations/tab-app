@@ -16,17 +16,25 @@ New-Item -ItemType Directory -Path $deployDir | Out-Null
 
 
 Write-Host "Building frontend (root directory)"
+# Wipe any stale build output so a partial/failed build can't slip through.
+Remove-Item -Recurse -Force "$PSScriptRoot\build" -ErrorAction SilentlyContinue
 npm run build
-
-# Ensure frontend build output is in root build/ directory if needed
-if (Test-Path "$PSScriptRoot\build") {
-    Write-Host "Frontend build output found in root build/ directory."
-    Write-Host "Copying build output to deploy directory"
-    Copy-Item -Path "$PSScriptRoot\build\*" -Destination "$deployDir" -Recurse -Force
-} else {
-    Write-Host "ERROR: No build output found in root build/ directory after build."
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "ERROR: 'npm run build' failed with exit code $LASTEXITCODE."
     exit 1
 }
+
+# Verify the build actually produced a usable SPA bundle (index.html + static/).
+$indexHtml = Join-Path $PSScriptRoot 'build\index.html'
+$staticDir = Join-Path $PSScriptRoot 'build\static'
+if (-not (Test-Path $indexHtml) -or -not (Test-Path $staticDir)) {
+    Write-Host "ERROR: Build output incomplete - missing build/index.html or build/static/."
+    Write-Host "       This usually means craco build failed silently. Aborting deploy."
+    exit 1
+}
+Write-Host "Frontend build verified (index.html + static/ present)."
+Write-Host "Copying build output to deploy directory"
+Copy-Item -Path "$PSScriptRoot\build\*" -Destination "$deployDir" -Recurse -Force
 
 Write-Host "Installing server dependencies (production only)"
 npm ci --prefix server --only=prod
@@ -63,6 +71,14 @@ if (Test-Path $sigSrc) {
     $sigDest = Join-Path $deployDir 'assets\signatures'
     New-Item -ItemType Directory -Path $sigDest -Force | Out-Null
     Copy-Item -Path "$sigSrc\*" -Destination $sigDest -Recurse -Force
+}
+
+# Include changelog for the Activity tab release-notes surface.
+$changelogSrc = Join-Path $PSScriptRoot 'logs\changelog.md'
+if (Test-Path $changelogSrc) {
+    $logsDest = Join-Path $deployDir 'logs'
+    New-Item -ItemType Directory -Path $logsDest -Force | Out-Null
+    Copy-Item -Path $changelogSrc -Destination (Join-Path $logsDest 'changelog.md') -Force
 }
 
 Write-Host "Zipping files for staging deploy"

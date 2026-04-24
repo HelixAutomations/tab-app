@@ -13,6 +13,7 @@
  */
 
 const { sendCardToDM } = require('./teamsNotificationClient');
+const { append } = require('./opLog');
 const { trackEvent } = require('./appInsights');
 const log = require('./logger').createLogger('HubNotifier');
 
@@ -43,6 +44,7 @@ const ACCENT_COLOURS = {
   'matter.opened':  'good',      // green
   'eid.completed':  'accent',    // blue
   'ccl.approved':   'good',      // green
+  'ccl.ready':      'accent',    // blue — draft ready for review
   'sync.completed': 'accent',    // blue
   'error.critical': 'attention', // red
 };
@@ -51,6 +53,7 @@ const TITLES = {
   'matter.opened':  'Matter Opened',
   'eid.completed':  'ID Check Completed',
   'ccl.approved':   'CCL Approved',
+  'ccl.ready':      'CCL Draft Ready',
   'sync.completed': 'Data Sync',
   'error.critical': 'Error',
 };
@@ -59,9 +62,75 @@ const ICONS = {
   'matter.opened':  '\u2705',  // ✅
   'eid.completed':  '\uD83D\uDCCB',  // 📋
   'ccl.approved':   '\uD83D\uDCDD',  // 📝
+  'ccl.ready':      '\uD83D\uDCDD',  // 📝
   'sync.completed': '\uD83D\uDD04',  // 🔄
   'error.critical': '\u26A0\uFE0F',  // ⚠️
 };
+
+const NOTIFICATION_TEMPLATE_LIBRARY = [
+  {
+    id: 'ccl-approved',
+    notifyType: 'ccl.approved',
+    label: 'CCL approved',
+    category: 'Team Hub notifications',
+    description: 'Approval notification sent when a CCL is approved.',
+    defaultRoute: 'lz-dm',
+    summary: 'CCL approved notification',
+    sampleData: {
+      matterId: '112233',
+      instructionRef: 'HLX-11223-44556',
+      approvedBy: 'LZ',
+    },
+  },
+  {
+    id: 'ccl-ready',
+    notifyType: 'ccl.ready',
+    label: 'CCL draft ready for review',
+    category: 'Team Hub notifications',
+    description: 'Autopilot notification sent when a CCL draft has been generated and is ready for fee-earner review. Phase A: routed to Luke only.',
+    defaultRoute: 'lz-dm',
+    summary: 'CCL draft ready notification',
+    sampleData: {
+      matterId: '3311402',
+      matterDisplayNumber: 'HLX-30038-73942',
+      clientName: 'Demo Client Ltd',
+      feeEarner: 'Ryan Choi',
+      practiceArea: 'Commercial',
+      confidence: 'full',
+      fieldCount: 26,
+    },
+  },
+  {
+    id: 'collected-sync-completed',
+    notifyType: 'sync.completed',
+    label: 'Collected time sync',
+    category: 'Team Hub notifications',
+    description: 'Data-ops completion card after a collected time sync finishes.',
+    defaultRoute: 'lz-dm',
+    summary: 'Collected time sync notification',
+    sampleData: {
+      entity: 'CollectedTime',
+      tier: 'hot',
+      durationMs: '8421',
+      triggeredBy: 'scheduler',
+    },
+  },
+  {
+    id: 'wip-sync-completed',
+    notifyType: 'sync.completed',
+    label: 'WIP sync',
+    category: 'Team Hub notifications',
+    description: 'Data-ops completion card after a WIP sync finishes.',
+    defaultRoute: 'lz-dm',
+    summary: 'WIP sync notification',
+    sampleData: {
+      entity: 'Wip',
+      tier: 'hot',
+      durationMs: '12654',
+      triggeredBy: 'scheduler',
+    },
+  },
+];
 
 function buildCard(type, data) {
   const facts = [];
@@ -88,6 +157,17 @@ function buildCard(type, data) {
     if (data.matterId) facts.push({ title: 'Matter', value: String(data.matterId) });
     if (data.instructionRef) facts.push({ title: 'Ref', value: data.instructionRef });
     if (data.approvedBy) facts.push({ title: 'Approved by', value: data.approvedBy });
+  }
+
+  if (type === 'ccl.ready') {
+    if (data.matterDisplayNumber) facts.push({ title: 'Matter', value: data.matterDisplayNumber });
+    else if (data.matterId) facts.push({ title: 'Matter', value: String(data.matterId) });
+    if (data.clientName) facts.push({ title: 'Client', value: truncate(data.clientName, 80) });
+    if (data.feeEarner) facts.push({ title: 'Fee earner', value: data.feeEarner });
+    if (data.practiceArea) facts.push({ title: 'Practice area', value: data.practiceArea });
+    if (data.confidence) facts.push({ title: 'Confidence', value: String(data.confidence) });
+    if (Number.isFinite(data.fieldCount)) facts.push({ title: 'Fields', value: String(data.fieldCount) });
+    if (data.ndDocumentId) facts.push({ title: 'ND doc', value: String(data.ndDocumentId) });
   }
 
   if (type === 'sync.completed') {
@@ -140,6 +220,20 @@ function buildCard(type, data) {
   };
 }
 
+function buildTemplateCard(templateId, overrides = {}) {
+  const template = NOTIFICATION_TEMPLATE_LIBRARY.find((item) => item.id === templateId) || null;
+  if (!template) {
+    throw new Error(`Unknown Team Hub notification template: ${templateId}`);
+  }
+  return {
+    template,
+    card: buildCard(template.notifyType, {
+      ...template.sampleData,
+      ...overrides,
+    }),
+  };
+}
+
 function truncate(str, max) {
   if (!str) return '';
   return str.length > max ? str.slice(0, max) + '…' : str;
@@ -165,6 +259,25 @@ async function notify(type, data = {}) {
     const result = await sendCardToDM(NOTIFY_EMAIL, card, `Hub: ${type}`);
 
     if (result.success) {
+      append({
+        type: 'activity.card.send',
+        status: 'success',
+        templateId: type,
+        templateLabel: TITLES[type] || type,
+        routeKey: 'lz-dm',
+        routeLabel: `DM · ${result.displayName || NOTIFY_EMAIL}`,
+        title: `${TITLES[type] || type} sent`,
+        summary: Object.entries(data || {})
+          .filter(([, value]) => value != null && String(value).trim() !== '')
+          .slice(0, 3)
+          .map(([key, value]) => `${key}: ${value}`)
+          .join(' · '),
+        activityId: result.activityId || null,
+        conversationId: result.conversationId || null,
+        recipientEmail: NOTIFY_EMAIL,
+        originLabel: 'System send',
+        deliveryMode: 'dm',
+      });
       trackEvent('HubNotifier.Sent', { type, key });
     } else {
       log.warn(`[HubNotifier] Post failed (${result.statusCode}): ${result.error?.slice(0, 200)}`);
@@ -175,4 +288,4 @@ async function notify(type, data = {}) {
   }
 }
 
-module.exports = { notify, buildCard, COOLDOWN_MS };
+module.exports = { notify, buildCard, buildTemplateCard, NOTIFICATION_TEMPLATE_LIBRARY, COOLDOWN_MS, NOTIFY_EMAIL };

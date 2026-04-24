@@ -1,4 +1,9 @@
 import { trackClientError, trackClientEvent } from './telemetry';
+import {
+    appendRequestAuthQueryParams,
+    buildRequestAuthHeaders,
+    shouldAugmentApiRequest,
+} from './requestAuthContext';
 
 export interface CallLogEntry {
     url: string;
@@ -66,14 +71,45 @@ function push(entry: CallLogEntry) {
     }
 }
 
-if (typeof window !== 'undefined' && (window as any).fetch) {
+if (typeof window !== 'undefined' && !(window as any).__helixCallLoggerInstalled) {
+    (window as any).__helixCallLoggerInstalled = true;
+
     const originalFetch = window.fetch.bind(window);
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-        const url = typeof input === 'string' ? input : input.toString();
-        const method = init?.method || 'GET';
+        const rawUrl = typeof input === 'string'
+            ? input
+            : input instanceof Request
+                ? input.url
+                : input.toString();
+        const url = shouldAugmentApiRequest(rawUrl)
+            ? appendRequestAuthQueryParams(rawUrl)
+            : rawUrl;
+        const method = init?.method || (input instanceof Request ? input.method : 'GET');
         const start = performance.now();
+
+        let nextInput: RequestInfo | URL = input;
+        let nextInit = init;
+
+        if (shouldAugmentApiRequest(rawUrl)) {
+            const baseHeaders = init?.headers || (input instanceof Request ? input.headers : undefined);
+            const headers = buildRequestAuthHeaders(baseHeaders);
+            nextInit = {
+                ...init,
+                headers,
+            };
+
+            if (input instanceof Request) {
+                nextInput = new Request(url, new Request(input, {
+                    ...nextInit,
+                    headers,
+                }));
+            } else {
+                nextInput = url;
+            }
+        }
+
         try {
-            const response = await originalFetch(input as any, init);
+            const response = await originalFetch(nextInput as any, nextInit);
             push({ url, method, status: response.status, durationMs: performance.now() - start });
             return response;
         } catch (err) {
@@ -81,9 +117,6 @@ if (typeof window !== 'undefined' && (window as any).fetch) {
             throw err;
         }
     };
-}
-
-if (typeof window !== 'undefined' && (window as any).XMLHttpRequest) {
     const origOpen = XMLHttpRequest.prototype.open;
     const origSend = XMLHttpRequest.prototype.send;
 
@@ -103,11 +136,36 @@ if (typeof window !== 'undefined' && (window as any).XMLHttpRequest) {
     ) {
         const info = (this as any).__logInfo || { method: 'GET', url: '' };
         const start = performance.now();
+        if (shouldAugmentApiRequest(info.url)) {
+            const headers = buildRequestAuthHeaders();
+            headers.forEach((value, key) => {
+                try {
+                    this.setRequestHeader(key, value);
+                } catch {
+                    // ignore header injection failures for opaque XHR callers
+                }
+            });
+        }
         this.addEventListener('loadend', function (this: XMLHttpRequest) {
             push({ url: info.url, method: info.method, status: this.status, durationMs: performance.now() - start });
         });
         return origSend.call(this, body);
     };
+
+    const NativeEventSource = window.EventSource;
+    class AuthenticatedEventSource extends NativeEventSource {
+        constructor(url: string | URL, eventSourceInitDict?: EventSourceInit) {
+            super(appendRequestAuthQueryParams(url), eventSourceInitDict);
+        }
+    }
+
+    Object.defineProperties(AuthenticatedEventSource, {
+        CONNECTING: { value: NativeEventSource.CONNECTING },
+        OPEN: { value: NativeEventSource.OPEN },
+        CLOSED: { value: NativeEventSource.CLOSED },
+    });
+
+    window.EventSource = AuthenticatedEventSource as typeof EventSource;
 }
 
 export function getCallLogs(): CallLogEntry[] {

@@ -2,6 +2,7 @@ import React, { useMemo, useState, useCallback } from 'react';
 import { FiUsers, FiMonitor, FiChevronRight, FiCheck, FiX } from 'react-icons/fi';
 import type { AnnualLeaveRecord } from '../../app/functionality/types';
 import { colours } from '../../app/styles/colours';
+import { TeamInsightSectionSkeleton } from './HomeSkeletons';
 import './home-tokens.css';
 
 /**
@@ -65,15 +66,19 @@ export interface TeamInsightProps {
   onConfirmAttendance?: (initials: string, weekStart: string, attendanceDays: string) => Promise<void>;
   onUnconfirmAttendance?: (initials: string, weekStart: string) => Promise<void>;
   onShowToast?: (message: string, type: 'success' | 'error' | 'info' | 'warning', details?: string) => void;
-}
-
-interface TeamSkeletonSectionProps {
-  labelWidth: number;
-  toggleWidth: number;
-  groupLabelWidth: number[];
-  tileCounts: number[];
-  tileSize: { width: number; height: number };
-  groupedRows?: boolean;
+  /**
+   * Initials of the logged-in user. When the user clicks their own avatar
+   * in the attendance row, TeamInsight defers to `onOpenSelfConfirmPanel`
+   * instead of opening the small in-line modal — so both entry points land
+   * in the same PersonalAttendanceConfirm flow.
+   */
+  currentUserInitials?: string;
+  /**
+   * Callback fired when the logged-in user clicks their own avatar. Wire
+   * this to the same handler the 'Update Attendance' quick action uses so
+   * both entry points share one modal.
+   */
+  onOpenSelfConfirmPanel?: () => void;
 }
 
 /* ─── constants ────────────────────────────────────────── */
@@ -230,6 +235,8 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
   onConfirmAttendance,
   onUnconfirmAttendance,
   onShowToast,
+  currentUserInitials,
+  onOpenSelfConfirmPanel,
 }) => {
   const [attendanceExpanded, setAttendanceExpanded] = useState(false);
   const [leaveExpanded, setLeaveExpanded] = useState(false);
@@ -266,7 +273,15 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
   /** Open the confirm-attendance modal for a person (works for both confirmed and unconfirmed). */
   const openConfirmModal = (person: PersonStatus, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (confirmingPerson || !onConfirmAttendance) return;
+    if (confirmingPerson) return;
+    // Self-click: defer to the parent-managed BespokePanel so we share one
+    // modal with the 'Update Attendance' quick action (unified UX).
+    const selfInitials = (currentUserInitials || '').trim().toUpperCase();
+    if (selfInitials && person.initials.trim().toUpperCase() === selfInitials && onOpenSelfConfirmPanel) {
+      onOpenSelfConfirmPanel();
+      return;
+    }
+    if (!onConfirmAttendance) return;
     setModalThisWeek([...person.weekStatuses]);
     setModalNextWeek(Array(5).fill('wfh'));
     setModalPerson(person);
@@ -314,72 +329,6 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
   const skeletonSoft = 'var(--home-skel-fill-weak)';
   const skeletonTileBg = 'var(--home-tile-bg)';
   const skeletonTileBorder = 'var(--home-tile-border)';
-
-  const renderSkeletonLine = (width: number | string, height: number, delay = 0) => (
-    <div
-      style={{
-        width,
-        height,
-        borderRadius: 2,
-        background: height >= 11 ? skeletonStrong : skeletonSoft,
-        animation: `teamPulse 1.4s ease-in-out infinite ${delay}s`,
-      }}
-    />
-  );
-
-  const renderSectionSkeleton = ({
-    labelWidth,
-    toggleWidth,
-    groupLabelWidth,
-    tileCounts,
-    tileSize,
-    groupedRows = false,
-  }: TeamSkeletonSectionProps) => (
-    <div style={{ display: 'grid', gap: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: 18 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ width: 11, height: 11, borderRadius: 2, background: isDarkMode ? 'rgba(135,243,243,0.18)' : 'rgba(54,144,206,0.16)' }} />
-          {renderSkeletonLine(labelWidth, 11)}
-        </div>
-        {renderSkeletonLine(toggleWidth, 10, 0.08)}
-      </div>
-      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-        {tileCounts.map((count, groupIndex) => (
-          <React.Fragment key={`${labelWidth}-${groupIndex}`}>
-            {groupIndex > 0 ? <div style={{ width: 1, alignSelf: 'stretch', background: sectionDivider, flexShrink: 0 }} /> : null}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: groupedRows ? 120 : undefined }}>
-              {renderSkeletonLine(groupLabelWidth[groupIndex] || groupLabelWidth[groupLabelWidth.length - 1] || 52, 9, groupIndex * 0.05)}
-              {groupedRows ? (
-                <div style={{ display: 'grid', gap: 6, minWidth: 120 }}>
-                  {Array.from({ length: count }).map((_, rowIndex) => (
-                    <div key={rowIndex} style={{ display: 'grid', gridTemplateColumns: `${tileSize.width}px 1fr`, gap: 8, alignItems: 'center' }}>
-                      <div style={{ width: tileSize.width, height: tileSize.height, background: skeletonTileBg, border: `1px solid ${skeletonTileBorder}`, animation: `teamPulse 1.4s ease-in-out infinite ${groupIndex * 0.05 + rowIndex * 0.03}s` }} />
-                      {renderSkeletonLine(rowIndex === 0 ? '78%' : '62%', 10, 0.04 + groupIndex * 0.05 + rowIndex * 0.03)}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', maxWidth: 160 }}>
-                  {Array.from({ length: count }).map((_, tileIndex) => (
-                    <div
-                      key={tileIndex}
-                      style={{
-                        width: tileSize.width,
-                        height: tileSize.height,
-                        background: skeletonTileBg,
-                        border: `1px solid ${skeletonTileBorder}`,
-                        animation: `teamPulse 1.4s ease-in-out infinite ${groupIndex * 0.05 + tileIndex * 0.03}s`,
-                      }}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          </React.Fragment>
-        ))}
-      </div>
-    </div>
-  );
   // Section hover — brand navy lift, not teal wash
   const sectionHoverBg = isDarkMode ? 'rgba(12, 36, 64, 0.72)' : 'rgba(54, 144, 206, 0.04)';
   const sectionHoverRing = isDarkMode ? 'rgba(135, 243, 243, 0.18)' : 'rgba(13, 47, 96, 0.14)';
@@ -760,13 +709,19 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
 
         {/* Loading skeleton */}
         {isLoadingAttendance && (
-          renderSectionSkeleton({
-            labelWidth: 108,
-            toggleWidth: 56,
-            groupLabelWidth: [52, 46, 58],
-            tileCounts: [4, 4, 3],
-            tileSize: { width: 34, height: 34 },
-          })
+          <TeamInsightSectionSkeleton
+            labelWidth={108}
+            toggleWidth={56}
+            groupLabelWidth={[52, 46, 58]}
+            tileCounts={[4, 4, 3]}
+            tileSize={{ width: 34, height: 34 }}
+            isDarkMode={isDarkMode}
+            sectionDivider={sectionDivider}
+            skeletonStrong={skeletonStrong}
+            skeletonSoft={skeletonSoft}
+            skeletonTileBg={skeletonTileBg}
+            skeletonTileBorder={skeletonTileBorder}
+          />
         )}
 
         {/* Compact avatar tiles — grouped by status, click to filter */}
@@ -808,7 +763,7 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
                           className={`team-avatar home-team-avatar${sel ? ' is-selected' : ''}`}
                           title={`${person.firstName} — ${STATUS_META[person.todayStatus].label}${!person.confirmed ? ' (unconfirmed)' : ''} — click to update${sel ? ' (filtered)' : ''}`}
                           onClick={(e) => {
-                            if (onConfirmAttendance) {
+                            if (onConfirmAttendance || onOpenSelfConfirmPanel) {
                               openConfirmModal(person, e);
                             } else {
                               togglePerson(person.initials, e);
@@ -1105,14 +1060,20 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
 
         {/* Loading skeleton */}
         {isLoadingLeave && (
-          renderSectionSkeleton({
-            labelWidth: 82,
-            toggleWidth: 86,
-            groupLabelWidth: [64, 56, 68],
-            tileCounts: [2, 2, 2],
-            tileSize: { width: 18, height: 18 },
-            groupedRows: true,
-          })
+          <TeamInsightSectionSkeleton
+            labelWidth={82}
+            toggleWidth={86}
+            groupLabelWidth={[64, 56, 68]}
+            tileCounts={[2, 2, 2]}
+            tileSize={{ width: 18, height: 18 }}
+            groupedRows
+            isDarkMode={isDarkMode}
+            sectionDivider={sectionDivider}
+            skeletonStrong={skeletonStrong}
+            skeletonSoft={skeletonSoft}
+            skeletonTileBg={skeletonTileBg}
+            skeletonTileBorder={skeletonTileBorder}
+          />
         )}
 
         {/* Leave tiles by time bucket */}

@@ -297,7 +297,7 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
   /* ---------------------------------------------------------------------------
      Approval Card Component
   --------------------------------------------------------------------------- */
-  const ApprovalCard: React.FC<{ entry: ApprovalEntry }> = ({ entry }) => {
+  const ApprovalCard: React.FC<{ entry: ApprovalEntry; index?: number }> = ({ entry, index = 0 }) => {
     const [localRejection, setLocalRejection] = useState<string>(rejectionReason[entry.id] || '');
     const [isRejecting, setIsRejecting] = useState<boolean>(false);
 
@@ -433,7 +433,10 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
     };
 
     return (
-      <div className={cardCls}>
+      <div
+        className={cardCls}
+        style={isAnimatingOut ? undefined : { animationDelay: `${Math.min(index, 9) * 20}ms` }}
+      >
         <div className="ala-card-header">
           <div className="ala-card-main">
             <div className="ala-card-topline">
@@ -631,8 +634,8 @@ const AnnualLeaveApprovals: React.FC<AnnualLeaveApprovalsProps> = ({
             </div>
 
             <div className="ala-card-list">
-              {localApprovals.map((entry) => (
-                <ApprovalCard key={entry.id} entry={entry} />
+              {localApprovals.map((entry, idx) => (
+                <ApprovalCard key={entry.id} entry={entry} index={idx} />
               ))}
             </div>
           </>

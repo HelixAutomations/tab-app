@@ -748,7 +748,7 @@ const AnnualLeaveBookings: React.FC<AnnualLeaveBookingsProps> = ({ bookings, onC
             <div style={{
               marginTop: '16px',
               padding: '12px 16px',
-              borderRadius: '6px',
+              borderRadius: 0,
               backgroundColor: isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(54, 144, 206, 0.08)',
               border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.20)'}`,
               fontSize: '13px',

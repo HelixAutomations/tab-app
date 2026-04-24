@@ -68,6 +68,37 @@ export interface SessionsData {
   list: SessionEntry[];
 }
 
+export interface SessionTraceEvent {
+  ts: number;
+  source: string;
+  type: string;
+  label: string;
+  kind: 'info' | 'warning' | 'error' | 'success';
+  durationMs: number | null;
+  error: string | null;
+}
+
+export interface SessionTraceEntry {
+  sessionId: string;
+  user: string;
+  name: string;
+  tab: string;
+  lastSeen: number;
+  pendingCount: number;
+  errorCount: number;
+  slowCount: number;
+  health: 'healthy' | 'busy' | 'warning' | 'error';
+  lastEventLabel: string | null;
+  recentEvents: SessionTraceEvent[];
+}
+
+export interface SessionTraceData {
+  active: number;
+  degraded: number;
+  busy: number;
+  list: SessionTraceEntry[];
+}
+
 export interface RequestEntry {
   ts: number;
   method: string;
@@ -97,6 +128,7 @@ export interface OpsPulseState {
   scheduler: SchedulerData | null;
   errors: ErrorEntry[];
   sessions: SessionsData | null;
+  sessionTraces: SessionTraceData | null;
   requests: RequestEntry[];
   presence: PresenceData | null;
 }

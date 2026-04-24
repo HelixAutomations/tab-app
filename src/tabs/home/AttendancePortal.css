@@ -54,7 +54,7 @@
   display: block;
   background: linear-gradient(90deg, rgba(150,150,160,0.08) 25%, rgba(150,150,160,0.15) 50%, rgba(150,150,160,0.08) 75%);
   background-size: 220% 100%;
-  border-radius: 2px;
+  border-radius: 0;
   animation: apShimmer 1.2s ease-in-out infinite;
 }
 
@@ -130,7 +130,7 @@
   gap: 6px;
   padding: 7px 14px;
   border: none;
-  border-radius: 2px;
+  border-radius: 999px;
   color: #fff;
   font-family: inherit;
   font-size: 0.6875rem;
@@ -165,7 +165,7 @@
   gap: 6px;
   padding: 6px 10px;
   border: 1px solid;
-  border-radius: 2px;
+  border-radius: 0;
   flex: 1;
   min-width: 140px;
   max-width: 260px;
@@ -202,7 +202,7 @@
 .ap-chip {
   padding: 5px 12px;
   border: 1px solid;
-  border-radius: 2px;
+  border-radius: 999px;
   font-family: inherit;
   font-size: 0.625rem;
   font-weight: 600;
@@ -225,7 +225,7 @@
   display: flex;
   flex-direction: column;
   border: 1px solid;
-  border-radius: 2px;
+  border-radius: 0;
   overflow: hidden;
   box-shadow: 0 2px 8px rgba(0,0,0,0.08);
 }
@@ -261,20 +261,21 @@
   animation: ap-riseIn 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-.ap-grid:not(:has(.ap-row--skeleton)) > .ap-row:nth-child(2)  { animation-delay: 0.03s; }
-.ap-grid:not(:has(.ap-row--skeleton)) > .ap-row:nth-child(3)  { animation-delay: 0.06s; }
-.ap-grid:not(:has(.ap-row--skeleton)) > .ap-row:nth-child(4)  { animation-delay: 0.09s; }
-.ap-grid:not(:has(.ap-row--skeleton)) > .ap-row:nth-child(5)  { animation-delay: 0.12s; }
-.ap-grid:not(:has(.ap-row--skeleton)) > .ap-row:nth-child(6)  { animation-delay: 0.15s; }
-.ap-grid:not(:has(.ap-row--skeleton)) > .ap-row:nth-child(7)  { animation-delay: 0.18s; }
-.ap-grid:not(:has(.ap-row--skeleton)) > .ap-row:nth-child(8)  { animation-delay: 0.21s; }
-.ap-grid:not(:has(.ap-row--skeleton)) > .ap-row:nth-child(9)  { animation-delay: 0.24s; }
-.ap-grid:not(:has(.ap-row--skeleton)) > .ap-row:nth-child(10) { animation-delay: 0.27s; }
-.ap-grid:not(:has(.ap-row--skeleton)) > .ap-row:nth-child(11) { animation-delay: 0.30s; }
-.ap-grid:not(:has(.ap-row--skeleton)) > .ap-row:nth-child(12) { animation-delay: 0.33s; }
-.ap-grid:not(:has(.ap-row--skeleton)) > .ap-row:nth-child(13) { animation-delay: 0.36s; }
-.ap-grid:not(:has(.ap-row--skeleton)) > .ap-row:nth-child(14) { animation-delay: 0.39s; }
-.ap-grid:not(:has(.ap-row--skeleton)) > .ap-row:nth-child(15) { animation-delay: 0.42s; }
+/* Snappier stagger — cap at 0.18s so the full list lands in <0.6s */
+.ap-grid:not(:has(.ap-row--skeleton)) > .ap-row:nth-child(2)  { animation-delay: 0.02s; }
+.ap-grid:not(:has(.ap-row--skeleton)) > .ap-row:nth-child(3)  { animation-delay: 0.04s; }
+.ap-grid:not(:has(.ap-row--skeleton)) > .ap-row:nth-child(4)  { animation-delay: 0.06s; }
+.ap-grid:not(:has(.ap-row--skeleton)) > .ap-row:nth-child(5)  { animation-delay: 0.08s; }
+.ap-grid:not(:has(.ap-row--skeleton)) > .ap-row:nth-child(6)  { animation-delay: 0.10s; }
+.ap-grid:not(:has(.ap-row--skeleton)) > .ap-row:nth-child(7)  { animation-delay: 0.12s; }
+.ap-grid:not(:has(.ap-row--skeleton)) > .ap-row:nth-child(8)  { animation-delay: 0.13s; }
+.ap-grid:not(:has(.ap-row--skeleton)) > .ap-row:nth-child(9)  { animation-delay: 0.14s; }
+.ap-grid:not(:has(.ap-row--skeleton)) > .ap-row:nth-child(10) { animation-delay: 0.15s; }
+.ap-grid:not(:has(.ap-row--skeleton)) > .ap-row:nth-child(11) { animation-delay: 0.16s; }
+.ap-grid:not(:has(.ap-row--skeleton)) > .ap-row:nth-child(12) { animation-delay: 0.17s; }
+.ap-grid:not(:has(.ap-row--skeleton)) > .ap-row:nth-child(13) { animation-delay: 0.17s; }
+.ap-grid:not(:has(.ap-row--skeleton)) > .ap-row:nth-child(14) { animation-delay: 0.18s; }
+.ap-grid:not(:has(.ap-row--skeleton)) > .ap-row:nth-child(15) { animation-delay: 0.18s; }
 
 /* ═══════════════════════════════════════════════════════════════════════
    ROW — individual person card
@@ -339,7 +340,7 @@
 .ap-row-avatar {
   width: 32px;
   height: 32px;
-  border-radius: 2px;
+  border-radius: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -392,7 +393,7 @@
   align-items: center;
   gap: 4px;
   padding: 3px 8px;
-  border-radius: 2px;
+  border-radius: 999px;
   font-size: 0.5625rem;
   font-weight: 700;
   text-transform: uppercase;
@@ -450,14 +451,14 @@
   flex: 1;
   height: 4px;
   background: rgba(150,150,160,0.15);
-  border-radius: 2px;
+  border-radius: 0;
   overflow: hidden;
   max-width: 50px;
 }
 
 .ap-balance-fill {
   height: 100%;
-  border-radius: 2px;
+  border-radius: 0;
   transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
   animation: ap-barGrow 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.3s both;
   transform-origin: left;
@@ -513,7 +514,7 @@
 /* ── Banner ──────────────────────────────────────────────────────────── */
 
 .ap-detail-banner {
-  border-radius: 2px;
+  border-radius: 0;
   border: 1px solid;
   border-left: 4px solid;
   padding: 12px 18px 16px;
@@ -541,7 +542,7 @@
   font-weight: 600;
   cursor: pointer;
   padding: 4px 8px;
-  border-radius: 2px;
+  border-radius: 0;
   transition: opacity 0.15s ease;
   letter-spacing: 0.2px;
 }
@@ -568,7 +569,7 @@
 .ap-detail-avatar {
   width: 48px;
   height: 48px;
-  border-radius: 2px;
+  border-radius: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -635,7 +636,7 @@
 
 .ap-section {
   border: 1px solid;
-  border-radius: 2px;
+  border-radius: 0;
   padding: 16px 18px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.06);
   transition: box-shadow 0.3s ease, transform 0.3s ease;
@@ -690,7 +691,7 @@
   margin: 0;
   padding: 10px 14px;
   border-left: 3px solid;
-  border-radius: 0 2px 2px 0;
+  border-radius: 0;
   white-space: pre-wrap;
 }
 
@@ -711,7 +712,7 @@
   padding: 8px 6px;
   margin: 0 -6px;
   border-bottom: 1px solid rgba(150,150,160,0.08);
-  border-radius: 2px;
+  border-radius: 0;
   transition: background 0.15s ease;
   animation: ap-riseIn 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
@@ -750,7 +751,7 @@
 .ap-leave-icon {
   width: 20px;
   height: 20px;
-  border-radius: 2px;
+  border-radius: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -798,7 +799,7 @@
   font-size: 0.5625rem;
   font-weight: 600;
   padding: 1px 5px;
-  border-radius: 2px;
+  border-radius: 0;
   background: rgba(75,85,99,0.24);
   color: #d1d5db;
   text-transform: uppercase;
@@ -818,9 +819,9 @@
   font-size: 0.5625rem;
   font-weight: 600;
   padding: 1px 5px;
-  border-radius: 2px;
+  border-radius: 0;
   background: rgba(255,213,79,0.15);
-  color: #b58a12;
+  color: #FF8C00;
   text-transform: uppercase;
   letter-spacing: 0.2px;
 }
@@ -836,7 +837,7 @@
   align-items: center;
   gap: 4px;
   padding: 2px 7px;
-  border-radius: 2px;
+  border-radius: 999px;
   font-size: 0.5625rem;
   font-weight: 700;
   text-transform: uppercase;
@@ -855,7 +856,7 @@
 
 .ap-status--pending {
   background: rgba(255,140,0,0.1);
-  color: #d4880e;
+  color: #FF8C00;
 }
 
 .ap-status--approved {
@@ -921,7 +922,7 @@
 
 .ap-info-card {
   border: 1px solid;
-  border-radius: 2px;
+  border-radius: 0;
   padding: 16px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.06);
   position: sticky;

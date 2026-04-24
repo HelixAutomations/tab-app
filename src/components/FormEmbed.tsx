@@ -108,6 +108,7 @@ const FormEmbed: React.FC<FormEmbedProps> = ({ link, userData, teamData, matters
                     React.createElement(link.component, {
                         users: userData || [],
                         userData: userData || [],
+                        teamData,
                         matters,
                         onBack: () => { }
                     })

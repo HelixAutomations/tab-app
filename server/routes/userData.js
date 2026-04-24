@@ -1,7 +1,40 @@
 const express = require('express');
 const { withRequest } = require('../utils/db');
+const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
 
 const router = express.Router();
+
+function asString(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function normalizeRows(rows) {
+  return rows.map((u) => {
+    const entraId = u?.['Entra ID'] ?? u?.EntraID ?? null;
+    const fullName = u?.['Full Name'] ?? u?.FullName ?? null;
+    const clioId = u?.['Clio ID'] ?? u?.ClioID ?? null;
+    return {
+      ...u,
+      EntraID: u?.EntraID ?? entraId,
+      FullName: u?.FullName ?? fullName,
+      entra_id: entraId,
+      full_name: fullName,
+      clio_id: clioId,
+      initials: u?.Initials ?? u?.initials ?? null,
+      email: u?.Email ?? u?.email ?? null,
+      role: u?.Role ?? u?.role ?? null,
+      aow: u?.AOW ?? u?.aow ?? null,
+      holiday_entitlement: u?.holiday_entitlement ?? u?.['holiday_entitlement'] ?? null,
+      status: u?.status ?? u?.Status ?? null,
+      ASANAClientID: u?.ASANAClient_ID ?? null,
+      ASANAClient_ID: u?.ASANAClient_ID ?? null,
+      ASANASecret: u?.ASANASecret ?? null,
+      ASANA_Secret: u?.ASANASecret ?? null,
+      ASANARefreshToken: u?.ASANARefreshToken ?? null,
+      ASANARefresh_Token: u?.ASANARefreshToken ?? null,
+    };
+  });
+}
 
 /**
  * Get user data by Entra ID (Azure AD Object ID)
@@ -25,26 +58,32 @@ router.post('/', async (req, res) => {
     return res.status(500).json({ error: 'Database configuration missing' });
   }
 
-  const { userObjectId } = req.body;
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  const requestUser = req.user && typeof req.user === 'object' ? req.user : null;
+  const userObjectId = asString(body.userObjectId) || asString(requestUser?.entraId);
+  const email = (asString(body.email) || asString(requestUser?.email)).toLowerCase();
+  const initials = (asString(body.initials) || asString(requestUser?.initials)).toUpperCase();
+  const lookupMode = userObjectId ? 'entra-id' : 'email-or-initials';
 
   // Validate required parameter
-  if (!userObjectId || typeof userObjectId !== 'string') {
-    console.warn('[userData] Missing or invalid userObjectId in request body');
+  if (!userObjectId && !email && !initials) {
+    console.warn('[userData] Missing lookup fields in request body');
     return res.status(400).json({ 
-      error: 'Missing userObjectId in request body',
-      details: 'userObjectId must be a non-empty string'
+      error: 'Missing lookup fields in request body',
+      details: 'Provide userObjectId, email, or initials'
     });
   }
 
   try {
     const startTime = Date.now();
+    trackEvent('UserData.Lookup.Started', {
+      operation: 'lookup',
+      lookupMode,
+      triggeredBy: requestUser?.initials || initials || 'unknown',
+    });
     
-  const rows = await withRequest(connectionString, async (request) => {
-      // Query team table for user matching Entra ID
-      // Using parameterized query to prevent SQL injection
-      const result = await request
-        .input('userObjectId', userObjectId)
-        .query(`
+    const rows = await withRequest(connectionString, async (request, sqlClient) => {
+      let query = `
           SELECT 
             [Created Date],
             [Created Time],
@@ -65,58 +104,73 @@ router.post('/', async (req, res) => {
             [ASANASecret],
             [ASANARefreshToken]
           FROM [dbo].[team]
-          WHERE [Entra ID] = @userObjectId
-        `);
+          WHERE 1 = 1
+        `;
+
+      if (userObjectId) {
+        request.input('userObjectId', sqlClient.NVarChar, userObjectId);
+        query += ` AND [Entra ID] = @userObjectId`;
+      } else {
+        if (email) {
+          request.input('email', sqlClient.VarChar(255), email);
+          query += ` AND LOWER([Email]) = @email`;
+        }
+
+        if (initials) {
+          request.input('initials', sqlClient.VarChar(10), initials);
+          query += ` AND UPPER([Initials]) = @initials`;
+        }
+      }
+
+      query += ` ORDER BY [Full Name]`;
+
+      const result = await request
+        .query(query);
       
       return Array.isArray(result.recordset) ? result.recordset : [];
     }, 2); // 2 retries for transient errors
 
     const duration = Date.now() - startTime;
+    trackMetric('UserData.Lookup.Duration', duration, { lookupMode });
     
     if (rows.length === 0) {
-      console.warn(`[userData] No user found for Entra ID: ${userObjectId} (${duration}ms)`);
+      console.warn(`[userData] No user found for ${lookupMode}: ${userObjectId || email || initials} (${duration}ms)`);
+      trackEvent('UserData.Lookup.Completed', {
+        operation: 'lookup',
+        lookupMode,
+        triggeredBy: requestUser?.initials || initials || 'unknown',
+        rowCount: '0',
+      });
       // Return empty array instead of error - allows graceful degradation
       return res.json([]);
     }
 
-    // Normalize legacy spaced keys and add snake_case aliases while preserving originals
-    const normalized = rows.map((u) => {
-      const entraId = u?.['Entra ID'] ?? u?.EntraID ?? null;
-      const fullName = u?.['Full Name'] ?? u?.FullName ?? null;
-      const clioId = u?.['Clio ID'] ?? u?.ClioID ?? null;
-      return {
-        ...u,
-        // Preferred aliases for client code
-        EntraID: u?.EntraID ?? entraId,
-        FullName: u?.FullName ?? fullName,
-        // New schema snake_case fields for future consumers
-        entra_id: entraId,
-        full_name: fullName,
-        clio_id: clioId,
-        initials: u?.Initials ?? u?.initials ?? null,
-        email: u?.Email ?? u?.email ?? null,
-        role: u?.Role ?? u?.role ?? null,
-        aow: u?.AOW ?? u?.aow ?? null,
-        holiday_entitlement: u?.holiday_entitlement ?? u?.['holiday_entitlement'] ?? null,
-        status: u?.status ?? u?.Status ?? null,
-        // Asana credentials - preserve all possible field name variations
-        ASANAClientID: u?.ASANAClient_ID ?? null, // Map from actual DB column
-        ASANAClient_ID: u?.ASANAClient_ID ?? null,
-        ASANASecret: u?.ASANASecret ?? null,
-        ASANA_Secret: u?.ASANASecret ?? null, // Map from actual DB column  
-        ASANARefreshToken: u?.ASANARefreshToken ?? null,
-        ASANARefresh_Token: u?.ASANARefreshToken ?? null, // Map from actual DB column
-      };
+    trackEvent('UserData.Lookup.Completed', {
+      operation: 'lookup',
+      lookupMode,
+      triggeredBy: requestUser?.initials || initials || 'unknown',
+      rowCount: String(rows.length),
     });
 
-    return res.json(normalized);
+    return res.json(normalizeRows(rows));
 
   } catch (error) {
     const duration = Date.now();
+    trackException(error, {
+      operation: 'UserData.Lookup',
+      phase: 'query',
+      lookupMode,
+    });
+    trackEvent('UserData.Lookup.Failed', {
+      operation: 'lookup',
+      lookupMode,
+      triggeredBy: requestUser?.initials || initials || 'unknown',
+      error: error.message || 'unknown-error',
+    });
     console.error(`[userData] Database error after ${duration}ms:`, {
       message: error.message,
       code: error.code,
-      userObjectId: userObjectId.substring(0, 8) + '...' // Log partial ID for privacy
+      userObjectId: userObjectId ? `${userObjectId.substring(0, 8)}...` : undefined,
     });
 
     // Return appropriate error based on error type

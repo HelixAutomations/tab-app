@@ -11,6 +11,13 @@
 const express = require('express');
 const sql = require('mssql');
 const { withRequest } = require('../utils/db');
+const {
+  recordSubmission,
+  recordStep,
+  markComplete,
+  markFailed,
+} = require('../utils/formSubmissionLog');
+const { trackException } = require('../utils/appInsights');
 
 const router = express.Router();
 
@@ -131,6 +138,7 @@ router.get('/:id', async (req, res) => {
  * Create new expert recommendation
  */
 router.post('/', async (req, res) => {
+  let submissionId = null;
   try {
     const {
       submitted_by,
@@ -156,6 +164,18 @@ router.post('/', async (req, res) => {
     }
     if (!area_of_work || !worktype) {
       return res.status(400).json({ error: 'area_of_work and worktype are required' });
+    }
+
+    try {
+      submissionId = await recordSubmission({
+        formKey: 'expert-recommendation',
+        submittedBy: String(submitted_by || 'UNK').slice(0, 10),
+        lane: 'Request',
+        payload: req.body,
+        summary: `Expert: ${first_name} ${last_name} (${company_name || area_of_work || ''})`.trim().slice(0, 400),
+      });
+    } catch (logErr) {
+      trackException(logErr, { phase: 'experts.recordSubmission' });
     }
 
     const result = await withRequest(getConnectionString(), async (request) => {
@@ -192,6 +212,12 @@ router.post('/', async (req, res) => {
     }, 2);
 
     console.log(`[experts] Created expert ID: ${result?.id}`);
+    await recordStep(submissionId, {
+      name: 'expert_recommendations.insert',
+      status: 'success',
+      output: { id: result?.id },
+    });
+    await markComplete(submissionId, { lastEvent: 'expert recommendation recorded' });
     return res.status(201).json({
       success: true,
       id: result?.id,
@@ -200,6 +226,9 @@ router.post('/', async (req, res) => {
 
   } catch (error) {
     console.error('[experts] POST error:', error);
+    if (submissionId) {
+      await markFailed(submissionId, { lastEvent: 'experts:insert:failed', error });
+    }
     return res.status(500).json({ error: 'Failed to create expert', details: error.message });
   }
 });

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { disposeOnHmr } from '../utils/devHmr';
 
 export type HomeMetricName = 'transactions' | 'futureBookings' | 'outstandingBalances';
 
@@ -86,7 +87,8 @@ export function useHomeMetricsStream(opts: UseHomeMetricsStreamOptions = {}) {
 
   useEffect(() => {
     if (autoStart) start();
-    return () => { stop(); };
+    const undoHmr = disposeOnHmr(() => stop());
+    return () => { stop(); undoHmr(); };
     // Intentionally exclude onMetric/onError/onComplete from deps to avoid restart loops
   }, [autoStart, start, stop]);
 

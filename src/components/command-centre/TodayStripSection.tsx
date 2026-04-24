@@ -25,27 +25,11 @@ const TodayStripSection: React.FC<TodayStripProps> = ({ tokens, userInitials, se
         if (fetchedRef.current) return;
         fetchedRef.current = true;
 
-        const today = new Date().toISOString().slice(0, 10);
-        const controller = new AbortController();
-
-        (async () => {
-            try {
-                const res = await fetch(
-                    `/api/collected-time?userInitials=${encodeURIComponent(userInitials)}&dateFrom=${today}&dateTo=${today}`,
-                    { signal: controller.signal }
-                );
-                if (!res.ok) throw new Error('fetch failed');
-                const data = await res.json();
-                const rows: Array<{ quantity?: number }> = Array.isArray(data) ? data : data?.data ?? [];
-                const totalHours = rows.reduce((sum, r) => sum + (Number(r.quantity) || 0), 0);
-                setSummary({ hoursLogged: totalHours, hoursTarget: 6, activeMatterCount: 0 });
-            } catch {
-                // Fail silently — strip just won't show hours
-                setSummary({ hoursLogged: 0, hoursTarget: 6, activeMatterCount: 0 });
-            }
-        })();
-
-        return () => controller.abort();
+        // NOTE: there is no `/api/collected-time` GET endpoint. The previous fetch
+        // here always 404'd and fell through to defaults, polluting the console.
+        // Defaults are set inline below; wire to a real per-user-per-day collected
+        // time endpoint when one exists. Tracked in ROADMAP.md.
+        setSummary({ hoursLogged: 0, hoursTarget: 6, activeMatterCount: 0 });
     }, [userInitials]);
 
     // Session elapsed timer

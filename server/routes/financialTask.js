@@ -2,6 +2,12 @@ const express = require('express');
 const { sql, withRequest } = require('../utils/db');
 const { getClient, getSecret } = require('../utils/getSecret');
 const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
+const {
+  recordSubmission,
+  recordStep,
+  markComplete,
+  markFailed,
+} = require('../utils/formSubmissionLog');
 const router = express.Router();
 
 const KV_URI = "https://helix-keys.vault.azure.net/";
@@ -331,6 +337,22 @@ router.post('/', async (req, res) => {
       requestId,
     });
   }
+
+  // Record submission up-front (best-effort audit log). Bank details and file
+  // bodies are stripped to a slim summary payload.
+  let submissionId = null;
+  try {
+    const slimPayload = sanitizeDataForTask(data || {});
+    submissionId = await recordSubmission({
+      formKey: 'financial-task',
+      submittedBy: String(initials || 'UNK').slice(0, 10),
+      lane: 'Request',
+      payload: { formType, data: slimPayload },
+      summary: `Financial: ${formType}`.slice(0, 400),
+    });
+  } catch (logErr) {
+    trackException(logErr, { phase: 'financialTask.recordSubmission' });
+  }
   
   try {
     // Get Asana credentials
@@ -481,6 +503,13 @@ router.post('/', async (req, res) => {
       formType,
     });
     
+    await recordStep(submissionId, {
+      name: 'asana.create',
+      status: 'success',
+      output: { taskId: asanaResult?.data?.gid },
+    });
+    await markComplete(submissionId, { lastEvent: 'financial task created' });
+    
     res.json({
       message: "Task created and OneDrive upload completed (if applicable).",
       asanaTask: asanaResult
@@ -513,6 +542,10 @@ router.post('/', async (req, res) => {
     const status = typeof error?.status === 'number' ? error.status : 500;
     const code = typeof error?.code === 'string' ? error.code : 'INTERNAL_ERROR';
     const details = typeof error?.details === 'string' ? error.details : undefined;
+
+    if (submissionId) {
+      await markFailed(submissionId, { lastEvent: `financial-task:${code}`, error });
+    }
 
     res.status(status).json({
       error: error?.message || 'Unknown error occurred.',

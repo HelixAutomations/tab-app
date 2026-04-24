@@ -2,6 +2,12 @@ const express = require('express');
 const { trackEvent, trackException } = require('../utils/appInsights');
 const { sql, getPool, withRequest } = require('../utils/db');
 const { getCache, setCache, generateCacheKey, deleteCache } = require('../utils/redisClient');
+const {
+  recordSubmission,
+  recordStep,
+  markComplete,
+  markFailed,
+} = require('../utils/formSubmissionLog');
 
 const router = express.Router();
 
@@ -90,6 +96,7 @@ router.get('/', async (req, res) => {
  * Create a new V2 transaction (hub-native intake)
  */
 router.post('/', async (req, res) => {
+  let submissionId = null;
   try {
     const {
       matterRef, matterDescription, feeEarner, amount,
@@ -111,6 +118,20 @@ router.post('/', async (req, res) => {
       return res.status(400).json({
         error: 'matterRef, amount, transactionDate, and createdBy are required',
       });
+    }
+
+    // Audit log: record submission (best-effort, never throws).
+    // Note: we redact bank details before payload capture as well.
+    try {
+      submissionId = await recordSubmission({
+        formKey: 'transactions-v2',
+        submittedBy: String(createdBy || 'UNK').slice(0, 10),
+        lane: 'Request',
+        payload: { ...req.body, sortCode: redactedSortCode, accountNumber: redactedAccountNumber },
+        summary: `Transaction: ${matterRef} — £${amount} (${transactionType || 'receipt'})`.slice(0, 400),
+      });
+    } catch (logErr) {
+      trackException(logErr, { phase: 'transactionsV2.recordSubmission' });
     }
 
     trackEvent('TransactionsV2.CreateStarted', {
@@ -180,11 +201,21 @@ router.post('/', async (req, res) => {
       id: String(inserted?.id), matterRef, createdBy,
     });
 
+    await recordStep(submissionId, {
+      name: 'transactions_v2.insert',
+      status: 'success',
+      output: { id: inserted?.id },
+    });
+    await markComplete(submissionId, { lastEvent: 'transaction created (pending)' });
+
     invalidateV2Cache();
     res.json({ success: true, id: inserted?.id, createdAt: inserted?.created_at });
   } catch (error) {
     trackException(error, { operation: 'TransactionsV2.Create', phase: 'insert' });
     trackEvent('TransactionsV2.CreateFailed', { error: error.message });
+    if (submissionId) {
+      await markFailed(submissionId, { lastEvent: 'transactions-v2:insert:failed', error });
+    }
     res.status(500).json({ error: 'Failed to create transaction' });
   }
 });

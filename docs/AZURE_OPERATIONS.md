@@ -8,6 +8,15 @@ Consolidates: AZURE_CONFIG_REFERENCE, AZURE_CREDENTIALS_MAPPING, AZURE_SECURITY_
 - Use managed identity for App Service and Functions.
 - Avoid local secrets in production.
 
+### Webhook signing secrets
+
+| Secret | Used by | Verification |
+|--------|---------|--------------|
+| `STRIPE_WEBHOOK_SECRET` | [server/routes/stripeWebhook.js](../server/routes/stripeWebhook.js) | Stripe `Stripe-Signature` header |
+| `CLIO_WEBHOOK_SECRET` | [server/routes/clio-webhook.js](../server/routes/clio-webhook.js) | HMAC-SHA256 over raw body, `X-Hub-Signature-256` header |
+
+Both routes are mounted **before** `express.json()` because signature verification needs the raw request body. Rotate every 90 days; subscription URLs are invariant so a secret swap is invisible to the upstream provider. See [docs/notes/_archive/CLIO_WEBHOOK_BRIDGE.md](notes/_archive/CLIO_WEBHOOK_BRIDGE.md) for the Clio bridge brief.
+
 ## App registrations (summary)
 
 - Use dedicated app registrations for Graph and other integrations.

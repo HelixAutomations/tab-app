@@ -4,6 +4,7 @@ import { Icon } from '@fluentui/react/lib/Icon';
 // jsPDF + pdfAssets loaded dynamically in buildRawRecordPdfBlob to keep ~470KB out of the main bundle
 import type { TeamData } from '../../app/functionality/types';
 import { colours } from '../../app/styles/colours';
+import { useCclStatus } from '../../contexts/CclStatusContext';
 import PortalLaunchModal from '../../components/portal/PortalLaunchModal';
 import { useToast } from '../../components/feedback/ToastProvider';
 import { buildPortalLaunchModel, type PortalLaunchModel } from '../../utils/portalLaunch';
@@ -54,6 +55,7 @@ import type { RiskCore } from '../../components/RiskAssessment';
 import DocumentUploadZone from '../../components/DocumentUploadZone';
 import FlatMatterOpening from './MatterOpening/FlatMatterOpening';
 import CompactMatterWizard from './MatterOpening/CompactMatterWizard';
+import DemoModeStripe from './MatterOpening/DemoModeStripe';
 import type { POID } from '../../app/functionality/types';
 import { deriveWorkbenchStageStatuses } from '../../utils/workbenchStatusDerivation';
 import type {
@@ -138,6 +140,92 @@ type InlineWorkbenchProps = {
 };
 const workbenchEntryMotionLastPlayedAt = new Map<string, number>();
 const LazyPitchComposer = React.lazy(() => import('../enquiries/pitch-composer/PitchComposer'));
+
+interface CclChipProps {
+  matterId?: string | null;
+  isDarkMode: boolean;
+  optimistic?: boolean;
+}
+
+const CclChip: React.FC<CclChipProps> = ({ matterId, isDarkMode, optimistic }) => {
+  const { status, stage, flaggedCount, isFlagged, isReady } = useCclStatus(matterId);
+  const hasStatus = Boolean(status);
+  if (!hasStatus && !optimistic) return null;
+
+  let label = 'CCL · Pending';
+  let tone: string = colours.subtleGrey;
+  if (isFlagged) {
+    tone = colours.cta;
+    label = flaggedCount > 0 ? `CCL · ${flaggedCount} to check` : 'CCL · Needs review';
+  } else if (isReady) {
+    tone = stage === 'sent' ? colours.green : (isDarkMode ? colours.accent : colours.highlight);
+    label = stage === 'sent' ? 'CCL · Sent' : 'CCL · Reviewed';
+  } else if (stage === 'generated' || stage === 'pressure-tested') {
+    tone = isDarkMode ? colours.accent : colours.highlight;
+    label = stage === 'pressure-tested' ? 'CCL · Pressure tested' : 'CCL · Generated';
+  } else if (stage === 'compiled') {
+    tone = colours.subtleGrey;
+    label = 'CCL · Compiled';
+  } else if (optimistic) {
+    tone = colours.subtleGrey;
+    label = 'CCL · Pending';
+  }
+
+  const clickable = Boolean(matterId) && hasStatus;
+
+  const content = (
+    <>
+      <span style={{ width: 6, height: 6, borderRadius: '50%', background: tone, flexShrink: 0 }} />
+      <span style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? '#f3f4f6' : '#061733', letterSpacing: 0.2 }}>
+        {label}
+      </span>
+    </>
+  );
+
+  const baseStyle: React.CSSProperties = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    padding: '2px 8px',
+    borderRadius: 999,
+    background: isDarkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(0,0,0,0.04)',
+    border: `1px solid ${tone}33`,
+    flexShrink: 0,
+  };
+
+  if (!clickable) {
+    return <span style={baseStyle} title={label}>{content}</span>;
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        if (!matterId) return;
+        window.dispatchEvent(new CustomEvent('openHomeCclReview', {
+          detail: { matterId: String(matterId), openInspector: true },
+        }));
+      }}
+      style={{
+        ...baseStyle,
+        cursor: 'pointer',
+        transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.transform = 'translateY(-1px)';
+        e.currentTarget.style.boxShadow = isDarkMode ? '0 2px 8px rgba(0,0,0,0.35)' : '0 2px 8px rgba(6,23,51,0.12)';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.transform = 'translateY(0)';
+        e.currentTarget.style.boxShadow = 'none';
+      }}
+      title={`Open CCL review for ${matterId ?? 'this matter'}`}
+    >
+      {content}
+    </button>
+  );
+};
 
 const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   item,
@@ -9032,6 +9120,11 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
                 {!isMatterWizardStepActive ? (
                   <>
+                    {isDemoInstruction && (
+                      <div style={{ marginBottom: 8 }}>
+                        <DemoModeStripe isDarkMode={isDarkMode} />
+                      </div>
+                    )}
                     <div
                       ref={matterPreflightPageRef}
                       style={{
@@ -9879,7 +9972,13 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                             Matter
                           </span>
                         </div>
-                        {matterClioId && matterClioId !== '—' && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                          <CclChip
+                            matterId={matterClioId && matterClioId !== '—' ? String(matterClioId) : undefined}
+                            isDarkMode={isDarkMode}
+                            optimistic={Boolean(optimisticMatterOpen)}
+                          />
+                          {matterClioId && matterClioId !== '—' && (
                           <a
                             href={`https://eu.app.clio.com/nc/#/matters/${matterClioId}`}
                             target="_blank"
@@ -9910,6 +10009,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                             <span style={{ fontSize: 10, fontWeight: 600, fontFamily: 'monospace', color: isDarkMode ? '#d1d5db' : '#374151' }}>{matterClioId}</span>
                           </a>
                         )}
+                        </div>
                       </div>
 
                       {matterRef && matterRef !== '—' && (

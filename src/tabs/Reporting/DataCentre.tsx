@@ -18,6 +18,7 @@ import { useTheme } from '../../app/functionality/ThemeContext';
 import { useToast } from '../../components/feedback/ToastProvider';
 import { useNavigatorActions } from '../../app/functionality/NavigatorContext';
 import NavigatorDetailBar from '../../components/NavigatorDetailBar';
+import OutstandingMatterExplorer from './components/OutstandingMatterExplorer';
 
 type PlanData = {
   startDate: string;
@@ -187,6 +188,48 @@ type TablePreview = {
   rowCount: number;
   columns: string[];
   rows: Record<string, unknown>[];
+};
+
+type OutstandingBalancesReconcileSummary = {
+  checkedAt?: string;
+  status: string;
+  tableCount: number;
+  liveCount: number;
+  tableTotal: number;
+  liveTotal: number;
+  totalDrift: number;
+  missingCount: number;
+  extraCount: number;
+  changedCount: number;
+  samples?: {
+    missingIds?: number[];
+    extraIds?: number[];
+    changed?: Array<{ id: number; tableTotal: number; liveTotal: number }>;
+  };
+};
+
+type OutstandingBalancesStatus = {
+  datasetKey: string;
+  rowCount: number;
+  totalBalance: number;
+  latestSourceSyncedAt: string | null;
+  freshnessMinutes: number | null;
+  isStale: boolean;
+  lastSync: {
+    status: string | null;
+    startedAt: string | null;
+    completedAt: string | null;
+    rowCount: number | null;
+    totalBalance: number | null;
+    durationMs: number | null;
+    error: string | null;
+    sourceHash: string | null;
+  } | null;
+  lastReconcile: {
+    checkedAt: string | null;
+    status: string | null;
+    summary: OutstandingBalancesReconcileSummary | null;
+  } | null;
 };
 
 interface DataCentreProps {
@@ -520,6 +563,11 @@ const DataCentre: React.FC<DataCentreProps> = ({
   const [previewContextLabel, setPreviewContextLabel] = React.useState<string | null>(null);
   const [previewData, setPreviewData] = React.useState<TablePreview | null>(null);
   const [previewLoading, setPreviewLoading] = React.useState(false);
+  const [outstandingBalancesStatus, setOutstandingBalancesStatus] = React.useState<OutstandingBalancesStatus | null>(null);
+  const [outstandingBalancesStatusLoading, setOutstandingBalancesStatusLoading] = React.useState(false);
+  const [outstandingBalancesSyncing, setOutstandingBalancesSyncing] = React.useState(false);
+  const [outstandingBalancesReconciling, setOutstandingBalancesReconciling] = React.useState(false);
+  const [outstandingBalancesReconcile, setOutstandingBalancesReconcile] = React.useState<OutstandingBalancesReconcileSummary | null>(null);
   
   const [planData, setPlanData] = React.useState<PlanData | null>(null);
   const [isPlanning, setIsPlanning] = React.useState(false);
@@ -998,6 +1046,22 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
     }
   }, []);
 
+  const fetchOutstandingBalancesStatus = React.useCallback(async () => {
+    setOutstandingBalancesStatusLoading(true);
+    try {
+      const res = await fetch('/api/outstanding-balances/status');
+      if (res.ok) {
+        const data = await res.json();
+        setOutstandingBalancesStatus(data);
+        setOutstandingBalancesReconcile(data?.lastReconcile?.summary || null);
+      }
+    } catch (e) {
+      console.warn('Failed to fetch outstanding balances status:', e);
+    } finally {
+      setOutstandingBalancesStatusLoading(false);
+    }
+  }, []);
+
   const fetchWindowPreview = React.useCallback(async (monthKey: string, table: string) => {
     setWindowPreviewLoadingKey(monthKey);
     try {
@@ -1061,6 +1125,12 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  React.useEffect(() => {
+    if (activeOp !== 'finance') return;
+    if (outstandingBalancesStatus || outstandingBalancesStatusLoading) return;
+    fetchOutstandingBalancesStatus();
+  }, [activeOp, outstandingBalancesStatus, outstandingBalancesStatusLoading, fetchOutstandingBalancesStatus]);
+
   /* ─── Load Data Hub (user-invoked) ─── */
   const loadDataHub = React.useCallback(async () => {
     setDataHubLoading(true);
@@ -1068,6 +1138,7 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
       await Promise.all([
         fetchOpsStatus(),
         fetchOpsLog(),
+        fetchOutstandingBalancesStatus(),
         ...(coverageOpen && monthAuditOp
           ? [fetch(`/api/data-operations/month-audit?operation=${monthAuditOp}`)
               .then(res => res.ok ? res.json() : null)
@@ -1086,7 +1157,86 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
     } finally {
       setDataHubLoading(false);
     }
-  }, [fetchOpsStatus, fetchOpsLog, coverageOpen, monthAuditOp, monthlyExpanded, monthlyCollected.length, monthlyWip.length, fetchMonthlyTotals]);
+  }, [fetchOpsStatus, fetchOpsLog, fetchOutstandingBalancesStatus, coverageOpen, monthAuditOp, monthlyExpanded, monthlyCollected.length, monthlyWip.length, fetchMonthlyTotals]);
+
+  const handleOutstandingBalancesSync = React.useCallback(async () => {
+    setOutstandingBalancesSyncing(true);
+    const toastId = showToast({
+      type: 'loading',
+      title: 'Syncing Outstanding Balances',
+      message: 'Refreshing the table-backed Clio snapshot.',
+      persist: true,
+    });
+
+    try {
+      const res = await fetch('/api/outstanding-balances/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invokedBy: userName ?? 'manual' }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Sync failed');
+      await fetchOutstandingBalancesStatus();
+      updateToast(toastId, {
+        type: 'success',
+        title: 'Outstanding Balances Synced',
+        message: `${(data?.rowCount || 0).toLocaleString('en-GB')} rows refreshed from Clio.`,
+        persist: false,
+        duration: 5000,
+      });
+    } catch (e) {
+      updateToast(toastId, {
+        type: 'error',
+        title: 'Outstanding Balance Sync Failed',
+        message: String(e),
+        persist: false,
+        duration: 6000,
+      });
+    } finally {
+      setOutstandingBalancesSyncing(false);
+    }
+  }, [fetchOutstandingBalancesStatus, showToast, updateToast, userName]);
+
+  const handleOutstandingBalancesReconcile = React.useCallback(async () => {
+    setOutstandingBalancesReconciling(true);
+    const toastId = showToast({
+      type: 'loading',
+      title: 'Reconciling Outstanding Balances',
+      message: 'Comparing the saved table against live Clio balances.',
+      persist: true,
+    });
+
+    try {
+      const res = await fetch('/api/outstanding-balances/reconcile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invokedBy: userName ?? 'manual' }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Reconcile failed');
+      setOutstandingBalancesReconcile(data);
+      await fetchOutstandingBalancesStatus();
+      updateToast(toastId, {
+        type: data.status === 'match' ? 'success' : 'info',
+        title: data.status === 'match' ? 'Outstanding Balances Match' : 'Outstanding Balances Drift Found',
+        message: data.status === 'match'
+          ? 'Saved table matches live Clio.'
+          : `${data.missingCount + data.extraCount + data.changedCount} drift signals found.`,
+        persist: false,
+        duration: 6000,
+      });
+    } catch (e) {
+      updateToast(toastId, {
+        type: 'error',
+        title: 'Outstanding Balance Reconcile Failed',
+        message: String(e),
+        persist: false,
+        duration: 6000,
+      });
+    } finally {
+      setOutstandingBalancesReconciling(false);
+    }
+  }, [fetchOutstandingBalancesStatus, showToast, updateToast, userName]);
 
   const runReportingAudit = React.useCallback(async (scope: ReportingAuditScope) => {
     setReportingAuditRunning(true);
@@ -1573,7 +1723,34 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
   );
 
   const formatCount = (n: number) => n.toLocaleString('en-GB');
+  const formatCurrency = (n: number) => new Intl.NumberFormat('en-GB', {
+    style: 'currency',
+    currency: 'GBP',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(n);
   const planModeLabel = planMode === 'replace' ? 'Delete & insert' : planMode === 'delete' ? 'Delete only' : 'Insert only';
+  const outstandingSyncStatus = outstandingBalancesStatus?.lastSync?.status || 'idle';
+  const outstandingHealth = outstandingSyncStatus === 'error'
+    ? 'error'
+    : outstandingBalancesSyncing || outstandingBalancesReconciling || outstandingBalancesStatusLoading || outstandingSyncStatus === 'started'
+      ? 'loading'
+      : outstandingBalancesStatus
+        ? 'ready'
+        : 'idle';
+  const outstandingFreshnessLabel = outstandingBalancesStatus?.freshnessMinutes == null
+    ? 'Not yet synced'
+    : outstandingBalancesStatus.freshnessMinutes === 0
+      ? 'Fresh now'
+      : `${outstandingBalancesStatus.freshnessMinutes} min old`;
+  const outstandingLastSyncLabel = outstandingBalancesStatus?.lastSync?.completedAt
+    ? new Date(outstandingBalancesStatus.lastSync.completedAt).toLocaleString('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : 'Not yet synced';
 
   const getPreviewTableForDataset = React.useCallback((key: string): string | null => {
     const map: Record<string, string> = {
@@ -2553,6 +2730,197 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
             </div>
 
             {/* Feed cards grid */}
+            {activeOp === 'finance' && (
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+                gap: 12,
+              }}>
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 12,
+                  padding: '18px 18px 16px',
+                  background: reportingPanelBackground(isDarkMode, 'base'),
+                  border: `1px solid ${reportingPanelBorder(isDarkMode, 'base')}`,
+                  borderRadius: 0,
+                  boxShadow: reportingPanelShadow(isDarkMode),
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={statusDotStyle(outstandingHealth === 'error' ? 'error' : outstandingHealth === 'loading' ? 'loading' : outstandingHealth === 'ready' ? 'ready' : 'idle')} />
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>
+                          Outstanding balances
+                        </span>
+                        <span style={{ fontSize: 10, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
+                          Table-backed Clio snapshot for Home and matter reads
+                        </span>
+                      </div>
+                    </div>
+                    <span style={{
+                      fontSize: 9,
+                      fontWeight: 600,
+                      letterSpacing: '0.04em',
+                      textTransform: 'uppercase',
+                      color: outstandingBalancesStatus?.isStale ? colours.orange : (isDarkMode ? colours.greyText : colours.subtleGrey),
+                    }}>
+                      {outstandingBalancesStatus?.isStale ? 'Stale' : 'Current'}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <span style={{ fontSize: 26, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text, letterSpacing: '-0.02em' }}>
+                        {outstandingBalancesStatus ? formatCount(outstandingBalancesStatus.rowCount) : '—'}
+                      </span>
+                      <span style={{ fontSize: 11, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
+                        materialised rows
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+                      <span style={{ fontSize: 22, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text, letterSpacing: '-0.02em' }}>
+                        {outstandingBalancesStatus ? formatCurrency(outstandingBalancesStatus.totalBalance) : '—'}
+                      </span>
+                      <span style={{ fontSize: 11, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
+                        total outstanding
+                      </span>
+                    </div>
+                  </div>
+
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                    gap: 8,
+                    fontSize: 10,
+                    color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                  }}>
+                    <div>
+                      <div style={{ fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>Last sync</div>
+                      <div>{outstandingLastSyncLabel}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>Freshness</div>
+                      <div>{outstandingFreshnessLabel}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>Sync state</div>
+                      <div>{outstandingSyncStatus}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>Last reconcile</div>
+                      <div>
+                        {outstandingBalancesStatus?.lastReconcile?.checkedAt
+                          ? new Date(outstandingBalancesStatus.lastReconcile.checkedAt).toLocaleString('en-GB', {
+                              day: '2-digit',
+                              month: 'short',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })
+                          : 'Not yet run'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {outstandingBalancesStatus?.lastSync?.error && (
+                    <div style={{
+                      padding: '8px 10px',
+                      fontSize: 10,
+                      lineHeight: 1.5,
+                      color: colours.cta,
+                      background: isDarkMode ? 'rgba(214,85,65,0.08)' : 'rgba(214,85,65,0.05)',
+                      border: `1px solid ${isDarkMode ? 'rgba(214,85,65,0.18)' : 'rgba(214,85,65,0.12)'}`,
+                    }}>
+                      {humaniseMessage(outstandingBalancesStatus.lastSync.error)}
+                    </div>
+                  )}
+
+                  {(outstandingBalancesReconcile || outstandingBalancesStatus?.lastReconcile?.summary) && (() => {
+                    const reconcileSummary = outstandingBalancesReconcile || outstandingBalancesStatus?.lastReconcile?.summary;
+                    if (!reconcileSummary) return null;
+                    return (
+                      <div style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 6,
+                        padding: '10px 12px',
+                        background: isDarkMode ? 'rgba(54,144,206,0.08)' : 'rgba(54,144,206,0.05)',
+                        border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.18)' : 'rgba(54,144,206,0.12)'}`,
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                          <span style={{ fontSize: 10, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                            Reconcile snapshot
+                          </span>
+                          <span style={{ fontSize: 10, fontWeight: 600, color: reconcileSummary.status === 'match' ? colours.green : colours.orange }}>
+                            {reconcileSummary.status === 'match' ? 'Match' : 'Drift'}
+                          </span>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+                          <span>Missing {reconcileSummary.missingCount}</span>
+                          <span>Extra {reconcileSummary.extraCount}</span>
+                          <span>Changed {reconcileSummary.changedCount}</span>
+                        </div>
+                        <div style={{ fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+                          Table {formatCurrency(reconcileSummary.tableTotal)} vs live {formatCurrency(reconcileSummary.liveTotal)}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <button
+                      onClick={handleOutstandingBalancesSync}
+                      disabled={outstandingBalancesSyncing}
+                      style={{
+                        border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.45)' : 'rgba(54,144,206,0.35)'}`,
+                        background: isDarkMode ? 'rgba(54,144,206,0.18)' : 'rgba(54,144,206,0.08)',
+                        color: isDarkMode ? colours.dark.text : colours.helixBlue,
+                        padding: '6px 10px',
+                        fontSize: 10,
+                        fontWeight: 700,
+                        cursor: outstandingBalancesSyncing ? 'default' : 'pointer',
+                        opacity: outstandingBalancesSyncing ? 0.7 : 1,
+                      }}
+                    >
+                      {outstandingBalancesSyncing ? 'Syncing…' : 'Sync now'}
+                    </button>
+                    <button
+                      onClick={handleOutstandingBalancesReconcile}
+                      disabled={outstandingBalancesReconciling}
+                      style={{
+                        border: `1px solid ${isDarkMode ? 'rgba(135,243,243,0.35)' : 'rgba(54,144,206,0.25)'}`,
+                        background: 'transparent',
+                        color: isDarkMode ? colours.accent : colours.highlight,
+                        padding: '6px 10px',
+                        fontSize: 10,
+                        fontWeight: 700,
+                        cursor: outstandingBalancesReconciling ? 'default' : 'pointer',
+                        opacity: outstandingBalancesReconciling ? 0.7 : 1,
+                      }}
+                    >
+                      {outstandingBalancesReconciling ? 'Reconciling…' : 'Reconcile'}
+                    </button>
+                    <button
+                      onClick={() => fetchPreview('outstandingBalancesCurrent', 'Outstanding balances')}
+                      style={{
+                        border: 'none',
+                        background: 'none',
+                        color: isDarkMode ? colours.accent : colours.highlight,
+                        padding: 0,
+                        fontSize: 10,
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Preview rows
+                    </button>
+                  </div>
+
+                  <OutstandingMatterExplorer formatCurrency={formatCurrency} />
+                </div>
+              </div>
+            )}
+
             <div style={{
               display: 'grid',
               gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
@@ -2652,10 +3020,7 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
                       </span>
                       {previewTable && (
                         <button
-                          onClick={() => {
-                            setPreviewTable(previewTable);
-                            setPreviewContextLabel(ds?.definition.name ?? feedKey);
-                          }}
+                          onClick={() => fetchPreview(previewTable, ds?.definition.name ?? feedKey)}
                           style={{
                             background: 'none',
                             border: 'none',

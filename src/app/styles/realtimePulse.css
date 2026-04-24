@@ -1,0 +1,152 @@
+/*
+ * Realtime live-update cue.
+ * Three variants — keyed off a monotonically incrementing nonce; the host wraps
+ * its element in <LivePulse nonce={n} variant=...> and the inner div remounts
+ * with a key change, replaying the keyframe once.
+ *
+ * Aesthetic reference: UserBubble's `helix-ai-border` frameworks box +
+ * existing `bookingRowPulse` ring. Subtle, single-shot, ease-out.
+ *
+ * Colour rule: rgba(54,144,206,...) = colours.highlight (#3690CE) for light;
+ * dark mode swaps to colours.accent (#87F3F3) via [data-theme="dark"] override.
+ */
+
+:root {
+  --live-pulse-color: 54, 144, 206; /* rgba components for #3690CE */
+  --live-pulse-color-strong: 54, 144, 206;
+}
+
+[data-theme="dark"] {
+  --live-pulse-color: 135, 243, 243; /* rgba components for #87F3F3 */
+  --live-pulse-color-strong: 135, 243, 243;
+}
+
+/* --- BORDER variant: soft inset border-pulse for inserts / row-level changes ---- */
+@keyframes live-pulse-border {
+  0% {
+    box-shadow: 0 0 0 0 rgba(var(--live-pulse-color), 0);
+  }
+  35% {
+    box-shadow:
+      0 0 0 2px rgba(var(--live-pulse-color), 0.32),
+      0 6px 18px rgba(var(--live-pulse-color), 0.16);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(var(--live-pulse-color), 0);
+  }
+}
+
+.live-pulse--border {
+  animation: live-pulse-border 900ms ease-out 1;
+  border-radius: inherit;
+  /* Keep layout calm — animate only box-shadow. */
+  will-change: box-shadow;
+}
+
+/* --- DOT variant: small status dot pulse for in-place value updates ----------- */
+@keyframes live-pulse-dot {
+  0% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  35% {
+    transform: scale(1.4);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+}
+
+.live-pulse-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(var(--live-pulse-color), 0.85);
+  box-shadow: 0 0 6px rgba(var(--live-pulse-color), 0.45);
+  will-change: transform, opacity;
+}
+
+.live-pulse-dot--animating {
+  animation: live-pulse-dot 800ms ease-out 1;
+}
+
+/* --- RING variant: stronger outer ring + faint lift for specific row changes -- */
+@keyframes live-pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 rgba(var(--live-pulse-color), 0);
+    transform: translateZ(0);
+  }
+  35% {
+    box-shadow:
+      0 0 0 3px rgba(var(--live-pulse-color), 0.28),
+      0 10px 22px rgba(var(--live-pulse-color), 0.18);
+    transform: translateY(-1px);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(var(--live-pulse-color), 0);
+    transform: translateZ(0);
+  }
+}
+
+.live-pulse--ring {
+  animation: live-pulse-ring 1000ms ease-out 1;
+  border-radius: inherit;
+  will-change: box-shadow, transform;
+}
+
+/* --- LIVE indicator dot: persistent gentle breathing when channel is OPEN ----- */
+@keyframes live-indicator-breathe {
+  0%, 100% {
+    opacity: 0.5;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+
+.live-indicator-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(var(--live-pulse-color), 0.85);
+  box-shadow: 0 0 5px rgba(var(--live-pulse-color), 0.4);
+  animation: live-indicator-breathe 2400ms ease-in-out infinite;
+  will-change: opacity, transform;
+}
+
+.live-indicator-dot--idle {
+  background: rgba(160, 160, 160, 0.55);
+  box-shadow: none;
+  animation: none;
+}
+
+/* Reduced-motion: degrade to a soft fade only — no transforms. */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes live-pulse-border {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(var(--live-pulse-color), 0); }
+    50% { box-shadow: 0 0 0 1px rgba(var(--live-pulse-color), 0.18); }
+  }
+  @keyframes live-pulse-ring {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(var(--live-pulse-color), 0); }
+    50% { box-shadow: 0 0 0 1px rgba(var(--live-pulse-color), 0.18); }
+  }
+  @keyframes live-pulse-dot {
+    0%, 100% { opacity: 0.55; }
+    50% { opacity: 1; }
+  }
+  .live-pulse--border,
+  .live-pulse--ring,
+  .live-pulse-dot--animating {
+    animation-duration: 600ms;
+  }
+  .live-indicator-dot {
+    animation: none;
+    opacity: 0.7;
+  }
+}

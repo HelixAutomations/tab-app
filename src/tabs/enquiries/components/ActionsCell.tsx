@@ -361,7 +361,7 @@ const ActionsCell: React.FC<ActionsCellProps> = ({
                 alert('Passcode input is not supported in this client.');
                 return;
               }
-              if (passcode === '2011') {
+              if (passcode === '11112011') {
                 const enquiryName = `${item.First_Name || ''} ${item.Last_Name || ''}`.trim() || 'Unnamed enquiry';
                 const confirmMessage = `Are you sure you want to permanently delete "${enquiryName}"?\n\nThis action cannot be undone.`;
                 if (window.confirm(confirmMessage)) {

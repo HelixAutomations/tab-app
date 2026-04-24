@@ -118,18 +118,6 @@ const LocalDevSection: React.FC<LocalDevSectionProps> = ({
                 showToast(next ? 'Home CCL dates visible' : 'Home CCL dates hidden', next ? 'success' : 'warning');
             },
         },
-        {
-            key: 'forceShowOpsQueue',
-            label: 'Ops Queue',
-            hint: 'Override role gate',
-            enabled: !!featureToggles.forceShowOpsQueue,
-            accent: colours.cta,
-            onClick: () => {
-                const next = !featureToggles.forceShowOpsQueue;
-                onFeatureToggle('forceShowOpsQueue', next);
-                showToast(next ? 'Ops queue forced visible' : 'Ops queue role-gated', next ? 'success' : 'warning');
-            },
-        },
     ] : [];
 
     const debugActions = [
@@ -152,27 +140,17 @@ const LocalDevSection: React.FC<LocalDevSectionProps> = ({
             onClick: onErrorTracker,
         },
         {
-            key: 'replay-animations',
-            title: 'Replay Animations',
-            hint: 'Re-run Home metric motion.',
+            key: 'demo-realtime-pulse',
+            title: 'Demo Realtime Pulse',
+            hint: 'Trigger the live-update cue on every Home tile.',
             onClick: () => {
-                showToast('Replaying Home animations', 'info');
-                window.dispatchEvent(new CustomEvent('replayHomeAnimations'));
+                showToast('Pulsing live tiles', 'info');
+                window.dispatchEvent(new CustomEvent('demoRealtimePulse'));
             },
         },
     ];
 
     const operationsActions = [
-        {
-            key: 'rate-change',
-            title: 'Rate Change Tracker',
-            hint: 'Open Jan 2026 rate notifications.',
-            onClick: () => {
-                showToast('Opening rate change tracker', 'info');
-                window.dispatchEvent(new CustomEvent('openRateChangeModal'));
-                closePopover();
-            },
-        },
         {
             key: 'prompt-seeds',
             title: 'Prompt Seeds',

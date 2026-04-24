@@ -2,6 +2,7 @@ import React, { useCallback, useState } from 'react';
 import { app } from '@microsoft/teams-js';
 import DataFreshnessIndicator from '../../../components/DataFreshnessIndicator';
 import { colours } from '../../../app/styles/colours';
+import { useFreshIds } from '../../../hooks/useFreshIds';
 import { ActivityFeedItem, FeedStatus } from './types';
 
 interface ActivityFeedSectionProps {
@@ -33,7 +34,7 @@ function formatDateTime(iso: string): string {
   }
 }
 
-const ActivityFeedRow: React.FC<{ item: ActivityFeedItem; isDarkMode: boolean }> = ({ item, isDarkMode }) => {
+const ActivityFeedRow: React.FC<{ item: ActivityFeedItem; isDarkMode: boolean; isFresh?: boolean }> = ({ item, isDarkMode, isFresh }) => {
   const [hovered, setHovered] = useState(false);
   const statusMeta = FEED_STATUS_META[item.status];
   const statusColour = isDarkMode ? statusMeta.darkColour : statusMeta.colour;
@@ -50,6 +51,7 @@ const ActivityFeedRow: React.FC<{ item: ActivityFeedItem; isDarkMode: boolean }>
 
   return (
     <div
+      data-fresh={isFresh ? 'true' : undefined}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
@@ -156,6 +158,7 @@ const ActivityFeedSection: React.FC<ActivityFeedSectionProps> = ({
 }) => {
   const borderColour = isDarkMode ? colours.dark.border : colours.light.border;
   const bg = isDarkMode ? colours.darkBlue : colours.light.sectionBackground;
+  const freshIds = useFreshIds(items, (item) => item.id);
 
   return (
     <div style={{ padding: '14px 16px', background: bg, border: `1px solid ${borderColour}`, borderRadius: 0, marginBottom: 8 }}>
@@ -197,7 +200,7 @@ const ActivityFeedSection: React.FC<ActivityFeedSectionProps> = ({
           }}
         >
           {items.map((item) => (
-            <ActivityFeedRow key={item.id} item={item} isDarkMode={isDarkMode} />
+            <ActivityFeedRow key={item.id} item={item} isDarkMode={isDarkMode} isFresh={freshIds.has(item.id)} />
           ))}
         </div>
       )}

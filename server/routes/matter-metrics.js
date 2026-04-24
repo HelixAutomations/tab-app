@@ -1,15 +1,11 @@
 const express = require('express');
-const fetch = require('node-fetch');
-const { getSecret } = require('../utils/getSecret');
 const { withRequest } = require('../utils/db');
 const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
+const { getClioAccessToken, fetchClioWithRetry } = require('../utils/clio-per-user-token');
 
 const router = express.Router();
 
 const CLIO_BASE = process.env.CLIO_API_BASE || 'https://eu.app.clio.com/api/v4';
-const CLIO_TOKEN_URL = 'https://eu.app.clio.com/oauth/token';
-
-const tokenCache = new Map();
 const responseCache = new Map();
 
 const CACHE_TTL_MS = 2 * 60 * 1000;
@@ -26,79 +22,6 @@ function getCache(key) {
 
 function setCache(key, data) {
   responseCache.set(key, { data, timestamp: Date.now() });
-}
-
-async function getClioAccessToken(initials, options = {}) {
-  const { forceRefresh = false } = options;
-  const key = initials.toLowerCase();
-  if (!forceRefresh) {
-    const cached = tokenCache.get(key);
-    if (cached && cached.expiresAt > Date.now()) {
-      return cached.token;
-    }
-  } else {
-    tokenCache.delete(key);
-  }
-
-  const [clientId, clientSecret, refreshToken] = await Promise.all([
-    getSecret(`${key}-clio-v1-clientid`),
-    getSecret(`${key}-clio-v1-clientsecret`),
-    getSecret(`${key}-clio-v1-refreshtoken`),
-  ]);
-
-  const params = new URLSearchParams({
-    client_id: clientId,
-    client_secret: clientSecret,
-    grant_type: 'refresh_token',
-    refresh_token: refreshToken,
-  });
-
-  const resp = await fetch(`${CLIO_TOKEN_URL}?${params.toString()}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-  });
-
-  if (!resp.ok) {
-    const errorText = await resp.text();
-    throw new Error(`Failed to refresh Clio token: ${errorText}`);
-  }
-
-  const tokenData = await resp.json();
-  const accessToken = tokenData.access_token;
-  const expiresIn = Number(tokenData.expires_in || 3600) * 1000;
-  tokenCache.set(key, { token: accessToken, expiresAt: Date.now() + expiresIn - 60 * 1000 });
-  return accessToken;
-}
-
-async function fetchClioWithRetry(initials, url, options = {}) {
-  let accessToken = await getClioAccessToken(initials);
-  let resp = await fetch(url, {
-    ...options,
-    headers: {
-      ...(options.headers || {}),
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
-  });
-
-  if (resp.status !== 401) {
-    return resp;
-  }
-
-  const key = initials.toLowerCase();
-  tokenCache.delete(key);
-  accessToken = await getClioAccessToken(initials, { forceRefresh: true });
-
-  resp = await fetch(url, {
-    ...options,
-    headers: {
-      ...(options.headers || {}),
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
-  });
-
-  return resp;
 }
 
 async function resolveInitialsFromEntraId(entraId) {

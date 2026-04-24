@@ -7,6 +7,7 @@
 
 const { createLogger } = require('./logger');
 const { trackEvent } = require('./appInsights');
+const { prewarmCcl, isPrewarmEnabled } = require('./cclPrewarm');
 
 const log = createLogger('EventHandlers');
 
@@ -92,6 +93,25 @@ const handlers = {
       timestamp: event.CreatedAt,
       data: event.parsedPayload,
     });
+
+    // Phase 4: silent CCL pre-warm (off by default, gated by CCL_PREWARM_ENABLED).
+    // Fire-and-forget so it never blocks the event handler or holds the SQL pool.
+    if (isPrewarmEnabled()) {
+      const payload = event.parsedPayload || {};
+      const matterId = payload.clioMatterId ? String(payload.clioMatterId) : '';
+      if (matterId) {
+        setImmediate(() => {
+          prewarmCcl({
+            matterId,
+            instructionRef: event.EntityId ? String(event.EntityId) : '',
+            triggeredBy: 'matter.opened',
+          }).catch((err) => {
+            // prewarmCcl already swallows + logs; this catch is belt-and-braces
+            log.warn('CCL prewarm threw unexpectedly:', err?.message || err);
+          });
+        });
+      }
+    }
   },
 
   'risk.assessed': async (event, deps) => {

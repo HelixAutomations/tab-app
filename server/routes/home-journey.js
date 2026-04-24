@@ -11,7 +11,11 @@ const router = express.Router();
 
 const DEFAULT_LIMIT = 60;
 const MAX_LIMIT = 120;
-const CACHE_TTL_SECONDS = 45;
+const CACHE_TTL_SECONDS = 120;
+
+// ── In-memory phone→name cache (avoids LIKE queries on every request) ──
+const phoneNameCache = new Map(); // key = normDigits, value = { data, expiresAt }
+const PHONE_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
 const RECORDING_COLS = `
   r.recording_id,
@@ -255,7 +259,23 @@ async function recordHomeJourneyEmailEvent(event) {
 async function resolvePhoneNames(normDigitsArr) {
   if (!normDigitsArr.length) return {};
 
-  const patterns = normDigitsArr.map((digits) => `%${digits.slice(-7)}%`);
+  const now = Date.now();
+  const cached = {};
+  const uncachedDigits = [];
+
+  for (const digits of normDigitsArr) {
+    const entry = phoneNameCache.get(digits);
+    if (entry && entry.expiresAt > now) {
+      if (entry.data) cached[digits] = entry.data;
+    } else {
+      uncachedDigits.push(digits);
+    }
+  }
+
+  // All hits — skip DB entirely
+  if (uncachedDigits.length === 0) return cached;
+
+  const patterns = uncachedDigits.map((digits) => `%${digits.slice(-7)}%`);
 
   const [coreResults, instrEnqResults, instrResults] = await Promise.all([
     (async () => {
@@ -355,7 +375,20 @@ async function resolvePhoneNames(normDigitsArr) {
     if (row.name && row.norm) map[row.norm] = { name: row.name, source: row.source, ref: row.ref, areaOfWork: row.areaOfWork };
   }
 
-  return map;
+  // Populate cache for all queried digits (including misses)
+  const expiresAt = Date.now() + PHONE_CACHE_TTL_MS;
+  for (const digits of uncachedDigits) {
+    phoneNameCache.set(digits, { data: map[digits] || null, expiresAt });
+  }
+  // Evict stale entries if map grows large
+  if (phoneNameCache.size > 500) {
+    const cutoff = Date.now();
+    for (const [k, v] of phoneNameCache) {
+      if (v.expiresAt <= cutoff) phoneNameCache.delete(k);
+    }
+  }
+
+  return { ...cached, ...map };
 }
 
 async function getDubberUserMapRows() {
@@ -367,12 +400,32 @@ async function getDubberUserMapRows() {
   return result.recordset || [];
 }
 
-async function fetchRawCallsForScope({ initials, showAll, limit }) {
+async function fetchRawCallsForScope({ initials, email, showAll, limit }) {
   const pool = await instrPool();
   const request = pool.request().input('limit', sql.Int, limit);
-  const whereClause = showAll ? '' : 'WHERE r.matched_team_initials = @initials';
+  const filters = [];
+
   if (!showAll) {
-    request.input('initials', sql.NVarChar, initials);
+    const normalizedInitials = String(initials || '').trim().toUpperCase();
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+
+    if (normalizedInitials) {
+      request.input('initials', sql.NVarChar, normalizedInitials);
+      filters.push('r.matched_team_initials = @initials');
+    }
+
+    if (normalizedEmail) {
+      request.input('email', sql.NVarChar, normalizedEmail);
+      filters.push('LOWER(r.matched_team_email) = @email');
+    }
+  }
+
+  const whereClause = showAll || filters.length === 0
+    ? ''
+    : `WHERE (${filters.join(' OR ')})`;
+
+  if (!showAll && filters.length === 0) {
+    return [];
   }
 
   const result = await request.query(`
@@ -434,7 +487,7 @@ async function enrichRecordings(recordings, userMapRows) {
     if (phoneSource) phonesToResolve.add(normDigits(phoneSource));
   }
 
-  const phoneNameMap = await resolvePhoneNames([...phonesToResolve]);
+  const phoneNameMap = await resolvePhoneNames([...phonesToResolve].slice(0, 30));
 
   return recordingsWithInternalFlag.map((row) => {
     const isInbound = row.call_type === 'inbound';
@@ -539,12 +592,16 @@ async function fetchClioActivities({ initials, showAll, limit }) {
   const requestedInitials = String(initials || '').trim().toUpperCase();
   if (!requestedInitials) return [];
 
+  // Always resolve the requesting user's Clio ID and use it as a filter.
+  // Unlike calls/notes where "show all" means seeing other people's records,
+  // pulling ALL firm Clio activities (no user_id) is prohibitively large and
+  // frequently times out. The dev owner still gets their own recent entries.
+  const clioId = await getClioId(requestedInitials);
   let accessToken;
-  let clioId = null;
   if (showAll) {
+    // Service account token has broader read scope
     accessToken = await getClioAccessToken();
   } else {
-    clioId = await getClioId(requestedInitials);
     if (!clioId) return [];
     accessToken = await getClioAccessToken(requestedInitials);
   }
@@ -558,9 +615,12 @@ async function fetchClioActivities({ initials, showAll, limit }) {
   const activities = [];
   let offset = 0;
   const pageSize = 200;
+  const maxPages = 2;
+  let pageCount = 0;
   const fields = 'id,date,created_at,updated_at,quantity_in_hours,total,price,type,note,matter{id,display_number,description},activity_description{name},user{id,name}';
 
-  while (true) {
+  while (pageCount < maxPages) {
+    pageCount++;
     const params = new URLSearchParams({
       created_since: since.toISOString().replace(/\.\d{3}Z$/, 'Z'),
       fields,
@@ -570,7 +630,7 @@ async function fetchClioActivities({ initials, showAll, limit }) {
     if (clioId) params.set('user_id', String(clioId));
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
+    const timeout = setTimeout(() => controller.abort(), 5000);
     try {
       const response = await fetch(`${CLIO_API_BASE}/activities.json?${params.toString()}`, {
         headers: {
@@ -615,22 +675,57 @@ function uniqueCallsFromItems(items) {
   return map;
 }
 
-async function buildSnapshot({ initials, email, showAll, limit, requestId }) {
-  const sourceLimit = Math.min(Math.max(limit, 60), 120);
+async function buildSnapshot({ initials, email, showAll, limit, requestId, sources }) {
+  const callsOnlyRequest = Array.isArray(sources) && sources.length === 1 && sources[0] === 'calls';
+  const minimumSourceLimit = callsOnlyRequest ? Math.max(limit, 20) : 60;
+  const sourceLimit = Math.min(Math.max(limit, minimumSourceLimit), 120);
+  const warnings = {};
+  const includeCalls = !sources || sources.includes('calls');
+  const includeNotes = !sources || sources.includes('notes');
+  const includeEmails = !sources || sources.includes('emails');
+  // Activities disabled in production — local and staging only
+  const isProductionSlot = process.env.NODE_ENV === 'production' && (!process.env.WEBSITE_SLOT_NAME || process.env.WEBSITE_SLOT_NAME === 'Production');
+  const includeActivities = !isProductionSlot && (!sources || sources.includes('activities'));
 
   const [rawCalls, notes, emailEvents, userMapRows, activities] = await Promise.all([
-    fetchRawCallsForScope({ initials, showAll, limit: sourceLimit }),
-    fetchAttendanceNotes({ initials, showAll, limit: sourceLimit }),
-    fetchEmailEvents({ initials, email, showAll, limit: sourceLimit }),
-    getDubberUserMapRows(),
-    fetchClioActivities({ initials, showAll, limit: Math.min(sourceLimit, 40) }).catch((error) => {
-      trackException(error, {
-        component: 'HomeJourney',
-        operation: 'FetchActivities',
-        requestId,
-      });
-      return [];
-    }),
+    includeCalls
+      ? fetchRawCallsForScope({ initials, email, showAll, limit: sourceLimit }).catch((error) => {
+        trackException(error, { component: 'HomeJourney', operation: 'FetchCalls', requestId });
+        warnings.calls = 'Call data temporarily unavailable';
+        return [];
+      })
+      : [],
+    includeNotes
+      ? fetchAttendanceNotes({ initials, showAll, limit: sourceLimit }).catch((error) => {
+        trackException(error, { component: 'HomeJourney', operation: 'FetchNotes', requestId });
+        warnings.notes = 'Attendance notes temporarily unavailable';
+        return [];
+      })
+      : [],
+    includeEmails
+      ? fetchEmailEvents({ initials, email, showAll, limit: sourceLimit }).catch((error) => {
+        trackException(error, { component: 'HomeJourney', operation: 'FetchEmails', requestId });
+        warnings.emails = 'Email events temporarily unavailable';
+        return [];
+      })
+      : [],
+    includeCalls
+      ? getDubberUserMapRows().catch((error) => {
+        trackException(error, { component: 'HomeJourney', operation: 'FetchUserMap', requestId });
+        return [];
+      })
+      : [],
+    includeActivities
+      ? fetchClioActivities({ initials, showAll, limit: Math.min(sourceLimit, 40) }).catch((error) => {
+        trackException(error, {
+          component: 'HomeJourney',
+          operation: 'FetchActivities',
+          requestId,
+        });
+        warnings.activities = 'Clio activities temporarily unavailable';
+        return [];
+      })
+      : [],
   ]);
 
   const missingRecordingIds = [...new Set(
@@ -721,6 +816,7 @@ async function buildSnapshot({ initials, email, showAll, limit, requestId }) {
       activities: activities.length,
       emails: emailEvents.length,
     },
+    warnings: Object.keys(warnings).length > 0 ? warnings : undefined,
     items: items.slice(0, limit),
   };
 }
@@ -741,7 +837,11 @@ router.get('/', async (req, res) => {
   const requestedScope = parseScope(req.query.scope) || (canSeeAll ? 'all' : 'user');
   const effectiveScope = requestedScope === 'all' && canSeeAll ? 'all' : 'user';
   const showAll = effectiveScope === 'all';
-  const cacheKey = `home-journey:${showAll ? 'all' : `${initials}:${email || 'none'}`}:scope:${effectiveScope}:limit:${limit}`;
+  const sources = req.query.sources
+    ? String(req.query.sources).split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
+    : null;
+  const sourceSuffix = sources ? `:src:${[...sources].sort().join(',')}` : '';
+  const cacheKey = `home-journey:${showAll ? 'all' : `${initials}:${email || 'none'}`}:scope:${effectiveScope}:limit:${limit}${sourceSuffix}`;
 
   trackEvent('HomeJourney.Fetch.Started', {
     operation: 'snapshot',
@@ -759,7 +859,7 @@ router.get('/', async (req, res) => {
   try {
     const snapshot = await cacheWrapper(
       cacheKey,
-      () => buildSnapshot({ initials, email, showAll, limit, requestId }),
+      () => buildSnapshot({ initials, email, showAll, limit, requestId, sources }),
       CACHE_TTL_SECONDS,
     );
 
@@ -790,6 +890,8 @@ router.get('/', async (req, res) => {
       latestTimestamp: snapshot.latestTimestamp,
       scope: snapshot.scope,
       counts: snapshot.counts,
+      warnings: snapshot.warnings,
+      sources: sources || ['calls', 'notes', 'emails', 'activities'],
       cachedWindowSeconds: CACHE_TTL_SECONDS,
       items: filteredItems,
     });

@@ -80,6 +80,100 @@ App Service settings (production baseline):
 - Risk colour must use `RiskAssessmentResult`, not `TransactionRiskLevel`.
 - Deal capture emails must go to both `lz@helix-law.com` and `cb@helix-law.com`.
 
+## CCL autopilot chain — KQL runbook
+
+The CCL backend chain emits one rollup event per `/api/ccl/service/run` that reaches the background stage. Use these queries to monitor prod health without reading raw event streams.
+
+**Event shape** (`CCL.AutopilotChain.Completed`):
+- `matterId`, `triggeredBy`, `chainDurationMs`, `confidence`, `unresolvedCount`
+- `persistStage` — always `succeeded` if event fired (fails short-circuit upstream and emit `CCL.Service.Run.Failed` instead)
+- `ndStage` — `succeeded` | `skipped` | `failed`; `ndReason` explains skips/failures (`flag-disabled`, `unresolved-placeholders`, `unknown-failure`, etc.)
+- `ndDocumentId` — populated when upload succeeded
+- `notifyStage` — `succeeded` | `skipped` | `failed`; `notifyReason` explains skips (`flag-disabled`, `fallback-confidence`, `unresolved-placeholders`)
+- `allGreen` — `true` when persist succeeded AND every enabled stage reached a terminal non-failed state
+
+### Chain success rate over 24h
+
+```kql
+customEvents
+| where timestamp > ago(24h)
+| where name == "CCL.AutopilotChain.Completed"
+| extend allGreen = tobool(tostring(customDimensions.allGreen))
+| summarize total = count(), green = countif(allGreen == true) by bin(timestamp, 1h)
+| extend successRate = round(100.0 * green / total, 1)
+| order by timestamp desc
+```
+
+### Per-stage outcome breakdown (last 7 days)
+
+```kql
+customEvents
+| where timestamp > ago(7d)
+| where name == "CCL.AutopilotChain.Completed"
+| extend ndStage = tostring(customDimensions.ndStage),
+         notifyStage = tostring(customDimensions.notifyStage)
+| summarize chains = count() by ndStage, notifyStage
+| order by chains desc
+```
+
+### Failure drill-down — most recent failed stage
+
+```kql
+customEvents
+| where timestamp > ago(24h)
+| where name == "CCL.AutopilotChain.Completed"
+| extend ndStage = tostring(customDimensions.ndStage),
+         notifyStage = tostring(customDimensions.notifyStage),
+         ndReason = tostring(customDimensions.ndReason),
+         notifyReason = tostring(customDimensions.notifyReason),
+         matterId = tostring(customDimensions.matterId),
+         confidence = tostring(customDimensions.confidence)
+| where ndStage == "failed" or notifyStage == "failed"
+| project timestamp, matterId, confidence, ndStage, ndReason, notifyStage, notifyReason
+| order by timestamp desc
+| take 50
+```
+
+### Chain latency distribution
+
+```kql
+customEvents
+| where timestamp > ago(24h)
+| where name == "CCL.AutopilotChain.Completed"
+| extend chainDurationMs = toint(tostring(customDimensions.chainDurationMs))
+| summarize p50 = percentile(chainDurationMs, 50),
+            p90 = percentile(chainDurationMs, 90),
+            p99 = percentile(chainDurationMs, 99),
+            max = max(chainDurationMs)
+            by bin(timestamp, 1h)
+| order by timestamp desc
+```
+
+### Drop-off — chain started but never completed
+
+`CCL.AutopilotChain.Started` fires synchronously inside the route; `Completed` fires after ND+notify resolve. A gap implies the Node process crashed mid-chain.
+
+```kql
+let started = customEvents
+    | where timestamp > ago(24h)
+    | where name == "CCL.AutopilotChain.Started"
+    | extend matterId = tostring(customDimensions.matterId);
+let completed = customEvents
+    | where timestamp > ago(24h)
+    | where name == "CCL.AutopilotChain.Completed"
+    | extend matterId = tostring(customDimensions.matterId);
+started
+| join kind=leftanti completed on matterId
+| project timestamp, matterId, triggeredBy = tostring(customDimensions.triggeredBy)
+| order by timestamp desc
+```
+
+### Alerting thresholds (suggested)
+
+- **Chain success rate < 90% over 1h** → warning (some legitimate skips expected when flags are off)
+- ~~`ndStage == "failed"` rate~~ obsolete since 2026-04-24: ND upload is solicitor-initiated (no silent chain). Watch `CCL.Upload.ND.Failed` on the explicit POST `/api/ccl-ops/upload-nd` instead; >5% over 1h → page on-call.
+- **Drop-off query returns > 0 rows** → investigate (process crash or hang)
+
 ## Submodule changes
 
 Submodules are read-only here. Pending upstream changes are tracked in ROADMAP.

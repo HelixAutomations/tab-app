@@ -1,74 +1,63 @@
 import React, { useState, useRef, useEffect, useId, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import AdminDashboard from './AdminDashboard';
-import DemoPromptsModal from './DemoPromptsModal';
-import LoadingDebugModal from './debug/LoadingDebugModal';
-import { ErrorTracker } from './ErrorTracker';
 import { UserData } from '../app/functionality/types';
 import '../app/styles/UserBubble.css';
 import '../app/styles/personas.css';
 import { isAdminUser, getUserTier } from '../app/admin';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { colours } from '../app/styles/colours';
-import RefreshDataModal from './RefreshDataModal';
-import LegacyMigrationTool from './LegacyMigrationTool';
 import lightAvatarMark from '../assets/dark blue mark.svg';
 import darkAvatarMark from '../assets/markwhite.svg';
 import { CommandCentreTokens, BubbleToastTone } from './command-centre/types';
-import LocalDevSection from './command-centre/LocalDevSection';
 import SessionFiltersSection from './command-centre/SessionFiltersSection';
 import TodayStripSection from './command-centre/TodayStripSection';
-import MyAttentionSection from './command-centre/MyAttentionSection';
 import CommsFrameworkSection from './command-centre/CommsFrameworkSection';
 
+/*
+ * UserBubble — identity + personal context surface.
+ * Consolidation 2026-04-21: all dev tools (AdminDashboard, DemoPromptsModal,
+ * LoadingDebugModal, ErrorTracker, LegacyMigrationTool, RefreshDataModal) and
+ * the Demo-mode toggle now live in CommandDeck (HubToolsChip). This bubble's
+ * job is: who am I, what's on my plate today, which data scope + persona am I
+ * operating under, and how do I return to my real identity.
+ */
 interface UserBubbleProps {
     user: UserData;
-    isLocalDev?: boolean;
     onAreasChange?: (areas: string[]) => void;
     onUserChange?: (user: UserData) => void;
     availableUsers?: UserData[] | null;
     onReturnToAdmin?: () => void;
     originalAdminUser?: UserData | null;
-    onRefreshEnquiries?: () => Promise<void> | void;
-    onRefreshMatters?: () => Promise<void> | void;
-    onFeatureToggle?: (feature: string, enabled: boolean) => void;
+    /** Read-only view of the app-level toggles. Only `viewAsProd` is consulted
+     *  (for the identity-strip banner). Mutation lives in CommandDeck. */
     featureToggles?: Record<string, boolean>;
-    onShowTestEnquiry?: () => void;
+    /** Read-only — used for the active-state banner. Toggle lives in CommandDeck. */
     demoModeEnabled?: boolean;
-    onToggleDemoMode?: (enabled: boolean) => void;
-    onOpenReleaseNotesModal?: () => void;
 }
 
 const UserBubble: React.FC<UserBubbleProps> = ({
     user,
-    isLocalDev = false,
     onAreasChange,
     onUserChange,
     availableUsers,
     onReturnToAdmin,
     originalAdminUser,
-    onRefreshEnquiries,
-    onRefreshMatters,
-    onFeatureToggle,
     featureToggles = {},
     demoModeEnabled = false,
-    onToggleDemoMode,
-    onOpenReleaseNotesModal,
 }) => {
     // ── State ──
     const [open, setOpen] = useState(false);
-    const [showDevDashboard, setShowDevDashboard] = useState(false);
-    const [showRefreshModal, setShowRefreshModal] = useState(false);
-    const [showDemoPrompts, setShowDemoPrompts] = useState(false);
-    const [showLoadingDebug, setShowLoadingDebug] = useState(false);
-    const [showErrorTracker, setShowErrorTracker] = useState(false);
-    const [showMigrationTool, setShowMigrationTool] = useState(false);
     const [toast, setToast] = useState<{ message: string; tone: BubbleToastTone } | null>(null);
+    const [showUserPicker, setShowUserPicker] = useState(false);
+    const [pickerQuery, setPickerQuery] = useState('');
     const [areasOfWork, setAreasOfWork] = useState<string[]>(() => {
         const record = user as unknown as Record<string, unknown>;
         const aow = user.AOW || record.Area_of_Work || record.aow;
         return aow ? String(aow).split(',').map(s => s.trim()).filter(Boolean) : [];
     });
+    // Snapshot the profile-default AoW at first render so "Reset to my profile"
+    // still points at the baseline even after the user has toggled areas.
+    const defaultAreasRef = useRef<string[]>(areasOfWork);
 
     // ── Refs ──
     const bubbleRef = useRef<HTMLButtonElement | null>(null);
@@ -115,10 +104,8 @@ const UserBubble: React.FC<UserBubbleProps> = ({
 
     // ── Computed ──
     const initials = user.Initials || `${user.First?.charAt(0) || ''}${user.Last?.charAt(0) || ''}`.toUpperCase();
-    const isAdmin = isAdminUser(user);
-    const isAdminEligible = isAdmin || isLocalDev || !!originalAdminUser;
     const canSwitchUser = isAdminUser(user) || !!originalAdminUser;
-    const hasSessionFilters = !!onAreasChange || !!onFeatureToggle;
+    const hasSessionFilters = !!onAreasChange;
     const tier = getUserTier(user);
 
     const headerRateDisplay = (user.Rate !== undefined && user.Rate !== null && String(user.Rate).trim() !== '')
@@ -287,37 +274,6 @@ const UserBubble: React.FC<UserBubbleProps> = ({
     // ── Render ──
     return (
         <div className="user-bubble-container">
-            {showRefreshModal && (
-                <RefreshDataModal
-                    isOpen={showRefreshModal}
-                    onClose={() => setShowRefreshModal(false)}
-                    onConfirm={async ({ clientCaches, enquiries, matters, reporting }) => {
-                        try {
-                            if (clientCaches) {
-                                Object.keys(localStorage).filter(k => {
-                                    const l = k.toLowerCase();
-                                    return l.startsWith('enquiries-') || l.startsWith('normalizedmatters-') ||
-                                        l.startsWith('vnetmatters-') || l.startsWith('matters-') ||
-                                        l === 'allmatters' || l === 'teamdata' || l.includes('outstandingbalancesdata');
-                                }).forEach(k => localStorage.removeItem(k));
-                            }
-                            const scopes: string[] = [];
-                            if (reporting) scopes.push('reporting');
-                            if (enquiries) scopes.push('enquiries');
-                            if (matters) scopes.push('unified');
-                            for (const scope of scopes) {
-                                try { await fetch('/api/cache/clear-cache', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scope }) }); } catch {}
-                            }
-                            if (enquiries && onRefreshEnquiries) await onRefreshEnquiries();
-                            if (matters && onRefreshMatters) await onRefreshMatters();
-                        } finally {
-                            setShowRefreshModal(false);
-                            showToast('Refresh complete', 'success');
-                        }
-                    }}
-                />
-            )}
-
             <button
                 ref={bubbleRef}
                 onClick={() => {
@@ -401,25 +357,57 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                     <img src={avatarIcon} alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
                                 </div>
                                 <div style={{ flex: 1, minWidth: 0, display: 'grid', gap: 2 }}>
-                                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, minWidth: 0 }}>
-                                        <span style={{ fontSize: 12, fontWeight: 700, color: textPrimary, opacity: 0.9, flexShrink: 0 }}>{initials}</span>
-                                        <span style={{ fontSize: 12, fontWeight: 600, color: textPrimary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
-                                            {user.FullName || `${user.First || ''} ${user.Last || ''}`.trim() || 'User'}
-                                        </span>
-                                    </div>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                                        <span style={{ fontSize: 9, fontWeight: 500, color: textMuted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
-                                            {user.Role || 'Team Member'}
-                                        </span>
-                                        {headerRateDisplay && (
+                                    {(() => {
+                                        const identityContent = (
                                             <>
-                                                <span style={{ fontSize: 8, color: textMuted, opacity: 0.6, flexShrink: 0 }}>•</span>
-                                                <span style={{ fontSize: 10, fontWeight: 700, color: textMuted, letterSpacing: '-0.2px', flexShrink: 0 }}>
-                                                    {headerRateDisplay.startsWith('£') ? headerRateDisplay : `£${headerRateDisplay}`}
-                                                </span>
+                                                <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, minWidth: 0 }}>
+                                                    <span style={{ fontSize: 12, fontWeight: 700, color: textPrimary, opacity: 0.9, flexShrink: 0 }}>{initials}</span>
+                                                    <span style={{ fontSize: 12, fontWeight: 600, color: textPrimary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
+                                                        {user.FullName || `${user.First || ''} ${user.Last || ''}`.trim() || 'User'}
+                                                    </span>
+                                                    {canSwitchUser && (
+                                                        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ color: textMuted, opacity: 0.7, flexShrink: 0, transform: showUserPicker ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.15s ease' }}>
+                                                            <polyline points="6 9 12 15 18 9"/>
+                                                        </svg>
+                                                    )}
+                                                </div>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                                                    <span style={{ fontSize: 9, fontWeight: 500, color: textMuted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
+                                                        {user.Role || 'Team Member'}
+                                                    </span>
+                                                    {headerRateDisplay && (
+                                                        <>
+                                                            <span style={{ fontSize: 8, color: textMuted, opacity: 0.6, flexShrink: 0 }}>•</span>
+                                                            <span style={{ fontSize: 10, fontWeight: 700, color: textMuted, letterSpacing: '-0.2px', flexShrink: 0 }}>
+                                                                {headerRateDisplay.startsWith('£') ? headerRateDisplay : `£${headerRateDisplay}`}
+                                                            </span>
+                                                        </>
+                                                    )}
+                                                </div>
                                             </>
-                                        )}
-                                    </div>
+                                        );
+                                        return canSwitchUser ? (
+                                            <button
+                                                type="button"
+                                                onClick={() => { setShowUserPicker(v => !v); setPickerQuery(''); }}
+                                                style={{
+                                                    background: 'transparent', border: 'none', padding: 0,
+                                                    textAlign: 'left', cursor: 'pointer',
+                                                    display: 'grid', gap: 2, minWidth: 0,
+                                                    borderRadius: 2,
+                                                }}
+                                                onMouseEnter={(e) => { e.currentTarget.style.background = isDarkMode ? 'rgba(135, 243, 243, 0.06)' : 'rgba(54, 144, 206, 0.05)'; }}
+                                                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                                                aria-haspopup="listbox"
+                                                aria-expanded={showUserPicker}
+                                                title="Switch user"
+                                            >
+                                                {identityContent}
+                                            </button>
+                                        ) : (
+                                            <div style={{ display: 'grid', gap: 2, minWidth: 0 }}>{identityContent}</div>
+                                        );
+                                    })()}
                                 </div>
                                 <button
                                     onClick={() => closePopover()}
@@ -449,6 +437,93 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                     </svg>
                                 </button>
                             </div>
+                            {/* Inline user picker — expands directly under the identity row when
+                                name is clicked. Admin-gated via canSwitchUser. */}
+                            {showUserPicker && canSwitchUser && onUserChange && availableUsers && (
+                                <div style={{
+                                    marginTop: 10,
+                                    background: isDarkMode ? 'rgba(6, 23, 51, 0.6)' : '#fff',
+                                    border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.18)' : borderMedium}`,
+                                    borderRadius: 2,
+                                    overflow: 'hidden',
+                                    boxShadow: isDarkMode ? '0 4px 14px rgba(0,3,25,0.5)' : '0 4px 14px rgba(0,0,0,0.08)',
+                                    animation: 'commandCenterIn 0.18s ease forwards',
+                                }}>
+                                    <input
+                                        autoFocus
+                                        type="text"
+                                        value={pickerQuery}
+                                        onChange={(e) => setPickerQuery(e.target.value)}
+                                        placeholder="Search user..."
+                                        style={{
+                                            width: '100%', padding: '9px 12px',
+                                            fontSize: 12, fontFamily: 'Raleway, sans-serif',
+                                            background: 'transparent',
+                                            color: textPrimary,
+                                            border: 'none',
+                                            borderBottom: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.12)' : borderLight}`,
+                                            outline: 'none',
+                                        }}
+                                    />
+                                    <div style={{ maxHeight: 220, overflowY: 'auto' }} role="listbox">
+                                        {(() => {
+                                            const q = pickerQuery.trim().toLowerCase();
+                                            const list = availableUsers
+                                                .filter(u => !u.status || u.status.toLowerCase() === 'active')
+                                                .filter(u => {
+                                                    if (!q) return true;
+                                                    const hay = `${u.FullName || ''} ${u.First || ''} ${u.Last || ''} ${u.Initials || ''} ${u.Role || ''}`.toLowerCase();
+                                                    return hay.includes(q);
+                                                });
+                                            if (list.length === 0) {
+                                                return <div style={{ padding: '10px 12px', fontSize: 11, color: textMuted }}>No matches</div>;
+                                            }
+                                            return list.map((u) => {
+                                                const isCurrent = u.Initials === user.Initials;
+                                                return (
+                                                    <button
+                                                        key={u.Initials}
+                                                        type="button"
+                                                        role="option"
+                                                        aria-selected={isCurrent}
+                                                        onClick={() => {
+                                                            if (isCurrent) { setShowUserPicker(false); return; }
+                                                            onUserChange(u);
+                                                            showToast(`Switched to ${u.FullName || u.Initials}`, 'success');
+                                                            setShowUserPicker(false);
+                                                            setPickerQuery('');
+                                                        }}
+                                                        style={{
+                                                            display: 'flex', alignItems: 'center', gap: 8,
+                                                            width: '100%', padding: '8px 12px',
+                                                            background: isCurrent ? (isDarkMode ? 'rgba(135, 243, 243, 0.10)' : 'rgba(54, 144, 206, 0.08)') : 'transparent',
+                                                            border: 'none', textAlign: 'left', cursor: 'pointer',
+                                                            color: textPrimary,
+                                                            fontSize: 11, fontFamily: 'Raleway, sans-serif',
+                                                            transition: 'background 0.12s ease',
+                                                        }}
+                                                        onMouseEnter={(e) => {
+                                                            if (!isCurrent) e.currentTarget.style.background = isDarkMode ? 'rgba(135, 243, 243, 0.06)' : 'rgba(54, 144, 206, 0.04)';
+                                                        }}
+                                                        onMouseLeave={(e) => {
+                                                            if (!isCurrent) e.currentTarget.style.background = 'transparent';
+                                                        }}
+                                                    >
+                                                        <span style={{ fontSize: 10, fontWeight: 700, color: textMuted, minWidth: 24 }}>{u.Initials}</span>
+                                                        <span style={{ flex: 1, fontWeight: 500 }}>{u.FullName || `${u.First || ''} ${u.Last || ''}`.trim()}</span>
+                                                        {u.Role && <span style={{ fontSize: 9, color: textMuted, opacity: 0.8 }}>{u.Role}</span>}
+                                                        {isCurrent && (
+                                                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={isDarkMode ? colours.accent : colours.blue} strokeWidth="3">
+                                                                <polyline points="20 6 9 17 4 12"/>
+                                                            </svg>
+                                                        )}
+                                                    </button>
+                                                );
+                                            });
+                                        })()}
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         {/* Content — My Helix */}
@@ -529,106 +604,36 @@ const UserBubble: React.FC<UserBubbleProps> = ({
 
                             {/* ── My Helix sections (all users) ── */}
                             <TodayStripSection tokens={tokens} userInitials={initials} sessionStartMs={sessionStartRef.current} />
-                            <MyAttentionSection tokens={tokens} userInitials={initials} />
 
-                            {/* ── Area of Work filter strip ── */}
+                            {/* ── Working-areas scope strip ── */}
                             {hasSessionFilters && (
-                                <div style={{ marginBottom: 8 }}>
+                                <div style={{ marginBottom: 12 }}>
                                     <SessionFiltersSection
                                         tokens={tokens}
                                         onAreasChange={onAreasChange}
                                         areasOfWork={areasOfWork}
                                         setAreasOfWork={setAreasOfWork}
+                                        defaultAreasOfWork={defaultAreasRef.current}
                                     />
                                 </div>
                             )}
 
-                            {/* ── Admin Tools (all admins) ── */}
-                            {isAdminEligible && (
-                                <div style={{
-                                    marginBottom: 4,
-                                    border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.10)' : borderLight}`,
-                                    borderRadius: 0,
-                                    overflow: 'hidden',
-                                }}>
-                                    <div style={{
-                                        display: 'flex', alignItems: 'center', gap: 8,
-                                        padding: '8px 14px',
-                                        background: isDarkMode ? 'rgba(54, 144, 206, 0.04)' : 'rgba(54, 144, 206, 0.02)',
-                                        borderBottom: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : borderLight}`,
-                                    }}>
-                                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={textMuted} strokeWidth="1.8" style={{ flexShrink: 0, opacity: 0.7 }}>
-                                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-                                        </svg>
-                                        <span style={{ fontSize: 10, fontWeight: 600, color: textMuted, letterSpacing: '0.3px', textTransform: 'uppercase' as const }}>Admin</span>
-                                    </div>
-                                    <div style={{ padding: '8px 14px 12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                        {/* Demo mode toggle */}
-                                        {onToggleDemoMode && (
-                                            <div
-                                                style={toggleRow}
-                                                onMouseEnter={(e) => applyRowHover(e.currentTarget)}
-                                                onMouseLeave={(e) => resetRowHover(e.currentTarget)}
-                                                onClick={() => {
-                                                    const next = !demoModeEnabled;
-                                                    onToggleDemoMode(next);
-                                                    showToast(next ? 'Demo mode enabled' : 'Demo mode disabled', next ? 'success' : 'warning');
-                                                }}
-                                            >
-                                                <div>
-                                                    <div style={{ fontSize: 12, fontWeight: 500, color: textPrimary }}>Demo mode</div>
-                                                    <div style={{ fontSize: 10, color: textMuted, marginTop: 2 }}>Skip live refresh &amp; seed demo cases</div>
-                                                </div>
-                                                <div style={toggleSwitch(!!demoModeEnabled)}>
-                                                    <div style={toggleKnob(!!demoModeEnabled)} />
-                                                </div>
-                                            </div>
-                                        )}
-                                        {/* User switch */}
-                                        {onUserChange && availableUsers && canSwitchUser && (
-                                            <div>
-                                                <div style={{ ...sectionTitle, color: textMuted, marginBottom: 6 }}>
-                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
-                                                        <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-                                                    </svg>
-                                                    Switch User
-                                                </div>
-                                                <select
-                                                    onChange={(e) => {
-                                                        const sel = availableUsers.find(u => u.Initials === e.target.value);
-                                                        if (sel) {
-                                                            onUserChange(sel);
-                                                            showToast(`Switched to ${sel.FullName || sel.Initials}`, 'success');
-                                                        }
-                                                    }}
-                                                    style={{
-                                                        width: '100%', padding: '10px 12px',
-                                                        background: controlRowBg,
-                                                        color: textPrimary,
-                                                        border: `1px solid ${borderLight}`,
-                                                        borderRadius: '2px', fontSize: 11,
-                                                        cursor: 'pointer',
-                                                    }}
-                                                >
-                                                    <option value="">Select user...</option>
-                                                    {availableUsers
-                                                        .filter(u => !u.status || u.status.toLowerCase() === 'active')
-                                                        .map(u => (
-                                                            <option key={u.Initials} value={u.Initials}>
-                                                                {u.FullName || `${u.First || ''} ${u.Last || ''}`}
-                                                            </option>
-                                                        ))}
-                                                </select>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            )}
+                            {/* Admin box removed 2026-04-22 — Switch User lives in the header name;
+                                the view-as tier override was unused in practice. */}
 
                             {/* ── Frameworks (dev group only) ── */}
                             {(tier === 'dev' || tier === 'devGroup') && (
-                                <CommsFrameworkSection tokens={tokens} />
+                                <div className="helix-ai-border" style={{ marginBottom: 16 }}>
+                                    <div
+                                        className="helix-ai-border__inner"
+                                        style={{
+                                            background: isDarkMode ? colours.websiteBlue : colours.grey,
+                                            padding: '12px 12px 4px',
+                                        }}
+                                    >
+                                        <CommsFrameworkSection tokens={tokens} />
+                                    </div>
+                                </div>
                             )}
 
                             {/* ── Appearance ── */}
@@ -663,70 +668,38 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                 </div>
                             </div>
 
-                            {/* ── Local Dev tools ── */}
-                            {isLocalDev && (
-                                <LocalDevSection
-                                    tokens={tokens}
-                                    onFeatureToggle={onFeatureToggle}
-                                    featureToggles={featureToggles}
-                                    onDevDashboard={() => { setShowDevDashboard(true); closePopover(false); }}
-                                    onLoadingDebug={() => { setShowLoadingDebug(true); closePopover(false); }}
-                                    onErrorTracker={() => { setShowErrorTracker(true); closePopover(false); }}
-                                    onDemoPrompts={() => { setShowDemoPrompts(true); closePopover(); }}
-                                    onMigrationTool={() => { setShowMigrationTool(true); closePopover(false); }}
-                                    closePopover={closePopover}
-                                />
+                            {/* ── Demo / Local-dev tools + Refresh Data moved to CommandDeck (HubToolsChip).
+                                 UserBubble is now identity + personal context only. ── */}
+
+                            {/* Quick actions footer (Return-to-admin only; Refresh lives in CommandDeck) */}
+                            {originalAdminUser && onReturnToAdmin && (
+                                <>
+                                    <div style={{ height: 1, background: borderLight, marginBottom: 8 }} />
+                                    <div style={{ display: 'flex', gap: 8 }}>
+                                        <button
+                                            onClick={() => { onReturnToAdmin(); closePopover(); }}
+                                            style={{
+                                                ...actionBtn,
+                                                flex: 1, justifyContent: 'center',
+                                                background: ctaPrimary, color: '#fff',
+                                                border: `1px solid ${ctaPrimary}`
+                                            }}
+                                            onMouseEnter={(e) => { e.currentTarget.style.filter = 'brightness(0.85)'; }}
+                                            onMouseLeave={(e) => { e.currentTarget.style.filter = 'none'; }}
+                                        >
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                                <path d="M19 12H5M12 19l-7-7 7-7"/>
+                                            </svg>
+                                            Return to Admin
+                                        </button>
+                                    </div>
+                                </>
                             )}
-
-                            {/* Quick actions footer */}
-                            <div style={{ height: 1, background: borderLight, marginBottom: 8 }} />
-                            <div style={{ display: 'flex', gap: 8 }}>
-                                <button
-                                    onClick={() => setShowRefreshModal(true)}
-                                    style={{ ...actionBtn, flex: 1, justifyContent: 'center' }}
-                                    onMouseEnter={(e) => {
-                                        e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.03)';
-                                    }}
-                                    onMouseLeave={(e) => {
-                                        e.currentTarget.style.background = actionBtn.background as string;
-                                    }}
-                                >
-                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-                                    </svg>
-                                    Refresh Data
-                                </button>
-
-                                {originalAdminUser && onReturnToAdmin && (
-                                    <button
-                                        onClick={() => { onReturnToAdmin(); closePopover(); }}
-                                        style={{
-                                            ...actionBtn,
-                                            flex: 1, justifyContent: 'center',
-                                            background: ctaPrimary, color: '#fff',
-                                            border: `1px solid ${ctaPrimary}`
-                                        }}
-                                        onMouseEnter={(e) => { e.currentTarget.style.filter = 'brightness(0.85)'; }}
-                                        onMouseLeave={(e) => { e.currentTarget.style.filter = 'none'; }}
-                                    >
-                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                            <path d="M19 12H5M12 19l-7-7 7-7"/>
-                                        </svg>
-                                        Return to Admin
-                                    </button>
-                                )}
-                            </div>
                         </div>
                     </div>
                     </div>
                 </>
             , document.body)}
-
-            {isLocalDev && showDevDashboard && <AdminDashboard isOpen={showDevDashboard} onClose={() => setShowDevDashboard(false)} inspectorData={user} />}
-            {isLocalDev && showDemoPrompts && <DemoPromptsModal isOpen={showDemoPrompts} onClose={() => setShowDemoPrompts(false)} />}
-            {isLocalDev && showLoadingDebug && <LoadingDebugModal isOpen={showLoadingDebug} onClose={() => setShowLoadingDebug(false)} />}
-            {isLocalDev && showErrorTracker && <ErrorTracker onClose={() => setShowErrorTracker(false)} />}
-            {isLocalDev && showMigrationTool && <LegacyMigrationTool isOpen={showMigrationTool} onClose={() => setShowMigrationTool(false)} onToast={showToast} />}
         </div>
     );
 };

@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { colours } from '../../../app/styles/colours';
+import { useFreshIds } from '../../../hooks/useFreshIds';
 import type { RequestEntry } from './ops-pulse-types';
 
 interface Props {
@@ -38,6 +39,7 @@ const SLOW_THRESHOLD_MS = 2000;
 const ApiHeatSection: React.FC<Props> = ({ requests, isDarkMode }) => {
   const bg = isDarkMode ? colours.darkBlue : colours.light.sectionBackground;
   const borderCol = isDarkMode ? colours.dark.border : colours.light.border;
+  const freshIds = useFreshIds(requests, (req) => `${req.ts}-${req.method}-${req.path}`);
 
   return (
     <div style={{ padding: '14px 16px', background: bg, border: `1px solid ${borderCol}`, borderRadius: 0, marginBottom: 8 }}>
@@ -59,10 +61,12 @@ const ApiHeatSection: React.FC<Props> = ({ requests, isDarkMode }) => {
           {requests.map((req, i) => {
             const isSlow = req.durationMs >= SLOW_THRESHOLD_MS;
             const isError = req.status >= 500;
+            const freshKey = `${req.ts}-${req.method}-${req.path}`;
 
             return (
               <div
                 key={`${req.ts}-${i}`}
+                data-fresh={freshIds.has(freshKey) ? 'true' : undefined}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 6, padding: '4px 6px', fontSize: 11,
                   fontFamily: 'monospace',

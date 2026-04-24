@@ -141,6 +141,94 @@ const FORM_CHECKS = [
       return verifyMountedEndpoint(getNotableCaseInfoUrl(baseUrl));
     },
   },
+  {
+    id: 'learning-dev-plan',
+    name: 'Learning & Development — Plan',
+    description: 'L&D register plan submission',
+    check: async (baseUrl) => {
+      return verifyMountedEndpoint(`${baseUrl}/api/registers/learning-dev`);
+    },
+  },
+  {
+    id: 'learning-dev-activity',
+    name: 'Learning & Development — Activity',
+    description: 'L&D register activity submission',
+    check: async (baseUrl) => {
+      return verifyMountedEndpoint(`${baseUrl}/api/registers/learning-dev/activity`);
+    },
+  },
+  {
+    id: 'undertaking',
+    name: 'Undertakings Register',
+    description: 'Undertakings submission',
+    check: async (baseUrl) => {
+      return verifyMountedEndpoint(`${baseUrl}/api/registers/undertakings`);
+    },
+  },
+  {
+    id: 'complaint',
+    name: 'Complaints Register',
+    description: 'Complaints submission',
+    check: async (baseUrl) => {
+      return verifyMountedEndpoint(`${baseUrl}/api/registers/complaints`);
+    },
+  },
+  {
+    id: 'annual-leave-request',
+    name: 'Annual Leave — Request',
+    description: 'Annual leave request submission',
+    check: async (baseUrl) => {
+      return verifyMountedEndpoint(`${baseUrl}/api/attendance/annual-leave`);
+    },
+  },
+  {
+    id: 'annual-leave-booking',
+    name: 'Annual Leave — Booking',
+    description: 'Annual leave booking submission',
+    check: async (baseUrl) => {
+      return verifyMountedEndpoint(`${baseUrl}/api/attendance/annual-leave`);
+    },
+  },
+  {
+    id: 'annual-leave-approval',
+    name: 'Annual Leave — Approval',
+    description: 'Annual leave approval workflow',
+    check: async (baseUrl) => {
+      return verifyMountedEndpoint(`${baseUrl}/api/attendance/annual-leave`);
+    },
+  },
+  {
+    id: 'tech-idea',
+    name: 'Tech Idea',
+    description: 'Tech idea submission alias (maps to /api/tech-tickets/idea)',
+    check: async (baseUrl) => {
+      return verifyMountedEndpoint(`${baseUrl}/api/tech-tickets/idea`);
+    },
+  },
+  {
+    id: 'tech-problem',
+    name: 'Tech Problem',
+    description: 'Tech problem submission alias (maps to /api/tech-tickets/problem)',
+    check: async (baseUrl) => {
+      return verifyMountedEndpoint(`${baseUrl}/api/tech-tickets/problem`);
+    },
+  },
+  {
+    id: 'counsel-recommendation',
+    name: 'Counsel Recommendation',
+    description: 'Counsel recommendation submission alias',
+    check: async (baseUrl) => {
+      return verifyMountedEndpoint(`${baseUrl}/api/counsel`);
+    },
+  },
+  {
+    id: 'expert-recommendation',
+    name: 'Expert Recommendation',
+    description: 'Expert recommendation submission alias',
+    check: async (baseUrl) => {
+      return verifyMountedEndpoint(`${baseUrl}/api/experts`);
+    },
+  },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────

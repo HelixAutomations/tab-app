@@ -23,10 +23,10 @@
   --home-section-header-color: var(--text-muted);
   --home-section-header-accent: var(--helix-highlight);
 
-  /* Skeleton pulse */
-  --home-skel-fill: rgba(54, 144, 206, 0.06);
-  --home-skel-fill-weak: rgba(0, 0, 0, 0.04);
-  --home-skel-fill-faint: rgba(0, 0, 0, 0.03);
+  /* Skeleton pulse — Helix highlight blue family (#3690CE / darkBlue) */
+  --home-skel-fill: rgba(54, 144, 206, 0.12);
+  --home-skel-fill-weak: rgba(13, 47, 96, 0.07);
+  --home-skel-fill-faint: rgba(13, 47, 96, 0.04);
 
   /* Strip background (QuickActionsBar, ImmediateActionsBar) */
   --home-strip-bg: var(--surface-section);
@@ -49,7 +49,7 @@
   --home-badge-bg: #F4F4F6;
 
   /* Additional skeleton fills */
-  --home-skel-fill-medium: rgba(0, 0, 0, 0.04);
+  --home-skel-fill-medium: rgba(13, 47, 96, 0.06);
 
   /* Chart gridlines (SVG skeleton charts) */
   --home-chart-gridline: rgba(13, 47, 96, 0.04);
@@ -77,10 +77,10 @@
   --home-section-header-color: var(--text-muted);
   --home-section-header-accent: var(--helix-accent);
 
-  /* Skeleton pulse */
-  --home-skel-fill: rgba(255, 255, 255, 0.06);
-  --home-skel-fill-weak: rgba(255, 255, 255, 0.04);
-  --home-skel-fill-faint: rgba(255, 255, 255, 0.03);
+  /* Skeleton pulse — Helix highlight blue on navy (#3690CE tints) */
+  --home-skel-fill: rgba(54, 144, 206, 0.18);
+  --home-skel-fill-weak: rgba(54, 144, 206, 0.10);
+  --home-skel-fill-faint: rgba(54, 144, 206, 0.06);
 
   /* Strip background */
   --home-strip-bg: #061733;
@@ -103,7 +103,7 @@
   --home-badge-bg: rgba(10, 32, 64, 0.92);
 
   /* Additional skeleton fills */
-  --home-skel-fill-medium: rgba(255, 255, 255, 0.04);
+  --home-skel-fill-medium: rgba(54, 144, 206, 0.09);
 
   /* Chart gridlines */
   --home-chart-gridline: rgba(255, 255, 255, 0.03);

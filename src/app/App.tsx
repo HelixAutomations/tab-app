@@ -16,7 +16,12 @@ import { hasActiveMatterOpening } from './functionality/matterOpeningUtils';
 import { normalizeMatterData } from '../utils/matterNormalization';
 import { getProxyBaseUrl } from '../utils/getProxyBaseUrl';
 import { ADMIN_USERS, isAdminUser, canSeePrivateHubControls, canSeeActivityTab } from './admin';
+import { EffectivePermissionsProvider } from './effectivePermissions';
 import HubToolsChip from '../components/HubToolsChip';
+import DebugLatencyOverlay from '../components/DebugLatencyOverlay';
+import TabMountMeter from '../components/TabMountMeter';
+import { startInteraction } from '../utils/interactionTracker';
+import { useFirstHydration } from '../utils/useFirstHydration';
 import MaintenanceNotice from './MaintenanceNotice';
 import { useServiceHealthMonitor } from './functionality/useServiceHealthMonitor';
 import actionLog from '../utils/actionLog';
@@ -197,7 +202,6 @@ const App: React.FC<AppProps> = ({
   const [activeTab, setActiveTab] = useState('home');
   const [enquiriesEverVisited, setEnquiriesEverVisited] = useState(false);
   const [mattersEverVisited, setMattersEverVisited] = useState(false);
-  const [instructionsEverVisited, setInstructionsEverVisited] = useState(false);
   const [pendingMatterId, setPendingMatterId] = useState<string | null>(null);
   const [pendingShowCcl, setPendingShowCcl] = useState(false);
   const [pendingEnquiryId, setPendingEnquiryId] = useState<string | null>(null);
@@ -308,27 +312,28 @@ const App: React.FC<AppProps> = ({
     }
   }, [isDarkMode]);
 
-  // Use ThemeContext inside fallback so it reflects user toggle immediately
+  // Suspense fallback — rendered while a lazy tab chunk is still downloading.
+  // A thin 2px shimmer strip pinned above the content slot.
+  // During initial boot the global `!dataReady` strip is already visible, so
+  // this one bails (avoids stacking into a 4px bar that looks like a filter
+  // underline). Post-boot, this is the only cue when a not-yet-prefetched
+  // chunk is arriving from the network.
   const ThemedSuspenseFallback: React.FC = () => {
     const { isDarkMode } = useTheme();
+    if (!dataReady) return null;
     return (
       <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          minHeight: 200,
-          flex: 1,
-        }}
+        role="status"
+        aria-live="polite"
+        aria-label="Loading tab"
+        style={{ width: '100%', height: 2, overflow: 'hidden', borderRadius: 0 }}
       >
-        <div style={{ width: 120, height: 2, overflow: 'hidden', borderRadius: 0 }}>
-          <div style={{
-            height: '100%',
-            background: `linear-gradient(90deg, transparent 0%, ${isDarkMode ? colours.accent : colours.highlight} 50%, transparent 100%)`,
-            backgroundSize: '200% 100%',
-            animation: 'helix-shimmer 1.5s ease-in-out infinite',
-          }} />
-        </div>
+        <div style={{
+          height: '100%',
+          background: `linear-gradient(90deg, transparent 0%, ${isDarkMode ? colours.accent : colours.highlight} 50%, transparent 100%)`,
+          backgroundSize: '200% 100%',
+          animation: 'helix-shimmer 1.5s ease-in-out infinite',
+        }} />
       </div>
     );
   };
@@ -343,6 +348,14 @@ const App: React.FC<AppProps> = ({
   const [boardroomBookings, setBoardroomBookings] = useState<BoardroomBooking[] | null>(null);
   const [soundproofBookings, setSoundproofBookings] = useState<SoundproofPodBooking[] | null>(null);
   const [isHydratingMattersOnDemand, setIsHydratingMattersOnDemand] = useState(false);
+
+  // ── UX hydration probes (Round 2 instrumentation) ──
+  // Fires hydrate.{name} once when the underlying data is first non-empty,
+  // capturing time-to-meaningful-content from App-mount.
+  useFirstHydration('matters', Array.isArray(matters) && matters.length > 0, { count: matters?.length });
+  useFirstHydration('enquiries', Array.isArray(enquiries) && enquiries.length > 0, { count: enquiries?.length });
+  useFirstHydration('instructions', instructionData.length > 0, { count: instructionData.length });
+  useFirstHydration('sse.connected', sseConnectionState === 'live', { state: sseConnectionState });
   
   const [isResourcesModalOpen, setIsResourcesModalOpen] = useState(false);
   
@@ -582,36 +595,39 @@ const App: React.FC<AppProps> = ({
     return map;
   }, [allInstructionData]);
 
-  // Check for active matter opening every 2 seconds
   useEffect(() => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') {
+      return;
+    }
+
     const checkActiveMatter = () => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+      if (document.visibilityState === 'hidden') {
         return;
       }
+
       setHasActiveMatter(hasActiveMatterOpening(isInMatterOpeningWorkflow));
     };
 
-    const handleVisibilityChange = () => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
-        return;
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key?.startsWith('matterOpeningDraft_')) {
+        checkActiveMatter();
       }
-      checkActiveMatter();
     };
-    
-    // Initial check
-    checkActiveMatter();
-    
-    // Set up polling
-    const interval = setInterval(checkActiveMatter, 2000);
-    if (typeof document !== 'undefined') {
-      document.addEventListener('visibilitychange', handleVisibilityChange);
-    }
-    
-    return () => {
-      clearInterval(interval);
-      if (typeof document !== 'undefined') {
-        document.removeEventListener('visibilitychange', handleVisibilityChange);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        checkActiveMatter();
       }
+    };
+
+    checkActiveMatter();
+
+    window.addEventListener('storage', handleStorage);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [isInMatterOpeningWorkflow]);
 
@@ -637,40 +653,53 @@ const App: React.FC<AppProps> = ({
     if (activeTab === 'matters' && !mattersEverVisited) {
       setMattersEverVisited(true);
     }
-    if (activeTab === 'instructions' && !instructionsEverVisited) {
-      setInstructionsEverVisited(true);
-    }
-  }, [activeTab, enquiriesEverVisited, mattersEverVisited, instructionsEverVisited]);
+  }, [activeTab, enquiriesEverVisited, mattersEverVisited]);
 
   useEffect(() => {
-    if (typeof window === 'undefined' || isLocalDev) return;
-    if (!teamsContext || !userData?.[0]) return;
+    if (typeof window === 'undefined') return;
+    if (!userData?.[0]) return;
+    if (activeTab !== 'home') return;
 
     let cancelled = false;
+    let idleId: number | null = null;
     const warmNavigationChunks = () => {
-      if (cancelled || document.hidden) return;
+      if (cancelled || document.hidden || activeTab !== 'home') return;
+      // Chunks only — just downloads the JS, no component mount.
+      // Makes first-visit tab switches feel instant by removing the
+      // network leg from the critical path.
       void loadEnquiriesTab();
+      void loadInstructionsTab();
+      void loadReportingTab();
+      void retryImport(() => import('../tabs/roadmap/Roadmap'));
+      if (!mattersEverVisited) {
+        void loadMattersTab();
+        setMattersEverVisited(true);
+      }
     };
 
-    if ('requestIdleCallback' in window) {
-      const idleId = (window as typeof window & {
-        requestIdleCallback: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
-      }).requestIdleCallback(() => warmNavigationChunks(), { timeout: 1800 });
+    const scheduleWarmNavigation = () => {
+      if (cancelled) return;
 
-      return () => {
-        cancelled = true;
-        if ('cancelIdleCallback' in window) {
-          (window as typeof window & { cancelIdleCallback: (id: number) => void }).cancelIdleCallback(idleId);
-        }
-      };
-    }
+      if ('requestIdleCallback' in window) {
+        idleId = (window as typeof window & {
+          requestIdleCallback: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
+        }).requestIdleCallback(() => warmNavigationChunks(), { timeout: 2500 });
+        return;
+      }
 
-    const timer = globalThis.setTimeout(() => warmNavigationChunks(), 1800);
+      warmNavigationChunks();
+    };
+
+    const timer = globalThis.setTimeout(scheduleWarmNavigation, 4000);
+
     return () => {
       cancelled = true;
+      if (idleId !== null && 'cancelIdleCallback' in window) {
+        (window as typeof window & { cancelIdleCallback: (id: number) => void }).cancelIdleCallback(idleId);
+      }
       globalThis.clearTimeout(timer);
     };
-  }, [isLocalDev, teamsContext, userData]);
+  }, [activeTab, mattersEverVisited, userData]);
 
   // ─── Bars inside scroll region — tab-switch visibility only ───
   // Navigator + ImmediateActions are inside .app-scroll-region so they
@@ -784,6 +813,61 @@ const App: React.FC<AppProps> = ({
     setPendingShowCcl(false);
   }, []);
 
+  const activateTab = useCallback((nextTab: string) => {
+    // Phase 0 (UX Realtime Programme): measure tab-switch latency.
+    // setActiveTab() must NOT be wrapped in startTransition (see /memories/repo/home-boot-performance.md).
+    setActiveTab((prev) => {
+      if (prev === nextTab) return prev;
+      const handle = startInteraction('nav.tabSwitch', { from: prev, to: nextTab });
+      // End on the next paint — closest signal to "user sees new tab" without DOM coupling.
+      if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(() => requestAnimationFrame(() => handle.end()));
+      } else {
+        handle.end();
+      }
+      return nextTab;
+    });
+  }, []);
+
+  // CCL deep-link: Teams autopilot card links here as
+  //   ?tab=operations&cclMatter=<id>&autoReview=1
+  // On mount, forward to the existing `openHomeCclReview` window event (handled
+  // inside OperationsDashboard at L4213), navigate to Home, and strip the
+  // query params so the URL doesn't keep triggering on back/forward.
+  // See docs/notes/CCL_BACKEND_CHAIN_SILENT_AUTOPILOT_SERVICE.md Phase E.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const cclMatter = params.get('cclMatter');
+    if (!cclMatter) return;
+    const autoReview = params.get('autoReview') === '1';
+    const autoRunAi = params.get('autoRunAi') === '1';
+    activateTab('home');
+    // Give OperationsDashboard a tick to mount its listener before dispatching.
+    const t = setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('openHomeCclReview', {
+        detail: {
+          matterId: cclMatter,
+          openInspector: autoReview,
+          autoRunAi,
+        },
+      }));
+    }, 400);
+    // Strip query params so refreshes don't loop
+    try {
+      params.delete('cclMatter');
+      params.delete('autoReview');
+      params.delete('autoRunAi');
+      const next = params.toString();
+      const url = window.location.pathname + (next ? `?${next}` : '') + window.location.hash;
+      window.history.replaceState(null, '', url);
+    } catch {
+      /* non-fatal */
+    }
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleAllMattersFetched = useCallback((fetchedMatters: Matter[]) => {
     setAllMattersFromHome(fetchedMatters);
   }, []);
@@ -809,6 +893,10 @@ const App: React.FC<AppProps> = ({
         break;
       case 'reporting':
         void loadReportingTab();
+        break;
+      case 'roadmap':
+        // Roadmap chunk is small but still benefits from prefetch on hover/pointerdown.
+        void retryImport(() => import('../tabs/roadmap/Roadmap'));
         break;
       default:
         break;
@@ -885,15 +973,15 @@ const App: React.FC<AppProps> = ({
   useEffect(() => {
     const handleNavigateToInstructions = () => {
       actionLog('Navigate → enquiries', 'via navigateToInstructions');
-      setActiveTab('enquiries');
+      activateTab('enquiries');
     };
     const handleNavigateToEnquiries = () => {
       actionLog('Navigate → enquiries');
-      setActiveTab('enquiries');
+      activateTab('enquiries');
     };
     const handleNavigateToHome = () => {
       actionLog('Navigate → home');
-      setActiveTab('home');
+      activateTab('home');
     };
     const handleNavigateToEnquiry = (e: Event) => {
       const detail = (e as CustomEvent).detail;
@@ -906,7 +994,7 @@ const App: React.FC<AppProps> = ({
           try { localStorage.setItem('navigateToTimelineItem', detail.timelineItem); } catch {}
         }
       }
-      setActiveTab('enquiries');
+      activateTab('enquiries');
     };
     const handleNavigateToReporting = (e: Event) => {
       const detail = (e as CustomEvent).detail;
@@ -918,7 +1006,7 @@ const App: React.FC<AppProps> = ({
           requestedAt: Date.now(),
         });
       }
-      setActiveTab('reporting');
+      activateTab('reporting');
     };
     const handleNavigateToMatter = (e: Event) => {
       const detail = (e as CustomEvent).detail;
@@ -928,14 +1016,14 @@ const App: React.FC<AppProps> = ({
         setPendingMatterId(detail.matterId);
       }
       setPendingShowCcl(!!detail?.showCcl);
-      setActiveTab('matters');
+      activateTab('matters');
     };
     const handleNavigateToForms = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       const requestedFormTitle = typeof detail?.formTitle === 'string' ? detail.formTitle : null;
       actionLog('Navigate → forms', requestedFormTitle || undefined);
       setPendingFormTitle(requestedFormTitle);
-      setActiveTab('forms');
+      activateTab('forms');
     };
     const handleWarmMattersTab = () => {
       warmMattersTab();
@@ -960,7 +1048,7 @@ const App: React.FC<AppProps> = ({
       window.removeEventListener('navigateToForms', handleNavigateToForms);
       window.removeEventListener('warmMattersTab', handleWarmMattersTab);
     };
-  }, [warmMattersTab]);
+  }, [activateTab, warmMattersTab]);
 
   // State to trigger instruction data refresh
   const [instructionRefreshTrigger, setInstructionRefreshTrigger] = useState<number>(0);
@@ -982,9 +1070,24 @@ const App: React.FC<AppProps> = ({
   }, []);
 
   const dispatchDemoModeActivation = useCallback(() => {
+    // Fire the enquiry-injection cue first so Enquiries.tsx seeds demo rows.
     setTimeout(() => {
       window.dispatchEvent(new CustomEvent('selectTestEnquiry'));
     }, 100);
+    // Follow with the realtime-pulse wave so every wired Home tile gets a
+    // visible "new event landed" cue instead of silently re-rendering with
+    // the injected demo rows already present. Staggered ~120ms per tile inside
+    // the Home handler — here we just fire the trigger once.
+    setTimeout(() => {
+      try { window.dispatchEvent(new CustomEvent('demoRealtimePulse')); } catch { /* ignore */ }
+      // Also flag the canonical change channels so freshness indicators
+      // (fresh-id sets, tile pulses) treat the demo entries as inbound rather
+      // than baseline.
+      try { window.dispatchEvent(new CustomEvent('helix:enquiriesChanged')); } catch { /* ignore */ }
+      try { window.dispatchEvent(new CustomEvent('helix:mattersChanged')); } catch { /* ignore */ }
+      try { window.dispatchEvent(new CustomEvent('helix:outstandingBalancesChanged')); } catch { /* ignore */ }
+      try { window.dispatchEvent(new CustomEvent('helix:opsQueueChanged')); } catch { /* ignore */ }
+    }, 200);
   }, []);
 
   // Handler to enable demo mode (adds a stable demo enquiry for demos/testing)
@@ -1024,8 +1127,8 @@ const App: React.FC<AppProps> = ({
   const handleOpenDemoMatter = useCallback((showCcl = false) => {
     setPendingMatterId('DEMO-3311402');
     setPendingShowCcl(showCcl);
-    setActiveTab('matters');
-  }, []);
+    activateTab('matters');
+  }, [activateTab]);
 
   useEffect(() => {
     if (!pendingDemoMode || activeTab !== 'enquiries') {
@@ -1455,6 +1558,7 @@ const App: React.FC<AppProps> = ({
 
   return (
     <NavigatorProvider>
+      <EffectivePermissionsProvider>
       <ThemeProvider isDarkMode={isDarkMode || false}>
         <ToastProvider isDarkMode={isDarkMode} position="bottom-right">
         <div
@@ -1470,9 +1574,9 @@ const App: React.FC<AppProps> = ({
         >
           <CustomTabs
             selectedKey={activeTab}
-            onTabSelect={(key) => { actionLog(`Tab → ${key}`); trackClientEvent('Nav', 'tab-switch', { from: prevTabRef.current, to: key }); prevTabRef.current = key; setActiveTab(key); }}
+            onTabSelect={(key) => { actionLog(`Tab → ${key}`); trackClientEvent('Nav', 'tab-switch', { from: prevTabRef.current, to: key }); prevTabRef.current = key; activateTab(key); }}
             onTabWarm={warmTabByKey}
-            onHomeClick={() => { actionLog('Tab → home'); trackClientEvent('Nav', 'tab-switch', { from: prevTabRef.current, to: 'home' }); prevTabRef.current = 'home'; setActiveTab('home'); }}
+            onHomeClick={() => { actionLog('Tab → home'); trackClientEvent('Nav', 'tab-switch', { from: prevTabRef.current, to: 'home' }); prevTabRef.current = 'home'; activateTab('home'); }}
             tabs={tabs}
             ariaLabel="Main Navigation Tabs"
             user={userData?.[0]}
@@ -1488,7 +1592,6 @@ const App: React.FC<AppProps> = ({
             hasImmediateActions={hasImmediateActions}
             onRefreshEnquiries={onRefreshEnquiries}
             onRefreshMatters={onRefreshMatters}
-            onFeatureToggle={handleFeatureToggle}
             featureToggles={featureToggles}
             onShowTestEnquiry={handleShowTestEnquiry}
             demoModeEnabled={demoModeEnabled}
@@ -1537,29 +1640,16 @@ const App: React.FC<AppProps> = ({
               />
             </div>
 
-            {!dataReady ? (
-              /* Shell-first boot: tabs are visible, content area shows a shimmer bar */
-              <div style={{
-                flex: 1,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                minHeight: 200,
-              }}>
-                <div style={{ width: 120, height: 2, overflow: 'hidden', borderRadius: 0 }}>
-                  <div style={{
-                    height: '100%',
-                    background: `linear-gradient(90deg, transparent 0%, ${isDarkMode ? colours.accent : colours.highlight} 50%, transparent 100%)`,
-                    backgroundSize: '200% 100%',
-                    animation: 'helix-shimmer 1.5s ease-in-out infinite',
-                  }} />
-                </div>
-              </div>
-            ) : (
+            {/* Render tabs immediately. Each tab handles its own loading
+                states and skeletons internally; the thin top shimmer bar
+                (rendered above while `!dataReady`) is the only global
+                progress cue. Never hide the entire content area behind a
+                loader — stale or partial data is more useful than a void. */}
             <>
             {/* Keep-alive: Home always mounted, visibility toggled */}
             <div style={{ display: activeTab === 'home' ? undefined : 'none' }}>
               <Suspense fallback={<ThemedSuspenseFallback />}>
+                <TabMountMeter name="home">
                 <Home
                   context={teamsContext}
                   userData={userData}
@@ -1580,14 +1670,17 @@ const App: React.FC<AppProps> = ({
                   onImmediateActionsChange={setHasImmediateActions}
                   originalAdminUser={originalAdminUser}
                   featureToggles={homeFeatureToggles}
+                  onFeatureToggle={handleFeatureToggle}
                   demoModeEnabled={demoModeEnabled}
                 />
+                </TabMountMeter>
               </Suspense>
             </div>
             {/* Keep-alive: Enquiries mounted once visited, then kept alive */}
             {enquiriesEverVisited && (
               <div style={{ display: activeTab === 'enquiries' ? undefined : 'none' }}>
                 <Suspense fallback={<ThemedSuspenseFallback />}>
+                  <TabMountMeter name="enquiries">
                   <Enquiries
                     context={teamsContext}
                     userData={userData}
@@ -1613,6 +1706,7 @@ const App: React.FC<AppProps> = ({
                     pendingEnquiryPitchScenario={pendingEnquiryPitchScenario}
                     onPendingEnquiryHandled={handlePendingEnquiryHandled}
                   />
+                  </TabMountMeter>
                 </Suspense>
               </div>
             )}
@@ -1620,6 +1714,7 @@ const App: React.FC<AppProps> = ({
             {mattersEverVisited && (
               <div style={{ display: activeTab === 'matters' ? undefined : 'none' }}>
                 <Suspense fallback={<ThemedSuspenseFallback />}>
+                  <TabMountMeter name="matters">
                   <Matters
                     matters={seededMattersForTab}
                     isLoading={isLoading || (!hasSeededMattersForTab && isHydratingMattersOnDemand)}
@@ -1634,49 +1729,52 @@ const App: React.FC<AppProps> = ({
                     onPendingMatterHandled={handlePendingMatterHandled}
                     demoModeEnabled={demoModeEnabled}
                   />
+                  </TabMountMeter>
                 </Suspense>
               </div>
             )}
-            {/* Keep-alive: Instructions mounted once visited */}
-            {instructionsEverVisited && (
-              <div style={{ display: activeTab === 'instructions' ? undefined : 'none' }}>
-                <Suspense fallback={<ThemedSuspenseFallback />}>
-                  <Instructions
-                    userInitials={userInitials}
-                    instructionData={instructionData}
-                    setInstructionData={setInstructionData}
-                    allInstructionData={allInstructionData}
-                    teamData={teamData}
-                    userData={userData}
-                    matters={mattersForInstructions}
-                    hasActiveMatter={hasActiveMatter}
-                    setIsInMatterOpeningWorkflow={setIsInMatterOpeningWorkflow}
-                    poidData={poidData}
-                    setPoidData={setPoidData}
-                    enquiries={enquiries}
-                    featureToggles={featureToggles}
-                    demoModeEnabled={demoModeEnabled}
-                  />
-                </Suspense>
-              </div>
+            {activeTab === 'instructions' && (
+              <Suspense fallback={<ThemedSuspenseFallback />}>
+                <TabMountMeter name="instructions">
+                <Instructions
+                  userInitials={userInitials}
+                  instructionData={instructionData}
+                  setInstructionData={setInstructionData}
+                  allInstructionData={allInstructionData}
+                  teamData={teamData}
+                  userData={userData}
+                  matters={mattersForInstructions}
+                  hasActiveMatter={hasActiveMatter}
+                  setIsInMatterOpeningWorkflow={setIsInMatterOpeningWorkflow}
+                  poidData={poidData}
+                  setPoidData={setPoidData}
+                  enquiries={enquiries}
+                  featureToggles={featureToggles}
+                  demoModeEnabled={demoModeEnabled}
+                />
+                </TabMountMeter>
+              </Suspense>
             )}
             {activeTab === 'forms' && (
+              <TabMountMeter name="forms">
               <FormsHub
                 initialFormTitle={pendingFormTitle}
                 isOpen={activeTab === 'forms'}
                 matters={matters || []}
                 onDismiss={() => {
                   setPendingFormTitle(null);
-                  setActiveTab('home');
+                  activateTab('home');
                 }}
                 onInitialFormHandled={() => setPendingFormTitle(null)}
                 teamData={teamData}
                 userData={userData}
               />
+              </TabMountMeter>
             )}
             {/* Reporting: admin-only, mount/unmount is fine */}
             {activeTab === 'reporting' && (
               <Suspense fallback={<ThemedSuspenseFallback />}>
+                <TabMountMeter name="reporting">
                 <ReportingHome
                   userData={userData}
                   teamData={teamData}
@@ -1685,15 +1783,17 @@ const App: React.FC<AppProps> = ({
                   navigationRequest={reportingNavigationRequest}
                   onNavigationRequestHandled={handleNavigationRequestHandled}
                 />
+                </TabMountMeter>
               </Suspense>
             )}
             {activeTab === 'roadmap' && (
               <Suspense fallback={<ThemedSuspenseFallback />}>
+                <TabMountMeter name="roadmap">
                 <Roadmap userData={userData} showBootMonitor={isLocalDev && !isProductionPreview} isLocalDev={isLocalDev} />
+                </TabMountMeter>
               </Suspense>
             )}
             </>
-            )}
           </div>
         </div>
         {dataReady && (isLocalDev || canSeePrivateHubControls(userData[0] || null) || canSeePrivateHubControls(originalAdminUser || null)) && (
@@ -1717,8 +1817,14 @@ const App: React.FC<AppProps> = ({
             onOpenDemoMatter={handleOpenDemoMatter}
           />
         )}
+        {/* UX Realtime Programme — Phase 0: dev-only latency overlay (LZ/AC + ?ux-debug=1). */}
+        <DebugLatencyOverlay
+          enabled={dataReady && (isLocalDev || canSeePrivateHubControls(userData[0] || null) || canSeePrivateHubControls(originalAdminUser || null))}
+          bottomOffset={(!demoModeEnabled && serviceHealth.isUnavailable) ? 132 : 78}
+        />
         </ToastProvider>
       </ThemeProvider>
+      </EffectivePermissionsProvider>
     </NavigatorProvider>
   );
 };

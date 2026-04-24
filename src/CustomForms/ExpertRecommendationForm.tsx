@@ -15,6 +15,8 @@ import { useTheme } from '../app/functionality/ThemeContext';
 import { getProxyBaseUrl } from '../utils/getProxyBaseUrl';
 import { UserData } from '../app/functionality/types';
 import AreaWorkTypeDropdown from './shared/AreaWorkTypeDropdown';
+import { useFormReadinessPulse } from './shared/useFormReadinessPulse';
+import { FormReadinessCue } from './shared/FormReadinessCue';
 import {
   getFormScrollContainerStyle,
   getFormCardStyle,
@@ -77,6 +79,7 @@ const ExpertRecommendationFormContent: React.FC<ExpertRecommendationFormProps> =
   onSubmitError,
 }) => {
   const { isDarkMode } = useTheme();
+  const readiness = useFormReadinessPulse('expert-recommendation');
   const defaultSource = currentUser?.Initials ? `${currentUser.Initials} following` : '';
   
   const [formData, setFormData] = useState<FormData>({
@@ -203,12 +206,17 @@ const ExpertRecommendationFormContent: React.FC<ExpertRecommendationFormProps> =
                 Expert Recommendation
               </Text>
             </Stack>
-            {onBack && (
-              <DefaultButton 
-                text="Back" 
-                onClick={onBack} 
-                styles={getFormDefaultButtonStyles(isDarkMode)} 
-              />
+            {onBack ? (
+              <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 10 }}>
+                <FormReadinessCue state={readiness.state} detail={readiness.detail} readyAnnouncement="Expert form ready" />
+                <DefaultButton 
+                  text="Back" 
+                  onClick={onBack} 
+                  styles={getFormDefaultButtonStyles(isDarkMode)} 
+                />
+              </Stack>
+            ) : (
+              <FormReadinessCue state={readiness.state} detail={readiness.detail} readyAnnouncement="Expert form ready" />
             )}
           </Stack>
         </div>

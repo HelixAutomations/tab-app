@@ -59,10 +59,10 @@ type StatusType = 'office' | 'wfh' | 'away' | 'sick' | 'ooo' | 'unset';
 const STATUS_CONFIG: Record<StatusType, { label: string; shortLabel: string; color: string; icon: string; darkColor: string }> = {
     office: { label: 'In Office', shortLabel: 'Office', color: colours.helixBlue, darkColor: colours.highlight, icon: 'CityNext' },
     wfh: { label: 'Work From Home', shortLabel: 'WFH', color: colours.green, darkColor: colours.green, icon: 'Home' },
-    away: { label: 'Away / Leave', shortLabel: 'Away', color: '#9CA3AF', darkColor: '#9CA3AF', icon: 'Airplane' },
+    away: { label: 'Away / Leave', shortLabel: 'Away', color: colours.greyText, darkColor: colours.subtleGrey, icon: 'Airplane' },
     sick: { label: 'Off Sick', shortLabel: 'Sick', color: colours.cta, darkColor: colours.cta, icon: 'Health' },
     ooo: { label: 'Out of Office', shortLabel: 'OOO', color: colours.cta, darkColor: colours.cta, icon: 'Clock' },
-    unset: { label: 'Not Set', shortLabel: 'Select', color: '#6B7280', darkColor: '#6B7280', icon: 'More' },
+    unset: { label: 'Not Set', shortLabel: 'Select', color: colours.greyText, darkColor: colours.subtleGrey, icon: 'More' },
 };
 
 const PersonalAttendanceConfirm = forwardRef<
@@ -329,15 +329,24 @@ const PersonalAttendanceConfirm = forwardRef<
     };
 
     const handleSave = async () => {
-        console.log('[PersonalAttendanceConfirm] handleSave called');
-        console.log('[PersonalAttendanceConfirm] localAttendance:', JSON.stringify(localAttendance));
-        console.log('[PersonalAttendanceConfirm] Saving for:', selectedEmployee ? `employee ${activeInitials}` : 'self');
+        if (saving) return;
         setSaving(true);
+        // Safety fallback ONLY — the parent saveAttendance already aborts its own
+        // fetch after its own timeout. This is a last-resort so the button never
+        // wedges if the parent promise is lost entirely. We also close the modal
+        // here so the user is never trapped behind a frozen dialog.
+        const safetyTimer = window.setTimeout(() => {
+            setSaving(false);
+            if (onShowToast) onShowToast('Saving took too long', 'error', 'Please try again — network may be slow.');
+            try { onClose(); } catch { /* swallow */ }
+        }, 30000);
         try {
-            for (const weekStart of [currentWeekStart, nextWeekStart]) {
+            const weekStarts = [currentWeekStart, nextWeekStart];
+            for (const weekStart of weekStarts) {
                 const dayStatuses = localAttendance[weekStart] || {};
-                console.log('[PersonalAttendanceConfirm] weekStart:', weekStart, 'dayStatuses:', dayStatuses);
-                const dayStrings = Object.entries(dayStatuses).map(([dayName, status]) => {
+                const entries = Object.entries(dayStatuses);
+                if (entries.length === 0) continue; // skip weeks with no data
+                const dayStrings = entries.map(([dayName, status]) => {
                     const dayMap: Record<string, string> = {
                         Monday: 'Mon', Tuesday: 'Tue', Wednesday: 'Wed', Thursday: 'Thu', Friday: 'Fri',
                     };
@@ -345,28 +354,36 @@ const PersonalAttendanceConfirm = forwardRef<
                     return `${abbr}:${toStorageStatus(status)}`;
                 });
                 const days = dayStrings.join(',');
-                console.log('[PersonalAttendanceConfirm] Calling onSave with:', weekStart, days, selectedEmployee ? activeInitials : undefined);
+                if (!days) continue;
                 await onSave(weekStart, days, selectedEmployee ? activeInitials : undefined);
-                console.log('[PersonalAttendanceConfirm] onSave completed for:', weekStart);
             }
+            // Reset saving BEFORE closing so the button resets even if the parent is
+            // slow to unmount the modal.
+            setSaving(false);
             if (onShowToast) {
                 if (demoModeEnabled) {
                     onShowToast('Demo mode: attendance not saved', 'info', 'Changes are preview-only while demo mode is enabled.');
                 } else {
                     const emp = employeeList.find(e => e.Initials === selectedEmployee);
-                    const msg = selectedEmployee 
+                    const msg = selectedEmployee
                         ? `Attendance saved for ${emp?.First || selectedEmployee}`
                         : 'Attendance saved';
                     onShowToast(msg, 'success', 'Schedule has been updated');
                 }
             }
-            onClose();
+            try { onClose(); } catch { /* swallow */ }
         } catch (error) {
             console.error('[PersonalAttendanceConfirm] Error saving attendance:', error);
+            setSaving(false);
             if (onShowToast) {
                 onShowToast('Failed to save', 'error', error instanceof Error ? error.message : 'Please try again');
             }
+            // Close the modal even on error so the user isn't trapped. The error
+            // toast communicates the failure; the optimistic update has already
+            // been rolled back by saveAttendance.
+            try { onClose(); } catch { /* swallow */ }
         } finally {
+            window.clearTimeout(safetyTimer);
             setSaving(false);
         }
     };
@@ -396,7 +413,7 @@ const PersonalAttendanceConfirm = forwardRef<
 
     const getDayCardStyle = (status: StatusType, isLeave: boolean, isWeekend: boolean, isToday: boolean): CSSProperties => {
         const config = STATUS_CONFIG[status];
-        const statusColor = isLeave ? '#9CA3AF' : (isDarkMode ? config.darkColor : config.color);
+        const statusColor = isLeave ? colours.greyText : (isDarkMode ? config.darkColor : config.color);
         
         let bgColor = isDarkMode ? 'rgba(6, 23, 51, 0.5)' : 'rgba(255, 255, 255, 0.5)';
         if (isWeekend) {
@@ -426,7 +443,7 @@ const PersonalAttendanceConfirm = forwardRef<
     const dateNumberStyle: CSSProperties = {
         fontSize: '16px',
         fontWeight: 700,
-        color: isDarkMode ? '#F3F4F6' : '#374151',
+        color: isDarkMode ? colours.dark.text : colours.light.text,
         marginBottom: '4px',
     };
 
@@ -443,7 +460,7 @@ const PersonalAttendanceConfirm = forwardRef<
             fontWeight: 600,
             color: statusColor,
             background: isDarkMode ? `rgba(${hexToRgb(statusColor)}, 0.2)` : `rgba(${hexToRgb(statusColor)}, 0.15)`,
-            borderRadius: '2px',
+            borderRadius: 0,
             textTransform: 'uppercase',
             letterSpacing: '0.3px',
         };
@@ -456,7 +473,7 @@ const PersonalAttendanceConfirm = forwardRef<
         right: 0,
         background: isDarkMode ? colours.dark.sectionBackground : '#FFFFFF',
         border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : '#E5E7EB'}`,
-        borderRadius: '4px',
+        borderRadius: 0,
         boxShadow: isDarkMode ? '0 4px 12px rgba(0, 0, 0, 0.4)' : '0 2px 8px rgba(0, 0, 0, 0.12)',
         zIndex: 10,
         marginTop: '4px',
@@ -470,11 +487,11 @@ const PersonalAttendanceConfirm = forwardRef<
             gap: '8px',
             padding: '8px 10px',
             cursor: 'pointer',
-            borderRadius: '2px',
+            borderRadius: 0,
             background: isSelected 
                 ? (isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.1)')
                 : 'transparent',
-            color: isDarkMode ? '#E5E7EB' : '#374151',
+            color: isDarkMode ? colours.dark.text : colours.light.text,
             fontSize: '12px',
             fontWeight: 500,
         };
@@ -533,9 +550,9 @@ const PersonalAttendanceConfirm = forwardRef<
                 <div style={{
                     padding: '12px 14px',
                     marginBottom: '16px',
-                    background: isDarkMode ? 'rgba(255, 183, 77, 0.06)' : 'rgba(255, 152, 0, 0.06)',
-                    border: `1px solid ${isDarkMode ? 'rgba(255, 183, 77, 0.2)' : 'rgba(255, 152, 0, 0.2)'}`,
-                    borderRadius: 4,
+                    background: isDarkMode ? 'rgba(255, 140, 0, 0.08)' : 'rgba(255, 140, 0, 0.06)',
+                    border: `1px solid ${isDarkMode ? 'rgba(255, 140, 0, 0.2)' : 'rgba(255, 140, 0, 0.18)'}`,
+                    borderRadius: 0,
                 }}>
                     {/* Header row */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
@@ -544,8 +561,8 @@ const PersonalAttendanceConfirm = forwardRef<
                             alignItems: 'center',
                             gap: '5px',
                             padding: '3px 8px',
-                            background: isDarkMode ? 'rgba(255, 183, 77, 0.2)' : 'rgba(255, 152, 0, 0.15)',
-                            borderRadius: 3,
+                            background: isDarkMode ? 'rgba(255, 140, 0, 0.2)' : 'rgba(255, 140, 0, 0.18)',
+                            borderRadius: 0,
                             fontSize: '9px',
                             fontWeight: 700,
                             textTransform: 'uppercase',
@@ -587,7 +604,7 @@ const PersonalAttendanceConfirm = forwardRef<
                                 border: `1px solid ${!selectedEmployee 
                                     ? colours.highlight
                                     : (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)')}`,
-                                borderRadius: 3,
+                                borderRadius: 0,
                                 fontSize: '11px',
                                 fontWeight: !selectedEmployee ? 600 : 500,
                                 color: !selectedEmployee 
@@ -620,7 +637,7 @@ const PersonalAttendanceConfirm = forwardRef<
                                         border: `1px solid ${isSelected 
                                             ? colours.highlight
                                             : (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)')}`,
-                                        borderRadius: 3,
+                                        borderRadius: 0,
                                         fontSize: '11px',
                                         fontWeight: isSelected ? 600 : 500,
                                         color: isSelected 
@@ -646,7 +663,7 @@ const PersonalAttendanceConfirm = forwardRef<
                             marginTop: '10px',
                             padding: '8px 10px',
                             background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)',
-                            borderRadius: 3,
+                            borderRadius: 0,
                             fontSize: '11px',
                         }}>
                             <span style={{ color: isDarkMode ? 'rgba(243, 244, 246, 0.5)' : 'rgba(6, 23, 51, 0.5)' }}>
@@ -666,7 +683,7 @@ const PersonalAttendanceConfirm = forwardRef<
                     padding: '10px 14px',
                     background: isDarkMode ? 'rgba(6, 23, 51, 0.5)' : 'rgba(255, 255, 255, 0.5)',
                     border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)'}`,
-                    borderRadius: 4,
+                    borderRadius: 0,
                 }}>
                     <div style={{ fontSize: '11px', color: isDarkMode ? 'rgba(243, 244, 246, 0.6)' : 'rgba(6, 23, 51, 0.6)' }}>
                         Click any day to change your status
@@ -760,7 +777,7 @@ const PersonalAttendanceConfirm = forwardRef<
                                                 <div style={{
                                                     width: '20px',
                                                     height: '20px',
-                                                    borderRadius: '3px',
+                                                    borderRadius: 0,
                                                     backgroundColor: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)',
                                                     display: 'flex',
                                                     alignItems: 'center',

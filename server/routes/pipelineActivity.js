@@ -44,12 +44,21 @@ router.get('/batch', async (req, res) => {
   try {
     trackEvent('PipelineActivity.Batch.Started', { ids });
     const result = await proxyRequest('GET', `/api/pipeline-activity/batch?ids=${ids}`);
-    if (!result.ok) return res.status(result.status).json(result.data);
+    if (!result.ok) {
+      // Decorative enrichment — degrade gracefully so the UI still renders.
+      trackEvent('PipelineActivity.Batch.UpstreamFailed', {
+        ids,
+        status: String(result.status),
+        body: typeof result.data === 'string' ? result.data.slice(0, 500) : JSON.stringify(result.data).slice(0, 500),
+      });
+      return res.json([]);
+    }
     trackEvent('PipelineActivity.Batch.Completed', { ids, count: Array.isArray(result.data) ? String(result.data.length) : '0' });
     return res.json(result.data);
   } catch (err) {
     trackException(err, { operation: 'PipelineActivity.Batch', ids });
-    return res.status(500).json({ error: 'Failed to fetch pipeline activity batch' });
+    // Decorative enrichment — return empty payload so the UI keeps working.
+    return res.json([]);
   }
 });
 

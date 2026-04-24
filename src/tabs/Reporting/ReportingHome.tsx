@@ -32,7 +32,8 @@ import SyncHistory from './SyncHistory';
 import ResponseTimeReport from './ResponseTimeReport';
 import { useStreamingDatasets } from '../../hooks/useStreamingDatasets';
 import { fetchWithRetry, fetchJSON } from '../../utils/fetchUtils';
-import { isAdminUser, canAccessReports, canSeePrivateHubControls, isDevOwner } from '../../app/admin';
+import { canSeePrivateHubControls, isDevOwner } from '../../app/admin';
+import { useEffectivePermissions } from '../../app/effectivePermissions';
 import markWhite from '../../assets/markwhite.svg';
 import type { PpcIncomeMetrics } from './PpcReport';
 import { useToast } from '../../components/feedback/ToastProvider';
@@ -429,6 +430,34 @@ const mapAnnualLeaveRecords = (raw: unknown): AnnualLeaveRecord[] => {
       ? item.hearing_details
       : undefined;
 
+    const coerceBoolean = (value: unknown): boolean | undefined => {
+      if (typeof value === 'boolean') {
+        return value;
+      }
+      if (value == null) {
+        return undefined;
+      }
+      const normalized = String(value).trim().toLowerCase();
+      if (!normalized) {
+        return undefined;
+      }
+      if (['1', 'true', 'yes'].includes(normalized)) {
+        return true;
+      }
+      if (['0', 'false', 'no'].includes(normalized)) {
+        return false;
+      }
+      return undefined;
+    };
+
+    const readTimestamp = (value: unknown): string | undefined => {
+      if (typeof value !== 'string') {
+        return undefined;
+      }
+      const trimmed = value.trim();
+      return trimmed.length > 0 ? trimmed : undefined;
+    };
+
     acc.push({
       request_id: requestId,
       fe: personCandidate,
@@ -438,9 +467,15 @@ const mapAnnualLeaveRecords = (raw: unknown): AnnualLeaveRecord[] => {
       status: typeof item.status === 'string' ? item.status : '',
       days_taken: toNumberSafe(item.days_taken),
       leave_type: typeof item.leave_type === 'string' ? item.leave_type : undefined,
+      half_day_start: coerceBoolean(item.half_day_start),
+      half_day_end: coerceBoolean(item.half_day_end),
       rejection_notes: rejectionNotes,
       hearing_confirmation: hearingConfirmation,
       hearing_details: hearingDetails,
+      requested_at: readTimestamp(item.requested_at),
+      approved_at: readTimestamp(item.approved_at),
+      booked_at: readTimestamp(item.booked_at),
+      updated_at: readTimestamp(item.updated_at),
     });
 
     return acc;
@@ -1750,13 +1785,19 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
   const [refreshStartedAt, setRefreshStartedAt] = useState<number | null>(null);
   const prevIsFetchingRef = useRef<boolean>(false);
   const primaryUser = propUserData?.[0] ?? null;
+  // Phase D rollout (dev-preview-and-view-as): Reports tab access goes through
+  // the effective-permissions hook so the dev-owner "View as" override flips
+  // the modal visibility along with everything else. `isDevOwner` for the
+  // enquiry-ledger view stays RAW — that gate is rendering-only (it toggles
+  // a sub-view button) but the underlying data scope is still real-user-driven.
+  const effective = useEffectivePermissions(primaryUser);
   const canViewEnquiryLedger = useMemo(
     () => Boolean(primaryUser) && isDevOwner(primaryUser),
     [primaryUser],
   );
   const canAccessReportingOps = useMemo(
-    () => Boolean(primaryUser) && canAccessReports(primaryUser),
-    [primaryUser]
+    () => Boolean(primaryUser) && effective.canAccessReports,
+    [primaryUser, effective.canAccessReports]
   );
 
   useEffect(() => {
@@ -2656,7 +2697,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     const isLocalNow = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
     const isViewingAsProd = Boolean(featureToggles?.viewAsProd);
     const initials = extractUserInitials(propUserData);
-    const PROD_TAB_KEYS = ['dashboard', 'enquiries', 'calls'];
+    const PROD_TAB_KEYS = ['dashboard', 'enquiries'];
     const visibleTabs = REPORT_NAV_TABS.filter((tab) => {
       if (tab.key === 'enquiryLedger') {
         return canViewEnquiryLedger;
@@ -2671,7 +2712,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       <NavigatorDetailBar
         onBack={handleBackToOverview}
         backLabel="Back"
-        tabs={isTabView ? visibleTabs.map(t => ({ key: t.key, label: t.draft ? `${t.label} á´°` : t.label, draft: t.draft })) : undefined}
+        tabs={isTabView ? visibleTabs.map(t => ({ key: t.key, label: t.draft ? `${t.label} \u1D30` : t.label, draft: t.draft })) : undefined}
         activeTab={activeView}
         onTabChange={(key) => setActiveView(key as ActiveViewType)}
         staticLabel={!isTabView ? (utilityLabels[activeView] || activeView) : undefined}
@@ -4383,7 +4424,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
 
   const renderAvailableReportCards = () => {
     const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-    const PROD_REPORT_KEYS = ['dashboard', 'enquiries', 'calls'];
+    const PROD_REPORT_KEYS = ['dashboard', 'enquiries'];
 
     const rcProps = {
       isDarkMode,
@@ -5615,10 +5656,10 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
                   transition: 'opacity 0.2s ease, max-height 0.2s ease',
                 }}>
                   {isActivelyLoading
-                    ? `${refreshPhaseLabel ?? 'Streaming'} Â· ${Math.round(streamingProgress.percentage)}% Â· ${formatDurationMs(refreshElapsedMs)}`
+                    ? `${refreshPhaseLabel ?? 'Streaming'} \u00B7 ${Math.round(streamingProgress.percentage)}% \u00B7 ${formatDurationMs(refreshElapsedMs)}`
                     : (lastRefreshTimestamp
-                      ? `${readyCount}/${datasetSummaries.length} feeds Â· Updated ${formatRelativeTime(lastRefreshTimestamp)}`
-                      : `${readyCount}/${datasetSummaries.length} feeds Â· Not refreshed yet`)}
+                      ? `${readyCount}/${datasetSummaries.length} feeds \u00B7 Updated ${formatRelativeTime(lastRefreshTimestamp)}`
+                      : `${readyCount}/${datasetSummaries.length} feeds \u00B7 Not refreshed yet`)}
                 </span>
               </div>
             </div>
@@ -5836,7 +5877,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
                     color: isDarkMode ? 'rgba(75, 85, 99, 0.7)' : 'rgba(107, 107, 107, 0.8)',
                     marginLeft: 10,
                   }}>
-                    Real-time hub logs Â· Application Insights level
+                    {'Real-time hub logs \u00B7 Application Insights level'}
                   </span>
                 </div>
               </div>
@@ -5900,7 +5941,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
                     color: isDarkMode ? 'rgba(75, 85, 99, 0.7)' : 'rgba(107, 107, 107, 0.8)',
                     marginLeft: 10,
                   }}>
-                    Scheduler tiers Â· last runs Â· next fires
+                    {'Scheduler tiers \u00B7 last runs \u00B7 next fires'}
                   </span>
                 </div>
               </div>
@@ -5968,7 +6009,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
                       color: isDarkMode ? 'rgba(75, 85, 99, 0.7)' : 'rgba(107, 107, 107, 0.8)',
                       marginLeft: 10,
                     }}>
-                      Redis state Â· TTL Â· hit rates Â· staleness
+                      {'Redis state \u00B7 TTL \u00B7 hit rates \u00B7 staleness'}
                     </span>
                   </div>
                 </div>

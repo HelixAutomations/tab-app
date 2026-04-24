@@ -134,6 +134,19 @@ While working on any file, silently note codebase health issues. At the end of e
 
 These are observations, not actions. The user decides whether to act on them. Park non-trivial ones in ROADMAP.md.
 
+### Stash candidates (paired with Health Observations)
+
+While working on *unrelated* tasks, silently note opportunities that would make good standalone stash briefs (architectural shifts, duplicated subsystems worth consolidating, missing affordances). At the end of a response, if you spotted any, append a second footer:
+
+```
+---
+**Stash candidates** (spotted, not actioned):
+- `src/tabs/finance/PaymentApprovals.tsx`: approval queue lacks bulk-action affordance — worth a stash brief.
+- `server/routes/clio.js`: token refresh logic duplicated 3 times — worth a stash brief for consolidation.
+```
+
+Rules: cap at 3 candidates per response, never auto-write a brief without an explicit `stash this` trigger, observations only. Full protocol: [.github/instructions/STASHED_PROJECTS.md](.github/instructions/STASHED_PROJECTS.md).
+
 ## Precedence (Conflict Resolver)
 
 If rules conflict, apply in this order:
@@ -295,8 +308,10 @@ Use `node -e` only for trivial one-liners. For anything with SQL, Key Vault, or 
 
 ## Session Start
 
-On first interaction, ask this first in chat:
-`Hi Luke — do you want to sync submodules for latest context?`
+**Do NOT auto-prompt to sync submodules on session start.** Open the session silently and get to work.
+
+Only run the sync flow when the user uses one of the canonical or alias trigger phrases listed in [.github/instructions/STASHED_PROJECTS.md](.github/instructions/STASHED_PROJECTS.md) (Trigger C — "sync submodules"). When triggered, ask:
+
 `Pick one:`
 `0) No sync`
 `1) Sync all`
@@ -314,6 +329,21 @@ After user picks, run exactly one:
 This generates `.github/instructions/REALTIME_CONTEXT.md` with current branch, submodule state, and server status.
 
 Full session init (slower, more thorough): `node tools/session-start.mjs`
+
+## Stashing work for later (CRITICAL — recognise the triggers)
+
+The user runs a "stash" routine to park scoped work as a self-contained brief that any future agent can execute cold. Full protocol: [.github/instructions/STASHED_PROJECTS.md](.github/instructions/STASHED_PROJECTS.md).
+
+**Recognise these triggers:**
+- **Stash work**: `stash this`, `stash this for later`, `stash the plan`, `park this for another agent`, `write this up as a handoff`, `shelf this`, `make this a side project` → run `node tools/stash-new.mjs "<title>"`, fill out the file from [docs/notes/_HANDOFF_TEMPLATE.md](docs/notes/_HANDOFF_TEMPLATE.md), run `node tools/stash-precheck.mjs --draft <file>` (Trigger D), then `node tools/stash-status.mjs` to rebuild INDEX. Do NOT implement.
+- **List the stash queue**: `show me what's stashed`, `what's in the stash`, `list stashed work`, `what's parked` → read `docs/notes/INDEX.md` (auto-generated) and surface open + stale items.
+- **Sync submodules**: `sync submodules`, `sync context`, `pull latest context`, `refresh submodules`, `check submodule status` → run the Session Start sync menu.
+- **Check overlap with stashed briefs**: `check stash overlap`, `check stash dependencies`, `is this safe to stash`, `does this clash with anything stashed`. Also: **before writing any new stash brief, agents MUST run `node tools/stash-precheck.mjs` automatically** and surface any conflicts/coordinations to the user before the file is written. See `STASHED_PROJECTS.md` Trigger D for the exact algorithm.
+- **Close out a shipped stash**: when delivery is confirmed, run `node tools/stash-close.mjs <id>` then `node tools/stash-status.mjs`, then add a changelog entry referencing the id.
+
+If a stash request is ambiguous (e.g. just "save this"), confirm once: *"Stash as a handoff brief in `docs/notes/`?"*
+
+When a stashed brief is picked up and shipped, follow the closure protocol in `STASHED_PROJECTS.md` (mark 🟢 in INDEX, move file to `docs/notes/_archive/`).
 
 ## Session End
 
@@ -419,6 +449,11 @@ The CCL (Client Care Letter) system uses a two-pass AI pipeline:
 | `.github/instructions/TEAM_DATA_REFERENCE.md` | Team table, rates, dual-DB sync |
 | `.github/instructions/CLIO_API_REFERENCE.md` | Clio integration, auth, endpoints |
 | `.github/instructions/ARCHITECTURE_DATA_FLOW.md` | System architecture, data flows |
+| `.github/instructions/STASHED_PROJECTS.md` | Stash routine: trigger phrases, brief template, INDEX rules |
+| `.github/instructions/dev-experience.instructions.md` | Snappy local loop: `dev:fast`, env flags, `disposeOnHmr` + `onServerBounced` SSE survival |
+| `.github/instructions/wayfinding.instructions.md` | `data-helix-region` convention, `window.__helix__` debug API, Ctrl+Shift+H overlay |
+| `docs/notes/INDEX.md` | Live register of stashed work (open / done / stale) |
+| `docs/notes/_HANDOFF_TEMPLATE.md` | House-standard skeleton for new stash briefs |
 | `docs/CCL_PROMPT_ENGINEERING.md` | CCL AI generation + Safety Net scoring model |
 
 ## "Helix look and feel" (what the user means)

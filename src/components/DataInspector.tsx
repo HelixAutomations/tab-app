@@ -31,7 +31,7 @@ interface DataInspectorProps {
 type InspectorSection = 'user' | 'calls' | 'cache' | 'environment';
 type CallFilter = 'all' | 'success' | 'error';
 
-const PASSCODE_VALUE = '2011';
+const PASSCODE_VALUE = '11112011';
 const PASSCODE_STORAGE_KEY = 'helix-hub-inspector-passcode';
 
 const DataInspector: React.FC<DataInspectorProps> = ({ data, onClose, mode = 'modal' }) => {

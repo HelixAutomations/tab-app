@@ -33,6 +33,8 @@ import {
   formSectionTokens,
   formAccentColors,
 } from './shared/formStyles';
+import { useFormReadinessPulse } from './shared/useFormReadinessPulse';
+import { FormReadinessCue } from './shared/FormReadinessCue';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES
@@ -72,6 +74,7 @@ const NotableCaseInfoForm: React.FC<NotableCaseInfoFormProps> = ({
   onSubmitError,
 }) => {
   const { isDarkMode } = useTheme();
+  const readiness = useFormReadinessPulse('notable-case-info');
   const accentColor = formAccentColors.techIdea; // Blue accent
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -273,7 +276,10 @@ const NotableCaseInfoForm: React.FC<NotableCaseInfoFormProps> = ({
       };
 
       const base = getProxyBaseUrl();
-      const url = `${base}/${process.env.REACT_APP_INSERT_NOTABLE_CASE_INFO_PATH}?code=${process.env.REACT_APP_INSERT_NOTABLE_CASE_INFO_CODE}`;
+      // Route through /api/notable-case-info proxy so the submission is
+      // recorded in form_submissions + appears in FormsHub. The proxy forwards
+      // to the same downstream Azure Function.
+      const url = `${base}/api/notable-case-info`;
       
       const response = await fetch(url, {
         method: 'POST',
@@ -348,16 +354,19 @@ const NotableCaseInfoForm: React.FC<NotableCaseInfoFormProps> = ({
         <div style={cardStyle}>
           {/* Header */}
           <div style={headerStyle}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <Icon iconName="DocumentSearch" style={{ fontSize: '20px', color: accentColor }} />
-              <div>
-                <Text style={getFormHeaderTitleStyle(isDarkMode)}>
-                  Notable Case Information
-                </Text>
-                <Text style={getFormHeaderSubtitleStyle(isDarkMode)}>
-                  Record case details for legal directory submissions
-                </Text>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <Icon iconName="DocumentSearch" style={{ fontSize: '20px', color: accentColor }} />
+                <div>
+                  <Text style={getFormHeaderTitleStyle(isDarkMode)}>
+                    Notable Case Information
+                  </Text>
+                  <Text style={getFormHeaderSubtitleStyle(isDarkMode)}>
+                    Record case details for legal directory submissions
+                  </Text>
+                </div>
               </div>
+              <FormReadinessCue state={readiness.state} detail={readiness.detail} readyAnnouncement="Notable case form ready" />
             </div>
           </div>
 

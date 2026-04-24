@@ -26,7 +26,7 @@ interface EntryGateProps {
   onUserSelected: (userKey: string) => void;
 }
 
-const REQUIRED_PASSCODE = '2011';
+const REQUIRED_PASSCODE = '11112011';
 
 // ─── Helix Mark SVG ────────────────────────────────────────────────────
 

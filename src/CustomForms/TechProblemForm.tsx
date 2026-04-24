@@ -34,6 +34,8 @@ import {
   formFieldTokens,
   formAccentColors,
 } from './shared/formStyles';
+import { useFormReadinessPulse } from './shared/useFormReadinessPulse';
+import { FormReadinessCue } from './shared/FormReadinessCue';
 
 interface TechProblemFormProps {
   userData?: UserData[];
@@ -41,6 +43,13 @@ interface TechProblemFormProps {
   onBack?: () => void;
   onSubmitSuccess?: (message: string) => void;
   onSubmitError?: (error: string) => void;
+  /**
+   * Optional initial values supplied by the AI Forms Composer
+   * (`src/tabs/forms/AiComposerDrawer.tsx`). When present, the form
+   * mounts with these fields pre-filled so the user can review and
+   * either edit or submit. Pure additive — manual users see no change.
+   */
+  prefill?: Partial<FormData>;
 }
 
 interface FormData {
@@ -65,8 +74,10 @@ const TechProblemFormContent: React.FC<TechProblemFormProps> = ({
   onBack,
   onSubmitSuccess,
   onSubmitError,
+  prefill,
 }) => {
   const { isDarkMode } = useTheme();
+  const readiness = useFormReadinessPulse('tech-problem');
 
   const mapUrgency = (value: string): 'Blocking' | 'Annoying' | 'Minor' => {
     const v = (value || '').toLowerCase();
@@ -76,11 +87,11 @@ const TechProblemFormContent: React.FC<TechProblemFormProps> = ({
   };
   
   const [formData, setFormData] = useState<FormData>({
-    title: '',
-    description: '',
-    steps_to_reproduce: '',
-    expected_behavior: '',
-    urgency: 'medium',
+    title: prefill?.title ?? '',
+    description: prefill?.description ?? '',
+    steps_to_reproduce: prefill?.steps_to_reproduce ?? '',
+    expected_behavior: prefill?.expected_behavior ?? '',
+    urgency: prefill?.urgency ?? 'medium',
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -165,12 +176,17 @@ const TechProblemFormContent: React.FC<TechProblemFormProps> = ({
                 Report Technical Problem
               </Text>
             </Stack>
-            {onBack && (
-              <DefaultButton 
-                text="Back" 
-                onClick={onBack} 
-                styles={getFormDefaultButtonStyles(isDarkMode)} 
-              />
+            {onBack ? (
+              <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 10 }}>
+                <FormReadinessCue state={readiness.state} detail={readiness.detail} readyAnnouncement="Tech problem form ready" />
+                <DefaultButton 
+                  text="Back" 
+                  onClick={onBack} 
+                  styles={getFormDefaultButtonStyles(isDarkMode)} 
+                />
+              </Stack>
+            ) : (
+              <FormReadinessCue state={readiness.state} detail={readiness.detail} readyAnnouncement="Tech problem form ready" />
             )}
           </Stack>
         </div>

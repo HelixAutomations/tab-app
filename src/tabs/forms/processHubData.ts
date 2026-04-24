@@ -24,6 +24,15 @@ export type ProcessStreamItem = {
   status: ProcessStreamStatus;
   summary: string;
   lastEvent: string;
+  // forms-stream-persistence Phase B (B6): optional links to the
+  // server-side `dbo.form_submissions` row backing this entry. Only
+  // populated for items hydrated from `/api/process-hub/submissions`;
+  // legacy local entries leave these undefined.
+  submissionId?: string;
+  formKey?: string;
+  payloadAvailable?: boolean;
+  retriggerCount?: number;
+  submittedBy?: string | null;
 };
 
 const sectionLabels: Record<string, string> = {
@@ -85,6 +94,24 @@ const overrides: Record<string, Partial<ProcessDefinition>> = {
     healthCheckId: 'notable-case-info',
     keywords: ['case', 'outcome', 'publication', 'profile'],
     lane: 'Log',
+  },
+  'New Complaint': {
+    context: ['Compliance', 'Incident'],
+    keywords: ['complaint', 'incident', 'escalation', 'formal'],
+    lane: 'Escalate',
+    statusHint: 'Complaint intake now starts in Forms, then moves into the compliance workspace for controlled updates.',
+  },
+  'New Learning Activity': {
+    context: ['L&D', 'CPD'],
+    keywords: ['cpd', 'learning', 'training', 'course', 'development', 'activity'],
+    lane: 'Log',
+    statusHint: 'CPD activities are logged here and tracked against your annual plan in Resources → Learning & Development.',
+  },
+  'New Undertaking': {
+    context: ['Compliance', 'Matter'],
+    keywords: ['undertaking', 'obligation', 'promise', 'due date'],
+    lane: 'Request',
+    statusHint: 'Undertakings now start in Forms and then return to Compliance for due-date and discharge tracking.',
   },
   'Office Attendance': {
     context: ['Operations'],
@@ -162,6 +189,12 @@ const overrides: Record<string, Partial<ProcessDefinition>> = {
     keywords: ['transfer', 'client to office', 'office to client', 'funds'],
     lane: 'Request',
     statusHint: 'This should show queueing and approval state in the unified stream.',
+  },
+  'Verification Check': {
+    context: ['Compliance', 'Client'],
+    keywords: ['verification', 'id', 'tiller', 'pep', 'sanctions', 'address', 'check', 'adhoc'],
+    lane: 'Find',
+    statusHint: 'Ad-hoc Tiller check. Results are not persisted against any instruction.',
   },
 };
 

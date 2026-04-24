@@ -1899,7 +1899,10 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
           ${isFirstPage && introHtml ? `<div class="intro">${introHtml}</div>` : ''}
           ${sectionsMarkup}
         </div>
-        ${isFirstPage ? `<div class="footer">Helix Law Ltd is authorised and regulated by the Solicitors Regulation Authority (SRA No. 669720)<br>Registered in England &amp; Wales No. 10346944</div>` : ''}
+        ${isFirstPage ? `<div class="footer">
+          <div class="footer-contact">Second Floor, Britannia House, 21 Station Street, Brighton, BN1 4DE &middot; 0345 314 2044 &middot; info@helix-law.com &middot; www.helix-law.com</div>
+          <div class="footer-regulatory">Helix Law Limited is a limited liability company registered in England and Wales. Registration Number 07845461. A list of Directors is available for inspection at the Registered Office: Second Floor, Britannia House, 21 Station Street, Brighton, BN1 4DE. Authorised and regulated by the Solicitors Regulation Authority. Helix&reg; and Helix Law&reg; are registered trademarks (UK00003984532 and UK00003984535).</div>
+        </div>` : ''}
         <div class="page-number-wrap"><span class="page-number-box">${page.pageNumber}</span></div>
       </section>`;
     }).join('');
@@ -1947,7 +1950,9 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
   table.checklist .checklist-sublist-text { display: block; min-width: 0; }
   a.inline-link { color: #3690CE; font-weight: 700; text-decoration: underline; text-decoration-color: #3690CE; text-underline-offset: 1.5pt; }
   .intro { margin-bottom: 8pt; }
-  .footer { margin-top: 20pt; padding-top: 10pt; border-top: 0.5pt solid #e2e8f0; font-size: 7pt; color: #94a3b8; text-align: center; line-height: 1.5; }
+  .footer { margin-top: 20pt; padding-top: 10pt; border-top: 0.5pt solid #e2e8f0; color: #94a3b8; }
+  .footer-contact { font-size: 7.5pt; color: #475569; text-align: center; line-height: 1.5; margin-bottom: 6pt; }
+  .footer-regulatory { font-size: 6.5pt; color: #94a3b8; text-align: justify; line-height: 1.5; hyphens: auto; }
   .recipient { margin-bottom: 16pt; font-size: 10pt; line-height: 1.6; }
   .recipient .name { font-weight: 600; margin-bottom: 1pt; }
   .recipient .re { color: #64748b; font-size: 9pt; }

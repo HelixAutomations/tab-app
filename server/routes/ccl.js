@@ -19,7 +19,7 @@ const cclAiRouter = require('./ccl-ai');
 
 const previewCclContext = cclAiRouter.previewCclContext;
 const runCclAiFill = cclAiRouter.runCclAiFill;
-const CCL_PROMPT_VERSION = cclAiRouter.CCL_PROMPT_VERSION || 'ccl-ai-v2';
+const CCL_PROMPT_VERSION = cclAiRouter.CCL_PROMPT_VERSION || 'ccl-ai-v3-voice';
 const CCL_TEMPLATE_VERSION = 'helix-ccl-template-v1';
 
 // ─── Azure Blob Storage for CCL documents ────────────────────────────────────
@@ -298,53 +298,209 @@ const filePath = (id) => path.join(CCL_DIR, `${id}.docx`);
 const jsonPath = (id) => path.join(CCL_DIR, `${id}.json`);
 const draftCachePath = (id) => path.join(CCL_DRAFT_DIR, `${id}.json`);
 
-let cclDraftTableAvailable = null;
+// CclDrafts v2 shape — see scripts/migrate-ccl-drafts-v2.mjs.
+// We auto-detect the column set so the server stays useful in environments
+// where the migration has not been run yet (writes/reads gracefully fall back
+// to the legacy 4-column shape, with file-cache as the final safety net).
+let cclDraftTableShape = null; // null | 'missing' | 'v1' | 'v2'
 
 async function ensureCclDraftsTable(pool) {
-    if (cclDraftTableAvailable !== null) return cclDraftTableAvailable;
-    const result = await pool.request().query(`
-        SELECT CASE WHEN OBJECT_ID(N'CclDrafts', N'U') IS NOT NULL THEN 1 ELSE 0 END AS ExistsFlag
-    `);
-    cclDraftTableAvailable = Boolean(result?.recordset?.[0]?.ExistsFlag);
-    if (!cclDraftTableAvailable) {
-        console.warn('[ccl] CclDrafts table not found; using file-based draft fallback only');
+    if (cclDraftTableShape !== null) return cclDraftTableShape;
+    try {
+        const result = await pool.request().query(`
+            SELECT
+                OBJECT_ID(N'dbo.CclDrafts', N'U')              AS DraftsId,
+                COL_LENGTH('dbo.CclDrafts', 'LatestCclContentId') AS HasLatest,
+                COL_LENGTH('dbo.CclDrafts', 'OverrideCount')      AS HasOverride
+        `);
+        const row = result?.recordset?.[0] || {};
+        if (!row.DraftsId) {
+            trackEvent('CCL.DraftTable.Missing', { action: 'create-v1-fallback' });
+            await pool.request().query(`
+                CREATE TABLE dbo.CclDrafts (
+                    MatterId NVARCHAR(50) NOT NULL PRIMARY KEY,
+                    DraftJson NVARCHAR(MAX) NOT NULL,
+                    CreatedAt DATETIME2 NOT NULL DEFAULT SYSDATETIME(),
+                    UpdatedAt DATETIME2 NOT NULL DEFAULT SYSDATETIME()
+                );
+                CREATE NONCLUSTERED INDEX IX_CclDrafts_UpdatedAt
+                    ON dbo.CclDrafts (UpdatedAt DESC);
+            `);
+            cclDraftTableShape = 'v1';
+            trackEvent('CCL.DraftTable.Created', { shape: 'v1' });
+            console.warn('[ccl] CclDrafts created in v1 shape — run scripts/migrate-ccl-drafts-v2.mjs to upgrade');
+            return cclDraftTableShape;
+        }
+        cclDraftTableShape = (row.HasLatest !== null && row.HasOverride !== null) ? 'v2' : 'v1';
+        return cclDraftTableShape;
+    } catch (err) {
+        cclDraftTableShape = 'missing';
+        console.warn('[ccl] CclDrafts table unavailable; using file-based draft fallback only:', err.message);
+        trackException(err, { operation: 'CCL.DraftTable.Ensure' });
+        trackEvent('CCL.DraftTable.EnsureFailed', { error: err.message });
+        return cclDraftTableShape;
     }
-    return cclDraftTableAvailable;
 }
 
-// Direct SQL functions (no Azure Function proxy)
-async function saveDraftToDb(matterId, json) {
+function _coerceInt(v) {
+    if (v === null || v === undefined || v === '') return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.trunc(n) : null;
+}
+function _coerceStr(v, max) {
+    if (v === null || v === undefined) return null;
+    const s = String(v);
+    return max && s.length > max ? s.slice(0, max) : s;
+}
+
+/**
+ * Upsert the working draft for a matter. `meta` is optional — when omitted
+ * (legacy callers) only DraftJson + UpdatedAt change.
+ *
+ * meta = {
+ *   latestCclContentId, latestVersion, latestStatus,
+ *   aiTraceId, model, promptVersion, templateVersion, confidence,
+ *   generatedFieldCount, updatedBy,
+ *   overrideMode: 'preserve-existing' | 'replace-ai-fields',
+ *   replacedVersion: number | null,
+ * }
+ */
+async function saveDraftToDb(matterId, json, meta = null) {
     const connectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
     if (!connectionString) {
         console.warn('[ccl] INSTRUCTIONS_SQL_CONNECTION_STRING not configured, skipping DB save');
         return;
     }
     const pool = await getPool(connectionString);
-    if (!(await ensureCclDraftsTable(pool))) return;
+    const shape = await ensureCclDraftsTable(pool);
+    if (shape === 'missing') return;
+
+    if (shape === 'v1') {
+        await pool.request()
+            .input('MatterId', sql.NVarChar(50), matterId)
+            .input('DraftJson', sql.NVarChar(sql.MAX), JSON.stringify(json))
+            .query(`MERGE CclDrafts AS target
+                USING (SELECT @MatterId AS MatterId) AS src
+                ON target.MatterId = src.MatterId
+                WHEN MATCHED THEN UPDATE SET DraftJson = @DraftJson, UpdatedAt = SYSDATETIME()
+                WHEN NOT MATCHED THEN INSERT (MatterId, DraftJson, UpdatedAt)
+                VALUES (@MatterId, @DraftJson, SYSDATETIME());`);
+        return;
+    }
+
+    const m = meta || {};
+    const overrideIncrement = m.overrideMode === 'replace-ai-fields' ? 1 : 0;
+    const replacedVersion = overrideIncrement ? _coerceInt(m.replacedVersion) : null;
+
     await pool.request()
-        .input('MatterId', sql.NVarChar(50), matterId)
-        .input('DraftJson', sql.NVarChar(sql.MAX), JSON.stringify(json))
-        .query(`MERGE CclDrafts AS target
+        .input('MatterId',                   sql.NVarChar(50), matterId)
+        .input('DraftJson',                  sql.NVarChar(sql.MAX), JSON.stringify(json))
+        .input('LatestCclContentId',         sql.Int,           _coerceInt(m.latestCclContentId))
+        .input('LatestVersion',              sql.Int,           _coerceInt(m.latestVersion))
+        .input('LatestStatus',               sql.NVarChar(20),  _coerceStr(m.latestStatus, 20))
+        .input('AiTraceId',                  sql.Int,           _coerceInt(m.aiTraceId))
+        .input('Model',                      sql.NVarChar(80),  _coerceStr(m.model, 80))
+        .input('PromptVersion',              sql.NVarChar(50),  _coerceStr(m.promptVersion, 50))
+        .input('TemplateVersion',            sql.NVarChar(50),  _coerceStr(m.templateVersion, 50))
+        .input('Confidence',                 sql.NVarChar(20),  _coerceStr(m.confidence, 20))
+        .input('GeneratedFieldCount',        sql.Int,           _coerceInt(m.generatedFieldCount))
+        .input('OverrideIncrement',          sql.Int,           overrideIncrement)
+        .input('LastOverrideReplacedVersion',sql.Int,           replacedVersion)
+        .input('UpdatedBy',                  sql.NVarChar(50),  _coerceStr(m.updatedBy, 50))
+        .query(`MERGE dbo.CclDrafts AS target
             USING (SELECT @MatterId AS MatterId) AS src
             ON target.MatterId = src.MatterId
-            WHEN MATCHED THEN UPDATE SET DraftJson = @DraftJson, UpdatedAt = SYSDATETIME()
-            WHEN NOT MATCHED THEN INSERT (MatterId, DraftJson, UpdatedAt)
-            VALUES (@MatterId, @DraftJson, SYSDATETIME());`);
+            WHEN MATCHED THEN UPDATE SET
+                DraftJson                   = @DraftJson,
+                LatestCclContentId          = COALESCE(@LatestCclContentId,         target.LatestCclContentId),
+                LatestVersion               = COALESCE(@LatestVersion,              target.LatestVersion),
+                LatestStatus                = COALESCE(@LatestStatus,               target.LatestStatus),
+                AiTraceId                   = COALESCE(@AiTraceId,                  target.AiTraceId),
+                Model                       = COALESCE(@Model,                      target.Model),
+                PromptVersion               = COALESCE(@PromptVersion,              target.PromptVersion),
+                TemplateVersion             = COALESCE(@TemplateVersion,            target.TemplateVersion),
+                Confidence                  = COALESCE(@Confidence,                 target.Confidence),
+                GeneratedFieldCount         = COALESCE(@GeneratedFieldCount,        target.GeneratedFieldCount),
+                OverrideCount               = target.OverrideCount + @OverrideIncrement,
+                LastOverrideAt              = CASE WHEN @OverrideIncrement = 1 THEN SYSDATETIME() ELSE target.LastOverrideAt END,
+                LastOverrideReplacedVersion = CASE WHEN @OverrideIncrement = 1 THEN @LastOverrideReplacedVersion ELSE target.LastOverrideReplacedVersion END,
+                UpdatedBy                   = COALESCE(@UpdatedBy,                  target.UpdatedBy),
+                UpdatedAt                   = SYSDATETIME()
+            WHEN NOT MATCHED THEN INSERT (
+                MatterId, DraftJson,
+                LatestCclContentId, LatestVersion, LatestStatus,
+                AiTraceId, Model, PromptVersion, TemplateVersion, Confidence,
+                GeneratedFieldCount, OverrideCount, LastOverrideAt,
+                LastOverrideReplacedVersion, UpdatedBy
+            ) VALUES (
+                @MatterId, @DraftJson,
+                @LatestCclContentId, @LatestVersion, @LatestStatus,
+                @AiTraceId, @Model, @PromptVersion, @TemplateVersion, @Confidence,
+                @GeneratedFieldCount, @OverrideIncrement,
+                CASE WHEN @OverrideIncrement = 1 THEN SYSDATETIME() ELSE NULL END,
+                @LastOverrideReplacedVersion, @UpdatedBy
+            );`);
 }
 
 async function fetchDraftFromDb(matterId) {
+    const record = await fetchDraftRecordFromDb(matterId);
+    return record ? record.json : null;
+}
+
+/**
+ * Returns the full CclDrafts row in the form { json, meta } or null.
+ * `meta` is null when the table is in legacy v1 shape.
+ */
+async function fetchDraftRecordFromDb(matterId) {
     const connectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
     if (!connectionString) {
         console.warn('[ccl] INSTRUCTIONS_SQL_CONNECTION_STRING not configured');
         return null;
     }
     const pool = await getPool(connectionString);
-    if (!(await ensureCclDraftsTable(pool))) return null;
+    const shape = await ensureCclDraftsTable(pool);
+    if (shape === 'missing') return null;
+
+    if (shape === 'v1') {
+        const result = await pool.request()
+            .input('MatterId', sql.NVarChar(50), matterId)
+            .query('SELECT DraftJson, CreatedAt, UpdatedAt FROM dbo.CclDrafts WHERE MatterId = @MatterId');
+        const row = result.recordset[0];
+        if (!row) return null;
+        return { json: JSON.parse(row.DraftJson), meta: null, raw: row };
+    }
+
     const result = await pool.request()
         .input('MatterId', sql.NVarChar(50), matterId)
-        .query('SELECT DraftJson FROM CclDrafts WHERE MatterId = @MatterId');
+        .query(`SELECT MatterId, DraftJson,
+                       LatestCclContentId, LatestVersion, LatestStatus,
+                       AiTraceId, Model, PromptVersion, TemplateVersion, Confidence,
+                       GeneratedFieldCount, OverrideCount,
+                       LastOverrideAt, LastOverrideReplacedVersion,
+                       UpdatedBy, CreatedAt, UpdatedAt
+                FROM dbo.CclDrafts WHERE MatterId = @MatterId`);
     const row = result.recordset[0];
-    return row ? JSON.parse(row.DraftJson) : null;
+    if (!row) return null;
+    let json = null;
+    try { json = JSON.parse(row.DraftJson); } catch { json = null; }
+    const meta = {
+        latestCclContentId: row.LatestCclContentId ?? null,
+        latestVersion: row.LatestVersion ?? null,
+        latestStatus: row.LatestStatus ?? null,
+        aiTraceId: row.AiTraceId ?? null,
+        model: row.Model ?? null,
+        promptVersion: row.PromptVersion ?? null,
+        templateVersion: row.TemplateVersion ?? null,
+        confidence: row.Confidence ?? null,
+        generatedFieldCount: row.GeneratedFieldCount ?? null,
+        overrideCount: row.OverrideCount ?? 0,
+        lastOverrideAt: row.LastOverrideAt ?? null,
+        lastOverrideReplacedVersion: row.LastOverrideReplacedVersion ?? null,
+        updatedBy: row.UpdatedBy ?? null,
+        createdAt: row.CreatedAt ?? null,
+        updatedAt: row.UpdatedAt ?? null,
+    };
+    return { json, meta, raw: row };
 }
 
 function saveDraftToFileCache(matterId, json) {
@@ -388,12 +544,13 @@ function buildFieldSummary(fields) {
     };
 }
 
-function mergeDraftWithAiFields(baseDraft = {}, aiFields = {}) {
+function mergeDraftWithAiFields(baseDraft = {}, aiFields = {}, options = {}) {
+    const overrideMode = options?.overrideMode === 'replace-ai-fields';
     const merged = { ...baseDraft };
     for (const [key, value] of Object.entries(aiFields || {})) {
         const current = String(merged[key] || '').trim();
         const isPlaceholder = /^\{\{.*\}\}$/.test(current);
-        if (!current || current.length < 5 || isPlaceholder) {
+        if (overrideMode || !current || current.length < 5 || isPlaceholder) {
             merged[key] = value;
         }
     }
@@ -514,6 +671,7 @@ async function compileCclContext(input, actor = 'system', options = {}) {
     const trackingId = Math.random().toString(36).slice(2, 10);
     const startMs = Date.now();
     const preview = await previewCclContext(input);
+    const contextPackage = preview._contextPackage;
     const sourceCoverage = buildSourceCoverage(preview);
     const missingDataFlags = buildMissingDataFlags(preview);
     const summary = buildCompileSummary(preview, sourceCoverage, missingDataFlags);
@@ -552,6 +710,7 @@ async function compileCclContext(input, actor = 'system', options = {}) {
         sourceCoverage,
         missingDataFlags,
         summary,
+        _contextPackage: contextPackage,
     };
 }
 
@@ -631,12 +790,12 @@ async function persistCclSnapshot({
     provenanceJson,
     templateVersion = CCL_TEMPLATE_VERSION,
     aiTraceId = null,
+    aiMeta = null,
 }) {
     const merged = await mergeMatterFields(matterId, draftJson);
-    try { await saveDraftToDb(matterId, merged); } catch (dbErr) { console.warn('[ccl] Draft DB save failed (non-blocking):', dbErr.message); }
-    saveDraftToFileCache(matterId, merged);
 
     let cclContentId = null;
+    let cclContentVersion = null;
     try {
         cclContentId = await saveCclContent({
             matterId,
@@ -656,9 +815,32 @@ async function persistCclSnapshot({
             status: 'draft',
             createdBy: user,
         });
+        if (cclContentId) {
+            try {
+                const latest = await getLatestCclContent(matterId);
+                if (latest && latest.CclContentId === cclContentId) cclContentVersion = latest.Version || null;
+            } catch { /* non-fatal */ }
+        }
     } catch (err) {
         console.warn('[ccl] CclContent save failed (non-blocking):', err.message);
     }
+
+    const draftMeta = {
+        latestCclContentId: cclContentId,
+        latestVersion: cclContentVersion,
+        latestStatus: 'draft',
+        aiTraceId: aiTraceId || (aiMeta && aiMeta.aiTraceId) || null,
+        model: aiMeta && aiMeta.model || null,
+        promptVersion: aiMeta && aiMeta.promptVersion || null,
+        templateVersion,
+        confidence: aiMeta && aiMeta.confidence || null,
+        generatedFieldCount: aiMeta && aiMeta.generatedFieldCount || null,
+        updatedBy: user,
+        overrideMode: aiMeta && aiMeta.overrideMode || 'preserve-existing',
+        replacedVersion: aiMeta && aiMeta.replacedVersion || null,
+    };
+    try { await saveDraftToDb(matterId, merged, draftMeta); } catch (dbErr) { console.warn('[ccl] Draft DB save failed (non-blocking):', dbErr.message); }
+    saveDraftToFileCache(matterId, merged);
 
     const docxFile = filePath(matterId);
     const generationMeta = await generateWordFromJson(merged, docxFile);
@@ -785,6 +967,7 @@ router.patch('/:matterId', async (req, res) => {
 router.post('/service/run', async (req, res) => {
     const {
         matterId,
+        matterDisplayNumber,
         draftJson = {},
         instructionRef,
         practiceArea,
@@ -797,6 +980,8 @@ router.post('/service/run', async (req, res) => {
         handlerRate,
         stage,
         skipCompilePersistence = false,
+        overrideMode = 'preserve-existing',
+        baseVersion = null,
     } = req.body || {};
 
     if (!matterId) {
@@ -838,9 +1023,9 @@ router.post('/service/run', async (req, res) => {
             handlerName,
             handlerRole,
             handlerRate,
-        }, user);
+        }, user, { preBuiltContextPackage: compile._contextPackage });
 
-        const mergedDraft = mergeDraftWithAiFields(draftJson, aiResult.fields || {});
+        const mergedDraft = mergeDraftWithAiFields(draftJson, aiResult.fields || {}, { overrideMode });
         // Inject handler context so mergeMatterFields can populate personnel fields
         // even when team_assignments is absent (common in the AI-first flow)
         if (handlerName && !mergedDraft.name_of_person_handling_matter) mergedDraft.name_of_person_handling_matter = handlerName;
@@ -873,6 +1058,8 @@ router.post('/service/run', async (req, res) => {
                 fallbackReason: aiResult.fallbackReason || null,
                 trackingId: aiResult.debug?.trackingId || null,
                 aiTraceId: aiResult.aiTraceId || null,
+                overrideMode,
+                replacedVersion: typeof baseVersion === 'number' ? baseVersion : null,
             },
             lastRunAt: new Date().toISOString(),
             triggeredBy: user,
@@ -885,6 +1072,16 @@ router.post('/service/run', async (req, res) => {
             provenanceJson: provenance,
             templateVersion: CCL_TEMPLATE_VERSION,
             aiTraceId: aiResult.aiTraceId || null,
+            aiMeta: {
+                aiTraceId: aiResult.aiTraceId || null,
+                model: aiResult.model || aiResult.deployment || null,
+                promptVersion: aiResult.promptVersion || CCL_PROMPT_VERSION,
+                confidence: aiResult.confidence || null,
+                generatedFieldCount: Number(aiResult.debug?.generatedFieldCount)
+                    || (aiResult.fields ? Object.keys(aiResult.fields).length : null),
+                overrideMode,
+                replacedVersion: typeof baseVersion === 'number' ? baseVersion : null,
+            },
         });
 
         // Background pressure test — runs after persistence, does not block the response
@@ -897,11 +1094,194 @@ router.post('/service/run', async (req, res) => {
                 clientName,
                 feeEarnerEmail: preview?.contextFields?.feeEarnerEmail || '',
                 prospectEmail: preview?.contextFields?.prospectEmail || '',
+            }).then(async (ptResult) => {
+                // HOME_TODO_SINGLE_PICKUP_SURFACE — B2 wiring for review-ccl.
+                // 2026-04-24: always emit the todo (flagged OR clean). Since ND
+                // upload is now gated behind explicit solicitor approval, the
+                // clean-draft path also needs an entry point — otherwise a
+                // solicitor who closes the matter-opening completion screen
+                // without clicking "Review & send CCL" has no way back in.
+                // Best-effort; never throws (hubTodoLog + teamLookup are resilient).
+                try {
+                    const flaggedCount = Number(ptResult?.flaggedCount || 0);
+                    const feeEarnerEmail = preview?.contextFields?.feeEarnerEmail || '';
+                    let ownerInitials = null;
+                    if (feeEarnerEmail) {
+                        try {
+                            const { getTeamInitialsByEmail } = require('../utils/teamLookup');
+                            ownerInitials = await getTeamInitialsByEmail(feeEarnerEmail);
+                        } catch { /* best-effort */ }
+                    }
+                    if (ownerInitials) {
+                        const { createCard } = require('../utils/hubTodoLog');
+                        const matterRef = matterDisplayNumber || String(matterId || '');
+                        const hasFlags = flaggedCount > 0;
+                        await createCard({
+                            kind: 'review-ccl',
+                            ownerInitials,
+                            matterRef,
+                            docType: 'Client Care Letter',
+                            stage: 'review',
+                            summary: hasFlags
+                                ? `Review CCL · ${matterRef}`
+                                : `Approve CCL upload · ${matterRef}`,
+                            lastEvent: hasFlags
+                                ? `PT complete · ${flaggedCount} flagged`
+                                : 'PT clean · ready to send',
+                            payload: {
+                                matterId: String(matterId),
+                                matterDisplayNumber: matterDisplayNumber || null,
+                                instructionRef: instructionRef || null,
+                                flaggedCount,
+                                ptTrackingId: ptResult?.trackingId || null,
+                                awaitingNdApproval: true,
+                            },
+                        });
+                    }
+                } catch (todoErr) {
+                    trackEvent('Todo.Card.Created.Failed', {
+                        kind: 'review-ccl',
+                        matterId: String(matterId),
+                        error: todoErr?.message || String(todoErr),
+                    });
+                }
             }).catch(err => {
                 console.warn(`[ccl] Background PT failed for ${matterId}:`, err.message);
                 trackEvent('CCL.PressureTest.BackgroundFailed', { matterId: String(matterId), error: err.message, triggeredBy: user });
             });
         }
+
+        // Background autopilot chain — Teams notification → rollup telemetry.
+        // 2026-04-24: ND upload removed from silent chain. Nothing goes to NetDocuments
+        // without explicit solicitor approval. Solicitors approve from either
+        //   (a) MatterOpenedHandoff "Review & send CCL" at the end of matter opening, or
+        //   (b) the Home `review-ccl` hub_todo (always emitted — flagged or clean).
+        // Both converge on the same review rail (`openHomeCclReview` CustomEvent) which
+        // posts to /api/ccl-ops/upload-nd. The CCL_AUTO_UPLOAD_ND env flag is preserved
+        // as a read-only deprecation log so staging/prod can't silently re-enable it.
+        const autoUploadEnabled = false;
+        if (String(process.env.CCL_AUTO_UPLOAD_ND || '').trim() === '1') {
+            trackEvent('CCL.NdUpload.Skipped.AwaitingApproval', {
+                matterId: String(matterId),
+                reason: 'flag-deprecated',
+                note: 'CCL_AUTO_UPLOAD_ND is a no-op since 2026-04-24; upload requires solicitor click.',
+                triggeredBy: user || 'auto-post-generate',
+            });
+        }
+        const autoNotifyEnabled = String(process.env.CCL_AUTO_NOTIFY_FEE_EARNER || '').trim() === '1';
+        const chainGatedEligible = result.unresolvedCount === 0;
+        const chainStartMs = Date.now();
+        trackEvent('CCL.AutopilotChain.Started', {
+            matterId: String(matterId),
+            triggeredBy: user || 'auto-post-generate',
+            uploadEnabled: String(autoUploadEnabled),
+            notifyEnabled: String(autoNotifyEnabled),
+            eligible: String(chainGatedEligible),
+            unresolvedCount: String(result.unresolvedCount),
+            confidence: String(aiResult.confidence || ''),
+        });
+
+        setImmediate(async () => {
+            // Stage: persist — already succeeded (we got here). Tagged for the rollup.
+            let persistStage = 'succeeded';
+
+            // Stage: ND upload — DISABLED in the silent chain (2026-04-24).
+            // Solicitor approval is required; see notes above.
+            const ndStage = 'awaiting-approval';
+            const ndReason = chainGatedEligible ? 'requires-solicitor-click' : 'unresolved-placeholders';
+            const ndDocumentId = null;
+
+            // Stage: Teams notification
+            let notifyStage = 'skipped';
+            let notifyReason = autoNotifyEnabled ? (chainGatedEligible ? '' : 'unresolved-placeholders') : 'flag-disabled';
+            if (autoNotifyEnabled && chainGatedEligible) {
+                try {
+                    const { notifyCclReady } = require('../utils/cclNotifications');
+                    const notifyResult = await notifyCclReady({
+                        matterId,
+                        matterDisplayNumber,
+                        clientName: result.merged.insert_clients_name || clientName || '',
+                        feeEarner: result.merged.name_of_person_handling_matter || handlerName || '',
+                        feeEarnerEmail: result.merged.fee_earner_email || preview?.contextFields?.feeEarnerEmail || '',
+                        practiceArea: result.merged.team_assignments?.practice_area || practiceArea || '',
+                        confidence: aiResult.confidence || '',
+                        fieldCount: result.fieldCount,
+                        unresolvedCount: result.unresolvedCount,
+                        ndDocumentId,
+                        triggeredBy: user || 'auto-post-generate',
+                    });
+                    if (notifyResult && notifyResult.sent) {
+                        notifyStage = 'succeeded';
+                        notifyReason = '';
+                    } else if (notifyResult && notifyResult.skipped) {
+                        notifyStage = 'skipped';
+                        notifyReason = notifyResult.skipped;
+                    } else {
+                        notifyStage = 'failed';
+                        notifyReason = (notifyResult && notifyResult.error) || 'unknown-failure';
+                    }
+                } catch (err) {
+                    notifyStage = 'failed';
+                    notifyReason = err.message || 'throw';
+                    console.warn(`[ccl] CCL Teams notification failed for ${matterId}:`, err.message);
+                }
+            }
+
+            // Rollup — single event summarising the whole chain. KQL-friendly: stage
+            // outcomes are tagged so the runbook can compute success rates per stage
+            // and end-to-end chain completion (persist + nd=succeeded|skipped + notify=succeeded|skipped).
+            const chainDurationMs = Date.now() - chainStartMs;
+            const allGreen = persistStage === 'succeeded'
+                && (ndStage === 'succeeded' || ndStage === 'skipped')
+                && (notifyStage === 'succeeded' || notifyStage === 'skipped');
+            trackEvent('CCL.AutopilotChain.Completed', {
+                matterId: String(matterId),
+                triggeredBy: user || 'auto-post-generate',
+                persistStage,
+                ndStage,
+                ndReason,
+                ndDocumentId: ndDocumentId ? String(ndDocumentId) : '',
+                notifyStage,
+                notifyReason,
+                allGreen: String(allGreen),
+                chainDurationMs: String(chainDurationMs),
+                confidence: String(aiResult.confidence || ''),
+                unresolvedCount: String(result.unresolvedCount),
+            });
+            trackMetric('CCL.AutopilotChain.Duration', chainDurationMs, { matterId: String(matterId) });
+
+            // Activity feed entry — one row per chain so the Operations feed in
+            // the Activity tab reflects every autopilot run (not just Teams DMs).
+            try {
+                const { append: opAppend } = require('../utils/opLog');
+                const chainStatus = (ndStage === 'failed' || notifyStage === 'failed') ? 'error' : 'success';
+                const summaryParts = [];
+                if (matterDisplayNumber) summaryParts.push(String(matterDisplayNumber));
+                summaryParts.push(`ND: ${ndStage}${ndStage === 'failed' && ndReason ? ` (${ndReason})` : ''}`);
+                summaryParts.push(`Notify: ${notifyStage}${notifyStage === 'failed' && notifyReason ? ` (${notifyReason})` : ''}`);
+                summaryParts.push(`${chainDurationMs}ms`);
+                opAppend({
+                    type: 'activity.ccl.autopilot',
+                    status: chainStatus,
+                    matterId: String(matterId),
+                    matterDisplayNumber: matterDisplayNumber || null,
+                    triggeredBy: user || 'auto-post-generate',
+                    persistStage,
+                    ndStage,
+                    ndReason: ndReason || null,
+                    ndDocumentId: ndDocumentId ? String(ndDocumentId) : null,
+                    notifyStage,
+                    notifyReason: notifyReason || null,
+                    allGreen,
+                    chainDurationMs,
+                    confidence: String(aiResult.confidence || ''),
+                    summary: summaryParts.join(' · '),
+                });
+            } catch (appendErr) {
+                // opLog is best-effort; never let a feed write break the chain
+                console.warn('[ccl] activity-feed append failed:', appendErr.message);
+            }
+        });
 
         const durationMs = Date.now() - startMs;
         trackEvent('CCL.Service.Run.Completed', {
@@ -914,6 +1294,9 @@ router.post('/service/run', async (req, res) => {
         });
         trackMetric('CCL.Service.Run.Duration', durationMs, { matterId: String(matterId) });
 
+        const { _contextPackage: _cp, ...safeCompile } = compile;
+        if (safeCompile.preview) { const { _contextPackage: _cp2, ...safePreview } = safeCompile.preview; safeCompile.preview = safePreview; }
+        const { _contextPackage: _cp3, ...safePreview2 } = preview;
         return res.json({
             ok: true,
             matterId,
@@ -925,8 +1308,8 @@ router.post('/service/run', async (req, res) => {
             unresolvedCount: result.unresolvedCount,
             promptVersion: aiResult.promptVersion || CCL_PROMPT_VERSION,
             templateVersion: CCL_TEMPLATE_VERSION,
-            preview,
-            compile,
+            preview: safePreview2,
+            compile: safeCompile,
             ai: aiResult,
             provenance,
         });
@@ -987,7 +1370,9 @@ router.post('/service/compile', async (req, res) => {
             readyCount: String(compile.summary.readyCount || 0),
         });
         trackMetric('CCL.Service.Compile.Duration', durationMs, { matterId: String(matterId) });
-        return res.json({ ok: true, matterId, compile });
+        const { _contextPackage: _cp, ...safeCompile } = compile;
+        if (safeCompile.preview) { const { _contextPackage: _cp2, ...safePreview } = safeCompile.preview; safeCompile.preview = safePreview; }
+        return res.json({ ok: true, matterId, compile: safeCompile });
     } catch (err) {
         console.error('[ccl] service compile failed:', err.message);
         trackException(err, { operation: 'CCL.Service.Compile', matterId: String(matterId), triggeredBy: actor });
@@ -1350,20 +1735,55 @@ router.get('/:matterId/preview', async (req, res) => {
     }
 });
 
+// Resolves the inner promise OR rejects with a timeout error after `ms` ms.
+// Used to guarantee the GET /:matterId handler always responds, even if the
+// SQL pool is contended (e.g. boot-time Clio sync overlap).
+const cclLoadWithTimeout = (promise, ms, label) => Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)),
+]);
+
 router.get('/:matterId', async (req, res) => {
     const { matterId } = req.params;
+    const startedAt = Date.now();
+    let responded = false;
+    // Hard server-side guard — if anything below stalls, send a graceful 504
+    // so the client AbortController never fires "signal is aborted without reason".
+    const hardTimeout = setTimeout(() => {
+        if (responded) return;
+        responded = true;
+        const ms = Date.now() - startedAt;
+        console.warn(`[ccl] GET /:matterId hard timeout after ${ms}ms for ${matterId}`);
+        trackEvent('CCL.Load.Timeout', { matterId: String(matterId), durationMs: String(ms) });
+        if (!res.headersSent) {
+            res.status(504).json({ ok: false, exists: false, error: 'CCL load timed out — please retry.' });
+        }
+    }, 9000);
+
     const fp = filePath(matterId);
     const exists = fs.existsSync(fp);
     let json;
     let source = 'none';
     let latestContent = null;
     let history = [];
+    let draftRecord = null;
     try {
+        // Per-query timeout: 6s each. Failures fall through to file/JSON fallbacks.
         [latestContent, history] = await Promise.all([
-            getLatestCclContent(matterId).catch(() => null),
-            getCclContentHistory(matterId).catch(() => []),
+            cclLoadWithTimeout(getLatestCclContent(matterId), 6000, 'getLatestCclContent').catch((err) => {
+                console.warn(`[ccl] getLatestCclContent failed for ${matterId}: ${err.message}`);
+                return null;
+            }),
+            cclLoadWithTimeout(getCclContentHistory(matterId), 6000, 'getCclContentHistory').catch((err) => {
+                console.warn(`[ccl] getCclContentHistory failed for ${matterId}: ${err.message}`);
+                return [];
+            }),
         ]);
-        json = await fetchDraftFromDb(matterId);
+        draftRecord = await cclLoadWithTimeout(fetchDraftRecordFromDb(matterId), 6000, 'fetchDraftRecordFromDb').catch((err) => {
+            console.warn(`[ccl] fetchDraftRecordFromDb failed for ${matterId}: ${err.message}`);
+            return null;
+        });
+        json = draftRecord?.json || null;
         if (json) source = 'db';
         if (!json) {
             json = loadDraftFromFileCache(matterId);
@@ -1377,10 +1797,13 @@ router.get('/:matterId', async (req, res) => {
             json = safeParseJson(latestContent.FieldsJson, null);
             if (json) source = 'ccl-content';
         }
-    } catch { }
+    } catch (err) {
+        console.warn(`[ccl] GET /:matterId inner error for ${matterId}: ${err.message}`);
+        trackException(err, { operation: 'CCL.Load', matterId: String(matterId) });
+    }
     trackEvent('CCL.Load', {
         matterId: String(matterId), exists: String(exists), source,
-        hasDraft: String(!!json),
+        hasDraft: String(!!json), durationMs: String(Date.now() - startedAt),
     });
     // Hydrate persisted pressure-test result if available
     let pressureTest = null;
@@ -1402,6 +1825,12 @@ router.get('/:matterId', async (req, res) => {
         } catch { }
     }
 
+    if (responded) {
+        clearTimeout(hardTimeout);
+        return; // hard timeout already responded; bail out so we don't double-send
+    }
+    responded = true;
+    clearTimeout(hardTimeout);
     res.json({
         ok: true,
         exists,
@@ -1418,8 +1847,67 @@ router.get('/:matterId', async (req, res) => {
             createdAt: latestContent?.CreatedAt || null,
             finalizedAt: latestContent?.FinalizedAt || null,
             historyCount: Array.isArray(history) ? history.length : 0,
+            // Enriched provenance from CclDrafts v2 (null when table is in v1 shape).
+            draftMeta: draftRecord?.meta || null,
         },
     });
 });
 
-module.exports = { router, CCL_DIR };
+// ─── GET /api/ccl/:matterId/rerun-preview ─────────────────────────────────
+// Lightweight payload for the override-rerun confirmation modal:
+// returns { current, projected } so the UI can render an above/below comparison
+// without hitting multiple endpoints.
+router.get('/:matterId/rerun-preview', async (req, res) => {
+    const { matterId } = req.params;
+    try {
+        const [draftRecord, latestContent] = await Promise.all([
+            fetchDraftRecordFromDb(matterId).catch(() => null),
+            getLatestCclContent(matterId).catch(() => null),
+        ]);
+
+        const meta = draftRecord?.meta || null;
+        const currentVersion = latestContent?.Version || meta?.latestVersion || null;
+        const nextVersion = currentVersion ? currentVersion + 1 : null;
+        const projectedModel = require('../utils/aiClient').DEPLOYMENT || meta?.model || null;
+
+        const current = {
+            version: currentVersion,
+            cclContentId: latestContent?.CclContentId || meta?.latestCclContentId || null,
+            status: latestContent?.Status || meta?.latestStatus || null,
+            model: meta?.model || null,
+            promptVersion: meta?.promptVersion || null,
+            templateVersion: meta?.templateVersion || latestContent?.TemplateVersion || null,
+            confidence: meta?.confidence || null,
+            generatedFieldCount: meta?.generatedFieldCount ?? null,
+            aiTraceId: meta?.aiTraceId || latestContent?.AiTraceId || null,
+            updatedAt: meta?.updatedAt || latestContent?.CreatedAt || null,
+            updatedBy: meta?.updatedBy || latestContent?.CreatedBy || null,
+            pressureTest: latestContent?.PressureTestJson ? {
+                flaggedCount: latestContent.PressureTestFlaggedCount ?? null,
+                completedAt: latestContent.PressureTestAt || null,
+            } : null,
+            overrideHistory: {
+                overrideCount: meta?.overrideCount ?? 0,
+                lastOverrideAt: meta?.lastOverrideAt || null,
+                lastOverrideReplacedVersion: meta?.lastOverrideReplacedVersion || null,
+            },
+        };
+
+        const projected = {
+            version: nextVersion,
+            model: projectedModel,
+            promptVersion: CCL_PROMPT_VERSION,
+            templateVersion: CCL_TEMPLATE_VERSION,
+            overrideMode: 'replace-ai-fields',
+            note: 'A new pressure test runs automatically after the rerun.',
+        };
+
+        res.json({ ok: true, matterId, current, projected, schemaShape: meta ? 'v2' : 'v1' });
+    } catch (err) {
+        console.warn(`[ccl] rerun-preview failed for ${matterId}: ${err.message}`);
+        trackException(err, { operation: 'CCL.RerunPreview', matterId: String(matterId) });
+        res.status(500).json({ ok: false, error: err.message });
+    }
+});
+
+module.exports = { router, CCL_DIR, compileCclContext, persistCclSnapshot };

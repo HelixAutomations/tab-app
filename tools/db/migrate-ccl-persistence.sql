@@ -4,7 +4,27 @@
 -- Run once. Idempotent (IF NOT EXISTS guards on everything).
 -- ============================================================================
 
--- ─── 1. CclContent — full snapshot of every CCL save/regeneration ──────────
+-- ─── 1. CclDrafts — latest editable draft snapshot per matter ──────────────
+-- Fast upsert/read store used by the editor before versioned snapshots are final.
+IF OBJECT_ID(N'CclDrafts', N'U') IS NULL
+BEGIN
+    CREATE TABLE CclDrafts (
+        MatterId            NVARCHAR(50)    NOT NULL PRIMARY KEY,
+        DraftJson           NVARCHAR(MAX)   NOT NULL,
+        CreatedAt           DATETIME2       NOT NULL DEFAULT SYSDATETIME(),
+        UpdatedAt           DATETIME2       NOT NULL DEFAULT SYSDATETIME()
+    );
+
+    CREATE NONCLUSTERED INDEX IX_CclDrafts_UpdatedAt
+        ON CclDrafts (UpdatedAt DESC);
+
+    PRINT 'Created CclDrafts table + indexes';
+END
+ELSE
+    PRINT 'CclDrafts table already exists — skipped';
+GO
+
+-- ─── 2. CclContent — full snapshot of every CCL save/regeneration ──────────
 -- Mirrors PitchContent pattern: substance + provenance + version tracking.
 -- One row per save (version increments). Latest version = current draft.
 IF OBJECT_ID(N'CclContent', N'U') IS NULL
@@ -92,7 +112,7 @@ ELSE
     PRINT 'CclContent table already exists — skipped';
 GO
 
--- ─── 2. CclAiTrace — full audit of every AI fill call ─────────────────────
+-- ─── 3. CclAiTrace — full audit of every AI fill call ─────────────────────
 -- One row per AI invocation. Stores prompts, output, context, timings.
 -- This is the "show me exactly what happened" table.
 IF OBJECT_ID(N'CclAiTrace', N'U') IS NULL
@@ -161,7 +181,7 @@ ELSE
     PRINT 'CclAiTrace table already exists — skipped';
 GO
 
--- ─── 3. CclFeedback — REMOVED (superseded by CclAssessment) ──────────────
+-- ─── 4. CclFeedback — REMOVED (superseded by CclAssessment) ──────────────
 -- Table dropped via tools/db/drop-ccl-feedback.sql
 -- All quality tracking now uses CclAssessment table (see migrate-ccl-assessment.sql)
 

@@ -558,6 +558,7 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
   const [asanaSections, setAsanaSections] = useState<AsanaSectionSummary[]>([]);
   const [dismissedSyncs, setDismissedSyncs] = useState<Set<number>>(new Set());
   const [asanaError, setAsanaError] = useState(false);
+  const [isAsanaLoading, setIsAsanaLoading] = useState(false);
 
   // Stripe recent payments state
   const [stripeRecent, setStripeRecent] = useState<StripeRecentItem[]>([]);
@@ -648,23 +649,38 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
     }
 
     try {
-      const [bankRes, recentRes, cclRes, txnRes, asanaRes, stripeRes] = await Promise.all([
+      const [bankRes, recentRes, cclRes, txnRes, stripeRes] = await Promise.all([
         fetch('/api/ops-queue/pending').catch(() => null),
         fetch('/api/ops-queue/recent').catch(() => null),
         showHomeOpsCclDates ? fetch('/api/ops-queue/ccl-dates-pending').catch(() => null) : Promise.resolve(null),
         fetch('/api/ops-queue/transactions-pending?range=mtd').catch(() => null),
-        fetch('/api/ops-queue/asana-account-tasks').catch(() => null),
         fetch('/api/ops-queue/stripe-recent').catch(() => null),
       ]);
+
+      // Fire Asana independently — it's an external API that can be slow.
+      // Core queue data renders immediately; Asana fills in when ready.
+      setIsAsanaLoading(true);
+      fetch('/api/ops-queue/asana-account-tasks').catch(() => null).then(async (asanaRes) => {
+        try {
+          if (asanaRes?.ok) {
+            const data = await asanaRes.json();
+            startTransition(() => {
+              setAsanaTasks(data.tasks || []);
+              setAsanaSections(data.sections || []);
+              setAsanaError(false);
+            });
+          } else {
+            setAsanaError(true);
+          }
+        } catch { setAsanaError(true); }
+        finally { setIsAsanaLoading(false); }
+      });
 
       let nextBankPending: BankTransferItem[] | undefined;
       let nextMigrationRequired: boolean | undefined;
       let nextRecent: RecentApproval[] | undefined;
       let nextCclPending: CclDateItem[] | undefined;
       let nextTxnPending: TransactionItem[] | undefined;
-      let nextAsanaTasks: AsanaAccountTask[] | undefined;
-      let nextAsanaSections: AsanaSectionSummary[] | undefined;
-      let nextAsanaError: boolean | undefined;
       let nextStripeRecent: StripeRecentItem[] | undefined;
       let nextTxnV2Pending: TransactionV2Item[] | undefined;
       let nextUserDebts: TransactionV2Item[] | undefined;
@@ -687,14 +703,6 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
       if (txnRes?.ok) {
         const data = await txnRes.json();
         nextTxnPending = data.items || [];
-      }
-      if (asanaRes?.ok) {
-        const data = await asanaRes.json();
-        nextAsanaTasks = data.tasks || [];
-        nextAsanaSections = data.sections || [];
-        nextAsanaError = false;
-      } else {
-        nextAsanaError = true;
       }
       if (stripeRes?.ok) {
         const data = await stripeRes.json();
@@ -731,9 +739,6 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
         if (nextRecent !== undefined) setRecent(nextRecent);
         if (nextCclPending !== undefined) setCclPending(nextCclPending);
         if (nextTxnPending !== undefined) setTxnPending(nextTxnPending);
-        if (nextAsanaTasks !== undefined) setAsanaTasks(nextAsanaTasks);
-        if (nextAsanaSections !== undefined) setAsanaSections(nextAsanaSections);
-        if (nextAsanaError !== undefined) setAsanaError(nextAsanaError);
         if (nextStripeRecent !== undefined) setStripeRecent(nextStripeRecent);
         if (nextTxnV2Pending !== undefined) setTxnV2Pending(nextTxnV2Pending);
         if (nextUserDebts !== undefined) setUserDebts(nextUserDebts);
@@ -1800,7 +1805,7 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
     : 'Transfers, payments, and recent decisions linked to your work.';
   const pipelineTotal = asanaSections.reduce((sum, section) => sum + section.count, 0);
   const queueSummaryChips = [
-    { key: 'pipeline', label: 'Pipeline', count: pipelineTotal, colour: accent, show: isAdmin && pipelineTotal > 0 },
+    { key: 'pipeline', label: 'Pipeline', count: pipelineTotal, colour: accent, show: isAdmin && (pipelineTotal > 0 || isAsanaLoading) },
     { key: 'ccl', label: 'CCL dates', count: visibleCclCount, colour: colours.orange, show: visibleCclCount > 0 },
     {
       key: 'transfers',

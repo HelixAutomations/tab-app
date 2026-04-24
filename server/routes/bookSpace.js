@@ -6,6 +6,13 @@ const { SecretClient } = require('@azure/keyvault-secrets');
 const router = express.Router();
 const { deleteCache, deleteCachePattern, generateCacheKey } = require('../utils/redisClient');
 const { broadcastFutureBookingsChanged } = require('../utils/future-bookings-stream');
+const {
+  recordSubmission,
+  recordStep,
+  markComplete,
+  markFailed,
+} = require('../utils/formSubmissionLog');
+const { trackException } = require('../utils/appInsights');
 
 const TRANSIENT_SQL_CODES = new Set(['ESOCKET', 'ECONNCLOSED', 'ECONNRESET', 'ETIMEDOUT', 'ETIMEOUT']);
 const DEFAULT_ATTENDANCE_RETRIES = Number(process.env.SQL_ATTENDANCE_MAX_RETRIES || 4);
@@ -122,6 +129,19 @@ router.post('/', async (req, res) => {
   }
   
   const tableName = spaceType === "Boardroom" ? "boardroom_bookings" : "soundproofpod_bookings";
+
+  let submissionId = null;
+  try {
+    submissionId = await recordSubmission({
+      formKey: 'book-space',
+      submittedBy: String(fee_earner || 'UNK').slice(0, 10),
+      lane: 'Log',
+      payload: req.body,
+      summary: `${spaceType} booking — ${booking_date} ${booking_time} (${duration}h)`.slice(0, 400),
+    });
+  } catch (logErr) {
+    trackException(logErr, { phase: 'bookSpace.recordSubmission' });
+  }
   
   try {
     const password = await getSqlPassword();
@@ -149,16 +169,25 @@ router.post('/', async (req, res) => {
     
     const insertedId = result.recordset[0]?.InsertedId;
     console.log(`[book-space] Created booking ID ${insertedId} for ${fee_earner}`);
+    await recordStep(submissionId, {
+      name: `${tableName}.insert`,
+      status: 'success',
+      output: { id: insertedId },
+    });
     
     // Create Clio calendar event (non-blocking)
     try {
       const accessToken = await getClioAccessToken();
       await createClioCalendarEvent(accessToken, { fee_earner, booking_date, booking_time, duration, reason, spaceType });
       console.log(`[book-space] Created Clio calendar event for booking ${insertedId}`);
+      await recordStep(submissionId, { name: 'clio.calendar.create', status: 'success' });
     } catch (clioError) {
       console.warn(`[book-space] Failed to create Clio calendar event: ${clioError.message}`);
+      await recordStep(submissionId, { name: 'clio.calendar.create', status: 'failed', error: clioError.message });
       // Continue - SQL insert succeeded
     }
+
+    await markComplete(submissionId, { lastEvent: 'book-space created' });
     
     res.status(201).json({
       message: "Booking created successfully.",
@@ -184,6 +213,9 @@ router.post('/', async (req, res) => {
       code: error.code,
       params: { fee_earner, booking_date, booking_time, duration, reason, spaceType }
     });
+    if (submissionId) {
+      await markFailed(submissionId, { lastEvent: 'book-space:insert:failed', error });
+    }
     res.status(500).json({ error: `Error creating booking: ${error.message}` });
   }
 });

@@ -684,8 +684,8 @@ The OperationValidator is always visible when drilled into Collected or WIP — 
 
 1. **Server** (`server/routes/attendance.js`): `GET /api/attendance/getAttendance` queries `[dbo].[Attendance]` with `Confirmed_At` in the SELECT.
 2. **Home.tsx** transforms API response into `AttendanceRecord[]` in **two mappers** (both must stay in sync):
-   - SSE realtime refresh (~L1640)
-   - Initial fetch (~L2070)
+   - SSE realtime refresh inside the `useRealtimeChannel` attendance handler (~L2295)
+   - Initial fetch (~L2881)
 3. **TeamInsight.tsx** reads `rec?.Confirmed_At` to determine confirmed state.
 
 ### Confirmed_At Mapper Rule (cost real debugging time)
@@ -712,6 +712,10 @@ The "Unconfirm" / "Reset" button in the modal always calls this endpoint (for bo
 All server-side processes emit structured telemetry to Azure Application Insights via the `applicationinsights` SDK. Locally (no connection string), calls are no-ops — zero overhead.
 
 **Connection**: Auto-detected from `APPLICATIONINSIGHTS_CONNECTION_STRING` App Service setting. SDK initialised in `server/index.js` before Express, so HTTP requests are auto-instrumented.
+
+### Saved KQL + Workbooks
+- CCL pipeline saved searches: [docs/KQL_CCL_PIPELINE.md](../../docs/KQL_CCL_PIPELINE.md)
+- CCL pipeline workbook (import into App Insights → Workbooks → New → Advanced Editor): [docs/workbooks/ccl-pipeline.json](../../docs/workbooks/ccl-pipeline.json)
 
 ### Utility Module
 `server/utils/appInsights.js` — lightweight wrapper exposing:

@@ -105,6 +105,24 @@ function mapCardLabSend(event) {
   };
 }
 
+function mapNotificationCardSend(event) {
+  const summaryParts = [];
+  if (event.templateLabel) summaryParts.push(event.templateLabel);
+  if (event.routeLabel) summaryParts.push(event.routeLabel);
+  if (event.summary) summaryParts.push(event.summary);
+
+  return {
+    id: `notification-card-${event.id}`,
+    source: 'activity.card.send',
+    sourceLabel: 'Team Hub card',
+    status: event.status === 'error' ? 'error' : 'success',
+    title: event.title || `${event.templateLabel || 'Team Hub card'} sent`,
+    summary: summaryParts.join(' · '),
+    timestamp: event.ts,
+    teamsLink: event.teamsLink || null,
+  };
+}
+
 function mapBotActionEvent(event) {
   const actionLabel = event.action || 'unknown';
   return {
@@ -130,6 +148,24 @@ function mapDmSendEvent(event) {
   };
 }
 
+function mapCclAutopilotEvent(event) {
+  const label = event.matterDisplayNumber || event.matterId || 'matter';
+  const title = event.status === 'error'
+    ? `CCL autopilot failed for ${label}`
+    : event.allGreen
+      ? `CCL autopilot ran for ${label}`
+      : `CCL autopilot completed for ${label}`;
+  return {
+    id: `ccl-autopilot-${event.id}`,
+    source: 'activity.ccl.autopilot',
+    sourceLabel: 'CCL autopilot',
+    status: event.status === 'error' ? 'error' : (event.allGreen ? 'success' : 'info'),
+    title,
+    summary: event.summary || '',
+    timestamp: event.ts,
+  };
+}
+
 function getBotItems(limit) {
   return list({ type: 'teams.bot', limit: Math.min(limit * 3, MAX_LIMIT) })
     .filter((event) => event.status !== 'started')
@@ -141,6 +177,11 @@ function getCardLabItems(limit) {
     .map(mapCardLabSend);
 }
 
+function getNotificationCardItems(limit) {
+  return list({ type: 'activity.card.send', limit: Math.min(limit * 2, MAX_LIMIT) })
+    .map(mapNotificationCardSend);
+}
+
 function getBotActionItems(limit) {
   return list({ type: 'teams.bot.action', limit: Math.min(limit * 2, MAX_LIMIT) })
     .map(mapBotActionEvent);
@@ -149,6 +190,11 @@ function getBotActionItems(limit) {
 function getDmSendItems(limit) {
   return list({ type: 'activity.dm.send', limit: Math.min(limit * 2, MAX_LIMIT) })
     .map(mapDmSendEvent);
+}
+
+function getCclAutopilotItems(limit) {
+  return list({ type: 'activity.ccl.autopilot', limit: Math.min(limit * 2, MAX_LIMIT) })
+    .map(mapCclAutopilotEvent);
 }
 
 async function getTrackedCardItems(limit) {
@@ -189,20 +235,199 @@ async function getTrackedCardItems(limit) {
   return rows.map(mapTrackedCard);
 }
 
+// ── Helix Operations Platform sources ──────────────────────────────────────
+// Both helpers tolerate the platform being disabled (kill switch) and never
+// throw — Activity feed degrades to existing sources rather than failing the
+// whole route.
+
+function getOpsConnectionString() {
+  if (String(process.env.OPS_PLATFORM_ENABLED || '').toLowerCase() !== 'true') {
+    return null;
+  }
+  return process.env.OPS_SQL_CONNECTION_STRING || null;
+}
+
+function statusFromProcessing(status) {
+  const normalized = String(status || '').toLowerCase();
+  if (normalized === 'failed') return 'error';
+  if (normalized === 'complete') return 'success';
+  if (normalized === 'processing' || normalized === 'queued') return 'info';
+  return 'info';
+}
+
+function mapFormSubmissionRow(row) {
+  const submitter = row.submitted_by || 'unknown';
+  const formKey = row.form_key || 'unknown';
+  const status = statusFromProcessing(row.processing_status);
+  const summaryParts = [`form ${formKey}`];
+  if (row.lane) summaryParts.push(row.lane);
+  if (row.last_event) summaryParts.push(row.last_event);
+
+  return {
+    id: `form-submission-${row.id}`,
+    source: 'forms.submission',
+    sourceLabel: 'Form submission',
+    status,
+    title: row.summary || `Form submission by ${submitter}`,
+    summary: summaryParts.join(' · '),
+    timestamp: row.last_event_at || row.submitted_at,
+  };
+}
+
+async function getFormSubmissionItems(limit) {
+  const connectionString = getOpsConnectionString();
+  if (!connectionString) return [];
+  const boundedLimit = Math.min(limit * 2, MAX_LIMIT);
+  try {
+    const rows = await withRequest(connectionString, async (request, sql) => {
+      request.input('top', sql.Int, boundedLimit);
+      const result = await request.query(`
+        SELECT TOP (@top)
+          id, form_key, submitted_by, submitted_at, lane, summary,
+          processing_status, last_event, last_event_at
+        FROM dbo.form_submissions
+        WHERE archived_at IS NULL
+        ORDER BY COALESCE(last_event_at, submitted_at) DESC
+      `);
+      return result.recordset || [];
+    }, 2);
+    return rows.map(mapFormSubmissionRow);
+  } catch (err) {
+    trackException(err instanceof Error ? err : new Error(String(err)), {
+      component: 'ActivityFeed',
+      operation: 'getFormSubmissionItems',
+    });
+    return [];
+  }
+}
+
+function mapAiProposalRow(row) {
+  const outcome = String(row.outcome || 'pending').toLowerCase();
+  let status = 'info';
+  if (outcome === 'accepted') status = 'success';
+  else if (outcome === 'failed') status = 'error';
+  const surface = row.surface || 'ai';
+  const summaryParts = [`outcome ${outcome}`];
+  if (row.target_kind) summaryParts.push(row.target_kind);
+  if (row.confidence_summary) summaryParts.push(row.confidence_summary);
+
+  return {
+    id: `ai-proposal-${row.id}`,
+    source: 'ai.proposal',
+    sourceLabel: `AI ${surface}`,
+    status,
+    title: `AI proposal by ${row.created_by || 'unknown'}`,
+    summary: summaryParts.join(' · '),
+    timestamp: row.outcome_at || row.created_at,
+  };
+}
+
+async function getAiProposalItems(limit) {
+  const connectionString = getOpsConnectionString();
+  if (!connectionString) return [];
+  const boundedLimit = Math.min(limit * 2, MAX_LIMIT);
+  try {
+    const rows = await withRequest(connectionString, async (request, sql) => {
+      request.input('top', sql.Int, boundedLimit);
+      const result = await request.query(`
+        SELECT TOP (@top)
+          id, created_at, created_by, surface, target_kind,
+          confidence_summary, outcome, outcome_at
+        FROM dbo.ai_proposals
+        ORDER BY COALESCE(outcome_at, created_at) DESC
+      `);
+      return result.recordset || [];
+    }, 2);
+    return rows.map(mapAiProposalRow);
+  } catch (err) {
+    trackException(err instanceof Error ? err : new Error(String(err)), {
+      component: 'ActivityFeed',
+      operation: 'getAiProposalItems',
+    });
+    return [];
+  }
+}
+
+function mapHubTodoRow(row) {
+  const completed = row.completed_at != null;
+  const status = completed ? 'success' : 'info';
+  const kind = row.kind || 'todo';
+  const ownerInitials = row.owner_initials || 'unknown';
+  const summaryParts = [`kind ${kind}`];
+  if (row.matter_ref) summaryParts.push(String(row.matter_ref));
+  if (row.doc_type) summaryParts.push(String(row.doc_type));
+  if (completed) {
+    summaryParts.push(`completed via ${row.completed_via || 'hub'}`);
+  } else if (row.last_event) {
+    summaryParts.push(String(row.last_event));
+  }
+  return {
+    id: `hub-todo-${row.id}`,
+    source: 'hub.todo',
+    sourceLabel: 'Hub to-do',
+    status,
+    title: row.summary || `To-do · ${kind} · ${ownerInitials}`,
+    summary: summaryParts.join(' · '),
+    timestamp: row.completed_at || row.created_at,
+  };
+}
+
+async function getHubTodoItems(limit) {
+  const connectionString = getOpsConnectionString();
+  if (!connectionString) return [];
+  const boundedLimit = Math.min(limit * 2, MAX_LIMIT);
+  try {
+    const rows = await withRequest(connectionString, async (request, sql) => {
+      request.input('top', sql.Int, boundedLimit);
+      const result = await request.query(`
+        SELECT TOP (@top)
+          id, kind, owner_initials, matter_ref, doc_type,
+          summary, created_at, completed_at, completed_via, last_event
+        FROM dbo.hub_todo
+        ORDER BY COALESCE(completed_at, created_at) DESC
+      `);
+      return result.recordset || [];
+    }, 2);
+    return rows.map(mapHubTodoRow);
+  } catch (err) {
+    trackException(err instanceof Error ? err : new Error(String(err)), {
+      component: 'ActivityFeed',
+      operation: 'getHubTodoItems',
+    });
+    return [];
+  }
+}
+
 router.get('/', async (req, res) => {
   const startedAt = Date.now();
   const limit = parseLimit(req.query.limit);
 
   try {
-    const [botItems, trackedItems] = await Promise.all([
+    const [botItems, trackedItems, formSubmissionItems, aiProposalItems, hubTodoItems] = await Promise.all([
       Promise.resolve(getBotItems(limit)),
       getTrackedCardItems(limit),
+      getFormSubmissionItems(limit),
+      getAiProposalItems(limit),
+      getHubTodoItems(limit),
     ]);
     const cardLabItems = getCardLabItems(limit);
+    const notificationCardItems = getNotificationCardItems(limit);
     const botActionItems = getBotActionItems(limit);
     const dmSendItems = getDmSendItems(limit);
+    const cclAutopilotItems = getCclAutopilotItems(limit);
 
-    const items = [...botItems, ...trackedItems, ...cardLabItems, ...botActionItems, ...dmSendItems]
+    const items = [
+      ...botItems,
+      ...trackedItems,
+      ...formSubmissionItems,
+      ...aiProposalItems,
+      ...hubTodoItems,
+      ...cardLabItems,
+      ...notificationCardItems,
+      ...botActionItems,
+      ...dmSendItems,
+      ...cclAutopilotItems,
+    ]
       .sort((left, right) => getEventTimestamp(right) - getEventTimestamp(left))
       .slice(0, limit);
 
@@ -213,9 +438,14 @@ router.get('/', async (req, res) => {
       itemCount: items.length,
       botCount: botItems.length,
       trackedCount: trackedItems.length,
+      formSubmissionCount: formSubmissionItems.length,
+      aiProposalCount: aiProposalItems.length,
+      hubTodoCount: hubTodoItems.length,
       cardLabCount: cardLabItems.length,
+      notificationCardCount: notificationCardItems.length,
       botActionCount: botActionItems.length,
       dmSendCount: dmSendItems.length,
+      cclAutopilotCount: cclAutopilotItems.length,
       durationMs,
     });
     trackMetric('ActivityFeed.Fetch.Duration', durationMs, {

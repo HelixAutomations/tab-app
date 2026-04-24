@@ -1,40 +1,18 @@
 import React from 'react';
+import { FiCheckCircle, FiClock, FiUsers, FiFilter } from 'react-icons/fi';
 import { colours } from '../../../app/styles/colours';
 
 export type EnquiriesActiveState = '' | 'Claimed' | 'Claimable' | 'Triaged';
 
+// Feather icons at strokeWidth 1.8 — matches the nav bar family (CustomTabs)
+// so the whole top chrome reads as one stroke weight.
 const filterIconSvg = (k: string) => {
-  if (k === 'Claimed') {
-    return (
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-        <path d="M3 8.5L6.5 12L13 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-      </svg>
-    );
-  }
-  if (k === 'Unclaimed') {
-    return (
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-        <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.5" fill="none" />
-        <path d="M8 4V8.5L11 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-      </svg>
-    );
-  }
-  if (k === 'All') {
-    return (
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-        <circle cx="5.5" cy="5" r="2.5" stroke="currentColor" strokeWidth="1.5" fill="none" />
-        <path d="M1 13c0-2.2 2-4 4.5-4s4.5 1.8 4.5 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none" />
-        <circle cx="11.5" cy="5.5" r="2" stroke="currentColor" strokeWidth="1.3" fill="none" />
-        <path d="M15 12.5c0-1.7-1.5-3-3.5-3-.7 0-1.3.15-1.8.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" fill="none" />
-      </svg>
-    );
-  }
-  // Triaged
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-      <path d="M2 3h12l-4.5 5.5V13l-3 1.5V8.5L2 3z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-    </svg>
-  );
+  const size = 14;
+  const strokeWidth = 1.8;
+  if (k === 'Claimed') return <FiCheckCircle size={size} strokeWidth={strokeWidth} />;
+  if (k === 'Unclaimed') return <FiClock size={size} strokeWidth={strokeWidth} />;
+  if (k === 'All') return <FiUsers size={size} strokeWidth={strokeWidth} />;
+  return <FiFilter size={size} strokeWidth={strokeWidth} />;
 };
 
 interface StatusFilterWithScopeProps {

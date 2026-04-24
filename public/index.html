@@ -12,163 +12,270 @@
     />
     <title>Microsoft Teams Tab</title>
     <style>
+      /* ─── Pre-React bootstrap splash ──────────────────────────
+         Shown before React mounts, so it must be fully self-contained.
+         Design language matches AppLoadingScreen.tsx — breathing mark,
+         travelling dots, brand surface ladder. Flat background, no
+         auras or halos. Staggered entrance + rotating sub-message +
+         thin indeterminate sweep. CSS-only, reduced-motion respected.
+
+         Theme resolution (in order of precedence):
+           1. body.theme-contrast / body.theme-dark / body.theme-light
+              (set by the inline script from ?theme= or data-theme)
+           2. prefers-color-scheme fallback for plain-browser loads
+           3. defaults to light */
       :root {
         color-scheme: light dark;
-        --loading-background: linear-gradient(135deg, #ffffff 0%, #f8fafc 40%, #e8f0ff 100%);
+        --loading-background: #ffffff;
+        --loading-mark: #061733;
         --loading-text: #061733;
-        --loading-subtext: rgba(6, 23, 51, 0.72);
-        --loading-spinner-border: rgba(6, 23, 51, 0.12);
-        --loading-spinner-top: #3690ce;
-        --loading-shadow: 0 10px 30px rgba(6, 23, 51, 0.08);
+        --loading-subtext: rgba(6, 23, 51, 0.6);
+        --loading-dot: rgba(6, 23, 51, 0.18);
+        --loading-dot-active: #3690ce;
+        --loading-sweep: rgba(54, 144, 206, 0.55);
       }
 
+      /* System preference fallback — used when no explicit theme class is set. */
+      @media (prefers-color-scheme: dark) {
+        body:not(.theme-light):not(.theme-contrast) {
+          --loading-background: #020617;
+          --loading-mark: #f3f4f6;
+          --loading-text: #f3f4f6;
+          --loading-subtext: rgba(243, 244, 246, 0.62);
+          --loading-dot: rgba(243, 244, 246, 0.16);
+          --loading-dot-active: #87F3F3;
+          --loading-sweep: rgba(135, 243, 243, 0.6);
+        }
+      }
+
+      /* Explicit theme classes override the system fallback. */
       body.theme-dark {
-        --loading-background: radial-gradient(circle at 20% 20%, rgba(54, 144, 206, 0.12), transparent 55%), linear-gradient(135deg, #0b1220 0%, #1f2937 45%, #0f1c32 100%);
+        --loading-background: #020617;
+        --loading-mark: #f3f4f6;
         --loading-text: #f3f4f6;
-        --loading-subtext: rgba(243, 244, 246, 0.75);
-        --loading-spinner-border: rgba(255, 255, 255, 0.12);
-        --loading-spinner-top: #3690ce;
-        --loading-shadow: 0 14px 36px rgba(0, 0, 0, 0.35);
+        --loading-subtext: rgba(243, 244, 246, 0.62);
+        --loading-dot: rgba(243, 244, 246, 0.16);
+        --loading-dot-active: #87F3F3;
+        --loading-sweep: rgba(135, 243, 243, 0.6);
+      }
+
+      body.theme-light {
+        --loading-background: #ffffff;
+        --loading-mark: #061733;
+        --loading-text: #061733;
+        --loading-subtext: rgba(6, 23, 51, 0.6);
+        --loading-dot: rgba(6, 23, 51, 0.18);
+        --loading-dot-active: #3690ce;
+        --loading-sweep: rgba(54, 144, 206, 0.55);
       }
 
       body.theme-contrast {
-        --loading-background: radial-gradient(circle at 20% 20%, rgba(255, 255, 0, 0.2), transparent 55%), linear-gradient(135deg, #000000 0%, #1a1a1a 45%, #000000 100%);
+        --loading-background: #000000;
+        --loading-mark: #ffffff;
         --loading-text: #ffffff;
         --loading-subtext: rgba(255, 255, 255, 0.75);
-        --loading-spinner-border: rgba(255, 255, 255, 0.2);
-        --loading-spinner-top: #ffff00;
-        --loading-shadow: 0 16px 42px rgba(0, 0, 0, 0.55);
+        --loading-dot: rgba(255, 255, 255, 0.22);
+        --loading-dot-active: #ffff00;
+        --loading-sweep: rgba(255, 255, 0, 0.7);
       }
 
-      @keyframes fadeInScaleLoop {
-        0% {
-          opacity: 0.4;
-          transform: scale(0.88);
-        }
-        50% {
-          opacity: 1;
-          transform: scale(1);
-        }
-        100% {
-          opacity: 0.4;
-          transform: scale(0.88);
-        }
+      /* ─── Keyframes ───────────────────────────────────────── */
+
+      @keyframes bootstrapMarkBreathe {
+        0%, 100% { opacity: 0.78; transform: scale(1); }
+        50%      { opacity: 1;    transform: scale(1.035); }
       }
 
-      @keyframes helixGradientShiftIntro {
-        0% {
-          background-position: 0% 50%;
-        }
-        50% {
-          background-position: 100% 50%;
-        }
-        100% {
-          background-position: 0% 50%;
-        }
+      @keyframes bootstrapDotTravel {
+        0%, 66%, 100% { background: var(--loading-dot); transform: scale(1); }
+        16%, 50%      { background: var(--loading-dot-active); transform: scale(1.4); }
       }
 
-      @keyframes spinHelixLoader {
-        0% {
-          transform: rotate(0deg);
-        }
-        100% {
-          transform: rotate(360deg);
-        }
+      @keyframes bootstrapEnter {
+        from { opacity: 0; }
+        to   { opacity: 1; }
       }
 
-      @keyframes fadeOutLoader {
-        to {
-          opacity: 0;
-          visibility: hidden;
-        }
+      @keyframes bootstrapRise {
+        from { opacity: 0; transform: translateY(6px); }
+        to   { opacity: 1; transform: translateY(0); }
       }
+
+      @keyframes bootstrapMarkEnter {
+        from { opacity: 0; transform: scale(0.82); }
+        to   { opacity: 0.78; transform: scale(1); }
+      }
+
+      @keyframes bootstrapSubRotate {
+        /* 3 lines × 6s cycle × 2s stagger = one always visible, no gaps.
+           Each line: fade in, hold ~1.6s, fade out, then dormant. */
+        0%         { opacity: 0; transform: translateY(4px); }
+        5%, 30%    { opacity: 1; transform: translateY(0); }
+        35%, 100%  { opacity: 0; transform: translateY(-4px); }
+      }
+
+      @keyframes bootstrapSweep {
+        0%   { transform: translateX(-40%); opacity: 0; }
+        10%  { opacity: 1; }
+        90%  { opacity: 1; }
+        100% { transform: translateX(140%); opacity: 0; }
+      }
+
+      @keyframes bootstrapFadeOut {
+        to { opacity: 0; visibility: hidden; }
+      }
+
+      /* ─── Structure ───────────────────────────────────────── */
 
       #loading-screen {
         position: fixed;
         inset: 0;
-        width: 100%;
-        height: 100%;
         display: flex;
         align-items: center;
         justify-content: center;
         background: var(--loading-background);
-        background-size: 220% 220%;
-        animation: helixGradientShiftIntro 14s ease-in-out infinite;
         color: var(--loading-text);
         z-index: 9999;
+        overflow: hidden;
+        animation: bootstrapEnter 320ms cubic-bezier(0.32, 0.72, 0, 1) both;
         transition: opacity 0.4s ease, visibility 0.4s ease;
       }
 
       #loading-screen.fade-out {
-        animation: fadeOutLoader 0.32s ease forwards;
+        animation: bootstrapFadeOut 320ms ease forwards;
       }
 
       body.loading-paused #loading-screen,
-      body.loading-paused #loading-screen svg,
-      body.loading-paused #loading-screen .spinner {
+      body.loading-paused #loading-screen .helix-mark,
+      body.loading-paused #loading-screen .dot,
+      body.loading-paused #loading-screen .sub-line,
+      body.loading-paused #loading-screen .sweep {
         animation-play-state: paused;
       }
 
       #loading-screen .loading-content {
+        position: relative;
+        z-index: 1;
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: 18px;
+        gap: 22px;
         text-align: center;
         padding: 32px;
       }
 
-      #loading-screen svg {
-        width: 150px;
-        height: auto;
-  filter: drop-shadow(0 12px 28px rgba(0, 0, 0, 0.12));
-        animation: fadeInScaleLoop 3.75s ease-in-out infinite;
+      #loading-screen .helix-mark-wrap {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
       }
+
+      #loading-screen .helix-mark {
+        width: 34px;
+        height: auto;
+        color: var(--loading-mark);
+        opacity: 0;
+        animation:
+          bootstrapMarkEnter 420ms cubic-bezier(0.32, 0.72, 0, 1) 60ms both,
+          bootstrapMarkBreathe 3.2s cubic-bezier(0.32, 0.72, 0, 1) 480ms infinite;
+        will-change: opacity, transform;
+      }
+      #loading-screen .helix-mark path { fill: currentColor; }
 
       #loading-screen h1 {
         margin: 0;
         font-family: 'Raleway', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
-        font-size: 24px;
-        font-weight: 700;
-        letter-spacing: 0.02em;
+        font-size: 17px;
+        font-weight: 600;
+        letter-spacing: 0.01em;
         color: var(--loading-text);
+        opacity: 0;
+        animation: bootstrapRise 380ms cubic-bezier(0.32, 0.72, 0, 1) 220ms both;
       }
 
-      #loading-screen p {
+      /* Rotating sub-message stack — three absolute lines crossfading. */
+      #loading-screen .sub {
+        position: relative;
+        height: 19px;
+        min-width: 240px;
+        margin-top: -8px;
+      }
+      #loading-screen .sub-line {
+        position: absolute;
+        inset: 0;
         margin: 0;
-        max-width: 420px;
         font-family: 'Raleway', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
-        font-size: 16px;
-        line-height: 24px;
+        font-size: 13px;
+        line-height: 1.45;
         color: var(--loading-subtext);
+        opacity: 0;
+        animation: bootstrapSubRotate 6s cubic-bezier(0.32, 0.72, 0, 1) infinite;
+        animation-delay: 360ms;
+      }
+      #loading-screen .sub-line:nth-child(2) { animation-delay: calc(360ms + 2s); }
+      #loading-screen .sub-line:nth-child(3) { animation-delay: calc(360ms + 4s); }
+
+      #loading-screen .dots {
+        display: inline-flex;
+        gap: 6px;
+        margin-top: 2px;
+        opacity: 0;
+        animation: bootstrapRise 380ms cubic-bezier(0.32, 0.72, 0, 1) 380ms both;
       }
 
-      #loading-screen .spinner {
-        width: 60px;
-        height: 60px;
+      #loading-screen .dot {
+        width: 5px;
+        height: 5px;
         border-radius: 50%;
-        border: 3px solid var(--loading-spinner-border);
-        border-top-color: var(--loading-spinner-top);
-        animation: spinHelixLoader 1s linear infinite;
+        background: var(--loading-dot);
+        animation: bootstrapDotTravel 1.5s cubic-bezier(0.32, 0.72, 0, 1) infinite;
+        will-change: transform, background-color;
+      }
+      #loading-screen .dot:nth-child(1) { animation-delay: 520ms; }
+      #loading-screen .dot:nth-child(2) { animation-delay: 700ms; }
+      #loading-screen .dot:nth-child(3) { animation-delay: 880ms; }
+
+      /* Indeterminate sweep along the bottom — quiet progress signal. */
+      #loading-screen .sweep-track {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 1px;
+        overflow: hidden;
+        pointer-events: none;
+      }
+      #loading-screen .sweep {
+        display: block;
+        width: 40%;
+        height: 100%;
+        background: linear-gradient(90deg, transparent 0%, var(--loading-sweep) 50%, transparent 100%);
+        animation: bootstrapSweep 2.4s cubic-bezier(0.32, 0.72, 0, 1) 420ms infinite;
+        will-change: transform, opacity;
       }
 
       @media (max-width: 480px) {
-        #loading-screen .loading-content {
-          gap: 16px;
-          padding: 24px;
-        }
+        #loading-screen .loading-content { gap: 18px; padding: 24px; }
+        #loading-screen .helix-mark { width: 28px; }
+        #loading-screen h1 { font-size: 15px; }
+        #loading-screen .sub-line { font-size: 12px; }
+      }
 
-        #loading-screen svg {
-          width: 120px;
+      @media (prefers-reduced-motion: reduce) {
+        #loading-screen,
+        #loading-screen .helix-mark,
+        #loading-screen .dot,
+        #loading-screen .sub-line,
+        #loading-screen .sweep,
+        #loading-screen h1,
+        #loading-screen .dots {
+          animation: none !important;
+          opacity: 1 !important;
+          transform: none !important;
         }
-
-        #loading-screen h1 {
-          font-size: 20px;
-        }
-
-        #loading-screen p {
-          font-size: 15px;
-        }
+        #loading-screen .dot:nth-child(2) { background: var(--loading-dot-active); }
+        #loading-screen .sub-line:nth-child(2),
+        #loading-screen .sub-line:nth-child(3) { display: none; }
       }
     </style>
     <script>
@@ -264,13 +371,29 @@
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>
     
-    <!-- Static Loading Screen -->
+    <!-- Static Loading Screen (pre-React bootstrap splash) -->
     <div id="loading-screen" role="status" aria-live="polite">
       <div class="loading-content">
-        <h1>Loading your workspace…</h1>
-  <p>Authenticating with Microsoft Teams…</p>
-        <div class="spinner" aria-hidden="true"></div>
+        <span class="helix-mark-wrap" aria-hidden="true">
+          <svg class="helix-mark" viewBox="0 0 57.56 100" aria-hidden="true" focusable="false">
+            <path d="M57.56,13.1c0,7.27-7.6,10.19-11.59,11.64-4,1.46-29.98,11.15-34.78,13.1C6.4,39.77,0,41.23,0,48.5v-13.1C0,28.13,6.4,26.68,11.19,24.74c4.8-1.94,30.78-11.64,34.78-13.1,4-1.45,11.59-4.37,11.59-11.64v13.09h0Z"/>
+            <path d="M57.56,38.84c0,7.27-7.6,10.19-11.59,11.64s-29.98,11.16-34.78,13.1c-4.8,1.94-11.19,3.4-11.19,10.67v-13.1c0-7.27,6.4-8.73,11.19-10.67,4.8-1.94,30.78-11.64,34.78-13.1,4-1.46,11.59-4.37,11.59-11.64v13.09h0Z"/>
+            <path d="M57.56,64.59c0,7.27-7.6,10.19-11.59,11.64-4,1.46-29.98,11.15-34.78,13.1-4.8,1.94-11.19,3.39-11.19,10.67v-13.1c0-7.27,6.4-8.73,11.19-10.67,4.8-1.94,30.78-11.64,34.78-13.1,4-1.45,11.59-4.37,11.59-11.64v13.1h0Z"/>
+          </svg>
+        </span>
+        <h1>Loading your workspace</h1>
+        <div class="sub" aria-hidden="true">
+          <p class="sub-line">Authenticating with Microsoft Teams</p>
+          <p class="sub-line">Preparing your data</p>
+          <p class="sub-line">Finalising the workspace</p>
+        </div>
+        <div class="dots" aria-hidden="true">
+          <span class="dot"></span>
+          <span class="dot"></span>
+          <span class="dot"></span>
+        </div>
       </div>
+      <div class="sweep-track" aria-hidden="true"><span class="sweep"></span></div>
     </div>
 
     <!-- Root Div for React -->

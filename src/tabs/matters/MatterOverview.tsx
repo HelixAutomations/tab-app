@@ -10,6 +10,7 @@ import { WorkbenchJourneyRail } from '../../components/workbench/WorkbenchJourne
 import PortalLaunchModal from '../../components/portal/PortalLaunchModal';
 import InlineWorkbench from '../instructions/InlineWorkbench';
 import CCLEditor from './ccl/CCLEditor';
+import { buildCclApiUrl } from './ccl/cclAiService';
 import NextStepChip from './components/NextStepChip';
 import { ADMIN_USERS, isCclUser } from '../../app/admin';
 import { buildPortalLaunchModel } from '../../utils/portalLaunch';
@@ -757,8 +758,9 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
 
     let cancelled = false;
 
-    fetch('/api/ccl/batch-status', {
+    fetch(buildCclApiUrl('/api/ccl/batch-status'), {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ matterIds: [matterId] }),
     })
@@ -811,7 +813,7 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
 
     (async () => {
       try {
-        const response = await fetch(`/api/ccl/${encodeURIComponent(String(matterKey))}`);
+        const response = await fetch(buildCclApiUrl(`/api/ccl/${encodeURIComponent(String(matterKey))}`), { credentials: 'include' });
         if (!response.ok) throw new Error('Failed to load CCL draft state');
 
         const data = await response.json();

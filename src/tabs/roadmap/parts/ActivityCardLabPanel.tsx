@@ -15,7 +15,6 @@ import {
 } from './types';
 
 interface ActivityCardLabPanelProps {
-  recentItems: ActivityFeedItem[];
   onItemSent: (item: ActivityFeedItem) => void;
 }
 
@@ -80,10 +79,11 @@ function mapRecentSendToFeedItem(item: CardLabRecentItem): ActivityFeedItem {
   };
 }
 
-const ActivityCardLabPanel: React.FC<ActivityCardLabPanelProps> = ({ recentItems, onItemSent }) => {
+const ActivityCardLabPanel: React.FC<ActivityCardLabPanelProps> = ({ onItemSent }) => {
   const previewHostRef = useRef<HTMLDivElement | null>(null);
   const [templates, setTemplates] = useState<CardLabTemplateMeta[]>([]);
   const [routes, setRoutes] = useState<CardLabRouteOption[]>([]);
+  const [recentSends, setRecentSends] = useState<CardLabRecentItem[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [selectedRouteKey, setSelectedRouteKey] = useState('');
   const [rawJson, setRawJson] = useState('');
@@ -95,7 +95,6 @@ const ActivityCardLabPanel: React.FC<ActivityCardLabPanelProps> = ({ recentItems
   const [sending, setSending] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [notice, setNotice] = useState<NoticeState>(null);
-  const [dmSending, setDmSending] = useState(false);
   const [composerExpanded, setComposerExpanded] = useState(false);
 
   const selectedTemplate = useMemo(
@@ -103,9 +102,9 @@ const ActivityCardLabPanel: React.FC<ActivityCardLabPanelProps> = ({ recentItems
     [selectedTemplateId, templates],
   );
 
-  const visibleRecentItems = useMemo(
-    () => recentItems.slice(0, 4),
-    [recentItems],
+  const routeLabelByKey = useMemo(
+    () => new Map(routes.map((route) => [route.key, route.label] as const)),
+    [routes],
   );
 
   const renderPreview = useCallback(async (nextRawJson: string, templateId: string) => {
@@ -189,8 +188,10 @@ const ActivityCardLabPanel: React.FC<ActivityCardLabPanelProps> = ({ recentItems
 
         const nextTemplates = Array.isArray(response.templates) ? response.templates : [];
         const nextRoutes = Array.isArray(response.routes) ? response.routes : [];
+        const nextRecent = Array.isArray(response.recent) ? response.recent : [];
         setTemplates(nextTemplates);
         setRoutes(nextRoutes);
+        setRecentSends(nextRecent);
 
         const firstTemplateId = nextTemplates[0]?.id || '';
         if (firstTemplateId) {
@@ -282,6 +283,7 @@ const ActivityCardLabPanel: React.FC<ActivityCardLabPanelProps> = ({ recentItems
 
       const nextItem = mapRecentSendToFeedItem(response.item);
       onItemSent(nextItem);
+      setRecentSends((current) => [response.item, ...current.filter((item) => item.id !== response.item.id)].slice(0, 6));
       setWarnings(Array.isArray(response.warnings) ? response.warnings : []);
       setNotice({
         kind: 'success',
@@ -298,47 +300,11 @@ const ActivityCardLabPanel: React.FC<ActivityCardLabPanelProps> = ({ recentItems
     }
   }, [onItemSent, rawJson, selectedRouteKey, selectedTemplate?.summary, selectedTemplateId]);
 
-  const handleDmTest = useCallback(async () => {
-    setDmSending(true);
-    setNotice({ kind: 'info', message: 'Sending DM test card…' });
-
-    try {
-      const response = await requestJson<{ success: boolean; displayName?: string; activityId?: string; error?: string }>(
-        '/api/teams-notify/dm-test',
-        { method: 'POST', headers: { 'Content-Type': 'application/json' } },
-      );
-
-      if (response.success) {
-        const dmItem: ActivityFeedItem = {
-          id: `dm-test-${Date.now()}`,
-          source: 'activity.dm.send',
-          sourceLabel: 'DM sent',
-          status: 'success',
-          title: `DM test sent${response.displayName ? ` to ${response.displayName}` : ''}`,
-          summary: `test-ack card · activityId ${response.activityId || 'unknown'}`,
-          timestamp: new Date().toISOString(),
-        };
-        onItemSent(dmItem);
-        setNotice({ kind: 'success', message: `DM test card sent${response.displayName ? ` to ${response.displayName}` : ''}.` });
-      } else {
-        setNotice({ kind: 'error', message: response.error || 'DM test failed.' });
-      }
-    } catch (error) {
-      setNotice({ kind: 'error', message: error instanceof Error ? error.message : 'DM test failed.' });
-    } finally {
-      setDmSending(false);
-    }
-  }, [onItemSent]);
-
   return (
     <div className="activity-card-lab helix-panel">
       <div className="activity-card-lab__header">
         <div>
-          <div className="activity-card-lab__eyebrow">Hub controls</div>
-          <h2 className="activity-card-lab__title">Card and DM controls</h2>
-          <p className="activity-card-lab__description">
-            Send cards to channels or DMs, test the bot round-trip, and track delivery in the live feed above.
-          </p>
+          <h2 className="activity-card-lab__title">Templates</h2>
         </div>
         <div className="activity-card-lab__header-meta">
           <span className="activity-card-lab__badge">{templates.length} templates</span>
@@ -357,40 +323,61 @@ const ActivityCardLabPanel: React.FC<ActivityCardLabPanelProps> = ({ recentItems
         </div>
       )}
 
+      <div>
+        <div className="activity-card-lab__template-grid">
+          {templates.map((template) => {
+            const active = template.id === selectedTemplateId;
+            return (
+              <button
+                key={template.id}
+                type="button"
+                className={active ? 'activity-card-lab__template-card activity-card-lab__template-card--active' : 'activity-card-lab__template-card'}
+                onClick={() => {
+                  setComposerExpanded(true);
+                  void loadTemplate(template.id);
+                }}
+              >
+                <div className="activity-card-lab__template-card-top">
+                  <span className="activity-card-lab__template-title">{template.label}</span>
+                  <span className="activity-card-lab__template-badge">{routeLabelByKey.get(template.defaultRoute) || template.defaultRoute}</span>
+                </div>
+                <div className="activity-card-lab__template-meta">
+                  <span>{template.category}</span>
+                  {template.originLabel && <span>{template.originLabel}</span>}
+                </div>
+                <p className="activity-card-lab__template-copy">{template.description}</p>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       <div className="activity-card-lab__quick-actions">
-        <button
-          type="button"
-          className="helix-btn-primary activity-card-lab__quick-btn"
-          onClick={() => void handleDmTest()}
-          disabled={dmSending}
-        >
-          <Icon iconName="Chat" />
-          {dmSending ? 'Sending DM…' : 'Send DM test card'}
-        </button>
         <button
           type="button"
           className="activity-card-lab__btn-secondary activity-card-lab__quick-btn"
           onClick={() => setComposerExpanded((prev) => !prev)}
         >
-          <Icon iconName={composerExpanded ? 'ChevronUp' : 'Settings'} />
-          {composerExpanded ? 'Close composer' : 'Card composer'}
+          <Icon iconName={composerExpanded ? 'ChevronUp' : 'View'} />
+          {composerExpanded ? 'Hide preview and send' : 'Open preview and send'}
         </button>
       </div>
 
       <div>
-        <div className="helix-label">Recent card activity</div>
-        {visibleRecentItems.length === 0 ? (
+        <div className="helix-label">Recent persisted sends</div>
+        {recentSends.length === 0 ? (
           <div className="activity-card-lab__preview-placeholder" style={{ minHeight: 60 }}>
-            Card sends and DM deliveries will appear here.
+            Persisted card sends will appear here as they land.
           </div>
         ) : (
           <ul className="activity-card-lab__recent-list">
-            {visibleRecentItems.map((item) => (
+            {recentSends.slice(0, 6).map((item) => (
               <li key={item.id} className="activity-card-lab__recent-item">
                 <div>
                   <p className="activity-card-lab__recent-title">{item.title}</p>
                   <div className="activity-card-lab__recent-meta">
                     <div>{formatDateTime(item.timestamp)}</div>
+                    <div>{item.originLabel || 'One-off send'} · {(item.deliveryMode || 'channel').toUpperCase()} · {item.routeLabel}</div>
                     {item.summary && <div>{item.summary}</div>}
                   </div>
                 </div>
@@ -408,9 +395,9 @@ const ActivityCardLabPanel: React.FC<ActivityCardLabPanelProps> = ({ recentItems
       {composerExpanded && (
       <div className="activity-card-lab__grid">
         <section className="activity-card-lab__pane">
-          <h3 className="activity-card-lab__pane-title">Composer</h3>
+          <h3 className="activity-card-lab__pane-title">Preview and send</h3>
           <p className="activity-card-lab__pane-copy">
-            Pick a template, choose a route, edit the JSON if needed, then render or send. Sends are real and appear in the live feed.
+            Pick a template, choose a route, tweak the JSON if needed, then render or send a one-off. Real sends are persisted.
           </p>
 
           <div className="activity-card-lab__control-grid">
@@ -448,7 +435,7 @@ const ActivityCardLabPanel: React.FC<ActivityCardLabPanelProps> = ({ recentItems
           </div>
 
           <div className="activity-card-lab__status">
-            {catalogLoading ? 'Loading templates…' : templateLoading ? 'Loading template…' : selectedTemplate ? `${selectedTemplate.category} · ${selectedTemplate.description}` : 'No template loaded.'}
+            {catalogLoading ? 'Loading templates…' : templateLoading ? 'Loading template…' : selectedTemplate ? `${selectedTemplate.category}${selectedTemplate.originLabel ? ` · ${selectedTemplate.originLabel}` : ''} · ${selectedTemplate.description}` : 'Choose a template from the library above.'}
           </div>
 
           <label className="activity-card-lab__field">
@@ -488,7 +475,7 @@ const ActivityCardLabPanel: React.FC<ActivityCardLabPanelProps> = ({ recentItems
               disabled={!rawJson.trim() || !selectedRouteKey || catalogLoading || templateLoading || sending}
             >
               <Icon iconName="Send" />
-              {sending ? 'Sending…' : 'Send to Teams'}
+              {sending ? 'Sending…' : 'Send one-off'}
             </button>
           </div>
 

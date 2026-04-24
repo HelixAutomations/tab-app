@@ -26,8 +26,20 @@
 const express = require('express');
 const { sql, withRequest } = require('../utils/db');
 const { trackEvent, trackException } = require('../utils/appInsights');
+const { deleteCachePattern } = require('../utils/redisClient');
+const {
+  createCard: createHubTodoCard,
+  reconcileAllByRef: reconcileHubTodoByRef,
+} = require('../utils/hubTodoLog');
+const {
+  recordSubmission,
+  recordStep,
+  markComplete,
+  markFailed,
+} = require('../utils/formSubmissionLog');
 
 const router = express.Router();
+const TODO_APPROVER_INITIALS = 'AC';
 
 const getConnectionString = () => {
   const connStr = process.env.SQL_CONNECTION_STRING;
@@ -35,21 +47,76 @@ const getConnectionString = () => {
   return connStr;
 };
 
-// Admins who see all records
-const ADMIN_INITIALS = new Set(['LZ', 'AC', 'JW']);
+// Keep this aligned with src/app/admin.ts feature-access admins.
+const ADMIN_INITIALS = new Set(['LZ', 'AC', 'KW', 'JW', 'LA', 'EA']);
 
 function isAdmin(initials) {
   return ADMIN_INITIALS.has((initials || '').toUpperCase());
 }
 
+function resolveActorInitials(req) {
+  const authenticatedInitials = String(req.user?.initials || '').trim().toUpperCase();
+  if (authenticatedInitials) return authenticatedInitials;
+
+  if (process.env.NODE_ENV !== 'production') {
+    const fallbackInitials = req.query.initials || req.body?.initials || req.headers['x-helix-initials'];
+    return String(fallbackInitials || '').trim().toUpperCase();
+  }
+
+  return '';
+}
+
 function requireInitials(req, res, next) {
-  const initials = (req.query.initials || req.body?.initials || '').toUpperCase();
+  const initials = resolveActorInitials(req);
   if (!initials || initials.length < 2 || initials.length > 10) {
     return res.status(400).json({ ok: false, error: 'Missing or invalid initials parameter' });
   }
   req.userInitials = initials;
   req.isAdmin = isAdmin(initials);
   next();
+}
+
+async function invalidateHomeJourneyCache() {
+  try {
+    await deleteCachePattern('home-journey:*');
+  } catch (err) {
+    trackException(err, { phase: 'registers.invalidateHomeJourneyCache' });
+  }
+}
+
+async function createRegisterTodoCard(card) {
+  const result = await createHubTodoCard(card);
+  if (result.id) {
+    await invalidateHomeJourneyCache();
+  }
+  return result;
+}
+
+async function reconcileRegisterTodoCard({ kind, matterRef, completedVia, lastEvent }) {
+  const result = await reconcileHubTodoByRef({ kind, matterRef, completedVia, lastEvent });
+  if (result.count > 0) {
+    await invalidateHomeJourneyCache();
+  }
+  return result;
+}
+
+function buildLdTodoRef(activityId) {
+  return `ld-activity:${activityId}`;
+}
+
+function buildUndertakingTodoRef(undertakingId) {
+  return `undertaking:${undertakingId}`;
+}
+
+function buildComplaintTodoRef(complaintId) {
+  return `complaint:${complaintId}`;
+}
+
+function buildComplaintSlaDeadline(receivedDate) {
+  const parsed = new Date(receivedDate);
+  if (Number.isNaN(parsed.getTime())) return null;
+  parsed.setUTCDate(parsed.getUTCDate() + 56);
+  return parsed.toISOString();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -111,6 +178,7 @@ router.get('/learning-dev', requireInitials, async (req, res) => {
 });
 
 router.post('/learning-dev', requireInitials, async (req, res) => {
+  let submissionId = null;
   try {
     const { target_initials, full_name, year, target_hours, notes } = req.body;
     const planInitials = (target_initials || '').toUpperCase();
@@ -123,6 +191,14 @@ router.post('/learning-dev', requireInitials, async (req, res) => {
     if (planInitials !== req.userInitials && !req.isAdmin) {
       return res.status(403).json({ ok: false, error: 'You can only create plans for yourself' });
     }
+
+    submissionId = await recordSubmission({
+      formKey: 'learning-dev-plan',
+      submittedBy: req.userInitials,
+      lane: 'Log',
+      payload: req.body,
+      summary: `L&D plan ${year} — ${full_name}`.slice(0, 400),
+    });
 
     const record = await withRequest(getConnectionString(), async (request) => {
       const result = await request
@@ -140,6 +216,13 @@ router.post('/learning-dev', requireInitials, async (req, res) => {
       return result.recordset[0];
     });
 
+    await recordStep(submissionId, {
+      name: 'learning_dev_plans.insert',
+      status: 'success',
+      output: { id: record.id },
+    });
+    await markComplete(submissionId, { lastEvent: 'L&D plan created' });
+
     trackEvent('Registers.LearningDev.PlanCreated', {
       planId: String(record.id),
       forUser: planInitials,
@@ -149,6 +232,9 @@ router.post('/learning-dev', requireInitials, async (req, res) => {
 
     res.status(201).json({ ok: true, plan: record });
   } catch (err) {
+    if (submissionId) {
+      await markFailed(submissionId, { lastEvent: 'learning_dev_plans.insert:failed', error: err });
+    }
     if (err.message?.includes('UQ_ldp_person_year')) {
       return res.status(409).json({ ok: false, error: 'A plan already exists for this person and year' });
     }
@@ -159,6 +245,7 @@ router.post('/learning-dev', requireInitials, async (req, res) => {
 });
 
 router.post('/learning-dev/activity', requireInitials, async (req, res) => {
+  let submissionId = null;
   try {
     const { plan_id, activity_date, title, description, category, hours, provider, evidence_url } = req.body;
 
@@ -169,7 +256,7 @@ router.post('/learning-dev/activity', requireInitials, async (req, res) => {
     // Verify plan ownership or admin
     const plan = await withRequest(getConnectionString(), async (request) => {
       const r = await request.input('planId', sql.Int, plan_id).query(
-        'SELECT id, initials FROM learning_dev_plans WHERE id = @planId'
+        'SELECT id, initials, full_name FROM learning_dev_plans WHERE id = @planId'
       );
       return r.recordset[0];
     });
@@ -178,6 +265,14 @@ router.post('/learning-dev/activity', requireInitials, async (req, res) => {
     if (plan.initials !== req.userInitials && !req.isAdmin) {
       return res.status(403).json({ ok: false, error: 'You can only add activities to your own plan' });
     }
+
+    submissionId = await recordSubmission({
+      formKey: 'learning-dev-activity',
+      submittedBy: req.userInitials,
+      lane: 'Log',
+      payload: req.body,
+      summary: `L&D activity — ${title}`.slice(0, 400),
+    });
 
     const record = await withRequest(getConnectionString(), async (request) => {
       const result = await request
@@ -201,6 +296,38 @@ router.post('/learning-dev/activity', requireInitials, async (req, res) => {
       return result.recordset[0];
     });
 
+    await recordStep(submissionId, {
+      name: 'learning_dev_activities.insert',
+      status: 'success',
+      output: { id: record.id, plan_id },
+    });
+    await markComplete(submissionId, { lastEvent: 'L&D activity created' });
+
+    await createRegisterTodoCard({
+      kind: 'ld-review',
+      ownerInitials: TODO_APPROVER_INITIALS,
+      matterRef: buildLdTodoRef(record.id),
+      docType: 'Learning & Development',
+      stage: 'review',
+      payload: {
+        activityId: record.id,
+        planId: plan_id,
+        planInitials: plan.initials,
+        fullName: plan.full_name || plan.initials,
+        activityDate: record.activity_date,
+        title: record.title,
+        description: record.description,
+        category: record.category,
+        hours: Number(record.hours || 0),
+        provider: record.provider,
+        evidenceUrl: record.evidence_url,
+        submittedBy: req.userInitials,
+        createdAt: record.created_at,
+      },
+      summary: `Review L&D · ${plan.full_name || plan.initials} · ${record.title}`.slice(0, 400),
+      lastEvent: 'Awaiting Alex review',
+    });
+
     trackEvent('Registers.LearningDev.ActivityCreated', {
       activityId: String(record.id),
       planId: String(plan_id),
@@ -209,9 +336,58 @@ router.post('/learning-dev/activity', requireInitials, async (req, res) => {
 
     res.status(201).json({ ok: true, activity: record });
   } catch (err) {
+    if (submissionId) {
+      await markFailed(submissionId, { lastEvent: 'learning_dev_activities.insert:failed', error: err });
+    }
     trackException(err, { operation: 'Registers.LearningDev.CreateActivity', initiatedBy: req.userInitials });
     console.error('[registers] learning-dev create activity error:', err.message);
     res.status(500).json({ ok: false, error: 'Failed to create activity' });
+  }
+});
+
+router.put('/learning-dev/:id', requireInitials, async (req, res) => {
+  try {
+    const planId = parseInt(req.params.id, 10);
+    if (!Number.isFinite(planId)) return res.status(400).json({ ok: false, error: 'Invalid plan ID' });
+
+    const existing = await withRequest(getConnectionString(), async (request) => {
+      const r = await request.input('id', sql.Int, planId).query(
+        'SELECT id, initials FROM learning_dev_plans WHERE id = @id'
+      );
+      return r.recordset[0];
+    });
+
+    if (!existing) return res.status(404).json({ ok: false, error: 'Plan not found' });
+    if (existing.initials !== req.userInitials && !req.isAdmin) {
+      return res.status(403).json({ ok: false, error: 'Not authorised' });
+    }
+
+    const { target_hours, notes } = req.body;
+
+    const updated = await withRequest(getConnectionString(), async (request) => {
+      const result = await request
+        .input('id', sql.Int, planId)
+        .input('target_hours', sql.Decimal(6, 2), target_hours || 16)
+        .input('notes', sql.NVarChar, notes || null)
+        .query(`
+          UPDATE learning_dev_plans
+          SET target_hours = @target_hours, notes = @notes, updated_at = GETUTCDATE()
+          OUTPUT INSERTED.*
+          WHERE id = @id
+        `);
+      return result.recordset[0];
+    });
+
+    trackEvent('Registers.LearningDev.PlanUpdated', {
+      planId: String(planId),
+      updatedBy: req.userInitials,
+    });
+
+    res.json({ ok: true, plan: updated });
+  } catch (err) {
+    trackException(err, { operation: 'Registers.LearningDev.UpdatePlan', initiatedBy: req.userInitials });
+    console.error('[registers] learning-dev update plan error:', err.message);
+    res.status(500).json({ ok: false, error: 'Failed to update plan' });
   }
 });
 
@@ -223,7 +399,10 @@ router.put('/learning-dev/activity/:id', requireInitials, async (req, res) => {
     // Verify ownership
     const existing = await withRequest(getConnectionString(), async (request) => {
       const r = await request.input('id', sql.Int, activityId).query(
-        'SELECT a.id, a.initials FROM learning_dev_activities a WHERE a.id = @id'
+        `SELECT a.id, a.initials, a.activity_date, a.title, a.description, a.category,
+                a.hours, a.provider, a.evidence_url, a.status
+         FROM learning_dev_activities a
+         WHERE a.id = @id`
       );
       return r.recordset[0];
     });
@@ -238,14 +417,14 @@ router.put('/learning-dev/activity/:id', requireInitials, async (req, res) => {
     const updated = await withRequest(getConnectionString(), async (request) => {
       const result = await request
         .input('id', sql.Int, activityId)
-        .input('activity_date', sql.Date, activity_date)
-        .input('title', sql.NVarChar, title)
-        .input('description', sql.NVarChar, description || null)
-        .input('category', sql.NVarChar, category || null)
-        .input('hours', sql.Decimal(6, 2), hours || 0)
-        .input('provider', sql.NVarChar, provider || null)
-        .input('evidence_url', sql.NVarChar, evidence_url || null)
-        .input('status', sql.NVarChar, status || 'logged')
+        .input('activity_date', sql.Date, activity_date ?? existing.activity_date)
+        .input('title', sql.NVarChar, title ?? existing.title)
+        .input('description', sql.NVarChar, description ?? existing.description ?? null)
+        .input('category', sql.NVarChar, category ?? existing.category ?? null)
+        .input('hours', sql.Decimal(6, 2), hours ?? existing.hours ?? 0)
+        .input('provider', sql.NVarChar, provider ?? existing.provider ?? null)
+        .input('evidence_url', sql.NVarChar, evidence_url ?? existing.evidence_url ?? null)
+        .input('status', sql.NVarChar, status ?? existing.status ?? 'logged')
         .query(`
           UPDATE learning_dev_activities
           SET activity_date = @activity_date, title = @title, description = @description,
@@ -256,6 +435,15 @@ router.put('/learning-dev/activity/:id', requireInitials, async (req, res) => {
         `);
       return result.recordset[0];
     });
+
+    if (String(updated.status || '').toLowerCase() === 'verified') {
+      await reconcileRegisterTodoCard({
+        kind: 'ld-review',
+        matterRef: buildLdTodoRef(activityId),
+        completedVia: 'approve',
+        lastEvent: 'Verified by Alex',
+      });
+    }
 
     res.json({ ok: true, activity: updated });
   } catch (err) {
@@ -339,12 +527,21 @@ router.get('/undertakings', requireInitials, async (req, res) => {
 });
 
 router.post('/undertakings', requireInitials, async (req, res) => {
+  let submissionId = null;
   try {
     const { matter_ref, given_to, given_date, due_date, description, area_of_work } = req.body;
 
     if (!given_to || !given_date || !description) {
       return res.status(400).json({ ok: false, error: 'given_to, given_date, and description are required' });
     }
+
+    submissionId = await recordSubmission({
+      formKey: 'undertaking',
+      submittedBy: req.userInitials,
+      lane: 'Log',
+      payload: req.body,
+      summary: `Undertaking to ${given_to}: ${String(description).slice(0, 200)}`.slice(0, 400),
+    });
 
     const record = await withRequest(getConnectionString(), async (request) => {
       const result = await request
@@ -366,6 +563,35 @@ router.post('/undertakings', requireInitials, async (req, res) => {
       return result.recordset[0];
     });
 
+    await recordStep(submissionId, {
+      name: 'undertakings.insert',
+      status: 'success',
+      output: { id: record.id },
+    });
+    await markComplete(submissionId, { lastEvent: 'undertaking recorded' });
+
+    await createRegisterTodoCard({
+      kind: 'undertaking-request',
+      ownerInitials: TODO_APPROVER_INITIALS,
+      matterRef: buildUndertakingTodoRef(record.id),
+      docType: 'Undertaking',
+      stage: 'pending',
+      payload: {
+        undertakingId: record.id,
+        matterReference: record.matter_ref,
+        givenBy: record.given_by,
+        givenTo: record.given_to,
+        givenDate: record.given_date,
+        dueDate: record.due_date,
+        description: record.description,
+        areaOfWork: record.area_of_work,
+        submittedBy: req.userInitials,
+        createdAt: record.created_at,
+      },
+      summary: `Undertaking oversight · ${record.given_by} → ${record.given_to}`.slice(0, 400),
+      lastEvent: 'Awaiting Alex oversight',
+    });
+
     trackEvent('Registers.Undertakings.Created', {
       undertakingId: String(record.id),
       createdBy: req.userInitials,
@@ -373,6 +599,9 @@ router.post('/undertakings', requireInitials, async (req, res) => {
 
     res.status(201).json({ ok: true, undertaking: record });
   } catch (err) {
+    if (submissionId) {
+      await markFailed(submissionId, { lastEvent: 'undertakings.insert:failed', error: err });
+    }
     trackException(err, { operation: 'Registers.Undertakings.Create', initiatedBy: req.userInitials });
     console.error('[registers] undertakings create error:', err.message);
     res.status(500).json({ ok: false, error: 'Failed to create undertaking' });
@@ -426,6 +655,15 @@ router.put('/undertakings/:id', requireInitials, async (req, res) => {
       updatedBy: req.userInitials,
     });
 
+    if (String(updated.status || '').toLowerCase() === 'discharged') {
+      await reconcileRegisterTodoCard({
+        kind: 'undertaking-request',
+        matterRef: buildUndertakingTodoRef(id),
+        completedVia: 'approve',
+        lastEvent: 'Undertaking discharged',
+      });
+    }
+
     res.json({ ok: true, undertaking: updated });
   } catch (err) {
     trackException(err, { operation: 'Registers.Undertakings.Update', initiatedBy: req.userInitials });
@@ -474,6 +712,7 @@ router.get('/complaints', requireInitials, async (req, res) => {
 });
 
 router.post('/complaints', requireInitials, async (req, res) => {
+  let submissionId = null;
   try {
     if (!req.isAdmin) {
       return res.status(403).json({ ok: false, error: 'Only administrators can create complaints' });
@@ -484,6 +723,14 @@ router.post('/complaints', requireInitials, async (req, res) => {
     if (!complainant || !respondent || !received_date || !description) {
       return res.status(400).json({ ok: false, error: 'complainant, respondent, received_date, and description are required' });
     }
+
+    submissionId = await recordSubmission({
+      formKey: 'complaint',
+      submittedBy: req.userInitials,
+      lane: 'Log',
+      payload: req.body,
+      summary: `Complaint from ${complainant} re ${respondent}`.slice(0, 400),
+    });
 
     const record = await withRequest(getConnectionString(), async (request) => {
       const result = await request
@@ -505,6 +752,35 @@ router.post('/complaints', requireInitials, async (req, res) => {
       return result.recordset[0];
     });
 
+    await recordStep(submissionId, {
+      name: 'complaints.insert',
+      status: 'success',
+      output: { id: record.id },
+    });
+    await markComplete(submissionId, { lastEvent: 'complaint recorded' });
+
+    await createRegisterTodoCard({
+      kind: 'complaint-followup',
+      ownerInitials: TODO_APPROVER_INITIALS,
+      matterRef: buildComplaintTodoRef(record.id),
+      docType: 'Complaint',
+      stage: 'review',
+      payload: {
+        complaintId: record.id,
+        matterReference: record.matter_ref,
+        complainant: record.complainant,
+        respondent: record.respondent,
+        receivedDate: record.received_date,
+        category: record.category,
+        areaOfWork: record.area_of_work,
+        slaDeadline: buildComplaintSlaDeadline(record.received_date),
+        submittedBy: req.userInitials,
+        createdAt: record.created_at,
+      },
+      summary: `Complaint follow-up · ${record.complainant}`.slice(0, 400),
+      lastEvent: 'Awaiting Alex review',
+    });
+
     trackEvent('Registers.Complaints.Created', {
       complaintId: String(record.id),
       createdBy: req.userInitials,
@@ -512,6 +788,9 @@ router.post('/complaints', requireInitials, async (req, res) => {
 
     res.status(201).json({ ok: true, complaint: record });
   } catch (err) {
+    if (submissionId) {
+      await markFailed(submissionId, { lastEvent: 'complaints.insert:failed', error: err });
+    }
     trackException(err, { operation: 'Registers.Complaints.Create', initiatedBy: req.userInitials });
     console.error('[registers] complaints create error:', err.message);
     res.status(500).json({ ok: false, error: 'Failed to create complaint' });
@@ -568,6 +847,15 @@ router.put('/complaints/:id', requireInitials, async (req, res) => {
       status: updated.status,
       updatedBy: req.userInitials,
     });
+
+    if (['resolved', 'closed'].includes(String(updated.status || '').toLowerCase())) {
+      await reconcileRegisterTodoCard({
+        kind: 'complaint-followup',
+        matterRef: buildComplaintTodoRef(id),
+        completedVia: 'approve',
+        lastEvent: `Complaint ${String(updated.status || '').toLowerCase()}`,
+      });
+    }
 
     res.json({ ok: true, complaint: updated });
   } catch (err) {

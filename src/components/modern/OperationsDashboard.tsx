@@ -1,21 +1,37 @@
 ﻿import React from 'react';
 import { createPortal } from 'react-dom';
-import { FiRefreshCw, FiInbox, FiCheckCircle, FiChevronDown, FiChevronUp, FiFolder, FiFilter, FiTrendingUp, FiMail, FiPhoneCall, FiClock, FiFileText, FiUser } from 'react-icons/fi';
+import { FiRefreshCw, FiInbox, FiCheckCircle, FiChevronDown, FiChevronUp, FiChevronRight, FiFolder, FiFilter, FiTrendingUp, FiMail, FiPhoneCall, FiClock, FiFileText, FiUser } from 'react-icons/fi';
 import { renderAreaOfWorkGlyph } from '../../components/filter/areaGlyphs';
 import { TbCurrencyPound } from 'react-icons/tb';
-import CallsAndNotes from './CallsAndNotes';
 import { colours, withAlpha } from '../../app/styles/colours';
 import helixMark from '../../assets/markwhite.svg';
 import clioIcon from '../../assets/clio.svg';
 import netdocumentsIcon from '../../assets/netdocuments.svg';
+import ErrorBoundary from '../ErrorBoundary';
+import { CclStatusContext, type CclStatusContextValue } from '../../contexts/CclStatusContext';
+import { useCclPipelineToasts } from '../../hooks/useCclPipelineToasts';
 import { useToast } from '../feedback/ToastProvider';
 import { useClaimEnquiry } from '../../utils/claimEnquiry';
+import { trackClientEvent } from '../../utils/telemetry';
 import { DEFAULT_CCL_TEMPLATE, generateTemplateContent, type GenerationOptions } from '../../shared/ccl';
-import { isCclUser } from '../../app/admin';
+import CclOverrideRerunModal from './ccl/CclOverrideRerunModal';
+import { isCclUser, isDevGroupOrHigher } from '../../app/admin';
 import HomePipelineStrip, { type HomePipelineStripItem } from '../../components/HomePipelineStrip';
 import { buildPitchScenarioStripItems } from '../../components/pitchScenarioPresentation';
 import { DocumentRenderer } from '../../tabs/instructions/ccl/DocumentRenderer';
-import { approveCcl, fetchCclCompile, fetchPressureTest, runCclService, uploadToNetDocuments, type AiFillRequest, type AiFillResponse, type CclCompileResponse, type PressureTestResponse, type PressureTestFieldScore } from '../../tabs/matters/ccl/cclAiService';
+import { approveCcl, buildCclApiUrl, fetchCclCompile, fetchPressureTest, runCclService, uploadToNetDocuments, type AiFillRequest, type AiFillResponse, type CclCompileResponse, type PressureTestResponse, type PressureTestFieldScore } from '../../tabs/matters/ccl/cclAiService';
+import CclReviewDecisionPanel from './CclReviewDecisionPanel';
+import CclReviewDevTools from './CclReviewDevTools';
+import CclReviewFieldHeader from './CclReviewFieldHeader';
+import CclReviewQueueStrip from './CclReviewQueueStrip';
+import BillingRailSkeleton from './BillingRailSkeleton';
+import ConversionProspectBasket, { type ConversionProspectChipItem } from './ConversionProspectBasket';
+import ConversionStreamPreview from './ConversionStreamPreview';
+import ConversionStreamLedger from './ConversionStreamLedger';
+import { buildConversionPocketChartSVG, buildCombinedConversionChartSVG } from './conversionPocketChart';
+import { resolveBreakpoint, type ConversionBreakpoint } from './hooks/useContainerWidth';
+
+import CallsAndNotes from './CallsAndNotes';
 
 /* ── Types ── */
 
@@ -35,12 +51,46 @@ type FollowUpChannel = 'email' | 'phone';
 type FollowUpDueState = 'pending' | 'due' | 'late' | null;
 type EnquiryLifecycleStepKey = 'pitch' | 'follow-up' | 'instruction';
 type EnquiryFollowUpModal = { record: DetailRecord };
+type DashboardWidthBand = 'xs' | 'sm' | 'md' | 'lg';
+type ConversionLayoutState = { breakpoint: ConversionBreakpoint; chartHasOwnLine: boolean };
 
 const HOME_PITCH_SCENARIO_STRIP_ITEMS = buildPitchScenarioStripItems();
 const HOME_MATTER_STEP_HEADER_LABELS = ['Compile', 'Generate', 'Test', 'Review', 'Upload'] as const;
 const HOME_ENQUIRY_STEP_HEADER_LABELS = ['Pitch', 'Follow Up', 'Instruction'] as const;
 const HOME_ENQUIRY_NOTES_SLOT_WIDTH = 22;
 const CCL_LOCAL_LAUNCH_HOLD_KEY = ' ';
+
+function resolveDashboardWidthBand(width: number): DashboardWidthBand {
+  if (width < 540) return 'xs';
+  if (width < 700) return 'sm';
+  if (width < 920) return 'md';
+  return 'lg';
+}
+
+function resolveConversionLayout(width: number): ConversionLayoutState {
+  const breakpoint = resolveBreakpoint(width);
+  // 2026-04-21 fix: use a SINGLE monotonic threshold for wrap-to-own-line.
+  // Previously the threshold was `chartWidth + 174` where chartWidth itself
+  // flipped 260↔340 at the 'wide' breakpoint (480) — which produced a
+  // 434–513px "bounce zone" where the chart oscillated wrapped → inline →
+  // wrapped as you shrank. Once it wraps, it stays wrapped and the inline
+  // `.conv-spark-fluid svg { width: 100% }` rule scales the SVG cleanly.
+  //
+  // Threshold math (why 560): card has 14px padding each side, inner flex
+  // row gap is 14, numbers column basis 160, chart wide-mode 340. Minimum
+  // card width to fit inline: 14+14 + 160 + 14 + 340 = 542. Anything below
+  // that lets the browser auto-wrap but our wrapper kept the inline 340px
+  // width, leaving dead space on the right. 560 gives a small cushion so
+  // the wrapped branch fires BEFORE the browser wrap point — the chart
+  // then stretches to full row width via `width: 100%` + the fluid SVG
+  // CSS rule, finally touching the card's right edge on narrow sizes.
+  const chartHasOwnLine = width > 0 && width < 560;
+  return {
+    breakpoint,
+    chartHasOwnLine,
+  };
+}
+
 const CCL_ORDERED_REVIEW_FIELD_KEYS = [
   'insert_clients_name',
   'insert_heading_eg_matter_description',
@@ -130,6 +180,8 @@ interface TeamMemberRecord {
   status?: string;
 }
 
+const DEFAULT_BILLING_SKELETON_COUNT = 4;
+
 interface CclContactProfile {
   fullName: string;
   email: string;
@@ -197,6 +249,28 @@ export interface ConversionComparisonAowItem {
   key: string;
   count: number;
 }
+/**
+ * Phase C — prospect chip payload for the Conversion panel. Names are
+ * redacted to "J. Smith" before hitting the UI. Capped ~20 per list.
+ */
+export interface ConversionComparisonProspect {
+  id: string;
+  displayName: string;
+  feeEarnerInitials?: string;
+  aow: string;
+  matterOpened?: boolean;
+  /** Optional unredacted name shown inside the D3 stream preview modal only. */
+  fullName?: string;
+  /** Optional ISO timestamp for the D3 stream preview modal. */
+  occurredAt?: string;
+  /** 2026-04-20: matter display number (e.g. "HLX-00898-37693") — used as the
+   *  trail label for matter bezels in place of a redacted surname, which
+   *  doesn't work for company clients. */
+  displayNumber?: string;
+  /** 2026-04-20: Clio numeric matter id used to build the Clio deep link that
+   *  reveals on hover. */
+  clioMatterId?: string;
+}
 export interface ConversionComparisonItem {
   key: string;
   title: string;
@@ -212,6 +286,10 @@ export interface ConversionComparisonItem {
   chartMode: 'none' | 'hourly' | 'working-days' | 'month-weeks' | 'quarter-weeks';
   buckets: ConversionComparisonBucket[];
   currentAowMix?: ConversionComparisonAowItem[];
+  /** Phase C — most-recent-first, capped at ~20. */
+  currentEnquiryProspects?: ConversionComparisonProspect[];
+  /** Phase C — matters opened in the period, most-recent-first, capped. */
+  currentMatterProspects?: ConversionComparisonProspect[];
 }
 export interface ConversionComparisonPayload {
   items: ConversionComparisonItem[];
@@ -364,12 +442,34 @@ function getCanonicalCclLabel(status?: string | null, explicitLabel?: string | n
   }
 }
 
+function isCompileOnlyCclStatus(ccl?: CclStatus | null): boolean {
+  if (!ccl) return false;
+  const stage = getCanonicalCclStage(ccl.stage || ccl.status);
+  if (stage === 'compiled') return true;
+  if (stage === 'generated' || stage === 'pressure-tested' || stage === 'reviewed' || stage === 'sent') {
+    return false;
+  }
+  return !Number(ccl.version || 0) && Boolean(ccl.compiledAt || ccl.compileSummary);
+}
+
 const CCL_REVIEW_SESSION_STORAGE_KEY = 'opsDashboard.cclReviewSession.v1';
 
 interface PersistedCclReviewSessionEntry {
   reviewedFields?: string[];
   selectedField?: string;
   summaryDismissed?: boolean;
+}
+
+interface CclDraftCacheEntry {
+  fields: Record<string, string> | null;
+  docUrl?: string;
+  fetchError?: string;
+  loadInfo?: {
+    version?: number | null;
+    contentId?: number | null;
+    status?: string | null;
+    historyCount?: number | null;
+  };
 }
 
 function loadPersistedCclReviewSession(): Record<string, PersistedCclReviewSessionEntry> {
@@ -425,6 +525,9 @@ interface MatterRecord {
   matterId: string;
   displayNumber: string;
   clientName: string;
+  // Matter description used as a fallback label when ClientName is blank
+  // (common for older matters where Clio's ClientName wasn't populated).
+  description?: string;
   practiceArea: string;
   openDate: string;
   responsibleSolicitor: string;
@@ -636,6 +739,26 @@ export interface OperationsDashboardProps {
   demoModeEnabled?: boolean;
   isActive?: boolean;
   reviewRequest?: { requestedAt: number; matterId?: string; openInspector?: boolean } | null;
+  /**
+   * When true, the caller (Home) is rendering its own ToDo surface in place of the
+   * dashboard's pipeline + recent-matters sub-blocks. Keep the enquiries/matters
+   * metric tiles, conversion chart, and unclaimed tabs visible regardless. The
+   * sub-block gating inside this component is wired progressively — see
+   * `docs/notes/HOME_TODO_SINGLE_PICKUP_SURFACE.md` Phase A follow-up.
+   */
+  hidePipelineAndMatters?: boolean;
+  /**
+   * Optional node rendered in the right column of the pipeline row when
+   * `hidePipelineAndMatters` is true. The grid collapses from `1fr 2fr` to
+   * `1fr 1fr`, giving the ToDo surface 50/50 width with the Conversion panel.
+   * Used by Home to place `ImmediateActionsBar` as the ToDo pickup surface.
+   */
+  todoSlot?: React.ReactNode;
+  /**
+   * Total outstanding To Do count, rendered inline next to the "To Do"
+   * section header label as a small badge. Hidden when 0/undefined.
+   */
+  todoCount?: number;
 }
 
 function getAttentionSummary(reason?: string | null): string {
@@ -659,6 +782,14 @@ const fmt = {
   hours: (v: number): string => `${v.toFixed(1)}h`,
   int: (v: number): string => String(Math.round(v)),
   pct: (v: number): string => `${v.toFixed(1)}%`,
+  /** Exact (hover-reveal) formatters — full precision, no abbreviation. */
+  currencyExact: (v: number): string =>
+    `£${v.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+  hoursExact: (v: number): string => {
+    const whole = Math.floor(v);
+    const mins = Math.round((v - whole) * 60);
+    return mins === 0 ? `${whole}h` : `${whole}h ${mins}m`;
+  },
 };
 
 const isLocalDev = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
@@ -705,6 +836,26 @@ const worktypeToAow: Record<string, string> = {};
  ['Property', ['Landlord & Tenant \u2013 Commercial Dispute','Landlord & Tenant \u2013 Residential Dispute','Boundary and Nuisance Advice','Trust of Land (Tolata) Advice','Service Charge Recovery & Dispute Advice','Breach of Lease Advice','Terminal Dilapidations Advice','Investment Sale and Ownership \u2013 Advice','Trespass','Right of Way']],
  ['Employment', ['Employment Contract - Drafting','Employment Retainer Instruction','Settlement Agreement - Drafting','Settlement Agreement - Advising','Handbook - Drafting','Policy - Drafting','Redundancy - Advising','Sick Leave - Advising','Disciplinary - Advising','Restrictive Covenant Advice','Post Termination Dispute','Employment Tribunal Claim - Advising']],
 ] as [string, string[]][]).forEach(([area, types]: [string, string[]]) => { types.forEach((t: string) => { worktypeToAow[t.toLowerCase()] = area.toLowerCase(); }); });
+
+/**
+ * 2026-04-20: canonical resolver — given any AoW / practice-area / worktype
+ * string, return one of the five canonical category slugs. Used by the
+ * Conversion trail bezels so the icon always matches the colour (many matter
+ * rows carry a specific worktype like "Contract Dispute" rather than a bare
+ * "Construction" — the icon mapping inside the basket couldn't match those,
+ * which is why they were rendering as the fallback info circle).
+ */
+export const resolveAowCategory = (key: string): 'commercial' | 'construction' | 'property' | 'employment' | 'other' => {
+  const k = String(key || '').toLowerCase().trim();
+  if (!k) return 'other';
+  const mapped = worktypeToAow[k];
+  const resolved = mapped || k;
+  if (resolved.includes('commercial')) return 'commercial';
+  if (resolved.includes('construction')) return 'construction';
+  if (resolved.includes('property') || resolved.includes('landlord') || resolved.includes('tenant') || resolved.includes('lease')) return 'property';
+  if (resolved.includes('employment') || resolved.includes('redundanc') || resolved.includes('tribunal')) return 'employment';
+  return 'other';
+};
 
 const aowColor = (key: string): string => {
   const k = key.toLowerCase();
@@ -994,8 +1145,12 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
   demoModeEnabled = false,
   isActive = true,
   reviewRequest = null,
+  hidePipelineAndMatters = false,
+  todoSlot = null,
+  todoCount,
 }) => {
   const { showToast, updateToast, hideToast } = useToast();
+  const cclPipelineToasts = useCclPipelineToasts();
   /* Build poc-value → initials lookup from teamData (handles emails, names, and short initials) */
   const feInitials = React.useMemo(() => {
     const map: Record<string, string> = {};
@@ -1134,19 +1289,39 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
 
   // Responsive: auto-stack when container is narrow
   const dashRef = React.useRef<HTMLDivElement | null>(null);
-    const conversionRailRef = React.useRef<HTMLDivElement | null>(null);
-  const [containerWidth, setContainerWidth] = React.useState(0);
+  const conversionRailRef = React.useRef<HTMLDivElement | null>(null);
+  const conversionCardRef = React.useRef<HTMLDivElement | null>(null);
+  const [dashboardWidthBand, setDashboardWidthBand] = React.useState<DashboardWidthBand>('md');
+  // 2026-04-21: store the raw observed Conversion-card width and derive the
+  // layout on every render. Previously we cached the resolved layout in
+  // state, which meant any tweak to `resolveConversionLayout` during an
+  // HMR swap wouldn't take effect until the user next resized the pane.
+  // By deriving per-render the new thresholds apply immediately on save.
+  const [conversionCardWidth, setConversionCardWidth] = React.useState<number>(0);
+  const conversionLayout = React.useMemo(
+    () => resolveConversionLayout(conversionCardWidth),
+    [conversionCardWidth],
+  );
+  const conversionBreakpoint = conversionLayout.breakpoint;
   const [liveNowMs, setLiveNowMs] = React.useState(() => Date.now());
-    const [conversionRailHeight, setConversionRailHeight] = React.useState<number | null>(null);
+  const [conversionRailHeight, setConversionRailHeight] = React.useState<number | null>(null);
   const measureDashboardLayout = React.useCallback(() => {
     const dashEl = dashRef.current;
     if (!dashEl) return;
+
     const nextWidth = dashEl.getBoundingClientRect().width;
-    if (nextWidth) {
-      setContainerWidth((prev) => (Math.abs(prev - nextWidth) < 1 ? prev : nextWidth));
+    const nextBand = resolveDashboardWidthBand(nextWidth);
+    setDashboardWidthBand((prev) => (prev === nextBand ? prev : nextBand));
+
+    const conversionCardEl = conversionCardRef.current;
+    if (conversionCardEl) {
+      // Round to whole pixels so sub-pixel jitter from the ResizeObserver
+      // doesn't trigger a cascade of rerenders; thresholds are in px anyway.
+      const nextCardWidth = Math.round(conversionCardEl.getBoundingClientRect().width);
+      setConversionCardWidth((prev) => (prev === nextCardWidth ? prev : nextCardWidth));
     }
 
-    const nextIsNarrow = nextWidth > 0 && nextWidth < 700;
+    const nextIsNarrow = nextBand === 'xs' || nextBand === 'sm';
     if (nextIsNarrow) {
       setConversionRailHeight((prev) => (prev === null ? prev : null));
       return;
@@ -1164,23 +1339,29 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
   React.useLayoutEffect(() => {
     measureDashboardLayout();
   }, [measureDashboardLayout]);
-  const isNarrow = containerWidth > 0 && containerWidth < 700;
+  const isNarrow = dashboardWidthBand === 'xs' || dashboardWidthBand === 'sm';
   const canSeeCcl = isCclUser(userInitials);
-  const matterStepsInline = canSeeCcl || containerWidth >= 920;
-  const callsAndNotesNarrow = containerWidth > 0 && containerWidth < 540;
+  // Dev panel inside the CCL review modal: LZ + AC see it everywhere
+  // (staging / prod), plus anyone running on localhost. Prevents the
+  // previous behaviour where the hostname-only gate hid the panel from
+  // the dev group in hosted envs and showed it to non-devs locally.
+  const canSeeCclDevPanel = isLocalDev
+    || isDevGroupOrHigher({ Initials: userInitials, Email: userEmail } as any);
+  const matterStepsInline = canSeeCcl || dashboardWidthBand === 'lg';
+  const callsAndNotesNarrow = dashboardWidthBand === 'xs';
   React.useEffect(() => {
     const dashEl = dashRef.current;
     if (!dashEl) return;
 
-    let debounceId: number | null = null;
+    let animationFrameId: number | null = null;
     const scheduleMeasure = () => {
-      if (debounceId !== null) {
-        window.clearTimeout(debounceId);
+      if (animationFrameId !== null) {
+        return;
       }
-      debounceId = window.setTimeout(() => {
-        debounceId = null;
+      animationFrameId = window.requestAnimationFrame(() => {
+        animationFrameId = null;
         measureDashboardLayout();
-      }, 40);
+      });
     };
 
     const observer = new ResizeObserver(() => {
@@ -1191,6 +1372,9 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
     if (conversionRailRef.current) {
       observer.observe(conversionRailRef.current);
     }
+    if (conversionCardRef.current) {
+      observer.observe(conversionCardRef.current);
+    }
 
     window.addEventListener('resize', scheduleMeasure);
     if (isActive) {
@@ -1200,8 +1384,8 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
     return () => {
       observer.disconnect();
       window.removeEventListener('resize', scheduleMeasure);
-      if (debounceId !== null) {
-        window.clearTimeout(debounceId);
+      if (animationFrameId !== null) {
+        window.cancelAnimationFrame(animationFrameId);
       }
     };
   }, [isActive, measureDashboardLayout]);
@@ -1249,21 +1433,57 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
   const [pitchLookupHydrated, setPitchLookupHydrated] = React.useState(false);
   const [selectedConversionKey, setSelectedConversionKey] = React.useState<string>('week-vs-last');
   const [hoveredConversionBucketKey, setHoveredConversionBucketKey] = React.useState<string | null>(null);
+  // D3: stream preview modal — opened from the hover chevron on each banded
+  // section. Keyed by section so the same modal can render either stream.
+  const [conversionStreamPreview, setConversionStreamPreview] = React.useState<'enquiries' | 'matters' | null>(null);
+  // 2026-04-20: inline ledger expansion — clicking the overflow chevron (or
+  // the header chevron) expands a section's ledger beneath the trail. Card
+  // height grows; paired ToDo follows via `conversionRailHeight` measurement.
+  const [conversionInlineLedger, setConversionInlineLedger] = React.useState<'enquiries' | 'matters' | null>(null);
+  const toggleConversionInlineLedger = React.useCallback((key: 'enquiries' | 'matters') => {
+    setConversionInlineLedger((prev) => (prev === key ? null : key));
+  }, []);
   const [insightPeriod, setInsightPeriod] = React.useState<InsightPeriod>(null);
   const [insightRecords, setInsightRecords] = React.useState<DetailRecord[]>([]);
   const [insightLoading, setInsightLoading] = React.useState(false);
   const [billingInsightIdx, setBillingInsightIdx] = React.useState<number | null>(null);
   const [expandedDays, setExpandedDays] = React.useState<Set<string>>(new Set());
   React.useEffect(() => { setExpandedDays(new Set()); }, [billingInsightIdx]);
+  // Demo-only scrub override for the Today tile so we can preview every
+  // billing-frame stage without touching fixtures. Set via mouse wheel on
+  // the Today KPI tile (only when demoModeActive). Null = use real value.
+  const [demoTodayOverride, setDemoTodayOverride] = React.useState<number | null>(null);
+  // 2026-04-21: one-shot completion animation. When `billingStage`
+  // transitions to `done` (from any non-done state), this state flips to
+  // a fresh nonce so the CSS keyframe re-runs. Cleared after the animation
+  // ends so it can fire again on the next done-transition (e.g. demo scrub
+  // up→down→up). The stage itself is computed downstream alongside the
+  // billing rail JSX, so we expose a setter that JSX calls inside an effect.
+  const [billingCompletePulse, setBillingCompletePulse] = React.useState<number>(0);
+  const billingStageRef = React.useRef<string>('off');
   const [cclMap, setCclMap] = React.useState<Record<string, CclStatus>>({});
   const [cclStatusResolvingByMatter, setCclStatusResolvingByMatter] = React.useState<Record<string, boolean>>({});
   const [cclStatusResolvedByMatter, setCclStatusResolvedByMatter] = React.useState<Record<string, boolean>>({});
   const [expandedCcl, setExpandedCcl] = React.useState<string | null>(null);
-  const [cclDraftCache, setCclDraftCache] = React.useState<Record<string, { fields: Record<string, string> | null; docUrl?: string }>>({});
+  const [cclDraftCache, setCclDraftCache] = React.useState<Record<string, CclDraftCacheEntry>>({});
   const [cclDraftLoading, setCclDraftLoading] = React.useState<string | null>(null);
   const [cclDocPreview, setCclDocPreview] = React.useState<{ matterId: string; embedUrl: string } | null>(null);
   const [cclFieldsModal, setCclFieldsModal] = React.useState<string | null>(null);
   const [cclLetterModal, setCclLetterModal] = React.useState<string | null>(null);
+  // Ref-based keyboard nav for the CCL review modal. The render block deep-
+  // sets this ref to a handler that closes over the current selectedFieldKey /
+  // focus helpers; the top-level effect below simply delegates document
+  // keydowns to whatever is on the ref. This avoids hoisting a large amount
+  // of render-scope state to component-top level.
+  const cclReviewKeyHandlerRef = React.useRef<((event: KeyboardEvent) => void) | null>(null);
+  React.useEffect(() => {
+    const listener = (event: KeyboardEvent) => {
+      const handler = cclReviewKeyHandlerRef.current;
+      if (handler) handler(event);
+    };
+    document.addEventListener('keydown', listener);
+    return () => { document.removeEventListener('keydown', listener); };
+  }, []);
   const [cclPipelineDetailModal, setCclPipelineDetailModal] = React.useState<CclPipelineDetailModal | null>(null);
   const [enquiryFollowUpModal, setEnquiryFollowUpModal] = React.useState<EnquiryFollowUpModal | null>(null);
   const [enquiryFollowUpSavingChannel, setEnquiryFollowUpSavingChannel] = React.useState<FollowUpChannel | null>(null);
@@ -1314,6 +1534,8 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
   const cclPressureTestTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const [cclLaunchHandoffMatter, setCclLaunchHandoffMatter] = React.useState<string | null>(null);
   const [cclLaunchDevHold, setCclLaunchDevHold] = React.useState(false);
+  const [cclOverrideConfirmMatter, setCclOverrideConfirmMatter] = React.useState<string | null>(null);
+  const [cclOverrideCardExpandedMatter, setCclOverrideCardExpandedMatter] = React.useState<string | null>(null);
   const cclLaunchHadWorkRef = React.useRef<Set<string>>(new Set());
   const cclLaunchCompletionToastShownRef = React.useRef<Set<string>>(new Set());
   const [cclReviewSummaryDismissedByMatter, setCclReviewSummaryDismissedByMatter] = React.useState<Record<string, boolean>>(() => (
@@ -1505,7 +1727,19 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
 
   const cclAiToastIdRef = React.useRef<string | null>(null);
   const cclTraceFetchingRef = React.useRef<Set<string>>(new Set());
+  const cclTraceAttemptedRef = React.useRef<Set<string>>(new Set());
   const cclLetterModalOpenedAtRef = React.useRef<number>(0);
+  const cclCompileOnlyLaunchRef = React.useRef<Set<string>>(new Set());
+  const cclExplicitGenerateLaunchRef = React.useRef<Set<string>>(new Set());
+  const cclMapRef = React.useRef(cclMap);
+  cclMapRef.current = cclMap;
+  const [cclStatusRefreshTick, setCclStatusRefreshTick] = React.useState(0);
+  const cclStatusContextValue = React.useMemo<CclStatusContextValue>(() => ({
+    byMatterId: cclMap,
+    refresh: () => setCclStatusRefreshTick((tick) => tick + 1),
+  }), [cclMap]);
+  // Expose tick so downstream fetchers can subscribe (read-only shape today; keep silent).
+  void cclStatusRefreshTick;
   const cclDraftCacheRef = React.useRef(cclDraftCache);
   cclDraftCacheRef.current = cclDraftCache;
   const [homeReviewRequest, setHomeReviewRequest] = React.useState<{ requestedAt: number; matterId?: string; openInspector?: boolean; autoRunAi?: boolean } | null>(null);
@@ -1549,10 +1783,16 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
     if (matterId) {
       cclLaunchHadWorkRef.current.delete(matterId);
       cclLaunchCompletionToastShownRef.current.delete(matterId);
+      cclCompileOnlyLaunchRef.current.delete(matterId);
+      cclExplicitGenerateLaunchRef.current.delete(matterId);
+      cclTraceAttemptedRef.current.delete(matterId);
       setCclLaunchHandoffMatter((prev) => (prev === matterId ? null : prev));
     } else {
       cclLaunchHadWorkRef.current.clear();
       cclLaunchCompletionToastShownRef.current.clear();
+      cclCompileOnlyLaunchRef.current.clear();
+      cclExplicitGenerateLaunchRef.current.clear();
+      cclTraceAttemptedRef.current.clear();
       setCclLaunchHandoffMatter(null);
     }
     setCclPipelineDetailModal(null);
@@ -1597,25 +1837,48 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
     setTimeout(() => { cclScrollSpyLockRef.current = false; }, 600);
   }, [clearCclTransientLaunchState]);
 
-  const openCclLetterModal = React.useCallback((matterId: string, options?: { forceIntro?: boolean }) => {
+  const openCclLetterModal = React.useCallback((matterId: string, options?: { forceIntro?: boolean; compileOnly?: boolean }) => {
+    if (cclLetterModal === matterId) {
+      return;
+    }
     cclLetterModalOpenedAtRef.current = Date.now();
     cclActiveLaunchMatterRef.current = matterId;
     clearCclTransientLaunchState();
     if (options?.forceIntro !== false) {
       resetCclReviewLaunchState(matterId);
     }
+    const launchStatus = cclMapRef.current[matterId];
+    const isCompileStage = options?.compileOnly ?? isCompileOnlyCclStatus(launchStatus);
+    if (isCompileStage) {
+      cclCompileOnlyLaunchRef.current.add(matterId);
+    } else {
+      cclCompileOnlyLaunchRef.current.delete(matterId);
+    }
     setCclLetterModal(matterId);
+
+    // Compile-stage matters have no draft yet — seed empty cache + resolve trace
+    // so the modal skips the draft fetch and goes straight to generation.
+    if (isCompileStage && !cclDraftCacheRef.current[matterId]?.fields) {
+      const entry: CclDraftCacheEntry = { fields: {} as Record<string, string> };
+      cclDraftCacheRef.current[matterId] = entry;
+      setCclDraftCache(prev => ({ ...prev, [matterId]: entry }));
+      setCclAiTraceResolvedByMatter(prev => prev[matterId] ? prev : { ...prev, [matterId]: true });
+      setCclAiTraceLoadingByMatter(prev => prev[matterId] ? { ...prev, [matterId]: false } : prev);
+      setCclDraftLoading(prev => prev === matterId ? null : prev);
+      console.log('[CCL modal] compile-stage — seeded empty draft, skipping fetch for', matterId);
+    }
 
     // Fetch draft immediately — not via an effect (avoids cancellation race)
     // Re-fetch when draft is missing/null so repeated launches don't dead-end on stale empty cache.
     const cachedDraft = cclDraftCacheRef.current[matterId];
-    const shouldFetchDraft = cachedDraft === undefined || !cachedDraft?.fields;
+    const needsDraftMetadata = !cachedDraft?.loadInfo && !Number(cclMapRef.current[matterId]?.version || 0);
+    const shouldFetchDraft = cachedDraft === undefined || !cachedDraft?.fields || needsDraftMetadata;
     if (shouldFetchDraft) {
       console.log('[CCL modal] fetching draft for', matterId);
       setCclDraftLoading(matterId);
       const controller = new AbortController();
-      const timeoutId = window.setTimeout(() => controller.abort(), 12000);
-      fetch(`/api/ccl/${encodeURIComponent(matterId)}`, { signal: controller.signal })
+      const timeoutId = window.setTimeout(() => controller.abort(), 20000);
+      fetch(buildCclApiUrl(`/api/ccl/${encodeURIComponent(matterId)}`), { signal: controller.signal, credentials: 'include' })
         .then(res => {
           if (!res.ok) throw new Error(`Draft fetch failed: ${res.status}`);
           return res.json();
@@ -1623,7 +1886,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
         .then(data => {
           console.log('[CCL modal] draft loaded', matterId, !!data?.json);
           const fields = data?.json && typeof data.json === 'object' ? data.json : {};
-          setCclDraftCache(prev => ({ ...prev, [matterId]: { fields, docUrl: data?.url || undefined } }));
+          setCclDraftCache(prev => ({ ...prev, [matterId]: { fields, docUrl: data?.url || undefined, loadInfo: data?.loadInfo || prev[matterId]?.loadInfo } }));
           // Hydrate persisted pressure-test result so the PT ceremony doesn't replay
           if (data?.pressureTest?.fieldScores) {
             setCclPressureTestByMatter(prev => ({ ...prev, [matterId]: data.pressureTest }));
@@ -1631,7 +1894,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
         })
         .catch(err => {
           console.warn('[CCL modal] draft fetch failed', matterId, err?.message);
-          setCclDraftCache(prev => ({ ...prev, [matterId]: { fields: {} } }));
+          setCclDraftCache(prev => ({ ...prev, [matterId]: { fields: null, fetchError: err?.message || 'Network error', loadInfo: prev[matterId]?.loadInfo } }));
         })
         .finally(() => {
           window.clearTimeout(timeoutId);
@@ -1640,11 +1903,21 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
     } else {
       console.log('[CCL modal] draft already cached for', matterId);
     }
-  }, [clearCclTransientLaunchState, resetCclReviewLaunchState]);
+  }, [cclLetterModal, clearCclTransientLaunchState, resetCclReviewLaunchState]);
 
   const closeCclLetterModal = React.useCallback(() => {
+    // Clear stuck-state flags so the modal never reopens in a stale loading state
+    setCclDraftLoading(prev => prev === cclLetterModal ? null : prev);
+    setCclAiFillingMatter(prev => prev === cclLetterModal ? null : prev);
+    setCclPressureTestRunning(prev => prev === cclLetterModal ? null : prev);
+    // Clear pressure test timer to prevent leaked intervals
+    if (cclPressureTestTimerRef.current) { clearInterval(cclPressureTestTimerRef.current); cclPressureTestTimerRef.current = null; }
+    setCclPressureTestError(null);
+    setCclPressureTestContext(null);
     cclActiveLaunchMatterRef.current = null;
     clearCclTransientLaunchState(cclLetterModal);
+    setCclOverrideConfirmMatter((prev) => (prev === cclLetterModal ? null : prev));
+    setCclOverrideCardExpandedMatter((prev) => (prev === cclLetterModal ? null : prev));
     setCclLetterModal(null);
   }, [cclLetterModal, clearCclTransientLaunchState]);
 
@@ -1747,24 +2020,35 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
       : options.hasDraft && options.hasAiContext && (options.pressureReady || options.pressureErrored)
         ? 'done'
         : 'pending';
+    // Canonical pipeline vocab: Compile → Generate → Test → Review → Upload
+    // (mirrors HOME_MATTER_STEP_HEADER_LABELS so one mental model across the app).
+    // Draft load folds into Compile — it's the same "getting matter context ready" phase.
+    const compileFoldedStatus: CclReviewLaunchStepStatus = compileStatus === 'done'
+      ? 'done'
+      : compileStatus === 'active'
+        ? 'active'
+        : draftStatus === 'active'
+          ? 'active'
+          : 'pending';
+    // Upload is always pending during launch — it happens after the human reviews and approves.
+    const uploadStatus: CclReviewLaunchStepStatus = 'pending';
     return [
       {
-        label: 'Draft',
-        detail: options.hasDraft ? 'Latest draft ready.' : 'Loading saved draft.',
-        status: draftStatus,
+        label: 'Compile',
+        detail: compileActive
+          ? 'Pulling matter context.'
+          : options.draftLoading || options.traceLoading
+            ? 'Loading saved draft and context.'
+            : 'Checking saved context.',
+        status: compileFoldedStatus,
       },
       {
-        label: 'Context',
-        detail: compileActive ? 'Pulling matter context.' : 'Checking saved context.',
-        status: compileStatus,
-      },
-      {
-        label: 'Fields',
+        label: 'Generate',
         detail: generateActive ? 'Writing review fields.' : 'Preparing field values.',
         status: generateStatus,
       },
       {
-        label: 'Check',
+        label: 'Test',
         detail: options.pressureErrored ? 'Checks skipped. Review can continue.' : options.pressureRunning ? 'Checking against source evidence.' : 'Final evidence check.',
         status: pressureStatus,
       },
@@ -1772,6 +2056,11 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
         label: 'Review',
         detail: options.handoffActive ? 'Opening the review workspace.' : 'Waiting to open review.',
         status: reviewStatus,
+      },
+      {
+        label: 'Upload',
+        detail: 'Uploads to NetDocuments after review is approved.',
+        status: uploadStatus,
       },
     ];
   }, []);
@@ -2176,10 +2465,18 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
     duration?: number;
     action?: { label: string; onClick: () => void };
   }) => {
-    void options;
-    dismissCclLaunchToast();
-    return '';
-  }, [dismissCclLaunchToast]);
+    const { matterId, title, statusMessage, phase, type = 'loading', persist, duration, action } = options;
+    return cclPipelineToasts.upsert({
+      matterId: matterId || '__no-matter__',
+      phase,
+      title,
+      message: statusMessage,
+      type,
+      persist: persist === undefined ? null : persist,
+      duration,
+      action,
+    });
+  }, [cclPipelineToasts]);
 
   const isDemoMatter = React.useCallback((matter: MatterRecord): boolean => {
     const matterId = String(matter.matterId || '').toUpperCase();
@@ -2327,8 +2624,9 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
     });
     let cancelled = false;
     Promise.all(chunkMatterIds(ids).map((chunk) => (
-      fetchSharedJson(`ccl-batch-status:${JSON.stringify(chunk)}`, () => fetch('/api/ccl/batch-status', {
+      fetchSharedJson(`ccl-batch-status:${JSON.stringify(chunk)}`, () => fetch(buildCclApiUrl('/api/ccl/batch-status'), {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ matterIds: chunk }),
       }).then((r) => (r.ok ? r.json() : Promise.reject(r.status))))
@@ -2522,12 +2820,17 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
   }, [resolveCclContactContext, userEmail]);
 
   const persistCclDraft = React.useCallback((matterId: string, fields: Record<string, string>) => {
-    void fetch(`/api/ccl/${encodeURIComponent(matterId)}`, {
+    void fetch(buildCclApiUrl(`/api/ccl/${encodeURIComponent(matterId)}`), {
       method: 'PATCH',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ draftJson: fields, initials: userInitials || '' }),
-    }).catch(() => {});
-  }, [userInitials]);
+    }).then(res => {
+      if (!res.ok) throw new Error(`Save failed: ${res.status}`);
+    }).catch(err => {
+      showToast({ type: 'error', title: 'Draft save failed', message: err?.message || 'Could not save CCL draft. Your edits may not be persisted.', persist: false, duration: 5000 });
+    });
+  }, [userInitials, showToast]);
 
   // Fetch CCL draft JSON when a matter is expanded in the audit trail
   React.useEffect(() => {
@@ -2535,7 +2838,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
     if (cclDraftCache[expandedCcl] !== undefined) return; // already fetched
     let cancelled = false;
     setCclDraftLoading(expandedCcl);
-    fetch(`/api/ccl/${expandedCcl}`)
+    fetch(buildCclApiUrl(`/api/ccl/${expandedCcl}`), { credentials: 'include' })
       .then(async (response) => {
         if (!response.ok) {
           throw new Error(`Draft fetch failed: ${response.status}`);
@@ -2544,26 +2847,44 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
       })
       .then(data => {
         if (!cancelled) {
-          setCclDraftCache(prev => ({ ...prev, [expandedCcl]: { fields: data?.json || null, docUrl: data?.url || undefined } }));
+          setCclDraftCache(prev => ({ ...prev, [expandedCcl]: { fields: data?.json || null, docUrl: data?.url || undefined, loadInfo: data?.loadInfo || prev[expandedCcl]?.loadInfo } }));
           setCclDraftLoading(null);
         }
       })
       .catch(() => {
         if (!cancelled) {
-          setCclDraftCache(prev => ({ ...prev, [expandedCcl]: { fields: null } }));
+          setCclDraftCache(prev => ({ ...prev, [expandedCcl]: { fields: null, loadInfo: prev[expandedCcl]?.loadInfo } }));
           setCclDraftLoading(null);
         }
       });
     return () => { cancelled = true; };
   }, [expandedCcl, cclMap, cclDraftCache]);
 
-  const runHomeCclAiAutofill = React.useCallback(async (matterId: string) => {
-    if (!matterId || cclAiFillingMatter === matterId) return;
+  const runHomeCclAiAutofill = React.useCallback(async (matterId: string, options?: { overrideExisting?: boolean }) => {
+    if (!matterId) return;
+    const shouldOverride = !!options?.overrideExisting;
+    // Override path: if a stale `cclAiFillingMatter` flag is blocking a legitimate rerun
+    // (seen in prod as "button does nothing"), force-reset it and proceed. Non-override
+    // path keeps the original guard so we don't double-run a live generation.
+    if (cclAiFillingMatter === matterId) {
+      if (shouldOverride) {
+        trackClientEvent('operations-ccl', 'CCL.OverrideRerun.StuckStateCleared', { matterId });
+        setCclAiFillingMatter(null);
+      } else {
+        trackClientEvent('operations-ccl', 'CCL.AutoFill.Skipped', { matterId, reason: 'alreadyRunning' });
+        return;
+      }
+    }
 
     const matter = displayMatters.find((m) => m.matterId === matterId);
-    if (!matter) return;
+    if (!matter) {
+      trackClientEvent('operations-ccl', 'CCL.AutoFill.Skipped', { matterId, reason: 'matterNotFound', override: shouldOverride });
+      return;
+    }
+    trackClientEvent('operations-ccl', shouldOverride ? 'CCL.OverrideRerun.Confirmed' : 'CCL.AutoFill.Started', { matterId });
 
     const ccl = cclMap[matterId];
+    const shouldOverrideExisting = shouldOverride;
     const baseFields = { ...(cclDraftCache[matterId]?.fields || {}) } as Record<string, string>;
     const setFallback = (key: string, fallback: string | undefined) => {
       if ((!baseFields[key] || !String(baseFields[key]).trim()) && fallback && String(fallback).trim()) {
@@ -2585,6 +2906,9 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
       return next;
     });
     setCclPressureTestError(null);
+    if (shouldOverrideExisting) {
+      setCclOverrideConfirmMatter((prev) => (prev === matterId ? null : prev));
+    }
 
     // Keep the run in the background so the user can continue using the app.
     setCclPreviewOpen(false);
@@ -2660,6 +2984,8 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
         draftJson: baseFieldsSnapshot,
         stage: 'home-operations',
         skipCompilePersistence: true,
+        overrideMode: shouldOverrideExisting ? 'replace-ai-fields' : 'preserve-existing',
+        baseVersion: typeof ccl?.version === 'number' ? ccl.version : null,
       });
       const result = serviceResult.ai;
       const merged = { ...(serviceResult.fields || {}) } as Record<string, string>;
@@ -2731,22 +3057,41 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
         ? `Backend complete · ${confidenceLabel}${result.durationMs ? ` · ${Math.round(result.durationMs / 100) / 10}s` : ''}`
         : `Draft needs review · ${confidenceLabel}${result.durationMs ? ` · ${Math.round(result.durationMs / 100) / 10}s` : ''}`;
       setCclAiStatusByMatter((prev) => ({ ...prev, [matterId]: statusMessage }));
-      setCclAiFillingMatter(null);
+
+      // Phase C1 — emit AutoFill.Completed so we can measure generation latency + confidence
+      // distribution in App Insights. Fired BEFORE the optimistic 'pressure-testing' toast
+      // so the Generate phase is clearly bracketed.
+      trackClientEvent('operations-ccl', 'CCL.AutoFill.Completed', {
+        matterId,
+        fieldCount: String(Object.keys(result.fields || {}).length),
+        confidence: String(result.confidence || 'unknown'),
+        durationMs: String(Math.round(result.durationMs || 0)),
+        unresolvedCount: String(serviceResult.unresolvedCount || 0),
+        stage: String(finalStatus.stage || 'generated'),
+        override: String(!!shouldOverrideExisting),
+      });
 
       upsertCclAiToast({
         matterId,
         title: toastTitle,
         promptSummary,
-        statusMessage: 'Draft generated. Pressure testing the review before the workspace opens…',
-        phase: 'pressure-testing',
+        statusMessage,
+        phase: finalStatus.stage === 'reviewed' ? 'complete' : 'pressure-testing',
         fieldCount: Object.keys(result.fields || {}).length,
-        type: 'loading',
-        persist: true,
+        type: finalStatus.stage === 'reviewed' ? 'success' : 'loading',
+        persist: finalStatus.stage !== 'reviewed',
+        duration: finalStatus.stage === 'reviewed' ? 6000 : undefined,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'AI autofill failed';
+      // Phase C1 — telemetry so Azure Alerts can catch generate failures.
+      trackClientEvent('operations-ccl', 'CCL.AutoFill.Failed', {
+        matterId,
+        error: message,
+        phase: 'generating',
+        override: String(!!shouldOverrideExisting),
+      });
       setCclAiStatusByMatter((prev) => ({ ...prev, [matterId]: `Generation failed after compile · ${message}` }));
-      setCclAiFillingMatter(null);
       setCclStatusResolvingByMatter((prev) => ({ ...prev, [matterId]: false }));
       upsertCclAiToast({
         matterId,
@@ -2760,8 +3105,10 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
         duration: 7000,
       });
       cclAiToastIdRef.current = null;
+    } finally {
+      setCclAiFillingMatter(null);
     }
-  }, [applyCclContactFallbacks, buildCclAiPromptSummary, cclAiFillingMatter, cclLetterModal, displayMatters, cclMap, openCclLetterModal, upsertCclAiToast, userInitials]);
+  }, [applyCclContactFallbacks, buildCclAiPromptSummary, cclAiFillingMatter, cclDraftCache, cclLetterModal, cclMap, displayMatters, openCclLetterModal, upsertCclAiToast, userInitials]);
 
   const runPressureTest = React.useCallback(async (matterId: string, options?: { silent?: boolean }) => {
     if (!matterId) return;
@@ -2786,7 +3133,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
           { label: 'Gathering evidence', status: 'pending' as const },
           { label: 'Scoring fields against evidence', status: 'pending' as const },
         ]);
-        const response = await fetch(`/api/ccl/${encodeURIComponent(matterId)}`);
+        const response = await fetch(buildCclApiUrl(`/api/ccl/${encodeURIComponent(matterId)}`), { credentials: 'include' });
         const data = await response.json().catch(() => null);
         if (!response.ok) {
           throw new Error(String(data?.error || `Draft fetch failed: ${response.status}`));
@@ -2794,7 +3141,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
         persistedDraft = (data?.json && typeof data.json === 'object') ? data.json as Record<string, string> : null;
         setCclDraftCache((prev) => ({
           ...prev,
-          [matterId]: { fields: persistedDraft, docUrl: data?.url || prev[matterId]?.docUrl },
+          [matterId]: { fields: persistedDraft, docUrl: data?.url || prev[matterId]?.docUrl, loadInfo: data?.loadInfo || prev[matterId]?.loadInfo },
         }));
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to load generated CCL draft.';
@@ -2812,7 +3159,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
 
     if (!aiResult && !persistedTrace) {
       try {
-        const traceResponse = await fetch(`/api/ccl-admin/traces/${encodeURIComponent(matterId)}?limit=1`);
+        const traceResponse = await fetch(buildCclApiUrl(`/api/ccl-admin/traces/${encodeURIComponent(matterId)}?limit=1`), { credentials: 'include' });
         const traceData = await traceResponse.json().catch(() => null);
         if (traceResponse.ok && traceData?.traces?.length) {
           persistedTrace = traceData.traces[0] as Record<string, unknown>;
@@ -2867,6 +3214,14 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
     const startMs = Date.now();
     setCclPressureTestElapsed(0);
 
+    // Phase C1 — PressureTest.Started. Paired with Completed/Failed below so
+    // we can measure Safety-Net latency + failure rate in App Insights.
+    trackClientEvent('operations-ccl', 'CCL.PressureTest.Started', {
+      matterId,
+      fieldCount: String(fieldCount),
+      silent: String(!!options?.silent),
+    });
+
     const steps = [
       { label: 'Starting Safety Net review', detail: `${fieldCount} AI-generated fields queued`, status: 'active' as const },
       { label: 'Gathering evidence', detail: 'Emails, calls, documents, deal data', status: 'pending' as const },
@@ -2899,6 +3254,15 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
       phaseTimers.forEach(clearTimeout);
       setCclPressureTestSteps(prev => prev.map(s => ({ ...s, status: 'done' as const })));
       setCclPressureTestByMatter((prev) => ({ ...prev, [matterId]: result }));
+      // Phase C1 — PressureTest.Completed with flaggedCount so we can trend
+      // "what % of drafts need fee-earner review" over time.
+      trackClientEvent('operations-ccl', 'CCL.PressureTest.Completed', {
+        matterId,
+        fieldCount: String(fieldCount),
+        flaggedCount: String(result.flaggedCount ?? 0),
+        durationMs: String(Date.now() - startMs),
+        silent: String(!!options?.silent),
+      });
       upsertCclAiToast({
         matterId,
         title: toastTitle,
@@ -2930,6 +3294,15 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
       phaseTimers.forEach(clearTimeout);
       console.error('[CCL] Pressure test failed:', err);
       const msg = err instanceof Error ? err.message : 'Pressure test failed';
+      // Phase C1 — PressureTest.Failed so Azure Alerts pick up PT failures without
+      // having to infer them from the absence of Completed events.
+      trackClientEvent('operations-ccl', 'CCL.PressureTest.Failed', {
+        matterId,
+        error: msg,
+        fieldCount: String(fieldCount),
+        durationMs: String(Date.now() - startMs),
+        silent: String(!!options?.silent),
+      });
       setCclPressureTestError(msg);
       upsertCclAiToast({
         matterId,
@@ -2953,63 +3326,162 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
     }
   }, [buildCclAiPromptSummary, cclLetterModal, cclPressureTestRunning, displayMatters, cclAiResultByMatter, cclAiTraceByMatter, cclDraftCache, cclMap, openCclLetterModal, showToast, updateToast, upsertCclAiToast]);
 
-  const openCclWorkflowModal = React.useCallback((matterId: string, options?: { forceIntro?: boolean; autoRun?: 'generate' | 'pressure' }) => {
-    openCclLetterModal(matterId, { forceIntro: options?.forceIntro });
-    if (options?.autoRun === 'generate') {
+  const openCclWorkflowModal = React.useCallback((matterId: string, options?: { forceIntro?: boolean; autoRun?: 'generate' | 'pressure'; compileOnly?: boolean }) => {
+    // For compile-stage matters, skip the draft + trace fetch entirely.
+    // At compile stage only context was gathered — no draft or review exists yet.
+    const workflowStatus = cclMapRef.current[matterId];
+    const isCompileOnly = options?.compileOnly ?? isCompileOnlyCclStatus(workflowStatus);
+
+    // Phase 2: state-aware short-circuit — never re-run a stage that's already complete.
+    // Stage progression: pending → compiled → generated → pressure-tested → reviewed → sent
+    const currentStage = workflowStatus ? getCanonicalCclStage(workflowStatus.stage || workflowStatus.status) : null;
+    const stagesAtOrPast = (target: 'compiled' | 'generated' | 'pressure-tested') => {
+      const order: Record<string, number> = {
+        pending: 0, compiled: 1, generated: 2, 'pressure-tested': 3, reviewed: 4, sent: 5,
+      };
+      const t = order[target] ?? 0;
+      const c = currentStage ? (order[currentStage] ?? 0) : 0;
+      return c >= t;
+    };
+
+    let effectiveAutoRun: 'generate' | 'pressure' | undefined = options?.autoRun;
+    if (effectiveAutoRun === 'generate' && stagesAtOrPast('generated') && !isCompileOnly) {
+      console.log(`[CCL workflow] Skipping auto-generate — matter ${matterId} already at stage '${currentStage}'`);
+      effectiveAutoRun = undefined;
+    } else if (effectiveAutoRun === 'pressure' && stagesAtOrPast('pressure-tested')) {
+      console.log(`[CCL workflow] Skipping auto-pressure — matter ${matterId} already at stage '${currentStage}'`);
+      effectiveAutoRun = undefined;
+    }
+
+    if (isCompileOnly) {
+      cclExplicitGenerateLaunchRef.current.add(matterId);
+      // Seed empty draft so openCclLetterModal's shouldFetchDraft check is false
+      if (!cclDraftCacheRef.current[matterId]?.fields) {
+        const entry = { fields: {} as Record<string, string> };
+        cclDraftCacheRef.current[matterId] = entry;
+        setCclDraftCache(prev => ({ ...prev, [matterId]: entry }));
+      }
+      // Mark trace as resolved — the compile trace is context, not review output
+      setCclAiTraceResolvedByMatter(prev => prev[matterId] ? prev : { ...prev, [matterId]: true });
+    } else if (effectiveAutoRun === 'generate') {
+      cclExplicitGenerateLaunchRef.current.add(matterId);
+    } else {
+      cclExplicitGenerateLaunchRef.current.delete(matterId);
+    }
+
+    openCclLetterModal(matterId, { forceIntro: options?.forceIntro, compileOnly: isCompileOnly });
+
+    // Compile-stage: auto-generate unless caller specified a different autoRun
+    if (isCompileOnly && !effectiveAutoRun) {
+      window.setTimeout(() => { void runHomeCclAiAutofill(matterId); }, 0);
+      return;
+    }
+    if (effectiveAutoRun === 'generate') {
       window.setTimeout(() => {
         void runHomeCclAiAutofill(matterId);
       }, 0);
       return;
     }
-    if (options?.autoRun === 'pressure') {
+    if (effectiveAutoRun === 'pressure') {
       window.setTimeout(() => {
         void runPressureTest(matterId, { silent: true });
       }, 0);
     }
   }, [openCclLetterModal, runHomeCclAiAutofill, runPressureTest]);
 
+  const modalCclStage = cclLetterModal ? cclMap[cclLetterModal]?.stage : undefined;
+  const modalCclStatus = cclLetterModal ? cclMap[cclLetterModal]?.status : undefined;
+  const modalAiResult = cclLetterModal ? cclAiResultByMatter[cclLetterModal] : undefined;
+  const modalSavedTrace = cclLetterModal ? cclAiTraceByMatter[cclLetterModal] : undefined;
+  const modalTraceResolved = cclLetterModal ? cclAiTraceResolvedByMatter[cclLetterModal] : undefined;
+  const modalTraceLoading = cclLetterModal ? cclAiTraceLoadingByMatter[cclLetterModal] : undefined;
+
   React.useEffect(() => {
     if (!cclLetterModal) return;
-    if (cclAiResultByMatter[cclLetterModal]) return;
-    if (cclAiTraceByMatter[cclLetterModal]) return;
-    if (cclAiTraceResolvedByMatter[cclLetterModal]) return;
+    const matterId = cclLetterModal;
+    if (cclCompileOnlyLaunchRef.current.has(cclLetterModal) || isCompileOnlyCclStatus(cclMap[cclLetterModal])) {
+      setCclAiTraceResolvedByMatter((prev) => prev[matterId] ? prev : { ...prev, [matterId]: true });
+      setCclAiTraceLoadingByMatter((prev) => prev[matterId] ? { ...prev, [matterId]: false } : prev);
+      return;
+    }
+    if (modalAiResult) return;
+    if (modalSavedTrace) return;
+    if (modalTraceResolved) return;
 
     // If a fetch is already in flight, wait for it to finish
-    if (cclAiTraceLoadingByMatter[cclLetterModal]) return;
+    if (modalTraceLoading) return;
 
     // Guard via ref — prevents duplicate fetches when effect re-runs during loading
-    if (cclTraceFetchingRef.current.has(cclLetterModal)) return;
-    cclTraceFetchingRef.current.add(cclLetterModal);
-    setCclAiTraceLoadingByMatter((prev) => ({ ...prev, [cclLetterModal]: true }));
+    if (cclTraceAttemptedRef.current.has(matterId)) return;
+    if (cclTraceFetchingRef.current.has(matterId)) return;
+    cclTraceAttemptedRef.current.add(matterId);
+    cclTraceFetchingRef.current.add(matterId);
+    setCclAiTraceLoadingByMatter((prev) => ({ ...prev, [matterId]: true }));
 
-    let cancelled = false;
-    fetch(`/api/ccl-admin/traces/${encodeURIComponent(cclLetterModal)}?limit=1`)
+    let active = true;
+    const controller = new AbortController();
+    fetch(buildCclApiUrl(`/api/ccl-admin/traces/${encodeURIComponent(matterId)}?limit=1`), {
+      credentials: 'include',
+      signal: controller.signal,
+    })
       .then((res) => res.ok ? res.json() : null)
       .then((data) => {
-        if (cancelled) return;
+        if (!active) return;
         if (data?.traces?.length) {
-          setCclAiTraceByMatter((prev) => ({ ...prev, [cclLetterModal]: data.traces[0] }));
+          setCclAiTraceByMatter((prev) => ({ ...prev, [matterId]: data.traces[0] }));
         }
-        setCclAiTraceResolvedByMatter((prev) => ({ ...prev, [cclLetterModal]: true }));
+        setCclAiTraceResolvedByMatter((prev) => ({ ...prev, [matterId]: true }));
       })
-      .catch(() => {})
+      .catch((error) => {
+        if (!active || error?.name === 'AbortError') return;
+        // Mark resolved on failure to prevent infinite re-fetch loop.
+        // Without this, the effect re-triggers because resolved stays false.
+        setCclAiTraceResolvedByMatter((prev) => ({ ...prev, [matterId]: true }));
+      })
       .finally(() => {
-        cclTraceFetchingRef.current.delete(cclLetterModal);
-        // Always clear loading state — even if this effect was cancelled by React.
-        // The trace result is already guarded by `if (cancelled) return` in .then() above.
-        // If cancelled before the trace was saved, clearing loading here allows the effect
-        // to re-run (via the cclAiTraceLoadingByMatter dep) and retry the fetch.
-        setCclAiTraceLoadingByMatter((prev) => ({ ...prev, [cclLetterModal]: false }));
+        cclTraceFetchingRef.current.delete(matterId);
+        setCclAiTraceLoadingByMatter((prev) => ({ ...prev, [matterId]: false }));
       });
 
-    return () => { cancelled = true; };
+    return () => {
+      active = false;
+      controller.abort();
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cclLetterModal, cclAiResultByMatter, cclAiTraceByMatter, cclAiTraceLoadingByMatter, cclAiTraceResolvedByMatter]);
+  }, [cclLetterModal, modalCclStage, modalCclStatus, modalAiResult, modalSavedTrace, modalTraceResolved]);
+
+  React.useEffect(() => {
+    if (!cclLetterModal) return;
+    if (!(cclCompileOnlyLaunchRef.current.has(cclLetterModal) || isCompileOnlyCclStatus(cclMap[cclLetterModal]))) return;
+
+    const cachedDraft = cclDraftCache[cclLetterModal];
+    if (cachedDraft?.fields && !cachedDraft?.fetchError) return;
+
+    const repairedEntry = {
+      ...(cachedDraft || {}),
+      fields: {} as Record<string, string>,
+      fetchError: undefined,
+    };
+
+    cclDraftCacheRef.current[cclLetterModal] = repairedEntry;
+    setCclDraftCache((prev) => {
+      const current = prev[cclLetterModal];
+      if (current?.fields && !current?.fetchError) return prev;
+      return { ...prev, [cclLetterModal]: repairedEntry };
+    });
+    setCclAiTraceResolvedByMatter((prev) => prev[cclLetterModal] ? prev : { ...prev, [cclLetterModal]: true });
+    setCclAiTraceLoadingByMatter((prev) => prev[cclLetterModal] ? { ...prev, [cclLetterModal]: false } : prev);
+    setCclDraftLoading((prev) => prev === cclLetterModal ? null : prev);
+  }, [cclLetterModal, cclMap, cclDraftCache]);
 
   // Auto-trigger AI fill when the letter modal opens and no saved AI context exists.
   // This removes the manual "Generate AI review" click — the review starts generating immediately.
   React.useEffect(() => {
     if (!cclLetterModal) return;
+    const shouldAutoGenerate = cclExplicitGenerateLaunchRef.current.has(cclLetterModal)
+      || cclCompileOnlyLaunchRef.current.has(cclLetterModal)
+      || isCompileOnlyCclStatus(cclMap[cclLetterModal]);
+    if (!shouldAutoGenerate) return;
     // Already have AI context — nothing to auto-trigger
     if (cclAiResultByMatter[cclLetterModal] || cclAiTraceByMatter[cclLetterModal]) return;
     // Trace fetch still in flight — wait for it to finish first
@@ -3019,6 +3491,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
     // Draft not loaded yet — need it for AI context
     if (!cclDraftCache[cclLetterModal]?.fields) return;
     console.log('[CCL] Auto-triggering AI fill for', cclLetterModal);
+    cclExplicitGenerateLaunchRef.current.delete(cclLetterModal);
     void runHomeCclAiAutofill(cclLetterModal);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cclLetterModal, cclAiResultByMatter, cclAiTraceByMatter, cclAiTraceLoadingByMatter, cclAiFillingMatter, cclDraftCache]);
@@ -3155,6 +3628,42 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
   /* ── Derived ── */
   const breakdown = React.useMemo(() => safeBreakdown(enquiryMetricsBreakdown), [enquiryMetricsBreakdown]);
   const billingMetrics = React.useMemo(() => metrics.filter((m) => !m.title.toLowerCase().includes('outstanding')), [metrics]);
+  // 2026-04-21: lift the billing-stage computation up so a useEffect can
+  // observe transitions cleanly (was previously computed inside an IIFE in
+  // the JSX, which made firing the completion-pulse from setState an anti-
+  // pattern). Stage drives both the steady gradient and the one-shot sweep.
+  const billingStage = React.useMemo<'off' | 'early' | 'mid' | 'closing' | 'done'>(() => {
+    const todayMetric = billingMetrics.find((mm) => mm.title.toLowerCase().includes('today'));
+    const dailyAvgMetric = billingMetrics.find((mm) => {
+      const t = mm.title.toLowerCase();
+      return t.includes('avg') || t.includes('av.') || t.includes('av ') || t.includes('daily');
+    });
+    const todayHrsRaw = todayMetric?.hours ?? 0;
+    const todayHrs = (demoModeActive && demoTodayOverride !== null)
+      ? demoTodayOverride
+      : todayHrsRaw;
+    const dialTarget = (todayMetric as any)?.dialTarget;
+    // Demo mode pins the per-day target to 6.5 so the completion-border
+    // animation has a deterministic trigger point.
+    const targetHrs = demoModeActive
+      ? 6.5
+      : (typeof dialTarget === 'number' && dialTarget > 0)
+        ? dialTarget
+        : (dailyAvgMetric?.hours ?? todayMetric?.prevHours ?? 6);
+    const progress = targetHrs > 0 ? Math.min(todayHrs / targetHrs, 1.25) : 0;
+    if (progress >= 1) return 'done';
+    if (progress >= 0.66) return 'closing';
+    if (progress >= 0.33) return 'mid';
+    if (progress > 0) return 'early';
+    return 'off';
+  }, [billingMetrics, demoModeActive, demoTodayOverride]);
+  React.useEffect(() => {
+    const wasDone = billingStageRef.current === 'done';
+    billingStageRef.current = billingStage;
+    if (billingStage === 'done' && !wasDone) {
+      setBillingCompletePulse((n) => n + 1);
+    }
+  }, [billingStage]);
   const outstandingMetric = React.useMemo(() => metrics.find((m) => m.title.toLowerCase().includes('outstanding')) || null, [metrics]);
   const periodEnquiry = React.useMemo(() => enquiryMetrics?.find((m) => m.title.toLowerCase().includes('this week')) || null, [enquiryMetrics]);
   const todayEnquiry = React.useMemo(() => enquiryMetrics?.find((m) => m.title.toLowerCase().includes('today')) || null, [enquiryMetrics]);
@@ -3188,6 +3697,62 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
     const list = selectedConversionItem?.currentAowMix ?? [];
     return [...list].sort((a, b) => b.count - a.count);
   }, [selectedConversionItem]);
+  // 2026-04-21: pre-compute the Conversion panel sparklines once per
+  // (item, breakpoint, theme) tuple instead of on every dashboard render.
+  // Previously each render — including the 1-min liveNowMs tick, hover
+  // pulses, and unrelated state changes — rebuilt two SVG strings inside
+  // an IIFE and re-applied them via dangerouslySetInnerHTML, churning the
+  // most-rendered tab.
+  const conversionSparklines = React.useMemo(() => {
+    const item = selectedConversionItem;
+    if (!item) return null;
+    const hasChart = item.chartMode !== 'none' && Array.isArray(item.buckets) && item.buckets.length > 0;
+    if (!hasChart) return null;
+    const breakpoint = conversionLayout.breakpoint;
+    const chartWidth = breakpoint === 'wide' ? 340 : 260;
+    const chartHeight = breakpoint === 'wide' ? 84 : 72;
+    const sparkStroke = isDarkMode ? 'rgba(135,243,243,0.95)' : 'rgba(54,144,206,1)';
+    const sparkPrevStroke = isDarkMode ? 'rgba(209,213,219,0.7)' : 'rgba(55,65,81,0.55)';
+    const sparkGrid = isDarkMode ? 'rgba(148,163,184,0.18)' : 'rgba(15,23,42,0.09)';
+    const chartBucketLabels = item.buckets.map((b: any) => String(b?.label ?? ''));
+    const chartCurrentLabel =
+      item.key === 'today'
+        ? 'Today'
+        : item.key === 'week-vs-last'
+        ? 'This week'
+        : item.key === 'month-vs-last'
+        ? 'This month'
+        : 'Current';
+    const chartPreviousLabel = item.comparisonLabel || 'Previous';
+    const baseOpts = {
+      stroke: sparkStroke,
+      previousStroke: sparkPrevStroke,
+      gridStroke: sparkGrid,
+      width: chartWidth,
+      height: chartHeight,
+      bucketLabels: chartBucketLabels,
+      currentLabel: chartCurrentLabel,
+      previousLabel: chartPreviousLabel,
+    } as const;
+    return {
+      chartWidth,
+      chartHeight,
+      enquiriesSVG: buildConversionPocketChartSVG(item.buckets, 'enquiries', baseOpts),
+      mattersSVG: buildConversionPocketChartSVG(item.buckets, 'matters', { ...baseOpts, chartStyle: 'bar' }),
+      combinedSVG: buildCombinedConversionChartSVG(item.buckets, {
+        width: 560,
+        height: 170,
+        enquiriesStroke: sparkStroke,
+        mattersStroke: isDarkMode ? colours.green : colours.green,
+        enquiriesPreviousStroke: sparkPrevStroke,
+        mattersPreviousStroke: isDarkMode ? 'rgba(32,178,108,0.6)' : 'rgba(32,178,108,0.7)',
+        gridStroke: sparkGrid,
+        bucketLabels: chartBucketLabels,
+        currentLabel: chartCurrentLabel,
+        previousLabel: chartPreviousLabel,
+      }),
+    };
+  }, [selectedConversionItem, conversionLayout.breakpoint, isDarkMode]);
   const selectedConversionInsightTarget = React.useMemo<InsightPeriod>(() => {
     if (!selectedConversionItem) return null;
     if (selectedConversionItem.key === 'today') return 'today';
@@ -3200,7 +3765,19 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
   }, [selectedConversionKey]);
   const useExperimentalConversion = enableConversionComparison && conversionRows.length > 0;
   const showExperimentalConversionSkeleton = enableConversionComparison && isResolvingConversionComparison;
-  const primaryRailMinHeight = isNarrow ? undefined : (useExperimentalConversion ? 440 : 520);
+  // When experimental conversion is paired with the ToDo slot, the panel is
+  // shorter than the old pipeline+matters stack — lower the floor so ToDo can
+  // cap to the measured Conversion height (D5) without being forced taller.
+  const conversionTodoPaired = Boolean(useExperimentalConversion && hidePipelineAndMatters && todoSlot);
+  const primaryRailMinHeight = isNarrow
+    ? undefined
+    : conversionTodoPaired
+      ? 360
+      : (useExperimentalConversion ? 440 : 520);
+  // Measured height of the Conversion rail — ToDo cap (D5). Only used when
+  // paired and not narrow. Falls back to the min-height floor otherwise so
+  // the skeleton→live transition doesn't pop.
+  const todoMatchedHeight = conversionTodoPaired && conversionRailHeight ? conversionRailHeight : undefined;
   const pipelineRailHeight = isNarrow
     ? undefined
     : Math.max(primaryRailMinHeight ?? 0, conversionRailHeight ?? 0) || undefined;
@@ -4047,10 +4624,18 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
         void runHomeCclAiAutofill(resolvedMatterId);
       } else {
         setCclPreviewOpen(true);
-        openCclLetterModal(resolvedMatterId, { forceIntro: true });
+        // A `review-ccl` pickup (Home ImmediateActions / Matters CCL pill) means
+        // the CCL is already drafted + pressure-tested — skip the intro/generation
+        // screens and drop straight onto the review rail. Only force intro when
+        // we're at the compile stage (no draft yet).
+        if (isCompileOnlyCclStatus(cclMap[resolvedMatterId])) {
+          openCclWorkflowModal(resolvedMatterId, { forceIntro: true, compileOnly: true });
+        } else {
+          openCclLetterModal(resolvedMatterId, { forceIntro: false });
+        }
       }
     }
-  }, [homeReviewRequest, displayMatters, cclMap, cclAiResultByMatter, cclAiTraceByMatter, cclAiTraceLoadingByMatter, openCclLetterModal, runHomeCclAiAutofill]);
+  }, [homeReviewRequest, displayMatters, cclMap, cclAiResultByMatter, cclAiTraceByMatter, cclAiTraceLoadingByMatter, openCclLetterModal, openCclWorkflowModal, runHomeCclAiAutofill]);
   const cardHoverBorder = isDarkMode ? 'rgba(135,243,243,0.18)' : 'rgba(13,47,96,0.18)';
   const cardHoverShadow = isDarkMode
     ? '0 4px 16px rgba(0,0,0,0.3), 0 0 0 1px rgba(135,243,243,0.08)'
@@ -4077,6 +4662,166 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
       ? visibleConversionRows.map((row) => row.key)
       : ['today', 'week-vs-last', 'month-vs-last', 'quarter-vs-last']).slice(0, 4);
     const selectedTab = conversionTabs.includes(selectedConversionKey) ? selectedConversionKey : conversionTabs[0];
+
+    // ── Paired mode (Phase D/E layout): sub-strip + banded sections with pocket charts + trails ──
+    // Mirror HomeDashboardSkeleton paired branch so Suspense fallback → internal
+    // resolving skeleton → live render transitions stay visually flush.
+    const paired = hidePipelineAndMatters && Boolean(todoSlot);
+    if (paired) {
+      // 2026-04-20: skeleton geometry mirrors the settled paired layout
+      // *exactly* — same outer card, same substrip-outside-body pattern,
+      // same body padding (12/14/12), same per-band padding (10px 0) with
+      // borderBottom (except last), same chart width/height per breakpoint.
+      // Previously the skeleton wrapped the substrip *inside* the body with
+      // extra gap, which made it visibly taller than the live render — the
+      // "jolt" the user noticed when the data arrived.
+      // 2026-04-20: the card has ample room to the left of the chart — the
+      // label/number/copy stack rarely fills its `1 1 160px` track. Widen
+      // the chart so we take that space when available; flex-wrap still
+      // drops the chart below when the card narrows.
+      const pairedChartWidth = conversionBreakpoint === 'wide' ? 340 : 260;
+      const pairedChartHeight = conversionBreakpoint === 'wide' ? 84 : 72;
+      return (
+        <div
+          style={{
+            background: cardBg,
+            border: `1px solid ${cardBorder}`,
+            boxShadow: cardShadow,
+            display: 'flex',
+            flexDirection: 'column',
+            minHeight: primaryRailMinHeight,
+          }}
+        >
+          {/* Period tabs row — padding matches live (10px 12px) */}
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '10px 12px', borderBottom: `1px solid ${rowBorder}` }}>
+            {conversionTabs.map((key, index) => {
+              const isSelected = key === selectedTab;
+              const label = key === 'week-vs-last' ? 'Week' : key === 'month-vs-last' ? 'Month' : key === 'quarter-vs-last' ? 'Quarter' : 'Today';
+              return (
+                <div
+                  key={`conversion-skeleton-tab-paired-${key}`}
+                  style={{
+                    width: label === 'Today' ? 56 : 64,
+                    height: 21,
+                    background: isSelected ? skeletonSoft : skeletonTint,
+                    border: `1px solid ${isSelected ? skeletonStrong : skeletonTint}`,
+                    animation: 'opsDashPulse 1.5s ease-in-out infinite',
+                    animationDelay: `${index * 0.08}s`,
+                  }}
+                  title={label}
+                />
+              );
+            })}
+          </div>
+
+          {/* Conversion % substrip — OUTSIDE the body, matches live padding 8/14/8 */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'baseline',
+              justifyContent: 'space-between',
+              gap: 12,
+              padding: '8px 14px 8px',
+              borderBottom: `1px solid ${rowBorder}`,
+              flexWrap: 'wrap',
+            }}
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 3 }}>
+              {skeletonBlock(72, 9, { background: skeletonTint })}
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                {skeletonBlock(56, 22, { background: skeletonStrong })}
+                {skeletonBlock(38, 9, { background: skeletonSoft })}
+              </div>
+            </div>
+            {skeletonBlock(108, 9, { background: skeletonTint })}
+          </div>
+
+          {/* Body — padding 12/14/12, gap 0, flex column; bands bordered individually */}
+          <div style={{ padding: '12px 14px 12px', display: 'flex', flexDirection: 'column', gap: 0, flex: 1 }}>
+            {['enquiries', 'matters'].map((key, sIdx) => {
+              const isLast = sIdx === 1;
+              return (
+                <div
+                  key={`conversion-skeleton-band-${key}`}
+                  style={{
+                    display: 'grid',
+                    gap: 6,
+                    padding: '10px 0',
+                    borderBottom: isLast ? 'none' : `1px solid ${rowBorder}`,
+                  }}
+                >
+                  {/* Row 1: left stack + right chart (matches live gap 14 + rowGap 6) */}
+                  <div style={{ display: 'flex', alignItems: 'stretch', gap: 14, flexWrap: 'wrap', rowGap: 6 }}>
+                    <div style={{ flex: '1 1 160px', minWidth: 0, display: 'grid', gap: 6, alignContent: 'start' }}>
+                      {skeletonBlock(sIdx === 0 ? 64 : 58, 9, { background: skeletonStrong })}
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+                        {skeletonBlock(sIdx === 0 ? 48 : 42, 26, { background: skeletonStrong })}
+                        {skeletonBlock(28, 9, { background: skeletonSoft })}
+                        {sIdx === 1 ? skeletonBlock(34, 11, { background: skeletonSoft }) : null}
+                      </div>
+                      {skeletonBlock(sIdx === 0 ? 180 : 200, 10, { background: skeletonTint })}
+                    </div>
+                    <div
+                      style={{
+                        width: pairedChartWidth,
+                        height: pairedChartHeight,
+                        background: skeletonTint,
+                        position: 'relative',
+                        overflow: 'hidden',
+                        flexShrink: 0,
+                        marginLeft: 'auto',
+                        animation: 'opsDashPulse 1.5s ease-in-out infinite',
+                        animationDelay: `${sIdx * 0.1}s`,
+                      }}
+                    >
+                      {[0.25, 0.5, 0.75].map((r) => (
+                        <span
+                          key={r}
+                          style={{
+                            position: 'absolute',
+                            left: 0,
+                            right: 0,
+                            top: Math.round(pairedChartHeight * r),
+                            height: 1,
+                            background: skeletonSoft,
+                            opacity: 0.6,
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                  {/* AoW trail — marginTop 6 matches live */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                    {Array.from({ length: sIdx === 0 ? 6 : 4 }).map((_, ti) => (
+                      <span
+                        key={`conversion-skeleton-trail-${key}-${ti}`}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          height: 22,
+                          padding: '0 8px',
+                          border: `1px solid ${skeletonTint}`,
+                          background: skeletonSoft,
+                          animation: 'opsDashPulse 1.5s ease-in-out infinite',
+                          animationDelay: `${ti * 0.05 + sIdx * 0.08}s`,
+                        }}
+                      >
+                        <span style={{ width: 13, height: 13, background: skeletonTint }} />
+                        <span style={{ width: 24 + (ti % 3) * 8, height: 8, background: skeletonTint }} />
+                      </span>
+                    ))}
+                    {skeletonBlock(18, 8, { background: skeletonSoft })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
+
+    // ── Legacy layout: hero KPI + full chart + AoW mix footer ──
     const chartTicks = selectedTab === 'today'
       ? ['8', '9', '10', '11', '12', '1', '2', '3', '4', '5', '6']
       : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
@@ -4804,7 +5549,8 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
   };
 
   return (
-    <div ref={dashRef} style={{ padding: '4px 8px 10px', display: 'grid', gap: 8 }}>
+    <CclStatusContext.Provider value={cclStatusContextValue}>
+    <div ref={dashRef} style={{ padding: '4px 12px 10px', display: 'grid', gap: 8 }}>
       {/* Keyframe animations */}
       <style>{`
         @keyframes opsDashFadeIn {
@@ -4870,6 +5616,15 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
           scroll-behavior: smooth;
           -webkit-overflow-scrolling: touch;
         }
+        /* 2026-04-21: when the Conversion section's chart wraps below the
+           count column on narrow widths, force the inline SVG to scale to
+           100% of the wrapper. The SVG carries a viewBox so it scales
+           cleanly without distortion. */
+        .conv-spark-fluid svg {
+          width: 100%;
+          height: auto;
+          display: block;
+        }
         .ops-dash-scroll::-webkit-scrollbar {
           width: 3px;
         }
@@ -4894,6 +5649,113 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
         }
         .ops-copy-btn:hover {
           opacity: 1 !important;
+        }
+        /* ── Billing KPI frame (2026-04-20) ─────────────────────────────
+           Wraps the billing metric tiles so each gets its own border.
+           ──────────────────────────────────────────────────────────────
+           Billing rail (2026-04-20, v4): single static gradient border on
+           the 4-tile strip, *responsive to today's progress*. Replaces
+           the per-tile pulse experiment.
+
+           Progress signal: today's hours / daily-avg hours (computed in
+           JS from billingMetrics). Drives the frame border through four
+           visual stages — the colour vocabulary is a journey, not a mix:
+             • no data → border off (neutral, like before the experiment)
+             • early    (>0, <33%) → dull blue (helixBlue → blue)
+             • mid      (33%–66%)  → cool highlight → accent
+             • closing  (66%–99%)  → accent → green (green-leaning, not half/half)
+             • done     (≥100%)    → mostly green (subtle green-on-green)
+
+           The mask-composite trick (content-box mask + xor composite)
+           paints the 1px ring; the JS-supplied gradient is read via
+           --billing-frame-bg. One tick thinner than v3 (lower opacity +
+           subpixel padding).
+           ---------------------------------------------------------------- */
+        .ops-billing-frame {
+          display: grid;
+          gap: 0;
+          position: relative;
+        }
+        .ops-billing-frame::before {
+          content: '';
+          position: absolute;
+          inset: 0;
+          pointer-events: none;
+          padding: 0.75px;
+          background: var(--billing-frame-bg, transparent);
+          -webkit-mask:
+            linear-gradient(#000 0 0) content-box,
+            linear-gradient(#000 0 0);
+          -webkit-mask-composite: xor;
+          mask:
+            linear-gradient(#000 0 0) content-box,
+            linear-gradient(#000 0 0);
+          mask-composite: exclude;
+          opacity: var(--billing-frame-opacity, 0);
+          transition: opacity 0.4s ease, background 0.4s ease;
+        }
+        /* 2026-04-21: stage-driven border gradients. The earlier inline
+           IIFE that piped --billing-frame-bg into element style was lost
+           in a refactor, so the frame border has been invisible. Restore
+           via [data-billing-stage] selectors so the same JSX scaffolding
+           drives the visuals. */
+        .ops-billing-frame[data-billing-stage="early"] {
+          --billing-frame-bg: linear-gradient(135deg, ${withAlpha(colours.highlight, 0.55)} 0%, ${withAlpha(colours.highlight, 0.25)} 100%);
+          --billing-frame-opacity: 0.55;
+        }
+        .ops-billing-frame[data-billing-stage="mid"] {
+          --billing-frame-bg: linear-gradient(135deg, ${withAlpha(colours.highlight, 0.65)} 0%, ${withAlpha(colours.accent, 0.55)} 100%);
+          --billing-frame-opacity: 0.7;
+        }
+        .ops-billing-frame[data-billing-stage="closing"] {
+          --billing-frame-bg: linear-gradient(135deg, ${withAlpha(colours.accent, 0.55)} 0%, ${withAlpha(colours.green, 0.7)} 45%, ${withAlpha(colours.green, 0.75)} 100%);
+          --billing-frame-opacity: 0.78;
+        }
+        .ops-billing-frame[data-billing-stage="done"] {
+          --billing-frame-bg: linear-gradient(135deg, ${withAlpha(colours.green, 0.85)} 0%, #1a8c5a 60%, ${withAlpha(colours.green, 0.85)} 100%);
+          --billing-frame-opacity: 0.85;
+        }
+        /* One-shot completion sweep: a brighter green/accent ring fades in
+           and out once when the stage flips to done. Re-keyed via a state
+           nonce on the data-billing-complete attribute so React can refire
+           it (subsequent demo scrubs from non-done back to done). */
+        .ops-billing-frame::after {
+          content: '';
+          position: absolute;
+          inset: 0;
+          pointer-events: none;
+          padding: 1.5px;
+          background: linear-gradient(135deg, ${withAlpha(colours.accent, 0.95)} 0%, ${withAlpha(colours.green, 0.95)} 50%, ${withAlpha(colours.accent, 0.95)} 100%);
+          -webkit-mask:
+            linear-gradient(#000 0 0) content-box,
+            linear-gradient(#000 0 0);
+          -webkit-mask-composite: xor;
+          mask:
+            linear-gradient(#000 0 0) content-box,
+            linear-gradient(#000 0 0);
+          mask-composite: exclude;
+          opacity: 0;
+          filter: drop-shadow(0 0 6px ${withAlpha(colours.green, 0.55)});
+        }
+        .ops-billing-frame[data-billing-complete] {
+          /* attribute presence is enough; key is the value (nonce) which
+             forces a fresh animation cycle when it changes. */
+        }
+        .ops-billing-frame[data-billing-complete]::after {
+          animation: opsBillingComplete 1.7s ease-out 1 both;
+        }
+        @keyframes opsBillingComplete {
+          0%   { opacity: 0;    transform: scale(1.005); }
+          15%  { opacity: 0.95; transform: scale(1); }
+          55%  { opacity: 0.65; }
+          100% { opacity: 0;    transform: scale(1); }
+        }
+        .ops-billing-tile {
+          position: relative;
+          padding: 14px 16px 12px;
+          background: transparent;
+          transition: background 0.2s ease, transform 0.2s ease;
+          cursor: pointer;
         }
       `}</style>
 
@@ -4934,37 +5796,40 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
             )}
           </div>
           <div
-            style={{ background: cardBg, border: `1px solid ${cardBorder}`, boxShadow: cardShadow, animation: 'opsDashFadeIn 0.35s ease both', transition: 'border-color 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease' }}
+            className="ops-billing-rail"
+            style={{
+              background: cardBg,
+              border: `1px solid ${cardBorder}`,
+              boxShadow: cardShadow,
+              animation: 'opsDashFadeIn 0.35s ease both',
+              transition: 'border-color 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease',
+            }}
             onMouseEnter={cardHover.enter}
             onMouseLeave={cardHover.leave}
           >
             {billingMetrics.length === 0 ? (
-              <div style={{ padding: '12px 16px 14px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <FiRefreshCw size={11} style={{ color: accent, animation: 'opsDashSpin 1s linear infinite', flexShrink: 0 }} />
-                  <div>
-                    <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: text }}>Billing warming up</div>
-                    <div style={{ fontSize: 10, color: muted, marginTop: 2 }}>Pulling WIP, recovered fees, and outstanding balances.</div>
-                  </div>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: `repeat(${isNarrow ? 2 : 4}, 1fr)`, gap: 12 }}>
-                  {Array.from({ length: isNarrow ? 2 : 4 }).map((_, i) => (
-                    <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-                      {skeletonBlock('38%', 9, { animationDelay: `${i * 0.08}s` })}
-                      {skeletonBlock('72%', 20, { animationDelay: `${i * 0.1}s` })}
-                      {skeletonBlock('54%', 8, { animationDelay: `${i * 0.12}s`, background: skeletonSoft })}
-                    </div>
-                  ))}
-                </div>
-                <div style={{ height: 1, background: rowBorder }} />
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  {skeletonBlock(84, 10, { background: skeletonSoft })}
-                  {skeletonBlock(72, 10, { background: skeletonTint })}
-                  {skeletonBlock(96, 10, { background: skeletonSoft, marginLeft: 'auto' })}
-                </div>
-              </div>
+              <BillingRailSkeleton
+                isDarkMode={isDarkMode}
+                metricCount={isNarrow ? Math.min(2, billingMetrics.length || DEFAULT_BILLING_SKELETON_COUNT) : (billingMetrics.length || DEFAULT_BILLING_SKELETON_COUNT)}
+              />
             ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: `repeat(${billingMetrics.length}, 1fr)` }}>
+              (() => {
+                /* Today-progress → frame stage (2026-04-21).
+                   `billingStage` is computed up at the component scope
+                   (useMemo) so a useEffect can fire the one-shot
+                   completion pulse on transitions into `done`. We only
+                   need todayMetric here for the demo-scrub override
+                   (per-tile wheel handler below). */
+                const todayMetric = billingMetrics.find((mm) => mm.title.toLowerCase().includes('today'));
+                return (
+                  <div
+                    className="ops-billing-frame"
+                    data-billing-stage={billingStage}
+                    data-billing-complete={billingCompletePulse > 0 ? String(billingCompletePulse) : undefined}
+                    style={{
+                      gridTemplateColumns: `repeat(${billingMetrics.length}, 1fr)`,
+                    }}
+                  >
                 {billingMetrics.map((m, i) => {
                 const isRecovered = m.title.toLowerCase().includes('recovered') || m.title.toLowerCase().includes('fees') || m.title.toLowerCase().includes('collected');
                 const primary = m.isMoneyOnly
@@ -4988,32 +5853,148 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                 const barPct = prevVal > 0 ? Math.min((curVal / prevVal) * 100, 100) : (curVal > 0 ? 100 : 0);
                 const barColor = prevVal > 0 && curVal >= prevVal ? colours.green : accent;
                 const deltaFmt = m.isMoneyOnly || isRecovered ? fmt.currency : fmt.hours;
+                // Exact (hover-reveal) value — full precision, no abbreviation.
+                const exactFmt = m.isMoneyOnly || isRecovered ? fmt.currencyExact : fmt.hoursExact;
+                const exactPrimary = m.isMoneyOnly
+                  ? fmt.currencyExact(m.money || 0)
+                  : m.isTimeMoney
+                    ? (isRecovered ? fmt.currencyExact(m.money || 0) : fmt.hoursExact(m.hours || 0))
+                    : m.hours !== undefined ? fmt.hoursExact(m.hours) : fmt.int(m.count || 0);
+                const exactSecondary = m.isTimeMoney
+                  ? isRecovered
+                    ? ((m.hours || 0) > 0 ? fmt.hoursExact(m.hours || 0) : null)
+                    : ((m.money || 0) > 0 ? fmt.currencyExact(m.money || 0) : null)
+                  : null;
+                const diff = curVal - prevVal;
+                const deltaLabel = !isLoading && prevVal > 0 && Math.abs(diff) >= 0.05
+                  ? `${diff >= 0 ? '+' : '-'}${deltaFmt(Math.abs(diff))}`
+                  : null;
+                const deltaColour = diff >= 0 ? colours.green : colours.cta;
+                const isTodayTile = m.title.toLowerCase().includes('today');
+                const demoScrubActive = demoModeActive && isTodayTile;
+                const demoOverrideShown = demoScrubActive && demoTodayOverride !== null;
+                // When the demo override is active, swap the displayed Today
+                // hours so the operator sees the value they're scrubbing to.
+                const displayedPrimary = (demoOverrideShown && !m.isMoneyOnly && !isRecovered)
+                  ? fmt.hours(demoTodayOverride!)
+                  : primary;
                 return (
                   <div
                     key={i}
+                    className="ops-billing-tile"
                     style={{
-                      padding: '16px 18px 14px',
-                      borderRight: i < billingMetrics.length - 1 ? `1px solid ${rowBorder}` : 'none',
-                      transition: 'background 0.2s ease, transform 0.2s ease',
-                      cursor: 'pointer',
+                      animation: 'opsDashFadeIn 0.3s ease both',
+                      ...(demoScrubActive ? { position: 'relative' as const } : {}),
                     }}
                     onMouseEnter={tileHover.enter}
                     onMouseLeave={tileHover.leave}
                     onClick={() => setBillingInsightIdx(i)}
+                    onWheel={demoScrubActive ? (e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      const step = e.shiftKey ? 0.1 : 0.5;
+                      setDemoTodayOverride((prev) => {
+                        const base = prev ?? (todayMetric?.hours ?? 0);
+                        // Wheel up (deltaY < 0) → increase hours.
+                        const next = base + (e.deltaY < 0 ? step : -step);
+                        return Math.max(0, Math.min(12, Math.round(next * 10) / 10));
+                      });
+                    } : undefined}
+                    onDoubleClick={demoScrubActive ? (e) => {
+                      e.stopPropagation();
+                      setDemoTodayOverride(null);
+                    } : undefined}
+                    title={demoScrubActive
+                      ? `${shortLabel(m.title)} — demo: scroll to scrub today's hours, double-click to reset`
+                      : `${shortLabel(m.title)} — exact: ${exactPrimary}`}
                   >
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                      {bigNumber(primary, { loading: !!isLoading })}
-                      {secondary && <span data-muted style={{ fontSize: 12, color: muted, fontWeight: 500, transition: 'color 0.2s ease, opacity 0.2s ease' }}>{secondary}</span>}
+                    {/* Label — matches Conversion (9px uppercase, tight letter-spacing) */}
+                    <div
+                      data-muted
+                      style={{
+                        fontSize: 9,
+                        fontWeight: 700,
+                        letterSpacing: '0.16em',
+                        textTransform: 'uppercase',
+                        color: muted,
+                        opacity: 0.82,
+                        marginBottom: 5,
+                        transition: 'color 0.2s ease, opacity 0.2s ease',
+                      }}
+                    >
+                      {shortLabel(m.title)}
                     </div>
-                    <div data-muted style={{ fontSize: 10, color: muted, marginTop: 4, letterSpacing: '0.3px', transition: 'color 0.2s ease, opacity 0.2s ease' }}>{shortLabel(m.title)}</div>
-                    {!isLoading && curVal > 0 && <div style={{ marginTop: 5 }}>{progressBar(barPct, { height: 2, color: barColor })}</div>}
-                    {showPrev && !isLoading && (
-                      <div data-muted style={{ fontSize: 9, color: muted, opacity: 0.5, marginTop: 4, transition: 'color 0.2s ease, opacity 0.2s ease' }}>prev {prev}{delta(curVal, prevVal, deltaFmt)}</div>
-                    )}
+                    {/* Big number + inline delta (matches Conversion `big % + delta` layout) */}
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
+                      {bigNumber(displayedPrimary, { loading: !!isLoading })}
+                      {demoOverrideShown && (
+                        <span style={{
+                          fontSize: 8,
+                          fontWeight: 700,
+                          letterSpacing: '0.08em',
+                          textTransform: 'uppercase',
+                          color: colours.accent,
+                          border: `1px solid ${colours.accent}`,
+                          padding: '1px 5px',
+                        }}>demo</span>
+                      )}
+                      {deltaLabel && (
+                        <span style={{
+                          fontSize: 9,
+                          fontWeight: 700,
+                          letterSpacing: '0.06em',
+                          textTransform: 'uppercase',
+                          color: deltaColour,
+                        }}>{deltaLabel}</span>
+                      )}
+                      {secondary && (
+                        <span data-muted style={{
+                          fontSize: 11,
+                          color: muted,
+                          fontWeight: 500,
+                          marginLeft: 'auto',
+                          transition: 'color 0.2s ease, opacity 0.2s ease',
+                        }}>{secondary}</span>
+                      )}
+                    </div>
+                    {/* Progress bar (reserved 2px slot — always mounted so hover doesn't jolt) */}
+                    <div style={{ marginTop: 6, height: 2 }}>
+                      {!isLoading && curVal > 0 ? progressBar(barPct, { height: 2, color: barColor }) : null}
+                    </div>
+                    {/* Meta line — prev + exact (hover-reveal). Fixed height prevents vertical jolt. */}
+                    <div style={{ marginTop: 5, minHeight: 12, display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
+                      {showPrev && !isLoading && prevVal > 0 && (
+                        <span data-muted style={{
+                          fontSize: 9,
+                          fontWeight: 600,
+                          letterSpacing: '0.04em',
+                          color: muted,
+                          opacity: 0.6,
+                          transition: 'color 0.2s ease, opacity 0.2s ease',
+                        }}>prev {prev}</span>
+                      )}
+                      {!isLoading && (
+                        <span
+                          data-hover-detail
+                          style={{
+                            ...hoverDetailStyle,
+                            fontSize: 10,
+                            fontWeight: 600,
+                            letterSpacing: '0.02em',
+                            color: isDarkMode ? colours.accent : colours.highlight,
+                            marginLeft: 'auto',
+                          }}
+                        >
+                          {exactPrimary}{exactSecondary ? ` · ${exactSecondary}` : ''}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 );
               })}
-              </div>
+                  </div>
+                );
+              })()
             )}
             {(outstandingMetric || isLoading) && (
               <div
@@ -5029,16 +6010,18 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                 }}
                 onClick={hasOutstandingBreakdown ? onOpenOutstandingBreakdown : undefined}
               >
-                {isOutstandingLoading ? 'Loading outstanding…' : (
+                {isOutstandingLoading ? 'Loading outstanding…' : outstandingMetric ? (
                   <>
-                    <span style={{ fontWeight: 600, color: text }}>{fmt.currency(outstandingMetric?.money || 0)}</span>
-                    <span>outstanding</span>
-                    {typeof outstandingMetric?.secondary === 'number' && (
-                      <span style={{ opacity: 0.5 }}>· firm {fmt.currency(outstandingMetric?.secondary || 0)}</span>
+                    <span style={{ fontWeight: 700, color: text }}>{shortLabel(outstandingMetric.title)}</span>
+                    <span aria-hidden="true" style={{ opacity: 0.45 }}>·</span>
+                    <span style={{ color: text }}>{fmt.currency(outstandingMetric.money || 0)}</span>
+                    {hasOutstandingBreakdown && (
+                      <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 700, color: isDarkMode ? colours.accent : colours.highlight }}>
+                        Open breakdown
+                      </span>
                     )}
-                    {hasOutstandingBreakdown && <span style={{ color: accent, marginLeft: 'auto' }}>View breakdown →</span>}
                   </>
-                )}
+                ) : null}
               </div>
             )}
           </div>
@@ -5048,7 +6031,15 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
       {/* ── Pipeline: 3-column layout ── */}
       {((enquiryMetrics && enquiryMetrics.length > 0) || isLoadingEnquiryMetrics) && (
         <div>
-          <div style={{ display: 'grid', gridTemplateColumns: isNarrow ? '1fr' : '1fr 2fr', gap: 6 }}>
+          {/* 2026-04-20: use `minmax(0, …)` on every track so wide intrinsic
+             content in a column (e.g. a long row of matter display-number
+             bezels on the Month view) can't force the grid to overflow its
+             parent. Without this, min-content of a flex-shrink:0 chip row
+             becomes the column's floor, cramming the paired column and
+             pushing siblings off screen. With minmax(0, …), the column
+             respects its fractional share and the trail's own overflowX:auto
+             does the scrolling. */}
+          <div style={{ display: 'grid', gridTemplateColumns: isNarrow ? 'minmax(0, 1fr)' : (hidePipelineAndMatters ? (todoSlot ? 'minmax(0, 1fr) minmax(0, 1fr)' : 'minmax(0, 1fr)') : 'minmax(0, 1fr) minmax(0, 2fr)'), gap: 6 }}>
           {/* ── Left: Conversion ── */}
           <div>
             <div className="home-section-header" style={{ animation: 'opsDashFadeIn 0.25s ease both' }}><FiTrendingUp size={10} className="home-section-header-icon" />Conversion</div>
@@ -5057,11 +6048,17 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                 renderConversionSkeleton()
               ) : (
                 <div
-                  style={{ background: cardBg, border: `1px solid ${cardBorder}`, boxShadow: cardShadow, display: 'flex', flexDirection: 'column', minHeight: primaryRailMinHeight, animation: 'opsDashFadeIn 0.35s ease 0.05s both', transition: 'border-color 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease' }}
+                  ref={conversionCardRef}
+                  // 2026-04-20: minWidth:0 + overflow:hidden so long intrinsic
+                  // content (month-view matter display numbers) can't push
+                  // the card past its `minmax(0, 2fr)` track and into the
+                  // paired ToDo column. The trail's own overflowX:auto then
+                  // scrolls internally as intended.
+                  style={{ background: cardBg, border: `1px solid ${cardBorder}`, boxShadow: cardShadow, display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: primaryRailMinHeight, overflow: 'hidden', animation: 'opsDashFadeIn 0.35s ease 0.05s both', transition: 'border-color 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease' }}
                   onMouseEnter={cardHover.enter}
                   onMouseLeave={cardHover.leave}
                 >
-                  <div style={{ flex: 1 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
                     {useExperimentalConversion ? (
                       (() => {
                         const item = selectedConversionItem;
@@ -5069,29 +6066,89 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
 
                         const hasCurrentBasis = item.currentEnquiries > 0;
                         const hasPreviousBasis = item.previousEnquiries > 0;
-                        const showPreviousComparison = item.key === 'today' || item.previousEnquiries > 0 || item.previousMatters > 0;
+                        const showPreviousComparison = item.previousEnquiries > 0 || item.previousMatters > 0;
                         const currentPctLabel = hasCurrentBasis ? fmt.pct(item.currentPct) : '—';
                         const previousPctLabel = showPreviousComparison ? fmt.pct(item.previousPct) : '—';
                         const deltaPoints = item.currentPct - item.previousPct;
-                        const deltaPointsLabel = hasCurrentBasis && hasPreviousBasis ? `${deltaPoints >= 0 ? '+' : ''}${deltaPoints.toFixed(1)}%` : null;
+                        const deltaPointsLabel = hasCurrentBasis && hasPreviousBasis
+                          ? `${deltaPoints >= 0 ? '+' : ''}${deltaPoints.toFixed(1)}%`
+                          : null;
+                        const enquiryDelta = item.currentEnquiries - item.previousEnquiries;
+                        const matterDelta = item.currentMatters - item.previousMatters;
                         const hasChart = item.chartMode !== 'none' && item.buckets.length > 0;
-                        const reserveChartWhitespace = item.key === 'today';
-                        const chartWhitespaceHeight = isNarrow ? 92 : 148;
-                        const comparisonCopy = showPreviousComparison
-                          ? `${fmt.int(item.currentMatters)} from ${fmt.int(item.currentEnquiries)} · was ${fmt.int(item.previousMatters)} from ${fmt.int(item.previousEnquiries)}`
-                          : hasCurrentBasis
-                            ? `${fmt.int(item.currentMatters)} from ${fmt.int(item.currentEnquiries)}`
-                            : 'No enquiries yet';
-                        const comparisonMeta = showPreviousComparison
-                          ? `${item.comparisonLabel} ${previousPctLabel}`
-                          : item.comparisonLabel;
-                        const chartMetaLabel = item.chartMode === 'hourly'
-                          ? '8am-6pm'
-                          : `${item.currentLabel} / ${item.previousLabel}`;
+                        const enquiryProspects: ConversionProspectChipItem[] = Array.isArray(item.currentEnquiryProspects) ? item.currentEnquiryProspects : [];
+                        const matterProspects: ConversionProspectChipItem[] = Array.isArray(item.currentMatterProspects) ? item.currentMatterProspects : [];
+                        const showChart = hasChart && conversionSparklines !== null;
+                        const combinedSVG = conversionSparklines?.combinedSVG ?? '';
+
+                        // 2026-04-24: restructured into a 3-KPI row (Enquiries /
+                        // Matters / Conversion%) + a single combined chart
+                        // (enquiries line + matters bars) + prospect baskets.
+                        // The card now drives the ToDo height instead of the
+                        // previous banded layout, which was tall enough to let
+                        // ToDo run free.
+                        const formatDelta = (delta: number): string | null => {
+                          if (!showPreviousComparison || !hasCurrentBasis) return null;
+                          const sign = delta >= 0 ? '+' : '';
+                          return `${sign}${fmt.int(delta)}`;
+                        };
+                        const enquiriesAccent = isDarkMode ? 'rgba(135,243,243,0.95)' : colours.highlight;
+                        const mattersAccent = colours.green;
+                        const conversionAccent = isDarkMode ? colours.accent : colours.highlight;
+
+                        const renderKpi = (
+                          key: 'enquiries' | 'matters' | 'conversion',
+                          label: string,
+                          bigValue: string,
+                          deltaLabel: string | null,
+                          deltaPositive: boolean,
+                          previousLine: string | null,
+                          isLast: boolean,
+                          accent: string,
+                          onClick?: () => void,
+                        ) => (
+                          <div
+                            key={key}
+                            onClick={onClick}
+                            onMouseEnter={onClick ? tileHover.enter : undefined}
+                            onMouseLeave={onClick ? tileHover.leave : undefined}
+                            style={{
+                              padding: '12px 14px 12px',
+                              minWidth: 0,
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 5,
+                              borderRight: isLast ? 'none' : `1px solid ${rowBorder}`,
+                              cursor: onClick ? 'pointer' : 'default',
+                              transition: 'background 0.2s ease',
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              {key === 'enquiries' ? (
+                                <span aria-hidden="true" style={{ width: 12, height: 2, background: accent, flexShrink: 0 }} />
+                              ) : (
+                                <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: key === 'matters' ? 0 : '50%', background: accent, flexShrink: 0 }} />
+                              )}
+                              <span style={{ fontSize: 9, fontWeight: 700, color: muted, letterSpacing: '0.16em', textTransform: 'uppercase', opacity: 0.82 }}>{label}</span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: 24, fontWeight: 700, color: text, letterSpacing: '-0.035em', lineHeight: 1 }}>{bigValue}</span>
+                              {deltaLabel ? (
+                                <span style={{ fontSize: 10, fontWeight: 700, color: deltaPositive ? colours.green : colours.cta, letterSpacing: '0.04em' }}>{deltaLabel}</span>
+                              ) : null}
+                            </div>
+                            {previousLine ? (
+                              <div style={{ fontSize: 10, color: muted, opacity: 0.78, lineHeight: 1.4, minHeight: 14 }}>{previousLine}</div>
+                            ) : (
+                              <div style={{ fontSize: 10, minHeight: 14 }} aria-hidden="true">&nbsp;</div>
+                            )}
+                          </div>
+                        );
 
                         return (
                           <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '10px 12px', borderBottom: `1px solid ${rowBorder}` }}>
+                            {/* Period tabs */}
+                            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', padding: '10px 12px', borderBottom: `1px solid ${rowBorder}` }}>
                               {visibleConversionRows.map((row) => {
                                 const isSelected = row.key === item.key;
                                 const label = row.key === 'week-vs-last'
@@ -5122,155 +6179,142 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                                   </button>
                                 );
                               })}
+                              <span style={{ marginLeft: 'auto', fontSize: 9, fontWeight: 600, color: muted, letterSpacing: '0.06em', opacity: 0.75, textTransform: 'uppercase', textAlign: 'right' }}>
+                                {item.currentLabel}
+                                {showPreviousComparison ? ` · vs ${item.previousLabel.toLowerCase()}` : ''}
+                              </span>
                             </div>
 
+                            {/* 3 KPI cards — Enquiries / Matters / Conversion% */}
                             <div
-                              style={{ padding: '14px 14px 12px', display: 'grid', gap: 12, flex: 1, alignContent: 'start', cursor: selectedConversionInsightTarget ? 'pointer' : 'default' }}
+                              style={{
+                                display: 'grid',
+                                gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)',
+                                borderBottom: `1px solid ${rowBorder}`,
+                                animation: 'opsDashRowFade 0.25s ease 0.06s both',
+                              }}
+                            >
+                              {renderKpi(
+                                'enquiries',
+                                'Enquiries',
+                                fmt.int(item.currentEnquiries),
+                                formatDelta(enquiryDelta),
+                                enquiryDelta >= 0,
+                                showPreviousComparison
+                                  ? `was ${fmt.int(item.previousEnquiries)} ${item.previousLabel.toLowerCase()}`
+                                  : hasCurrentBasis
+                                    ? item.currentLabel
+                                    : 'No enquiries yet',
+                                false,
+                                enquiriesAccent,
+                                selectedConversionInsightTarget ? () => openInsight(selectedConversionInsightTarget) : undefined,
+                              )}
+                              {renderKpi(
+                                'matters',
+                                'Matters',
+                                fmt.int(item.currentMatters),
+                                formatDelta(matterDelta),
+                                matterDelta >= 0,
+                                showPreviousComparison
+                                  ? `was ${fmt.int(item.previousMatters)} ${item.previousLabel.toLowerCase()}`
+                                  : hasCurrentBasis
+                                    ? item.currentLabel
+                                    : 'No matters yet',
+                                false,
+                                mattersAccent,
+                                selectedConversionInsightTarget ? () => openInsight(selectedConversionInsightTarget) : undefined,
+                              )}
+                              {renderKpi(
+                                'conversion',
+                                'Conversion',
+                                currentPctLabel,
+                                deltaPointsLabel,
+                                deltaPoints >= 0,
+                                showPreviousComparison
+                                  ? `was ${previousPctLabel} ${item.previousLabel.toLowerCase()}`
+                                  : hasCurrentBasis
+                                    ? `${fmt.int(item.currentMatters)} from ${fmt.int(item.currentEnquiries)}`
+                                    : 'No enquiries yet',
+                                true,
+                                conversionAccent,
+                                selectedConversionInsightTarget ? () => openInsight(selectedConversionInsightTarget) : undefined,
+                              )}
+                            </div>
+
+                            {/* Combined trend chart */}
+                            {showChart && combinedSVG ? (
+                              <div style={{ padding: '10px 14px 10px', borderBottom: `1px solid ${rowBorder}`, animation: 'opsDashRowFade 0.28s ease 0.12s both' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6, flexWrap: 'wrap' }}>
+                                  <span style={{ fontSize: 9, fontWeight: 700, color: muted, letterSpacing: '0.18em', textTransform: 'uppercase', opacity: 0.82 }}>Trend</span>
+                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 9, fontWeight: 600, color: muted, letterSpacing: '0.04em' }}>
+                                    <span style={{ width: 12, height: 2, background: enquiriesAccent }} />
+                                    Enquiries
+                                  </span>
+                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 9, fontWeight: 600, color: muted, letterSpacing: '0.04em' }}>
+                                    <span style={{ width: 8, height: 8, background: mattersAccent, opacity: 0.9 }} />
+                                    Matters
+                                  </span>
+                                  <span style={{ marginLeft: 'auto', fontSize: 9, fontWeight: 500, color: muted, opacity: 0.6, letterSpacing: '0.02em' }}>
+                                    Hover for full breakdown
+                                  </span>
+                                </div>
+                                <div
+                                  aria-label="Enquiries and matters trend for selected period"
+                                  className="conv-combined-chart"
+                                  style={{ width: '100%', lineHeight: 0 }}
+                                  dangerouslySetInnerHTML={{ __html: combinedSVG.replace(/<svg([^>]*?)width="\d+"\s+height="(\d+)"/, '<svg$1width="100%" height="$2" preserveAspectRatio="none"') }}
+                                />
+                              </div>
+                            ) : null}
+
+                            {/* Prospect trails */}
+                            <div
+                              style={{ padding: '12px 14px 12px', display: 'flex', flexDirection: 'column', gap: 12, flex: 1, cursor: selectedConversionInsightTarget ? 'pointer' : 'default' }}
                               onMouseEnter={selectedConversionInsightTarget ? tileHover.enter : undefined}
                               onMouseLeave={selectedConversionInsightTarget ? tileHover.leave : undefined}
                               onClick={selectedConversionInsightTarget ? () => openInsight(selectedConversionInsightTarget) : undefined}
                             >
-                              {/* ── Hero KPI ── */}
-                              <div style={{ display: 'grid', gap: 8 }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-                                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-                                    <span style={{ fontSize: 36, fontWeight: 700, color: text, letterSpacing: '-0.04em', lineHeight: 1 }}>{currentPctLabel}</span>
-                                    {deltaPointsLabel ? (
-                                      <span style={{ fontSize: 9, fontWeight: 700, color: deltaPoints >= 0 ? colours.green : colours.cta, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                                        {deltaPointsLabel}
-                                      </span>
-                                    ) : null}
+                              {([
+                                { key: 'enquiries' as const, label: 'Enquiries', items: enquiryProspects, placeholderCount: item.currentEnquiries, accent: enquiriesAccent, anim: 0.16 },
+                                { key: 'matters' as const, label: 'Matters', items: matterProspects, placeholderCount: item.currentMatters, accent: mattersAccent, anim: 0.22 },
+                              ]).map(({ key, label, items, placeholderCount, accent, anim }) => (
+                                <div key={key} style={{ minWidth: 0, animation: `opsDashRowFade 0.25s ease ${anim}s both` }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+                                    {key === 'enquiries' ? (
+                                      <span aria-hidden="true" style={{ width: 12, height: 2, background: accent, flexShrink: 0 }} />
+                                    ) : (
+                                      <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: key === 'matters' ? 0 : '50%', background: accent, flexShrink: 0 }} />
+                                    )}
+                                    <span style={{ fontSize: 9, fontWeight: 700, color: muted, letterSpacing: '0.14em', textTransform: 'uppercase', opacity: 0.75 }}>{label}</span>
                                   </div>
-                                  <span style={{ fontSize: 9, color: muted, lineHeight: 1.35 }}>{comparisonMeta}</span>
+                                  <ConversionProspectBasket
+                                    items={items}
+                                    section={key}
+                                    aowColor={aowColor}
+                                    resolveAowCategory={resolveAowCategory}
+                                    isDarkMode={isDarkMode}
+                                    maxVisible={14}
+                                    breakpoint={conversionBreakpoint}
+                                    onOpenProspect={selectedConversionInsightTarget ? () => openInsight(selectedConversionInsightTarget) : undefined}
+                                    onOpenAll={selectedConversionInsightTarget ? () => openInsight(selectedConversionInsightTarget) : undefined}
+                                    overflowExpanded={conversionInlineLedger === key}
+                                    onOverflowToggle={() => toggleConversionInlineLedger(key)}
+                                    placeholderCount={items.length === 0 && placeholderCount > 0 ? placeholderCount : undefined}
+                                  />
+                                  {conversionInlineLedger === key && items.length > 0 ? (
+                                    <div style={{ marginTop: 8 }}>
+                                      <ConversionStreamLedger
+                                        section={key}
+                                        items={items}
+                                        aowColor={aowColor}
+                                        isDarkMode={isDarkMode}
+                                        maxHeight={240}
+                                      />
+                                    </div>
+                                  ) : null}
                                 </div>
-                                <div style={{ fontSize: 11, color: isDarkMode ? '#d1d5db' : '#374151', lineHeight: 1.35 }}>{comparisonCopy}</div>
-                                {showPreviousComparison ? (
-                                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-                                    <div style={{ display: 'grid', gap: 2, padding: '7px 9px', border: `1px solid ${rowBorder}`, background: isDarkMode ? 'rgba(255,255,255,0.015)' : 'rgba(13,47,96,0.015)' }}>
-                                      <span style={{ fontSize: 8, fontWeight: 700, color: muted, letterSpacing: '0.1em', textTransform: 'uppercase' }}>{item.currentLabel}</span>
-                                      <span style={{ fontSize: 10, color: text }}>{fmt.int(item.currentEnquiries)} enq · {fmt.int(item.currentMatters)} mat</span>
-                                    </div>
-                                    <div style={{ display: 'grid', gap: 2, padding: '7px 9px', border: `1px solid ${rowBorder}`, background: isDarkMode ? 'rgba(255,255,255,0.01)' : 'rgba(13,47,96,0.01)', opacity: 0.86 }}>
-                                      <span style={{ fontSize: 8, fontWeight: 700, color: muted, letterSpacing: '0.1em', textTransform: 'uppercase' }}>{item.previousLabel}</span>
-                                      <span style={{ fontSize: 10, color: text }}>{fmt.int(item.previousEnquiries)} enq · {fmt.int(item.previousMatters)} mat</span>
-                                    </div>
-                                  </div>
-                                ) : null}
-                              </div>
-
-                              {hasChart ? (
-                                <div style={{
-                                  display: 'flex',
-                                  flexDirection: 'column',
-                                  gap: 10,
-                                  flex: 1,
-                                  minHeight: 0,
-                                }}>
-                                  <div style={{ display: 'grid', gap: 6, minWidth: 0, alignSelf: 'stretch', flex: 1, minHeight: 0 }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                                            <span style={{ width: 12, height: 0, borderTop: `2px solid ${isDarkMode ? 'rgba(54,144,206,0.96)' : 'rgba(54,144,206,0.96)'}`, display: 'inline-block' }} />
-                                            <span style={{ width: 12, height: 0, borderTop: `1.6px dashed ${isDarkMode ? 'rgba(135,190,229,0.74)' : 'rgba(107,161,209,0.9)'}`, display: 'inline-block' }} />
-                                          </span>
-                                          <span style={{ fontSize: 8.5, color: muted, letterSpacing: '0.04em' }}>Enquiries</span>
-                                        </span>
-                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                                            <span style={{ width: 9, height: 9, background: isDarkMode ? 'rgba(54,144,206,0.24)' : 'rgba(54,144,206,0.18)', display: 'inline-block' }} />
-                                            <span style={{ width: 9, height: 9, background: isDarkMode ? 'rgba(54,144,206,0.11)' : 'rgba(214,232,255,0.95)', display: 'inline-block' }} />
-                                          </span>
-                                          <span style={{ fontSize: 8.5, color: muted, letterSpacing: '0.04em' }}>Matters</span>
-                                        </span>
-                                      </div>
-                                          <span style={{ fontSize: 7.5, color: muted, opacity: 0.64, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{chartMetaLabel}</span>
-                                    </div>
-                                    <div style={{ width: '100%', flex: 1 }}>{renderConversionChart(item)}</div>
-                                  </div>
-
-                                  {!isNarrow && selectedConversionAowMix.length > 0 ? (() => {
-                                    const totalMixCount = selectedConversionAowMix.reduce((sum, mixItem) => sum + Number(mixItem.count || 0), 0);
-                                    return (
-                                      <div style={{
-                                        marginTop: 'auto',
-                                        paddingTop: 8,
-                                        borderTop: `1px solid ${rowBorder}`,
-                                        display: 'grid',
-                                        gap: 6,
-                                      }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                                          <div style={{ fontSize: 8, fontWeight: 700, color: muted, letterSpacing: '0.14em', textTransform: 'uppercase', opacity: 0.72 }}>Enquiry mix</div>
-                                          <div style={{ fontSize: 8, color: muted }}>{fmt.int(totalMixCount)} enquiries</div>
-                                        </div>
-                                        <div style={{ display: 'flex', width: '100%', minHeight: 6, overflow: 'hidden', background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(13,47,96,0.05)' }}>
-                                          {selectedConversionAowMix.map((mixItem) => {
-                                            const pct = totalMixCount > 0 ? (mixItem.count / totalMixCount) * 100 : 0;
-                                            return (
-                                              <div
-                                                key={mixItem.key}
-                                                title={`${mixItem.key}: ${fmt.int(mixItem.count)} (${fmt.pct(pct)})`}
-                                                style={{ width: `${pct}%`, minWidth: pct > 0 ? 6 : 0, background: aowColor(mixItem.key), opacity: 0.95 }}
-                                              />
-                                            );
-                                          })}
-                                        </div>
-                                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                                          {selectedConversionAowMix.slice(0, 4).map((mixItem) => {
-                                            const pct = totalMixCount > 0 ? (mixItem.count / totalMixCount) * 100 : 0;
-                                            return (
-                                              <div key={mixItem.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 8, color: muted }}>
-                                                <span style={{ width: 6, height: 6, borderRadius: '50%', background: aowColor(mixItem.key), display: 'inline-block', flexShrink: 0 }} />
-                                                <span style={{ color: text, textTransform: 'lowercase' }}>{mixItem.key}</span>
-                                                <span>{fmt.pct(pct)}</span>
-                                              </div>
-                                            );
-                                          })}
-                                        </div>
-                                      </div>
-                                    );
-                                  })() : null}
-                                </div>
-                              ) : reserveChartWhitespace ? (
-                                <div style={{ minHeight: chartWhitespaceHeight }} />
-                              ) : null}
+                              ))}
                             </div>
-
-                            {isNarrow && selectedConversionAowMix.length > 0 && (() => {
-                              const totalMixCount = selectedConversionAowMix.reduce((sum, mixItem) => sum + Number(mixItem.count || 0), 0);
-                              return (
-                                <div style={{ padding: '8px 14px 10px', borderTop: `1px solid ${rowBorder}`, background: isDarkMode ? 'rgba(255,255,255,0.01)' : 'rgba(13,47,96,0.015)', display: 'grid', gap: 6 }}>
-                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                                    <div style={{ fontSize: 8, fontWeight: 700, color: muted, letterSpacing: '0.14em', textTransform: 'uppercase', opacity: 0.72 }}>Enquiry mix</div>
-                                    <div style={{ fontSize: 8, color: muted }}>{fmt.int(totalMixCount)} enquiries</div>
-                                  </div>
-                                  <div style={{ display: 'flex', width: '100%', minHeight: 6, overflow: 'hidden', background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(13,47,96,0.05)' }}>
-                                    {selectedConversionAowMix.map((mixItem) => {
-                                      const pct = totalMixCount > 0 ? (mixItem.count / totalMixCount) * 100 : 0;
-                                      return (
-                                        <div
-                                          key={mixItem.key}
-                                          title={`${mixItem.key}: ${fmt.int(mixItem.count)} (${fmt.pct(pct)})`}
-                                          style={{ width: `${pct}%`, minWidth: pct > 0 ? 6 : 0, background: aowColor(mixItem.key), opacity: 0.95 }}
-                                        />
-                                      );
-                                    })}
-                                  </div>
-                                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                                    {selectedConversionAowMix.slice(0, 4).map((mixItem) => {
-                                      const pct = totalMixCount > 0 ? (mixItem.count / totalMixCount) * 100 : 0;
-                                      return (
-                                        <div key={mixItem.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 8, color: muted }}>
-                                          <span style={{ width: 6, height: 6, borderRadius: '50%', background: aowColor(mixItem.key), display: 'inline-block', flexShrink: 0 }} />
-                                          <span style={{ color: text, textTransform: 'lowercase' }}>{mixItem.key}</span>
-                                          <span>{fmt.pct(pct)}</span>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-                              );
-                            })()}
                           </div>
                         );
                       })()
@@ -5345,6 +6389,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
           </div>
 
           {/* ── Right: Pipeline ── */}
+          {!hidePipelineAndMatters && (
           <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%' }}>
           <div className="home-section-header" style={{ minHeight: 18 }}>
             <FiFilter size={10} className="home-section-header-icon" />Pipeline
@@ -5372,7 +6417,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
             </div>
           </div>
           {(!enquiryMetrics || enquiryMetrics.length === 0) ? (
-            <div style={{ display: 'grid', gridTemplateColumns: isNarrow || layoutStacked ? '1fr' : '1fr 1fr', gap: 6, minHeight: pipelineRailHeight ?? 0, height: pipelineRailHeight }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gridTemplateRows: isNarrow ? 'auto auto' : 'minmax(0, 1fr) minmax(0, 1fr)', gap: 6, flex: 1, minHeight: pipelineRailHeight ?? 0 }}>
               {renderPipelineSkeletonCard('activity')}
               {renderPipelineSkeletonCard('matters')}
             </div>
@@ -5385,13 +6430,12 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                 gap: 6,
                 flex: 1,
                 minHeight: pipelineRailHeight ?? 0,
-                height: pipelineRailHeight,
               }}
             >
 
             {/* ── Column 2: Recent Activity (tabbed) ── */}
             <div
-              style={{ background: cardBg, border: `1px solid ${cardBorder}`, boxShadow: cardShadow, display: 'flex', flexDirection: 'column', minHeight: isNarrow ? 220 : pipelineCardHeight ?? 0, maxHeight: isNarrow ? 380 : pipelineCardHeight, animation: 'opsDashFadeIn 0.35s ease 0.1s both', transition: 'border-color 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease' }}
+              style={{ background: cardBg, border: `1px solid ${cardBorder}`, boxShadow: cardShadow, display: 'flex', flexDirection: 'column', minHeight: isNarrow ? 220 : pipelineCardHeight ?? 0, height: isNarrow ? 'auto' : '100%', maxHeight: isNarrow ? 380 : pipelineCardHeight ?? '100%', animation: 'opsDashFadeIn 0.35s ease 0.1s both', transition: 'border-color 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease' }}
               onMouseEnter={cardHover.enter}
               onMouseLeave={cardHover.leave}
             >
@@ -5856,7 +6900,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
 
             {/* ── Column 3: Matters ── */}
             <div
-              style={{ background: cardBg, border: `1px solid ${cardBorder}`, boxShadow: cardShadow, display: 'flex', flexDirection: 'column', minHeight: isNarrow ? 220 : pipelineCardHeight ?? 0, maxHeight: isNarrow ? 'none' : pipelineCardHeight, animation: 'opsDashFadeIn 0.35s ease 0.15s both', transition: 'border-color 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease' }}
+              style={{ background: cardBg, border: `1px solid ${cardBorder}`, boxShadow: cardShadow, display: 'flex', flexDirection: 'column', minHeight: isNarrow ? 220 : pipelineCardHeight ?? 0, height: isNarrow ? 'auto' : '100%', maxHeight: isNarrow ? 380 : pipelineCardHeight ?? '100%', overflow: 'hidden', animation: 'opsDashFadeIn 0.35s ease 0.15s both', transition: 'border-color 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease' }}
               onMouseEnter={cardHover.enter}
               onMouseLeave={cardHover.leave}
             >
@@ -5999,7 +7043,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                                     : 'ND pending';
                       const openReview = (event: React.MouseEvent) => {
                         event.stopPropagation();
-                        openCclWorkflowModal(m.matterId);
+                        openCclWorkflowModal(m.matterId, { compileOnly: isCompileOnlyCclStatus(ccl) });
                       };
                       const activeMatterTone = isDarkMode ? colours.accent : colours.highlight;
                       const matterStepsReadOnly = !canSeeCcl;
@@ -6046,12 +7090,13 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                           disabled: matterStepsReadOnly || (!reviewDone && !ndDone),
                         },
                       ];
+                      const matterLoadingTone = isDarkMode ? colours.accent : colours.highlight;
                       const matterLoadingItems: HomePipelineStripItem<HomeMatterStepKey>[] = [
-                        { key: 'compile', label: 'Compile', state: 'loading', tone: colours.subtleGrey, title: 'Resolving CCL status', disabled: true },
-                        { key: 'generate', label: 'Draft', state: 'loading', tone: colours.subtleGrey, title: 'Resolving CCL status', disabled: true },
-                        { key: 'pressure', label: 'Test', state: 'loading', tone: colours.subtleGrey, title: 'Resolving CCL status', disabled: true },
-                        { key: 'review', label: 'Review', state: 'loading', tone: colours.subtleGrey, title: 'Resolving CCL status', disabled: true },
-                        { key: 'nd', label: 'Upload', state: 'loading', tone: colours.subtleGrey, title: 'Resolving CCL status', disabled: true },
+                        { key: 'compile', label: 'Compile', state: 'loading', tone: matterLoadingTone, title: 'Resolving CCL status…', disabled: true },
+                        { key: 'generate', label: 'Draft', state: 'loading', tone: matterLoadingTone, title: 'Resolving CCL status…', disabled: true },
+                        { key: 'pressure', label: 'Test', state: 'loading', tone: matterLoadingTone, title: 'Resolving CCL status…', disabled: true },
+                        { key: 'review', label: 'Review', state: 'loading', tone: matterLoadingTone, title: 'Resolving CCL status…', disabled: true },
+                        { key: 'nd', label: 'Upload', state: 'loading', tone: matterLoadingTone, title: 'Resolving CCL status…', disabled: true },
                       ];
                       const cclDotColor = !ccl
                         ? (isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.10)')
@@ -6150,7 +7195,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                                   </button>
                                 )}
                               </div>
-                              <span style={{ fontSize: 9, color: muted, lineHeight: 1.1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.clientName || '—'}</span>
+                              <span style={{ fontSize: 9, color: muted, lineHeight: 1.1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{(m.clientName && m.clientName.trim()) || '—'}</span>
                             </div>
 
                             <div style={{ display: 'grid', gridTemplateColumns: matterActionGridTemplate, alignItems: 'center', justifyContent: 'end', gap: 0, minWidth: 0, width: '100%' }}>
@@ -6213,39 +7258,39 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                                         if (!canSeeCcl) return;
 
                                         if (stepKey === 'compile') {
-                                          openCclWorkflowModal(m.matterId);
+                                          openCclWorkflowModal(m.matterId, { compileOnly: isCompileOnlyCclStatus(ccl) });
                                           return;
                                         }
 
                                         if (stepKey === 'generate') {
                                           if (genDone) {
-                                            openCclWorkflowModal(m.matterId);
+                                            openCclWorkflowModal(m.matterId, { compileOnly: isCompileOnlyCclStatus(ccl) });
                                             return;
                                           }
                                           if (!genActive) {
-                                            openCclWorkflowModal(m.matterId, { autoRun: 'generate' });
+                                            openCclWorkflowModal(m.matterId, { autoRun: 'generate', compileOnly: isCompileOnlyCclStatus(ccl) });
                                           }
                                           return;
                                         }
 
                                         if (stepKey === 'pressure') {
                                           if (pressureDone) {
-                                            openCclWorkflowModal(m.matterId);
+                                            openCclWorkflowModal(m.matterId, { compileOnly: isCompileOnlyCclStatus(ccl) });
                                             return;
                                           }
                                           if (!pressureActive && genDone) {
-                                            openCclWorkflowModal(m.matterId, { autoRun: 'pressure' });
+                                            openCclWorkflowModal(m.matterId, { autoRun: 'pressure', compileOnly: isCompileOnlyCclStatus(ccl) });
                                           }
                                           return;
                                         }
 
                                         if (stepKey === 'review' && hasDraft) {
-                                          openCclWorkflowModal(m.matterId);
+                                          openCclWorkflowModal(m.matterId, { compileOnly: isCompileOnlyCclStatus(ccl) });
                                           return;
                                         }
 
                                         if (stepKey === 'nd' && (reviewDone || ndDone)) {
-                                          openCclWorkflowModal(m.matterId);
+                                          openCclWorkflowModal(m.matterId, { compileOnly: isCompileOnlyCclStatus(ccl) });
                                         }
                                       }}
                                       className={matterStepsReadOnly ? 'home-pipeline-strip--readonly' : undefined}
@@ -6515,13 +7560,112 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
             </div>
           )}
           </div>
+          )}
+
+          {/* ── Right: ToDo (replaces Pipeline when toggled) ── */}
+          {hidePipelineAndMatters && todoSlot && (
+            <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%' }}>
+              <div className="home-section-header" style={{ minHeight: 18 }}>
+                <FiCheckCircle size={10} className="home-section-header-icon" />To Do
+                {/* 2026-04-21: count moved inline with the header label as a
+                    subtle pill — sized to the label cap-height so it never
+                    increases the header strip's vertical footprint. The
+                    standalone strip inside ImmediateActionsBar (seamless mode)
+                    is removed in tandem to reclaim the vertical space. */}
+                {typeof todoCount === 'number' && todoCount > 0 && (
+                  <span
+                    aria-label={`${todoCount} outstanding`}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      minWidth: 16,
+                      height: 14,
+                      padding: '0 5px',
+                      marginLeft: 6,
+                      borderRadius: 999,
+                      fontSize: 9,
+                      fontWeight: 600,
+                      letterSpacing: '0.04em',
+                      lineHeight: 1,
+                      background: isDarkMode ? withAlpha(colours.accent, 0.18) : withAlpha(colours.highlight, 0.12),
+                      color: isDarkMode ? colours.accent : colours.highlight,
+                    }}
+                  >
+                    {todoCount}
+                  </span>
+                )}
+              </div>
+              <div
+                style={{
+                  flex: 1,
+                  minHeight: primaryRailMinHeight,
+                  // D5: cap ToDo card to the measured Conversion rail height so
+                  // the two panels read as peers. Long todo lists scroll inside
+                  // this card rather than pushing the row taller than Conversion.
+                  height: todoMatchedHeight,
+                  maxHeight: todoMatchedHeight,
+                  background: cardBg,
+                  border: `1px solid ${cardBorder}`,
+                  boxShadow: cardShadow,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  animation: 'opsDashFadeIn 0.35s ease 0.05s both',
+                  transition: 'border-color 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease',
+                  overflow: 'hidden',
+                }}
+              >
+                <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', padding: '6px 10px 8px' }}>
+                  {/* 2026-04-21: tighter inset (was 12/14) — count badge has
+                      moved up to the section header so the body no longer
+                      needs to host a header strip; the rows can sit closer to
+                      the card edges and feel less padded. */}
+                  {todoSlot}
+                </div>
+              </div>
+            </div>
+          )}
 
           </div>
         </div>
       )}
 
         {/* ── Calls & Attendance Notes ── */}
-        <CallsAndNotes isDarkMode={isDarkMode} userInitials={userInitials || ''} userEmail={userEmail} isNarrow={callsAndNotesNarrow} demoModeEnabled={demoModeEnabled} isActive={isActive} />
+        <ErrorBoundary
+          fallback={(
+            <div style={{ background: cardBg, border: `1px solid ${cardBorder}`, boxShadow: cardShadow, padding: '12px 14px', color: muted, fontSize: 11 }}>
+              Call Centre is temporarily unavailable while the panel reloads.
+            </div>
+          )}
+        >
+          <React.Suspense
+            fallback={(
+              <div style={{ background: cardBg, border: `1px solid ${cardBorder}`, boxShadow: cardShadow, padding: '12px 14px', color: muted, fontSize: 11 }}>
+                Loading Call Centre…
+              </div>
+            )}
+          >
+            <CallsAndNotes isDarkMode={isDarkMode} userInitials={userInitials || ''} userEmail={userEmail} userRate={currentUserTeamMember?.Rate} isNarrow={callsAndNotesNarrow} demoModeEnabled={demoModeEnabled} isActive={isActive} />
+          </React.Suspense>
+        </ErrorBoundary>
+
+        {/* ── Conversion Stream Preview Modal (D3) ── */}
+        {conversionStreamPreview && selectedConversionItem ? (
+          <ConversionStreamPreview
+            open
+            onClose={() => setConversionStreamPreview(null)}
+            section={conversionStreamPreview}
+            comparisonLabel={selectedConversionItem.comparisonLabel}
+            currentLabel={selectedConversionItem.currentLabel}
+            items={
+              conversionStreamPreview === 'enquiries'
+                ? (Array.isArray(selectedConversionItem.currentEnquiryProspects) ? selectedConversionItem.currentEnquiryProspects : [])
+                : (Array.isArray(selectedConversionItem.currentMatterProspects) ? selectedConversionItem.currentMatterProspects : [])
+            }
+            aowColor={aowColor}
+            isDarkMode={isDarkMode}
+          />
+        ) : null}
 
         {/* ── Enquiry Follow-Up Modal ── */}
         {enquiryFollowUpModal && (() => {
@@ -7416,10 +8560,13 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
 
       {/* ── CCL Letter Preview Modal ── */}
       {cclLetterModal && (() => { try {
-        const cached = cclDraftCache[cclLetterModal];
+        let cached = cclDraftCache[cclLetterModal];
+        const ccl = cclMap[cclLetterModal];
+        const cclStage = getCanonicalCclStage(ccl?.stage || ccl?.status);
+        const isCompileStageRender = cclCompileOnlyLaunchRef.current.has(cclLetterModal) || isCompileOnlyCclStatus(ccl);
+
         const draft = cached?.fields;
         const docUrl = cached?.docUrl;
-        const ccl = cclMap[cclLetterModal];
         const matter = displayMatters.find(m => m.matterId === cclLetterModal);
         const launchPersistedTrace = cclAiTraceByMatter[cclLetterModal];
         const launchTraceLoading = !!cclAiTraceLoadingByMatter[cclLetterModal];
@@ -7453,28 +8600,35 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
           pressureErrored: launchPressureErrored,
           handoffActive: launchHandoffActive,
         });
-        console.log('[CCL modal render]', { matterId: cclLetterModal, hasCached: cached !== undefined, hasDraft: !!draft, loading: cclDraftLoading });
+        console.log('[CCL modal render]', { matterId: cclLetterModal, hasCached: cached !== undefined, hasDraft: !!draft, loading: cclDraftLoading, isCompileStage: isCompileStageRender });
         const isDraftLoading = cclDraftLoading === cclLetterModal;
         const openedAt = cclLetterModalOpenedAtRef.current;
         const elapsed = Date.now() - openedAt;
         const isDraftLoadStale = !draft && isDraftLoading && elapsed > 6000;
-        const launchDraftError = !draft && !isDraftLoading && !isDraftLoadStale
-          ? 'No saved draft was found for this matter yet. Create the draft first, then return to review it here.'
-          : null;
-        const retryDraftFetch = isDraftLoadStale ? (() => {
+        const draftFetchError = isCompileStageRender ? null : (cached?.fetchError && !isDraftLoading ? cached.fetchError : null);
+        const launchDraftError = draftFetchError
+          ? `Draft fetch failed \u2014 ${draftFetchError}. Close and re-open to retry.`
+          : !draft && !isDraftLoading && !isDraftLoadStale && !isCompileStageRender
+            ? 'No saved draft was found for this matter yet. Create the draft first, then return to review it here.'
+            : null;
+        const retryDraftFetch = (isDraftLoadStale || draftFetchError) ? (() => {
           console.log('[CCL modal] manual retry for', cclLetterModal);
           setCclDraftLoading(cclLetterModal);
           cclLetterModalOpenedAtRef.current = Date.now();
           const controller = new AbortController();
-          const timeoutId = window.setTimeout(() => controller.abort(), 12000);
-          fetch(`/api/ccl/${encodeURIComponent(cclLetterModal!)}`, { signal: controller.signal })
+          const timeoutId = window.setTimeout(() => controller.abort(), 20000);
+          fetch(buildCclApiUrl(`/api/ccl/${encodeURIComponent(cclLetterModal!)}`), { signal: controller.signal, credentials: 'include' })
             .then(res => res.ok ? res.json() : Promise.reject(new Error(`${res.status}`)))
             .then(data => {
               const fields = data?.json && typeof data.json === 'object' ? data.json : {};
-              setCclDraftCache(prev => ({ ...prev, [cclLetterModal!]: { fields, docUrl: data?.url || undefined } }));
+              setCclDraftCache(prev => ({ ...prev, [cclLetterModal!]: { fields, docUrl: data?.url || undefined, loadInfo: data?.loadInfo || prev[cclLetterModal!]?.loadInfo } }));
+              // Hydrate persisted pressure-test result so the PT ceremony doesn't replay
+              if (data?.pressureTest?.fieldScores) {
+                setCclPressureTestByMatter(prev => ({ ...prev, [cclLetterModal!]: data.pressureTest }));
+              }
             })
-            .catch(() => {
-              setCclDraftCache(prev => ({ ...prev, [cclLetterModal!]: { fields: {} } }));
+            .catch((err) => {
+              setCclDraftCache(prev => ({ ...prev, [cclLetterModal!]: { fields: null, fetchError: err?.message || 'Network error', loadInfo: prev[cclLetterModal!]?.loadInfo } }));
             })
             .finally(() => {
               window.clearTimeout(timeoutId);
@@ -7504,7 +8658,6 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
         setFallback('figure', normalizedDraft.state_amount);
         setFallback('state_amount', normalizedDraft.figure);
 
-        const cclStage = getCanonicalCclStage(ccl?.stage || ccl?.status);
         const statusLabel = getCanonicalCclLabel(ccl?.stage || ccl?.status, ccl?.label);
         const statusColor = cclStage === 'sent' ? colours.green
           : cclStage === 'reviewed' || cclStage === 'pressure-tested' || cclStage === 'generated' || cclStage === 'compiled' ? (isDarkMode ? colours.accent : colours.highlight)
@@ -7603,8 +8756,6 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
           launchTraceLoading
           || launchIsStreamingNow
           || launchPressureRunning
-          || !launchHasAiData
-          || (!launchPressureReady && !launchPressureErrored)
         ));
         const showSetupInDefaultView = !draft || showReviewLaunchOverlay;
         const launchHeadline = isDraftLoadStale ? 'Taking longer than expected' : 'Opening CCL review';
@@ -7623,7 +8774,9 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                     : launchTraceLoading
                       ? 'Checking for saved review data.'
                       : !launchHasAiData
-                        ? 'Loading draft and review data.'
+                        ? (draft && Object.keys(draft).length === 0 && !isDraftLoading
+                          ? 'Starting review generation.'
+                          : 'Loading draft and review data.')
                         : 'Finalising review setup.';
         const prettifyFieldKey = (key: string) => key
           .replace(/_/g, ' ')
@@ -7863,6 +9016,50 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
         const allClickableFieldKeys: string[] = effectiveReviewFieldKeys.length > 0 ? effectiveReviewFieldKeys : visibleReviewFieldKeys;
         const visibleReviewFieldCount = effectiveReviewFieldKeys.length;
 
+        // ── Provenance meta strip ──
+        // Passive read-only footer: which prompt produced this draft, which
+        // model, how many fields Safety Net flagged, and the trace id. Visible
+        // to everyone so the whole team can see what the AI ran on — this is
+        // reference, not a call to action. Styled as plain inline text (no
+        // border, no background) so it doesn't compete with actionable content.
+        const ptResultForDev = cclPressureTestByMatter[cclLetterModal];
+        const promptVersionForDev = (aiRes as { promptVersion?: string } | undefined)?.promptVersion
+            || ptResultForDev?.promptVersion
+            || null;
+        const flaggedForDev = ptResultForDev?.flaggedCount
+            ?? (ptResultForDev?.fieldScores
+                ? Object.values(ptResultForDev.fieldScores).filter((s: { flag?: boolean }) => !!s?.flag).length
+                : null);
+        const modelForDev = (aiRes as { model?: string } | undefined)?.model || null;
+        const traceIdForDev = (aiRes as { aiTraceId?: number | null; debug?: { trackingId?: string } } | undefined)?.aiTraceId
+            || (aiRes as { debug?: { trackingId?: string } } | undefined)?.debug?.trackingId
+            || null;
+        const devMetaStrip = (promptVersionForDev || modelForDev || ptResultForDev) ? (
+            <div
+                style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                    gap: 6,
+                    fontFamily: 'Raleway, sans-serif',
+                    fontSize: 9.5,
+                    color: colours.subtleGrey,
+                    opacity: 0.7,
+                    letterSpacing: '0.02em',
+                }}
+                title="AI run provenance — reference only"
+            >
+                {promptVersionForDev && <span>{promptVersionForDev}</span>}
+                {modelForDev && <span>· {modelForDev}</span>}
+                {typeof flaggedForDev === 'number' && (
+                    <span>
+                        · flagged <span style={{ color: flaggedForDev > 0 ? colours.orange : colours.green }}>{flaggedForDev}</span>
+                    </span>
+                )}
+                {traceIdForDev && <span>· trace {String(traceIdForDev)}</span>}
+            </div>
+        ) : null;
+
         // Confidence breakdown for summary card
         const confidenceBreakdown = { data: 0, inferred: 0, templated: 0, unknown: 0 };
         for (const key of aiFieldKeys) {
@@ -7884,7 +9081,8 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
             ? savedSelectedField
             : null;
         const showReviewIntro = !showSetupInDefaultView && shouldOfferReviewIntro;
-        cclIntroPreviewModeRef.current = showReviewIntro;
+        const useIntroPreviewLayout = showReviewIntro || showSetupInDefaultView;
+        cclIntroPreviewModeRef.current = useIntroPreviewLayout;
         const selectedFieldKey = showReviewIntro ? null : resolvedSelectedFieldKey;
         cclSelectedFieldRef.current = selectedFieldKey;
         const selectedFieldMeta = selectedFieldKey ? fieldMeta[selectedFieldKey] : null;
@@ -7974,6 +9172,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
           : 0;
         const selectedFieldIsReviewed = selectedFieldKey ? reviewedSet.has(selectedFieldKey) : false;
         const selectedFieldPressureTest = selectedFieldKey ? cclPressureTestByMatter[cclLetterModal]?.fieldScores?.[selectedFieldKey] : undefined;
+        const selectedFieldPressureTestResponse = cclPressureTestByMatter[cclLetterModal];
         const selectedFieldDecisionReason = structuredChoiceConfig
           ? 'Pick the wording branch.'
           : selectedFieldUnresolved
@@ -8162,14 +9361,152 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
         const setupHeaderBody = launchPressureRunning
           ? (setupPressureActiveKey ? `Checking ${prettifyFieldKey(setupPressureActiveKey)} against source evidence.` : 'Checking generated fields against source evidence.')
           : launchBody;
-        const setupFlowLabel = launchSteps
-          .map((step) => {
-            if (step.status === 'active') return `[${step.label}]`;
-            if (step.status === 'done') return step.label;
-            if (step.status === 'error') return `${step.label}*`;
-            return step.label;
-          })
-          .join('  ·  ');
+        const setupFlowStrip = (() => {
+          const activeIdx = launchSteps.findIndex((s) => s.status === 'active');
+          const errorIdx = launchSteps.findIndex((s) => s.status === 'error');
+          const focusIdx = activeIdx >= 0 ? activeIdx : errorIdx >= 0 ? errorIdx : launchSteps.findIndex((s) => s.status === 'pending');
+          return (
+            <div
+              role="group"
+              aria-label="CCL pipeline progress"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 0,
+                padding: '6px 10px',
+                background: 'rgba(8, 28, 48, 0.55)',
+                border: '1px solid rgba(75, 85, 99, 0.32)',
+              }}
+            >
+              {launchSteps.map((step, i) => {
+                const isDone = step.status === 'done';
+                const isActive = step.status === 'active';
+                const isError = step.status === 'error';
+                const isFocus = i === focusIdx;
+                const ringColor = isDone
+                  ? colours.green
+                  : isActive
+                    ? colours.accent
+                    : isError
+                      ? colours.cta
+                      : 'rgba(160, 160, 160, 0.45)';
+                const fillColor = isDone
+                  ? colours.green
+                  : isActive
+                    ? colours.accent
+                    : isError
+                      ? colours.cta
+                      : 'transparent';
+                const labelColor = isDone
+                  ? '#9fd9b8'
+                  : isActive
+                    ? '#f3f4f6'
+                    : isError
+                      ? colours.cta
+                      : '#7a8290';
+                // Connector fills green up to (and including) the segment between two done steps.
+                const prev = i > 0 ? launchSteps[i - 1] : null;
+                const connectorDone = prev && prev.status === 'done' && (isDone || isActive || isError);
+                const connectorColor = connectorDone
+                  ? 'rgba(32, 178, 108, 0.55)'
+                  : 'rgba(75, 85, 99, 0.32)';
+                return (
+                  <React.Fragment key={step.label}>
+                    {i > 0 && (
+                      <div
+                        aria-hidden="true"
+                        style={{
+                          width: 20,
+                          height: 1,
+                          background: connectorColor,
+                          flexShrink: 0,
+                          margin: '0 2px',
+                        }}
+                      />
+                    )}
+                    <div
+                      aria-current={isActive ? 'step' : undefined}
+                      title={step.detail || step.label}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        flexShrink: 0,
+                        padding: '2px 4px',
+                      }}
+                    >
+                      <span
+                        aria-hidden="true"
+                        style={{
+                          position: 'relative',
+                          width: 14,
+                          height: 14,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexShrink: 0,
+                        }}
+                      >
+                        {isActive ? (
+                          // Active step: spinning ring — replaces the static pulse dot so the
+                          // loading affordance lives *inside* the step rather than beside the strip.
+                          <span
+                            style={{
+                              width: 14,
+                              height: 14,
+                              borderRadius: '50%',
+                              border: `1.5px solid rgba(135, 243, 243, 0.18)`,
+                              borderTopColor: ringColor,
+                              boxSizing: 'border-box',
+                              animation: 'helix-spin 0.8s linear infinite',
+                            }}
+                          />
+                        ) : (
+                          <span
+                            style={{
+                              width: 14,
+                              height: 14,
+                              borderRadius: '50%',
+                              border: `1.5px solid ${ringColor}`,
+                              background: fillColor,
+                              boxSizing: 'border-box',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                          >
+                            {isDone && (
+                              <svg width="8" height="8" viewBox="0 0 8 8" fill="none" aria-hidden="true">
+                                <path d="M1.5 4.2L3.2 5.8L6.5 2.4" stroke="#061733" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            )}
+                            {isError && (
+                              <svg width="8" height="8" viewBox="0 0 8 8" fill="none" aria-hidden="true">
+                                <path d="M2 2L6 6M6 2L2 6" stroke="#061733" strokeWidth="1.6" strokeLinecap="round" />
+                              </svg>
+                            )}
+                          </span>
+                        )}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: 11,
+                          fontWeight: isActive ? 700 : isFocus && !isDone ? 600 : 500,
+                          letterSpacing: isActive ? 0.01 : 0,
+                          color: labelColor,
+                          whiteSpace: 'nowrap',
+                          fontFamily: 'Raleway, sans-serif',
+                        }}
+                      >
+                        {step.label}
+                      </span>
+                    </div>
+                  </React.Fragment>
+                );
+              })}
+            </div>
+          );
+        })();
         const selectedFieldCue = selectedFieldState?.isUnresolved
           ? { label: 'AI placeholder', swatch: 'rgba(255,140,0,0.14)', border: 'rgba(255,140,0,0.40)', text: colours.yellow }
           : (selectedFieldState?.isAiGenerated || selectedFieldState?.isAiUpdated)
@@ -8177,6 +9514,17 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
             : selectedFieldState?.isMailMergeValue
               ? { label: 'Mail merge', swatch: 'rgba(135,243,243,0.14)', border: 'rgba(135,243,243,0.48)', text: colours.accent }
               : { label: 'Static text', swatch: 'rgba(255,255,255,0.06)', border: 'rgba(255,255,255,0.10)', text: '#d1d5db' };
+        const selectedFieldCueTone = selectedFieldState?.isUnresolved
+          ? 'placeholder'
+          : (selectedFieldState?.isAiGenerated || selectedFieldState?.isAiUpdated)
+            ? 'ai'
+            : selectedFieldState?.isMailMergeValue
+              ? 'mail-merge'
+              : 'static';
+        const godModeFieldOptionsWithLabels = godModeFieldOptions.map((fieldKey) => ({
+          key: fieldKey,
+          label: fieldMeta[fieldKey]?.label || prettifyFieldKey(fieldKey),
+        }));
         const reviewSectionTabs = reviewFieldGroups.map((group) => {
           const firstKey = group.keys[0] || null;
           const focusKey = group.keys.find((key) => !reviewedSet.has(key)) || firstKey;
@@ -8223,6 +9571,33 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
           setFocusedReviewField(nextDecisionFieldKey);
           requestAnimationFrame(() => scrollReviewFieldIntoView(nextDecisionFieldKey));
         };
+        const previousDecisionFieldKey = selectedFieldIndex > 0
+          ? selectedFieldSequence[selectedFieldIndex - 1]
+          : null;
+        const focusPreviousDecision = () => {
+          if (!previousDecisionFieldKey) return;
+          setFocusedReviewField(previousDecisionFieldKey);
+          requestAnimationFrame(() => scrollReviewFieldIntoView(previousDecisionFieldKey));
+        };
+        const jumpToDecision = (targetKey: string) => {
+          if (!targetKey || targetKey === selectedFieldKey) return;
+          setFocusedReviewField(targetKey);
+          requestAnimationFrame(() => scrollReviewFieldIntoView(targetKey));
+        };
+        const queueStripItems = selectedFieldSequence.map((key) => {
+          const meta = fieldMeta[key];
+          const ptScore = cclPressureTestByMatter[cclLetterModal]?.fieldScores?.[key];
+          const isUnresolved = meta?.confidence === 'unknown'
+            || !String(structuredReviewFields[key] || normalizedDraft[key] || '').trim();
+          return {
+            key,
+            label: meta?.label || prettifyFieldKey(key),
+            group: meta?.group,
+            reviewed: reviewedSet.has(key),
+            flagged: !!ptScore?.flag,
+            unresolved: isUnresolved,
+          };
+        });
         const beginReviewFromIntro = () => {
           dismissReviewIntroForMatter(cclLetterModal);
           setCclIntroCurrentPage(1);
@@ -8366,6 +9741,57 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
           }
         };
 
+        // Keyboard nav — delegated from the top-level document listener via ref.
+        // ↑ previous · ↓ next · Enter (with Ctrl) approve · R toggle reviewed
+        // · Esc back to summary. We bail if focus is inside a textarea/input so
+        // the user can still type freely, except for Ctrl+Enter which is always
+        // honoured (approve-letter shortcut).
+        cclReviewKeyHandlerRef.current = (event: KeyboardEvent) => {
+          if (!cclLetterModal) return;
+          const target = event.target as HTMLElement | null;
+          const isTypingTarget = !!target && (
+            target.tagName === 'TEXTAREA'
+            || target.tagName === 'INPUT'
+            || target.isContentEditable
+          );
+          const ctrlOrMeta = event.ctrlKey || event.metaKey;
+          if (event.key === 'Escape') {
+            if (selectedFieldKey) {
+              event.preventDefault();
+              setFocusedReviewField(null);
+            }
+            return;
+          }
+          if (!selectedFieldKey) return;
+          if (isTypingTarget && !(ctrlOrMeta && event.key === 'Enter')) return;
+          if (ctrlOrMeta && event.key === 'Enter') {
+            if (canApprove && !nextDecisionFieldKey && !cclApprovingMatter) {
+              event.preventDefault();
+              handleApproveCurrentLetter();
+            }
+            return;
+          }
+          if (event.key === 'ArrowUp') {
+            if (previousDecisionFieldKey) {
+              event.preventDefault();
+              focusPreviousDecision();
+            }
+            return;
+          }
+          if (event.key === 'ArrowDown') {
+            if (nextDecisionFieldKey) {
+              event.preventDefault();
+              focusNextDecision();
+            }
+            return;
+          }
+          if (event.key === 'r' || event.key === 'R') {
+            event.preventDefault();
+            toggleFieldReviewed(selectedFieldKey);
+            if (!selectedFieldIsReviewed) focusNextDecision();
+          }
+        };
+
         // P5: Auto-scroll to the initial guided field once per matter/field pair.
         const autoScrollReviewKey = selectedFieldKey && !savedSelectedField ? `${cclLetterModal}:${selectedFieldKey}` : null;
         if (autoScrollReviewKey && cclAutoScrollReviewRef.current !== autoScrollReviewKey) {
@@ -8403,31 +9829,171 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
           || ptRunningHere
         );
         const noClarificationsQueued = !selectedFieldKey && !loadingReviewContext && !noAiReviewContext && visibleReviewFieldCount === 0 && !showSummaryLanding;
+        const currentDraftVersion = Number(ccl?.version ?? cached?.loadInfo?.version ?? 0);
+        const replacementDraftVersion = currentDraftVersion > 0 ? currentDraftVersion + 1 : null;
+        const canOfferOverrideRerun = !showSetupInDefaultView && !!draft && !isCompileStageRender;
+        const showOverrideConfirm = cclOverrideConfirmMatter === cclLetterModal && canOfferOverrideRerun;
+        const overrideButtonLabel = cclAiFillingMatter === cclLetterModal
+          ? currentDraftVersion > 0 && replacementDraftVersion
+            ? `Replacing v${currentDraftVersion} with v${replacementDraftVersion}…`
+            : 'Replacing current draft…'
+          : replacementDraftVersion
+            ? `Rerun and replace with v${replacementDraftVersion}`
+            : 'Rerun and replace draft';
+        const overrideCardExpanded = cclOverrideCardExpandedMatter === cclLetterModal || showOverrideConfirm;
+        const overrideExpandedCard = canOfferOverrideRerun && overrideCardExpanded ? (
+          <div style={{ display: 'grid', gap: 10, border: '1px solid rgba(75, 85, 99, 0.45)', background: 'rgba(10, 28, 50, 0.55)', padding: isMobileReview ? '12px 14px' : '12px 14px', animation: 'cclOverrideExpandIn 240ms cubic-bezier(0.22, 1, 0.36, 1) both' }}>
+            {currentDraftVersion > 0 && replacementDraftVersion ? (
+              <div style={{ display: 'grid', gap: 2, lineHeight: 1.2 }}>
+                <div style={{
+                  fontSize: isMobileReview ? 12 : 11,
+                  color: colours.subtleGrey,
+                  textDecoration: 'line-through',
+                  textDecorationColor: 'rgba(160, 160, 160, 0.6)',
+                  fontWeight: 500,
+                  letterSpacing: '0.01em',
+                }}>
+                  v{currentDraftVersion}
+                </div>
+                <div style={{
+                  fontSize: isMobileReview ? 17 : 15,
+                  color: '#f3f4f6',
+                  fontWeight: 700,
+                  letterSpacing: '0.01em',
+                }}>
+                  v{replacementDraftVersion}
+                </div>
+              </div>
+            ) : (
+              <div style={{ fontSize: isMobileReview ? 13 : 12, color: '#f3f4f6', fontWeight: 700 }}>
+                New draft
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                trackClientEvent('operations-ccl', 'CCL.OverrideRerun.Clicked', {
+                  matterId: cclLetterModal,
+                  currentVersion: currentDraftVersion,
+                  filling: cclAiFillingMatter === cclLetterModal,
+                });
+                // Direct fire — the v{n} → v{n+1} visual above conveys what happens.
+                // A second confirm modal was being swallowed by stacking context in
+                // the Teams iframe, leaving the button looking dead. One deliberate
+                // click is enough.
+                void runHomeCclAiAutofill(cclLetterModal, { overrideExisting: true });
+              }}
+              disabled={cclAiFillingMatter === cclLetterModal}
+              style={{
+                justifySelf: 'start',
+                fontSize: isMobileReview ? 12 : 11,
+                fontWeight: 700,
+                color: '#fff',
+                background: colours.highlight,
+                padding: isMobileReview ? '11px 12px' : '9px 11px',
+                cursor: cclAiFillingMatter === cclLetterModal ? 'wait' : 'pointer',
+                border: 'none',
+                minHeight: isMobileReview ? 44 : 'auto',
+              }}
+            >
+              {cclAiFillingMatter === cclLetterModal
+                ? overrideButtonLabel
+                : `Rerun${replacementDraftVersion ? ` as v${replacementDraftVersion}` : ''}`}
+            </button>
+          </div>
+        ) : null;
+        const overrideStartAgainLink = canOfferOverrideRerun && !overrideCardExpanded ? (
+          <button
+            type="button"
+            onClick={() => {
+              trackClientEvent('operations-ccl', 'CCL.OverrideRerun.Expanded', { matterId: cclLetterModal });
+              setCclOverrideCardExpandedMatter(cclLetterModal);
+            }}
+            style={{
+              justifySelf: 'center',
+              background: 'transparent',
+              border: 'none',
+              padding: '6px 8px',
+              color: colours.subtleGrey,
+              fontSize: isMobileReview ? 11 : 10.5,
+              fontWeight: 500,
+              cursor: 'pointer',
+              textAlign: 'center',
+              letterSpacing: '0.02em',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              transition: 'color 180ms cubic-bezier(0.22, 1, 0.36, 1)',
+              fontFamily: 'Raleway, sans-serif',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = isDarkMode ? colours.accent : colours.highlight; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = colours.subtleGrey; }}
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+              <path d="M9.5 2.5V5H7M2.5 9.5V7H5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M3.2 5.2A3.5 3.5 0 0 1 9 4.6M8.8 6.8A3.5 3.5 0 0 1 3 7.4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+            </svg>
+            <span>
+              Start again{currentDraftVersion > 0 && replacementDraftVersion ? ` (v${currentDraftVersion} \u2192 v${replacementDraftVersion})` : ''}
+            </span>
+          </button>
+        ) : null;
+        const overrideSummaryCard = overrideExpandedCard;
         const showReviewRailSkeleton = shouldShowReviewRail && loadingReviewContext;
         const reviewValueFontSize = isMobileReview ? 11 : 10;
         const reviewPaneHeight = isMobileReview ? ((selectedFieldKey || showSetupInDefaultView) ? 'min(50vh, 440px)' : '0px') : 'auto';
         const previewBottomPadding = isMobileReview && selectedFieldKey ? 380 : 22;
-        const introPreviewFooter = 'Helix Law Ltd is authorised and regulated by the Solicitors Regulation Authority (SRA No. 669720)';
+        const firmSignatureAddress = 'Second Floor, Britannia House, 21 Station Street, Brighton, BN1 4DE';
+        const firmSignaturePhone = '0345 314 2044';
+        const firmSignatureEmail = 'info@helix-law.com';
+        const firmSignatureWeb = 'www.helix-law.com';
+        const firmRegulatoryParagraph = 'Helix Law Limited is a limited liability company registered in England and Wales. Registration Number 07845461. A list of Directors is available for inspection at the Registered Office: Second Floor, Britannia House, 21 Station Street, Brighton, BN1 4DE. Authorised and regulated by the Solicitors Regulation Authority. Helix\u00AE and Helix Law\u00AE are registered trademarks (UK00003984532 and UK00003984535).';
         const introHeadline = loadingReviewContext
           ? 'Preparing your review'
           : noAiReviewContext
             ? 'Draft open'
             : 'Review ready';
-        const introBody = loadingReviewContext
+        const introBody: React.ReactNode = loadingReviewContext
           ? (aiState.detail || 'Pulling the matter context together and setting up the review.')
           : noAiReviewContext
-            ? 'The draft is open. Generate the review pass if you want the remaining points pulled out for sign-off.'
+            ? 'Draft open. Run the review pass to pull out anything that still needs sign-off.'
             : visibleReviewFieldCount > 0
               ? (setWordingCount > 0 && verifyCount > 0
-                ? `${setWordingCount} field${setWordingCount === 1 ? '' : 's'} to set, ${verifyCount} flagged during the pressure test.`
+                ? (
+                  <span style={{ display: 'grid', gap: 6 }}>
+                    <span>
+                      <strong style={{ color: '#f3f4f6' }}>{setWordingCount} to write</strong>
+                      <span style={{ color: colours.subtleGrey }}> — left blank for you</span>
+                    </span>
+                    <span>
+                      <strong style={{ color: colours.orange }}>{verifyCount} to verify</strong>
+                      <span style={{ color: colours.subtleGrey }}> — review pressure test results</span>
+                    </span>
+                  </span>
+                )
                 : verifyCount > 0
-                  ? `${verifyCount} field${verifyCount === 1 ? '' : 's'} flagged during the pressure test. The rest scored 8+ against source evidence.`
+                  ? (
+                    <span>
+                      <strong style={{ color: colours.orange }}>{verifyCount} to verify</strong>
+                      <span style={{ color: colours.subtleGrey }}> — review pressure test results. Everything else lined up with the evidence.</span>
+                    </span>
+                  )
                   : ptPending
-                    ? `${setWordingCount} point${setWordingCount === 1 ? '' : 's'} to set. Safety Net is verifying the rest.`
+                    ? (
+                      <span>
+                        <strong style={{ color: '#f3f4f6' }}>{setWordingCount} to write</strong>
+                        <span style={{ color: colours.subtleGrey }}> — Safety Net is still checking the rest.</span>
+                      </span>
+                    )
                     : hasPtResult && verifyCount === 0
-                      ? `${setWordingCount} point${setWordingCount === 1 ? '' : 's'} to set. All other fields passed Safety Net.`
-                      : `${visibleReviewFieldCount} point${visibleReviewFieldCount === 1 ? '' : 's'} still need${visibleReviewFieldCount === 1 ? 's' : ''} sign-off.`)
-              : 'Open the review workspace for a final read-through.';
+                      ? (
+                        <span>
+                          <strong style={{ color: '#f3f4f6' }}>{setWordingCount} to write</strong>
+                          <span style={{ color: colours.subtleGrey }}> — everything else passed Safety Net.</span>
+                        </span>
+                      )
+                      : `${visibleReviewFieldCount} still to sign off.`)
+              : 'Open the workspace for a final read-through.';
         const introShellGrid = isMobileReview
           ? 'minmax(0, 1fr)'
           : 'minmax(0, 1.15fr) minmax(360px, 0.85fr)';
@@ -8440,8 +10006,8 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
           Math.max(introSectionTitles.length - 1, 0),
         );
         const introRemainingTitles = introSectionTitles.slice(introRemainingStart, introRemainingStart + 3);
-        const previewCurrentPage = showReviewIntro ? cclIntroCurrentPage : cclReviewCurrentPage;
-        const previewTotalPages = showReviewIntro ? cclIntroTotalPages : cclTotalPages;
+        const previewCurrentPage = useIntroPreviewLayout ? cclIntroCurrentPage : cclReviewCurrentPage;
+        const previewTotalPages = useIntroPreviewLayout ? cclIntroTotalPages : cclTotalPages;
         const previewFramePaddingX = isMobileReview ? 0 : 24;
         const previewDocumentMaxWidth = isMobileReview ? '100%' : 794;
         const previewScaledWidth = isMobileReview ? '100%' : Math.round(794 * cclPreviewZoom);
@@ -8495,8 +10061,19 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
           </>
         );
         const previewFirstPageFooter = (
-          <div style={{ paddingTop: 10, borderTop: '0.5px solid #d5dbe3', fontSize: 7.5, color: colours.subtleGrey, textAlign: 'center', lineHeight: 1.45 }}>
-            {introPreviewFooter}
+          <div style={{ paddingTop: 10, borderTop: '0.5px solid #d5dbe3', display: 'grid', gap: 8, color: colours.subtleGrey }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', columnGap: 10, rowGap: 2, fontSize: 8, lineHeight: 1.5, color: '#374151' }}>
+              <span>{firmSignatureAddress}</span>
+              <span>·</span>
+              <span>{firmSignaturePhone}</span>
+              <span>·</span>
+              <span>{firmSignatureEmail}</span>
+              <span>·</span>
+              <span>{firmSignatureWeb}</span>
+            </div>
+            <div style={{ fontSize: 7, lineHeight: 1.45, color: colours.subtleGrey, textAlign: 'justify' as const, hyphens: 'auto' as const }}>
+              {firmRegulatoryParagraph}
+            </div>
           </div>
         );
         const syncVisibleReviewGroup = () => {
@@ -8742,16 +10319,16 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                 >×</button>
               </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: (showReviewIntro || showSetupInDefaultView) ? introShellGrid : reviewShellGrid, flex: 1, minHeight: 0, overflow: 'hidden', position: 'relative' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: useIntroPreviewLayout ? introShellGrid : reviewShellGrid, flex: 1, minHeight: 0, overflow: 'hidden', position: 'relative' }}>
                   <div style={{ position: 'relative', minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
                   <div
                     className="ccl-review-scroll"
                     ref={cclReviewPreviewRefCallback}
-                    onScroll={showReviewIntro ? syncIntroPreviewProgress : syncVisibleReviewGroup}
+                    onScroll={useIntroPreviewLayout ? syncIntroPreviewProgress : syncVisibleReviewGroup}
                     style={{
                       overflow: 'auto',
                       padding: isMobileReview ? 0 : `0 ${previewFramePaddingX}px`,
-                      paddingBottom: showReviewIntro ? 0 : previewBottomPadding,
+                      paddingBottom: useIntroPreviewLayout ? 0 : previewBottomPadding,
                       scrollbarGutter: 'stable',
                       background: colours.grey,
                       height: '100%',
@@ -8774,7 +10351,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                       width: isMobileReview ? '100%' : 794,
                       maxWidth: isMobileReview ? previewDocumentMaxWidth : undefined,
                       margin: 0,
-                      padding: showReviewIntro
+                      padding: useIntroPreviewLayout
                         ? (isMobileReview ? '18px 14px 20px' : '30px 28px 34px')
                         : (isMobileReview ? '28px 24px 28px' : '24px 0 40px'),
                       color: colours.darkBlue,
@@ -8787,9 +10364,9 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                       transform: !isMobileReview && cclPreviewZoom < 1 ? `scale(${cclPreviewZoom})` : undefined,
                       transformOrigin: !isMobileReview ? 'top left' : undefined,
                     }}>
-                    {showSetupInDefaultView ? (
+                      {showSetupInDefaultView ? (
                         <DocumentRenderer
-                          template={rawPreviewTemplate}
+                        template={introPreviewTemplate}
                           fieldValues={setupDisplayFields}
                           interactiveFieldKeys={[]}
                           activeFieldKey={setupActiveFieldKey}
@@ -8800,12 +10377,12 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                           onFieldValueChange={undefined}
                           onFieldClick={undefined}
                           rootRef={cclRendererRootRef}
-                          pageBreaks={isMobileReview ? undefined : cclPageBreaks}
-                          totalPages={cclTotalPages}
+                          pageBreaks={isMobileReview ? undefined : cclIntroPageBreaks}
+                          totalPages={cclIntroTotalPages}
                           currentPageNumber={previewCurrentPage}
                           hoveredPageNumber={cclHoveredPreviewPage}
                           contentPaddingX={previewDocumentPaddingX}
-                          contentPaddingY={isMobileReview ? undefined : { top: 48, bottom: 84 }}
+                          contentPaddingY={isMobileReview ? { top: 26, bottom: 44 } : { top: 42, bottom: 84 }}
                           firstPageHeader={previewFirstPageHeader}
                           firstPageFooter={previewFirstPageFooter}
                         />
@@ -8888,20 +10465,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
 
                     {showSetupInDefaultView ? (
                       <div style={{ display: 'grid', gap: 14, padding: isMobileReview ? '12px 0 0' : '14px 0 0' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <div style={{
-                            width: 18,
-                            height: 18,
-                            border: '2px solid rgba(135, 243, 243, 0.12)',
-                            borderTopColor: launchPressureErrored ? colours.cta : (launchPressureRunning ? colours.orange : colours.accent),
-                            borderRadius: '50%',
-                            animation: 'helix-spin 0.8s linear infinite',
-                            flexShrink: 0,
-                          }} />
-                          <div style={{ fontSize: 12, color: '#f3f4f6', fontWeight: 600 }}>
-                            {setupFlowLabel}
-                          </div>
-                        </div>
+                        {setupFlowStrip}
                         {(launchDraftError || launchPressureErrored || cclPressureTestError) && (
                           <div style={{ border: '1px solid rgba(214, 85, 65, 0.28)', background: 'rgba(214, 85, 65, 0.08)', padding: '9px 10px', fontSize: isMobileReview ? 11 : 10, color: colours.cta, lineHeight: 1.5 }}>
                             {launchDraftError || cclPressureTestError}
@@ -8927,15 +10491,17 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                           </button>
                         )}
                         <div style={{ fontSize: 11, color: colours.subtleGrey, lineHeight: 1.55 }}>
-                          {launchPressureRunning
-                            ? 'The draft stays open while the current field is checked against source evidence.'
-                            : launchIsStreamingNow
-                              ? 'Generating review context. The draft will appear as fields are produced.'
-                              : launchTraceLoading
-                                ? 'Checking for saved review data before a fresh review pass starts.'
-                                : !launchHasAiData
-                                  ? 'Generating review context. The draft will appear as fields are produced.'
-                                  : 'The review will settle into the standard workspace as soon as setup completes.'}
+                          {draftFetchError
+                            ? 'The draft service did not respond. Check your connection or retry.'
+                            : launchPressureRunning
+                              ? 'The draft stays open while the current field is checked against source evidence.'
+                              : launchIsStreamingNow
+                                ? 'Generating review context. The draft will appear as fields are produced.'
+                                : launchTraceLoading
+                                  ? 'Checking for saved review data before a fresh review pass starts.'
+                                  : !launchHasAiData
+                                    ? 'Generating review context. The draft will appear as fields are produced.'
+                                    : 'The review will settle into the standard workspace as soon as setup completes.'}
                         </div>
                         {aiRes?.durationMs && (
                           <div style={{ fontSize: 10, color: colours.subtleGrey, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
@@ -9000,16 +10566,13 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
 
                     {showSummaryLanding && !showSetupInDefaultView && (
                       <div style={{ display: 'grid', gap: 14, padding: isMobileReview ? '12px 0 0' : '14px 0 0' }}>
-                        <div style={{ fontSize: 11, color: colours.subtleGrey, lineHeight: 1.55 }}>
-                          {visibleReviewFieldCount > 0
-                            ? 'Work through the remaining points with the draft open beside you.'
-                            : 'The draft is ready for a final read-through.'}
-                        </div>
-                        {aiRes?.durationMs && (
-                          <div style={{ fontSize: 10, color: colours.subtleGrey, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-                            Draft prepared in {(aiRes.durationMs / 1000).toFixed(1)}s
+                        {devMetaStrip}
+                        {visibleReviewFieldCount === 0 && (
+                          <div style={{ fontSize: 11, color: colours.subtleGrey, lineHeight: 1.55 }}>
+                            The draft is ready for a final read-through.
                           </div>
                         )}
+                        {overrideExpandedCard}
 
                         <button
                           type="button"
@@ -9024,10 +10587,19 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                             textAlign: 'center' as const,
                             border: 'none',
                             minHeight: isMobileReview ? 50 : 'auto',
+                            transition: 'transform 180ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 180ms cubic-bezier(0.22, 1, 0.36, 1)',
                           }}
+                          onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 4px 16px rgba(135, 243, 243, 0.2)'; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'none'; }}
                         >
                           {visibleReviewFieldCount > 0 ? `Start review (${visibleReviewFieldCount})` : 'Open review workspace'}
                         </button>
+
+                        {overrideStartAgainLink && (
+                          <div style={{ display: 'flex', justifyContent: 'center', marginTop: -4 }}>
+                            {overrideStartAgainLink}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -9056,66 +10628,19 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                       )}
                       {selectedFieldKey && selectedFieldMeta ? (
                         <>
-                          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
-                            <div style={{ display: 'grid', gap: 8, minWidth: 0, paddingTop: isMobileReview ? 0 : 4 }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                                <span style={{ fontSize: isMobileReview ? 11 : 10.5, color: colours.accent, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>
-                                  {currentDecisionNumber} of {selectedFieldSequenceCount || visibleReviewFieldCount}
-                                </span>
-                                <span style={{ fontSize: isMobileReview ? 11 : 10.5, color: colours.subtleGrey }}>•</span>
-                                {reviewFieldTypeMap[selectedFieldKey] === 'verify' ? (
-                                  <span style={{ fontSize: isMobileReview ? 11 : 10.5, color: colours.orange, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>
-                                    Verify
-                                  </span>
-                                ) : reviewFieldTypeMap[selectedFieldKey] === 'set-wording' ? (
-                                  <span style={{ fontSize: isMobileReview ? 11 : 10.5, color: colours.accent, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>
-                                    Set wording
-                                  </span>
-                                ) : null}
-                              </div>
-                              <div style={{ fontSize: isMobileReview ? 18 : 19, fontWeight: 700, color: '#f3f4f6', lineHeight: 1.1 }}>
-                                {selectedFieldMeta.label}
-                              </div>
-                              <div style={{ fontSize: isMobileReview ? 11 : 10.5, color: colours.subtleGrey, lineHeight: 1.4 }}>
-                                {selectedFieldMeta.group}
-                              </div>
-                              <div style={{ fontSize: isMobileReview ? 11.5 : 11, color: '#d1d5db', lineHeight: 1.45, maxWidth: 360 }}>
-                                {selectedFieldDecisionReason}
-                              </div>
-                              {selectedFieldPressureTest?.flag && (
-                                <div style={{ display: 'grid', gap: 4, padding: '8px 10px', border: `1px solid ${colours.orange}`, background: 'rgba(255,140,0,0.08)', marginTop: 2 }}>
-                                  <div style={{ fontSize: 9.5, fontWeight: 700, color: colours.orange }}>
-                                    Pressure test confidence score: {selectedFieldPressureTest.score}/10
-                                  </div>
-                                  <div style={{ fontSize: 9.5, color: '#d1d5db', lineHeight: 1.4 }}>
-                                    {selectedFieldPressureTest.reason || 'Flagged during the pressure test and needs fee-earner confirmation against source evidence.'}
-                                  </div>
-                                </div>
-                              )}
-                              {selectedFieldPressureTest && !selectedFieldPressureTest.flag && (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
-                                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: colours.green, flexShrink: 0 }} />
-                                  <span style={{ fontSize: 9, color: colours.green, fontWeight: 600 }}>Verified {selectedFieldPressureTest.score}/10</span>
-                                </div>
-                              )}
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => setFocusedReviewField(null)}
-                              style={{
-                                border: 'none',
-                                background: 'transparent',
-                                color: colours.subtleGrey,
-                                cursor: 'pointer',
-                                padding: isMobileReview ? '8px 10px' : '6px 8px',
-                                fontSize: isMobileReview ? 10 : 9,
-                                fontWeight: 600,
-                                flexShrink: 0,
-                              }}
-                            >
-                              ← Back
-                            </button>
-                          </div>
+                          <CclReviewFieldHeader
+                            isMobile={isMobileReview}
+                            currentDecisionNumber={currentDecisionNumber}
+                            totalDecisions={selectedFieldSequenceCount || visibleReviewFieldCount}
+                            fieldType={reviewFieldTypeMap[selectedFieldKey] || null}
+                            fieldLabel={selectedFieldMeta.label}
+                            fieldGroup={selectedFieldMeta.group}
+                            decisionReason={selectedFieldDecisionReason}
+                            pressureTest={selectedFieldPressureTest}
+                            pressureTestSources={selectedFieldPressureTestResponse?.dataSources}
+                            pressureTestTraceId={selectedFieldPressureTestResponse?.aiTraceId ?? null}
+                            pressureTestPromptVersion={selectedFieldPressureTestResponse?.promptVersion}
+                          />
                         </>
                       ) : (
                         <>
@@ -9156,19 +10681,39 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
 
                     <div key={`rail-body:${reviewRailContentKey}`} style={{ padding: isMobileReview ? '14px 16px' : '14px 24px', flex: 1, display: 'flex', flexDirection: 'column', gap: 16, alignContent: 'start', animation: 'opsDashFadeIn 0.24s ease both' }}>
                       {showSetupInDefaultView && (() => {
-                        const setupFlowLabel = launchSteps
-                          .map((step) => {
-                            if (step.status === 'active') return `[${step.label}]`;
-                            if (step.status === 'done') return step.label;
-                            if (step.status === 'error') return `${step.label}*`;
-                            return step.label;
-                          })
-                          .join('  ·  ');
+                        const railStepStrip = (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 0, flexWrap: 'wrap', rowGap: 6 }}>
+                            {launchSteps.map((step, i) => {
+                              const isDone = step.status === 'done';
+                              const isActive = step.status === 'active';
+                              const isError = step.status === 'error';
+                              const dotColor = isDone ? colours.green : isActive ? colours.accent : isError ? colours.cta : colours.subtleGrey;
+                              const labelColor = isDone ? 'rgba(32,178,108,0.72)' : isActive ? '#f3f4f6' : isError ? colours.cta : colours.subtleGrey;
+                              const lineColor = isDone ? 'rgba(32,178,108,0.28)' : 'rgba(160,160,160,0.18)';
+                              return (
+                                <React.Fragment key={step.label}>
+                                  {i > 0 && <div style={{ width: 14, height: 1, background: lineColor, flexShrink: 0 }} />}
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                                    <div style={{
+                                      width: 5,
+                                      height: 5,
+                                      borderRadius: '50%',
+                                      background: dotColor,
+                                      flexShrink: 0,
+                                      ...(isActive ? { animation: 'cclLaunchDotPulse 1.1s ease-in-out infinite' } : {}),
+                                    }} />
+                                    <span style={{ fontSize: isMobileReview ? 10 : 9.5, fontWeight: isActive ? 700 : 500, color: labelColor, whiteSpace: 'nowrap' }}>
+                                      {step.label}
+                                    </span>
+                                  </div>
+                                </React.Fragment>
+                              );
+                            })}
+                          </div>
+                        );
                         return (
                           <div style={{ display: 'grid', gap: 12 }}>
-                            <div style={{ fontSize: isMobileReview ? 11 : 10.5, color: '#d1d5db', lineHeight: 1.5 }}>
-                              {setupFlowLabel}
-                            </div>
+                            {railStepStrip}
                             {(launchDraftError || launchPressureErrored || cclPressureTestError) && (
                               <div style={{ border: '1px solid rgba(214, 85, 65, 0.28)', background: 'rgba(214, 85, 65, 0.08)', padding: '9px 10px', fontSize: isMobileReview ? 11 : 10, color: colours.cta, lineHeight: 1.5 }}>
                                 {launchDraftError || cclPressureTestError}
@@ -9280,6 +10825,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
 
                       {showSummaryLanding && (
                         <div style={{ display: 'grid', gap: 12, animation: 'opsDashFadeIn 0.35s ease both' }}>
+                          {devMetaStrip}
                           {/* Field count + duration */}
                           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
                             <div style={{ fontSize: isMobileReview ? 16 : 15, fontWeight: 700, color: '#f3f4f6' }}>
@@ -9324,12 +10870,12 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                           <div style={{ fontSize: isMobileReview ? 11 : 10.5, color: '#d1d5db', lineHeight: 1.5 }}>
                             {visibleReviewFieldCount > 0
                               ? (setWordingCount > 0 && verifyCount > 0
-                                ? <><strong style={{ color: '#f3f4f6' }}>{setWordingCount}</strong> to set, <strong style={{ color: colours.orange }}>{verifyCount}</strong> flagged during the pressure test.</>
+                                ? <><strong style={{ color: '#f3f4f6' }}>{setWordingCount} to write</strong>, <strong style={{ color: colours.orange }}>{verifyCount} to verify</strong>.</>
                                 : verifyCount > 0
-                                  ? <><strong style={{ color: colours.orange }}>{verifyCount} field{verifyCount === 1 ? '' : 's'}</strong> flagged during the pressure test. The rest scored 8+ against source evidence.</>
+                                  ? <><strong style={{ color: colours.orange }}>{verifyCount} to verify</strong> — review pressure test results. The rest lined up with the evidence.</>
                                   : hasPtResult && verifyCount === 0 && setWordingCount > 0
-                                    ? <><strong style={{ color: '#f3f4f6' }}>{setWordingCount} point{setWordingCount === 1 ? '' : 's'}</strong> to set. All other fields passed Safety Net.</>
-                                    : <><strong style={{ color: '#f3f4f6' }}>{visibleReviewFieldCount} point{visibleReviewFieldCount === 1 ? '' : 's'}</strong> still need{visibleReviewFieldCount === 1 ? 's' : ''} sign-off.</>)
+                                    ? <><strong style={{ color: '#f3f4f6' }}>{setWordingCount} to write</strong>. Everything else passed Safety Net.</>
+                                    : <><strong style={{ color: '#f3f4f6' }}>{visibleReviewFieldCount}</strong> still to sign off.</>)
                               : 'All fields backed by hard data or standard templates.'}
                           </div>
 
@@ -9371,6 +10917,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
 
                       {showQueuedReviewLanding && (
                         <div style={{ display: 'grid', gap: 12, animation: 'opsDashFadeIn 0.24s ease both' }}>
+                          {devMetaStrip}
                           <div style={{ display: 'grid', gap: 5 }}>
                             <div style={{ fontSize: isMobileReview ? 10 : 9, color: colours.accent, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>
                               Remaining Points
@@ -9380,17 +10927,18 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                             </div>
                             {setWordingCount > 0 && verifyCount > 0 ? (
                               <div style={{ fontSize: isMobileReview ? 11 : 10.5, color: '#d1d5db', lineHeight: 1.5 }}>
-                                {setWordingCount} to set, {verifyCount} flagged during the pressure test.
+                                {setWordingCount} to set, {verifyCount} surfaced by Safety Net for review.
                               </div>
                             ) : verifyCount > 0 ? (
                               <div style={{ fontSize: isMobileReview ? 11 : 10.5, color: '#d1d5db', lineHeight: 1.5 }}>
-                                {verifyCount} field{verifyCount === 1 ? '' : 's'} flagged during the pressure test.
+                                {verifyCount} field{verifyCount === 1 ? '' : 's'} surfaced by Safety Net for review.
                               </div>
                             ) : (
                               <div style={{ fontSize: isMobileReview ? 11 : 10.5, color: '#d1d5db', lineHeight: 1.5 }}>
                                 Open the next point when ready, or click straight into the letter.
                               </div>
                             )}
+                            {overrideSummaryCard}
                             {ptPending && (
                               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
                                 <div style={{ width: 12, height: 12, border: '1.5px solid rgba(135,243,243,0.15)', borderTopColor: colours.accent, borderRadius: '50%', animation: 'helix-spin 0.8s linear infinite', flexShrink: 0 }} />
@@ -9436,9 +10984,14 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                               Stay on full letter
                             </button>
                           </div>
+                          {overrideStartAgainLink && (
+                            <div style={{ display: 'flex', justifyContent: 'center', marginTop: -2 }}>
+                              {overrideStartAgainLink}
+                            </div>
+                          )}
                           {!ptResultHere && ptCanRun && !ptPending && (
                             <div style={{ fontSize: isMobileReview ? 10 : 9.5, color: colours.subtleGrey, lineHeight: 1.5 }}>
-                              Run Safety Net to verify AI output against source evidence.
+                              Run Safety Net if you want a second-pass evidence check before sign-off.
                             </div>
                           )}
                         </div>
@@ -9479,7 +11032,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                                       Pressure tested {ptResultHere.totalFields} field{ptResultHere.totalFields === 1 ? '' : 's'}
                                     </div>
                                     <div style={{ fontSize: 10, color: colours.subtleGrey, lineHeight: 1.45, marginTop: 3 }}>
-                                      {ptResultHere.flaggedCount} flagged against source evidence.
+                                      {ptResultHere.flaggedCount} surfaced for fee-earner review against source evidence.
                                     </div>
                                   </div>
                                 )}
@@ -9490,12 +11043,14 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                             Review Status
                           </div>
                           <div style={{ fontSize: isMobileReview ? 11 : 10, color: '#d1d5db', lineHeight: 1.45, fontWeight: 700 }}>
-                            No low-confidence clarifications are queued.
+                            No review points are waiting.
                           </div>
                           <div style={{ fontSize: isMobileReview ? 11 : 10, color: colours.subtleGrey, lineHeight: 1.45 }}>
                             {ptResultHere
-                              ? `Safety Net scored ${ptResultHere.totalFields} fields with ${ptResultHere.flaggedCount} flagged. Review the formatted letter on the left.`
-                              : 'Review the letter on the left, or run a Safety Net check to verify AI output against source evidence.'}
+                              ? ptResultHere.flaggedCount > 0
+                                ? `Safety Net checked ${ptResultHere.totalFields} fields and surfaced ${ptResultHere.flaggedCount} for review. The formatted letter stays open on the left.`
+                                : `Safety Net checked ${ptResultHere.totalFields} fields and found no further review points. The formatted letter is ready on the left.`
+                              : 'Review the letter on the left, or run Safety Net if you want a second-pass evidence check before sign-off.'}
                           </div>
                           {ptCanRun && (
                             <button
@@ -9614,508 +11169,77 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
 
                       {selectedFieldKey && selectedFieldMeta && (
                         <>
-                          {structuredChoiceConfig && (
-                            <div style={{
-                              padding: 0,
-                              display: 'grid',
-                              gap: 10,
-                              animation: 'opsDashFadeIn 0.2s ease 0.02s both',
-                            }}>
-                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
-                                <div style={{ fontSize: isMobileReview ? 11 : 10.5, color: colours.accent, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>
-                                  Choose wording
-                                </div>
-                                <div style={{ fontSize: isMobileReview ? 10.5 : 10, color: colours.subtleGrey, lineHeight: 1.4 }}>
-                                  Pick the branch first, then review the selected wording below.
-                                </div>
-                              </div>
-                              <div style={{ display: 'grid', gap: 8 }}>
-                                {structuredChoiceConfig.options.map((option) => {
-                                  const isSelected = structuredChoiceConfig.selectedChoice === option.value;
-                                  return (
-                                    <button
-                                      key={option.value}
-                                      type="button"
-                                      onClick={() => applyStructuredChoice(option.value)}
-                                      style={{
-                                        border: `1px solid ${isSelected ? colours.accent : 'rgba(255,255,255,0.08)'}`,
-                                        background: isSelected ? 'rgba(135,243,243,0.10)' : 'rgba(255,255,255,0.02)',
-                                        boxShadow: isSelected ? 'inset 0 0 0 1px rgba(135,243,243,0.18)' : 'none',
-                                        padding: isMobileReview ? '12px 12px 11px' : '11px 12px 10px',
-                                        textAlign: 'left' as const,
-                                        cursor: 'pointer',
-                                        color: '#f3f4f6',
-                                        display: 'grid',
-                                        gap: 7,
-                                      }}
-                                    >
-                                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                                          <span style={{
-                                            width: 12,
-                                            height: 12,
-                                            borderRadius: '50%',
-                                            border: `2px solid ${isSelected ? colours.accent : 'rgba(255,255,255,0.25)'}`,
-                                            background: isSelected ? colours.accent : 'transparent',
-                                            boxSizing: 'border-box',
-                                            flexShrink: 0,
-                                          }} />
-                                          <span style={{ fontSize: isMobileReview ? 12.5 : 12, fontWeight: 700, color: isSelected ? colours.accent : '#f3f4f6' }}>
-                                            {option.title}
-                                          </span>
-                                        </div>
-                                        <span style={{
-                                          fontSize: isMobileReview ? 10 : 9.5,
-                                          fontWeight: 700,
-                                          color: isSelected ? '#061733' : colours.subtleGrey,
-                                          background: isSelected ? colours.accent : 'rgba(255,255,255,0.06)',
-                                          padding: '3px 7px',
-                                          letterSpacing: '0.04em',
-                                          textTransform: 'uppercase',
-                                          flexShrink: 0,
-                                        }}>
-                                          {isSelected ? 'Selected' : 'Option'}
-                                        </span>
-                                      </div>
-                                      <div style={{ fontSize: isMobileReview ? 10.5 : 10, color: isSelected ? colours.accent : '#d1d5db', lineHeight: 1.45 }}>
-                                        {option.help}
-                                      </div>
-                                      <div style={{
-                                        fontSize: isMobileReview ? 10.5 : 10,
-                                        color: isSelected ? '#f3f4f6' : colours.subtleGrey,
-                                        lineHeight: 1.5,
-                                        whiteSpace: 'pre-wrap',
-                                        paddingTop: 6,
-                                        borderTop: `1px solid ${isSelected ? 'rgba(135,243,243,0.24)' : 'rgba(255,255,255,0.06)'}`,
-                                      }}>
-                                        {option.preview}
-                                      </div>
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
+                          <CclReviewQueueStrip
+                            isMobile={isMobileReview}
+                            items={queueStripItems}
+                            currentKey={selectedFieldKey}
+                            onJump={jumpToDecision}
+                          />
+                          <CclReviewDecisionPanel
+                            isMobile={isMobileReview}
+                            choiceConfig={structuredChoiceConfig}
+                            selectedFieldOutput={selectedFieldOutput}
+                            selectedFieldIsReviewed={selectedFieldIsReviewed}
+                            hasNextDecision={!!nextDecisionFieldKey}
+                            hasPreviousDecision={!!previousDecisionFieldKey}
+                            isFirstDecision={currentDecisionNumber <= 1}
+                            canApprove={canApprove && !nextDecisionFieldKey}
+                            isApproving={cclApprovingMatter === cclLetterModal}
+                            approvalLabel={cclApprovingMatter === cclLetterModal ? (cclApprovalStep || 'Approving…') : 'Approve full letter'}
+                            onSelectChoice={applyStructuredChoice}
+                            onTextChange={(value, element) => {
+                              autoSizeReviewTextarea(element);
+                              applySelectedFieldValue(value);
+                            }}
+                            textareaRef={autoSizeReviewTextarea}
+                            onToggleReviewed={() => {
+                              if (!selectedFieldKey) return;
+                              toggleFieldReviewed(selectedFieldKey);
+                              if (!selectedFieldIsReviewed) focusNextDecision();
+                            }}
+                            onApprove={handleApproveCurrentLetter}
+                            onBack={() => setFocusedReviewField(null)}
+                            onPrevious={focusPreviousDecision}
+                            onNext={focusNextDecision}
+                          />
 
-                          <div style={{
-                            padding: 0,
-                            display: 'grid',
-                            gap: 14,
-                            animation: 'opsDashFadeIn 0.2s ease 0.04s both',
-                          }}>
-                            <div style={{ fontSize: isMobileReview ? 11 : 10.5, color: colours.accent, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>
-                              {structuredChoiceConfig ? 'Selected wording' : 'Wording'}
-                            </div>
-
-                            {!structuredChoiceConfig ? (
-                              <div style={{
-                                border: `1px solid ${colours.dark.borderColor}`,
-                                background: 'rgba(8, 28, 48, 0.68)',
-                                padding: isMobileReview ? '10px 10px 8px' : '10px 10px 8px',
-                              }}>
-                                <textarea
-                                  key={selectedFieldKey || '__none'}
-                                  ref={autoSizeReviewTextarea}
-                                  value={selectedFieldOutput}
-                                  onChange={(event) => {
-                                    autoSizeReviewTextarea(event.target);
-                                    applySelectedFieldValue(event.target.value);
-                                  }}
-                                  placeholder="Enter the wording for this point"
-                                  rows={1}
-                                  style={{
-                                    width: '100%',
-                                    boxSizing: 'border-box',
-                                    border: 'none',
-                                    outline: 'none',
-                                    background: 'transparent',
-                                    color: '#f3f4f6',
-                                    padding: isMobileReview ? '2px 2px 0' : '2px 2px 0',
-                                    fontSize: isMobileReview ? 12 : 11,
-                                    lineHeight: 1.7,
-                                    resize: 'none',
-                                    fontFamily: "'Raleway', Arial, Helvetica, sans-serif",
-                                    minHeight: isMobileReview ? 108 : 96,
-                                    overflow: 'hidden',
-                                  }}
-                                />
-                              </div>
-                            ) : (
-                              <div style={{
-                                border: `1px solid ${colours.dark.borderColor}`,
-                                background: 'rgba(8, 28, 48, 0.68)',
-                                padding: isMobileReview ? '11px 12px' : '10px 12px',
-                                display: 'grid',
-                                gap: 8,
-                              }}>
-                                <div style={{ fontSize: isMobileReview ? 10 : 9.5, color: colours.subtleGrey, lineHeight: 1.4 }}>
-                                  Live text currently going into the letter.
-                                </div>
-                                <div style={{ fontSize: isMobileReview ? 12 : 11, color: '#f3f4f6', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
-                                  {selectedFieldOutput}
-                                </div>
-                              </div>
-                            )}
-
-                            <button
-                              type="button"
-                              style={{ fontSize: isMobileReview ? 14 : 13, fontWeight: 700, color: '#061733', background: selectedFieldIsReviewed ? 'rgba(255,255,255,0.12)' : colours.accent, padding: isMobileReview ? '14px 16px' : '12px 16px', cursor: 'pointer', textAlign: 'center' as const, border: 'none', minHeight: isMobileReview ? 48 : 'auto', ...(selectedFieldIsReviewed ? { color: '#d1d5db' } : {}) }}
-                              onClick={() => {
-                                if (!selectedFieldKey) return;
-                                toggleFieldReviewed(selectedFieldKey);
-                                if (!selectedFieldIsReviewed) focusNextDecision();
+                          {canSeeCclDevPanel && (
+                            <CclReviewDevTools
+                              isMobile={isMobileReview}
+                              generationSources={aiRes?.dataSources || []}
+                              safetyNetSources={ptResultHere?.dataSources || []}
+                              callsSent={(aiRes?.dataSources || []).some((source: string) => /call/i.test(source))}
+                              callsVerified={(ptResultHere?.dataSources || []).some((source: string) => /call/i.test(source))}
+                              callsSkipped={(aiRes?.dataSources || []).some((source: string) => /no phone/i.test(source))}
+                              selectedFieldLabel={selectedFieldMeta.label}
+                              selectedFieldToken={selectedFieldKey ? `{{${selectedFieldKey}}}` : ''}
+                              selectedFieldOutput={selectedFieldOutput}
+                              selectedFieldCueLabel={selectedFieldCue.label}
+                              selectedFieldCueTone={selectedFieldCueTone}
+                              selectedFieldDataFedRows={selectedFieldDataFedRows}
+                              selectedFieldPromptSections={selectedFieldPromptSections}
+                              selectedFieldSnippetRows={selectedFieldSnippetRows}
+                              systemPromptText={systemPromptText}
+                              userPromptText={userPromptText}
+                              visiblePromptTab={visiblePromptTab}
+                              onSelectPromptTab={(tab) => setCclSessionPromptTabByMatter((prev) => ({ ...prev, [cclLetterModal]: tab }))}
+                              godModeVisible={godModeVisible}
+                              godModeFieldOptions={godModeFieldOptionsWithLabels}
+                              godModeSelectedFieldKey={godModeSelectedFieldKey}
+                              godModeDraftValue={godModeDraftValue}
+                              onToggleGodMode={() => {
+                                const nextVisible = !godModeVisible;
+                                setCclGodModeVisibleByMatter((prev) => ({ ...prev, [cclLetterModal]: nextVisible }));
+                                if (nextVisible && !cclGodModeFieldByMatter[cclLetterModal] && godModeFieldOptions[0]) {
+                                  setGodModeField(godModeFieldOptions[0]);
+                                }
                               }}
-                            >
-                              {selectedFieldIsReviewed ? 'Reopen point' : 'Mark complete'}
-                            </button>
-
-                            {selectedFieldKey && !nextDecisionFieldKey && canApprove && (
-                              <button
-                                type="button"
-                                style={{ fontSize: isMobileReview ? 14 : 13, fontWeight: 700, color: '#061733', background: colours.green, padding: isMobileReview ? '14px 16px' : '12px 16px', cursor: cclApprovingMatter === cclLetterModal ? 'wait' : 'pointer', textAlign: 'center' as const, border: 'none', minHeight: isMobileReview ? 48 : 'auto', opacity: cclApprovingMatter === cclLetterModal ? 0.7 : 1 }}
-                                onClick={handleApproveCurrentLetter}
-                                disabled={!!cclApprovingMatter}
-                              >
-                                {cclApprovingMatter === cclLetterModal ? (cclApprovalStep || 'Approving…') : 'Approve full letter'}
-                              </button>
-                            )}
-                          </div>
-
-                          {isLocalDev && (
-                      <div style={{
-                        paddingTop: 10,
-                        borderTop: '1px dashed rgba(135, 243, 243, 0.18)',
-                        display: 'grid',
-                        gap: 6,
-                        animation: 'opsDashFadeIn 0.2s ease 0.24s both',
-                        position: 'relative',
-                      }}>
-                        <details>
-                          <summary style={{ fontSize: isMobileReview ? 9 : 8, color: 'rgba(160,160,160,0.82)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 700, cursor: 'pointer', userSelect: 'none' }}>
-                            Dev tools
-                          </summary>
-                          <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
-
-                            <div style={{ display: 'grid', gap: 8, padding: '7px 8px', background: colours.darkBlue, border: `1px solid ${colours.dark.border}` }}>
-                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
-                                <div style={{ display: 'grid', gap: 2 }}>
-                                  <div style={{ fontSize: isMobileReview ? 9 : 8, color: colours.cta, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>
-                                    God mode
-                                  </div>
-                                  <div style={{ fontSize: isMobileReview ? 10 : 9, color: colours.subtleGrey, lineHeight: 1.45 }}>
-                                    Reveal a hard edit or delete path for any stored draft field.
-                                  </div>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const nextVisible = !godModeVisible;
-                                    setCclGodModeVisibleByMatter((prev) => ({ ...prev, [cclLetterModal]: nextVisible }));
-                                    if (nextVisible && !cclGodModeFieldByMatter[cclLetterModal] && godModeFieldOptions[0]) {
-                                      setGodModeField(godModeFieldOptions[0]);
-                                    }
-                                  }}
-                                  style={{
-                                    border: `1px solid ${godModeVisible ? colours.cta : colours.dark.borderColor}`,
-                                    background: godModeVisible ? 'rgba(214,85,65,0.10)' : 'rgba(255,255,255,0.03)',
-                                    color: godModeVisible ? colours.cta : '#d1d5db',
-                                    padding: '6px 10px',
-                                    fontSize: isMobileReview ? 10 : 9,
-                                    fontWeight: 700,
-                                    cursor: 'pointer',
-                                    fontFamily: "'Raleway', Arial, Helvetica, sans-serif",
-                                  }}
-                                >
-                                  {godModeVisible ? 'Hide god mode' : 'Reveal god mode'}
-                                </button>
-                              </div>
-
-                              {godModeVisible && (
-                                <div style={{ display: 'grid', gap: 8, paddingTop: 6, borderTop: '1px solid rgba(214,85,65,0.18)' }}>
-                                  <div style={{ fontSize: isMobileReview ? 9 : 8, color: colours.cta, lineHeight: 1.45 }}>
-                                    This bypasses the guided review queue and writes directly into the saved draft.
-                                  </div>
-                                  <select
-                                    value={godModeSelectedFieldKey}
-                                    onChange={(event) => setGodModeField(event.target.value)}
-                                    style={{
-                                      width: '100%',
-                                      border: `1px solid ${colours.dark.borderColor}`,
-                                      background: colours.dark.cardBackground,
-                                      color: '#f3f4f6',
-                                      padding: '7px 8px',
-                                      fontSize: isMobileReview ? 11 : 10,
-                                      fontFamily: "'Raleway', Arial, Helvetica, sans-serif",
-                                    }}
-                                  >
-                                    {godModeFieldOptions.map((fieldKey) => (
-                                      <option key={fieldKey} value={fieldKey}>
-                                        {fieldMeta[fieldKey]?.label || prettifyFieldKey(fieldKey)}
-                                      </option>
-                                    ))}
-                                  </select>
-                                  <textarea
-                                    value={godModeDraftValue}
-                                    onChange={(event) => setCclGodModeValueByMatter((prev) => ({ ...prev, [cclLetterModal]: event.target.value }))}
-                                    rows={5}
-                                    style={{
-                                      width: '100%',
-                                      boxSizing: 'border-box',
-                                      border: `1px solid ${colours.dark.borderColor}`,
-                                      background: colours.dark.cardBackground,
-                                      color: '#f3f4f6',
-                                      padding: '8px 9px',
-                                      fontSize: isMobileReview ? 11 : 10,
-                                      lineHeight: 1.55,
-                                      resize: 'vertical',
-                                      fontFamily: "'Raleway', Arial, Helvetica, sans-serif",
-                                      minHeight: 104,
-                                    }}
-                                  />
-                                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                                    <button
-                                      type="button"
-                                      onClick={applyGodModeDraftValue}
-                                      disabled={!godModeSelectedFieldKey}
-                                      style={{
-                                        border: 'none',
-                                        background: colours.cta,
-                                        color: colours.dark.text,
-                                        padding: '8px 10px',
-                                        fontSize: isMobileReview ? 10 : 9,
-                                        fontWeight: 700,
-                                        cursor: godModeSelectedFieldKey ? 'pointer' : 'default',
-                                        opacity: godModeSelectedFieldKey ? 1 : 0.5,
-                                        fontFamily: "'Raleway', Arial, Helvetica, sans-serif",
-                                      }}
-                                    >
-                                      Apply override
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => setGodModeField(godModeSelectedFieldKey)}
-                                      disabled={!godModeSelectedFieldKey}
-                                      style={{
-                                        border: `1px solid ${colours.dark.borderColor}`,
-                                        background: 'rgba(255,255,255,0.03)',
-                                        color: '#d1d5db',
-                                        padding: '8px 10px',
-                                        fontSize: isMobileReview ? 10 : 9,
-                                        fontWeight: 700,
-                                        cursor: godModeSelectedFieldKey ? 'pointer' : 'default',
-                                        opacity: godModeSelectedFieldKey ? 1 : 0.5,
-                                        fontFamily: "'Raleway', Arial, Helvetica, sans-serif",
-                                      }}
-                                    >
-                                      Reload current
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={deleteGodModeDraftField}
-                                      disabled={!godModeSelectedFieldKey}
-                                      style={{
-                                        border: `1px solid ${colours.cta}`,
-                                        background: 'rgba(214,85,65,0.10)',
-                                        color: colours.cta,
-                                        padding: '8px 10px',
-                                        fontSize: isMobileReview ? 10 : 9,
-                                        fontWeight: 700,
-                                        cursor: godModeSelectedFieldKey ? 'pointer' : 'default',
-                                        opacity: godModeSelectedFieldKey ? 1 : 0.5,
-                                        fontFamily: "'Raleway', Arial, Helvetica, sans-serif",
-                                      }}
-                                    >
-                                      Delete field
-                                    </button>
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-
-                            {/* ── Evidence Fed to AI ── */}
-                            {(() => {
-                              const genSources = aiRes?.dataSources || [];
-                              const ptSources = ptResultHere?.dataSources || [];
-                              const hasCallsGen = genSources.some((s: string) => /call/i.test(s));
-                              const hasCallsPt = ptSources.some((s: string) => /call/i.test(s));
-                              const callsSkipped = genSources.some((s: string) => /no phone/i.test(s));
-                              return (
-                                <div style={{ display: 'grid', gap: 6, padding: '7px 8px', background: colours.darkBlue, border: `1px solid ${colours.dark.border}` }}>
-                                  <div style={{ fontSize: isMobileReview ? 9 : 8, color: colours.accent, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>
-                                    Evidence Fed to AI
-                                  </div>
-
-                                  {/* Call transcript status — always visible */}
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                    <span style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: hasCallsGen ? colours.green : callsSkipped ? colours.orange : colours.cta }} />
-                                    <span style={{ fontSize: isMobileReview ? 10 : 9, color: hasCallsGen ? colours.green : callsSkipped ? colours.orange : colours.cta, fontWeight: 700 }}>
-                                      {hasCallsGen ? 'Dubber call transcripts sent' : callsSkipped ? 'No phone — calls skipped' : 'No call data detected'}
-                                    </span>
-                                  </div>
-
-                                  {/* Generation sources */}
-                                  {genSources.length > 0 && (
-                                    <div style={{ display: 'grid', gap: 3 }}>
-                                      <div style={{ fontSize: isMobileReview ? 9 : 8, color: '#A0A0A0', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                                        Generation ({genSources.length} sources)
-                                      </div>
-                                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-                                        {genSources.map((source: string) => {
-                                          const isCall = /call/i.test(source);
-                                          const isSkipped = /no phone/i.test(source);
-                                          return (
-                                            <span key={source} style={{
-                                              fontSize: isMobileReview ? 10 : 9, padding: '2px 6px',
-                                              background: isCall ? 'rgba(32,178,108,0.12)' : isSkipped ? 'rgba(255,140,0,0.12)' : colours.dark.cardBackground,
-                                              border: `1px solid ${isCall ? colours.green : isSkipped ? colours.orange : colours.dark.border}`,
-                                              color: isCall ? colours.green : isSkipped ? colours.orange : '#d1d5db', fontWeight: 600,
-                                            }}>
-                                              {source}
-                                            </span>
-                                          );
-                                        })}
-                                      </div>
-                                    </div>
-                                  )}
-
-                                  {/* Safety Net sources */}
-                                  {ptSources.length > 0 && (
-                                    <div style={{ display: 'grid', gap: 3 }}>
-                                      <div style={{ fontSize: isMobileReview ? 9 : 8, color: '#A0A0A0', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                                        Safety Net ({ptSources.length} sources)
-                                      </div>
-                                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-                                        {ptSources.map((source: string) => {
-                                          const isCall = /call/i.test(source);
-                                          return (
-                                            <span key={source} style={{
-                                              fontSize: isMobileReview ? 10 : 9, padding: '2px 6px',
-                                              background: isCall ? 'rgba(32,178,108,0.12)' : colours.dark.cardBackground,
-                                              border: `1px solid ${isCall ? colours.green : colours.dark.border}`,
-                                              color: isCall ? colours.green : '#d1d5db', fontWeight: 600,
-                                            }}>
-                                              {source}
-                                            </span>
-                                          );
-                                        })}
-                                      </div>
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
-                                        <span style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: hasCallsPt ? colours.green : colours.cta }} />
-                                        <span style={{ fontSize: isMobileReview ? 10 : 9, color: hasCallsPt ? colours.green : colours.cta, fontWeight: 600 }}>
-                                          {hasCallsPt ? 'Calls verified in Safety Net' : 'No calls in Safety Net evidence'}
-                                        </span>
-                                      </div>
-                                    </div>
-                                  )}
-
-                                  {genSources.length === 0 && ptSources.length === 0 && (
-                                    <div style={{ fontSize: isMobileReview ? 10 : 9, color: colours.subtleGrey, lineHeight: 1.4 }}>
-                                      No AI run data available yet.
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })()}
-
-                            {/* ── Field Context (when a field is selected) ── */}
-                            {selectedFieldKey && (
-                              <div style={{ display: 'grid', gap: 6, padding: '7px 8px', background: colours.darkBlue, border: `1px solid ${colours.dark.border}` }}>
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-                                  <div style={{ fontSize: isMobileReview ? 9 : 8, color: colours.accent, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>
-                                    Field Context
-                                  </div>
-                                  <span style={{ fontSize: isMobileReview ? 10 : 9, color: colours.subtleGrey, fontFamily: 'monospace' }}>
-                                    {`{{${selectedFieldKey}}}`}
-                                  </span>
-                                </div>
-
-                                {selectedFieldPromptSections.length > 0 ? (
-                                  <div style={{ display: 'grid', gap: 6 }}>
-                                    {selectedFieldPromptSections.map((section) => (
-                                      <div key={section.key} style={{ display: 'grid', gap: 3 }}>
-                                        <div style={{ fontSize: isMobileReview ? 9 : 8, color: '#A0A0A0', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{section.title}</div>
-                                        <div style={{
-                                          fontSize: reviewValueFontSize, color: '#d1d5db', lineHeight: 1.45,
-                                          whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                                          padding: '5px 6px', background: colours.dark.cardBackground,
-                                          border: `1px solid ${colours.dark.borderColor}`,
-                                          maxHeight: 100, overflow: 'auto', scrollbarWidth: 'thin' as const,
-                                        }}>{section.body}</div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                ) : selectedFieldDataFedRows.length > 0 ? (
-                                  <div style={{ display: 'grid', gap: 4 }}>
-                                    {selectedFieldDataFedRows.map((row) => (
-                                      <div key={row.key} style={{ display: 'grid', gap: 2 }}>
-                                        <div style={{ fontSize: isMobileReview ? 9 : 8, color: '#A0A0A0', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{row.label}</div>
-                                        <div style={{ fontSize: reviewValueFontSize, color: '#d1d5db', lineHeight: 1.45, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{row.value}</div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <div style={{ fontSize: reviewValueFontSize, color: '#d1d5db', lineHeight: 1.45 }}>{selectedFieldDecisionReason}</div>
-                                )}
-
-                                {selectedFieldSnippetRows.length > 0 && (
-                                  <details>
-                                    <summary style={{ fontSize: isMobileReview ? 10 : 9, color: colours.accent, cursor: 'pointer', fontWeight: 600 }}>
-                                      Trace snippets ({selectedFieldSnippetRows.length})
-                                    </summary>
-                                    <div style={{ display: 'grid', gap: 4, marginTop: 6 }}>
-                                      {selectedFieldSnippetRows.map((row) => (
-                                        <div key={row.key} style={{ display: 'grid', gap: 2 }}>
-                                          <div style={{ fontSize: isMobileReview ? 9 : 8, color: '#A0A0A0', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{row.label}</div>
-                                          <div style={{ fontSize: reviewValueFontSize, color: '#d1d5db', lineHeight: 1.45, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{row.value}</div>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </details>
-                                )}
-                              </div>
-                            )}
-
-                            {/* ── Prompts ── */}
-                            {hasSessionPrompts && (
-                              <details>
-                                <summary style={{ fontSize: isMobileReview ? 9 : 8, color: 'rgba(160,160,160,0.82)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700, cursor: 'pointer', userSelect: 'none' }}>
-                                  Prompts
-                                </summary>
-                                <div style={{ display: 'grid', gap: 6, marginTop: 6 }}>
-                                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0, border: `1px solid ${colours.dark.border}` }}>
-                                    <button type="button" onClick={() => setCclSessionPromptTabByMatter((prev) => ({ ...prev, [cclLetterModal]: 'system' }))} style={{
-                                      border: 'none', borderRight: `1px solid ${colours.dark.border}`,
-                                      background: visiblePromptTab === 'system' ? colours.helixBlue : colours.darkBlue,
-                                      color: systemPromptText ? (visiblePromptTab === 'system' ? colours.accent : '#d1d5db') : colours.greyText,
-                                      padding: '6px 8px', fontSize: isMobileReview ? 10 : 9, fontWeight: 700,
-                                      textTransform: 'uppercase', letterSpacing: '0.05em',
-                                      cursor: systemPromptText ? 'pointer' : 'default', fontFamily: "'Raleway', Arial, Helvetica, sans-serif",
-                                    }}>System</button>
-                                    <button type="button" onClick={() => setCclSessionPromptTabByMatter((prev) => ({ ...prev, [cclLetterModal]: 'user' }))} style={{
-                                      border: 'none',
-                                      background: visiblePromptTab === 'user' ? colours.helixBlue : colours.darkBlue,
-                                      color: userPromptText ? (visiblePromptTab === 'user' ? colours.accent : '#d1d5db') : colours.greyText,
-                                      padding: '6px 8px', fontSize: isMobileReview ? 10 : 9, fontWeight: 700,
-                                      textTransform: 'uppercase', letterSpacing: '0.05em',
-                                      cursor: userPromptText ? 'pointer' : 'default', fontFamily: "'Raleway', Arial, Helvetica, sans-serif",
-                                    }}>User</button>
-                                  </div>
-                                  <div style={{
-                                    fontSize: isMobileReview ? 11 : 10, color: '#d1d5db', lineHeight: 1.5,
-                                    whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                                    maxHeight: 120, overflow: 'auto', scrollbarWidth: 'thin' as const,
-                                    background: colours.dark.cardBackground, border: `1px solid ${colours.dark.border}`,
-                                    padding: '6px 8px',
-                                  }}>
-                                    {visiblePromptTab === 'system' ? (systemPromptText || 'No system prompt captured.') : (userPromptText || 'No user prompt captured.')}
-                                  </div>
-                                </div>
-                              </details>
-                            )}
-
-                          </div>
-                        </details>
-                      </div>
+                              onGodModeFieldChange={setGodModeField}
+                              onGodModeValueChange={(value) => setCclGodModeValueByMatter((prev) => ({ ...prev, [cclLetterModal]: value }))}
+                              onGodModeApply={applyGodModeDraftValue}
+                              onGodModeReload={() => setGodModeField(godModeSelectedFieldKey)}
+                              onGodModeDelete={deleteGodModeDraftField}
+                            />
                           )}
                         </>
                       )}
@@ -10127,11 +11251,11 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                           {loadingReviewContext
                             ? 'Generating review context. The draft will appear as fields are produced.'
                             : showSummaryLanding
-                              ? 'Review the summary above, then begin the guided review when ready.'
+                              ? 'Review the summary above, then open the guided review when you are ready.'
                               : noAiReviewContext
                                 ? 'Use Generate AI review if you want guided checking for this draft. Otherwise you can review the letter manually.'
                                 : noClarificationsQueued
-                                  ? 'No sidepane action is required right now unless you want to approve the current preview letter.'
+                                  ? 'No further side-panel action is needed unless you want to approve the current preview letter.'
                                   : 'Stay in this workspace while you work through the guided review steps.'}
                         </div>
                       )}
@@ -10589,6 +11713,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
       )}
 
   </div>
+    </CclStatusContext.Provider>
   );
 };
 

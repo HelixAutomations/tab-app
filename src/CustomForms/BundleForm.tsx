@@ -37,6 +37,8 @@ import {
     formSectionTokens,
     formAccentColors,
 } from './shared/formStyles';
+import { useFormReadinessPulse } from './shared/useFormReadinessPulse';
+import { FormReadinessCue } from './shared/FormReadinessCue';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES
@@ -65,6 +67,7 @@ interface BundleFormProps {
 
 const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) => {
     const { isDarkMode } = useTheme();
+    const readiness = useFormReadinessPulse('bundle');
     const accentColor = formAccentColors.bundle;
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -334,19 +337,22 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
                 <div style={cardStyle}>
                     {/* Header */}
                     <div style={headerStyle}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                            <Icon 
-                                iconName="Package" 
-                                style={{ fontSize: '20px', color: accentColor }} 
-                            />
-                            <div>
-                                <Text style={getFormHeaderTitleStyle(isDarkMode)}>
-                                    Bundle Submission
-                                </Text>
-                                <Text style={getFormHeaderSubtitleStyle(isDarkMode)}>
-                                    Prepare and route physical document bundles
-                                </Text>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <Icon 
+                                    iconName="Package" 
+                                    style={{ fontSize: '20px', color: accentColor }} 
+                                />
+                                <div>
+                                    <Text style={getFormHeaderTitleStyle(isDarkMode)}>
+                                        Bundle Submission
+                                    </Text>
+                                    <Text style={getFormHeaderSubtitleStyle(isDarkMode)}>
+                                        Prepare and route physical document bundles
+                                    </Text>
+                                </div>
                             </div>
+                            <FormReadinessCue state={readiness.state} detail={readiness.detail} readyAnnouncement="Bundle form ready" />
                         </div>
                     </div>
 

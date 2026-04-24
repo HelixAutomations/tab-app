@@ -4,6 +4,7 @@ const sql = require('mssql');
 const { withRequest } = require('../utils/db');
 const { getSecret } = require('../utils/getSecret');
 const { notify } = require('../utils/hubNotifier');
+const { broadcastMattersChanged } = require('../utils/matters-stream');
 
 /**
  * Matter Operations API Routes
@@ -172,6 +173,16 @@ router.post('/create-matter', async (req, res) => {
         practiceArea: practiceArea || 'General Legal Services'
       }
     });
+    
+    // R7: notify connected clients so matters tiles pulse + refetch.
+    try {
+      broadcastMattersChanged({
+        matterId: clioMatterId || null,
+        displayNumber,
+        instructionRef,
+        source: 'matter-operations.create',
+      });
+    } catch { /* best-effort */ }
     
   } catch (error) {
     console.error('Error creating matter:', error);
@@ -541,6 +552,16 @@ router.post('/create-clio-matter', async (req, res) => {
       clioMatter: matterResult.matter,
       matterId: clioMatterId
     });
+
+    // R7: notify connected clients so matters tiles pulse + refetch.
+    try {
+      broadcastMattersChanged({
+        matterId: clioMatterId,
+        displayNumber,
+        instructionRef,
+        source: 'matter-operations.clio-create',
+      });
+    } catch { /* best-effort */ }
 
     // Fire-and-forget DM notification
     notify('matter.opened', {
