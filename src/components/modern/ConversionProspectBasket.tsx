@@ -35,6 +35,9 @@ export interface ConversionProspectChipItem {
   displayNumber?: string;
   /** 2026-04-20: Clio numeric matter id → builds the hover-revealed deep link. */
   clioMatterId?: string;
+  /** 2026-04-24: enquiry ACID — shown as subtle secondary text on the hover
+   *  pill for enquiry bezels. Ignored for matter chips. */
+  acid?: string;
 }
 
 type Section = 'enquiries' | 'matters';
@@ -168,7 +171,14 @@ function ensureChipStyles() {
       font-feature-settings: "tnum" 1, "lnum" 1;
       opacity: 0;
       transform: translateY(2px);
-      transition: opacity 160ms ease, transform 160ms ease;
+      /*
+       * Rapid-hover handling: 90ms enter delay + 0ms leave delay means a
+       * pointer zipping across multiple chips doesn't light every tooltip;
+       * only the chip the user actually settles on reveals. Exit is
+       * instant-delay but still animated (160ms opacity/transform) so the
+       * collapse reads smoothly, not snappy.
+       */
+      transition: opacity 160ms ease 0ms, transform 160ms ease 0ms;
       pointer-events: none;
       z-index: 5;
     }
@@ -176,6 +186,7 @@ function ensureChipStyles() {
     .conv-prospect-bezel:focus-visible .conv-prospect-hover-label {
       opacity: 1;
       transform: translateY(0);
+      transition: opacity 180ms ease 90ms, transform 180ms ease 90ms;
     }
   `;
   document.head.appendChild(s);
@@ -451,14 +462,29 @@ const ConversionProspectBasket: React.FC<ConversionProspectBasketProps> = ({
     // already convey volume; the trail is a supportive area-of-work cue, not
     // a duplicate list. Matters trail keeps the labelled bezel because the
     // display number + Clio link are functional, not decorative.
+    //
+    // 2026-04-24: on hover, reveal a subtle pill above the icon with the
+    // enquiry name + ACID (as secondary dimmed text). Same structural
+    // pattern as the matter hover pill so rapid cross-hover behaviour is
+    // consistent across both rows.
     if (!isMatter) {
       const enqIconSize = breakpoint === 'wide' ? 14 : 13;
+      const enqName = item.fullName || item.displayName || '';
+      const enqAcid = (item.acid || '').trim();
+      const tooltipBg = isDarkMode ? 'rgba(6,23,51,0.96)' : 'rgba(255,255,255,0.98)';
+      const tooltipBorder = isDarkMode ? 'rgba(135,243,243,0.3)' : 'rgba(54,144,206,0.26)';
+      const tooltipText = isDarkMode ? 'rgba(243,244,246,0.95)' : 'rgba(6,23,51,0.9)';
+      const secondaryText = isDarkMode ? 'rgba(209,213,219,0.55)' : 'rgba(55,65,81,0.5)';
+      const titleText = enqName
+        ? `${enqName}${enqAcid ? ` · ${enqAcid}` : ''} · ${item.aow}`
+        : item.aow;
       return (
         <span
           ref={ref}
           className="conv-prospect-bezel conv-prospect-bezel--quiet"
-          title={`${item.displayName} · ${item.aow}`}
+          title={titleText}
           style={{
+            position: 'relative',
             flexShrink: 0,
             display: 'inline-flex',
             alignItems: 'center',
@@ -473,6 +499,25 @@ const ConversionProspectBasket: React.FC<ConversionProspectBasketProps> = ({
           }}
         >
           <AowIcon area={item.aow} colour={accent} size={enqIconSize} category={category} />
+          {enqName ? (
+            <span
+              className="conv-prospect-hover-label"
+              style={{
+                background: tooltipBg,
+                border: `1px solid ${tooltipBorder}`,
+                color: tooltipText,
+                boxShadow: isDarkMode ? '0 4px 14px rgba(0,0,0,0.45)' : '0 4px 14px rgba(6,23,51,0.18)',
+              }}
+            >
+              <span>{enqName}</span>
+              {enqAcid ? (
+                <>
+                  <span aria-hidden="true" style={{ opacity: 0.35, fontWeight: 400, color: secondaryText }}>|</span>
+                  <span style={{ color: secondaryText, fontWeight: 500, letterSpacing: '0.04em' }}>{enqAcid}</span>
+                </>
+              ) : null}
+            </span>
+          ) : null}
         </span>
       );
     }

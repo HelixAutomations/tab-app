@@ -4531,6 +4531,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
             matterOpened: false,
             fullName: fullName || undefined,
             occurredAt: enq.date instanceof Date ? enq.date.toISOString() : undefined,
+            acid: enq.id || undefined,
           });
           if (out.length >= cap) break;
         }
@@ -5286,6 +5287,9 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
           const num1 = String(10000 + (((i + 1) * 17 + bucketKey.length * 7) % 90000)).padStart(5, '0');
           const num2 = String(10000 + (((i + 1) * 31 + bucketKey.length * 13) % 90000)).padStart(5, '0');
           item.displayNumber = `HLX-${num1}-${num2}`;
+        } else {
+          // 2026-04-24: demo ACID so the enquiry hover pill has secondary text.
+          item.acid = String(20000 + (((i + 1) * 41 + bucketKey.length * 11) % 90000));
         }
         return item;
       });

@@ -270,6 +270,11 @@ export interface ConversionComparisonProspect {
   /** 2026-04-20: Clio numeric matter id used to build the Clio deep link that
    *  reveals on hover. */
   clioMatterId?: string;
+  /** 2026-04-24: enquiry ACID (Core Data `enquiries.ID`) — surfaced as a
+   *  subtle secondary line on the hover pill for enquiry bezels, so ops can
+   *  match a chip to the record without leaving the strip. Undefined for
+   *  matter chips (which use `displayNumber` + `clioMatterId` instead). */
+  acid?: string;
 }
 export interface ConversionComparisonItem {
   key: string;
@@ -2371,24 +2376,66 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                 {options.body}
               </div>
 
-              <div className="ccl-step-window">
-                <div className="ccl-step-track" style={{ transform: `translateY(${42 - (focusStepIndex * 42)}px)` }}>
-                  {options.steps.map((step, index) => {
-                    const isDone = step.status === 'done';
-                    const isActive = index === focusStepIndex;
-                    const rowClass = `ccl-step-row${isActive ? ' active' : ''}${isDone ? ' done' : ''}`;
-                    return (
-                      <div key={step.label} className={rowClass} style={{ opacity: isActive ? 1 : Math.abs(index - focusStepIndex) <= 1 ? 0.46 : 0.2 }}>
-                        {step.label}
+              <div className="ccl-launch-timeline" role="list" aria-label="CCL review setup pipeline">
+                {options.steps.map((step, index) => {
+                  const isDone = step.status === 'done';
+                  const isActive = step.status === 'active';
+                  const isError = step.status === 'error';
+                  const isPending = step.status === 'pending';
+                  const dotColor = isDone ? colours.green : isActive ? colours.accent : isError ? colours.cta : 'rgba(160,160,160,0.45)';
+                  const labelColor = isDone ? 'rgba(243,244,246,0.78)' : isActive ? '#f3f4f6' : isError ? colours.cta : '#7a8290';
+                  const detailColor = isActive ? '#d1d5db' : 'rgba(160,160,160,0.68)';
+                  const connectorColor = isDone ? 'rgba(32,178,108,0.55)' : 'rgba(75,85,99,0.35)';
+                  return (
+                    <div
+                      key={step.label}
+                      role="listitem"
+                      aria-current={isActive ? 'step' : undefined}
+                      className={`ccl-launch-timeline__row${isActive ? ' is-active' : ''}${isDone ? ' is-done' : ''}${isError ? ' is-error' : ''}${isPending ? ' is-pending' : ''}`}
+                    >
+                      <div className="ccl-launch-timeline__marker" aria-hidden="true">
+                        {isActive ? (
+                          <span
+                            className="ccl-launch-timeline__spinner"
+                            style={{ borderTopColor: dotColor }}
+                          />
+                        ) : (
+                          <span
+                            className="ccl-launch-timeline__dot"
+                            style={{ borderColor: dotColor, background: isDone || isError ? dotColor : 'transparent' }}
+                          >
+                            {isDone && (
+                              <svg width="8" height="8" viewBox="0 0 8 8" fill="none" aria-hidden="true">
+                                <path d="M1.5 4.2L3.2 5.8L6.5 2.4" stroke="#061733" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            )}
+                            {isError && (
+                              <svg width="8" height="8" viewBox="0 0 8 8" fill="none" aria-hidden="true">
+                                <path d="M2 2L6 6M6 2L2 6" stroke="#061733" strokeWidth="1.6" strokeLinecap="round" />
+                              </svg>
+                            )}
+                          </span>
+                        )}
+                        {index < options.steps.length - 1 && (
+                          <span
+                            className="ccl-launch-timeline__connector"
+                            style={{ background: connectorColor }}
+                          />
+                        )}
                       </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: focusStepColor, display: 'inline-block', animation: 'cclLaunchDotPulse 1.1s ease-in-out infinite' }} />
-                <span style={{ fontSize: 11.5, color: '#d1d5db' }}>{focusStep?.detail || options.headline}</span>
+                      <div className="ccl-launch-timeline__body">
+                        <div className="ccl-launch-timeline__label" style={{ color: labelColor }}>
+                          {step.label}
+                        </div>
+                        {step.detail && (
+                          <div className="ccl-launch-timeline__detail" style={{ color: detailColor }}>
+                            {step.detail}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
 
               {options.errorMessage && (
