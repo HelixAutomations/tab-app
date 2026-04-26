@@ -1,7 +1,2 @@
-lookup HLX-30546-73770 and enquiry id 2098 from enquiries table in the instructions db.
-
-the enquiry is connected to the first deal/insrtuction. there was a bug where the second instructin via the same link/through the same passcode overwrote what was in the database. now we had to backfill and we have a bit of a broken system but the reality is that this is a real edge case, and we need to now investigate how this shows in the tab app hub to see how we can visually connect everything.
-
-in prospects tab, overview, pipeline, the actual instruction shows the reference and the new one shows the enquiry id next to the name. i dont quite understand the difference. also, john has no pitch or instruction, or payment, which is o payment because its a cfa so pitch amount 0 etc but the point is that the second instruction should connect as a joint client and the tab app ui should use this to kind of maybe adapt a little bit and flag this? otherwise theya re two separate intanes that arent connected and the ui of all this is buggy/messy for that reason.
-
-do the first round of orienting and querying and then lets talk and confirm.refine instructions/brief.
+changelog inspector.
+foundry backed llm consideration based on date range and change, level of person in terms of permission to access the data.

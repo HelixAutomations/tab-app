@@ -370,9 +370,10 @@ const App: React.FC<AppProps> = ({
       const parsed = saved ? JSON.parse(saved) : {};
       // rateChangeTracker defaults to false - users opt-in via UserBubble
       // showAttendance defaults to true - annual leave visible by default
-      return { rateChangeTracker: false, showAttendance: true, cclGuideMode: false, showOpsQueue: true, showHomeOpsCclDates: false, ...parsed };
+      // showOpsQueue defaults to false - expensive preview surface, opt-in via Hub Tools
+      return { rateChangeTracker: false, showAttendance: true, cclGuideMode: false, showOpsQueue: false, showHomeOpsCclDates: false, ...parsed };
     } catch {
-      return { rateChangeTracker: false, showAttendance: true, cclGuideMode: false, showOpsQueue: true, showHomeOpsCclDates: false };
+      return { rateChangeTracker: false, showAttendance: true, cclGuideMode: false, showOpsQueue: false, showHomeOpsCclDates: false };
     }
   });
 
@@ -441,16 +442,36 @@ const App: React.FC<AppProps> = ({
 
   useEffect(() => {
     try {
-      const migrationKey = 'featureToggles.homeOpsCclDates.defaultHidden.v1';
-      if (localStorage.getItem(migrationKey) === 'true') {
+      const cclDatesMigrationKey = 'featureToggles.homeOpsCclDates.defaultHidden.v1';
+      const opsQueueMigrationKey = 'featureToggles.showOpsQueue.defaultHidden.v1';
+      if (
+        localStorage.getItem(cclDatesMigrationKey) === 'true'
+        && localStorage.getItem(opsQueueMigrationKey) === 'true'
+      ) {
         return;
       }
 
       setFeatureToggles(prev => {
-        const next = { ...prev, showHomeOpsCclDates: false };
-        localStorage.setItem('featureToggles', JSON.stringify(next));
-        localStorage.setItem(migrationKey, 'true');
-        return next;
+        let next = prev;
+        let changed = false;
+
+        if (localStorage.getItem(cclDatesMigrationKey) !== 'true') {
+          next = { ...next, showHomeOpsCclDates: false };
+          localStorage.setItem(cclDatesMigrationKey, 'true');
+          changed = true;
+        }
+
+        if (localStorage.getItem(opsQueueMigrationKey) !== 'true') {
+          next = { ...next, showOpsQueue: false };
+          localStorage.setItem(opsQueueMigrationKey, 'true');
+          changed = true;
+        }
+
+        if (changed) {
+          localStorage.setItem('featureToggles', JSON.stringify(next));
+        }
+
+        return changed ? next : prev;
       });
     } catch {
       // Ignore storage failures and keep runtime defaults.

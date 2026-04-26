@@ -20,14 +20,33 @@ interface CclReviewFieldHeaderProps {
   pressureTestPromptVersion?: string;
 }
 
+function normaliseText(value: string): string {
+  return value.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function splitFieldGroup(fieldGroup: string, fieldLabel: string, showLabel: boolean): {
+  sectionLabel: string;
+  title: string;
+  subtitle: string;
+} {
+  const parts = (fieldGroup || '').split('·').map((part) => part.trim()).filter(Boolean);
+  const sectionLabel = parts.length > 1 ? parts[0] : '';
+  const groupTitle = parts.length > 1 ? parts.slice(1).join(' · ') : (fieldGroup || '').trim();
+  const title = (showLabel ? fieldLabel : groupTitle) || fieldLabel || groupTitle || 'Review point';
+  const subtitle = showLabel && groupTitle && normaliseText(groupTitle) !== normaliseText(fieldLabel)
+    ? groupTitle
+    : '';
+  return { sectionLabel, title, subtitle };
+}
+
 function getAskSentence(fieldType: ReviewFieldType, isFlagged: boolean): string {
   if (isFlagged || fieldType === 'verify') {
     return 'Confirm this wording fits the evidence.';
   }
-  if (fieldType === 'set-wording') {
-    return 'Set the wording for this point.';
-  }
-  return 'Review this point.';
+  // set-wording: the field itself + the editor below already make the
+  // ask self-evident; suppress the helper sentence so the header stays
+  // tight (no "Set the wording for this point." filler).
+  return '';
 }
 
 function getWhyParagraph(
@@ -67,6 +86,18 @@ export default function CclReviewFieldHeader({
   const whyParagraph = getWhyParagraph(fieldType, isFlagged, pressureTest, decisionReason);
   const showSafetyNetTag = isFlagged && typeof pressureTest?.score === 'number';
 
+  // De-dup section vs label — when the field label is just a restatement
+  // of the group (e.g. group "Section 3 · Next steps" + label "Next Steps"),
+  // hide the trailing label so the orientation row doesn't double up.
+  const normGroup = normaliseText(fieldGroup || '');
+  const normLabel = normaliseText(fieldLabel || '');
+  const labelRedundant = !!normLabel && !!normGroup && normGroup.endsWith(normLabel);
+  const showLabel = !!fieldLabel && !labelRedundant;
+  const { sectionLabel, title, subtitle } = React.useMemo(
+    () => splitFieldGroup(fieldGroup, fieldLabel, showLabel),
+    [fieldGroup, fieldLabel, showLabel],
+  );
+
   // Expander: only meaningful when we have something to reveal beyond the
   // one-sentence reason. Keep dev-flavoured (sources + trace id).
   const hasExpanderContent = isFlagged && (
@@ -74,76 +105,76 @@ export default function CclReviewFieldHeader({
     || typeof pressureTestTraceId === 'number'
   );
   const [expanded, setExpanded] = React.useState(false);
+  const cueLabel = showSafetyNetTag
+    ? null
+    : fieldType === 'set-wording'
+      ? 'Needs wording'
+      : 'Review cue';
 
   return (
     <div className={`ccl-review-field-header${isMobile ? ' ccl-review-field-header--mobile' : ''}`}>
-      <div className="ccl-review-field-header__orientation">
-        <span className="ccl-review-field-header__orientation-count">
+      <div className="ccl-review-field-header__topline">
+        <span className="ccl-review-field-header__count-chip">
           {currentDecisionNumber} / {totalDecisions}
         </span>
-        {fieldGroup && (
-          <span className="ccl-review-field-header__group-pill">{fieldGroup}</span>
+        {sectionLabel && (
+          <span className="ccl-review-field-header__section-chip">{sectionLabel}</span>
         )}
-        <span className="ccl-review-field-header__orientation-sep" aria-hidden="true">&middot;</span>
-        <span className="ccl-review-field-header__orientation-label">{fieldLabel}</span>
       </div>
 
-      <div className="ccl-review-field-header__ask">{askSentence}</div>
+      <div className="ccl-review-field-header__title-block">
+        <div className="ccl-review-field-header__title">{title}</div>
+        {subtitle && (
+          <div className="ccl-review-field-header__subtitle">{subtitle}</div>
+        )}
+        {askSentence && (
+          <div className="ccl-review-field-header__guidance">{askSentence}</div>
+        )}
+      </div>
 
       {(showSafetyNetTag || whyParagraph) && (
-        <div className="ccl-review-field-header__why-block">
-          {showSafetyNetTag && (
-            hasExpanderContent ? (
+        <div className={`ccl-review-field-header__context${showSafetyNetTag ? ' ccl-review-field-header__context--safety-net' : ''}`}>
+          <div className="ccl-review-field-header__context-head">
+            <div className="ccl-review-field-header__context-chips">
+              {showSafetyNetTag ? (
+                <span className="ccl-review-field-header__safety-net-tag">
+                  Safety Net &middot; {pressureTest!.score}/10
+                </span>
+              ) : cueLabel ? (
+                <span className="ccl-review-field-header__context-label">{cueLabel}</span>
+              ) : null}
+            </div>
+            {hasExpanderContent && (
               <button
                 type="button"
-                className="ccl-review-field-header__safety-net-tag ccl-review-field-header__safety-net-tag--button"
-                onClick={() => setExpanded(v => !v)}
+                className="ccl-review-field-header__context-toggle"
+                onClick={() => setExpanded((value) => !value)}
                 aria-expanded={expanded}
-                style={{
-                  background: 'none',
-                  border: 0,
-                  padding: 0,
-                  font: 'inherit',
-                  color: 'inherit',
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                }}
               >
-                Safety Net &middot; {pressureTest!.score}/10 {expanded ? '\u25B4' : '\u25BE'}
+                Evidence {expanded ? '\u25B4' : '\u25BE'}
               </button>
-            ) : (
-              <span className="ccl-review-field-header__safety-net-tag">
-                Safety Net &middot; {pressureTest!.score}/10
-              </span>
-            )
-          )}
+            )}
+          </div>
           {whyParagraph && (
             <div className="ccl-review-field-header__why">{whyParagraph}</div>
           )}
           {expanded && hasExpanderContent && (
-            <div
-              className="ccl-review-field-header__why-expander"
-              style={{
-                marginTop: 6,
-                padding: '8px 10px',
-                background: 'rgba(255, 140, 0, 0.06)',
-                border: '1px solid rgba(255, 140, 0, 0.18)',
-                fontSize: 11,
-                lineHeight: 1.5,
-                color: '#d1d5db',
-                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-              }}
-            >
+            <div className="ccl-review-field-header__context-meta">
               {Array.isArray(pressureTestSources) && pressureTestSources.length > 0 && (
-                <div>
-                  <span style={{ color: '#A0A0A0' }}>Scored against:</span>{' '}
-                  {pressureTestSources.join(' \u00B7 ')}
+                <div className="ccl-review-field-header__context-meta-row">
+                  <div className="ccl-review-field-header__context-meta-label">Scored against</div>
+                  <div className="ccl-review-field-header__context-meta-value">
+                    {pressureTestSources.join(' \u00B7 ')}
+                  </div>
                 </div>
               )}
               {typeof pressureTestTraceId === 'number' && (
-                <div>
-                  <span style={{ color: '#A0A0A0' }}>Trace:</span> #{pressureTestTraceId}
-                  {pressureTestPromptVersion ? ` \u00B7 ${pressureTestPromptVersion}` : ''}
+                <div className="ccl-review-field-header__context-meta-row">
+                  <div className="ccl-review-field-header__context-meta-label">Trace</div>
+                  <div className="ccl-review-field-header__context-meta-value">
+                    #{pressureTestTraceId}
+                    {pressureTestPromptVersion ? ` \u00B7 ${pressureTestPromptVersion}` : ''}
+                  </div>
                 </div>
               )}
             </div>

@@ -1,243 +1,107 @@
 /* eslint-disable no-console */
 const express = require('express');
-const fetch = require('node-fetch');
-const { getSecret } = require('../utils/getSecret');
+const { trackEvent, trackException } = require('../utils/appInsights');
+const { sendHelixEmail } = require('../utils/helixEmail');
+const { tryForwardMailboxMessage } = require('../utils/aidenMailbox');
+const { appendEmailForwardActivity } = require('../utils/emailActivity');
 const router = express.Router();
 
-const GRAPH_CLIENT_ID_SECRET = 'graph-aidenteams-clientid';
-const GRAPH_CLIENT_SECRET_SECRET = 'aiden-email-secret-value';
-const TENANT_ID = '7fbc252f-3ce5-460f-9740-4e1cb8bf78b8';
-
-let cachedSecrets = { id: null, secret: null, ts: 0 };
-let cachedToken = { token: null, exp: 0 };
-
-async function getGraphSecrets() {
-  const now = Date.now();
-  if (cachedSecrets.id && cachedSecrets.secret && now - cachedSecrets.ts < 30 * 60 * 1000) {
-    return { clientId: cachedSecrets.id, clientSecret: cachedSecrets.secret };
-  }
-  const [clientId, clientSecret] = await Promise.all([
-    getSecret(GRAPH_CLIENT_ID_SECRET),
-    getSecret(GRAPH_CLIENT_SECRET_SECRET),
-  ]);
-  cachedSecrets = { id: clientId, secret: clientSecret, ts: now };
-  return { clientId, clientSecret };
-}
-
-async function getGraphToken() {
-  const now = Math.floor(Date.now() / 1000);
-  if (cachedToken.token && cachedToken.exp - 300 > now) {
-    return cachedToken.token;
-  }
-  const { clientId, clientSecret } = await getGraphSecrets();
-  const body = new URLSearchParams({
-    client_id: clientId,
-    client_secret: clientSecret,
-    scope: 'https://graph.microsoft.com/.default',
-    grant_type: 'client_credentials',
-  });
-  const res = await fetch(`https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body,
-  });
-  if (!res.ok) {
-    const txt = await res.text();
-    throw new Error(`Token request failed: ${res.status} ${txt}`);
-  }
-  const json = await res.json();
-  cachedToken = { token: json.access_token, exp: now + (json.expires_in || 3600) };
-  return cachedToken.token;
-}
-
-// Utilities to help resolve a Graph message id when only InternetMessageId is known
-function normalizeInternetMessageId(id) {
-  if (!id) return id;
-  let trimmed = String(id).trim();
-  if (!trimmed.startsWith('<')) trimmed = `<${trimmed}`;
-  if (!trimmed.endsWith('>')) trimmed = `${trimmed}>`;
-  return trimmed;
-}
-
-function escapeODataString(value) {
-  // Escape single quotes for OData $filter strings
-  return String(value).replace(/'/g, "''");
-}
-
-async function findMessageIdByInternetId(mailboxEmail, internetMessageId) {
-  const accessToken = await getGraphToken();
-  const normalized = normalizeInternetMessageId(internetMessageId);
-  const filter = `internetMessageId eq '${escapeODataString(normalized)}'`;
-  const url = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(mailboxEmail)}/messages?$select=id&$top=1&$filter=${encodeURIComponent(filter)}`;
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (!res.ok) {
-    const txt = await res.text();
-    throw new Error(`findMessageIdByInternetId failed: ${res.status} ${txt}`);
-  }
-  const json = await res.json();
-  const id = json?.value?.[0]?.id;
-  return id || null;
-}
-
 router.post('/forwardEmail', async (req, res) => {
+  const started = Date.now();
+  const requestBody = req.body || {};
+  const { to, cc, subject, body, originalDate, originalFrom, messageId, feeEarnerEmail, mailboxEmail, internetMessageId, debug } = requestBody;
+  let fallbackReason = null;
   try {
-    const { to, cc, subject, body, originalDate, originalFrom, messageId, feeEarnerEmail, mailboxEmail, internetMessageId, debug } = req.body;
-
     if (!to || !subject) {
       return res.status(400).json({ error: 'Missing required fields: to, subject' });
     }
+
+    trackEvent('ForwardEmail.Route.Started', {
+      operation: 'forward',
+      hasMessageId: String(!!messageId),
+      hasInternetMessageId: String(!!internetMessageId),
+      hasCc: String(!!cc),
+    });
 
     // TRUE FORWARD: If we have messageId (or internetMessageId), use Graph's native forward action
     // The email must be forwarded from the mailbox where it currently exists
     if (messageId || internetMessageId) {
       // Fee earner is the point of contact – try their mailbox first, then any provided mailbox, then automations
-      let sourceMailbox = feeEarnerEmail || mailboxEmail || 'automations@helix-law.com';
+      const sourceMailbox = feeEarnerEmail || mailboxEmail || 'automations@helix-law.com';
       
       console.log(`[forwardEmail] Attempting TRUE forward for message ${messageId || internetMessageId || 'unknown-id'} from mailbox: ${sourceMailbox}`);
       
       try {
-        const accessToken = await getGraphToken();
-        let resolvedMessageId = messageId || null;
-        let resolvedViaInternetId = false;
-        if (!resolvedMessageId && internetMessageId) {
-          resolvedMessageId = await findMessageIdByInternetId(sourceMailbox, internetMessageId);
-          resolvedViaInternetId = true;
-          console.log(`[forwardEmail] Resolved Graph message id via internetMessageId: ${resolvedMessageId}`);
-          // If not found under the provided mailbox, try a small set of alternative mailboxes we likely control
-          if (!resolvedMessageId) {
-            const candidates = Array.from(new Set([
-              feeEarnerEmail,
-              mailboxEmail,
-              'automations@helix-law.com',
-            ].filter(Boolean)));
-            for (const candidate of candidates) {
-              if (candidate === sourceMailbox) continue;
-              try {
-                const altId = await findMessageIdByInternetId(candidate, internetMessageId);
-                if (altId) {
-                  resolvedMessageId = altId;
-                  sourceMailbox = candidate;
-                  console.log(`[forwardEmail] Resolved via alternate mailbox ${candidate}: ${resolvedMessageId}`);
-                  break;
-                }
-              } catch (altErr) {
-                console.warn('[forwardEmail] Alternate mailbox lookup failed', candidate, altErr?.message || altErr);
-              }
-            }
-          }
-        }
-
-        if (!resolvedMessageId) {
-          console.warn('[forwardEmail] No resolvable message id for true forward; will fall back to pseudo-forward');
-        } else {
-          // Use Graph's native /forward endpoint (sends immediately, not as draft)
-          let forwardUrl = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(sourceMailbox)}/messages/${encodeURIComponent(resolvedMessageId)}/forward`;
-        
-        // Build toRecipients array - Graph API requires emailAddress object format
-        const toRecipients = to.split(',').map(email => ({ 
-          emailAddress: { address: email.trim() } 
-        }));
-        
-        const forwardPayload = {
-          comment: '', // Optional forward comment (can be empty string)
-          toRecipients,
-        };
-        
-        console.log(`[forwardEmail] Calling Graph API: ${forwardUrl}`);
-        console.log(`[forwardEmail] Recipients: ${to}`);
-        
-        let forwardRes = await fetch(forwardUrl, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(forwardPayload),
+        const graphResult = await tryForwardMailboxMessage({
+          to,
+          messageId,
+          internetMessageId,
+          preferredMailbox: sourceMailbox,
+          candidateMailboxes: [feeEarnerEmail, mailboxEmail, 'automations@helix-law.com'],
+          log: (message) => console.log(message),
+          warn: (message) => console.warn(message),
         });
 
-        if (!forwardRes.ok) {
-          const status = forwardRes.status;
-          const errorText = await forwardRes.text();
-          console.error('[forwardEmail] Graph forward failed:', status, errorText);
-
-          // If we attempted using a possibly wrong message id and we have an internetMessageId, try to resolve and retry once
-          if (internetMessageId && status === 404) {
-            try {
-              // First, retry resolving within the current source mailbox
-              let retryId = await findMessageIdByInternetId(sourceMailbox, internetMessageId);
-              // If still not found, try alternate mailboxes (fee earner first)
-              if (!retryId) {
-                const candidates = Array.from(new Set([
-                  feeEarnerEmail,
-                  mailboxEmail,
-                  'automations@helix-law.com',
-                ].filter(Boolean)));
-                for (const candidate of candidates) {
-                  try {
-                    const altId = await findMessageIdByInternetId(candidate, internetMessageId);
-                    if (altId) {
-                      retryId = altId;
-                      sourceMailbox = candidate;
-                      console.log(`[forwardEmail] Retrying with alternate mailbox ${candidate} and resolved id ${retryId}`);
-                      break;
-                    }
-                  } catch (altErr) {
-                    console.warn('[forwardEmail] Retry alternate mailbox lookup failed', candidate, altErr?.message || altErr);
-                  }
-                }
-              }
-              if (retryId) {
-                forwardUrl = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(sourceMailbox)}/messages/${encodeURIComponent(retryId)}/forward`;
-                forwardRes = await fetch(forwardUrl, {
-                  method: 'POST',
-                  headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json',
-                  },
-                  body: JSON.stringify(forwardPayload),
-                });
-              }
-            } catch (resolveErr) {
-              console.error('[forwardEmail] Failed resolving message by internetMessageId:', resolveErr.message);
-            }
-          }
-
-          if (forwardRes && forwardRes.ok) {
-            console.log(`[forwardEmail] ✓ TRUE forward sent successfully to ${to} from ${sourceMailbox} (after id resolution)`);
-            return res.status(200).json({ 
-              success: true, 
-              message: 'Email forwarded successfully (true forward)', 
-              method: 'graph-forward-action',
-              sourceMailbox 
-            });
-          } else {
-            console.log('[forwardEmail] Falling back to pseudo-forward');
-            // Fall through to pseudo-forward instead of throwing
-            if (debug) {
-              return res.status(207).json({
-                success: false,
-                message: 'Falling back to pseudo-forward due to Graph error',
-                method: 'fallback',
-                debugDetails: { status, errorText, sourceMailbox, attemptedId: resolvedMessageId || null, internetMessageId: internetMessageId || null }
-              });
-            }
-          }
-        } else {
-          console.log(`[forwardEmail] ✓ TRUE forward sent successfully to ${to} from ${sourceMailbox}`);
-          return res.status(200).json({ 
-            success: true, 
-            message: 'Email forwarded successfully (true forward)', 
+        if (graphResult.ok) {
+          console.log(`[forwardEmail] ✓ TRUE forward sent successfully to ${to} from ${graphResult.sourceMailbox}${graphResult.resolvedViaInternetId ? ' (after id resolution)' : ''}`);
+          trackEvent('ForwardEmail.Route.Completed', {
+            operation: 'forward',
             method: 'graph-forward-action',
-            sourceMailbox 
+            mailbox: graphResult.sourceMailbox,
+            resolvedViaInternetId: String(graphResult.resolvedViaInternetId),
+            durationMs: String(Date.now() - started),
+          });
+          appendEmailForwardActivity({
+            status: 'success',
+            to,
+            cc,
+            method: 'graph-forward-action',
+            sourceMailbox: graphResult.sourceMailbox,
+            durationMs: Date.now() - started,
+          });
+          return res.status(200).json({
+            success: true,
+            message: 'Email forwarded successfully (true forward)',
+            method: 'graph-forward-action',
+            sourceMailbox: graphResult.sourceMailbox,
           });
         }
-        // Close the 'else' block that handles the true-forward path when a resolvable message id exists
+
+        console.warn('[forwardEmail] No resolvable message id for true forward; will fall back to pseudo-forward');
+        console.log('[forwardEmail] Falling back to pseudo-forward');
+        fallbackReason = graphResult.fallbackReason || 'graph-forward-failed';
+        trackEvent('ForwardEmail.Route.Fallback', {
+          operation: 'forward',
+          reason: fallbackReason,
+          mailbox: graphResult.sourceMailbox || sourceMailbox,
+          durationMs: String(Date.now() - started),
+          status: String(graphResult.status || ''),
+        });
+
+        if (debug) {
+          return res.status(207).json({
+            success: false,
+            message: 'Falling back to pseudo-forward due to Graph error',
+            method: 'fallback',
+            debugDetails: {
+              status: graphResult.status,
+              errorText: graphResult.error,
+              sourceMailbox: graphResult.sourceMailbox || sourceMailbox,
+              attemptedId: graphResult.resolvedMessageId || null,
+              internetMessageId: internetMessageId || null,
+            },
+          });
         }
       } catch (graphError) {
         console.error('[forwardEmail] Graph API error:', graphError.message);
         console.log('[forwardEmail] Falling back to pseudo-forward');
+        fallbackReason = 'graph-exception';
+        trackEvent('ForwardEmail.Route.Fallback', {
+          operation: 'forward',
+          reason: fallbackReason,
+          durationMs: String(Date.now() - started),
+          error: String(graphError?.message || graphError),
+        });
         // Fall through to pseudo-forward
       }
     }
@@ -269,7 +133,7 @@ router.post('/forwardEmail', async (req, res) => {
     `;
 
     const sendEmailPayload = {
-      to,
+      user_email: to,
       cc_emails: cc || undefined,
       subject,
       html: forwardedBody,
@@ -277,23 +141,53 @@ router.post('/forwardEmail', async (req, res) => {
       saveToSentItems: true,
     };
 
-    const baseUrl = req.protocol + '://' + req.get('host');
-    const sendEmailResponse = await fetch(`${baseUrl}/api/sendEmail`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(sendEmailPayload),
+    const sendResult = await sendHelixEmail({
+      body: sendEmailPayload,
+      req,
+      route: 'server:/api/forwardEmail#pseudo-forward',
     });
 
-    if (!sendEmailResponse.ok) {
-      const errorText = await sendEmailResponse.text();
-      throw new Error(`SendEmail failed: ${sendEmailResponse.status} ${errorText}`);
+    if (!sendResult.ok) {
+      throw new Error(`SendEmail failed: ${sendResult.status} ${sendResult.error || 'Unknown error'}`);
     }
+
+    trackEvent('ForwardEmail.Route.Completed', {
+      operation: 'forward',
+      method: 'pseudo-forward',
+      durationMs: String(Date.now() - started),
+    });
+    appendEmailForwardActivity({
+      status: 'success',
+      to,
+      cc,
+      method: 'pseudo-forward',
+      sourceMailbox: 'automations@helix-law.com',
+      fallbackReason,
+      durationMs: Date.now() - started,
+    });
 
     return res.status(200).json({ success: true, message: 'Email forwarded successfully (pseudo-forward)', method: 'sendEmail' });
   } catch (err) {
     console.error('Forward email error:', err);
+    trackException(err, {
+      operation: 'forward',
+      phase: 'route',
+    });
+    trackEvent('ForwardEmail.Route.Failed', {
+      operation: 'forward',
+      durationMs: String(Date.now() - started),
+      error: String(err?.message || err),
+    });
+    appendEmailForwardActivity({
+      status: 'error',
+      to,
+      cc,
+      method: messageId || internetMessageId ? 'graph-forward-action' : 'pseudo-forward',
+      sourceMailbox: feeEarnerEmail || mailboxEmail || 'automations@helix-law.com',
+      fallbackReason,
+      durationMs: Date.now() - started,
+      error: String(err?.message || err),
+    });
     return res.status(500).json({ error: err?.message || 'Failed to forward email' });
   }
 });

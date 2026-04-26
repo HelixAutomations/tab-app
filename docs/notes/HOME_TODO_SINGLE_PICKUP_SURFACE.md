@@ -1,8 +1,8 @@
 # Home To Do — single pickup surface (replace pipeline + matters tiles)
 
-> **Purpose.** Promote Home's existing immediate-actions surface into the primary pickup point for every hub-originating item. Retire the Pipeline + Matters tiles on Home (they still exist on their own tabs). The graph/conversion block stays. This brief is the anchor for Streams 1, 3 and 5 — each feeds cards into the To Do registry defined here.
+> **Purpose.** Promote Home's existing immediate-actions surface into the primary pickup point for every hub-originating item, then reuse that same right-hand real estate for calmer, suggestive follow-up prompts when the hard queue is light. Retire the Pipeline + Matters tiles on Home (they still exist on their own tabs). The graph/conversion block stays. This brief is the anchor for Streams 1, 3 and 5, plus the later secondary-tray extension that feeds softer conversion and reconciliation prompts into the same surface.
 >
-> **Verified:** 2026-04-20 against branch `main`.
+> **Verified:** 2026-04-25 against branch `main`.
 
 ---
 
@@ -19,7 +19,17 @@ From the realignment call (verbatim, [docs/notes/realignmentcall_scope.md](reali
 - *"all of the like annual leave approval, we're going to the To Do List now"*
 - Graph stays: *"I made sure that this is showing only essential data, no kind of distractions"*
 
-Out of scope: Asana tasks, cross-app joins (enquiries / instructions feeds), chat surface.
+2026-04-25 extension (this session), verbatim:
+
+- *"we agreed to show to do by default now, no?"*
+- *"when there is no items in the to do, i think we should subtly 'suggest', and encourage, where suggest and encourage are key words, the users to follow up on any prospects they contacted but havent converted etc."*
+- *"this pick up surface becomes not just for the hard to dos but also useful conversion pushes."*
+- *"later we might add more reconscilliation prompts like 'this file hasn't had any activity in the past x'."*
+- *"invoices, transactions/outstanding balance actions. all of that can feed into this surface for the key to dos"*
+
+That extends the brief in one important way: the Home pickup surface is still primarily for hard, owned actions, but it should no longer collapse to a binary `All caught up` state. When the hard queue is empty or thin, the same surface should gently surface secondary prompts drawn from data Home already knows about, without confusing those prompts for mandatory work.
+
+Out of scope: Asana tasks, a generic CRM task inbox, chat surface, or a free-form rules engine that invents prompts from arbitrary sources. The secondary tray should be curated and sourced from already-available Home and webhook/reconciliation signals.
 
 ---
 
@@ -50,6 +60,29 @@ Out of scope: Asana tasks, cross-app joins (enquiries / instructions feeds), cha
 - [CCL_BACKEND_CHAIN_SILENT_AUTOPILOT_SERVICE.md](CCL_BACKEND_CHAIN_SILENT_AUTOPILOT_SERVICE.md) currently assumes the **matters-box row** is the pickup surface. This brief supersedes that assumption. Update that brief's §2/§3 pickup-surface language when Phase B of this brief lands.
 - [FORMS_STREAM_PERSISTENCE_PLAN.md](FORMS_STREAM_PERSISTENCE_PLAN.md) handles tray + retrigger mechanics for forms. Independent of the To Do emission this brief adds; they compose.
 
+### 2.6 The inline Home To Do surface is now the default shape, but its empty state is still binary
+
+- [src/tabs/home/Home.tsx](../../src/tabs/home/Home.tsx#L6776) builds `immediateActionsList` as a single action array.
+- [src/tabs/home/Home.tsx](../../src/tabs/home/Home.tsx#L7384) passes that list into `todoSlot` when `replacePipelineAndMatters` is on.
+- [src/tabs/home/ImmediateActionsBar.tsx](../../src/tabs/home/ImmediateActionsBar.tsx#L198) renders only an `All caught up` empty state when the list settles empty.
+- [src/tabs/home/Home.tsx](../../src/tabs/home/Home.tsx#L2435) currently filters server-backed registry cards to `FORMS_TODO_KINDS`, which keeps the panel narrow even before secondary prompts are considered.
+
+Conclusion: the Home panel is either a hard To Do list or an empty badge. There is no second-tier suggestion layer yet.
+
+### 2.7 Home already has the data needed for secondary prompts
+
+- [src/tabs/home/Home.tsx](../../src/tabs/home/Home.tsx#L723) already stores `conversionComparison` on the Home side.
+- [src/components/modern/OperationsDashboard.tsx](../../src/components/modern/OperationsDashboard.tsx#L273) defines `ConversionComparisonProspect`, including redacted display names, fee-earner initials, AoW, matter-opened state, and record ids for conversion-side prospect prompts.
+- [src/tabs/home/Home.tsx](../../src/tabs/home/Home.tsx#L1632) already derives `unclaimedSummary` from live enquiry data, including age, value, AoW, and item lists.
+- [src/tabs/home/Home.tsx](../../src/tabs/home/Home.tsx#L1177) and the surrounding Home transactions/balances state already keep invoice and outstanding-balance signals in memory, even though they currently render outside the To Do surface.
+
+Conclusion: the next prompt layer can be built from existing Home data first, before reaching for a new backend rules engine.
+
+### 2.8 Reconciliation prompts should compose with the webhook programme, not duplicate it
+
+- [CLIO_WEBHOOK_RECONCILIATION_AND_SELECTIVE_ROLLOUT.md](CLIO_WEBHOOK_RECONCILIATION_AND_SELECTIVE_ROLLOUT.md) already scopes selective Clio webhook invalidation and later reconciliation.
+- That brief explicitly treats webhooks as triggers first and reconciliation second. This brief should consume those signals as prompt sources, not re-define webhook intake or replay mechanics.
+
 ---
 
 ## 3. Plan
@@ -60,7 +93,7 @@ Out of scope: Asana tasks, cross-app joins (enquiries / instructions feeds), cha
 
 | # | Change | File | Detail |
 |---|--------|------|--------|
-| A1 | Two boolean toggle state | [src/tabs/home/Home.tsx](../../src/tabs/home/Home.tsx) | `hideAsanaAndTransactions` + `replacePipelineAndMatters`, each persisted to their own `localStorage` key (`helix.home.hideAsanaAndTransactions`, `helix.home.replacePipelineAndMatters`). Default both `false` in prod. Helpers `readBoolToggle`/`writeBoolToggle`. |
+| A1 | Two boolean toggle state | [src/tabs/home/Home.tsx](../../src/tabs/home/Home.tsx) | `hideAsanaAndTransactions` + `replacePipelineAndMatters`, each persisted to their own `localStorage` key (`helix.home.hideAsanaAndTransactions`, `helix.home.replacePipelineAndMatters`). Default `hideAsanaAndTransactions=false`; default `replacePipelineAndMatters=true` when no stored preference exists. Helpers `readBoolToggle`/`writeBoolToggle`. |
 | A2 | Gate ops-queue + transactions | [src/tabs/home/Home.tsx](../../src/tabs/home/Home.tsx) | `OperationsQueue` wrapped in `{!hideAsanaAndTransactions && (...)}`. `Transactions & Balances` section wrapped `{useLocalData && !hideAsanaAndTransactions && (...)}`. Dashboard itself always rendered. |
 | A3 | Thread `hidePipelineAndMatters` into OperationsDashboard | [src/components/modern/OperationsDashboard.tsx](../../src/components/modern/OperationsDashboard.tsx) | New optional prop on interface + destructured with default `false`. Consumed in the pipeline layout row: (a) `gridTemplateColumns` becomes `1fr 1fr` when a `todoSlot` is also provided (50/50 with Conversion), else collapses to `1fr`, (b) entire `── Right: Pipeline ──` column (~1170 lines: activity/unclaimed tabs, recent-matters table, HomePipelineStrip per-row) wrapped in `{!hidePipelineAndMatters && (...)}`. |
 | A4 | `todoSlot` right-column (replaces pipeline column) | [src/components/modern/OperationsDashboard.tsx](../../src/components/modern/OperationsDashboard.tsx) + [src/tabs/home/Home.tsx](../../src/tabs/home/Home.tsx) | New `todoSlot?: React.ReactNode` prop on OperationsDashboard. When `hidePipelineAndMatters` is on AND `todoSlot` provided, a new right-column block renders under a matching `home-section-header` titled "To Do" (`FiCheckCircle`), visually symmetrical to the left Conversion panel. Home passes `<ImmediateActionsBar ... />` as `todoSlot` only when `replacePipelineAndMatters` is on — so ImmediateActions becomes the ToDo panel in-place of the pipeline (no duplicate render above the dashboard). |
@@ -69,7 +102,7 @@ Out of scope: Asana tasks, cross-app joins (enquiries / instructions feeds), cha
 | A7 | `ImmediateActionsBar` rework *(deferred — user acknowledged "it will need a rework")* | [src/tabs/home/ImmediateActionsBar.tsx](../../src/tabs/home/ImmediateActionsBar.tsx) | Current bar was built for the app-level portal. As the inline ToDo box it needs visual rework: full-width panel footprint, section headers, skeleton-reserved layout, tighter density for Home context. Specifics TBD with user. |
 | A8 | Conversion-on-left, ToDo-on-right 50/50 *(delivered via A3+A4)* | [src/components/modern/OperationsDashboard.tsx](../../src/components/modern/OperationsDashboard.tsx) | Achieved by the `todoSlot` mechanism above — dashboard's own pipeline-row grid flips to `1fr 1fr` when the slot is provided, so Conversion and ToDo sit side-by-side at 50/50. No conversion-chart extraction was needed. |
 
-**Phase A acceptance (A1-A5, delivered 2026-04-20):** In production, Home looks identical to today (both toggles default off). When `Replace pipeline/matters with ToDo` is on: dashboard's enquiries/matters metric tiles + conversion chart remain; the entire pipeline/matters right column is hidden; `ImmediateActionsBar` renders inline as the pickup surface. When `Hide ops queue + transactions` is on: the CCL/matter-opening queue and the transactions strip are hidden. Toggles are independently composable (either, both, or neither). No behaviour regression on existing `review-ccl` / `annual-leave` cards. No deletion of dashboard data-fetching code. Toggle chip only visible locally or for LZ/AC.
+**Phase A acceptance (A1-A5, delivered 2026-04-20; fallback corrected 2026-04-25):** Home now defaults to the To Do replacement layout unless a stored preference says otherwise. Dashboard enquiries/matters metric tiles + conversion chart remain; the entire pipeline/matters right column is hidden when `Replace pipeline/matters with ToDo` is on; `ImmediateActionsBar` renders inline as the pickup surface. When `Hide ops queue + transactions` is on: the CCL/matter-opening queue and the transactions strip are hidden. Toggles are independently composable (either, both, or neither). No behaviour regression on existing `review-ccl` / `annual-leave` cards. No deletion of dashboard data-fetching code. Toggle chip only visible locally or for LZ/AC.
 
 ### Phase B — Card contract + registry
 
@@ -164,6 +197,25 @@ Add an HTTP action in each Cognito → Power Automate flow that currently files 
 
 - `Todo.Card.Created`, `Todo.Card.Completed`, `Todo.Reconcile.*`, `Todo.Fetch.Failed`. Properties: `kind`, `ownerInitials`, `matterRef`, `completedVia`.
 
+### Phase C — Secondary suggestion tray + reconciliation ladder
+
+This is the 2026-04-25 extension. The Home pickup surface should stay led by hard, owned To Do cards, but when that queue is empty or thin it should reuse the same right-hand surface for calmer, non-blocking prompts.
+
+| # | Change | File | Detail |
+|---|--------|------|--------|
+| C1 | Split the panel into pickup tiers | [src/tabs/home/Home.tsx](../../src/tabs/home/Home.tsx), [src/tabs/home/ImmediateActionsBar.tsx](../../src/tabs/home/ImmediateActionsBar.tsx), [src/tabs/home/ImmediateActionModel.ts](../../src/tabs/home/ImmediateActionModel.ts) | Introduce an explicit distinction between `primary` owned work and `secondary` suggested prompts. Primary cards remain the existing hard To Do rows. Secondary cards render with calmer copy and styling, and must never look like overdue failures. |
+| C2 | Replace binary empty-state with curated suggestion state | [src/tabs/home/ImmediateActionsBar.tsx](../../src/tabs/home/ImmediateActionsBar.tsx) | Replace `All caught up` as the only settled-empty outcome. When open primary cards are `0` (or below a future threshold), show up to 3 suggested prompts with "suggest" / "encourage" language and a clear distinction from mandatory work. |
+| C3 | Source secondary prompts from existing Home data first | [src/tabs/home/Home.tsx](../../src/tabs/home/Home.tsx), [src/components/modern/OperationsDashboard.tsx](../../src/components/modern/OperationsDashboard.tsx) | Use already-available sources before adding new backends: conversion follow-up prompts from `conversionComparison.currentEnquiryProspects`, stale/unclaimed prompts from `unclaimedSummary`, and later outstanding-balance / transaction prompts from the Home-held billing data. |
+| C4 | Add a reconciliation prompt lane that composes with webhook work | [server/routes/todo.js](../../server/routes/todo.js), [server/routes/clio-webhook.js](../../server/routes/clio-webhook.js) | Do not turn webhook work into card logic here. Instead, define a small adapter layer so future webhook-driven freshness signals can surface as `reconciliation` prompts inside the same tray: "no activity in X days", "balance changed", "matter changed outside Hub", etc. |
+| C5 | Keep the real-estate contract stable | [src/components/modern/OperationsDashboard.tsx](../../src/components/modern/OperationsDashboard.tsx), [src/tabs/home/ImmediateActionsBar.tsx](../../src/tabs/home/ImmediateActionsBar.tsx) | The right-hand Home surface should keep one visual contract whether it is showing hard tasks, secondary prompts, or a mix. No separate widget stack. Same panel, same footprint, tiered content inside. |
+
+**Phase C acceptance:**
+- When there are no open primary To Do cards, the panel shows curated secondary prompts instead of only `All caught up`.
+- Suggested prompts are visibly calmer than primary tasks and use encouraging, non-alarmist copy.
+- The first source set comes from existing Home data: conversion follow-up, unclaimed/stale follow-up, then later billing/reconciliation prompts.
+- Secondary prompts reuse the same Home panel footprint and do not reintroduce a second right-hand widget stack.
+- Webhook/reconciliation prompts are coordinated with, not duplicated from, the Clio webhook brief.
+
 ---
 
 ## 4. Step-by-step execution order
@@ -175,6 +227,9 @@ Add an HTTP action in each Cognito → Power Automate flow that currently files 
 5. **B5** — reroute CCL deep-link through the registry. Matters-box row path removed only after Stream 3 ships.
 6. **B4** — Power Automate flow update (coordinate with LZ to edit the flow in Teams/Power Automate UI).
 7. **B6** — telemetry throughout.
+8. **C1** — add a tiered card contract so the surface can distinguish hard tasks from suggestions.
+9. **C2/C3** — replace the binary empty state with conversion and unclaimed follow-up suggestions sourced from existing Home data.
+10. **C4/C5** — add reconciliation prompt hooks only after the Clio webhook and billing signal work has settled.
 
 ---
 
@@ -194,6 +249,13 @@ Add an HTTP action in each Cognito → Power Automate flow that currently files 
 - [ ] App Insights: `Todo.Card.Created` fires on every card creation.
 - [ ] SQL spot check: `SELECT TOP 20 * FROM hub_todo ORDER BY created_at DESC;` shows sane payloads.
 
+**Phase C:**
+- [ ] With `0` open primary cards, Home shows curated secondary prompts instead of only `All caught up`.
+- [ ] Conversion prompts are derived from existing `conversionComparison` prospect data, not a new one-off query path.
+- [ ] Unclaimed/stale prompts are derived from `unclaimedSummary`, with age/value context intact.
+- [ ] Secondary prompts never use the same urgent tone as primary tasks.
+- [ ] Reconciliation prompts are coordinated with the Clio webhook rollout, not hard-coded separately.
+
 ---
 
 ## 6. Open decisions (defaults proposed)
@@ -201,14 +263,18 @@ Add an HTTP action in each Cognito → Power Automate flow that currently files 
 1. **Store dismissed-not-completed separately?** Default: **No.** Dismiss = complete with `completedVia='manual-dismiss'`. Simpler; audit retained.
 2. **Per-user ownership swap mid-life?** Default: **Allow via `/api/todo/reassign`**. Handover cases exist (fee earner OOO).
 3. **Retention of completed rows?** Default: **90 days in `hub_todo`**, then archived to `hub_todo_archive` by weekly job. Cheap enough; useful for audit.
+4. **When should secondary suggestions appear?** Default: **Only when open primary cards are `0`**. Keep the first rollout easy to read; later we can allow a low-count mixed mode.
+5. **How many secondary prompts at once?** Default: **Maximum 3**. The goal is encouragement, not another backlog.
+6. **What is the first suggestion source priority?** Default: **conversion follow-up, then stale unclaimed, then billing/reconciliation**. That matches the user's stated value order.
 
 ---
 
 ## 7. Out of scope
 
 - Asana task ingestion (transcript explicit: "not including Asana").
-- Cross-app joins (enquiries/instructions live feeds). Each app retains its own surface.
+- A generic task or rules engine that can ingest arbitrary prompts from anywhere.
 - Tasks from Outlook / Teams. Hub-originating only.
+- Auto-creating webhook prompts without the Clio webhook programme's audit/idempotency guardrails.
 - Chat-tab notifications (Stream 4 removes the chat surface; DM-send infra retained for future use but no card echoes into it this push).
 
 ---
@@ -223,11 +289,13 @@ Client:
 - [src/app/App.tsx](../../src/app/App.tsx)
 - [src/components/modern/matter-opening/MatterOpenedHandoff.tsx](../../src/components/modern/matter-opening/MatterOpenedHandoff.tsx)
 - [src/components/modern/OperationsDashboard.tsx](../../src/components/modern/OperationsDashboard.tsx)
+- [src/components/modern/ConversionProspectBasket.tsx](../../src/components/modern/ConversionProspectBasket.tsx)
 
 Server:
 - `server/routes/todo.js` (NEW)
 - [server/routes/home-journey.js](../../server/routes/home-journey.js) — cache invalidation hook
 - [server/routes/ccl.js](../../server/routes/ccl.js) — autopilot chain emits via `/api/todo/create`
+- [server/routes/clio-webhook.js](../../server/routes/clio-webhook.js) — later reconciliation/freshness signal source
 
 Scripts / docs:
 - `scripts/migrate-add-hub-todo.mjs` (NEW) — creates `hub_todo` table + index
@@ -238,7 +306,7 @@ Scripts / docs:
 ```yaml
 # Stash metadata
 id: home-todo-single-pickup-surface
-verified: 2026-04-20
+verified: 2026-04-25
 branch: main
 touches:
   client:
@@ -249,10 +317,12 @@ touches:
     - src/app/App.tsx
     - src/components/modern/matter-opening/MatterOpenedHandoff.tsx
     - src/components/modern/OperationsDashboard.tsx
+    - src/components/modern/ConversionProspectBasket.tsx
   server:
     - server/routes/todo.js
     - server/routes/home-journey.js
     - server/routes/ccl.js
+    - server/routes/clio-webhook.js
   submodules: []
 depends_on: []
 coordinates_with:
@@ -266,8 +336,13 @@ coordinates_with:
   - clio-token-refresh-shared-primitive
   - session-probing-activity-tab-visibility-and-persistence
   - ccl-prompt-feedback-loop-self-driving-template-improvement
+  - ccl-review-wrap-up-pipeline-toasting-field-rail-ia-redesign-non-flagged-pt-bug-docx-fidelity-audit
   - ccl-review-landing-terser-intro-start-from-scratch-affordance-pipeline-toasting
   - home-animation-order-and-demo-insert-fidelity
+  - home-todo-god-view-lz-can-see-firm-wide-with-filter-back-to-mine
+  - to-do-confidence-reveal-one-at-a-time-demo-parity-predictable-redirects-completion-state-updates
+  - risk-assessment-and-proof-of-id-clio-upload-plus-home-to-do-evidence-card
+  - clio-webhook-reconciliation-and-selective-rollout
   - realtime-delta-merge-upgrade
   - ui-responsiveness-hover-scroll-and-tab-navigation
   - userbubble-and-private-hub-tools-control-consolidation-and-sort
@@ -285,3 +360,5 @@ conflicts_with:
 - `home-journey:*` cache — any card creation that alters what a user sees on Home must invalidate this cache key or the graph/feed will lag.
 - The `hub_todo` insert path must be idempotent on `(kind, matter_ref, owner_initials)` for all kinds where duplicate triggers are possible (CCL PT can re-run; Cognito retries). Otherwise we double-card.
 - Matters-box row (CCL) is not removed by this brief — Stream 3 removes it. During the migration window both surfaces will show the CCL review; the matters-box must check the same `hub_todo` completion state to stay in sync (or simply be hidden when a Home card exists).
+- Secondary prompts must not masquerade as assigned work. If the copy, colour, or iconography reads like a warning/error state, the user will treat the secondary tray as another backlog instead of a helpful nudge surface.
+- `ImmediateActionsBar` currently settles empty with `All caught up`. Any secondary tray implementation needs to replace that branch, not bolt a second panel underneath it, or the right-hand Home layout will fragment again.

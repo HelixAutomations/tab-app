@@ -13,7 +13,7 @@
 // The component is presentational + self-contained; the host owns the
 // selected option.
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { colours } from '../../app/styles/colours';
 
 export interface ProspectLookupOption {
@@ -54,22 +54,30 @@ interface ApiResult {
   _src: 'instructions' | 'legacy';
 }
 
-async function fetchPeople(q: string, signal: AbortSignal, endpoint: string): Promise<ProspectLookupOption[]> {
-  const url = `${endpoint}?q=${encodeURIComponent(q)}`;
+interface ProspectLookupResponse {
+  results: ProspectLookupOption[];
+  legacyAvailable: boolean;
+}
+
+async function fetchPeople(q: string, signal: AbortSignal, endpoint: string, limit: number, includeLegacy = false): Promise<ProspectLookupResponse> {
+  const url = `${endpoint}?q=${encodeURIComponent(q)}&mode=staged&limit=${limit}${includeLegacy ? '&includeLegacy=true' : ''}`;
   const res = await fetch(url, { signal });
-  if (!res.ok) return [];
+  if (!res.ok) return { results: [], legacyAvailable: false };
   const data = await res.json();
   const raw: ApiResult[] = Array.isArray(data?.results) ? data.results : [];
-  return raw.map((r) => ({
-    id: Number.parseInt(r.id, 10),
-    firstName: r.first || '',
-    lastName: r.last || '',
-    email: r.email || '',
-    phone: r.phone || '',
-    aow: r.aow || '',
-    source: r._src === 'legacy' ? 'legacy' : 'instructions',
-    raw: r,
-  })).filter((r) => Number.isFinite(r.id) && r.id > 0);
+  return {
+    results: raw.map((r) => ({
+      id: Number.parseInt(r.id, 10),
+      firstName: r.first || '',
+      lastName: r.last || '',
+      email: r.email || '',
+      phone: r.phone || '',
+      aow: r.aow || '',
+      source: r._src === 'legacy' ? 'legacy' as const : 'instructions' as const,
+      raw: r,
+    })).filter((r) => Number.isFinite(r.id) && r.id > 0),
+    legacyAvailable: Boolean(data?.legacyAvailable),
+  };
 }
 
 export default function ProspectLookup({
@@ -87,6 +95,7 @@ export default function ProspectLookup({
 }: ProspectLookupProps) {
   const [results, setResults] = useState<ProspectLookupOption[]>([]);
   const [includeLegacy, setIncludeLegacy] = useState(false);
+  const [legacyAvailable, setLegacyAvailable] = useState(false);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
@@ -104,18 +113,23 @@ export default function ProspectLookup({
     return () => document.removeEventListener('mousedown', onDocClick);
   }, []);
 
-  const runQuery = useCallback((q: string) => {
+  const runQuery = useCallback((q: string, showLegacy = false) => {
     if (abortRef.current) abortRef.current.abort();
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     latestQueryRef.current = q;
     setLoading(true);
-    fetchPeople(q, ctrl.signal, endpoint)
-      .then((rows) => {
+    fetchPeople(q, ctrl.signal, endpoint, maxResults, showLegacy)
+      .then((payload) => {
         if (latestQueryRef.current !== q) return;
-        setResults(rows.slice(0, maxResults));
+        setResults(payload.results.slice(0, maxResults));
+        setLegacyAvailable(payload.legacyAvailable);
       })
-      .catch(() => { /* aborted or failed */ })
+      .catch(() => {
+        if (latestQueryRef.current !== q) return;
+        setResults([]);
+        setLegacyAvailable(false);
+      })
       .finally(() => {
         if (latestQueryRef.current === q) setLoading(false);
       });
@@ -127,24 +141,18 @@ export default function ProspectLookup({
     if (trimmed.length < minChars) {
       setResults([]);
       setLoading(false);
+      setLegacyAvailable(false);
       return;
     }
-    debounceRef.current = setTimeout(() => runQuery(trimmed), debounceMs);
+    debounceRef.current = setTimeout(() => runQuery(trimmed, false), debounceMs);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [value, minChars, debounceMs, runQuery]);
 
   // Reset legacy visibility whenever the search term changes.
-  useEffect(() => { setIncludeLegacy(false); }, [value]);
-
-  const visible = useMemo(() => {
-    if (includeLegacy) return results;
-    return results.filter((r) => r.source === 'instructions');
-  }, [results, includeLegacy]);
-
-  const legacyAvailable = useMemo(
-    () => !includeLegacy && !loading && results.some((r) => r.source === 'legacy') && visible.length === 0,
-    [includeLegacy, loading, results, visible.length],
-  );
+  useEffect(() => {
+    setIncludeLegacy(false);
+    setLegacyAvailable(false);
+  }, [value]);
 
   const accent = isDarkMode ? '#87F3F3' : colours.highlight;
   const panelBg = isDarkMode ? 'rgba(8,28,48,0.98)' : '#ffffff';
@@ -155,23 +163,34 @@ export default function ProspectLookup({
   const muted = isDarkMode ? '#A0A0A0' : '#6B6B6B';
   const inputBg = isDarkMode ? 'rgba(5,21,37,0.9)' : '#ffffff';
   const inputBorder = isDarkMode ? 'rgba(255,255,255,0.14)' : 'rgba(6,23,51,0.22)';
+  const sourceChipBorder = isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(6,23,51,0.14)';
+  const sourceChipBg = isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(6,23,51,0.03)';
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (!open) return;
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setActiveIndex((i) => Math.min((visible.length - 1), i + 1));
+      setActiveIndex((i) => Math.min((results.length - 1), i + 1));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       setActiveIndex((i) => Math.max(0, i - 1));
     } else if (e.key === 'Enter') {
-      if (activeIndex >= 0 && activeIndex < visible.length) {
+      if (activeIndex >= 0 && activeIndex < results.length) {
         e.preventDefault();
-        handlePick(visible[activeIndex]);
+        handlePick(results[activeIndex]);
       }
     } else if (e.key === 'Escape') {
       setOpen(false);
     }
+  };
+
+  const handleLegacyReveal = () => {
+    const trimmed = value.trim();
+    if (trimmed.length < minChars) return;
+    setIncludeLegacy(true);
+    setActiveIndex(-1);
+    setOpen(true);
+    runQuery(trimmed, true);
   };
 
   const handlePick = (opt: ProspectLookupOption) => {
@@ -223,17 +242,17 @@ export default function ProspectLookup({
           {loading && (
             <div style={{ padding: '10px 12px', fontSize: 11, color: muted }}>Searching…</div>
           )}
-          {!loading && visible.length === 0 && !legacyAvailable && (
+          {!loading && results.length === 0 && !legacyAvailable && (
             <div style={{ padding: '10px 12px', fontSize: 11, color: muted }}>
-              No matches in current records.
+              {includeLegacy ? 'No legacy enquiries found.' : 'No matches in current records.'}
             </div>
           )}
-          {!loading && visible.length === 0 && legacyAvailable && (
+          {!loading && results.length === 0 && legacyAvailable && (
             <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
               <div style={{ fontSize: 11, color: muted }}>No matches in current records.</div>
               <button
                 type="button"
-                onClick={() => setIncludeLegacy(true)}
+                onClick={handleLegacyReveal}
                 style={{
                   alignSelf: 'flex-start',
                   padding: '5px 10px',
@@ -253,9 +272,9 @@ export default function ProspectLookup({
               </button>
             </div>
           )}
-          {!loading && visible.map((opt, i) => {
+          {!loading && results.map((opt, i) => {
             const active = i === activeIndex;
-            const isLegacy = opt.source === 'legacy';
+            const sourceLabel = opt.source === 'legacy' ? 'Legacy' : 'Current';
             const fullName = `${opt.firstName} ${opt.lastName}`.trim() || '(unnamed)';
             return (
               <div
@@ -284,24 +303,23 @@ export default function ProspectLookup({
                     {opt.aow || '—'}{opt.email ? ` · ${opt.email}` : ''}{!opt.email && opt.phone ? ` · ${opt.phone}` : ''}
                   </div>
                 </div>
-                {isLegacy && (
-                  <span
-                    title="From legacy enquiries database"
-                    style={{
-                      fontSize: 8,
-                      fontWeight: 700,
-                      letterSpacing: '0.08em',
-                      textTransform: 'uppercase',
-                      padding: '2px 6px',
-                      border: `1px solid ${muted}`,
-                      color: muted,
-                      borderRadius: 0,
-                      flexShrink: 0,
-                    }}
-                  >
-                    Legacy
-                  </span>
-                )}
+                <span
+                  title={opt.source === 'legacy' ? 'From legacy enquiries database' : 'From current instructions enquiries'}
+                  style={{
+                    fontSize: 8,
+                    fontWeight: 700,
+                    letterSpacing: '0.08em',
+                    textTransform: 'uppercase',
+                    padding: '2px 6px',
+                    border: `1px solid ${sourceChipBorder}`,
+                    background: sourceChipBg,
+                    color: muted,
+                    borderRadius: 0,
+                    flexShrink: 0,
+                  }}
+                >
+                  {sourceLabel}
+                </span>
               </div>
             );
           })}

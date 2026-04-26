@@ -14,6 +14,10 @@ interface CclReviewQueueStripProps {
     items: CclQueueStripItem[];
     currentKey: string | null;
     onJump: (key: string) => void;
+    /** Cross-pane hover wiring: the placeholder currently hovered (or null). */
+    hoveredFieldKey?: string | null;
+    /** Cross-pane hover wiring: notify parent when a dot is hovered. */
+    onHover?: (key: string | null) => void;
 }
 
 /**
@@ -36,6 +40,8 @@ export default function CclReviewQueueStrip({
     items,
     currentKey,
     onJump,
+    hoveredFieldKey = null,
+    onHover,
 }: CclReviewQueueStripProps) {
     if (items.length === 0) return null;
 
@@ -43,8 +49,6 @@ export default function CclReviewQueueStrip({
     const dotSize = isMobile ? 10 : 8;
     const dotGap = isMobile ? 6 : 5;
 
-    // Precompute group boundaries so a divider renders between consecutive
-    // items with a different group string.
     return (
         <div
             className="ccl-review-queue-strip"
@@ -63,8 +67,9 @@ export default function CclReviewQueueStrip({
         >
             {items.map((item, index) => {
                 const prev = index > 0 ? items[index - 1] : null;
-                const showDivider = prev && prev.group && item.group && prev.group !== item.group;
+                const showDivider = !!prev && prev.group && item.group && prev.group !== item.group;
                 const isCurrent = item.key === currentKey;
+                const isCrossHovered = !!hoveredFieldKey && hoveredFieldKey === item.key;
                 const state = isCurrent
                     ? 'current'
                     : item.reviewed
@@ -96,10 +101,13 @@ export default function CclReviewQueueStrip({
                             aria-label={tooltip}
                             title={tooltip}
                             onClick={() => onJump(item.key)}
-                            className={`ccl-review-queue-strip__dot ccl-review-queue-strip__dot--${state}`}
+                            onMouseEnter={onHover ? () => onHover(item.key) : undefined}
+                            onMouseLeave={onHover ? () => onHover(null) : undefined}
+                            data-ccl-field-key={item.key}
+                            className={`ccl-review-queue-strip__dot ccl-review-queue-strip__dot--${state}${isCrossHovered ? ' is-cross-hovered' : ''}`}
                             style={{
-                                width: isCurrent ? dotSize + 6 : dotSize,
-                                height: dotSize,
+                                width: isCurrent ? dotSize + 6 : isCrossHovered ? dotSize + 4 : dotSize,
+                                height: isCrossHovered ? dotSize + 2 : dotSize,
                                 borderRadius: isCurrent ? 4 : '50%',
                                 border: 'none',
                                 background: 'transparent',
@@ -107,7 +115,8 @@ export default function CclReviewQueueStrip({
                                 cursor: 'pointer',
                                 flexShrink: 0,
                                 position: 'relative',
-                                transition: 'width 0.18s ease',
+                                transition: 'width 0.18s ease, height 0.18s ease, transform 0.18s ease',
+                                transform: isCrossHovered ? 'translateY(-1px)' : undefined,
                             }}
                         >
                             <span
@@ -117,7 +126,8 @@ export default function CclReviewQueueStrip({
                                     inset: 0,
                                     borderRadius: 'inherit',
                                     background: 'currentColor',
-                                    opacity: isCurrent ? 1 : item.reviewed ? 0.9 : 0.55,
+                                    opacity: isCurrent ? 1 : isCrossHovered ? 1 : item.reviewed ? 0.9 : 0.55,
+                                    boxShadow: isCrossHovered ? '0 0 0 2px rgba(135, 243, 243, 0.55)' : undefined,
                                 }}
                             />
                         </button>

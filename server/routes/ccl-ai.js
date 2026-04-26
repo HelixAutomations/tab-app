@@ -245,6 +245,17 @@ COST ACCURACY RULES:
 4. Never invent costs figures that contradict agreed amounts. If the deal says £3,000 and you output £1,500, that is wrong.
 5. state_amount MUST always equal figure — they are the same value shown in different template locations.
 
+INTRO PARAGRAPH (insert_current_position_and_scope_of_retainer):
+The scope opening paragraph is the client's first encounter with the letter's substance. The fee earner has already had conversations with this client and does not want to repeat themselves — the letter must sound like it is built on that prior understanding, not a cold restart.
+- (a) Acknowledge prior context in one clean sentence summarising what the client has instructed us to do ("You have instructed us in connection with …").
+- (b) State what we understand the client wants us to achieve (the outcome, not the mechanics).
+- (c) Commit to the scope that the next paragraphs will describe ("The steps we will take are set out below" or similar).
+- Do NOT restate fee details or timelines in this paragraph — they live in later sections.
+- Do NOT open with generic openers ("Thank you for your instructions…" is already the template's fixed second paragraph).
+
+STEREO OUTPUT GUIDANCE:
+Where a pitch email body or pitch service description has been supplied, treat it as the left headphone and this letter as the right headphone — the client should perceive one consistent voice across both documents. Mirror the pitch's framing of the problem, its vocabulary for the work to be done, and its tone. If the pitch described the instruction as "resolving the rent arrears and securing possession", reuse that framing rather than inventing new wording. Divergence from the pitch undermines the client's confidence that we have understood them.
+
 Respond with ONLY a JSON object containing these fields. No markdown, no explanation, just the JSON object.
 
 ${HELIX_VOICE_BLOCK}`;
@@ -492,7 +503,7 @@ async function gatherFullContext(matterId, instructionRef) {
                 'Stage', 'FirstName', 'LastName',
                 'Notes', 'Phone', 'Email', 'CompanyName', 'HelixContact',
                 'Title', 'Gender', 'ClientType',
-            ];
+            ]; // Title/FirstName/LastName feed the deterministic addressee path.
 
             // Build WHERE clause — prefer exact InstructionRef match, fall back to matterId
             const whereParts = [];
@@ -533,6 +544,12 @@ async function gatherFullContext(matterId, instructionRef) {
                 context.prospectEmail = row.Email || '';
                 context.feeEarnerEmail = row.HelixContact || '';
                 if (row.Gender) context.clientGender = row.Gender;
+                // Addressee fields — sourced from Instructions first so the
+                // generated "Dear …" line is deterministic. (Phase A of
+                // ccl-review-pickup-via-todo-and-addressee-fix.)
+                if (row.FirstName) context.clientFirstName = String(row.FirstName).trim();
+                if (row.LastName) context.clientLastName = String(row.LastName).trim();
+                if (row.Title) context.clientTitle = String(row.Title).trim();
             }
 
             // Get deal data + pitch content in parallel (both depend on resolvedInstructionRef)
@@ -641,10 +658,28 @@ async function gatherFullContext(matterId, instructionRef) {
                 context.enquiryValue = row.Value ? String(row.Value) : '';
                 context.methodOfContact = row.Method_of_Contact || '';
                 if (!phone) phone = row.Phone_Number;
+                // Addressee fallback: only use Core Data if Instructions
+                // didn't already supply the name (Instructions is canonical).
+                if (!context.clientFirstName && row.First_Name) {
+                    context.clientFirstName = String(row.First_Name).trim();
+                }
+                if (!context.clientLastName && row.Last_Name) {
+                    context.clientLastName = String(row.Last_Name).trim();
+                }
             }
         } catch (err) {
             console.warn('[CCL-AI] Core Data enquiry lookup failed:', err.message);
         }
+    }
+
+    // Compose a canonical addressee string once all sources are resolved.
+    if (!context.clientName) {
+        const parts = [context.clientTitle, context.clientFirstName, context.clientLastName]
+            .filter(Boolean)
+            .map((part) => String(part).trim())
+            .filter(Boolean);
+        const joined = parts.join(' ').replace(/\s+/g, ' ').trim();
+        context.clientName = joined || context.companyName || context.company || '';
     }
 
     // ── 3. Call transcripts (prefer Dubber SQL, fall back to CallRail) ──
@@ -722,6 +757,18 @@ function buildUserPrompt(data) {
     parts.push(`- Practice Area: ${data.practiceArea || data.areaOfWork || 'General'}`);
     if (data.typeOfWork) parts.push(`- Type of Work: ${data.typeOfWork}`);
     parts.push(`- Client Name: ${data.clientName || 'Not specified'}`);
+    // Structured addressee fields (use exactly for the "Dear …" line).
+    if (data.clientFirstName || data.clientLastName || data.clientTitle) {
+        const addressee = [data.clientTitle, data.clientFirstName, data.clientLastName]
+            .filter(Boolean)
+            .join(' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+        if (addressee) parts.push(`- Client Addressee (use exactly for Dear line): ${addressee}`);
+        if (data.clientTitle) parts.push(`  - Title / prefix: ${data.clientTitle}`);
+        if (data.clientFirstName) parts.push(`  - First name: ${data.clientFirstName}`);
+        if (data.clientLastName) parts.push(`  - Last name: ${data.clientLastName}`);
+    }
     parts.push(`- Matter Description: ${data.description || 'Not specified'}`);
     if (data.opponent) parts.push(`- Opposing Party: ${data.opponent}`);
     if (data.handlerName) parts.push(`- Handler: ${data.handlerName} (${data.handlerRole || 'Solicitor'})`);
@@ -1557,6 +1604,14 @@ SCORING RULES:
 - If a field describes the client's situation, check it matches call notes/emails
 - If a field names a document the client needs, check it's relevant to the practice area
 
+ADDRESSEE GUARDRAIL (critical — never autopilot past this):
+- If \`client_information\` (or any derived addressee / "Dear …" field) is empty, contains placeholder text (e.g. "Client", "Sir / Madam", "{{...}}", "TBC", "[name]"), or is missing first and last name, score that field 0 and set flag = true. Addressee mistakes are high-visibility; always force Fee Earner review.
+
+INTRO ALIGNMENT (insert_current_position_and_scope_of_retainer):
+- Evaluate whether the scope opening paragraph acknowledges prior client context, states what the client wants us to achieve, and commits to scope (see generation prompt). If any of the three is missing, score the field ≤ 6 and flag.
+- When a pitch email body or pitch service description is supplied, evaluate "stereo output" alignment: does the paragraph mirror the pitch's framing of the problem and vocabulary for the work? A paragraph that diverges meaningfully from an available pitch (new framing, different vocabulary, cold open) scores ≤ 6 even if otherwise accurate.
+- A paragraph that restates fee detail or timelines (which belong elsewhere in the letter) scores ≤ 7.
+
 For each field, provide:
 - "score": integer 0-10 (evidence fidelity)
 - "voiceScore": integer 0-10 (Helix voice — see rubric below)
@@ -1920,6 +1975,21 @@ async function runPressureTestInternal({ matterId, instructionRef, generatedFiel
         aiTraceId: String(aiTraceId || ''),
     });
     trackMetric('CCL.PressureTest.Duration', durationMs, { matterId: String(matterId) });
+
+    // Intro-alignment trend metric. The scope opening paragraph doubles as
+    // the letter's "intro" — track its PT score so we can see whether the
+    // stereo-output / prior-context prompt tweaks are holding.
+    const introScore = fieldScores.insert_current_position_and_scope_of_retainer;
+    if (introScore && typeof introScore.score === 'number') {
+        try {
+            trackMetric('Ccl.IntroAlignment.Score', introScore.score, {
+                matterId: String(matterId),
+                promptVersion: CCL_PROMPT_VERSION,
+                flagged: String(Boolean(introScore.flag)),
+                hasPitchContext: String(Boolean(dataSources.includes('pitchContent') || dataSources.includes('pitch'))),
+            });
+        } catch { /* telemetry best-effort */ }
+    }
 
     return result;
 }

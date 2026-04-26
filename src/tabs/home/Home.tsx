@@ -12,7 +12,7 @@ import React, {
   lazy,
   Suspense,
 } from 'react';
-import OperationsDashboard, { type ConversionComparisonAowItem, type ConversionComparisonBucket, type ConversionComparisonItem, type ConversionComparisonPayload, type ConversionComparisonProspect, type UnclaimedSummaryPayload } from '../../components/modern/OperationsDashboard';
+import OperationsDashboard, { type ConversionComparisonAowItem, type ConversionComparisonBucket, type ConversionComparisonItem, type ConversionComparisonMatterDetail, type ConversionComparisonPayload, type ConversionComparisonProspect, type UnclaimedSummaryPayload } from '../../components/modern/OperationsDashboard';
 import { LivePulse, LiveIndicatorDot } from '../../components/realtime/LivePulse';
 import { useRealtimeChannel } from '../../hooks/useRealtimeChannel';
 import { createPortal } from 'react-dom';
@@ -72,7 +72,7 @@ import { hasActivePitchBuilder } from '../../app/functionality/pitchBuilderUtils
 import { normalizeMatterData } from '../../utils/matterNormalization';
 // Local JSON fixtures loaded dynamically (only when REACT_APP_USE_LOCAL_DATA=true) to keep ~75KB out of the production bundle
 import { checkIsLocalDev } from '../../utils/useIsLocalDev';
-import { isAdminUser, isDevOwner } from '../../app/admin';
+import { canSeePrivateHubControls, isAdminUser, isDevOwner } from '../../app/admin';
 import { useFirstHydration } from '../../utils/useFirstHydration';
 
 // Enhanced components
@@ -873,6 +873,10 @@ const HOME_FORCE_MINE_LOCAL = String(process.env.REACT_APP_HOME_FORCE_MINE_LOCAL
 const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsingSnapshot = false, enquiriesLiveRefreshInFlight = false, enquiriesLastLiveSyncAt = null, matters: providedMatters, instructionData: propInstructionData, onAllMattersFetched, onOutstandingBalancesFetched, onTransactionsFetched, teamData, onBoardroomBookingsFetched, onSoundproofBookingsFetched, isInMatterOpeningWorkflow = false, onImmediateActionsChange, originalAdminUser, featureToggles = {}, onFeatureToggle, demoModeEnabled = false, isActive = true, isSwitchingUser = false }) => {
   const { isDarkMode, toggleTheme } = useTheme();
   const hasAdminContext = isAdminUser(userData?.[0]) || isAdminUser(originalAdminUser || null);
+  const canUseOpsQueuePreview =
+    checkIsLocalDev(featureToggles)
+    || canSeePrivateHubControls(userData?.[0] || null)
+    || canSeePrivateHubControls(originalAdminUser || null);
   const [showReleaseNotes, setShowReleaseNotes] = useState(false);
   const { setContent } = useNavigatorActions();
   const inTeams = isInTeams();
@@ -1084,7 +1088,10 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
   const [isContextsExpanded, setIsContextsExpanded] = useState<boolean>(false);
 
   // Home layout toggles — two independent booleans, each persisted in localStorage.
-  // Visible only locally (useLocalData) or to LZ/AC dev preview. Default: off (legacy behaviour preserved).
+  // Visible only locally (useLocalData) or to LZ/AC dev preview.
+  // Default: To Do replaces pipeline/matters unless the user has explicitly
+  // stored a different preference; the transactions strip stays on unless
+  // explicitly hidden. The ops queue is now a separate preview toggle.
   //   1. `hideAsanaAndTransactions` — hides OperationsQueue (CCL batch queue) + Transactions & Balances.
   //   2. `replacePipelineAndMatters` — renders ImmediateActionsBar inline as a ToDo box above the dashboard,
   //      and flags OperationsDashboard via `hidePipelineAndMatters` so it can drop its pipeline+matters
@@ -1094,15 +1101,17 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
     replacePipelineAndMatters: 'helix.home.replacePipelineAndMatters',
   } as const;
   // Home layout overlay removed 2026-04-21 — see CommandDeck Controls group.
-  const readBoolToggle = (key: string): boolean => {
+  const readBoolToggle = (key: string, fallback = false): boolean => {
     try {
       if (typeof window !== 'undefined') {
-        return window.localStorage.getItem(key) === '1';
+        const stored = window.localStorage.getItem(key);
+        if (stored === null) return fallback;
+        return stored === '1';
       }
     } catch {
       // ignore storage errors
     }
-    return false;
+    return fallback;
   };
   const writeBoolToggle = (key: string, value: boolean) => {
     try {
@@ -1113,8 +1122,8 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
       // ignore
     }
   };
-  const [hideAsanaAndTransactions, setHideAsanaAndTransactionsState] = useState<boolean>(() => readBoolToggle(LAYOUT_TOGGLE_KEYS.hideAsanaAndTransactions));
-  const [replacePipelineAndMatters, setReplacePipelineAndMattersState] = useState<boolean>(() => readBoolToggle(LAYOUT_TOGGLE_KEYS.replacePipelineAndMatters));
+  const [hideAsanaAndTransactions, setHideAsanaAndTransactionsState] = useState<boolean>(() => readBoolToggle(LAYOUT_TOGGLE_KEYS.hideAsanaAndTransactions, false));
+  const [replacePipelineAndMatters, setReplacePipelineAndMattersState] = useState<boolean>(() => readBoolToggle(LAYOUT_TOGGLE_KEYS.replacePipelineAndMatters, true));
   const setHideAsanaAndTransactions = useCallback((v: boolean) => {
     setHideAsanaAndTransactionsState(v);
     writeBoolToggle(LAYOUT_TOGGLE_KEYS.hideAsanaAndTransactions, v);
@@ -1123,6 +1132,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
     setReplacePipelineAndMattersState(v);
     writeBoolToggle(LAYOUT_TOGGLE_KEYS.replacePipelineAndMatters, v);
   }, [LAYOUT_TOGGLE_KEYS.replacePipelineAndMatters]);
+  const opsQueuePreviewEnabled = canUseOpsQueuePreview && featureToggles.showOpsQueue === true;
 
   // Consolidation 2026-04-21: the Home layout overlay is gone. CommandDeck
   // (via HubToolsChip) is now the single surface for these toggles. It writes
@@ -1213,7 +1223,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
     || allMattersError != null;
   const dashboardSectionReady = hasStartedParallelFetch && !isLoadingWipClio;
   const teamSectionReady = hasStartedParallelFetch && !isLoadingAttendance;
-  const opsSectionReady = homeDataReady;
+  const opsSectionReady = !opsQueuePreviewEnabled || hideAsanaAndTransactions || homeDataReady;
 
   // Dev-only diagnostics for Time Metrics (WIP daily totals)
   const lastTimeMetricsLogRef = useRef<string>('');
@@ -1379,6 +1389,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
   const [pendingDocActionsLoading, setPendingDocActionsLoading] = useState<boolean>(true);
   const [todoRegistryCards, setTodoRegistryCards] = useState<ToDoCard[]>([]);
   const [isLoadingTodoRegistry, setIsLoadingTodoRegistry] = useState<boolean>(() => Boolean(userData?.[0]?.Initials));
+  const todoRegistryFetchAbortRef = useRef<AbortController | null>(null);
   // Dev-owner (LZ) god-view scope toggle for the Home to-do registry.
   // 'mine' = current user's own cards (default, identical to pre-change behaviour).
   // 'all'  = firm-wide read; non-LZ cards become read-only with owner chip.
@@ -2212,6 +2223,32 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
     ].slice(0, 15);
   }, [normalizedMatters, demoModeActive, userFullName, userData, deferredTeamData]);
 
+  const matterLookupMatters = useMemo(() => {
+    const seen = new Set<string>();
+    return normalizedMatters
+      .filter(m => Boolean(m.displayNumber || m.matterId))
+      .sort((a, b) => (b.openDate || '').localeCompare(a.openDate || ''))
+      .map(m => ({
+        matterId: m.matterId || '',
+        displayNumber: m.displayNumber || m.matterId || '',
+        clientName: m.clientName || '',
+        description: m.description || '',
+        practiceArea: m.practiceArea || '',
+        openDate: m.openDate || '',
+        responsibleSolicitor: m.responsibleSolicitor || '',
+        originatingSolicitor: m.originatingSolicitor || '',
+        status: (m.status === 'closed' ? 'closed' : 'active') as 'active' | 'closed',
+        instructionRef: m.instructionRef,
+        sourceVersion: (m.dataSource === 'vnet_direct' ? 'v4' : 'v3') as 'v4' | 'v3',
+      }))
+      .filter((matter) => {
+        const key = String(matter.displayNumber || matter.matterId || '').toLowerCase();
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+  }, [normalizedMatters]);
+
   const [reviewedInstructionIds, setReviewedInstructionIds] = useState<string>(() =>
     sessionStorage.getItem('reviewedInstructionIds') || ''
   );
@@ -2365,10 +2402,22 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
     const ownerInitials = String(userInitials || '').trim().toUpperCase();
     const useAllScope = canSeeTodoGodView && homeTodoScope === 'all';
     if (!ownerInitials && !useAllScope) {
+      todoRegistryFetchAbortRef.current?.abort();
+      todoRegistryFetchAbortRef.current = null;
       setTodoRegistryCards([]);
       setIsLoadingTodoRegistry(false);
       return;
     }
+
+    // Polls should never queue behind a slow request; they either become the
+    // active request or get skipped until the current one settles.
+    if (silent && todoRegistryFetchAbortRef.current) {
+      return;
+    }
+
+    todoRegistryFetchAbortRef.current?.abort();
+    const controller = new AbortController();
+    todoRegistryFetchAbortRef.current = controller;
 
     if (!silent) {
       setIsLoadingTodoRegistry(true);
@@ -2380,6 +2429,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
         : `/api/todo?owner=${encodeURIComponent(ownerInitials)}`;
       const response = await fetch(url, {
         headers: { 'x-user-initials': ownerInitials },
+        signal: controller.signal,
       });
       const data = await response.json();
       if (!response.ok || !data?.ok) {
@@ -2389,13 +2439,26 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
       const cards = Array.isArray(data.cards) ? data.cards : [];
       setTodoRegistryCards(cards.filter((card: ToDoCard) => FORMS_TODO_KINDS.has(card.kind)));
     } catch (error) {
+      if (controller.signal.aborted || (error instanceof DOMException && error.name === 'AbortError')) {
+        return;
+      }
       debugWarn('Failed to load forms to-do registry', error);
     } finally {
-      if (!silent) {
+      if (todoRegistryFetchAbortRef.current === controller) {
+        todoRegistryFetchAbortRef.current = null;
+      }
+      if (!silent && !controller.signal.aborted) {
         setIsLoadingTodoRegistry(false);
       }
     }
   }, [userInitials, canSeeTodoGodView, homeTodoScope]);
+
+  useEffect(() => {
+    return () => {
+      todoRegistryFetchAbortRef.current?.abort();
+      todoRegistryFetchAbortRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     if (!isActive) return;
@@ -4010,6 +4073,34 @@ const handleAttendanceUpdated = (updatedRecords: AttendanceRecord[]) => {
     }
   }, []);
 
+  const openEnquiryById = useCallback((enquiryId?: string, detail: Record<string, unknown> = {}) => {
+    const normalizedEnquiryId = String(enquiryId || '').trim();
+    if (!normalizedEnquiryId) return;
+    try {
+      window.dispatchEvent(new CustomEvent('navigateToEnquiry', {
+        detail: {
+          enquiryId: normalizedEnquiryId,
+          ...detail,
+        },
+      }));
+    } catch (error) {
+      console.error('Failed to dispatch enquiry navigation event:', error);
+    }
+  }, []);
+
+  const openUnclaimedEnquiriesBoard = useCallback(() => {
+    try {
+      sessionStorage.setItem('openUnclaimedEnquiries', 'true');
+    } catch {
+      /* ignore storage failures */
+    }
+    try {
+      window.dispatchEvent(new CustomEvent('navigateToEnquiries'));
+    } catch (error) {
+      console.error('Failed to dispatch unclaimed enquiries navigation event:', error);
+    }
+  }, []);
+
 
   const normalizeDate = (dateStr: string | null | undefined): string => {
     if (!dateStr) return '';
@@ -4505,6 +4596,45 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
         return raw.slice(0, 2).toUpperCase();
       };
+      const formatFeeEarnerLabel = (value: string): string | undefined => {
+        const raw = String(value || '').trim();
+        if (!raw) return undefined;
+        if (raw.includes('@')) return derivePocInitials(raw);
+        if (raw.length <= 3) return raw.toUpperCase();
+        const parts = raw.split(/\s+/).filter(Boolean);
+        if (parts.length >= 2) {
+          const last = parts[parts.length - 1];
+          return `${parts[0]} ${last.charAt(0).toUpperCase()}`;
+        }
+        return raw;
+      };
+
+      const collectMatterDetailsBetween = (
+        startBoundary: Date,
+        endBoundary: Date,
+        cap = 6,
+      ): ConversionComparisonMatterDetail[] => {
+        const matched = userMatters
+          .map((matter) => ({
+            matter,
+            openDate: parseOpenDate((matter as any).openDate),
+          }))
+          .filter((entry) => entry.openDate && entry.openDate >= startBoundary && entry.openDate <= endBoundary)
+          .sort((a, b) => (b.openDate?.getTime() || 0) - (a.openDate?.getTime() || 0));
+
+        return matched.slice(0, cap).map(({ matter, openDate }, index) => {
+          const feeEarnerRaw = String((matter as any).responsibleSolicitor || (matter as any).originatingSolicitor || '').trim();
+          const displayNumber = String((matter as any).displayNumber || (matter as any).matterId || '').trim() || `Matter ${index + 1}`;
+          const matterId = String((matter as any).matterId || displayNumber || `matter-${index}`).trim();
+          return {
+            id: matterId,
+            displayNumber,
+            feeEarner: formatFeeEarnerLabel(feeEarnerRaw),
+            feeEarnerInitials: derivePocInitials(feeEarnerRaw),
+            occurredAt: openDate instanceof Date ? openDate.toISOString() : undefined,
+          };
+        });
+      };
 
       const collectEnquiryProspectsInRange = (
         rangeStart: Date,
@@ -4670,6 +4800,8 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
             previousEnquiries: countEnquiriesInRange(previousStart, previousEnd, 'hour'),
             currentMatters: isFuture ? 0 : countMattersInRange(currentStart, currentRangeEnd, 'hour'),
             previousMatters: countMattersInRange(previousStart, previousEnd, 'hour'),
+            currentMatterDetails: isFuture ? [] : collectMatterDetailsBetween(currentStart, currentRangeEnd),
+            previousMatterDetails: collectMatterDetailsBetween(previousStart, previousEnd),
             isFuture,
             currentAvailable: !isFuture,
           };
@@ -4688,6 +4820,8 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
             previousEnquiries: muteCurrent ? 0 : countEnquiriesInRange(previousDate, previousDate, 'day'),
             currentMatters: muteCurrent ? 0 : countMattersInRange(currentDate, currentDate),
             previousMatters: muteCurrent ? 0 : countMattersInRange(previousDate, previousDate),
+            currentMatterDetails: muteCurrent ? [] : collectMatterDetailsBetween(startOfDay(currentDate), endOfDay(currentDate)),
+            previousMatterDetails: collectMatterDetailsBetween(startOfDay(previousDate), endOfDay(previousDate)),
             isFuture,
             currentAvailable: !isFuture,
           };
@@ -4721,6 +4855,8 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
             previousEnquiries: countEnquiriesInRange(previousDay, previousDay, 'day'),
             currentMatters: isFuture ? 0 : countMattersInRange(currentDay, currentDay),
             previousMatters: countMattersInRange(previousDay, previousDay),
+            currentMatterDetails: isFuture ? [] : collectMatterDetailsBetween(startOfDay(currentDay), endOfDay(currentDay)),
+            previousMatterDetails: collectMatterDetailsBetween(startOfDay(previousDay), endOfDay(previousDay)),
             isFuture,
             currentAvailable: !isFuture,
           };
@@ -4742,6 +4878,8 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
             previousEnquiries: countEnquiriesInRange(previousStart, previousEnd, 'week'),
             currentMatters: isFuture ? 0 : countMattersInRange(currentStart, currentEnd > today ? today : currentEnd),
             previousMatters: countMattersInRange(previousStart, previousEnd),
+            currentMatterDetails: isFuture ? [] : collectMatterDetailsBetween(currentStart, currentEnd > today ? today : currentEnd),
+            previousMatterDetails: collectMatterDetailsBetween(previousStart, previousEnd),
             isFuture,
             currentAvailable: !isFuture,
           };
@@ -5233,6 +5371,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     // self-contained and prevents accidental link leaks.
     const DEMO_LASTS = ['Smith','Patel','Khan','Brown','Wilson','Taylor','Davies','Evans','Walker','Robinson','Wright','Hughes','Edwards','Green','Hall','Turner','Cooper','King','Hill','Ward'];
     const DEMO_FE = ['LZ','AC','KW','JW','LA','EA','RC'];
+    const DEMO_FE_LABELS = ['Luke Z', 'Alex C', 'Kieran W', 'Josh W', 'Laura A', 'Emily A', 'Ryan C'];
     const expandMixToCount = (mix: ConversionComparisonAowItem[] | undefined, target: number): string[] => {
       const out: string[] = [];
       for (const m of (mix || [])) {
@@ -5292,6 +5431,25 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
           item.acid = String(20000 + (((i + 1) * 41 + bucketKey.length * 11) % 90000));
         }
         return item;
+      });
+    };
+    const buildDemoMatterDetails = (
+      total: number,
+      bucketKey: string,
+      phase: 'current' | 'previous',
+    ): ConversionComparisonMatterDetail[] => {
+      if (total <= 0) return [];
+      return Array.from({ length: total }, (_, index) => {
+        const seed = bucketKey.length * 19 + index * 23 + (phase === 'previous' ? 11 : 0);
+        const num1 = String(10000 + ((seed * 17) % 90000)).padStart(5, '0');
+        const num2 = String(10000 + ((seed * 29) % 90000)).padStart(5, '0');
+        const feeIndex = seed % DEMO_FE.length;
+        return {
+          id: `demo-detail-${phase}-${bucketKey}-${index}`,
+          displayNumber: `HLX-${num1}-${num2}`,
+          feeEarner: DEMO_FE_LABELS[feeIndex],
+          feeEarnerInitials: DEMO_FE[feeIndex],
+        };
       });
     };
 
@@ -5443,6 +5601,11 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     return {
       items: baseItems.map((item) => ({
         ...item,
+        buckets: item.buckets.map((bucket) => ({
+          ...bucket,
+          currentMatterDetails: buildDemoMatterDetails(bucket.currentMatters, `${item.key}-${bucket.label}`, 'current'),
+          previousMatterDetails: buildDemoMatterDetails(bucket.previousMatters, `${item.key}-${bucket.label}`, 'previous'),
+        })),
         currentEnquiryProspects: buildDemoProspects(item.currentEnquiries, item.currentAowMix, 'enquiries', item.key),
         currentMatterProspects: buildDemoProspects(
           item.currentMatters,
@@ -6968,6 +7131,142 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     showToast,
   ]);
 
+  const secondaryImmediateActions = useMemo<HomeImmediateAction[]>(() => {
+    const suggestions: HomeImmediateAction[] = [];
+    const seenEnquiryIds = new Set<string>();
+    const gbp = new Intl.NumberFormat('en-GB', {
+      style: 'currency',
+      currency: 'GBP',
+      maximumFractionDigits: 0,
+    });
+
+    const addSuggestion = (action: HomeImmediateAction) => {
+      if (suggestions.length >= 3) return;
+      suggestions.push(action);
+    };
+
+    const conversionCandidates = Array.isArray(resolvedConversionComparison?.items)
+      ? resolvedConversionComparison.items.flatMap((item) => Array.isArray(item.currentEnquiryProspects) ? item.currentEnquiryProspects : [])
+      : [];
+
+    conversionCandidates.forEach((prospect) => {
+      if (suggestions.length >= 3) return;
+      const enquiryId = String(prospect.acid || '').trim();
+      if (!enquiryId || seenEnquiryIds.has(enquiryId)) return;
+      seenEnquiryIds.add(enquiryId);
+
+      const openProspect = () => openEnquiryById(enquiryId);
+      const label = String(prospect.displayName || `Enquiry ${enquiryId}`).trim();
+      const subtitleParts = [
+        label,
+        String(prospect.aow || '').trim() || undefined,
+        prospect.feeEarnerInitials ? `@${String(prospect.feeEarnerInitials).trim()}` : undefined,
+      ].filter(Boolean) as string[];
+
+      addSuggestion({
+        title: 'Encourage follow-up',
+        subtitle: subtitleParts.join(' · '),
+        onClick: openProspect,
+        icon: 'Phone',
+        category: 'standard',
+        tier: 'secondary',
+        meta: {
+          actionId: `suggest-follow-up-${enquiryId}`,
+          source: 'conversion-suggestion',
+          persistence: 'none',
+          realtime: 'polling',
+          notes: 'Quiet Home suggestion sourced from conversion prospects that have not yet converted.',
+        },
+        expansion: {
+          kind: 'enquiry',
+          primary: label,
+          secondary: [
+            String(prospect.aow || '').trim() || undefined,
+            prospect.feeEarnerInitials ? `Fee earner ${String(prospect.feeEarnerInitials).trim()}` : undefined,
+          ].filter(Boolean).join(' · '),
+          aow: String(prospect.aow || '').trim() || undefined,
+          description: 'A recent prospect is still live but has not yet converted. Encourage the next follow-up while the thread is still warm.',
+          fields: [
+            { label: 'Enquiry', value: enquiryId },
+            ...(prospect.aow ? [{ label: 'Area', value: String(prospect.aow).trim() }] : []),
+            ...(prospect.feeEarnerInitials ? [{ label: 'Fee earner', value: String(prospect.feeEarnerInitials).trim() }] : []),
+          ],
+          actions: [
+            { label: 'Open enquiry', onClick: openProspect, tone: 'primary' },
+          ],
+        },
+      });
+    });
+
+    const staleUnclaimed = Array.from(
+      new Map(
+        (unclaimedSummary?.ranges || []).flatMap((range) =>
+          (range.items || []).map((item) => [String(item.id), item] as const),
+        ),
+      ).values(),
+    )
+      .filter((item) => item.ageDays >= 7)
+      .sort((left, right) => right.ageDays - left.ageDays || right.value - left.value);
+
+    staleUnclaimed.forEach((item) => {
+      if (suggestions.length >= 3) return;
+      const enquiryId = String(item.id || '').trim();
+      if (!enquiryId || seenEnquiryIds.has(enquiryId)) return;
+      seenEnquiryIds.add(enquiryId);
+
+      const openEnquiry = () => openEnquiryById(enquiryId);
+      const openBoard = () => openUnclaimedEnquiriesBoard();
+      const valueHint = item.value > 0 ? gbp.format(item.value) : undefined;
+
+      addSuggestion({
+        title: 'Nudge unclaimed enquiry',
+        subtitle: [
+          String(item.name || `Enquiry ${enquiryId}`).trim(),
+          `${item.ageDays}d unclaimed`,
+          valueHint,
+        ].filter(Boolean).join(' · '),
+        onClick: openEnquiry,
+        icon: 'Folder',
+        category: 'standard',
+        tier: 'secondary',
+        meta: {
+          actionId: `suggest-unclaimed-${enquiryId}`,
+          source: 'unclaimed-suggestion',
+          persistence: 'none',
+          realtime: 'polling',
+          notes: 'Quiet Home suggestion sourced from stale unclaimed enquiries.',
+        },
+        expansion: {
+          kind: 'enquiry',
+          primary: String(item.name || `Enquiry ${enquiryId}`).trim(),
+          secondary: [
+            String(item.aow || '').trim() || undefined,
+            `${item.ageDays} day${item.ageDays === 1 ? '' : 's'} unclaimed`,
+          ].filter(Boolean).join(' · '),
+          aow: String(item.aow || '').trim() || undefined,
+          description: 'This enquiry has been sitting unclaimed. Open it directly or jump to the unclaimed board to work through the wider queue.',
+          fields: [
+            { label: 'Enquiry', value: enquiryId },
+            { label: 'Age', value: `${item.ageDays} day${item.ageDays === 1 ? '' : 's'}` },
+            ...(item.aow ? [{ label: 'Area', value: String(item.aow).trim() }] : []),
+            ...(valueHint ? [{ label: 'Value', value: valueHint }] : []),
+          ],
+          actions: [
+            { label: 'Open enquiry', onClick: openEnquiry, tone: 'primary' },
+            { label: 'Open unclaimed board', onClick: openBoard, tone: 'ghost' },
+          ],
+        },
+      });
+    });
+
+    return suggestions;
+  }, [openEnquiryById, openUnclaimedEnquiriesBoard, resolvedConversionComparison, unclaimedSummary]);
+
+  const displayImmediateActionsList = useMemo(
+    () => [...immediateActionsList, ...secondaryImmediateActions],
+    [immediateActionsList, secondaryImmediateActions],
+  );
+
   // Notify parent component when immediate actions state changes
   useEffect(() => {
     if (onImmediateActionsChange) {
@@ -7210,7 +7509,7 @@ const conversionRate = displayEnquiriesMonthToDate
     <ImmediateActionsBar
       isDarkMode={isDarkMode}
       immediateActionsReady={immediateActionsReady}
-      immediateActionsList={immediateActionsList}
+      immediateActionsList={displayImmediateActionsList}
       highlighted={Boolean(homeCclReviewRequest)}
       seamless={false}
       scopeSlot={todoScopeToggle}
@@ -7307,6 +7606,7 @@ const conversionRate = displayEnquiriesMonthToDate
               userEmail={isWaitingForLocalDashboardIdentity ? '' : effectiveDashboardIdentity.email}
               userInitials={isWaitingForLocalDashboardIdentity ? '' : effectiveDashboardIdentity.initials}
               recentMatters={recentMatters}
+              matterLookupMatters={matterLookupMatters}
               demoModeEnabled={demoModeEnabled}
               isActive={isActive}
               teamData={deferredTeamData ?? undefined}
@@ -7326,7 +7626,7 @@ const conversionRate = displayEnquiriesMonthToDate
                 <ImmediateActionsBar
                   isDarkMode={isDarkMode}
                   immediateActionsReady={immediateActionsReady}
-                  immediateActionsList={immediateActionsList}
+                  immediateActionsList={displayImmediateActionsList}
                   highlighted={Boolean(homeCclReviewRequest)}
                   seamless={true}
                   scopeSlot={todoScopeToggle}
@@ -7337,15 +7637,14 @@ const conversionRate = displayEnquiriesMonthToDate
           </div>
         </div>
 
-        {/* Operations queue — DEV PREVIEW: locked to LZ+AC only until ready for wider rollout.
-            Also hidden when the `hideAsanaAndTransactions` layout toggle is on. */}
-        {!hideAsanaAndTransactions && (() => {
+        {/* Operations queue — DEV PREVIEW: hidden by default and only mounted when
+            private Hub Tools opt it in. Also hidden when the
+            `hideAsanaAndTransactions` layout toggle is on. */}
+        {!hideAsanaAndTransactions && opsQueuePreviewEnabled && (() => {
           const userRole = (userData?.[0]?.Role || '').toLowerCase();
           const isOpsRole = /operations|ops|tech|technology/i.test(userRole);
-          const isLzOrAc = ['LZ', 'AC'].includes((userData?.[0]?.Initials || '').toUpperCase().trim());
           const userIsAdmin = isAdminUser(userData?.[0]) || isOpsRole;
-          const showOpsQueue = featureToggles.showOpsQueue !== false && (isLzOrAc || featureToggles.forceShowOpsQueue);
-          return showOpsQueue ? (
+          return (
             <div className={`${opsSectionReady ? 'home-cascade-2' : 'home-cascade-pending'} home-stable-shell home-stable-shell-ops`} style={{ padding: '0 6px 6px 6px' }}>
               <div className="home-stable-shell-panel home-stable-shell-live">
                 <LivePulse nonce={dataOpsPulseNonce} variant="border">
@@ -7354,8 +7653,8 @@ const conversionRate = displayEnquiriesMonthToDate
                   userInitials={userInitials}
                   showToast={showToast}
                   demoModeEnabled={demoModeEnabled}
-                  isAdmin={userIsAdmin || isLzOrAc}
-                  isV2User={isLzOrAc}
+                  isAdmin={userIsAdmin || canUseOpsQueuePreview}
+                  isV2User={canUseOpsQueuePreview}
                   isDevOwner={isDevOwner(userData?.[0])}
                   showHomeOpsCclDates={featureToggles.showHomeOpsCclDates === true}
                   isActive={isActive}
@@ -7363,7 +7662,7 @@ const conversionRate = displayEnquiriesMonthToDate
                 </LivePulse>
               </div>
             </div>
-          ) : null;
+          );
         })()}
 
         {/* Team insight — attendance + leave in one panel */}

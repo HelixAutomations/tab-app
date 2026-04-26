@@ -2,10 +2,15 @@ const express = require('express');
 const sql = require('mssql');
 const { randomUUID } = require('crypto');
 const { getPool } = require('../utils/db');
-const { cacheWrapper, deleteCachePattern } = require('../utils/redisClient');
+const { cacheWrapper } = require('../utils/redisClient');
 const { getClioAccessToken, CLIO_API_BASE } = require('../utils/clioAuth');
 const { getClioId } = require('../utils/teamLookup');
 const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
+const {
+  ensureHomeJourneyEmailEventsTable,
+  recordHomeJourneyEmailEvent,
+  invalidateHomeJourneyCache,
+} = require('../utils/homeJourneyEmailEvents');
 
 const router = express.Router();
 
@@ -36,8 +41,6 @@ const RECORDING_COLS = `
   r.document_emotion_json
 `.trim();
 
-let emailEventsTableReady = false;
-
 function instrPool() {
   const connStr = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
   if (!connStr) throw new Error('INSTRUCTIONS_SQL_CONNECTION_STRING not configured');
@@ -64,6 +67,18 @@ function parseSince(value) {
   return Number.isNaN(parsed) ? null : parsed;
 }
 
+function parseScope(value) {
+  const parsed = String(value || '').trim().toLowerCase();
+  if (parsed === 'all' || parsed === 'user') return parsed;
+  return null;
+}
+
+function isDevOwner(user, fallbackInitials, fallbackEmail) {
+  const initials = String(user?.initials || fallbackInitials || '').trim().toUpperCase();
+  const email = String(user?.email || fallbackEmail || '').trim().toLowerCase();
+  return initials === 'LZ' || email === 'lz@helix-law.com';
+}
+
 function normDigits(raw) {
   if (!raw) return '';
   let digits = String(raw).replace(/\D/g, '');
@@ -75,14 +90,6 @@ function normDigits(raw) {
 function looksLikePhone(str) {
   if (!str) return false;
   return String(str).replace(/\D/g, '').length >= 7;
-}
-
-function buildRecipientSummary(toRecipients, ccRecipients) {
-  const recipients = [...toRecipients, ...ccRecipients].filter(Boolean);
-  if (recipients.length === 0) return 'No recipients recorded';
-  if (recipients.length === 1) return recipients[0];
-  if (recipients.length === 2) return `${recipients[0]} and ${recipients[1]}`;
-  return `${recipients[0]}, ${recipients[1]} +${recipients.length - 2}`;
 }
 
 function parseJsonArray(raw) {
@@ -101,159 +108,10 @@ function toTimestamp(value) {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-function parseScope(value) {
-  const parsed = String(value || '').trim().toLowerCase();
-  if (parsed === 'all' || parsed === 'user') return parsed;
-  return null;
-}
-
-function isDevOwnerUser(user, initials, email) {
-  const resolvedInitials = String(user?.initials || initials || '').trim().toUpperCase();
-  const resolvedEmail = String(user?.email || email || '').trim().toLowerCase();
-  return resolvedInitials === 'LZ' || resolvedEmail === 'lz@helix-law.com';
-}
-
-const JOURNEY_TYPE_PRIORITY = {
-  call: 0,
-  'attendance-note': 1,
-  'email-sent': 2,
-  'clio-activity': 3,
-};
-
 function compareJourneyRows(left, right) {
-  const timestampDelta = toTimestamp(right.timestamp) - toTimestamp(left.timestamp);
-  if (timestampDelta !== 0) return timestampDelta;
-
-  const typeDelta = (JOURNEY_TYPE_PRIORITY[left.type] ?? 99) - (JOURNEY_TYPE_PRIORITY[right.type] ?? 99);
-  if (typeDelta !== 0) return typeDelta;
-
-  return String(left.key || '').localeCompare(String(right.key || ''));
-}
-
-async function ensureHomeJourneyEmailEventsTable() {
-  if (emailEventsTableReady) return true;
-
-  try {
-    const pool = await instrPool();
-    await pool.request().query(`
-      IF OBJECT_ID(N'dbo.HomeJourneyEmailEvents', N'U') IS NULL
-      BEGIN
-        CREATE TABLE dbo.HomeJourneyEmailEvents (
-          EventId UNIQUEIDENTIFIER NOT NULL PRIMARY KEY,
-          SentAt DATETIME2(0) NOT NULL CONSTRAINT DF_HomeJourneyEmailEvents_SentAt DEFAULT SYSUTCDATETIME(),
-          SenderEmail NVARCHAR(255) NOT NULL,
-          SenderInitials NVARCHAR(20) NULL,
-          RecipientSummary NVARCHAR(500) NOT NULL,
-          ToRecipientsJson NVARCHAR(MAX) NULL,
-          CcRecipientsJson NVARCHAR(MAX) NULL,
-          BccRecipientsJson NVARCHAR(MAX) NULL,
-          Subject NVARCHAR(500) NULL,
-          Source NVARCHAR(100) NULL,
-          ContextLabel NVARCHAR(200) NULL,
-          EnquiryRef NVARCHAR(100) NULL,
-          InstructionRef NVARCHAR(100) NULL,
-          MatterRef NVARCHAR(100) NULL,
-          ClientRequestId NVARCHAR(100) NULL,
-          GraphRequestId NVARCHAR(100) NULL,
-          MetadataJson NVARCHAR(MAX) NULL
-        );
-
-        CREATE INDEX IX_HomeJourneyEmailEvents_SentAt
-          ON dbo.HomeJourneyEmailEvents (SentAt DESC);
-        CREATE INDEX IX_HomeJourneyEmailEvents_Sender
-          ON dbo.HomeJourneyEmailEvents (SenderInitials, SenderEmail, SentAt DESC);
-      END
-    `);
-
-    emailEventsTableReady = true;
-    return true;
-  } catch (error) {
-    emailEventsTableReady = false;
-    throw error;
-  }
-}
-
-async function invalidateHomeJourneyCache() {
-  try {
-    await deleteCachePattern('home-journey:*');
-  } catch {
-    // non-fatal cache invalidation
-  }
-}
-
-async function recordHomeJourneyEmailEvent(event) {
-  await ensureHomeJourneyEmailEventsTable();
-
-  const eventId = event.eventId || randomUUID();
-  const sentAt = event.sentAt || new Date().toISOString();
-  const toRecipients = Array.isArray(event.toRecipients) ? event.toRecipients : [];
-  const ccRecipients = Array.isArray(event.ccRecipients) ? event.ccRecipients : [];
-  const bccRecipients = Array.isArray(event.bccRecipients) ? event.bccRecipients : [];
-  const metadataJson = event.metadata ? JSON.stringify(event.metadata) : null;
-  const recipientSummary = event.recipientSummary || buildRecipientSummary(toRecipients, ccRecipients);
-
-  const pool = await instrPool();
-  await pool.request()
-    .input('EventId', sql.UniqueIdentifier, eventId)
-    .input('SentAt', sql.DateTime2, new Date(sentAt))
-    .input('SenderEmail', sql.NVarChar, String(event.senderEmail || '').trim().toLowerCase())
-    .input('SenderInitials', sql.NVarChar, event.senderInitials || null)
-    .input('RecipientSummary', sql.NVarChar, recipientSummary)
-    .input('ToRecipientsJson', sql.NVarChar, JSON.stringify(toRecipients))
-    .input('CcRecipientsJson', sql.NVarChar, JSON.stringify(ccRecipients))
-    .input('BccRecipientsJson', sql.NVarChar, JSON.stringify(bccRecipients))
-    .input('Subject', sql.NVarChar, event.subject || null)
-    .input('Source', sql.NVarChar, event.source || null)
-    .input('ContextLabel', sql.NVarChar, event.contextLabel || null)
-    .input('EnquiryRef', sql.NVarChar, event.enquiryRef || null)
-    .input('InstructionRef', sql.NVarChar, event.instructionRef || null)
-    .input('MatterRef', sql.NVarChar, event.matterRef || null)
-    .input('ClientRequestId', sql.NVarChar, event.clientRequestId || null)
-    .input('GraphRequestId', sql.NVarChar, event.graphRequestId || null)
-    .input('MetadataJson', sql.NVarChar, metadataJson)
-    .query(`
-      INSERT INTO dbo.HomeJourneyEmailEvents (
-        EventId,
-        SentAt,
-        SenderEmail,
-        SenderInitials,
-        RecipientSummary,
-        ToRecipientsJson,
-        CcRecipientsJson,
-        BccRecipientsJson,
-        Subject,
-        Source,
-        ContextLabel,
-        EnquiryRef,
-        InstructionRef,
-        MatterRef,
-        ClientRequestId,
-        GraphRequestId,
-        MetadataJson
-      )
-      VALUES (
-        @EventId,
-        @SentAt,
-        @SenderEmail,
-        @SenderInitials,
-        @RecipientSummary,
-        @ToRecipientsJson,
-        @CcRecipientsJson,
-        @BccRecipientsJson,
-        @Subject,
-        @Source,
-        @ContextLabel,
-        @EnquiryRef,
-        @InstructionRef,
-        @MatterRef,
-        @ClientRequestId,
-        @GraphRequestId,
-        @MetadataJson
-      )
-    `);
-
-  await invalidateHomeJourneyCache();
-  return eventId;
+  const timestampDiff = toTimestamp(right?.timestamp) - toTimestamp(left?.timestamp);
+  if (timestampDiff !== 0) return timestampDiff;
+  return String(right?.id || '').localeCompare(String(left?.id || ''));
 }
 
 async function resolvePhoneNames(normDigitsArr) {
@@ -833,7 +691,7 @@ router.get('/', async (req, res) => {
     return res.status(400).json({ error: 'Missing initials or email' });
   }
 
-  const canSeeAll = isDevOwnerUser(req.user, initials, email);
+  const canSeeAll = isDevOwner(req.user, initials, email);
   const requestedScope = parseScope(req.query.scope) || (canSeeAll ? 'all' : 'user');
   const effectiveScope = requestedScope === 'all' && canSeeAll ? 'all' : 'user';
   const showAll = effectiveScope === 'all';

@@ -208,7 +208,7 @@ Scripts / docs:
 # Stash metadata
 id: ccl-polish-workbench-chip-toast-dedupe-pipeline-latency
 shipped: true
-shipped_on: 2026-04-23
+shipped_on: 2026-04-24
 verified: 2026-04-23
 branch: main
 touches:

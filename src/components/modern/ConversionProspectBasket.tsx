@@ -1,9 +1,11 @@
 import React from 'react';
-import { FiChevronDown, FiChevronUp } from 'react-icons/fi';
+import { createPortal } from 'react-dom';
+import { FiChevronDown, FiChevronUp, FiExternalLink, FiArrowUpRight } from 'react-icons/fi';
 import { CSSTransition, TransitionGroup } from 'react-transition-group';
 import { colours } from '../../app/styles/colours';
 import type { ConversionBreakpoint } from './hooks/useContainerWidth';
 import clioIcon from '../../assets/clio.svg';
+import activecampaignIcon from '../../assets/activecampaign.svg';
 
 // Phase D (post-Phase-C): demoted to a quiet *trail* rather than an
 // interactive chip index. Intent: a summary of recent stream rhythm that
@@ -74,8 +76,6 @@ export interface ConversionProspectBasketProps {
 
 const CHIP_ANIM_ID = 'conv-prospect-chip-styles';
 const CHIP_RESIZE_TRANSITION_MS = 180;
-const DEFAULT_ICON_ONLY_CHIP_WIDTH = 36;
-const DEFAULT_LABEL_CHIP_WIDTH = 96;
 
 function ensureChipStyles() {
   if (typeof document === 'undefined') return;
@@ -150,44 +150,33 @@ function ensureChipStyles() {
     .conv-prospect-bezel.has-clio:focus-visible .conv-prospect-stack > .hover { opacity: 1; }
     .conv-prospect-bezel.has-clio { cursor: pointer; transition: background 160ms ease-out, border-color 160ms ease-out; }
     /*
-     * 2026-04-24: matter bezels fold to icon-only and reveal the display
-     * number on hover as a small pill that floats above the trail. No layout
-     * shift (absolutely positioned), no neighbour jank. The bezel itself
-     * stays the click target for the Clio deep link.
+     * 2026-04-24 (rev 2): hover details now live in a portal-rendered
+     * popover above the chip (.conv-pop). The popover positions itself
+     * relative to the chip's viewport rect, clamps to the screen edges,
+     * and auto-flips below if there's no room above. A 180ms grace period
+     * on leave lets the user move pointer onto the popover without it
+     * disappearing (so action buttons are reachable).
      */
-    .conv-prospect-hover-label {
-      position: absolute;
-      bottom: calc(100% + 5px);
-      left: 0;
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      padding: 3px 7px;
-      white-space: nowrap;
-      font-size: 10px;
-      font-weight: 600;
-      letter-spacing: 0.02em;
-      line-height: 1;
-      font-feature-settings: "tnum" 1, "lnum" 1;
+    .conv-pop {
+      position: fixed;
+      z-index: 1000;
+      pointer-events: auto;
       opacity: 0;
       transform: translateY(2px);
-      /*
-       * Rapid-hover handling: 90ms enter delay + 0ms leave delay means a
-       * pointer zipping across multiple chips doesn't light every tooltip;
-       * only the chip the user actually settles on reveals. Exit is
-       * instant-delay but still animated (160ms opacity/transform) so the
-       * collapse reads smoothly, not snappy.
-       */
-      transition: opacity 160ms ease 0ms, transform 160ms ease 0ms;
-      pointer-events: none;
-      z-index: 5;
+      transition: opacity 140ms ease-out, transform 160ms ease-out;
+      will-change: opacity, transform;
     }
-    .conv-prospect-bezel:hover .conv-prospect-hover-label,
-    .conv-prospect-bezel:focus-visible .conv-prospect-hover-label {
-      opacity: 1;
-      transform: translateY(0);
-      transition: opacity 180ms ease 90ms, transform 180ms ease 90ms;
+    .conv-pop.is-open { opacity: 1; transform: translateY(0); }
+    .conv-pop-action {
+      display: inline-flex; align-items: center; gap: 5px;
+      height: 22px; padding: 0 8px;
+      font-size: 9.5px; font-weight: 700;
+      letter-spacing: 0.06em; text-transform: uppercase;
+      border-radius: 0; cursor: pointer;
+      transition: background 140ms ease-out, border-color 140ms ease-out, color 140ms ease-out;
+      white-space: nowrap; user-select: none;
     }
+    .conv-pop-action:focus-visible { outline: 1px solid currentColor; outline-offset: 1px; }
   `;
   document.head.appendChild(s);
 }
@@ -239,6 +228,23 @@ const AowIcon: React.FC<{ area: string; colour: string; size?: number; category?
 const ClioMarkImg: React.FC<{ size?: number; isDarkMode: boolean }> = ({ size = 13, isDarkMode }) => (
   <img
     src={clioIcon}
+    alt=""
+    aria-hidden="true"
+    style={{
+      width: size,
+      height: size,
+      flexShrink: 0,
+      display: 'block',
+      filter: isDarkMode ? 'brightness(0) invert(1)' : undefined,
+    }}
+  />
+);
+
+// Same treatment as ProspectHeroHeader: AC mark forced white in dark mode
+// so it reads on the dark surface, untouched in light mode.
+const AcMarkImg: React.FC<{ size?: number; isDarkMode: boolean }> = ({ size = 13, isDarkMode }) => (
+  <img
+    src={activecampaignIcon}
     alt=""
     aria-hidden="true"
     style={{
@@ -323,6 +329,184 @@ function numberRecordEqual(left: Record<string, number>, right: Record<string, n
   return true;
 }
 
+// 2026-04-24 (rev 2): hover popover renderer. Lives at module scope so the
+// chip render path stays cheap. The popover is portalled into document.body
+// so it can never be clipped by the trail's `overflow-x: clip` or any
+// surrounding card boundary. Positioning happens in a layout effect that
+// re-measures the popover after first paint and clamps to the viewport with
+// an 8px margin. Vertical placement: prefer-above, flip-below if no room.
+type HoverPopoverConfig = {
+  section: 'enquiries' | 'matters';
+  item: ConversionProspectChipItem;
+  anchor: DOMRect;
+  open: boolean;
+  isDarkMode: boolean;
+  accent: string;
+  onMouseEnter: () => void;
+  onMouseLeave: () => void;
+  onOpenInApp?: (item: ConversionProspectChipItem) => void;
+};
+
+const HoverPopover: React.FC<HoverPopoverConfig> = ({
+  section,
+  item,
+  anchor,
+  open,
+  isDarkMode,
+  accent,
+  onMouseEnter,
+  onMouseLeave,
+  onOpenInApp,
+}) => {
+  const ref = React.useRef<HTMLDivElement | null>(null);
+  const [pos, setPos] = React.useState<{ left: number; top: number; placement: 'above' | 'below' } | null>(null);
+
+  React.useLayoutEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    const margin = 8;
+    const arrow = 6;
+    const pop = node.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const anchorCx = anchor.left + anchor.width / 2;
+    let left = anchorCx - pop.width / 2;
+    if (left < margin) left = margin;
+    if (left + pop.width > vw - margin) left = vw - margin - pop.width;
+    const above = anchor.top - pop.height - arrow;
+    const below = anchor.bottom + arrow;
+    let top: number;
+    let placement: 'above' | 'below';
+    if (above >= margin) {
+      top = above;
+      placement = 'above';
+    } else if (below + pop.height <= vh - margin) {
+      top = below;
+      placement = 'below';
+    } else {
+      // Squeeze: stick to the side with more room.
+      const spaceAbove = anchor.top - margin;
+      const spaceBelow = vh - anchor.bottom - margin;
+      if (spaceAbove >= spaceBelow) {
+        top = Math.max(margin, anchor.top - pop.height - arrow);
+        placement = 'above';
+      } else {
+        top = Math.min(vh - margin - pop.height, anchor.bottom + arrow);
+        placement = 'below';
+      }
+    }
+    setPos({ left, top, placement });
+  }, [anchor.left, anchor.top, anchor.width, anchor.height, item.id]);
+
+  const surface = isDarkMode ? 'rgba(8,28,48,0.98)' : 'rgba(255,255,255,0.99)';
+  const surfaceBorder = isDarkMode ? 'rgba(135,243,243,0.28)' : 'rgba(54,144,206,0.24)';
+  const text = isDarkMode ? 'rgba(243,244,246,0.96)' : 'rgba(6,23,51,0.92)';
+  const muted = isDarkMode ? 'rgba(209,213,219,0.6)' : 'rgba(55,65,81,0.55)';
+  const ctaColour = isDarkMode ? colours.accent : colours.highlight;
+  const isMatter = section === 'matters';
+  const matterLabel = (item.displayNumber || '').trim();
+  const enqName = (item.fullName || item.displayName || '').trim();
+  const headline = isMatter ? (matterLabel || item.displayName || 'Matter') : (enqName || 'Enquiry');
+  const subline = isMatter
+    ? (item.fullName ? `${item.fullName} · ${item.aow}` : item.aow)
+    : (item.acid ? `${item.acid} · ${item.aow}` : item.aow);
+  const clioUrl = isMatter && item.clioMatterId
+    ? `https://eu.app.clio.com/nc/#/matters/${item.clioMatterId}`
+    : null;
+  const acUrl = !isMatter && item.acid
+    ? `https://helix-law54533.activehosted.com/app/contacts/${encodeURIComponent(item.acid)}`
+    : null;
+
+  const popover = (
+    <div
+      ref={ref}
+      className={`conv-pop${open ? ' is-open' : ''}`}
+      role="tooltip"
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      style={{
+        left: pos?.left ?? -9999,
+        top: pos?.top ?? -9999,
+        minWidth: 180,
+        maxWidth: 280,
+        padding: '8px 10px 8px',
+        background: surface,
+        border: `1px solid ${surfaceBorder}`,
+        borderRadius: 0,
+        boxShadow: isDarkMode ? '0 10px 30px rgba(0,0,0,0.5)' : '0 10px 30px rgba(6,23,51,0.18)',
+        color: text,
+        fontFamily: 'Raleway, sans-serif',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+        <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: isMatter ? 0 : '50%', background: accent, flexShrink: 0 }} />
+        <span style={{ fontSize: 11, fontWeight: 700, color: text, letterSpacing: '0.02em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFeatureSettings: '"tnum" 1, "lnum" 1' }}>{headline}</span>
+      </div>
+      <div style={{ fontSize: 10, fontWeight: 500, color: muted, letterSpacing: '0.02em', marginBottom: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{subline}</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+        {onOpenInApp ? (
+          <button
+            type="button"
+            className="conv-pop-action"
+            onClick={(e) => { e.stopPropagation(); onOpenInApp(item); }}
+            style={{
+              background: tintColour(ctaColour, isDarkMode ? 0.16 : 0.12),
+              border: `1px solid ${tintColour(ctaColour, 0.45)}`,
+              color: ctaColour,
+            }}
+          >
+            <FiArrowUpRight size={11} aria-hidden="true" />
+            Open in Hub
+          </button>
+        ) : null}
+        {clioUrl ? (
+          <a
+            href={clioUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="conv-pop-action"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(6,23,51,0.04)',
+              border: `1px solid ${isDarkMode ? 'rgba(243,244,246,0.18)' : 'rgba(6,23,51,0.18)'}`,
+              color: text,
+              textDecoration: 'none',
+            }}
+          >
+            <ClioMarkImg size={11} isDarkMode={isDarkMode} />
+            Open in Clio
+            <FiExternalLink size={10} aria-hidden="true" style={{ opacity: 0.6 }} />
+          </a>
+        ) : null}
+        {acUrl ? (
+          <a
+            href={acUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="conv-pop-action"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(6,23,51,0.04)',
+              border: `1px solid ${isDarkMode ? 'rgba(243,244,246,0.18)' : 'rgba(6,23,51,0.18)'}`,
+              color: text,
+              textDecoration: 'none',
+            }}
+          >
+            <AcMarkImg size={11} isDarkMode={isDarkMode} />
+            Open in ActiveCampaign
+            <FiExternalLink size={10} aria-hidden="true" style={{ opacity: 0.6 }} />
+          </a>
+        ) : null}
+      </div>
+    </div>
+  );
+
+  if (typeof document === 'undefined') return null;
+  return createPortal(popover, document.body);
+};
+
+const renderHoverPopover = (config: HoverPopoverConfig) => <HoverPopover {...config} />;
+
 const ConversionProspectBasket: React.FC<ConversionProspectBasketProps> = ({
   items,
   section,
@@ -334,6 +518,7 @@ const ConversionProspectBasket: React.FC<ConversionProspectBasketProps> = ({
   breakpoint = 'standard',
   overflowExpanded = false,
   onOverflowToggle,
+  onOpenProspect,
   placeholderCount,
 }) => {
   React.useEffect(() => { ensureChipStyles(); }, []);
@@ -342,7 +527,12 @@ const ConversionProspectBasket: React.FC<ConversionProspectBasketProps> = ({
   const bezelHeight = breakpoint === 'wide' ? 24 : 22;
   const bezelGap = breakpoint === 'wide' ? 7 : 6;
   const labelSize = breakpoint === 'wide' ? 10.5 : 10;
-  const fallbackChipWidth = iconOnly ? DEFAULT_ICON_ONLY_CHIP_WIDTH : DEFAULT_LABEL_CHIP_WIDTH;
+  // 2026-04-24: chips collapse to a square icon-only footprint at rest in
+  // every breakpoint now (the label only appears on hover via .has-reveal),
+  // so the pre-measurement fallback is bezelHeight \u2014 not the legacy
+  // 96px label-chip estimate, which would massively under-fit the basket
+  // until layout measurement landed.
+  const fallbackChipWidth = bezelHeight;
 
   // 2026-04-21: measure the trail's own width so the chip cap adapts to the
   // available room rather than the static `maxVisible` cap. Unlike the first
@@ -440,7 +630,11 @@ const ConversionProspectBasket: React.FC<ConversionProspectBasketProps> = ({
         totalWidth += getOverflowChipWidth(bezelHeight, overflowCount);
       }
 
-      if (totalWidth <= trailWidth) {
+      // 2026-04-24: 2px breathing buffer so sub-pixel rounding never lets the
+      // last chip get clipped under the +X / chevron. The trail's overflow:clip
+      // would otherwise hide the last 1\u20132px when measurement and layout
+      // disagree at fractional widths.
+      if (totalWidth + 2 <= trailWidth) {
         return count;
       }
     }
@@ -451,38 +645,96 @@ const ConversionProspectBasket: React.FC<ConversionProspectBasketProps> = ({
   const visible = React.useMemo(() => items.slice(0, visibleCount), [items, visibleCount]);
   const overflow = items.length - visible.length;
 
+  // 2026-04-24 (rev 2): hover popover. We track the hovered chip by id and
+  // its viewport rect (captured at enter time). The popover renders via a
+  // portal so it can never be clipped by the trail's `overflow-x: clip`.
+  // Edge handling: the popover prefers to anchor above the chip, but flips
+  // below when there's no room. Horizontally it tries centred, then clamps
+  // to within an 8px viewport margin. A 180ms grace timer on leave lets the
+  // user move pointer onto the popover without it disappearing.
+  type HoverState = { id: string; item: ConversionProspectChipItem; rect: DOMRect };
+  const [hover, setHover] = React.useState<HoverState | null>(null);
+  const [popOpen, setPopOpen] = React.useState(false);
+  const enterTimer = React.useRef<number | null>(null);
+  const leaveTimer = React.useRef<number | null>(null);
+  const cancelTimers = React.useCallback(() => {
+    if (enterTimer.current !== null) {
+      window.clearTimeout(enterTimer.current);
+      enterTimer.current = null;
+    }
+    if (leaveTimer.current !== null) {
+      window.clearTimeout(leaveTimer.current);
+      leaveTimer.current = null;
+    }
+  }, []);
+  const openHover = React.useCallback((item: ConversionProspectChipItem, el: HTMLElement) => {
+    cancelTimers();
+    const rect = el.getBoundingClientRect();
+    enterTimer.current = window.setTimeout(() => {
+      setHover({ id: item.id, item, rect });
+      // small RAF so the entry transition runs.
+      window.requestAnimationFrame(() => setPopOpen(true));
+    }, 90);
+  }, [cancelTimers]);
+  const closeHover = React.useCallback(() => {
+    if (enterTimer.current !== null) {
+      window.clearTimeout(enterTimer.current);
+      enterTimer.current = null;
+    }
+    if (leaveTimer.current !== null) {
+      window.clearTimeout(leaveTimer.current);
+    }
+    leaveTimer.current = window.setTimeout(() => {
+      setPopOpen(false);
+      // Wait for the fade-out before removing the node.
+      window.setTimeout(() => setHover((prev) => (prev ? null : prev)), 180);
+    }, 180);
+  }, []);
+  const keepOpen = React.useCallback(() => {
+    if (leaveTimer.current !== null) {
+      window.clearTimeout(leaveTimer.current);
+      leaveTimer.current = null;
+    }
+  }, []);
+  React.useEffect(() => () => cancelTimers(), [cancelTimers]);
+
   const renderChipBezel = (item: ConversionProspectChipItem, ref?: React.Ref<HTMLSpanElement>) => {
     const accent = aowColor(item.aow);
     const showTick = section === 'matters' || item.matterOpened;
     const isMatter = section === 'matters';
     const category = resolveAowCategory ? resolveAowCategory(item.aow) : undefined;
+    const iconSize = breakpoint === 'wide' ? 14 : 13;
 
-    // 2026-04-21: enquiries trail demoted to a subtle AoW-icon stream — no
-    // border, no fill, no surname label. The numeric counter + the chart
-    // already convey volume; the trail is a supportive area-of-work cue, not
-    // a duplicate list. Matters trail keeps the labelled bezel because the
-    // display number + Clio link are functional, not decorative.
-    //
-    // 2026-04-24: on hover, reveal a subtle pill above the icon with the
-    // enquiry name + ACID (as secondary dimmed text). Same structural
-    // pattern as the matter hover pill so rapid cross-hover behaviour is
-    // consistent across both rows.
+    const matterLabel = (item.displayNumber || '').trim();
+    const enqName = (item.fullName || item.displayName || '').trim();
+    const titleText = isMatter
+      ? `${matterLabel || item.displayName}${item.fullName ? ` · ${item.fullName}` : ''} · ${item.aow}`
+      : (enqName ? `${enqName}${item.acid ? ` · ${item.acid}` : ''} · ${item.aow}` : item.aow);
+
+    // Hover handlers shared by both rows. Focus also opens (keyboard a11y).
+    const handleEnter = (e: React.MouseEvent<HTMLSpanElement>) => openHover(item, e.currentTarget);
+    const handleLeave = () => closeHover();
+    const handleFocus = (e: React.FocusEvent<HTMLSpanElement>) => openHover(item, e.currentTarget);
+    const handleBlur = () => closeHover();
+
     if (!isMatter) {
-      const enqIconSize = breakpoint === 'wide' ? 14 : 13;
-      const enqName = item.fullName || item.displayName || '';
-      const enqAcid = (item.acid || '').trim();
-      const tooltipBg = isDarkMode ? 'rgba(6,23,51,0.96)' : 'rgba(255,255,255,0.98)';
-      const tooltipBorder = isDarkMode ? 'rgba(135,243,243,0.3)' : 'rgba(54,144,206,0.26)';
-      const tooltipText = isDarkMode ? 'rgba(243,244,246,0.95)' : 'rgba(6,23,51,0.9)';
-      const secondaryText = isDarkMode ? 'rgba(209,213,219,0.55)' : 'rgba(55,65,81,0.5)';
-      const titleText = enqName
-        ? `${enqName}${enqAcid ? ` · ${enqAcid}` : ''} · ${item.aow}`
-        : item.aow;
+      // Enquiries: subtle icon-only chip. Borderless at rest, faint background
+      // tint on hover so the affinity with the popover is obvious.
+      const hoverFill = tintColour(accent, isDarkMode ? 0.1 : 0.08);
+      const hoverBorder = tintColour(accent, isDarkMode ? 0.32 : 0.28);
+      const isHovered = hover?.id === item.id;
       return (
         <span
+          key={item.id}
           ref={ref}
+          tabIndex={0}
           className="conv-prospect-bezel conv-prospect-bezel--quiet"
           title={titleText}
+          aria-label={titleText}
+          onMouseEnter={handleEnter}
+          onMouseLeave={handleLeave}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
           style={{
             position: 'relative',
             flexShrink: 0,
@@ -492,129 +744,65 @@ const ConversionProspectBasket: React.FC<ConversionProspectBasketProps> = ({
             height: bezelHeight,
             width: bezelHeight,
             padding: 0,
-            border: 'none',
-            background: 'transparent',
-            opacity: isDarkMode ? 0.7 : 0.65,
-            transition: 'opacity 0.16s ease',
+            border: `1px solid ${isHovered ? hoverBorder : 'transparent'}`,
+            background: isHovered ? hoverFill : 'transparent',
+            borderRadius: 0,
+            opacity: isDarkMode ? 0.85 : 0.8,
+            transition: 'background 140ms ease, border-color 140ms ease',
+            outline: 'none',
+            cursor: 'default',
           }}
         >
-          <AowIcon area={item.aow} colour={accent} size={enqIconSize} category={category} />
-          {enqName ? (
-            <span
-              className="conv-prospect-hover-label"
-              style={{
-                background: tooltipBg,
-                border: `1px solid ${tooltipBorder}`,
-                color: tooltipText,
-                boxShadow: isDarkMode ? '0 4px 14px rgba(0,0,0,0.45)' : '0 4px 14px rgba(6,23,51,0.18)',
-              }}
-            >
-              <span>{enqName}</span>
-              {enqAcid ? (
-                <>
-                  <span aria-hidden="true" style={{ opacity: 0.35, fontWeight: 400, color: secondaryText }}>|</span>
-                  <span style={{ color: secondaryText, fontWeight: 500, letterSpacing: '0.04em' }}>{enqAcid}</span>
-                </>
-              ) : null}
-            </span>
-          ) : null}
+          <AowIcon area={item.aow} colour={accent} size={iconSize} category={category} />
         </span>
       );
     }
 
-    const matterLabel = (item.displayNumber || '').trim();
-    const label = matterLabel || toTrailLabel(item.displayName);
+    // Matters: bordered icon chip (plus the green tick if opened). Click =
+    // open the popover (which carries the action buttons). Keyboard chip
+    // remains focusable for a11y; Enter/Space opens the popover too.
     const border = tintColour(accent, 0.32);
     const fill = tintColour(accent, isDarkMode ? 0.1 : 0.08);
-    const clioUrl = item.clioMatterId
-      ? `https://eu.app.clio.com/nc/#/matters/${item.clioMatterId}`
-      : null;
-    const hasClio = Boolean(clioUrl);
-    const titleText = `${matterLabel || item.displayName}${item.fullName ? ` · ${item.fullName}` : ''} · ${item.aow}${hasClio ? ' · Open in Clio' : ''}`;
-    const iconSize = breakpoint === 'wide' ? 14 : 13;
-    const ctaColour = isDarkMode ? colours.accent : colours.highlight;
-    const tooltipBg = isDarkMode ? 'rgba(6,23,51,0.96)' : 'rgba(255,255,255,0.98)';
-    const tooltipBorder = isDarkMode ? 'rgba(135,243,243,0.35)' : 'rgba(54,144,206,0.32)';
-    const tooltipText = isDarkMode ? 'rgba(243,244,246,0.95)' : 'rgba(6,23,51,0.9)';
-    const handleBezelClick = hasClio
-      ? (e: React.MouseEvent) => {
-          e.stopPropagation();
-          if (clioUrl) window.open(clioUrl, '_blank', 'noopener,noreferrer');
-        }
-      : undefined;
-    const handleBezelKey = hasClio
-      ? (e: React.KeyboardEvent) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            e.stopPropagation();
-            if (clioUrl) window.open(clioUrl, '_blank', 'noopener,noreferrer');
-          }
-        }
-      : undefined;
-
-    // 2026-04-24: matter bezels fold to an icon-only footprint (matching the
-    // enquiries trail for density) with the display number + Clio CTA revealed
-    // as an absolutely-positioned hover pill. Keeps the strip compact so the
-    // `+X` / chevron can actually dock at the right edge.
+    const handleKey = (e: React.KeyboardEvent<HTMLSpanElement>) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openHover(item, e.currentTarget);
+      }
+      if (e.key === 'Escape') {
+        closeHover();
+      }
+    };
     return (
       <span
         key={item.id}
         ref={ref}
-        className={`conv-prospect-bezel${hasClio ? ' has-clio' : ''}`}
+        tabIndex={0}
+        className="conv-prospect-bezel"
         title={titleText}
-        role={hasClio ? 'link' : undefined}
-        tabIndex={hasClio ? 0 : undefined}
-        onClick={handleBezelClick}
-        onKeyDown={handleBezelKey}
-        aria-label={hasClio ? `Open matter ${matterLabel || item.displayName} in Clio` : undefined}
+        aria-label={titleText}
+        onMouseEnter={handleEnter}
+        onMouseLeave={handleLeave}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
+        onKeyDown={handleKey}
         style={{
-          position: 'relative',
           flexShrink: 0,
           display: 'inline-flex',
           alignItems: 'center',
           justifyContent: 'center',
-          gap: 4,
+          gap: 3,
           height: bezelHeight,
-          padding: '0 6px',
+          padding: '0 4px',
           lineHeight: 1,
-          whiteSpace: 'nowrap',
           border: `1px solid ${border}`,
           background: fill,
           borderRadius: 0,
-          transition: 'background 0.16s ease, border-color 0.16s ease',
+          outline: 'none',
+          cursor: 'default',
         }}
       >
-        {hasClio ? (
-          <span className="conv-prospect-stack" style={{ width: iconSize, height: iconSize }}>
-            <span className="rest" style={{ display: 'inline-flex' }}>
-              <AowIcon area={item.aow} colour={accent} size={iconSize} category={category} />
-            </span>
-            <span className="hover" style={{ display: 'inline-flex' }}>
-              <ClioMarkImg size={iconSize} isDarkMode={isDarkMode} />
-            </span>
-          </span>
-        ) : (
-          <AowIcon area={item.aow} colour={accent} size={iconSize} category={category} />
-        )}
+        <AowIcon area={item.aow} colour={accent} size={iconSize} category={category} />
         {showTick ? <MatterTick colour={colours.green} size={breakpoint === 'wide' ? 9 : 8} /> : null}
-        {hasClio ? (
-          <span
-            className="conv-prospect-hover-label"
-            style={{
-              background: tooltipBg,
-              border: `1px solid ${tooltipBorder}`,
-              color: tooltipText,
-              boxShadow: isDarkMode ? '0 4px 14px rgba(0,0,0,0.45)' : '0 4px 14px rgba(6,23,51,0.18)',
-            }}
-          >
-            <span>{label}</span>
-            <span aria-hidden="true" style={{ opacity: 0.45, fontWeight: 500 }}>›</span>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: ctaColour, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', fontSize: 9 }}>
-              <ClioMarkImg size={10} isDarkMode={isDarkMode} />
-              Clio
-            </span>
-          </span>
-        ) : null}
       </span>
     );
   };
@@ -848,6 +1036,17 @@ const ConversionProspectBasket: React.FC<ConversionProspectBasketProps> = ({
         );
       })() : null}
       </div>
+      {hover ? renderHoverPopover({
+        section,
+        item: hover.item,
+        anchor: hover.rect,
+        open: popOpen,
+        isDarkMode,
+        accent: aowColor(hover.item.aow),
+        onMouseEnter: keepOpen,
+        onMouseLeave: closeHover,
+        onOpenInApp: onOpenProspect,
+      }) : null}
     </div>
   );
 };

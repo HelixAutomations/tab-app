@@ -1,0 +1,885 @@
+Persist compile-only launch mode through CCL modal effects
+Clamp Home enquiries panel height
+Home load performance optimisation
+Add subtle matter source badges in Home pipeline
+Fix CCL step strip hitbox and interaction feedback
+Restore Compile click in to-do state
+Fix CCL review readiness mismatch
+Fix silent failures in calls and notes
+Progressive ops queue rendering
+Skip saved-review fetch for compile-stage matters
+Stabilise CCL full-letter viewport on load
+Rework CCL setup into summary-style header flow
+Fix CCL review handoff deadlock
+Fix empty saved-review trace loop in CCL launch
+Fix repeat browser boot and CCL relaunch stalls
+Fix repeat CCL launch stalling on draft load
+Move CCL setup into default intro pane
+Repair billing footer JSX in Operations Dashboard
+Unify compile-only CCL detection
+Use ref-backed CCL stage for review launch
+Pass explicit compile-only intent into CCL launch
+Add bill-aware outstanding matter drilldown
+Add outstanding matter explorer to Finance Data Hub
+Guard draft fetch directly in CCL modal opener
+Resilient journey feed + specific note errors
+Home fetches matters directly
+Split Home and Matters onto new-space matters
+Fix compile-stage CCL draft fetch bypass
+Fix outstanding balances status query aliases
+Materialise outstanding balances in Data Hub
+Render-level compile-stage safety net
+Remove the last hard frame from Forms search
+Soften Forms search framing and unify close controls
+Add editable IDs to form entries
+Simplify reporting reconciliation board
+Remove Forms action banner and launcher close cross
+Simplify Forms search and clear placeholder on focus
+Recast Forms submission stream as a ledger
+Lock form preview toggle to Luke and solidify search trays
+Add real-time presence tracking to Live Monitor
+Make ledger add-entry pick a form and open it
+Add admin ledger seeding controls for Forms
+Reframe Forms search as the hero surface
+Smooth CCL setup-to-review reveal
+Rebuild CCL review setup into split timeline view
+Tone down CCL handoff modal to house style
+Unify CCL setup into default review view
+Reuse default review frame for setup state
+Move setup timeline into A4 review stage
+Fix reporting month rail alignment
+Attach reporting month tabs to breakdown panel
+Turn reporting month operations into tabs
+Fix CCL handoff overlay stuck loading
+CCL architecture consolidation
+Complete Helix brand colour sweep
+Reframe Forms as a process launcher
+Refine Forms launcher search and card density
+Tighten Forms launcher composition
+Smooth Forms stream rail collapse
+Refine Forms search hero and sidepane stream
+Move Forms stream into the side pane
+Add Forms route pressure test indicator
+Restore compact reporting audit to Data Hub
+Align reconciliation panel to Helix reporting composition
+Add manual-only reconciliation control to Data Centre
+Disable local data-ops boot catch-up by default
+Rebuild forms hub and secure financial submissions
+Remove noisy reporting-check block and fix broken status text
+Fix Data Centre reporting check crash
+Simplify reporting data checks in Data Centre
+Purge all off-brand colours from Forms (comprehensive)
+Upgrade reporting proof checks
+Pressure-test Forms branding surfaces
+Purge all off-brand colours from Activity dashboard
+Merge reporting reconciliation surface
+Unify Helix form design language across all bespoke forms
+Fix collected proof month boundary
+Deepen collected proof against Clio
+Restructure Activity tab into a live dashboard
+Fix ActivityCardLabPanel infinite request loop
+Lift Forms stream pane to top-aligned side shell
+Simplify Forms detail header
+Refresh Forms surfaces to Home branding
+Strip teal accent wash from Activity dashboard
+Hide Cognito mode switch in prod
+Restrict Forms stream rail to dev preview
+Parallelise clioContacts person creation
+Expand server test coverage to 95 tests
+Centralised error handler + test foundation
+Phase 1 security + reliability hardening
+Fix dev:all startup — webpack silent failure + Key Vault 75s delay
+Home boot performance + coordinated reveal
+Helix Eye — real-time ops dashboard + scheduler CPU fix
+Hub Notifier — DM notification cards
+Helix-brand ledger rework with AoW icons and timestamp fix
+Fix ledger pill tint and header to match Prospects
+Fix ledger search jank and enforce borderRadius 0
+Fix ledger scroll jank and hover jump
+Add draft enquiry ledger report
+Re-enable draft ledger card access
+Declutter enquiry ledger to Prospects-style table
+Sortable headers and ReportShell toolbar for ledger
+Upgrade App Service to P1v3 + enable HTTP
+Performance: IIS caching + compression + vendor splitting + fetch dedup
+Realtime performance: memoize OpsDash, kill polling, optimistic UI
+Ship new conversion comparison card to all users
+Ledger label polish, 1am time fix, claimed
+Fix time display + strengthen claimed
+Align ledger with ops dashboard style
+Clean Home conversion chart chrome
+Rename Home journey to Activity and merge note CTAs
+Move Home journey scope chips into header
+Lift Home journey controls onto page row
+Compact Home Activity into ledger stream
+Rework Home operations shell
+Tighten Home Activity badge alignment
+Swap Home conversion axes and stabilise badge dots
+Fix Home journey Clio visibility and manual refresh
+Keep Home journey refresh chip compact
+Seed Home journey demo items
+Add Home journey scope control
+Fix Home ND upload workspace ref resolution
+Simplify Home journey filters and header
+Sort Home Clio activity by time of day
+Add compact Home journey note CTAs
+Smooth Home refresh pressure
+Fix user switching in private hub tools
+Smooth Home leave banner entry
+Scope enquiry pitch badge to active case
+Unify workbench stage status derivation
+Restore private tools user switching
+Tighten private tools refresh launch
+Include activity card lab assets in Azure deploys
+Remove Home ops dead space
+Stop Home conversion chart at live time
+Stretch Home conversion plot to card edges
+Move Home hover feedback off React state
+Soften Home conversion chart surface
+Remove dead Home shell gap below operations
+Preserve selected enquiry case chip
+Add subtle matter stacking cues to conversion bars
+Move Home conversion left-axis labels inside plot
+Add DM card send + bot button round-trip
+Align and cap home pipeline strips
+Show prospect emails under names on Home
+Fix Activity Teams links and source labelling
+Surface live freshness in Enquiries and Activity
+Add Activity Card Lab to Activity
+Align journey note timestamps to calls
+Unify Home journey stream
+Tighten Home skeleton fidelity and column alignment
+Surface read-only CCL steps on Home
+Simplify Home enquiry and matter dates
+Unify Home calls notes and activity
+Consolidate DefaultAzureCredential to shared singleton
+Stagger dev boot: backend-first launch
+Replace Home stage icons with semantic icons
+Integrated attendance notes UX overhaul
+Add Activities tab to Calls & Notes
+Dev boot round 3: revert credential + fix polling loop
+Add Home boot monitor to Activity tab
+Fix unclaimed filter for new DB field name
+Fix hub tool click handlers + toggle colours
+Dev boot round 2: credential pinning + request dedup
+Speed up dev boot + runtime
+Replace home pipeline with text-led strip
+Strip states: underline-only, no fills
+Home first-paint gating reduced
+Turn Activity into private ops feed
+Add Team Hub bot groundwork
+Pitch step: neutral tone until evidence arrives
+Remove duplicate Claimed step from enquiry pipeline
+Reorder pipeline columns: FE prefixes pipeline strip
+Close name?FE gap in pipeline boxes
+Pipeline strip native UX polish
+Follow-up timer icon + done state completion design
+Fix lifecycle strip processing cue and follow-up tone
+Flatten pipeline lifecycle strip to borderless tabs
+Add codebase health infrastructure
+Fix future-dated changelog entries
+Convert Roadmap tab to Activity feed
+Trim Home Clio activities fetch
+Optimise local Key Vault boot auth
+Defer live enquiries boot refresh
+Move follow-up status into lifecycle strip badge
+Keep Conversion stat boxes side-by-side on narrow screens
+Add planned projects section to Activity tab
+Fix conversion chart order and add hover labels
+Redesign home chrome collapse as threshold-based
+Always show CCL step strip for CCL users
+Match unclaimed tab to native table pattern
+Command Deck — flat cockpit-style dev toolbar
+Smooth home chrome tab transitions
+Hide home chrome on non-Home tabs
+Add action log instrumentation
+Fix navigator hidden on Enquiries tab
+Dead code cleanup — barrel imports and dead exports
+Remove fake startup height from home chrome
+Make home banners reveal with scroll direction
+Remove home chrome ghosting and restyle app scrollbar
+Make home chrome fold on every scroll frame
+Refine Immediate Actions banner
+Tighten conversion card layout
+Make home fold track scroll continuously
+Reduce re-render sprawl across all tabs
+Add persistent dev-all terminal logs
+Dedupe home-wip credentials and skip local boot warmups
+Pause hidden Home background work
+Tighten home chrome fold window
+Remove team calls from Operations box
+Neutralise Home chrome tabs and scrollbar
+Fix leftover CCL preview gap asymmetry
+Fix CCL document edge touching scrollbar
+Fix CCL preview opening at unscaled width
+Fix CCL heading numbering to Word-style margin layout
+Simplify selected review-step hierarchy
+Simplify pressure-test copy in CCL review
+Increase CCL page and artboard breathing room
+Remove duplicate first-page footer reserve
+Fix first-page footer collision in CCL preview
+Fix CCL heading sizes and blank-line breaks
+Fix A4 page zoom ratio and footer page breaks
+Fix CCL footer-safe pagination within sections
+Fix asymmetric CCL preview side gutters
+Fix CCL preview overlap and locked zoom behaviour
+Fix first-page footer reserve and preview first-paint width
+Stop link-only deals masquerading as pitches
+Remove Helix Next side project
+Trim attendance support lint dead code
+Refine Frameworks section and gate Release Notes
+Clear low-risk attendance and table lint noise
+Stop local health and dev-owner console spam
+Refine dev tools panel
+Show existing pitch before composer
+Remove fake event dates from reporting and cards
+Transform UserBubble into My Helix personal dashboard
+Strip dead instruction UI scaffolding
+Repair instruction cleanup regressions
+Stop false pitch and instruction chips
+Slim down CCL review step UI
+Split pitch composer out of the workbench bundle
+Persist pressure-test results server-side
+Add Communication Frameworks pressure-test tool
+Fix width-gate flash on matters box
+Restructure Hub Tools panel
+Gate local boot on API readiness
+Pause hidden-tab polling and merge Home resize observers
+Remove dead assets and deprecated colour aliases
+Defer matters and Dubber off Home boot
+PitchComposer: highlight [INSERT] markers and honest Copy Link label
+Add mode selector and body preview to PitchComposer
+Integrate Safety Net into review flow
+Add CCL prompt engineering reference
+Target ND uploads to luke-sandbox folder
+Fix Dubber calls in Safety Net + rebuild dev tools
+Remove page navigator overlay from CCL review
+Remove work type from CCL generation toast
+Fix unresolved personnel fields in CCL letters
+Overhaul CCL approval flow
+Reserve footer margin on all CCL pages
+Compact prospects scope into local dropdown
+Fix first-open CCL preview width race
+Re-measure Home matters layout on tab return
+Add god-mode prospects scope picker
+Soften CCL launch screen back to Helix loading state
+Stabilise prospects scope navigator updates
+Stop Enquiries navigator recursion loop
+Stage the CCL review launch flow
+Add boot telemetry for Azure startup diagnosis
+Surface CCL Safety Net progress from the matters rail
+Tie Home conversion mix to the selected range
+Sync Home pipeline column heights in the same paint
+Let Safety Net use persisted generated drafts
+Expand Home matters and keep Home CCL document-first
+Calm Home CCL review entry and step rail
+Narrow CCL Safety Net to decision fields
+Replace false Home lifecycle flashes with live checking state
+Carry prospect IDs into Home seeded enquiries
+Scenario-specific pitch icons and instructed skip
+Batch Home pitch lookups and limit them to the active period
+Stabilise Home conversion rail height
+Simplify Home conversion hierarchy
+Keep enquiry lifecycle aligned when notes are absent
+Remove conversion comparison label
+Correct CCL A4 preview proportions
+Calm CCL review tone and fix letter opening layout
+Rework conversion panel hierarchy
+Fix review queue jolt when PT lands
+Enrich pressure test modal with dev context
+CCL review UX overhaul (8-point fix)
+Stop accidental backdrop dismiss in Home CCL review
+Reset Home CCL review into the clean opening page
+Soften active Home CCL review steps
+Standardise Home CCL review entry copy and first page
+Feed Dubber transcripts into CCL AI
+Clarify CCL decision counts versus document pages
+Hide CCL navigator until guided review begins
+Add compile-first Home CCL pipeline
+Use real pitch evidence on Home enquiries
+Expose Home CCL result modals
+Align Home pipeline headers and fills
+Preload Matters navigation
+Shift Home CCL to backend completion
+Unify compact strip controls
+Warm tabs during idle
+Add persisted Home enquiry follow-up lifecycle
+Show full Home enquiry lifecycle list
+Align Home pitch fallback with prospects enrichment
+Pending clock and instruction-from-deal detection
+Add bulk pitch enrichment for Home enquiries
+Tighten Home conversion header copy
+Refine Home conversion hierarchy
+Tighten Home pitch evidence matching
+Split unclaimed out of Home enquiries view
+Restore firm-wide Home activity after switching back
+Unify Home calls stream styling
+Collapse matter CCL steps on narrow layouts
+Hide unresolved matter bars in conversion charts
+Slim conversion matter bars on small screens
+Hide cached zero-matter conversion placeholders
+Remove green cast from queue top-level panes
+Flatten queue fallback pane framing
+Push enquiries claim cues into CTA styling
+Auto-fallback empty today transactions
+Align queue fills to Helix palette
+Remove deleted enquiries by all linked IDs
+Match Home pipeline activity by linked enquiry IDs
+Purge client caches on enquiry delete
+Fix conversion charts stretching on all screen sizes
+Remove week-pace toggle from conversion panel
+Show full Home pipeline activity lists
+Hold Home conversion rail until data resolves
+Tighten Pipeline live-status header alignment
+Add subtle Home live-status indicator
+Refresh Home immediately after enquiry delete
+Force live enquiry refresh on Home boot
+Stage Home CCL review with intro shell
+Align Home CCL preview to first-page letter format
+Soften recent pitch scenario strip
+Default Home CCL box to hidden
+Reintegrate aged debt cards into transaction flow
+Make Home CCL intro preview truthful to pagination
+Reframe Home CCL preview scale and navigator
+Make Home CCL navigator react in real time
+Stop Home CCL review snapping back to step 1
+Unify Home CCL review workspace with intro preview
+Persist and focus Home CCL review steps
+Right-align payments header total
+Swap payment row status words for icons
+Normalize queue filter chip sizing
+Quiet transaction status labels into segments
+Group transaction cards by status sections
+Add method icons to payment rows
+Compact Home realtime dev controls
+Simplify aged debt suggestion cards
+Add Home CCL dates dev toggle
+Convert aged debt suggestions into live transfer requests
+Add inline notes and pitch scenarios to Home enquiry rows
+Stop Home zoom from collapsing matters and time entries too early
+Put matter step labels inline and remove wasted height
+Relax spacing for inline matter opening steps
+Make Home to-do cards adapt under zoom
+Rename Home matter step labels to explicit CCL states
+Normalise Home surface palette
+Let Home recent enquiries claim in place
+Equalise Home calls and time entries width
+Add attendance note pipeline: save + ND upload
+Align fee-earner Teams icon and initials
+Fix phone?enquiry resolution in Calls Report
+Show transcript on expand in Home calls
+Show matter ownership instead of Teams claim in FE column
+Compress matter opening steps into the Home row
+Add live age stamps and clearer Teams claim cues
+Make room for live age stamps in Home tables
+Stop scoping Home all-records enquiries by AOW
+Include legacy enquiries in Home all-records loads
+Promote pipeline bar and connect transactions lanes
+Remove leftover gap under accounts pipeline
+Fix deleted enquiries persisting in Home table
+Fix conversion charts stretching full width
+Stop Home details fetch from re-scoping team-wide activity
+Remove deleted enquiries from Home activity refreshes
+Sharpen Home conversion charts
+Preserve advanced enquiry stage in unified merge
+Respect claimed enquiry state in team-wide Home view
+Restore pitched rows in Home all-records activity
+Rename operations queue heading
+Remove pre-filter bank transfer block from operations queue
+Align Home chart axis labels with bucket columns
+Keep Home all-records stage rows beyond seed cap
+Pause transactions polling when tab hidden
+Fix Clio 401 on wipClioCurrentWeek
+Dev owner sees all-team time entries
+Skip null contact_id rows in collected time sync
+Auto-resolve phone numbers to names on call tickets
+Align My calls strip with Dashboard section contract
+Add icons to all section headers
+Add Calls & Attendance Notes section to Dashboard
+Call ticket click shows pipeline match detail
+Add dates to payments and strengthen filter bar
+Swap calls+notes layout and enforce AI house style
+Fix collected fees metric display
+Reorder calls panel below pipeline and align card heights
+Repair operations queue JSX regression
+Normalise operations queue section header
+Fix external calls showing phone numbers instead of names
+Add Calls Report to Reports tab
+Add transcript + full detail panel to Calls Report
+Show firm-wide billing metrics for dev owner
+Add transcript
+V2 transaction processing system
+V2 schema expansion — financial form fields
+Add letterhead to home CCL review
+Instant-launch cold load
+Clean up PreviewStep workflow modal
+Transactions: Today default + card grid + expandable Asana sections
+Card
+Fix concurrent cache-miss race condition
+Tighten Home matters header spacing
+Align matters left track with enquiries
+Align Home activity and matters mini tables
+Keep Home enquiries team-wide for dev-owner view
+Simplify Home dashboard loading cues
+Rework transaction detail to inline rows
+Harden enquiries to explicit new-only defaults
+Split enquiry source policy by use case
+Asana accounts reconciliation in Operations Queue
+Fix Asana badge logic, add payment ID inspector, improve pipeline layout
+Redesign CCL review as document editor with discrete A4 pages
+Fix AI data not inserting into CCL drafts
+Defer pressure test and add loading feedback
+Optimise cold-load performance
+Add summary landing to CCL review
+Refine CCL legal-document flow
+Tighten CCL preview field focus
+Clarify enquiry share access copy
+Fork OperationsQueue access + Asana card spacing
+V2 real-time polling + animated drop entrance
+V2 devOwner sees all + demo-safe seed data
+Fix Clio 401 thundering herd on startup
+V2 transaction seed script
+Add Aged Debt tab to Data Hub
+Add matter picker to Transaction Intake
+Payments ledger + ticket-style debts
+Fix cross-FY annual leave allowance check
+Payments sidepane default + date range scope
+Operations header matches Matters
+Asana sync suggestions for V2 transactions
+Redesign Stripe + Debts to subtle chips with modals
+Asana card improvements
+Modernise fallback hint styling
+Remove CB and FA from admin list
+Lighten section separators + fallback hint labels
+Dev preview lock on OperationsQueue
+Ghost preview cards for empty today
+Regroup Operations sections
+Stripe payments section in Operations Queue
+Amalgamate fallback hint into Yesterday button
+CCL date chips as CTA cards + confirm toast
+Inline fallback CTA into header bar
+V2 schema: client fields, bank redaction, naming audit
+Fix CCL review Current Value textarea clipping
+CCL review preview production polish
+Add scroll-spy to CCL review bookmarks
+Format action points checkboxes and document bullets in CCL review
+Gate CCL debug sections to local dev only
+Scope god mode to dev owner only
+Remove all LZ?AC identity swaps
+Restyle register form modals to Helix look and feel
+Admin god mode — team-wide Home view
+Add A4 page breaks to CCL review preview
+Show all team matters for admin users
+Add sortable column headers to Home matters
+Force CCL preview page cards to appear
+Stop CCL from re-requesting paid instruction funds
+Hang CCL document bullets correctly in action table
+Auto-size CCL multiline output editors
+Page CCL print output like the preview
+Replace CCL disbursements table scaffold
+Add AoW column to Home enquiry and matter tables
+Fix CCL buttons not showing on first load
+Upgrade CCL draft loading overlay
+Split oversized CCL sections across preview pages
+Clean up CCL review sidebar for action clarity
+Streamline CCL review modal interaction
+Surface Roadmap tab in local dev
+Add new-only enquiries source switch
+Speed up all-view pipeline resolution
+Redirect more legacy bridge reads to Express
+Fix CCL preview A4 page breaks and AI scope field insertion
+Make Roadmap honestly local-only
+Fix ccl-dates-pending 500 error
+Smooth CCL review focus handoff
+Remove CCL section separators
+Align local Functions startup with API dev script
+Remove local Azure Functions from dev startup
+Clean dead Functions references
+Fix god mode enquiry cache key + WIP for local dev
+Matters header + ref colour and AoW ? Worktype
+Fix god mode conversion chart matters filter
+Prefill CPD plan user fields
+Fix god mode data loading on local dev
+Add transfer confirmation step
+Remove POID from reporting feeds
+Move compliance lookup to Express and drop Home POID stream
+Canonicalise instruction risk data off legacy compliance alias
+Fade future empty attendance states
+Fix CCL draft not found for matters with CclContent
+Auto-upload CCL to NetDocuments during matter opening
+Bring book leave modal onto Helix palette
+Unify approvals card shell fill
+Tighten annual leave header stacking and admin cue
+Make annual leave layouts properly responsive
+Retune annual leave approval card fills
+Flatten book leave top surfaces onto card fill
+Separate CCL legend from review bookmarks
+Correct CCL prompt control fills
+Simplify idle CCL review rail
+Rework annual leave ledger into cleaner table rows
+Simplify annual leave ledger header
+Fix route health probes — mount registers, fix team URL, add prod proxy
+Label operations demo queue clearly
+Restore annual leave surfaces to Helix palette
+Remove approvals queue banner
+Add route status section to HubToolsChip panel
+Tab CCL session prompts
+Restore CCL prompt panel to Helix surfaces
+Clarify annual leave previews and first-load state
+Integrate CCL cue into matter rows
+Distinguish CCL mail merge from AI output
+Correct operations queue content shade
+Restore annual leave request utility tone
+Expand OperationsQueue with CCL date + transaction types
+Rebalance CCL rail toward step action
+Keep CCL row loader until action is ready
+Redesign Operations to ticket chip layout
+Let CCL prompt context stay open for scrolling
+Move CCL prompts into sidepanel context
+Route CCL uploads to NetDocuments demo workspace
+Make CCL review jumps follow the preview
+Simplify CCL continuation page chrome
+Bring CCL link and checklist formatting into final output
+Repair CCL ops server startup syntax
+Soften CCL preview styling toward final output
+Show CCL processing cue in home matter rows
+Limit upcoming leave to a three-month window
+Move CCL prompt bar onto Helix control surface
+Retune CCL prompt surfaces and token wording
+Gate OperationsQueue to localhost-only
+Demote CCL placeholder cue to hold reveal
+Simplify OperationsQueue to compact rows
+Demote CCL prompt context to hold reveal
+Retune CCL output surfaces onto Helix fills
+Remove ops badge + add transaction time-range filter
+Rename CCL placeholder reveal label
+Show field-level AI prompt context in CCL rail
+Add Teams link + reassign cue to POC chip
+Align Matters table with Enquiries look and feel
+Compact pipeline hover tooltip
+Convert FluentUI v8 barrel imports to deep imports
+Fix instruction data not loading on Enquiries tab
+Fix pipeline stages not lighting up past Pitch
+Fix CCL preview scroll behaviour
+Bind CCL sticky header to document surface
+Make CCL tabs the preview header
+Remove duplicate CCL section badges
+Integrate CCL section tabs into document column
+Make CCL section header sticky and scroll-aware
+Flatten CCL preview into one surface
+Slow CCL tab tracking to actual section entry
+Make collected time near-realtime across all surfaces
+Fix demo mode reconnecting box and tools chip offset
+Route Home CCL review through internal AI flow
+Compact matter table columns
+Fix payload too large on production form submissions
+Lift CCL review above Home layout
+Make CCL review feel app-native on mobile
+Guide CCL review progression
+Flatten tools strip and clear reconnect notice
+Keep Home baseline when previewing prod
+Simplify CCL review modal to document preview
+Strip CCL review back to one-step flow
+Strip CCL review pane to essentials
+CCL tabs wrap, scroll-to-section, auto-advance
+Stabilise CCL section review flow
+Focus CCL preview on selected section
+Keep CCL preview context while focusing
+Add no-scroll CCL section navigation
+Stabilise CCL review modal auto-guide
+Reduce CCL review modal render cost
+Defer CCL review modal render to prevent freeze
+Fix unclaimed names showing "Marketing"
+Add claim buttons to unclaimed waiting list
+Thread dataSource through unclaimed claim flow
+Position CCL loading cue at top of overlay
+Align ID header with row values via icon prefix
+Lazy-load jsPDF and font assets
+Move CCL review generation into background progress toasts
+Add progressive responsive compaction to CustomTabs
+Remove CCL review section remapping hot path
+Redesign claimed POC chip
+Add real-time SSE broadcast for data-ops syncs
+Polish Data Centre sync UX
+Overhaul CCL review modal UX
+Make Demo and Prod toggles independent
+Add PROD badge and restructure UserBubble
+Fix CCL review bookmark and action panel sync for OR blocks
+Make CCL OR-field review deterministic
+Redesign unclaimed enquiries box for clarity
+Remake prospects loading skeletons
+Fix conversion chart bars clipped at edges
+Normalise CCL scope suffix in review preview
+Simplify CCL review side panel
+Restore rich CCL preview formatting in review modal
+Stagger scroll-hide cascade
+Fix stale home recovered fees after sync
+Tighten homepage dashboard padding
+Scroll-hide To Do banner and QuickActionsBar
+Inline refresh icon with Billing header
+Make Matters open new-first with instant seed
+Flatten Matters table to match Prospects
+Fix collectedTime scheduler drift
+Rework annual leave approvals to God Mode
+Make staging gate boot stale-first
+Make boot shell-first and demand-load heavy tabs
+Prewarm Prospects chunk without data prefetch
+Realtime patch-first architecture
+Boot performance: kill legacy fallback + defer eager mount
+Wire Registers workspace into Resources modal
+Show leave type on approval cards
+Restore local enquiries cache on cold boot
+Defer Prospects background team-wide fetch
+Parallelise unified enquiry boot reads
+Tone down Matters header chrome
+Remove keyboard navigation from leave approvals
+Fix Home lazy dashboard import
+Unify annual leave approval dark fills
+Strip nested dark fills from leave approvals
+Flatten tools chip into compact strip
+Notify payroll on purchase and sale approval
+Split Home CCL review into evidence workspace
+Clarify leave approval card hierarchy
+Expand annual leave demo scenarios
+Canonicalise CCL service stages across surfaces
+Restore Matters-specific header controls
+Align Matters toggles with shared banner controls
+Split Matters metadata into real columns
+Restore Matters open date and split FE roles
+Center Matters FE initials in badges
+Align annual leave approvals with Home palette
+Refine annual leave approval inner cards
+Expose CCL table signals for early-access users
+Stop keep-alive Matters from stomping navigator header
+Loosen Prospects pipeline width model
+Remove Prospects date separators
+Quiet Prospects date language
+Revert custom enquiries icon layer
+Repair pipeline build after Teams icon swap
+Standardise neutral AOW glyphs
+Tighten date-to-AOW spacing
+Refocus pipeline hover and action width
+Give POC Teams icon breathing room
+Smooth Prospects queue and pipeline feel
+Collapse duplicate filter loading line
+Revert custom pitch glyph override
+Stop Home clearing Prospects navigator
+Rebuild Prospects filter rail for lighter UX
+Move Prospects filter strokes inside controls
+Inline critical Prospects icons
+Normalise Prospects left filter controls
+Simplify Prospects scope model + add loading sweep
+Restore original pitch plane icon
+Redraw pitch icon as paper plane
+Tighten Prospects search cues and lookup
+Move Prospects search left + unify pitch glyph
+Refine Prospects row icon language
+Remove alternating row fills and fix off-brand colours
+Filter chips sentence case + icon-only at narrow
+Compact refresh timer
+Keep-alive tabs and eager chunk preload
+Responsive layout for enquiries table and filters
+Remove converted row green tint + AoW icon hover
+Merge AOW into ID column and stabilise pipeline chip sizing
+Tone down ID and pipeline headers
+Smooth responsive breakpoint transitions
+Distinct day-boundary row borders
+Copy button hover-only + restore green names
+Lightweight Suspense fallback
+Smooth pipeline compression steps
+Tighten pipeline squish thresholds
+Trigger pipeline carousel sooner
+Keep pipeline visible on narrow screens
+Let pipeline collapse below three chips
+Unify row control chrome and spacing
+Compress left-side table columns
+Shell-first boot
+Reframe bank transfer icon
+Restore payment pipeline icons
+Restore neutral payment icon
+Remove misleading empty conversion percentages
+Restore count-first Home comparison cards
+Restore Home comparison period matches
+Fix Home live enquiry cards
+Smooth and simplify Home comparison charts
+Strengthen Home comparison matter bars
+Focus Home unclaimed panel on action
+Re-tile Home comparison header
+Add hover reveal to Home comparison cards
+Clarify Home comparison charts
+Equalise Home pipeline panel heights
+Lock Home conversion and pipeline rails to a shared baseline
+Stack Home pipeline rail and trim row counts
+Gate Home conversion charts behind local dev
+Align stacked Home pipeline columns
+Unsquash Home unclaimed period controls
+Widen Home unclaimed labels
+Mirror Home dashboard layout in loading states
+Explain Home user-switch processing and enrich unclaimed queue
+Fix hybrid theme states in navigation chrome
+Smooth out actions bar loading transitions
+Fix navigator bleed between kept-alive tabs
+Steady Home metric and action loading geometry
+Fix immediate-actions portal gap on non-home tabs
+Fix filter bar disappearing + pipeline icon race + stale refresh labels
+Stabilise Prospects navigator shell
+Simplify enquiries filter chips
+Lightweight filter bar redesign
+Harden snapshot-to-live enquiry refresh
+Clamp Home pipeline rail heights
+Sync Home pipeline rail to live conversion height
+Collapse duplicate Home week comparisons
+Expand Home pipeline activity to year
+Simplify Home conversion card copy and toggle
+Aggressive client-side speed push
+Tab keep-alive for Home and Enquiries
+Refactor UserBubble command centre into sub-components
+Add staggered entry animations to conversion section
+Stop attendance blocking Home primary stream
+Cache Home enquiry detail rows on reload
+Snapshot Home activity rows for return paints
+Defer Home metrics enrichment behind live data
+Seed Home activity rail from unified enquiries
+Background Home detail enrichment behind seeded rows
+Instrument Home and browser telemetry safely
+Keep Home activity visible and warm Prospects before open
+Lift enquiry realtime ownership to app root
+Skip previous-window detail work for Home rail
+Make Home react to live enquiry events
+Reduce Enquiries first-render pressure
+Shift Enquiries to live sync cues
+Use Alex identity in Enquiries mine view
+Neutralise Home dark-mode metric skeletons
+Recover false-empty Prospects loads
+Snap Home enquiry metrics forward
+Show Home enquiry activity across stages
+Anchor Home counts to unified enquiries
+Stage Prospects queue landing
+Resolve local Home identity before boot fetches
+Shield unified enquiries from reconnect stalls
+Pull Prospects warmup earlier
+Progressive Home paint + unified enquiry navigation
+Hoist team-data fetch to fire alongside user-data
+Fix Home matter click routing + responsive layout + split labels
+Add shell boot snapshot for stale-first paint
+Fix duplicate Home parallel fetches on boot
+Consolidate Prospects toast + demo overlay state
+Expand Home conversion panel into comparison rail
+Quiet Home conversion comparison rail
+Stabilise Home loading geometry
+Refine Enquiries loading surface and filter motion
+Stabilise Enquiries filters and pipeline header interactions
+Instant-feel Home with stale-first rendering and cascade animations
+Align Home activity with unified enquiry contract
+Eliminate secondary panel cold-start bottlenecks
+Stabilise first Home boot
+Fix boot 0-rows, SSE flapping, and duplicate team-wide fetches
+Align Home summary and activity to unified enquiries
+Quiet Prospects realtime copy
+Consolidate enquiry SSE into single app-shell owner
+Quiet Home enquiry activity rows to match Matters
+Restore Home helper and snapshot block
+Keep Prospects detail live and quiet Home enrichment warnings
+Shift to-do cards to CTA cues
+Widen to-do left gutter
+Tighten to-do card focus
+Integrate to-do into Home surface
+Make to-do rail full width
+Fix Home doc workspace route
+Fix compact matter payload typing
+Fix Home deferred panel compile regression
+Remove workbench enquiry notes console leak
+Align Home attendance weekend label
+Stop Prospects transitions blocking the page
+Route enquiry writes through processing identity
+Finish enquiry action routing through processing identity
+Move enquiry processing identity to new space
+Redesign MaintenanceNotice to Helix style
+Stage workspace boot earlier
+Align remaining unified enquiry consumers
+Refine Home to-do rail
+Align to-do rail with actions bar
+Quiet cache reconnect notice
+Harden CCL responses and practice area validation
+Unify matter opening intake model
+Add Conversion & Pipeline loading skeletons
+Stop Mine rows flashing before All prospects load
+Eliminate duplicate API calls (StrictMode dedup)
+Fix Prospects border flash on filter switch
+Fix Alex data race in Home parallel fetch
+Defer non-critical Home startup fetches
+Align metrics modal loading surface
+Remove wasted Home fallback fetches
+Use Alex datasets consistently in local LZ mode
+Stop Home boot waiting for matters
+Hydrate Home cards independently
+Cache pending-actions blob scan
+Fix LoadingState branding
+Replace All filter false empty state
+Stop All Enquiries showing Mine first
+Speed up Home first paint
+Parallelise boot and reduce poll interval
+LoadingState: transparent background + user-centered copy
+Restore Home skeleton loading states
+Fix Home boxes Alex data mismatch
+Fix recoveredFees SQL crash
+Animate new enquiries into lists
+Contain long CCL inline fields across renderers
+Wrap long CCL placeholders inside page
+Clarify CCL action-point placeholders
+Fix CCL payment-field provenance
+De-duplicate CCL document-request prompts
+Improve CCL processing and verification feedback
+Correct CCL sidebar field context
+Reset CCL state between matters
+Separate CCL scaffold and AI states
+Render 4.2 disbursement scaffold as table
+Clarify CCL AI loading and prompt labels
+Group dense CCL action cards and link hover focus
+Polish matter overview billable ratio bar
+Move CCL restore notice off-page
+Clarify CCL review field scope
+Unify CCL generation and safety net flow
+Simplify CCL restore notice and fix panel toggle
+Confirm stored CCL loads
+Amalgamate CCL action-card document requests
+Consolidate repeated CCL sidebar prompts
+Gate CCL dev-only actions
+Restore CCL deployment dependency
+Refine CCL scaffold context and rates
+Redesign CCL prompt cards for clarity
+Ship OperationsDashboard to production + gate CCL to LZ
+Collapse completed CCL prompt cards
+Fix CCL toolbar not following scroll
+Fix pitched
+Fix home enquiry tabs to use real activity dates
+Fix home enquiry box for email-style POCs and stage events
+Hide CCL pipeline step for non-CCL users
+Fix pitched
+Remove duplicate CCL header
+Show CCL edit tools by default
+Fix ACID display to show ActiveCampaign ID only
+Restructure Matter Overview layout
+True A4 paginated CCL preview
+Consolidate CCL sticky toolbar actions
+Unify CCL prompt card colours to Helix blue
+Sticky toolbar + prominent AI Draft button
+Simplify CCL sidebar to prompts-only panel
+Fix supervising partner draft override
+Wire pressure test into CCL PreviewStep
+Multi-year monthly comparison in YoY drill-down
+Soften CCL workbench error display
+Auto-linkify URLs and emails in CCL letter preview
+Add CCL template §4 faithful defaults
+Remove AI Processing Trace modal
+Fix bullet rendering + stack bank details in CCL template
+Fix AI-filled bullet fields + phone linkify
+Polish home activity rows: inline Pitch CTA + Claimed tab
+Add CCL AI pressure test verification
+Fix home enquiry pitch linkage across enquiry id and AC id
+Add progressive status cues to home enquiry activity rows
+Add per-field data source hints to CCL prompt cards
+Fix five CCL template issues
+Gate draft report tabs behind viewAsProd toggle
+Make CCL data source hints field-specific
+Resolve supervising partner to full name in CCL letter

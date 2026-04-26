@@ -2,58 +2,11 @@
 const express = require('express');
 const { randomUUID } = require('crypto');
 const opLog = require('../utils/opLog');
-const { getSecret } = require('../utils/getSecret');
+const { trackEvent, trackException } = require('../utils/appInsights');
+const { getAidenGraphAccessToken, searchMailboxMessages } = require('../utils/aidenMailbox');
+const { appendInboxSearchActivity } = require('../utils/emailActivity');
 
 const router = express.Router();
-
-// Secret names for Graph client credentials
-const GRAPH_CLIENT_ID_SECRET = 'graph-aidenteams-clientid';
-const GRAPH_CLIENT_SECRET_SECRET = 'aiden-email-secret-value';
-const TENANT_ID = '7fbc252f-3ce5-460f-9740-4e1cb8bf78b8';
-
-// In-memory cache for secrets and tokens
-let cachedSecrets = { id: null, secret: null, ts: 0 };
-let cachedToken = { token: null, exp: 0 };
-
-async function getGraphSecrets() {
-  const now = Date.now();
-  // cache for 30 minutes
-  if (cachedSecrets.id && cachedSecrets.secret && now - cachedSecrets.ts < 30 * 60 * 1000) {
-    return { clientId: cachedSecrets.id, clientSecret: cachedSecrets.secret };
-  }
-  const [clientId, clientSecret] = await Promise.all([
-    getSecret(GRAPH_CLIENT_ID_SECRET),
-    getSecret(GRAPH_CLIENT_SECRET_SECRET),
-  ]);
-  cachedSecrets = { id: clientId, secret: clientSecret, ts: now };
-  return { clientId, clientSecret };
-}
-
-async function getGraphToken() {
-  const now = Math.floor(Date.now() / 1000);
-  if (cachedToken.token && cachedToken.exp - 300 > now) {
-    return cachedToken.token;
-  }
-  const { clientId, clientSecret } = await getGraphSecrets();
-  const body = new URLSearchParams({
-    client_id: clientId,
-    client_secret: clientSecret,
-    scope: 'https://graph.microsoft.com/.default',
-    grant_type: 'client_credentials',
-  });
-  const res = await fetch(`https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body,
-  });
-  if (!res.ok) {
-    const txt = await res.text();
-    throw new Error(`Token request failed: ${res.status} ${txt}`);
-  }
-  const json = await res.json();
-  cachedToken = { token: json.access_token, exp: now + (json.expires_in || 3600) };
-  return cachedToken.token;
-}
 
 router.post('/searchInbox', async (req, res) => {
   try {
@@ -76,6 +29,12 @@ router.post('/searchInbox', async (req, res) => {
       feeEarnerEmail,
       prospectEmail,
       maxResults,
+    });
+    trackEvent('Inbox.Search.Started', {
+      operation: 'search',
+      feeEarnerEmail,
+      prospectEmail,
+      maxResults: String(maxResults),
     });
 
     if (!feeEarnerEmail || !prospectEmail) {
@@ -107,7 +66,7 @@ router.post('/searchInbox', async (req, res) => {
 
     let accessToken;
     try {
-      accessToken = await getGraphToken();
+      accessToken = await getAidenGraphAccessToken();
       if (debug) console.log(`[inbox ${reqId}] token acquired`);
     } catch (e) {
       console.error(`[inbox ${reqId}] token acquisition failed`, e?.message || e);
@@ -119,90 +78,52 @@ router.post('/searchInbox', async (req, res) => {
         error: String(e?.message || e),
         status: 500,
       });
+      trackException(e, {
+        operation: 'search',
+        phase: 'token',
+      });
+      trackEvent('Inbox.Search.Failed', {
+        operation: 'search',
+        reason: 'token-failed',
+        durationMs: String(Date.now() - started),
+      });
+      appendInboxSearchActivity({
+        status: 'error',
+        feeEarnerEmail,
+        prospectEmail,
+        durationMs: Date.now() - started,
+        error: 'Token acquisition failed',
+      });
       return res.status(500).json({ error: 'Token acquisition failed' });
     }
 
-    // Search for emails to/from the prospect email
-    const searchQuery = `(from:${prospectEmail} OR to:${prospectEmail})`;
-    const searchUrl = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(feeEarnerEmail)}/messages?` +
-      `$search="${encodeURIComponent(searchQuery)}"&` +
-      `$top=${maxResults}&` +
-      // bodyPreview is always truncated; include body to allow rendering the full email content
-      `$select=id,subject,receivedDateTime,from,toRecipients,ccRecipients,bodyPreview,body,hasAttachments,importance,internetMessageId`;
-
-    if (debug) {
-      console.log(`[inbox ${reqId}] searching inbox`, { searchUrl });
-    }
-
-    const graphRes = await fetch(searchUrl, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        // Required by Graph for $search queries; harmless if Graph relaxes this.
-        ConsistencyLevel: 'eventual',
-        'client-request-id': reqId,
-        'return-client-request-id': 'true',
-      },
+    const mailboxSearch = await searchMailboxMessages({
+      mailboxEmail: feeEarnerEmail,
+      correspondentEmail: prospectEmail,
+      maxResults,
+      reqId,
+      accessToken,
     });
 
+    if (debug) {
+      console.log(`[inbox ${reqId}] searching inbox`, { searchUrl: mailboxSearch.searchUrl });
+    }
+
     const durationMs = Date.now() - started;
-    const respText = await graphRes.text();
+    const respText = mailboxSearch.responseText;
     
     if (debug) {
       console.log(`[inbox ${reqId}] graph response`, {
-        status: graphRes.status,
-        requestId: graphRes.headers.get('request-id') || graphRes.headers.get('x-ms-request-id') || null,
-        clientRequestId: graphRes.headers.get('client-request-id') || null,
+        status: mailboxSearch.status,
+        requestId: mailboxSearch.graphRequestId,
+        clientRequestId: mailboxSearch.clientRequestId,
         durationMs,
         bodyPreview: respText?.slice(0, 200),
       });
     }
 
-    // Append result to ops log
-    opLog.append({
-      type: 'inbox.search.result',
-      reqId,
-      route: 'server:/api/searchInbox',
-      status: graphRes.status,
-      requestId: graphRes.headers.get('request-id') || graphRes.headers.get('x-ms-request-id') || null,
-      clientRequestId: graphRes.headers.get('client-request-id') || null,
-      durationMs,
-      feeEarnerEmail,
-      prospectEmail,
-      maxResults,
-    });
-
-    if (graphRes.status === 200) {
-      const searchResults = JSON.parse(respText);
-      const emails = searchResults.value || [];
-      
-      // Transform the results for frontend consumption
-      const transformedEmails = emails.map(email => {
-        const rawBody = email?.body || null;
-        const bodyContentType = rawBody?.contentType === 'html' || rawBody?.contentType === 'text'
-          ? rawBody.contentType
-          : null;
-        const bodyContent = typeof rawBody?.content === 'string' ? rawBody.content : null;
-
-        return ({
-        id: email.id,
-        subject: email.subject || '(No Subject)',
-        receivedDateTime: email.receivedDateTime,
-        from: email.from?.emailAddress?.address || 'Unknown',
-        fromName: email.from?.emailAddress?.name || email.from?.emailAddress?.address || 'Unknown',
-        bodyPreview: email.bodyPreview || '',
-        bodyHtml: bodyContentType === 'html' ? (bodyContent || '') : '',
-        bodyText: bodyContentType === 'text' ? (bodyContent || '') : '',
-        hasAttachments: email.hasAttachments || false,
-        importance: email.importance || 'normal',
-        toRecipients: (email.toRecipients || []).map(r => r.emailAddress?.address).filter(Boolean),
-        ccRecipients: (email.ccRecipients || []).map(r => r.emailAddress?.address).filter(Boolean),
-        internetMessageId: email.internetMessageId || null,
-      });
-      });
-
-      // Sort by date since we can't use $orderby with $search
-      transformedEmails.sort((a, b) => new Date(b.receivedDateTime).getTime() - new Date(a.receivedDateTime).getTime());
+    if (mailboxSearch.status === 200) {
+      const transformedEmails = mailboxSearch.emails;
 
       if (debug) {
         try {
@@ -216,27 +137,94 @@ router.post('/searchInbox', async (req, res) => {
         } catch { /* ignore debug logging failures */ }
       }
 
+      opLog.append({
+        type: 'inbox.search.result',
+        reqId,
+        route: 'server:/api/searchInbox',
+        status: mailboxSearch.status,
+        requestId: mailboxSearch.graphRequestId,
+        clientRequestId: mailboxSearch.clientRequestId,
+        durationMs,
+        feeEarnerEmail,
+        prospectEmail,
+        maxResults,
+        resultCount: transformedEmails.length,
+      });
+
       res.setHeader('X-Inbox-Request-Id', reqId);
-      res.setHeader('X-Graph-Request-Id', graphRes.headers.get('request-id') || graphRes.headers.get('x-ms-request-id') || '');
+      res.setHeader('X-Graph-Request-Id', mailboxSearch.graphRequestId || '');
+      trackEvent('Inbox.Search.Completed', {
+        operation: 'search',
+        durationMs: String(durationMs),
+        resultCount: String(transformedEmails.length),
+        feeEarnerEmail,
+      });
+      appendInboxSearchActivity({
+        status: 'info',
+        feeEarnerEmail,
+        prospectEmail,
+        resultCount: transformedEmails.length,
+        durationMs,
+      });
       
       return res.status(200).json({
         success: true,
         emails: transformedEmails,
         totalCount: transformedEmails.length,
-        searchQuery,
+        searchQuery: mailboxSearch.searchQuery,
         feeEarnerEmail,
         prospectEmail,
       });
     }
     
+    opLog.append({
+      type: 'inbox.search.result',
+      reqId,
+      route: 'server:/api/searchInbox',
+      status: mailboxSearch.status,
+      requestId: mailboxSearch.graphRequestId,
+      clientRequestId: mailboxSearch.clientRequestId,
+      durationMs,
+      feeEarnerEmail,
+      prospectEmail,
+      maxResults,
+    });
     res.setHeader('X-Inbox-Request-Id', reqId);
-    res.setHeader('X-Graph-Request-Id', graphRes.headers.get('request-id') || graphRes.headers.get('x-ms-request-id') || '');
-    return res.status(graphRes.status).json({ 
-      error: `Search failed: ${graphRes.status}`,
-      details: respText || `Unexpected status ${graphRes.status}`
+    res.setHeader('X-Graph-Request-Id', mailboxSearch.graphRequestId || '');
+    trackEvent('Inbox.Search.Failed', {
+      operation: 'search',
+      durationMs: String(durationMs),
+      status: String(mailboxSearch.status),
+      feeEarnerEmail,
+    });
+    appendInboxSearchActivity({
+      status: 'error',
+      feeEarnerEmail,
+      prospectEmail,
+      durationMs,
+      error: `Graph search failed (${mailboxSearch.status})`,
+    });
+    return res.status(mailboxSearch.status).json({ 
+      error: `Search failed: ${mailboxSearch.status}`,
+      details: respText || `Unexpected status ${mailboxSearch.status}`
     });
   } catch (err) {
     console.error('server searchInbox error:', err);
+    trackException(err, {
+      operation: 'search',
+      phase: 'route',
+    });
+    trackEvent('Inbox.Search.Failed', {
+      operation: 'search',
+      reason: 'unhandled',
+      error: String(err?.message || err),
+    });
+    appendInboxSearchActivity({
+      status: 'error',
+      feeEarnerEmail: req?.body?.feeEarnerEmail,
+      prospectEmail: req?.body?.prospectEmail,
+      error: String(err?.message || err),
+    });
     try {
       opLog.append({ 
         type: 'inbox.search.error', 

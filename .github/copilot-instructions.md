@@ -86,6 +86,18 @@ Every long-running server operation should surface its state to connected client
 - When building new UI surfaces, consider whether a blueprint entry should accompany the feature.
 - Prefer manifests and data-driven rendering over hand-drawn diagrams.
 
+## Operational Confidence (Prod-Parity Checks)
+
+"App is up" is not an acceptable release signal if the real dependency chain has not been exercised. For any route, workflow, or background process that matters operationally, the system should make it clear whether it will work right now against the dependencies it actually needs.
+
+### Rules for Agents
+
+- When changing a user-facing route, integration workflow, or background process, identify the smallest prod-parity exercise path for it: what gets called, which dependencies it relies on, and what success looks like.
+- Prefer exposing those exercise paths in an operator-facing control plane (Activity tab, live monitor, or equivalent) for dev-group users rather than leaving them as terminal-only tribal knowledge.
+- Health reporting must be dependency-scoped. A boot id, uptime, or 200 response is not enough if SQL, Redis, Key Vault, Clio, or required third-party assets are degraded.
+- `dev:fast` remains the default local loop for UI work, but critical flows should have an explicit on-demand smoke path that can be run in a prod-like way and report what was checked, skipped, simulated, or failed.
+- Release-readiness work should produce both passive telemetry and an active answer to "will this route or workflow work right now?".
+
 ## Cross-App Execution Contract
 
 Before implementing, identify where the requested outcome sits in the 3-stage system:

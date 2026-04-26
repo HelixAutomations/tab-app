@@ -8,7 +8,6 @@ import { UserData } from '../../app/functionality/types';
 import { getUserTier, isDevGroupOrHigher } from '../../app/admin';
 import HomeBootMonitor from './HomeBootMonitor';
 import ActivityFeedSection from './parts/ActivityFeedSection';
-import ActivityCardLabPanel from './parts/ActivityCardLabPanel';
 import ApiHeatSection from './parts/ApiHeatSection';
 import FormsStreamPanel, { getFormsTodayCount } from './parts/FormsStreamPanel';
 import ActivityHero, { ActivityLens, KpiSpec, LensSpec } from './parts/ActivityHero';
@@ -683,7 +682,7 @@ const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, 
             </>
           }
           apiHeatContent={<ApiHeatSection requests={opsPulse.requests} isDarkMode={isDarkMode} />}
-          cardLabContent={<ActivityCardLabPanel onItemSent={handleCardLabItemSent} />}
+          cardLabContent={null}
           bootTraceContent={<HomeBootMonitor />}
         />
       )}

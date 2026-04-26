@@ -6,15 +6,19 @@ const { getPool } = require('../utils/db');
 const { generateWordFromJson } = require('../utils/wordGenerator.js');
 const {
     saveCclContent,
+    saveCclFieldEdits,
     saveCclAiTrace,
     markCclUploaded,
     updateCclStatus,
     getLatestCclContent,
+    getLatestCclSentForMatter,
+    getLatestCclSentByMatterIds,
     getCclContentHistory,
     getCclAiTraces,
 } = require('../utils/cclPersistence');
 const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
 const { resolveRequestActor } = require('../utils/requestActor');
+const { getTeamData } = require('../utils/teamData');
 const cclAiRouter = require('./ccl-ai');
 
 const previewCclContext = cclAiRouter.previewCclContext;
@@ -152,12 +156,56 @@ try {
     localUsers = [];
 }
 
+const SUPERVISOR_ROLE_DEFAULT = 'Partner';
+// Roles that should be expressed as "... is a Partner" in the supervisor
+// sentence. Anything not in this map keeps the role exactly as it appears in
+// the team table.
+const SUPERVISOR_ROLE_OVERRIDES = {
+    'partner': 'Partner',
+    'senior partner': 'Senior Partner',
+    'managing partner': 'Managing Partner',
+};
+
+async function loadTeamRoster() {
+    try {
+        const data = await getTeamData();
+        if (Array.isArray(data) && data.length > 0) return data;
+    } catch (err) {
+        console.warn('[ccl] team roster lookup failed, falling back to localUsers:', err.message);
+    }
+    return localUsers || [];
+}
+
+function normaliseName(s) {
+    return String(s || '').trim().toLowerCase();
+}
+
+function findUserInRoster(roster, name) {
+    if (!name) return null;
+    const target = normaliseName(name);
+    if (!target) return null;
+    return (roster || []).find(u => {
+        const full = normaliseName(u['Full Name'] || `${u.First || ''} ${u.Last || ''}`);
+        if (full === target) return true;
+        const nick = normaliseName(u.Nickname);
+        if (nick && nick === target) return true;
+        const initials = normaliseName(u.Initials);
+        if (initials && initials === target) return true;
+        // First-name only match (used to expand "Alex" → "Alex Cook").
+        const first = normaliseName(u.First || (u['Full Name'] || '').split(/\s+/)[0]);
+        if (first && first === target) return true;
+        return false;
+    }) || null;
+}
+
+function fullNameOf(user) {
+    if (!user) return '';
+    return user['Full Name'] || `${user.First || ''} ${user.Last || ''}`.trim();
+}
+
 function findUserByName(name) {
     if (!name) return null;
-    return (localUsers || []).find(u => {
-        const full = u['Full Name'] || `${u.First} ${u.Last}`;
-        return full.toLowerCase() === name.toLowerCase();
-    }) || null;
+    return findUserInRoster(localUsers, name);
 }
 
 async function mergeMatterFields(matterId, payload) {
@@ -178,12 +226,44 @@ async function mergeMatterFields(matterId, payload) {
         }
     }
 
+    const roster = await loadTeamRoster();
+
     const flat = { ...payload };
     const firstClient = flat.client_information?.[0] || {};
-    if (firstClient.prefix) {
-        flat.insert_clients_name = `${firstClient.prefix} ${firstClient.first_name || ''} ${firstClient.last_name || ''}`.trim();
-    } else {
-        flat.insert_clients_name = firstClient.company_details?.name || '';
+    // Build a human name from whatever prefix/first/last we have. We never
+    // emit the string "undefined" or leave only a prefix behind.
+    const prefix = String(firstClient.prefix || '').trim();
+    const firstName = String(firstClient.first_name || '').trim();
+    const lastName = String(firstClient.last_name || '').trim();
+    const companyName = String(firstClient.company_details?.name || '').trim();
+    const personName = [prefix, firstName, lastName]
+        .filter(Boolean)
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    if (personName && (firstName || lastName)) {
+        // Only accept when we have at least one real name part; otherwise a
+        // bare "Mr" would slip through.
+        flat.insert_clients_name = personName;
+    } else if (companyName) {
+        flat.insert_clients_name = companyName;
+    } else if (personName) {
+        // Prefix-only as a very last resort before falling back to "Sir / Madam".
+        flat.insert_clients_name = personName;
+    }
+    if (!flat.insert_clients_name) {
+        flat.insert_clients_name = 'Sir / Madam';
+        try {
+            trackEvent('Ccl.Addressee.Empty', {
+                operation: 'mergeMatterFields',
+                matterId: String(matterId || ''),
+                hadFirstClient: firstClient ? 'true' : 'false',
+                hadPrefix: prefix ? 'true' : 'false',
+                hadFirstName: firstName ? 'true' : 'false',
+                hadLastName: lastName ? 'true' : 'false',
+                hadCompanyName: companyName ? 'true' : 'false',
+            });
+        } catch { /* telemetry best-effort */ }
     }
     flat.insert_heading_eg_matter_description = flat.matter_details?.description || '';
     flat.matter = flat.matter_details?.matter_ref || flat.matter_details?.instruction_ref || '';
@@ -200,7 +280,7 @@ async function mergeMatterFields(matterId, payload) {
     const handlerCandidate = flat.team_assignments?.fee_earner || flat.name_of_person_handling_matter || flat.handlerName || '';
     flat.name_of_person_handling_matter = handlerCandidate;
 
-    const feeUser = findUserByName(handlerCandidate);
+    const feeUser = findUserInRoster(roster, handlerCandidate);
     flat.status = feeUser?.Role || flat.status || flat.handlerRole || '';
     flat.email = feeUser?.Email || flat.email || flat.fee_earner_email || '';
     flat.fee_earner_email = feeUser?.Email || flat.fee_earner_email || flat.email || '';
@@ -211,27 +291,43 @@ async function mergeMatterFields(matterId, payload) {
     const rateMap = { Partner: '395', 'Senior Partner': '395', 'Senior Associate': '395', Associate: '325', Solicitor: '285', Consultant: '395', 'Trainee Solicitor': '195' };
     if (!flat.handler_hourly_rate) flat.handler_hourly_rate = rateMap[flat.status] || flat.handlerRate || '395';
 
-    const helpers = [
-        flat.team_assignments?.fee_earner || handlerCandidate,
+    // Build the "if X is not available" list. Three rules:
+    //   1. Never include the handler themselves — the sentence already names
+    //      them as the unavailable party.
+    //   2. Dedupe case-insensitively (originating_solicitor and
+    //      supervising_partner often resolve to the same person and we don't
+    //      want them listed twice).
+    //   3. Expand first-name-only entries ("Alex") to the full name pulled
+    //      from the team roster ("Alex Cook").
+    const helperCandidates = [
         flat.team_assignments?.originating_solicitor,
-        flat.team_assignments?.supervising_partner
+        flat.team_assignments?.supervising_partner,
     ].filter(Boolean);
-    // If we only have the handler (no team_assignments), add other team members as backup contacts
-    if (helpers.length <= 1 && handlerCandidate) {
-        const otherMembers = (localUsers || [])
-            .filter(u => {
-                const name = u['Full Name'] || `${u.First || ''} ${u.Last || ''}`.trim();
-                return name && name.toLowerCase() !== handlerCandidate.toLowerCase();
-            })
-            .slice(0, 2);
-        otherMembers.forEach(u => {
-            const name = u['Full Name'] || `${u.First || ''} ${u.Last || ''}`.trim();
-            if (name && !helpers.includes(name)) helpers.push(name);
-        });
+    const handlerKey = normaliseName(handlerCandidate);
+    const helperSet = new Map();
+    for (const candidate of helperCandidates) {
+        const user = findUserInRoster(roster, candidate);
+        const resolved = fullNameOf(user) || candidate;
+        const key = normaliseName(resolved);
+        if (!key || key === handlerKey || helperSet.has(key)) continue;
+        helperSet.set(key, { name: resolved, user });
     }
-    flat.names_and_contact_details_of_other_members_of_staff_who_can_help_with_queries = helpers.map(n => {
-        const u = findUserByName(n);
-        return u ? `${n} (${u.Role || ''}) — ${u.Email || ''}`.replace(/\(\)\s*—\s*/, '').trim() : n;
+    // If we still have no genuine alternates, add up to two other team
+    // members as backup contacts so the section isn't empty.
+    if (helperSet.size === 0 && handlerCandidate) {
+        for (const u of roster) {
+            const name = fullNameOf(u);
+            const key = normaliseName(name);
+            if (!name || !key || key === handlerKey || helperSet.has(key)) continue;
+            helperSet.set(key, { name, user: u });
+            if (helperSet.size >= 2) break;
+        }
+    }
+    flat.names_and_contact_details_of_other_members_of_staff_who_can_help_with_queries = Array.from(helperSet.values()).map(({ name, user }) => {
+        if (!user) return name;
+        const role = user.Role ? ` (${user.Role})` : '';
+        const email = user.Email ? ` — ${user.Email}` : '';
+        return `${name}${role}${email}`.trim();
     }).join('\n');
 
     if (!flat.identify_the_other_party_eg_your_opponents) {
@@ -242,24 +338,34 @@ async function mergeMatterFields(matterId, payload) {
     flat.name_of_handler = flat.name_of_person_handling_matter;
     flat.handler = flat.name_of_person_handling_matter;
 
-    // Resolve supervising partner: prefer team_assignments, fall back to draft, then find a partner in team data
+    // Resolve supervising partner: prefer team_assignments, fall back to draft.
+    // Always expand first-name-only inputs to the full roster name and pull
+    // the actual role (e.g. "Senior Partner") so the template doesn't
+    // hard-code "Partner".
     let supervisingName = flat.team_assignments?.supervising_partner || flat.name || '';
-    if (supervisingName && !supervisingName.includes(' ')) {
-        const supMatch = (localUsers || []).find(u => {
-            const first = (u.First || (u['Full Name'] || '').split(/\s+/)[0] || '').trim();
-            return first.toLowerCase() === supervisingName.toLowerCase();
-        });
-        if (supMatch) supervisingName = supMatch['Full Name'] || `${supMatch.First} ${supMatch.Last}`.trim() || supervisingName;
+    let supervisorUser = findUserInRoster(roster, supervisingName);
+    if (!supervisorUser && supervisingName) {
+        // Last resort: scan the local seed (used only if roster lookup failed).
+        supervisorUser = findUserByName(supervisingName);
     }
-    // If still no supervisor, find any partner in the team data
+    if (supervisorUser) {
+        supervisingName = fullNameOf(supervisorUser) || supervisingName;
+    }
+    // If still no supervisor, find any partner in the team roster.
     if (!supervisingName) {
-        const partnerUser = (localUsers || []).find(u => {
+        const partnerUser = roster.find(u => {
             const role = String(u.Role || '').toLowerCase();
-            return role === 'partner' || role === 'senior partner';
+            return role === 'partner' || role === 'senior partner' || role === 'managing partner';
         });
-        if (partnerUser) supervisingName = partnerUser['Full Name'] || `${partnerUser.First || ''} ${partnerUser.Last || ''}`.trim();
+        if (partnerUser) {
+            supervisingName = fullNameOf(partnerUser);
+            supervisorUser = partnerUser;
+        }
     }
     flat.name = supervisingName;
+    const rawSupervisorRole = String(supervisorUser?.Role || flat.supervisor_role || '').trim();
+    const roleKey = rawSupervisorRole.toLowerCase();
+    flat.supervisor_role = SUPERVISOR_ROLE_OVERRIDES[roleKey] || rawSupervisorRole || SUPERVISOR_ROLE_DEFAULT;
 
     // Section 6 — matter reference
     if (!flat.matter_number && matterData.display_number) flat.matter_number = matterData.display_number;
@@ -730,8 +836,9 @@ function deriveAttentionReason({ stage, fieldSummary, confidence }) {
     return 'none';
 }
 
-function deriveServiceStatus({ latestContent, fieldSummary, matterCclDate, latestTrace, latestCompileTrace = null }) {
+function deriveServiceStatus({ latestContent, fieldSummary, matterCclDate, latestTrace, latestCompileTrace = null, latestSent = null }) {
     const status = String(latestContent?.Status || '').toLowerCase();
+    const sentChannel = String(latestSent?.Channel || '').trim().toLowerCase();
     const confidence = normalizeTraceConfidence(latestTrace?.Confidence || latestTrace?.confidence);
     const latestContentAt = Math.max(toTimestamp(latestContent?.CreatedAt), toTimestamp(latestContent?.UpdatedAt));
     const latestCompileAt = Math.max(toTimestamp(latestCompileTrace?.CreatedAt), toTimestamp(latestCompileTrace?.createdAt));
@@ -740,9 +847,9 @@ function deriveServiceStatus({ latestContent, fieldSummary, matterCclDate, lates
     let label = 'Pending';
     let tone = 'neutral';
 
-    if (status === 'uploaded' || matterCclDate) {
+    if (latestSent?.SentAt || status === 'sent' || status === 'uploaded' || matterCclDate) {
         key = 'sent';
-        label = 'Sent';
+        label = sentChannel === 'internal-guarded' ? 'Sent internal' : 'Sent';
         tone = 'success';
     } else if (status === 'approved' || status === 'final') {
         key = 'reviewed';
@@ -866,6 +973,103 @@ async function persistCclSnapshot({
     };
 }
 
+function parseJsonObject(value) {
+    if (!value) return null;
+    if (typeof value === 'object') return value;
+    if (typeof value !== 'string') return null;
+    try {
+        return JSON.parse(value);
+    } catch {
+        return null;
+    }
+}
+
+function extractComparableDraftFields(value) {
+    if (!value || typeof value !== 'object') return {};
+    const comparable = {};
+    for (const [key, raw] of Object.entries(value)) {
+        if (!key || key.startsWith('_')) continue;
+        if (raw && typeof raw === 'object') continue;
+        if (raw == null) {
+            comparable[key] = '';
+            continue;
+        }
+        if (typeof raw === 'number' || typeof raw === 'boolean') {
+            comparable[key] = String(raw).trim();
+            continue;
+        }
+        if (typeof raw === 'string') {
+            comparable[key] = raw.trim();
+        }
+    }
+    return comparable;
+}
+
+function getFlaggedFieldKeys(latestContent) {
+    const pressureTest = parseJsonObject(latestContent?.PressureTestJson);
+    if (!pressureTest || typeof pressureTest !== 'object') return new Set();
+    const flagged = new Set();
+    for (const [key, value] of Object.entries(pressureTest)) {
+        if (value && typeof value === 'object' && value.flag) {
+            flagged.add(key);
+        }
+    }
+    return flagged;
+}
+
+function getAiBaselineFields(draftJson, latestContent) {
+    const incomingProvenance = parseJsonObject(draftJson?._provenance);
+    const latestProvenance = parseJsonObject(latestContent?.ProvenanceJson);
+    const incomingAiFields = incomingProvenance?.ai?.generatedFields;
+    if (incomingAiFields && typeof incomingAiFields === 'object') {
+        return extractComparableDraftFields(incomingAiFields);
+    }
+    const latestAiFields = latestProvenance?.ai?.generatedFields;
+    if (latestAiFields && typeof latestAiFields === 'object') {
+        return extractComparableDraftFields(latestAiFields);
+    }
+    return extractComparableDraftFields(parseJsonObject(latestContent?.FieldsJson));
+}
+
+function buildFieldEditRows({ aiBaselineFields, previousFields, nextFields, flaggedFieldKeys }) {
+    const edits = [];
+    const keys = new Set([
+        ...Object.keys(previousFields || {}),
+        ...Object.keys(nextFields || {}),
+    ]);
+
+    for (const key of keys) {
+        if (!key) continue;
+        const previousValue = String(previousFields?.[key] || '').trim();
+        const nextValue = String(nextFields?.[key] || '').trim();
+        if (previousValue === nextValue) continue;
+
+        const aiValue = String(
+            Object.prototype.hasOwnProperty.call(aiBaselineFields || {}, key)
+                ? aiBaselineFields[key]
+                : previousValue
+        ).trim();
+
+        let editType = 'rewritten';
+        if (!nextValue) {
+            editType = 'cleared';
+        } else if (aiValue && nextValue === aiValue) {
+            editType = 'accepted';
+        } else if (flaggedFieldKeys?.has(key)) {
+            editType = 'safety-net-override';
+        }
+
+        edits.push({
+            fieldKey: key,
+            aiValue,
+            finalValue: nextValue,
+            editType,
+        });
+    }
+
+    return edits;
+}
+
 router.post('/', async (req, res) => {
     const { matterId, draftJson } = req.body || {};
     if (!matterId || typeof draftJson !== 'object') {
@@ -925,12 +1129,54 @@ router.patch('/:matterId', async (req, res) => {
     const user = resolveRequestActor(req);
     trackEvent('CCL.Save.Started', { matterId: String(matterId), user });
     try {
+        let latestContent = null;
+        try {
+            latestContent = await getLatestCclContent(matterId);
+        } catch (latestErr) {
+            console.warn('[ccl] Could not read latest CclContent before diffing edits:', latestErr.message);
+            trackException(latestErr, { operation: 'CCL.Save.ReadLatestBeforeDiff', matterId: String(matterId), user });
+        }
+
+        const aiBaselineFields = getAiBaselineFields(draftJson, latestContent);
+        const previousFields = extractComparableDraftFields(parseJsonObject(latestContent?.FieldsJson));
+        const nextFields = extractComparableDraftFields(draftJson);
+        const flaggedFieldKeys = getFlaggedFieldKeys(latestContent);
+
         const result = await persistCclSnapshot({
             matterId,
             draftJson,
             user,
             provenanceJson: draftJson._provenance || null,
         });
+
+        const fieldEditRows = buildFieldEditRows({
+            aiBaselineFields,
+            previousFields,
+            nextFields,
+            flaggedFieldKeys,
+        });
+        if (result.cclContentId && fieldEditRows.length > 0) {
+            const provenance = parseJsonObject(draftJson._provenance);
+            try {
+                await saveCclFieldEdits({
+                    cclContentId: result.cclContentId,
+                    matterId,
+                    changedBy: user,
+                    promptVersion: provenance?.promptVersion || provenance?.ai?.promptVersion || '',
+                    templateVersion: provenance?.templateVersion || '',
+                    edits: fieldEditRows,
+                });
+            } catch (editErr) {
+                console.warn('[ccl] CclFieldEdits save failed (non-blocking):', editErr.message);
+                trackException(editErr, { operation: 'CCL.Save.RecordFieldEdits', matterId: String(matterId), user });
+                trackEvent('CCL.FieldEdit.RecordingFailed', {
+                    matterId: String(matterId),
+                    user,
+                    attemptedRows: String(fieldEditRows.length),
+                    error: editErr.message,
+                });
+            }
+        }
 
         const durationMs = Date.now() - startMs;
         trackEvent('CCL.Save.Completed', {
@@ -1055,6 +1301,7 @@ router.post('/service/run', async (req, res) => {
                 source: aiResult.source || '',
                 confidence: aiResult.confidence || '',
                 durationMs: aiResult.durationMs || null,
+                generatedFields: aiResult.fields || {},
                 fallbackReason: aiResult.fallbackReason || null,
                 trackingId: aiResult.debug?.trackingId || null,
                 aiTraceId: aiResult.aiTraceId || null,
@@ -1437,7 +1684,8 @@ router.get('/:matterId/workbench', async (req, res) => {
             const val = String(latestFields[key] || '').trim();
             if (val) fieldValues[key] = val.length > 300 ? val.slice(0, 300) + '…' : val;
         }
-        const serviceStatus = deriveServiceStatus({ latestContent, fieldSummary, matterCclDate: cclDate, latestTrace, latestCompileTrace });
+        const latestSent = await getLatestCclSentForMatter(matterId).catch(() => null);
+        const serviceStatus = deriveServiceStatus({ latestContent, fieldSummary, matterCclDate: cclDate, latestTrace, latestCompileTrace, latestSent });
         const sourcePreview = preview || {
             dataSources: provenance.dataSources || safeParseJson(latestTrace?.DataSourcesJson, []) || [],
             contextFields: provenance.contextFields || traceContextFields,
@@ -1464,7 +1712,9 @@ router.get('/:matterId/workbench', async (req, res) => {
                 contentId: latestContent?.CclContentId || null,
                 createdAt: latestContent?.CreatedAt || null,
                 reviewedAt: latestContent?.FinalizedAt || null,
-                sentAt: latestContent?.FinalizedAt || null,
+                sentAt: latestSent?.SentAt || null,
+                sentBy: latestSent?.SentBy || null,
+                sentChannel: latestSent?.Channel || null,
                 uploadedToClio: Boolean(latestContent?.UploadedToClio),
                 uploadedToNd: Boolean(latestContent?.UploadedToNd),
                 unresolvedCount: fieldSummary.missing,
@@ -1646,6 +1896,7 @@ router.post('/batch-status', async (req, res) => {
             acc[row.MatterId] = row;
             return acc;
         }, {});
+        const latestSentByMatter = await getLatestCclSentByMatterIds(ids).catch(() => ({}));
         const results = {};
         for (const row of result.recordset) {
             const fields = safeParseJson(row.FieldsJson, {});
@@ -1657,6 +1908,7 @@ router.post('/batch-status', async (req, res) => {
                 matterCclDate: null,
                 latestTrace: { Confidence: row.TraceConfidence || null },
                 latestCompileTrace: latestCompileTraceByMatter[row.MatterId] || null,
+                latestSent: latestSentByMatter[String(row.MatterId)] || null,
             });
             results[row.MatterId] = {
                 status: derivedStatus.key,
@@ -1676,7 +1928,9 @@ router.post('/batch-status', async (req, res) => {
                 generatedAt: row.CreatedAt,
                 finalizedAt: row.FinalizedAt || null,
                 reviewedAt: row.FinalizedAt || null,
-                sentAt: row.FinalizedAt || null,
+                sentAt: latestSentByMatter[String(row.MatterId)]?.SentAt || null,
+                sentBy: latestSentByMatter[String(row.MatterId)]?.SentBy || null,
+                sentChannel: latestSentByMatter[String(row.MatterId)]?.Channel || null,
                 uploadedToClio: !!row.UploadedToClio,
                 uploadedToNd: !!row.UploadedToNd,
                 unresolvedCount: fieldSummary.missing,

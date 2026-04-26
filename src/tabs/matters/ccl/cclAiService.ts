@@ -603,6 +603,42 @@ export async function uploadToNetDocuments(params: {
   }
 }
 
+export interface CclGuardedSendResponse {
+  ok: boolean;
+  error?: string;
+  sentId?: number;
+  cclContentId?: number;
+  matterId?: string;
+  sentAt?: string;
+  sentBy?: string;
+  sentChannel?: string;
+  recipients?: {
+    to: string[];
+    cc: string[];
+  };
+  guard?: {
+    clientExcluded: boolean;
+    lockedTo: string[];
+  };
+}
+
+export async function sendCclToClient(params: {
+  matterId: string;
+  cclContentId?: number;
+}): Promise<CclGuardedSendResponse> {
+  try {
+    const res = await cclFetch('/api/ccl-ops/send-to-client', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    return await readJsonResponse<CclGuardedSendResponse>(res)
+      || { ok: false, error: 'Guarded send returned an invalid response' };
+  } catch {
+    return { ok: false, error: 'Network error' };
+  }
+}
+
 export interface CclReconstructVersionResult {
   ok: boolean;
   url?: string;

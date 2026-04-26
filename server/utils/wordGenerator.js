@@ -207,7 +207,7 @@ function buildAddressLines(value) {
 }
 
 function buildHeaderChildren(data) {
-    const clientName = data.insert_clients_name || 'Client';
+    const clientName = data.insert_clients_name || 'Sir / Madam';
     const matterHeading = data.insert_heading_eg_matter_description || 'Client Care Letter';
     const clientAddressLines = buildAddressLines(data.client_address);
     const brandContactLines = [

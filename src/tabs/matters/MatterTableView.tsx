@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { Icon } from '@fluentui/react/lib/Icon';
 import { TooltipHost } from '@fluentui/react/lib/Tooltip';
 import { colours } from '../../app/styles/colours';
@@ -69,6 +69,41 @@ function getPersonInitials(name: string): string {
   return `${parts[0][0] || ''}${parts[parts.length - 1][0] || ''}`.toUpperCase();
 }
 
+// 2026-04-24: subtle "just-arrived" highlight for matters that appear via
+// realtime SSE updates (matters/stream → helix:mattersChanged → refresh).
+// Kept lightweight: a single injected stylesheet (idempotent), animation
+// is opt-out under prefers-reduced-motion. The class auto-clears after
+// 1800ms so it never piles up state. First-render ids are NOT highlighted.
+const JUST_ARRIVED_CLASS = 'prospect-row--just-arrived';
+const JUST_ARRIVED_STYLE_ID = 'matter-row-just-arrived-style';
+const JUST_ARRIVED_DURATION_MS = 1800;
+
+function ensureJustArrivedStyle() {
+  if (typeof document === 'undefined') return;
+  if (document.getElementById(JUST_ARRIVED_STYLE_ID)) return;
+  const style = document.createElement('style');
+  style.id = JUST_ARRIVED_STYLE_ID;
+  style.textContent = [
+    '@keyframes matterRowJustArrivedFade {',
+    '  0% { opacity: 0; transform: translateY(-2px); }',
+    '  100% { opacity: 1; transform: translateY(0); }',
+    '}',
+    '@keyframes matterRowJustArrivedPulse {',
+    '  0% { box-shadow: inset 0 0 0 1.5px rgba(135,243,243,0.0), inset 3px 0 0 0 rgba(135,243,243,0.0); }',
+    '  18% { box-shadow: inset 0 0 0 1.5px rgba(135,243,243,0.55), inset 3px 0 0 0 rgba(135,243,243,0.95); }',
+    '  100% { box-shadow: inset 0 0 0 1.5px rgba(135,243,243,0.0), inset 3px 0 0 0 rgba(135,243,243,0.0); }',
+    '}',
+    `.${JUST_ARRIVED_CLASS} {`,
+    '  animation: matterRowJustArrivedFade 220ms ease-out, matterRowJustArrivedPulse 1800ms ease-out;',
+    '  position: relative;',
+    '}',
+    '@media (prefers-reduced-motion: reduce) {',
+    `  .${JUST_ARRIVED_CLASS} { animation: none; }`,
+    '}',
+  ].join('\n');
+  document.head.appendChild(style);
+}
+
 const MatterTableView: React.FC<MatterTableViewProps> = ({
   matters,
   isDarkMode,
@@ -80,6 +115,59 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
 }) => {
   const [sortColumn, setSortColumn] = useState<SortColumn>('openDate');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+
+  // Track ids we've already rendered so we can highlight any new ones the
+  // server pushed in via SSE. seedRef guards the very first render so we
+  // don't flash every row when the table mounts.
+  useEffect(() => { ensureJustArrivedStyle(); }, []);
+  const seenIdsRef = useRef<Set<string>>(new Set());
+  const seededRef = useRef(false);
+  const [justArrivedIds, setJustArrivedIds] = useState<Set<string>>(() => new Set());
+  const arrivalTimersRef = useRef<Map<string, number>>(new Map());
+
+  useEffect(() => {
+    if (!matters || matters.length === 0) return;
+    const currentIds = new Set<string>();
+    for (const m of matters) {
+      const id = m.matterId || m.displayNumber || '';
+      if (id) currentIds.add(id);
+    }
+    if (!seededRef.current) {
+      seenIdsRef.current = currentIds;
+      seededRef.current = true;
+      return;
+    }
+    const newcomers: string[] = [];
+    currentIds.forEach((id) => {
+      if (!seenIdsRef.current.has(id)) newcomers.push(id);
+    });
+    seenIdsRef.current = currentIds;
+    if (newcomers.length === 0) return;
+    setJustArrivedIds((prev) => {
+      const next = new Set(prev);
+      newcomers.forEach((id) => next.add(id));
+      return next;
+    });
+    newcomers.forEach((id) => {
+      const existing = arrivalTimersRef.current.get(id);
+      if (existing) window.clearTimeout(existing);
+      const timer = window.setTimeout(() => {
+        arrivalTimersRef.current.delete(id);
+        setJustArrivedIds((prev) => {
+          if (!prev.has(id)) return prev;
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+      }, JUST_ARRIVED_DURATION_MS);
+      arrivalTimersRef.current.set(id, timer);
+    });
+  }, [matters]);
+
+  useEffect(() => () => {
+    arrivalTimersRef.current.forEach((t) => window.clearTimeout(t));
+    arrivalTimersRef.current.clear();
+  }, []);
 
   const sortedMatters = useMemo(() => {
     const next = [...matters];
@@ -291,7 +379,7 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
           return (
             <div
               key={`${matter.matterId}-${matter.displayNumber}-${matter.clientId}`}
-              className="prospect-row"
+              className={`prospect-row${justArrivedIds.has(matter.matterId || matter.displayNumber || '') ? ` ${JUST_ARRIVED_CLASS}` : ''}`}
               data-row-parity={idx % 2 === 0 ? 'even' : 'odd'}
               onClick={() => onRowClick?.(matter)}
               style={{

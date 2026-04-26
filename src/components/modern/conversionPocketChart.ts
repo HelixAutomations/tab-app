@@ -18,11 +18,23 @@
 // buckets, and drop quiet baseline dots at the future x-positions. Previous
 // line stays continuous across all positions, so the comparison stays honest.
 
+export interface ConversionPocketChartMatterDetail {
+  id: string;
+  displayNumber: string;
+  feeEarner?: string;
+  feeEarnerInitials?: string;
+  occurredAt?: string;
+}
+
 export interface ConversionPocketChartBucket {
+  label?: string;
+  axisLabel?: string;
   currentEnquiries?: number;
   currentMatters?: number;
   previousEnquiries?: number;
   previousMatters?: number;
+  currentMatterDetails?: ConversionPocketChartMatterDetail[];
+  previousMatterDetails?: ConversionPocketChartMatterDetail[];
   isFuture?: boolean;
   currentAvailable?: boolean;
   isCurrentEndpoint?: boolean;
@@ -99,6 +111,29 @@ const escapeXml = (value: string): string =>
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 
+const formatMatterDetailLabel = (detail: ConversionPocketChartMatterDetail): string => {
+  const displayNumber = String(detail?.displayNumber || '').trim() || 'Matter';
+  const feeEarner = String(detail?.feeEarner || detail?.feeEarnerInitials || '').trim();
+  return feeEarner ? `${displayNumber} · ${feeEarner}` : displayNumber;
+};
+
+const buildMatterDetailLines = (
+  details: ConversionPocketChartMatterDetail[] | undefined,
+  totalCount: number,
+  pending = false,
+  maxVisible = 4,
+): string[] => {
+  if (pending) return ['Pending'];
+  const labels = Array.isArray(details)
+    ? details.map(formatMatterDetailLabel).filter(Boolean)
+    : [];
+  if (totalCount <= 0 && labels.length === 0) return ['None'];
+  const visible = labels.slice(0, maxVisible);
+  const overflow = Math.max(0, totalCount - visible.length);
+  if (overflow > 0) visible.push(`+${overflow} more`);
+  return visible.length > 0 ? visible : ['None'];
+};
+
 // Internal: build a smoothed cubic-Bezier path from a point array using a
 // Catmull-Rom→Bezier conversion with a tension factor. At tension=0 the
 // output collapses to straight-line segments (identical to a `M … L` path).
@@ -145,15 +180,15 @@ export function buildConversionPocketChartSVG(
   const fill = opts.fill ?? stroke;
   const previousStroke = opts.previousStroke ?? stroke;
   const gridStroke = opts.gridStroke ?? 'rgba(148, 163, 184, 0.22)';
-  const futureBucketMarker = opts.futureBucketMarker !== false;
-  const smoothing = Math.max(0, Math.min(1, opts.smoothing ?? 0.5));
-  const interactive = opts.interactive !== false;
   const bucketLabels =
     Array.isArray(opts.bucketLabels) && opts.bucketLabels.length === (buckets?.length ?? 0)
       ? opts.bucketLabels
       : null;
   const currentLabel = opts.currentLabel ?? 'Current';
   const previousLabel = opts.previousLabel ?? 'Previous';
+  const smoothing = Math.max(0, Math.min(1, opts.smoothing ?? 0.5));
+  const futureBucketMarker = opts.futureBucketMarker !== false;
+  const interactive = opts.interactive !== false;
   const chartStyle = opts.chartStyle ?? 'line';
 
   // 2026-04-20: real gutters for axis labels so they sit *outside* the plot
@@ -325,20 +360,41 @@ export function buildConversionPocketChartSVG(
   let interactionBlock = '';
   let styleBlock = '';
   let rootClass = '';
-  if (interactive && count > 0) {
-    const chartId = nextPocketChartId();
+  const needsScopedStyles = (interactive && count > 0) || (chartStyle === 'bar' && count > 0);
+  const chartId = needsScopedStyles ? nextPocketChartId() : '';
+  if (chartId) {
     rootClass = chartId;
+  }
+  const styleRules: string[] = [];
+  if (chartStyle === 'bar' && count > 0 && chartId) {
+    const barGrowName = `${chartId}-bar-grow`;
+    styleRules.push(`
+      .${chartId} .pc-bar {
+        transform-box: fill-box;
+        transform-origin: center bottom;
+        animation: ${barGrowName} 320ms cubic-bezier(0.22, 1, 0.36, 1) var(--pc-enter-delay, 0ms) both;
+      }
+      @keyframes ${barGrowName} {
+        from { transform: scaleY(0.01); }
+        to { transform: scaleY(1); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .${chartId} .pc-bar { animation: none; }
+      }
+    `);
+  }
+  if (interactive && count > 0 && chartId) {
     const tooltipBg = 'rgba(6,23,51,0.92)';
     const tooltipFg = 'rgba(243,244,246,0.95)';
     const tooltipMuted = 'rgba(209,213,219,0.75)';
     const guideStroke = stroke;
 
-    styleBlock = `<style>
+    styleRules.push(`
       .${chartId} .pc-tip { opacity: 0; transition: opacity 160ms ease-out; pointer-events: none; }
       .${chartId} .pc-col:hover .pc-tip,
       .${chartId} .pc-col:focus-within .pc-tip { opacity: 1; }
       .${chartId} .pc-hit { cursor: default; }
-    </style>`;
+    `);
 
     const colWidth = count > 1 ? stepX : innerWidth;
     const metricKey = metric === 'enquiries' ? 'Enquiries' : 'Matters';
@@ -420,6 +476,9 @@ export function buildConversionPocketChartSVG(
       })
       .join('');
   }
+  if (styleRules.length > 0) {
+    styleBlock = `<style>${styleRules.join('')}</style>`;
+  }
 
   const svgClass = rootClass ? ` class="${rootClass}"` : '';
 
@@ -445,12 +504,13 @@ export function buildConversionPocketChartSVG(
       const isAvailable = availableMask[i];
       const currentX = cx - barWidth - barGap / 2;
       const previousX = cx + barGap / 2;
+      const bucketDelay = Math.min(i * 18, 160);
       // Previous bar: always render (comparison anchor).
       if (previousVal > 0) {
         const y = yForValue(previousVal);
         const h = Math.max(0.5, baselineY - y);
         barPieces.push(
-          `<rect x="${previousX.toFixed(2)}" y="${y.toFixed(2)}" width="${barWidth.toFixed(2)}" height="${h.toFixed(2)}" fill="${previousStroke}" opacity="0.35" />`,
+          `<rect class="pc-bar pc-bar-prev" style="--pc-enter-delay:${bucketDelay}ms" x="${previousX.toFixed(2)}" y="${y.toFixed(2)}" width="${barWidth.toFixed(2)}" height="${h.toFixed(2)}" fill="${previousStroke}" opacity="0.35" />`,
         );
       }
       // Current bar: skip when the bucket is still pending (future day).
@@ -458,7 +518,7 @@ export function buildConversionPocketChartSVG(
         const y = yForValue(currentVal);
         const h = Math.max(0.5, baselineY - y);
         barPieces.push(
-          `<rect x="${currentX.toFixed(2)}" y="${y.toFixed(2)}" width="${barWidth.toFixed(2)}" height="${h.toFixed(2)}" fill="${stroke}" opacity="0.92" />`,
+          `<rect class="pc-bar pc-bar-current" style="--pc-enter-delay:${bucketDelay + 40}ms" x="${currentX.toFixed(2)}" y="${y.toFixed(2)}" width="${barWidth.toFixed(2)}" height="${h.toFixed(2)}" fill="${stroke}" opacity="0.92" />`,
         );
       }
     }
@@ -490,10 +550,10 @@ export function buildConversionPocketChartSVG(
 
 // ────────────────────────────────────────────────────────────────────────────
 // Combined chart (2026-04-24): single SVG rendering enquiries as a smoothed
-// line + matters as paired bars, with a joint hover tooltip that shows BOTH
-// current & previous values for BOTH series. Dual y-scaling keeps each series
-// legible (matters are typically ~10× smaller than enquiries, so a shared
-// axis would flatten the bars).
+// line + matters as a single slot bar with an internal previous-period
+// marker. The hover tooltip shows both series plus per-bucket matter refs.
+// Dual y-scaling keeps each series legible (matters are typically ~10×
+// smaller than enquiries, so a shared axis would flatten the bars).
 // ────────────────────────────────────────────────────────────────────────────
 
 export interface CombinedConversionChartOptions {
@@ -515,6 +575,18 @@ export interface CombinedConversionChartOptions {
   /** Catmull-Rom tension for the enquiries line. 0–1, default 0.5. */
   smoothing?: number;
   futureBucketMarker?: boolean;
+  plotFill?: string;
+  plotBorder?: string;
+  bucketBandFill?: string;
+  bucketBandAltFill?: string;
+  axisMutedFill?: string;
+  xAxisLabelFill?: string;
+  tooltipBg?: string;
+  tooltipFg?: string;
+  tooltipMuted?: string;
+  hoverGuideStroke?: string;
+  hoverGuideFill?: string;
+  compactMode?: boolean;
 }
 
 export function buildCombinedConversionChartSVG(
@@ -536,9 +608,31 @@ export function buildCombinedConversionChartSVG(
   const previousLabel = opts.previousLabel ?? 'Previous';
   const smoothing = Math.max(0, Math.min(1, opts.smoothing ?? 0.5));
   const futureBucketMarker = opts.futureBucketMarker !== false;
+  const plotFill = opts.plotFill ?? 'rgba(255,255,255,0.02)';
+  const plotBorder = opts.plotBorder ?? gridStroke;
+  const bucketBandFill = opts.bucketBandFill ?? 'rgba(255,255,255,0.028)';
+  const bucketBandAltFill = opts.bucketBandAltFill ?? 'rgba(255,255,255,0.014)';
+  const axisMutedFill = opts.axisMutedFill ?? 'rgba(148,163,184,0.58)';
+  const xAxisLabelFill = opts.xAxisLabelFill ?? axisMutedFill;
+  const tooltipBg = opts.tooltipBg ?? 'rgba(6,23,51,0.94)';
+  const tooltipFg = opts.tooltipFg ?? 'rgba(243,244,246,0.95)';
+  const tooltipMuted = opts.tooltipMuted ?? 'rgba(209,213,219,0.75)';
+  const hoverGuideStroke = opts.hoverGuideStroke ?? enquiriesStroke;
+  const hoverGuideFill = opts.hoverGuideFill ?? 'rgba(255,255,255,0.04)';
+  const compactMode = opts.compactMode ?? width < 480;
 
-  const padXLeft = 22;
-  const padXRight = 22;
+  const enqSeriesMax = Math.max(1, ...buckets.map((b) => Number(b.currentEnquiries || 0)), ...buckets.map((b) => Number(b.previousEnquiries || 0)));
+  const matSeriesMax = Math.max(1, ...buckets.map((b) => Number(b.currentMatters || 0)), ...buckets.map((b) => Number(b.previousMatters || 0)));
+  const enqMidPreview = Math.round(enqSeriesMax / 2);
+  const leftAxisCharCount = Math.max(String(enqSeriesMax).length, String(enqMidPreview).length, 1);
+  const rightAxisCharCount = Math.max(String(matSeriesMax).length, 1);
+  const leftAxisLabelWidth = Math.max(compactMode ? 18 : 16, leftAxisCharCount * (compactMode ? 6.6 : 5.8));
+  const rightAxisLabelWidth = Math.max(compactMode ? 14 : 12, rightAxisCharCount * (compactMode ? 5.8 : 5.2));
+  const axisGap = compactMode ? 8 : 6;
+  const axisEdgeInset = compactMode ? 5 : 4;
+
+  const padXLeft = Math.round(leftAxisLabelWidth + axisGap + axisEdgeInset + 10);
+  const padXRight = Math.round(rightAxisLabelWidth + axisGap + axisEdgeInset + 10);
   const padYTop = bucketLabels ? 14 : 6;
   const padYBottom = 6;
   const innerWidth = Math.max(1, width - padXLeft - padXRight);
@@ -557,15 +651,45 @@ export function buildCombinedConversionChartSVG(
 
   const enqMax = Math.max(1, ...enqCurrent, ...enqPrevious);
   const matMax = Math.max(1, ...matCurrent, ...matPrevious);
+  const leftAxisTextX = padXLeft - axisGap;
+  const rightAxisTextX = padXLeft + innerWidth + axisGap;
 
   const count = allBuckets.length;
-  const stepX = count > 1 ? innerWidth / (count - 1) : 0;
+  const slotWidth = count > 1 ? innerWidth / (count - 1) : innerWidth;
+  const groupWidth = Math.max(4, slotWidth * 0.62);
+  const barGap = Math.max(0.5, slotWidth * 0.05);
+  const barWidth = Math.max(2, (groupWidth - barGap) / 2);
+  const slotBaseH = 2.4;
+  const slotBaseInset = 0.7;
+  const pairHalfSpan = count > 1 ? Math.min(innerWidth / 2, barWidth + barGap / 2 + slotBaseInset) : 0;
+  const plotTrackWidth = count > 1 ? Math.max(1, innerWidth - pairHalfSpan * 2) : innerWidth;
+  const stepX = count > 1 ? plotTrackWidth / (count - 1) : 0;
+  const colWidth = count > 1 ? stepX : innerWidth;
   const baselineY = padYTop + innerHeight;
 
   const xAt = (index: number) =>
-    count === 1 ? padXLeft + innerWidth / 2 : padXLeft + index * stepX;
+    count === 1 ? padXLeft + innerWidth / 2 : padXLeft + pairHalfSpan + index * stepX;
   const yForEnq = (value: number) => padYTop + (1 - value / enqMax) * innerHeight;
   const yForMat = (value: number) => padYTop + (1 - value / matMax) * innerHeight;
+
+  const plotBackplate = `<rect x="${(padXLeft - 6).toFixed(2)}" y="${Math.max(0, padYTop - 2).toFixed(2)}" width="${(innerWidth + 12).toFixed(2)}" height="${(innerHeight + 4).toFixed(2)}" fill="${plotFill}" stroke="${plotBorder}" stroke-width="1" />`;
+  const bucketBands = allBuckets
+    .map((_, index) => {
+      const bandStart = count === 1
+        ? padXLeft
+        : index === 0
+          ? padXLeft
+          : xAt(index) - stepX / 2;
+      const bandEnd = count === 1
+        ? padXLeft + innerWidth
+        : index === count - 1
+          ? padXLeft + innerWidth
+          : xAt(index) + stepX / 2;
+      const fill = index % 2 === 0 ? bucketBandFill : bucketBandAltFill;
+      return `<rect x="${bandStart.toFixed(2)}" y="${padYTop.toFixed(2)}" width="${Math.max(0, bandEnd - bandStart).toFixed(2)}" height="${innerHeight.toFixed(2)}" fill="${fill}" />`;
+    })
+    .join('');
+  const baselineStrip = `<rect x="${padXLeft.toFixed(2)}" y="${Math.max(padYTop, baselineY - 6).toFixed(2)}" width="${innerWidth.toFixed(2)}" height="${Math.min(6, innerHeight).toFixed(2)}" fill="${bucketBandAltFill}" />`;
 
   // Gridlines — shared plot area, 3 subtle horizontal rules.
   const gridLines = [0.25, 0.5, 0.75]
@@ -575,61 +699,56 @@ export function buildCombinedConversionChartSVG(
     })
     .join('');
 
-  // Matters bars — render BEHIND the enquiries line so the line reads as the
-  // primary signal. Paired current solid + previous muted. Bars use the
-  // matters scale; pending (future) buckets suppress the current bar only.
-  // 2026-04-24: when a bucket has a current bar but previousMatters = 0 AND
-  // the series as a whole has a previous comparison (i.e. we're in a vs-last
-  // context), we still render a "zero-stub" — a thin dashed baseline outline
-  // at the previous-bar slot. Without it, a single solid bar in each slot
-  // reads like an uncompared chart, making the vs-previous framing misleading.
-  const slotWidth = count > 1 ? stepX : innerWidth;
-  const groupWidth = Math.max(4, slotWidth * 0.62);
-  const barGap = Math.max(0.5, slotWidth * 0.05);
-  const barWidth = Math.max(2, (groupWidth - barGap) / 2);
+  // Matters bars — render behind the enquiries line so the line remains the
+  // primary signal. Each bucket uses a fixed pair layout: previous on the
+  // left, current on the right, with zero-stubs when a compared side is 0.
   const hasAnyMatPrevious = matPrevious.some((v) => v > 0);
   const hasAnyMatCurrent = matCurrent.some((v) => v > 0);
   const isVsMattersContext = hasAnyMatPrevious || (hasAnyMatCurrent && enqPrevious.some((v) => v > 0));
+  const slotPieces: string[] = [];
   const barPieces: string[] = [];
   for (let i = 0; i < count; i++) {
     const cx = xAt(i);
     const prevVal = matPrevious[i];
     const currVal = matCurrent[i];
-    const currentBarX = cx - barWidth - barGap / 2;
-    const previousBarX = cx + barGap / 2;
+    const previousBarX = cx - barWidth - barGap / 2;
+    const currentBarX = cx + barGap / 2;
+    const bucketDelay = Math.min(i * 20, 180);
+    if (isVsMattersContext) {
+      const slotY = baselineY - slotBaseH;
+      slotPieces.push(
+        `<rect x="${(previousBarX - slotBaseInset).toFixed(2)}" y="${slotY.toFixed(2)}" width="${(barWidth + slotBaseInset * 2).toFixed(2)}" height="${slotBaseH.toFixed(2)}" fill="${mattersPreviousStroke}" opacity="0.14" />`,
+        `<rect x="${(currentBarX - slotBaseInset).toFixed(2)}" y="${slotY.toFixed(2)}" width="${(barWidth + slotBaseInset * 2).toFixed(2)}" height="${slotBaseH.toFixed(2)}" fill="${mattersStroke}" opacity="${availableMask[i] ? '0.16' : '0.08'}" />`,
+      );
+    }
     if (prevVal > 0) {
       const y = yForMat(prevVal);
       const h = Math.max(0.5, baselineY - y);
       barPieces.push(
-        `<rect x="${previousBarX.toFixed(2)}" y="${y.toFixed(2)}" width="${barWidth.toFixed(2)}" height="${h.toFixed(2)}" fill="${mattersPreviousStroke}" opacity="0.32" />`,
+        `<rect class="cc-bar cc-bar-prev" style="--cc-enter-delay:${bucketDelay}ms" x="${previousBarX.toFixed(2)}" y="${y.toFixed(2)}" width="${barWidth.toFixed(2)}" height="${h.toFixed(2)}" fill="${mattersPreviousStroke}" opacity="0.32" />`,
       );
     } else if (isVsMattersContext && availableMask[i]) {
-      // Zero-stub: 2px high baseline marker, outline only, dashed. Signals
-      // "previous = 0" without competing with the current bar visually.
-      const stubH = 2;
+      const stubH = 2.2;
       const stubY = baselineY - stubH;
       barPieces.push(
-        `<rect x="${previousBarX.toFixed(2)}" y="${stubY.toFixed(2)}" width="${barWidth.toFixed(2)}" height="${stubH.toFixed(2)}" fill="none" stroke="${mattersPreviousStroke}" stroke-width="0.75" stroke-dasharray="1.5,1.5" opacity="0.55" />`,
+        `<rect class="cc-bar cc-bar-prev-stub" style="--cc-enter-delay:${bucketDelay}ms" x="${previousBarX.toFixed(2)}" y="${stubY.toFixed(2)}" width="${barWidth.toFixed(2)}" height="${stubH.toFixed(2)}" fill="none" stroke="${mattersPreviousStroke}" stroke-width="0.9" stroke-dasharray="1.4,1.4" opacity="0.72" />`,
       );
     }
     if (availableMask[i] && currVal > 0) {
       const y = yForMat(currVal);
       const h = Math.max(0.5, baselineY - y);
       barPieces.push(
-        `<rect x="${currentBarX.toFixed(2)}" y="${y.toFixed(2)}" width="${barWidth.toFixed(2)}" height="${h.toFixed(2)}" fill="${mattersStroke}" opacity="0.9" />`,
+        `<rect class="cc-bar cc-bar-current" style="--cc-enter-delay:${bucketDelay + 45}ms" x="${currentBarX.toFixed(2)}" y="${y.toFixed(2)}" width="${barWidth.toFixed(2)}" height="${h.toFixed(2)}" fill="${mattersStroke}" opacity="0.92" />`,
       );
-    } else if (isVsMattersContext && availableMask[i] && prevVal > 0) {
-      // Mirror: previous has value but current is 0 — show a dashed current
-      // stub so the pair stays visible. Keeps the vs-previous framing legible
-      // even when new matters dry up against an active comparison.
-      const stubH = 2;
+    } else if (availableMask[i]) {
+      const stubH = 2.2;
       const stubY = baselineY - stubH;
       barPieces.push(
-        `<rect x="${currentBarX.toFixed(2)}" y="${stubY.toFixed(2)}" width="${barWidth.toFixed(2)}" height="${stubH.toFixed(2)}" fill="none" stroke="${mattersStroke}" stroke-width="0.75" stroke-dasharray="1.5,1.5" opacity="0.6" />`,
+        `<rect class="cc-bar cc-bar-current-stub" style="--cc-enter-delay:${bucketDelay + 45}ms" x="${currentBarX.toFixed(2)}" y="${stubY.toFixed(2)}" width="${barWidth.toFixed(2)}" height="${stubH.toFixed(2)}" fill="none" stroke="${mattersStroke}" stroke-width="0.9" stroke-dasharray="1.4,1.4" opacity="0.78" />`,
       );
     }
   }
-  const barsBlock = barPieces.join('');
+  const barsBlock = `${slotPieces.join('')}${barPieces.join('')}`;
 
   // Enquiries line — current across available prefix, previous across all.
   const availableIndices: number[] = [];
@@ -687,6 +806,21 @@ export function buildCombinedConversionChartSVG(
     ${hasEnqCurrent ? `<path d="${enqCurrentD}" fill="none" stroke="${enquiriesStroke}" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" opacity="0.95" />` : ''}
     ${enqTerminal}
   `;
+  const previousPointMarkers = enqPreviousD
+    ? enqPreviousPoints
+        .map((point) => `<circle cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="1.7" fill="${tooltipBg}" stroke="${enquiriesPreviousStroke}" stroke-width="1" opacity="0.68" />`)
+        .join('')
+    : '';
+  const currentPointMarkers = enqCurrentPoints.length > 0
+    ? enqCurrentPoints
+        .map((point, index) => {
+          const isTerminalPoint = index === enqCurrentPoints.length - 1;
+          if (isTerminalPoint) return '';
+          return `<circle cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="2.2" fill="${enquiriesStroke}" stroke="${tooltipBg}" stroke-width="1.1" opacity="0.98" />`;
+        })
+        .join('')
+    : '';
+  const pointMarkers = `${previousPointMarkers}${currentPointMarkers}`;
 
   // Ghost future dots on the baseline (same convention as single-metric chart).
   const ghostDots = futureBucketMarker
@@ -715,13 +849,22 @@ export function buildCombinedConversionChartSVG(
   // axes.
   const axisLeftFill = enquiriesStroke;
   const axisRightFill = mattersStroke;
-  const yAxisEnqLabel = `<text x="${(padXLeft - 4).toFixed(2)}" y="${(padYTop + 4).toFixed(2)}" font-size="8.5" font-weight="700" fill="${axisLeftFill}" opacity="0.62" font-family="inherit" letter-spacing="0.02em" text-anchor="end">${escapeXml(String(enqMax))}</text>`;
-  const yAxisEnqZero = `<text x="${(padXLeft - 4).toFixed(2)}" y="${(baselineY - 1).toFixed(2)}" font-size="8" font-weight="600" fill="${axisLeftFill}" opacity="0.4" font-family="inherit" text-anchor="end">0</text>`;
-  const yAxisMatLabel = `<text x="${(padXLeft + innerWidth + 4).toFixed(2)}" y="${(padYTop + 4).toFixed(2)}" font-size="8.5" font-weight="700" fill="${axisRightFill}" opacity="0.62" font-family="inherit" letter-spacing="0.02em" text-anchor="start">${escapeXml(String(matMax))}</text>`;
-  const yAxisMatZero = `<text x="${(padXLeft + innerWidth + 4).toFixed(2)}" y="${(baselineY - 1).toFixed(2)}" font-size="8" font-weight="600" fill="${axisRightFill}" opacity="0.4" font-family="inherit" text-anchor="start">0</text>`;
+  const yAxisEnqLabel = `<text x="${leftAxisTextX.toFixed(2)}" y="${(padYTop + 4).toFixed(2)}" font-size="8.5" font-weight="700" fill="${axisLeftFill}" opacity="0.7" font-family="inherit" letter-spacing="0.02em" text-anchor="end">${escapeXml(String(enqMax))}</text>`;
+  // 2026-04-24: middle y-axis tick on the left (enquiries) so the scale
+  // reads as 0 / mid / max rather than just the two endpoints. Skipped if
+  // the rounded mid would collide with 0 or max (e.g. enqMax === 1) or if
+  // the axis has no real range.
+  const enqMidValue = Math.round(enqMax / 2);
+  const yAxisEnqMid = enqMax > 1 && enqMidValue > 0 && enqMidValue < enqMax
+    ? `<text x="${leftAxisTextX.toFixed(2)}" y="${(padYTop + innerHeight / 2 + 3).toFixed(2)}" font-size="8" font-weight="600" fill="${axisMutedFill}" opacity="0.88" font-family="inherit" letter-spacing="0.02em" text-anchor="end">${escapeXml(String(enqMidValue))}</text>`
+    : '';
+  const yAxisEnqZero = `<text x="${leftAxisTextX.toFixed(2)}" y="${(baselineY - 1).toFixed(2)}" font-size="8" font-weight="600" fill="${axisMutedFill}" opacity="0.88" font-family="inherit" text-anchor="end">0</text>`;
+  const yAxisMatLabel = `<text x="${rightAxisTextX.toFixed(2)}" y="${(padYTop + 4).toFixed(2)}" font-size="8.5" font-weight="700" fill="${axisRightFill}" opacity="0.7" font-family="inherit" letter-spacing="0.02em" text-anchor="start">${escapeXml(String(matMax))}</text>`;
+  const yAxisMatZero = `<text x="${rightAxisTextX.toFixed(2)}" y="${(baselineY - 1).toFixed(2)}" font-size="8" font-weight="600" fill="${axisMutedFill}" opacity="0.88" font-family="inherit" text-anchor="start">0</text>`;
 
   const xAxisLabels = bucketLabels
     ? (() => {
+        const edgeLabelInset = compactMode ? 10 : 8;
         const yText = Math.max(8, padYTop - 4).toFixed(2);
         const n = bucketLabels.length;
         const pickIndexes = (): number[] => {
@@ -737,30 +880,42 @@ export function buildCombinedConversionChartSVG(
             if (!raw) return '';
             const isFirst = i === 0;
             const isLast = i === n - 1;
-            const x = isFirst ? padXLeft : isLast ? padXLeft + innerWidth : xAt(i);
+            const x = isFirst
+              ? padXLeft + edgeLabelInset
+              : isLast
+                ? padXLeft + innerWidth - edgeLabelInset
+                : xAt(i);
             const anchor = isFirst ? 'start' : isLast ? 'end' : 'middle';
-            return `<text x="${x.toFixed(2)}" y="${yText}" font-size="8.5" font-weight="600" fill="rgba(148,163,184,0.85)" font-family="inherit" letter-spacing="0.03em" text-anchor="${anchor}">${escapeXml(raw)}</text>`;
+            return `<text x="${x.toFixed(2)}" y="${yText}" font-size="8.5" font-weight="600" fill="${xAxisLabelFill}" font-family="inherit" letter-spacing="0.03em" text-anchor="${anchor}">${escapeXml(raw)}</text>`;
           })
           .join('');
       })()
     : '';
 
-  // Joint hover tooltip per bucket. Chip shows 4 rows: Enquiries current/prev,
-  // Matters current/prev. Placement uses the same clamp rules as the single
-  // chart so it can never clip the viewBox.
+  // Joint hover tooltip per bucket. Chip shows 4 summary rows plus a matter
+  // ref breakdown for the hovered bucket. Placement uses the same clamp rules
+  // as the single chart so it can never clip the viewBox.
   const chartId = nextPocketChartId();
-  const tooltipBg = 'rgba(6,23,51,0.94)';
-  const tooltipFg = 'rgba(243,244,246,0.95)';
-  const tooltipMuted = 'rgba(209,213,219,0.75)';
-
+  const combinedBarGrowName = `${chartId}-bar-grow`;
   const styleBlock = `<style>
     .${chartId} .cc-tip { opacity: 0; transition: opacity 160ms ease-out; pointer-events: none; }
     .${chartId} .cc-col:hover .cc-tip,
     .${chartId} .cc-col:focus-within .cc-tip { opacity: 1; }
     .${chartId} .cc-hit { cursor: default; }
+    .${chartId} .cc-bar {
+      transform-box: fill-box;
+      transform-origin: center bottom;
+      animation: ${combinedBarGrowName} 340ms cubic-bezier(0.22, 1, 0.36, 1) var(--cc-enter-delay, 0ms) both;
+    }
+    @keyframes ${combinedBarGrowName} {
+      from { transform: scaleY(0.01); }
+      to { transform: scaleY(1); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .${chartId} .cc-bar { animation: none; }
+    }
   </style>`;
 
-  const colWidth = count > 1 ? stepX : innerWidth;
   const interactionBlock = allBuckets
     .map((bucket, i) => {
       const cx = xAt(i);
@@ -773,13 +928,17 @@ export function buildCombinedConversionChartSVG(
       const isAvailable = availableMask[i];
       const dotY = isAvailable ? yForEnq(enqCur) : baselineY - 1;
       const label = bucketLabels ? bucketLabels[i] : (bucket.label ?? '');
+      const currentMatterLines = buildMatterDetailLines(bucket.currentMatterDetails, matCur, !isAvailable);
+      const previousMatterLines = buildMatterDetailLines(bucket.previousMatterDetails, matPrev);
 
-      // Chip geometry — 4 value rows + header.
+      // Chip geometry — 4 summary rows + matter ref detail block.
       const headerH = label ? 12 : 0;
-      const rowH = 11;
+      const rowH = 10;
       const chipPadY = 5;
-      const chipH = chipPadY * 2 + headerH + rowH * 4 + 4;
-      const chipW = 138;
+      const detailLineH = 9;
+      const detailBlockH = 34 + detailLineH * (currentMatterLines.length + previousMatterLines.length);
+      const chipH = chipPadY * 2 + headerH + rowH * 4 + detailBlockH + 6;
+      const chipW = 224;
       const chipMarginX = 4;
       const rawChipX = cx - chipW / 2;
       const chipX = Math.max(chipMarginX, Math.min(width - chipW - chipMarginX, rawChipX));
@@ -799,56 +958,76 @@ export function buildCombinedConversionChartSVG(
       const bodyStartY = chipY + chipPadY + headerH + 9;
       const enqCurY = bodyStartY;
       const enqPrevY = enqCurY + rowH;
-      const matCurY = enqPrevY + rowH + 2;
+      const matCurY = enqPrevY + rowH;
       const matPrevY = matCurY + rowH;
+      const detailDividerY = matPrevY + 6;
+      const detailTitleY = detailDividerY + 10;
+      const currentDetailLabelY = detailTitleY + 11;
+      const currentDetailStartY = currentDetailLabelY + 8;
+      const previousDetailLabelY = currentDetailStartY + currentMatterLines.length * detailLineH + 7;
+      const previousDetailStartY = previousDetailLabelY + 8;
 
       const headerLine = label
         ? `<text x="${(chipX + chipW / 2).toFixed(2)}" y="${headerY.toFixed(2)}" font-size="8" font-weight="700" fill="${tooltipMuted}" text-anchor="middle" font-family="inherit" letter-spacing="0.1em">${escapeXml(String(label).toUpperCase())}</text>`
         : '';
 
-      const enqDot = `<circle cx="${(textLeftX + 3).toFixed(2)}" cy="${(enqCurY - 3).toFixed(2)}" r="2.5" fill="${enquiriesStroke}" />`;
-      const matDot = `<rect x="${(textLeftX).toFixed(2)}" y="${(matCurY - 6).toFixed(2)}" width="6" height="6" fill="${mattersStroke}" opacity="0.9" />`;
+      const enqCurDot = `<circle cx="${(textLeftX + 3).toFixed(2)}" cy="${(enqCurY - 3).toFixed(2)}" r="2.5" fill="${enquiriesStroke}" />`;
+      const enqPrevDot = `<circle cx="${(textLeftX + 3).toFixed(2)}" cy="${(enqPrevY - 3).toFixed(2)}" r="2.2" fill="${enquiriesPreviousStroke}" opacity="0.65" />`;
+      const matCurDot = `<rect x="${(textLeftX).toFixed(2)}" y="${(matCurY - 6).toFixed(2)}" width="6" height="6" fill="${mattersStroke}" opacity="0.92" />`;
+      const matPrevDot = `<line x1="${(textLeftX - 0.5).toFixed(2)}" y1="${(matPrevY - 3).toFixed(2)}" x2="${(textLeftX + 6.5).toFixed(2)}" y2="${(matPrevY - 3).toFixed(2)}" stroke="${mattersPreviousStroke}" stroke-width="1.4" stroke-linecap="round" opacity="0.92" />`;
 
-      const enqLabelEl = `<text x="${(textLeftX + 10).toFixed(2)}" y="${enqCurY.toFixed(2)}" font-size="8.5" font-weight="700" fill="${tooltipFg}" font-family="inherit" letter-spacing="0.04em">Enquiries</text>`;
-      const enqCurLabelEl = `<text x="${(textLeftX + 10).toFixed(2)}" y="${enqPrevY.toFixed(2)}" font-size="8" font-weight="500" fill="${tooltipMuted}" font-family="inherit">${escapeXml(currentLabel)}</text>`;
+      const enqCurLabelEl = `<text x="${(textLeftX + 10).toFixed(2)}" y="${enqCurY.toFixed(2)}" font-size="8.2" font-weight="700" fill="${tooltipFg}" font-family="inherit">${escapeXml(`Enquiries ${currentLabel}`)}</text>`;
+      const enqPrevLabelEl = `<text x="${(textLeftX + 10).toFixed(2)}" y="${enqPrevY.toFixed(2)}" font-size="8" font-weight="600" fill="${tooltipMuted}" font-family="inherit">${escapeXml(`Enquiries ${previousLabel}`)}</text>`;
       const enqCurValEl = isAvailable
         ? `<text x="${textRightX.toFixed(2)}" y="${enqCurY.toFixed(2)}" font-size="9" font-weight="700" fill="${tooltipFg}" text-anchor="end" font-family="inherit">${escapeXml(String(enqCur))}</text>`
         : `<text x="${textRightX.toFixed(2)}" y="${enqCurY.toFixed(2)}" font-size="8" font-weight="600" fill="${tooltipMuted}" text-anchor="end" font-style="italic" font-family="inherit">Pending</text>`;
       const enqPrevValEl = `<text x="${textRightX.toFixed(2)}" y="${enqPrevY.toFixed(2)}" font-size="9" font-weight="600" fill="${tooltipFg}" text-anchor="end" font-family="inherit" opacity="0.78">${escapeXml(String(enqPrev))}</text>`;
 
-      const matLabelEl = `<text x="${(textLeftX + 10).toFixed(2)}" y="${matCurY.toFixed(2)}" font-size="8.5" font-weight="700" fill="${tooltipFg}" font-family="inherit" letter-spacing="0.04em">Matters</text>`;
-      const matCurLabelEl = `<text x="${(textLeftX + 10).toFixed(2)}" y="${matPrevY.toFixed(2)}" font-size="8" font-weight="500" fill="${tooltipMuted}" font-family="inherit">${escapeXml(currentLabel)}</text>`;
+      const matCurLabelEl = `<text x="${(textLeftX + 10).toFixed(2)}" y="${matCurY.toFixed(2)}" font-size="8.2" font-weight="700" fill="${tooltipFg}" font-family="inherit">${escapeXml(`Matters ${currentLabel}`)}</text>`;
+      const matPrevLabelEl = `<text x="${(textLeftX + 10).toFixed(2)}" y="${matPrevY.toFixed(2)}" font-size="8" font-weight="600" fill="${tooltipMuted}" font-family="inherit">${escapeXml(`Matters ${previousLabel}`)}</text>`;
       const matCurValEl = isAvailable
         ? `<text x="${textRightX.toFixed(2)}" y="${matCurY.toFixed(2)}" font-size="9" font-weight="700" fill="${tooltipFg}" text-anchor="end" font-family="inherit">${escapeXml(String(matCur))}</text>`
         : `<text x="${textRightX.toFixed(2)}" y="${matCurY.toFixed(2)}" font-size="8" font-weight="600" fill="${tooltipMuted}" text-anchor="end" font-style="italic" font-family="inherit">Pending</text>`;
       const matPrevValEl = `<text x="${textRightX.toFixed(2)}" y="${matPrevY.toFixed(2)}" font-size="9" font-weight="600" fill="${tooltipFg}" text-anchor="end" font-family="inherit" opacity="0.78">${escapeXml(String(matPrev))}</text>`;
+      const detailDividerEl = `<line x1="${(chipX + 8).toFixed(2)}" y1="${detailDividerY.toFixed(2)}" x2="${(chipX + chipW - 8).toFixed(2)}" y2="${detailDividerY.toFixed(2)}" stroke="${tooltipMuted}" stroke-width="0.7" opacity="0.28" />`;
+      const detailTitleEl = `<text x="${textLeftX.toFixed(2)}" y="${detailTitleY.toFixed(2)}" font-size="7.7" font-weight="700" fill="${tooltipMuted}" font-family="inherit" letter-spacing="0.08em">MATTER REFS</text>`;
+      const currentDetailLabelEl = `<text x="${textLeftX.toFixed(2)}" y="${currentDetailLabelY.toFixed(2)}" font-size="7.5" font-weight="700" fill="${tooltipFg}" font-family="inherit" letter-spacing="0.05em">${escapeXml(currentLabel.toUpperCase())}</text>`;
+      const previousDetailLabelEl = `<text x="${textLeftX.toFixed(2)}" y="${previousDetailLabelY.toFixed(2)}" font-size="7.5" font-weight="700" fill="${tooltipFg}" font-family="inherit" letter-spacing="0.05em">${escapeXml(previousLabel.toUpperCase())}</text>`;
+      const currentDetailEls = currentMatterLines
+        .map((line, index) => `<text x="${textLeftX.toFixed(2)}" y="${(currentDetailStartY + index * detailLineH).toFixed(2)}" font-size="7.8" font-weight="500" fill="${line === 'Pending' || line === 'None' ? tooltipMuted : tooltipFg}" font-family="inherit">${escapeXml(line)}</text>`)
+        .join('');
+      const previousDetailEls = previousMatterLines
+        .map((line, index) => `<text x="${textLeftX.toFixed(2)}" y="${(previousDetailStartY + index * detailLineH).toFixed(2)}" font-size="7.8" font-weight="500" fill="${line === 'None' ? tooltipMuted : tooltipFg}" font-family="inherit" opacity="${line === 'None' ? '0.86' : '0.9'}">${escapeXml(line)}</text>`)
+        .join('');
 
-      // Period hint (previousLabel) below the current values
-      const periodHintY = chipY + chipH - chipPadY - 1;
-      const periodHintEl = `<text x="${(chipX + chipW / 2).toFixed(2)}" y="${periodHintY.toFixed(2)}" font-size="7" font-weight="600" fill="${tooltipMuted}" text-anchor="middle" font-family="inherit" letter-spacing="0.08em" opacity="0.6">${escapeXml(`vs ${previousLabel.toLowerCase()}`)}</text>`;
-
-      const guide = `<line x1="${cx.toFixed(2)}" y1="${padYTop.toFixed(2)}" x2="${cx.toFixed(2)}" y2="${baselineY.toFixed(2)}" stroke="${enquiriesStroke}" stroke-width="0.8" stroke-dasharray="1.5,2" opacity="0.45" />`;
+      const columnHighlight = `<rect x="${colX.toFixed(2)}" y="${padYTop.toFixed(2)}" width="${colW.toFixed(2)}" height="${innerHeight.toFixed(2)}" fill="${hoverGuideFill}" />`;
+      const guide = `<line x1="${cx.toFixed(2)}" y1="${padYTop.toFixed(2)}" x2="${cx.toFixed(2)}" y2="${baselineY.toFixed(2)}" stroke="${hoverGuideStroke}" stroke-width="0.8" stroke-dasharray="1.5,2" opacity="0.7" />`;
       const dot = isAvailable
         ? `<circle cx="${cx.toFixed(2)}" cy="${dotY.toFixed(2)}" r="2.8" fill="${enquiriesStroke}" stroke="${tooltipBg}" stroke-width="1" />`
         : '';
 
       const tipRect = `<rect x="${chipX.toFixed(2)}" y="${chipY.toFixed(2)}" width="${chipW}" height="${chipH}" rx="2" ry="2" fill="${tooltipBg}" stroke="${enquiriesStroke}" stroke-width="0.5" stroke-opacity="0.5" />`;
 
-      const ariaLabel = `${label ? `${label}: ` : ''}Enquiries ${currentLabel} ${isAvailable ? enqCur : 'pending'}, ${previousLabel} ${enqPrev}. Matters ${currentLabel} ${isAvailable ? matCur : 'pending'}, ${previousLabel} ${matPrev}.`;
+      const ariaLabel = `${label ? `${label}: ` : ''}Enquiries ${currentLabel} ${isAvailable ? enqCur : 'pending'}, ${previousLabel} ${enqPrev}. Matters ${currentLabel} ${isAvailable ? matCur : 'pending'}, ${previousLabel} ${matPrev}. Matter refs ${currentLabel}: ${currentMatterLines.join(', ')}. ${previousLabel}: ${previousMatterLines.join(', ')}.`;
       const hit = `<rect class="cc-hit" x="${colX.toFixed(2)}" y="0" width="${colW.toFixed(2)}" height="${height}" fill="transparent" aria-label="${escapeXml(ariaLabel)}"><title>${escapeXml(ariaLabel)}</title></rect>`;
 
-      return `<g class="cc-col">${hit}<g class="cc-tip">${guide}${dot}${tipRect}${headerLine}${enqDot}${matDot}${enqLabelEl}${enqCurLabelEl}${enqCurValEl}${enqPrevValEl}${matLabelEl}${matCurLabelEl}${matCurValEl}${matPrevValEl}${periodHintEl}</g></g>`;
+      return `<g class="cc-col">${hit}<g class="cc-tip">${columnHighlight}${guide}${dot}${tipRect}${headerLine}${enqCurDot}${enqPrevDot}${matCurDot}${matPrevDot}${enqCurLabelEl}${enqPrevLabelEl}${enqCurValEl}${enqPrevValEl}${matCurLabelEl}${matPrevLabelEl}${matCurValEl}${matPrevValEl}${detailDividerEl}${detailTitleEl}${currentDetailLabelEl}${currentDetailEls}${previousDetailLabelEl}${previousDetailEls}</g></g>`;
     })
     .join('');
 
   return `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" class="${chartId}" role="img">
     ${styleBlock}
+    ${plotBackplate}
+    ${bucketBands}
+    ${baselineStrip}
     ${gridLines}
     ${barsBlock}
     ${linePieces}
+    ${pointMarkers}
     ${ghostDots}
     ${todayRule}
     ${yAxisEnqLabel}
+    ${yAxisEnqMid}
     ${yAxisEnqZero}
     ${yAxisMatLabel}
     ${yAxisMatZero}

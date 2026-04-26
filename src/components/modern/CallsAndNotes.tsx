@@ -78,6 +78,7 @@ interface MatterOption {
   displayNumber: string;
   clientName: string;
   description: string;
+  source?: 'current' | 'legacy';
 }
 
 interface SavedNote {
@@ -145,6 +146,7 @@ interface CallsAndNotesProps {
   isNarrow?: boolean;
   demoModeEnabled?: boolean;
   isActive?: boolean;
+  matterLookupOptions?: MatterOption[];
 }
 
 type JourneyFilter = 'all' | 'external' | 'internal' | 'notes' | 'activity' | 'emails';
@@ -538,7 +540,7 @@ function NotePromptInspector({ systemPrompt, userPrompt, isDarkMode, accent, tex
                   onClick={() => setTab(t)}
                   style={{
                     flex: 1, padding: '4px 8px', fontSize: 9, fontWeight: active ? 700 : 500,
-                    background: active ? (isDarkMode ? 'rgba(135,243,243,0.06)' : 'rgba(54,144,206,0.05)') : 'transparent',
+                    background: active ? (isDarkMode ? 'rgba(13,47,96,0.45)' : 'rgba(214,232,255,0.55)') : 'transparent',
                     borderBottom: `2px solid ${active ? accent : 'transparent'}`,
                     border: 'none', borderBottomWidth: 2, borderBottomStyle: 'solid',
                     borderBottomColor: active ? accent : 'transparent',
@@ -568,7 +570,7 @@ function NotePromptInspector({ systemPrompt, userPrompt, isDarkMode, accent, tex
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
-export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, userRate, isNarrow, demoModeEnabled = false, isActive = true }: CallsAndNotesProps) {
+export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, userRate, isNarrow, demoModeEnabled = false, isActive = true, matterLookupOptions = [] }: CallsAndNotesProps) {
   const showAll = isDevOwner({ Initials: userInitials, Email: userEmail || '' } as any);
   // Dubber API requests go directly to the Express backend on localhost to avoid
   // HTTP/1.1 connection exhaustion — the 6+ SSE streams through the CRA proxy
@@ -683,7 +685,39 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
   const [matterOptions, setMatterOptions] = useState<MatterOption[]>([]);
   const [matterDropdownOpen, setMatterDropdownOpen] = useState(false);
   const [matterSearchLoading, setMatterSearchLoading] = useState(false);
+  const [matterLegacyAvailable, setMatterLegacyAvailable] = useState(false);
+  const [matterIncludeLegacy, setMatterIncludeLegacy] = useState(false);
   const matterPickerRef = useRef<HTMLDivElement>(null);
+  const matterSearchRequestRef = useRef(0);
+  const localMatterLookupOptions = React.useMemo(() => {
+    const seen = new Set<string>();
+    return (matterLookupOptions || [])
+      .map((matter) => ({
+        key: String(matter.key || matter.displayNumber || '').trim(),
+        displayNumber: String(matter.displayNumber || matter.key || '').trim(),
+        clientName: String(matter.clientName || '').trim(),
+        description: String(matter.description || '').trim(),
+        source: matter.source || 'current',
+      } as MatterOption))
+      .filter((matter) => {
+        const key = (matter.displayNumber || matter.key).toLowerCase();
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+  }, [matterLookupOptions]);
+
+  const filterLocalMatterLookupOptions = useCallback((q: string, limit = 20): MatterOption[] => {
+    const needle = q.trim().toLowerCase();
+    if (!needle) return [];
+    return localMatterLookupOptions
+      .filter((matter) => (
+        (matter.displayNumber || '').toLowerCase().includes(needle)
+        || (matter.clientName || '').toLowerCase().includes(needle)
+        || (matter.description || '').toLowerCase().includes(needle)
+      ))
+      .slice(0, limit);
+  }, [localMatterLookupOptions]);
 
   const resetSelectedWorkspace = useCallback(() => {
     setGeneratedNote(null);
@@ -695,6 +729,8 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
     setMatterSearch('');
     setMatterOptions([]);
     setMatterDropdownOpen(false);
+    setMatterLegacyAvailable(false);
+    setMatterIncludeLegacy(false);
     setPipeline({
       saving: false,
       saved: false,
@@ -1120,10 +1156,13 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
   }, [demoJourneySeed.generatedNote, demoModeActive, dubberApiBaseUrl, journeyItems]);
 
   // ── Search matters for picker ──
-  const searchMatters = useCallback(async (q: string) => {
+  const searchMatters = useCallback(async (q: string, options?: { includeLegacy?: boolean }) => {
+    const trimmed = q.trim();
+    const includeLegacy = options?.includeLegacy === true;
     if (demoModeActive) {
-      if (!q || q.length < 2) {
+      if (!trimmed || trimmed.length < 2) {
         setMatterOptions([]);
+        setMatterLegacyAvailable(false);
         return;
       }
       setMatterOptions([
@@ -1132,36 +1171,96 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
           displayNumber: 'HLX-33114-00012',
           clientName: '[Demo] Demo Client',
           description: '[Demo] Demo Client acquisition support',
+          source: 'current',
         },
       ]);
+      setMatterLegacyAvailable(false);
       return;
     }
-    if (!q || q.length < 2) { setMatterOptions([]); return; }
+    if (!trimmed || trimmed.length < 2) {
+      setMatterOptions([]);
+      setMatterLegacyAvailable(false);
+      return;
+    }
+    const hasLocalMatterLookup = localMatterLookupOptions.length > 0;
+    const localMatches = hasLocalMatterLookup ? filterLocalMatterLookupOptions(trimmed, 20) : [];
+    const requestId = matterSearchRequestRef.current + 1;
+    matterSearchRequestRef.current = requestId;
+    if (localMatches.length > 0) {
+      setMatterSearchLoading(false);
+      setMatterOptions(localMatches);
+      setMatterLegacyAvailable(false);
+      return;
+    }
     setMatterSearchLoading(true);
+    setMatterOptions([]);
+    setMatterLegacyAvailable(false);
     try {
-      const res = await fetch(`${dubberApiBaseUrl}/api/matters-unified?search=${encodeURIComponent(q)}&limit=20`);
-      if (res?.ok) {
-        const data = await res.json();
-        const matters = (data.matters || data || []).slice(0, 20);
-        setMatterOptions(matters.map((m: any) => ({
-          key: m.displayNumber || m.display_number || m.matterId || '',
-          displayNumber: m.displayNumber || m.display_number || '',
-          clientName: m.clientName || m.client_name || '',
-          description: m.description || '',
-        })));
+      if (!hasLocalMatterLookup) {
+        const currentRes = await fetch(`${dubberApiBaseUrl}/api/matter-operations/search?term=${encodeURIComponent(trimmed)}&limit=20`);
+        const currentData = currentRes?.ok ? await currentRes.json() : null;
+        const currentMatters = Array.isArray(currentData?.matters) ? currentData.matters.slice(0, 20) : [];
+
+        if (matterSearchRequestRef.current !== requestId) return;
+
+        if (currentMatters.length > 0) {
+          setMatterOptions(currentMatters.map((matter: any) => ({
+            key: matter.displayNumber || matter.display_number || matter.matterId || matter.id || '',
+            displayNumber: matter.displayNumber || matter.display_number || '',
+            clientName: matter.clientName || matter.client_name || '',
+            description: matter.description || matter.matterDescription || '',
+            source: 'current',
+          })).filter((matter: MatterOption) => Boolean(matter.displayNumber || matter.key)));
+          setMatterLegacyAvailable(false);
+          return;
+        }
       }
+
+      const legacyRes = await fetch(`${dubberApiBaseUrl}/api/outstanding-balances/matter-search?q=${encodeURIComponent(trimmed)}&limit=${includeLegacy ? 20 : 1}`);
+      const legacyData = legacyRes?.ok ? await legacyRes.json() : null;
+      const legacyMatters = Array.isArray(legacyData?.results) ? legacyData.results : [];
+
+      if (matterSearchRequestRef.current !== requestId) return;
+
+      if (!includeLegacy) {
+        setMatterOptions([]);
+        setMatterLegacyAvailable(legacyMatters.length > 0);
+        return;
+      }
+
+      setMatterOptions(legacyMatters.slice(0, 20).map((matter: any) => ({
+        key: matter.displayNumber || matter.matterId || '',
+        displayNumber: matter.displayNumber || '',
+        clientName: matter.clientName || '',
+        description: matter.description || '',
+        source: 'legacy',
+      })).filter((matter: MatterOption) => Boolean(matter.displayNumber || matter.key)));
+      setMatterLegacyAvailable(false);
     } catch { /* silent */ }
-    finally { setMatterSearchLoading(false); }
-  }, [demoModeActive, dubberApiBaseUrl]);
+    finally {
+      if (matterSearchRequestRef.current === requestId) {
+        setMatterSearchLoading(false);
+      }
+    }
+  }, [demoModeActive, dubberApiBaseUrl, filterLocalMatterLookupOptions, localMatterLookupOptions.length]);
 
   // Debounced matter search
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleMatterSearchChange = useCallback((val: string) => {
     setMatterSearch(val);
     setPipeline(prev => ({ ...prev, linkedMatterRef: val || prev.linkedMatterRef }));
+    setMatterIncludeLegacy(false);
+    setMatterLegacyAvailable(false);
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
     searchTimerRef.current = setTimeout(() => searchMatters(val), 300);
   }, [searchMatters]);
+
+  const handleMatterLegacyReveal = useCallback(() => {
+    if (!matterSearch.trim() || matterSearch.trim().length < 2) return;
+    setMatterIncludeLegacy(true);
+    setMatterDropdownOpen(true);
+    void searchMatters(matterSearch, { includeLegacy: true });
+  }, [matterSearch, searchMatters]);
 
   // ── Save note to Azure Storage ──
   const saveNote = useCallback(async (
@@ -1741,6 +1840,10 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
   const streamCardPadding = '6px 8px';
   const streamIconColumnWidth = 14;
   const streamAccessoryColumnWidth = 22;
+  const streamViewportTrimPx = 14;
+  const syncedJourneyListHeight = callCentreEnabled && !isNarrow
+    ? Math.max((rightRailHeight && rightRailHeight > 0 ? rightRailHeight : 560) - streamViewportTrimPx, 280)
+    : (isNarrow ? 360 : 420);
 
   // Billable units: 6-minute increments. Minimum 1 unit per recorded call.
   // Rate is hourly — each unit = rate / 10. Parsed once from props.
@@ -1917,13 +2020,43 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                   </div>
                 </div>
                 {/* Matter dropdown */}
-                {matterDropdownOpen && matterOptions.length > 0 && (
+                {matterDropdownOpen && matterSearch.trim().length >= 2 && (
                   <div style={{
                     position: 'absolute', left: 0, right: 0, top: '100%', zIndex: 20,
                     background: isDarkMode ? '#081c30' : '#fff',
                     border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.2)' : 'rgba(13,47,96,0.1)'}`,
                     boxShadow: '0 4px 12px rgba(0,0,0,0.2)', maxHeight: 160, overflow: 'auto',
                   }}>
+                    {!matterSearchLoading && matterOptions.length === 0 && !matterLegacyAvailable && (
+                      <div style={{ padding: '7px 8px', fontSize: 10, color: muted }}>
+                        {matterIncludeLegacy ? 'No legacy matters found.' : 'No current matters found.'}
+                      </div>
+                    )}
+                    {!matterSearchLoading && matterOptions.length === 0 && matterLegacyAvailable && (
+                      <div style={{ padding: '7px 8px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <div style={{ fontSize: 10, color: muted }}>No current matters found.</div>
+                        <button
+                          type="button"
+                          onClick={handleMatterLegacyReveal}
+                          style={{
+                            alignSelf: 'flex-start',
+                            padding: '4px 8px',
+                            background: 'transparent',
+                            border: `1px solid ${cardBorder}`,
+                            color: accent,
+                            cursor: 'pointer',
+                            fontSize: 9,
+                            fontWeight: 700,
+                            letterSpacing: '0.06em',
+                            textTransform: 'uppercase',
+                            fontFamily: 'Raleway, sans-serif',
+                            borderRadius: 0,
+                          }}
+                        >
+                          Check legacy matters?
+                        </button>
+                      </div>
+                    )}
                     {matterOptions.map((opt) => (
                       <div
                         key={opt.key}
@@ -1940,6 +2073,22 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                         onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
                       >
                         <span style={{ fontWeight: 600, color: accent }}>{opt.displayNumber}</span>
+                        <span
+                          style={{
+                            marginLeft: 6,
+                            fontSize: 8,
+                            fontWeight: 700,
+                            letterSpacing: '0.08em',
+                            textTransform: 'uppercase',
+                            padding: '1px 5px',
+                            border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(6,23,51,0.14)'}`,
+                            background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(6,23,51,0.03)',
+                            color: muted,
+                            borderRadius: 0,
+                          }}
+                        >
+                          {opt.source === 'legacy' ? 'Legacy' : 'Current'}
+                        </span>
                         {opt.clientName && <span style={{ marginLeft: 6, color: muted }}>{opt.clientName}</span>}
                         {opt.description && <div style={{ fontSize: 9, color: muted, marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{opt.description}</div>}
                       </div>
@@ -2030,11 +2179,11 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
         )}
 
       <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: muted, padding: '2px 0 3px', letterSpacing: '0.2px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
-            <FiPhone size={10} style={{ color: accent, flexShrink: 0 }} />
-            <span>{callCentreEnabled ? 'Call Centre' : 'Activity'}</span>
-          </div>
+        <div style={{ padding: '2px 0 3px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+          <span className="home-section-header" style={{ minWidth: 0 }}>
+            <FiPhone className="home-section-header-icon" />
+            {callCentreEnabled ? 'Call Centre' : 'Activity'}
+          </span>
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6, flexWrap: 'wrap' }}>
             {canToggleJourneyScope && ([
@@ -2063,8 +2212,8 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                     display: 'inline-flex',
                     alignItems: 'center',
                     gap: 4,
-                    border: `1px solid ${active ? (isDarkMode ? 'rgba(135,243,243,0.36)' : 'rgba(54,144,206,0.26)') : (isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(6,23,51,0.08)')}`,
-                    background: active ? (isDarkMode ? 'rgba(135,243,243,0.08)' : 'rgba(54,144,206,0.08)') : 'transparent',
+                    border: `1px solid ${active ? (isDarkMode ? 'rgba(54,144,206,0.55)' : 'rgba(54,144,206,0.32)') : (isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(6,23,51,0.08)')}`,
+                    background: active ? (isDarkMode ? 'rgba(13,47,96,0.55)' : 'rgba(214,232,255,0.6)') : 'transparent',
                     color: active ? text : muted,
                     padding: '5px 8px',
                     fontSize: 9,
@@ -2149,8 +2298,8 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                     fontWeight: 700,
                     letterSpacing: '0.25px',
                     textTransform: 'uppercase',
-                    border: `1px solid ${active ? (isDarkMode ? 'rgba(135,243,243,0.16)' : 'rgba(54,144,206,0.16)') : (isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(6,23,51,0.07)')}`,
-                    background: active ? (isDarkMode ? 'rgba(54,144,206,0.08)' : 'rgba(13,47,96,0.04)') : 'transparent',
+                    border: `1px solid ${active ? (isDarkMode ? 'rgba(54,144,206,0.32)' : 'rgba(54,144,206,0.22)') : (isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(6,23,51,0.07)')}`,
+                    background: active ? (isDarkMode ? 'rgba(13,47,96,0.4)' : 'rgba(214,232,255,0.45)') : 'transparent',
                     color: active ? text : muted,
                     cursor: 'pointer',
                     fontFamily: 'Raleway, sans-serif',
@@ -2163,10 +2312,10 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
               );
             })}
             {callCentreEnabled && (
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 9, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', color: text, fontFamily: 'Raleway, sans-serif' }}>
+                <span className="helix-eyebrow" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: muted, opacity: 0.82, lineHeight: 1.1 }}>
                 <FiPhoneIncoming size={9} style={{ color: accent, opacity: 0.9 }} />
-                External calls
-                <span style={{ opacity: 0.7 }}>{visibleJourneyFilterCounts.external}</span>
+                External Calls
+                <span style={{ opacity: 0.72, fontVariantNumeric: 'tabular-nums' }}>{visibleJourneyFilterCounts.external}</span>
               </span>
             )}
             {journeyMeta.generatedAt && !isLoadingJourney && (
@@ -2175,8 +2324,8 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
               </span>
             )}
           </div>
-          <div style={{ display: callCentreEnabled ? 'grid' : 'block', gridTemplateColumns: callCentreEnabled && !isNarrow ? 'minmax(0, 1.08fr) minmax(360px, 0.92fr)' : '1fr', alignItems: callCentreEnabled && !isNarrow ? 'stretch' : 'start', flex: 1, minHeight: 0 }}>
-          <div ref={scrollRef} className="ops-dash-scroll" style={{ minHeight: 0, overflow: 'auto', maxHeight: callCentreEnabled && !isNarrow ? (rightRailHeight && rightRailHeight > 0 ? rightRailHeight : 560) : (isNarrow ? 360 : 420), height: callCentreEnabled && !isNarrow ? '100%' : undefined, borderRight: callCentreEnabled && !isNarrow ? `1px solid ${isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(6,23,51,0.06)'}` : 'none' }}>
+          <div style={{ display: callCentreEnabled ? 'grid' : 'block', gridTemplateColumns: callCentreEnabled && !isNarrow ? 'minmax(0, 1fr) minmax(0, 1fr)' : '1fr', alignItems: callCentreEnabled && !isNarrow ? 'stretch' : 'start', flex: 1, minHeight: 0 }}>
+          <div ref={scrollRef} className="ops-dash-scroll" style={{ minHeight: 0, overflowY: 'auto', overflowX: 'hidden', maxHeight: syncedJourneyListHeight, height: callCentreEnabled && !isNarrow ? `calc(100% - ${streamViewportTrimPx}px)` : undefined, paddingBottom: callCentreEnabled && !isNarrow ? 8 : 0, boxSizing: 'border-box', borderRight: callCentreEnabled && !isNarrow ? `1px solid ${isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(6,23,51,0.06)'}` : 'none', scrollPaddingBottom: 24 }}>
             {!panelActivated ? (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, gap: 6 }}>
                 <FiPhone size={12} style={{ color: muted, opacity: 0.45 }} />
@@ -2395,7 +2544,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                               fontSize: 10,
                               color: text,
                               cursor: 'pointer',
-                              background: isSelected ? (isDarkMode ? 'rgba(54,144,206,0.08)' : 'rgba(13,47,96,0.04)') : 'transparent',
+                              background: isSelected ? (isDarkMode ? 'rgba(13,47,96,0.5)' : 'rgba(214,232,255,0.55)') : 'transparent',
                               border: `1px solid ${isSelected ? accent : cardBorder}`,
                               borderLeft: `2px solid ${isInbound ? colours.green : accent}`,
                               transition: 'background 0.15s ease, border-color 0.15s ease',
@@ -2933,6 +3082,10 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                     </div>
                   );
                 })}
+                {/* Bottom spacer: guarantees the last row clears the scroll-port
+                    edge so it can never appear half-clipped against the
+                    rightRailHeight cap (subpixel rounding + border math). */}
+                <div aria-hidden="true" style={{ flex: '0 0 16px', height: 16 }} />
               </>
             )}
           </div>
@@ -2966,6 +3119,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                       generatedBody=""
                       actionItems={[]}
                       transcriptText=""
+                      matterOptions={localMatterLookupOptions}
                       saveLegs={attendanceSaveLegs}
                       saving={workspaceSaving}
                       onClose={() => {
@@ -3056,6 +3210,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                       actionItems={selectedWorkspaceNote?.actionItems || []}
                       transcriptText={selectedTranscriptText}
                       prefillMatter={selectedWorkspaceMatter}
+                      matterOptions={localMatterLookupOptions}
                       saveLegs={attendanceSaveLegs}
                       saving={workspaceSaving}
                       onClose={() => {

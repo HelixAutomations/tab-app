@@ -15,7 +15,7 @@ import {
 } from './types';
 
 interface ActivityCardLabPanelProps {
-  onItemSent: (item: ActivityFeedItem) => void;
+  onItemSent?: (item: ActivityFeedItem) => void;
 }
 
 type NoticeState = {
@@ -282,7 +282,7 @@ const ActivityCardLabPanel: React.FC<ActivityCardLabPanelProps> = ({ onItemSent 
       });
 
       const nextItem = mapRecentSendToFeedItem(response.item);
-      onItemSent(nextItem);
+      onItemSent?.(nextItem);
       setRecentSends((current) => [response.item, ...current.filter((item) => item.id !== response.item.id)].slice(0, 6));
       setWarnings(Array.isArray(response.warnings) ? response.warnings : []);
       setNotice({

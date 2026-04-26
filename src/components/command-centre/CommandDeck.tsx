@@ -231,6 +231,17 @@ const CommandDeck: React.FC<CommandDeckProps> = (props) => {
                 },
             });
             items.push({
+                key: 'showOpsQueue',
+                label: 'Ops queue on Home',
+                enabled: !!featureToggles.showOpsQueue,
+                accent: colours.cta,
+                onToggle: () => {
+                    const next = !featureToggles.showOpsQueue;
+                    onFeatureToggle('showOpsQueue', next);
+                    showToast(next ? 'Ops queue on' : 'Ops queue off', 'success');
+                },
+            });
+            items.push({
                 key: 'showHomeOpsCclDates',
                 label: 'CCL dates on Home',
                 enabled: !!featureToggles.showHomeOpsCclDates,
@@ -266,16 +277,22 @@ const CommandDeck: React.FC<CommandDeckProps> = (props) => {
         // pipeline/matters with ToDo` swaps the pipeline+matters blocks for the
         // ImmediateActionsBar ToDo box; Home.tsx listens for
         // `helix:homeLayoutToggled` to re-sync from localStorage.
-        const readLs = (key: string) => {
+        const readLs = (key: string, fallback = false) => {
             if (typeof window === 'undefined') return false;
-            try { return window.localStorage.getItem(key) === '1'; } catch { return false; }
+            try {
+                const stored = window.localStorage.getItem(key);
+                if (stored === null) return fallback;
+                return stored === '1';
+            } catch {
+                return fallback;
+            }
         };
         const writeLs = (key: string, value: boolean) => {
             if (typeof window === 'undefined') return;
             try { window.localStorage.setItem(key, value ? '1' : '0'); } catch { /* ignore */ }
             try { window.dispatchEvent(new CustomEvent('helix:homeLayoutToggled', { detail: { key, value } })); } catch { /* ignore */ }
         };
-        const replacePipelineOn = readLs('helix.home.replacePipelineAndMatters');
+        const replacePipelineOn = readLs('helix.home.replacePipelineAndMatters', true);
         items.push({
             key: 'homeReplacePipeline',
             label: 'Replace pipeline/matters with ToDo',

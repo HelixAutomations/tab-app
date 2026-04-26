@@ -11,6 +11,7 @@ const schema = {
     names_and_contact_details_of_other_members_of_staff_who_can_help_with_queries: '',
     email: '',
     name: '',
+    supervisor_role: 'Partner',
     insert_current_position_and_scope_of_retainer: '',
     next_steps: '',
     realistic_timescale: '',

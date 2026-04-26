@@ -249,6 +249,151 @@ async function markCclUploaded(cclContentId, { clio, nd, clioDocId, ndDocId, fin
     await req.query(`UPDATE CclContent SET ${updates.join(', ')} WHERE CclContentId = @Id`);
 }
 
+async function saveCclSent({ cclContentId, sentBy, sentAt = new Date(), channel = 'manual' }) {
+    if (!cclContentId) return null;
+
+    const connStr = await getConnStr();
+    if (!connStr) return null;
+
+    const pool = await getPool(connStr);
+    if (!(await tableExists(pool, 'CclSent'))) return null;
+
+    const normalizedSentAt = sentAt instanceof Date ? sentAt : new Date(sentAt);
+    if (Number.isNaN(normalizedSentAt.getTime())) return null;
+
+    const result = await pool.request()
+        .input('CclContentId', sql.Int, cclContentId)
+        .input('SentBy', sql.NVarChar(50), sentBy || null)
+        .input('SentAt', sql.DateTime2, normalizedSentAt)
+        .input('Channel', sql.NVarChar(32), String(channel || 'manual').slice(0, 32))
+        .query(`INSERT INTO CclSent
+            (CclContentId, SentBy, SentAt, Channel)
+            OUTPUT INSERTED.SentId
+            VALUES
+            (@CclContentId, @SentBy, @SentAt, @Channel)`);
+
+    return result.recordset[0]?.SentId || null;
+}
+
+async function getLatestCclSentForMatter(matterId) {
+    const connStr = await getConnStr();
+    if (!connStr) return null;
+
+    const pool = await getPool(connStr);
+    if (!(await tableExists(pool, 'CclSent')) || !(await tableExists(pool, 'CclContent'))) return null;
+
+    const result = await pool.request()
+        .input('MatterId', sql.NVarChar(50), matterId)
+        .query(`SELECT TOP 1
+                    s.SentId,
+                    s.CclContentId,
+                    s.SentBy,
+                    s.SentAt,
+                    s.Channel,
+                    c.MatterId,
+                    c.Version,
+                    c.TemplateVersion,
+                    c.FinalizedAt,
+                    c.FinalizedBy
+                FROM CclSent s
+                JOIN CclContent c ON c.CclContentId = s.CclContentId
+                WHERE c.MatterId = @MatterId
+                ORDER BY s.SentAt DESC, s.SentId DESC`);
+
+    return result.recordset[0] || null;
+}
+
+async function getLatestCclSentByMatterIds(matterIds = []) {
+    if (!Array.isArray(matterIds) || matterIds.length === 0) return {};
+
+    const connStr = await getConnStr();
+    if (!connStr) return {};
+
+    const pool = await getPool(connStr);
+    if (!(await tableExists(pool, 'CclSent')) || !(await tableExists(pool, 'CclContent'))) return {};
+
+    const filteredIds = [...new Set(matterIds.map((value) => String(value || '').trim()).filter(Boolean))];
+    if (filteredIds.length === 0) return {};
+
+    const req = pool.request();
+    const placeholders = filteredIds.map((matterId, index) => {
+        const key = `MatterId${index}`;
+        req.input(key, sql.NVarChar(50), matterId);
+        return `@${key}`;
+    });
+
+    const result = await req.query(`
+        WITH ranked AS (
+            SELECT
+                s.SentId,
+                s.CclContentId,
+                s.SentBy,
+                s.SentAt,
+                s.Channel,
+                c.MatterId,
+                c.Version,
+                ROW_NUMBER() OVER (PARTITION BY c.MatterId ORDER BY s.SentAt DESC, s.SentId DESC) AS rn
+            FROM CclSent s
+            JOIN CclContent c ON c.CclContentId = s.CclContentId
+            WHERE c.MatterId IN (${placeholders.join(', ')})
+        )
+        SELECT SentId, CclContentId, SentBy, SentAt, Channel, MatterId, Version
+        FROM ranked
+        WHERE rn = 1
+    `);
+
+    return result.recordset.reduce((acc, row) => {
+        acc[String(row.MatterId)] = row;
+        return acc;
+    }, {});
+}
+
+/**
+ * Persist fee-earner field edits against a specific CclContent snapshot.
+ * Each row stores the original AI suggestion where available plus the final
+ * saved value for that field.
+ */
+async function saveCclFieldEdits({ cclContentId, matterId, changedBy, promptVersion, templateVersion, edits }) {
+    if (!Array.isArray(edits) || edits.length === 0 || !cclContentId) return 0;
+
+    const connStr = await getConnStr();
+    if (!connStr) return 0;
+
+    const pool = await getPool(connStr);
+    if (!(await tableExists(pool, 'CclFieldEdits'))) return 0;
+
+    let inserted = 0;
+    for (const edit of edits) {
+        const fieldKey = String(edit?.fieldKey || '').trim();
+        if (!fieldKey) continue;
+
+        await pool.request()
+            .input('CclContentId', sql.Int, cclContentId)
+            .input('FieldKey', sql.NVarChar(128), fieldKey.slice(0, 128))
+            .input('AiValue', sql.NVarChar(sql.MAX), edit.aiValue == null ? null : String(edit.aiValue))
+            .input('FinalValue', sql.NVarChar(sql.MAX), edit.finalValue == null ? null : String(edit.finalValue))
+            .input('ChangedBy', sql.NVarChar(50), changedBy || null)
+            .input('EditType', sql.NVarChar(32), String(edit.editType || 'rewritten').slice(0, 32))
+            .query(`INSERT INTO CclFieldEdits
+                (CclContentId, FieldKey, AiValue, FinalValue, ChangedBy, EditType)
+                VALUES
+                (@CclContentId, @FieldKey, @AiValue, @FinalValue, @ChangedBy, @EditType)`);
+
+        inserted += 1;
+        trackEvent('CCL.FieldEdit.Recorded', {
+            matterId: String(matterId || ''),
+            cclContentId: String(cclContentId),
+            fieldKey,
+            editType: String(edit.editType || 'rewritten'),
+            changedBy: String(changedBy || ''),
+            promptVersion: String(promptVersion || ''),
+            templateVersion: String(templateVersion || ''),
+        });
+    }
+
+    return inserted;
+}
+
 // ─── CclAiTrace ────────────────────────────────────────────────────────────
 
 /**
@@ -814,7 +959,8 @@ async function updateCclStatus(matterId, newStatus, { actor, clioDocId, ndDocId 
     const validTransitions = {
         draft: ['pressure-tested', 'approved'],
         'pressure-tested': ['approved'],
-        approved: ['uploaded'],
+        approved: ['sent', 'uploaded'],
+        sent: ['uploaded'],
         uploaded: [], // terminal
     };
     const allowed = validTransitions[row.Status] || [];
@@ -941,7 +1087,11 @@ async function savePressureTestResult(matterId, result) {
 
 module.exports = {
     saveCclContent,
+    saveCclFieldEdits,
+    saveCclSent,
     getLatestCclContent,
+    getLatestCclSentForMatter,
+    getLatestCclSentByMatterIds,
     getCclContentHistory,
     getCclContentById,
     markCclUploaded,

@@ -184,6 +184,8 @@ When adding a new template field to the CCL:
 | Scope too vague | Insufficient enquiry/call notes for the AI to work with | PT score ≤6 triggers flag; `gatherVerificationEvidence` checks communications |
 | Disbursements table format | AI sometimes generates markdown tables instead of prose | System prompt updated to explicitly say "Avoid tables, repeated placeholder rows, or generic filler" |
 | `state_amount` ≠ `figure` | Two fields that must always match but AI sometimes diverges | System prompt rule: "state_amount MUST always equal figure" |
+| `"Dear, blank"` addressee | Instructions DB name fields were selected but never written into `context`; `mergeMatterFields` emitted empty `insert_clients_name` | Context now stores `clientTitle / clientFirstName / clientLastName` from Instructions → Core Data; `buildUserPrompt` surfaces them to the AI; `mergeMatterFields` falls back to `"Sir / Madam"` rather than empty and emits `Ccl.Addressee.Empty` telemetry; PT `ADDRESSEE GUARDRAIL` scores empty/placeholder addressees 0 and blocks auto-approval |
+| Intro paragraph feels cold / restates pitch | Scope opening paragraph (`insert_current_position_and_scope_of_retainer`) had no dedicated prompt directive | System prompt now has `INTRO PARAGRAPH` sub-directive (prior context + outcome + scope commit) and `STEREO OUTPUT GUIDANCE` (mirror pitch framing when supplied); PT `INTRO ALIGNMENT` rubric scores ≤6 when alignment is weak; `Ccl.IntroAlignment.Score` metric tracks the trend |
 
 ## Prompt Modification Guidelines
 

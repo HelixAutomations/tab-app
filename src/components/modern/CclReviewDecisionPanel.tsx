@@ -91,7 +91,7 @@ export default function CclReviewDecisionPanel({
                   <div className="ccl-review-decision__choice-header">
                     <span className="ccl-review-decision__choice-title">{option.title}</span>
                     {isSelected && (
-                      <span className="ccl-review-decision__choice-pill" aria-hidden="true">Live</span>
+                      <span className="ccl-review-decision__choice-pill" aria-hidden="true">Selected</span>
                     )}
                   </div>
                   <div className="ccl-review-decision__choice-preview">{option.preview}</div>

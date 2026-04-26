@@ -238,8 +238,8 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
   currentUserInitials,
   onOpenSelfConfirmPanel,
 }) => {
-  const [attendanceExpanded, setAttendanceExpanded] = useState(false);
-  const [leaveExpanded, setLeaveExpanded] = useState(false);
+  const [attendanceExpanded, setAttendanceExpanded] = useState(true);
+  const [leaveExpanded, setLeaveExpanded] = useState(true);
   const [selectedPeople, setSelectedPeople] = useState<Set<string>>(new Set());
 
   /** Toggle a person in/out of the filter set. */
@@ -620,29 +620,42 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
     return { days, people };
   }, [allLeave, today, nameMap]);
 
+  const sectionPanelShellStyle: React.CSSProperties = {
+    width: '100%',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 0,
+    padding: 0,
+    background: panelBg,
+    border: `1px solid ${panelBorder}`,
+    fontFamily: 'var(--font-primary)',
+    transition: 'background var(--transition-base), border-color var(--transition-fast)',
+    ['--home-team-panel-hover-bg' as string]: panelBgHov,
+  };
+
   /* ═══════════════════════════════════════════════════════
    * RENDER
    * ═══════════════════════════════════════════════════════ */
 
   return (
     <div
-      className="team-panel home-team-panel"
+      data-helix-region="home/team-insight"
       style={{
         width: '100%',
         display: 'flex',
         flexDirection: 'column',
-        gap: 0,
+        gap: 12,
         padding: 0,
-        background: panelBg,
-        border: `1px solid ${panelBorder}`,
-        fontFamily: 'var(--font-primary)',
-        transition: 'background var(--transition-base), border-color var(--transition-fast)',
-        ['--home-team-panel-hover-bg' as string]: panelBgHov,
       } as React.CSSProperties}
     >
       {/* ════════════════════════════════════════════════════
        * SECTION A: ATTENDANCE
        * ════════════════════════════════════════════════════ */}
+      <div
+        className="team-panel home-team-panel"
+        data-helix-region="home/team-insight/attendance"
+        style={sectionPanelShellStyle}
+      >
       <div
         className={`home-team-section${attendanceExpanded ? ' is-expanded' : ''}`}
         role="button"
@@ -673,13 +686,8 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
           minHeight: 18,
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <FiMonitor style={{ fontSize: 11, color: accentColor, strokeWidth: 2.2 }} />
-            <span style={{
-              fontSize: 'var(--text-xs)',
-              fontWeight: 600,
-              color: 'var(--text-primary)',
-              letterSpacing: '0.02em',
-            }}>
+            <span className="home-section-header">
+              <FiMonitor className="home-section-header-icon" style={{ strokeWidth: 2.2 }} />
               {attendanceHeadingLabel}
             </span>
 
@@ -980,17 +988,16 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
           )}
         </div>
       </div>
-
-      {/* ═══ Divider between sections ═══ */}
-      <div style={{
-        height: 1,
-        background: sectionDivider,
-        margin: '4px 16px',
-      }} />
+      </div>
 
       {/* ════════════════════════════════════════════════════
        * SECTION B: LEAVE
        * ════════════════════════════════════════════════════ */}
+      <div
+        className="team-panel home-team-panel"
+        data-helix-region="home/team-insight/leave"
+        style={sectionPanelShellStyle}
+      >
       <div
         className={`home-team-section${leaveExpanded ? ' is-expanded' : ''}`}
         role="button"
@@ -1021,13 +1028,8 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
           minHeight: 18,
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <FiUsers style={{ fontSize: 11, color: accentColor, strokeWidth: 2.2 }} />
-            <span style={{
-              fontSize: 'var(--text-xs)',
-              fontWeight: 600,
-              color: 'var(--text-primary)',
-              letterSpacing: '0.02em',
-            }}>
+            <span className="home-section-header">
+              <FiUsers className="home-section-header-icon" style={{ strokeWidth: 2.2 }} />
               Team Leave
             </span>
 
@@ -1332,6 +1334,7 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
           )}
         </div>
       </div>
+      </div>
 
       {/* ── Confirm Attendance Modal ── */}
       {modalPerson && (
@@ -1357,16 +1360,24 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
             }}
           >
             {/* Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: textLabel, letterSpacing: '0.2px' }}>
-                {modalPerson.confirmed ? 'Update' : 'Confirm'} — {modalPerson.firstName}
-              </span>
-              <div
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <span className="home-section-header">
+                  <FiMonitor className="home-section-header-icon" style={{ strokeWidth: 2.2 }} />
+                  Confirm Attendance
+                </span>
+                <span style={{ fontSize: 11, fontWeight: 600, color: textBody }}>
+                  {modalPerson.firstName}
+                </span>
+              </div>
+              <button
+                type="button"
                 onClick={() => { if (!modalSaving) setModalPerson(null); }}
-                style={{ cursor: 'pointer', color: textMuted, padding: 2 }}
+                disabled={modalSaving}
+                style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, padding: 0, border: 'none', background: 'transparent', color: textMuted, cursor: modalSaving ? 'default' : 'pointer', opacity: modalSaving ? 0.45 : 0.82 }}
               >
                 <FiX size={14} />
-              </div>
+              </button>
             </div>
 
             {/* Week rows */}

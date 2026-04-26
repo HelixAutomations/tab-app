@@ -198,6 +198,8 @@ Scripts / docs:
 ```yaml
 # Stash metadata
 id: ccl-review-experience-calm-rail-override-rerun-fix-docx-fidelity
+shipped: true
+shipped_on: 2026-04-24
 verified: 2026-04-19
 branch: main
 touches:

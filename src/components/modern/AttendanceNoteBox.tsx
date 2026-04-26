@@ -31,7 +31,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { FiFileText, FiUploadCloud, FiClock, FiX, FiChevronRight, FiChevronLeft, FiCheck, FiAlertCircle } from 'react-icons/fi';
-import { colours } from '../../app/styles/colours';
+import { colours, withAlpha } from '../../app/styles/colours';
 import MatterLookup from '../matter-lookup/MatterLookup';
 import type { MatterLookupOption } from '../matter-lookup/MatterLookup';
 import ProspectLookup from '../matter-lookup/ProspectLookup';
@@ -90,6 +90,8 @@ export interface AttendanceNoteBoxProps {
   transcriptText: string;
   /** Prefill matter from the resolved matter chain, if any. */
   prefillMatter?: { displayNumber: string; clientName?: string; description?: string } | null;
+  /** Preloaded matters for instant local lookup. Falls back to live lookup when omitted. */
+  matterOptions?: MatterLookupOption[];
   /** Save leg statuses surfaced by the host. */
   saveLegs?: AttendanceNoteBoxSaveLegStatus[];
   /** True while any leg is running. */
@@ -152,6 +154,7 @@ export default function AttendanceNoteBox({
   actionItems,
   transcriptText,
   prefillMatter,
+  matterOptions,
   saveLegs = [],
   saving = false,
   onClose,
@@ -225,15 +228,22 @@ export default function AttendanceNoteBox({
     setProspectSelection(null);
   }, [recordingId, initialTarget]);
 
-  const accent = isDarkMode ? '#87F3F3' : colours.highlight;
-  const panelBg = isDarkMode ? 'rgba(8,28,48,0.98)' : '#ffffff';
-  const panelBorder = isDarkMode ? 'rgba(75,85,99,0.55)' : 'rgba(6,23,51,0.15)';
-  const text = isDarkMode ? '#f3f4f6' : colours.light.text;
+  const accent = isDarkMode ? colours.accent : colours.highlight;
+  const panelBg = isDarkMode ? withAlpha(colours.dark.cardBackground, 0.98) : '#ffffff';
+  const panelBorder = isDarkMode ? withAlpha(colours.dark.borderColor, 0.55) : withAlpha(colours.darkBlue, 0.15);
+  const text = isDarkMode ? colours.dark.text : colours.light.text;
   const bodyText = isDarkMode ? '#d1d5db' : '#374151';
-  const muted = isDarkMode ? '#A0A0A0' : '#6B6B6B';
-  const labelText = isDarkMode ? '#f3f4f6' : colours.light.text;
-  const inputBg = isDarkMode ? 'rgba(5,21,37,0.9)' : '#ffffff';
-  const inputBorder = isDarkMode ? 'rgba(255,255,255,0.14)' : 'rgba(6,23,51,0.22)';
+  const muted = isDarkMode ? colours.subtleGrey : colours.greyText;
+  const labelText = isDarkMode ? colours.dark.text : colours.light.text;
+  const inputBg = isDarkMode ? colours.dark.sectionBackground : '#ffffff';
+  const mutedInputBg = isDarkMode ? withAlpha(colours.dark.sectionBackground, 0.68) : colours.grey;
+  const inputBorder = isDarkMode ? withAlpha(colours.dark.text, 0.14) : withAlpha(colours.darkBlue, 0.22);
+  const tabRailBg = isDarkMode ? withAlpha(colours.dark.sectionBackground, 0.75) : '#ffffff';
+  const activeTabBg = isDarkMode ? colours.dark.cardHover : colours.highlightBlue;
+  const activeTabText = isDarkMode ? colours.highlight : colours.light.text;
+  const checkboxAccent = colours.highlight;
+  const headerBg = isDarkMode ? withAlpha(colours.helixBlue, 0.55) : colours.grey;
+  const footerBg = isDarkMode ? withAlpha(colours.helixBlue, 0.35) : colours.grey;
   const isEmbedded = variant === 'embedded';
 
   const parsedEnquiryId = useMemo(() => {
@@ -323,7 +333,7 @@ export default function AttendanceNoteBox({
       }}
     >
       <div style={{ background: panelBg, border: `1px solid ${panelBorder}`, display: 'flex', flexDirection: 'column', minHeight: 0, maxHeight: isEmbedded ? '100%' : '92vh', overflow: 'hidden' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderBottom: `1px solid ${panelBorder}`, background: isDarkMode ? 'rgba(13,47,96,0.55)' : '#f4f4f6' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderBottom: `1px solid ${panelBorder}`, background: headerBg }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <FiFileText size={14} style={{ color: accent }} />
             <div style={{ fontSize: 13, fontWeight: 700, color: labelText, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
@@ -351,7 +361,7 @@ export default function AttendanceNoteBox({
                 <div
                   role="tablist"
                   aria-label="File to"
-                  style={{ display: 'inline-flex', border: `1px solid ${inputBorder}`, background: isDarkMode ? 'rgba(5,21,37,0.6)' : '#ffffff', borderRadius: 0 }}
+                  style={{ display: 'inline-flex', border: `1px solid ${inputBorder}`, background: tabRailBg, borderRadius: 0 }}
                 >
                   {(['matter', 'prospect'] as const).map((opt) => {
                     const active = target === opt;
@@ -371,8 +381,8 @@ export default function AttendanceNoteBox({
                           textTransform: 'uppercase',
                           fontWeight: 700,
                           border: 'none',
-                          background: active ? accent : 'transparent',
-                          color: active ? (isDarkMode ? '#061733' : '#ffffff') : muted,
+                          background: active ? activeTabBg : 'transparent',
+                          color: active ? activeTabText : muted,
                           cursor: saving ? 'not-allowed' : 'pointer',
                           borderRadius: 0,
                           transition: 'background 140ms ease, color 140ms ease',
@@ -390,6 +400,7 @@ export default function AttendanceNoteBox({
                     value={matterTerm}
                     onChange={setMatterTerm}
                     onSelect={(opt) => { setMatterSelection(opt); setMatterTerm(opt.displayNumber); }}
+                    matters={matterOptions}
                     isDarkMode={isDarkMode}
                     placeholder="Type matter number or client name…"
                     inputStyle={{ fontSize: 13, padding: '9px 12px', background: inputBg, border: `1px solid ${inputBorder}`, color: text }}
@@ -455,13 +466,13 @@ export default function AttendanceNoteBox({
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <div>
                 <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: labelText, marginBottom: 6 }}>Document type</div>
-                <div style={{ padding: '9px 12px', background: isDarkMode ? 'rgba(5,21,37,0.4)' : '#f4f4f6', border: `1px solid ${inputBorder}`, fontSize: 12, color: bodyText }}>
+                <div style={{ padding: '9px 12px', background: mutedInputBg, border: `1px solid ${inputBorder}`, fontSize: 12, color: bodyText }}>
                   Attendance Note – Telephone Call
                 </div>
               </div>
               <div>
                 <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: labelText, marginBottom: 6 }}>Date</div>
-                <div style={{ padding: '9px 12px', background: isDarkMode ? 'rgba(5,21,37,0.4)' : '#f4f4f6', border: `1px solid ${inputBorder}`, fontSize: 12, color: bodyText }}>
+                <div style={{ padding: '9px 12px', background: mutedInputBg, border: `1px solid ${inputBorder}`, fontSize: 12, color: bodyText }}>
                   {formatDate(callDate)}
                 </div>
               </div>
@@ -471,7 +482,7 @@ export default function AttendanceNoteBox({
             <div style={{ display: 'grid', gridTemplateColumns: target === 'matter' ? '1fr 1fr' : '1fr', gap: 10 }}>
               <div>
                 <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: labelText, marginBottom: 6 }}>Call duration</div>
-                <div style={{ padding: '9px 12px', background: isDarkMode ? 'rgba(5,21,37,0.4)' : '#f4f4f6', border: `1px solid ${inputBorder}`, fontSize: 12, color: bodyText }}>
+                <div style={{ padding: '9px 12px', background: mutedInputBg, border: `1px solid ${inputBorder}`, fontSize: 12, color: bodyText }}>
                   <FiClock size={11} style={{ marginRight: 6, verticalAlign: 'middle', color: muted }} />
                   {formatDuration(durationSec)}
                 </div>
@@ -481,14 +492,14 @@ export default function AttendanceNoteBox({
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, gap: 8 }}>
                     <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: labelText }}>Chargeable</div>
                     <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: saving ? 'not-allowed' : 'pointer', fontSize: 10, color: muted, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-                      <input type="checkbox" checked={chargeable} onChange={(e) => setChargeable(e.target.checked)} disabled={saving} style={{ accentColor: accent }} />
+                      <input type="checkbox" checked={chargeable} onChange={(e) => setChargeable(e.target.checked)} disabled={saving} style={{ accentColor: checkboxAccent }} />
                       <span>{chargeable ? 'On' : 'Off'}</span>
                     </label>
                   </div>
                   {chargeable ? (
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button type="button" onClick={() => adjustChargeable(-1)} disabled={chargeableMinutes <= SIX_MIN || saving}
-                        style={{ padding: '0 12px', background: isDarkMode ? 'rgba(5,21,37,0.9)' : '#ffffff', border: `1px solid ${inputBorder}`, color: text, cursor: chargeableMinutes <= SIX_MIN ? 'not-allowed' : 'pointer', borderRadius: 0 }}>−</button>
+                        style={{ padding: '0 12px', background: inputBg, border: `1px solid ${inputBorder}`, color: text, cursor: chargeableMinutes <= SIX_MIN ? 'not-allowed' : 'pointer', borderRadius: 0 }}>−</button>
                       <div style={{ flex: 1, padding: '9px 12px', background: inputBg, border: `1px solid ${inputBorder}`, fontSize: 12, color: text, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
                         {chargeableMinutes > 0 ? (
                           <>
@@ -500,10 +511,10 @@ export default function AttendanceNoteBox({
                         )}
                       </div>
                       <button type="button" onClick={() => adjustChargeable(1)} disabled={saving}
-                        style={{ padding: '0 12px', background: isDarkMode ? 'rgba(5,21,37,0.9)' : '#ffffff', border: `1px solid ${inputBorder}`, color: text, cursor: 'pointer', borderRadius: 0 }}>+</button>
+                        style={{ padding: '0 12px', background: inputBg, border: `1px solid ${inputBorder}`, color: text, cursor: 'pointer', borderRadius: 0 }}>+</button>
                     </div>
                   ) : (
-                    <div style={{ padding: '9px 12px', background: isDarkMode ? 'rgba(5,21,37,0.4)' : '#f4f4f6', border: `1px solid ${inputBorder}`, fontSize: 11, color: muted, fontStyle: 'italic' }}>
+                    <div style={{ padding: '9px 12px', background: mutedInputBg, border: `1px solid ${inputBorder}`, fontSize: 11, color: muted, fontStyle: 'italic' }}>
                       Non-chargeable — no Clio time entry will be recorded.
                     </div>
                   )}
@@ -542,7 +553,7 @@ export default function AttendanceNoteBox({
             {actionItems && actionItems.length > 0 && (
               <div>
                 <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: labelText, marginBottom: 6 }}>Action points</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 5, border: `1px solid ${inputBorder}`, padding: '8px 10px', background: isDarkMode ? 'rgba(5,21,37,0.5)' : '#fafafa' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 5, border: `1px solid ${inputBorder}`, padding: '8px 10px', background: mutedInputBg }}>
                   {actionItems.map((item, i) => (
                     <label key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: saving ? 'not-allowed' : 'pointer', fontSize: 12, color: bodyText, lineHeight: 1.4 }}>
                       <input
@@ -556,7 +567,7 @@ export default function AttendanceNoteBox({
                           });
                         }}
                         disabled={saving}
-                        style={{ marginTop: 2, accentColor: accent }}
+                        style={{ marginTop: 2, accentColor: checkboxAccent }}
                       />
                       <span>{item}</span>
                     </label>
@@ -569,7 +580,7 @@ export default function AttendanceNoteBox({
             {target === 'matter' ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, borderTop: `1px solid ${panelBorder}`, paddingTop: 10 }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: saving ? 'not-allowed' : 'pointer', fontSize: 12, color: bodyText }}>
-                  <input type="checkbox" checked={uploadToNd} onChange={(e) => setUploadToNd(e.target.checked)} disabled={saving} style={{ accentColor: accent }} />
+                  <input type="checkbox" checked={uploadToNd} onChange={(e) => setUploadToNd(e.target.checked)} disabled={saving} style={{ accentColor: checkboxAccent }} />
                   <FiUploadCloud size={12} style={{ color: uploadToNd ? colours.green : muted }} />
                   <span>Also attach the .docx to NetDocuments</span>
                 </label>
@@ -595,7 +606,7 @@ export default function AttendanceNoteBox({
             )}
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', borderTop: `1px solid ${panelBorder}`, background: isDarkMode ? 'rgba(13,47,96,0.35)' : '#f4f4f6' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', borderTop: `1px solid ${panelBorder}`, background: footerBg }}>
           <button
             type="button"
             onClick={() => setTranscriptOpen(v => !v)}
@@ -639,7 +650,7 @@ export default function AttendanceNoteBox({
 
       {transcriptOpen && (
         <div style={{ background: panelBg, borderLeft: 'none', border: `1px solid ${panelBorder}`, borderLeftStyle: 'dashed', display: 'flex', flexDirection: 'column', minHeight: 0, maxHeight: isEmbedded ? '100%' : '92vh', overflow: 'hidden' }}>
-          <div style={{ padding: '14px 14px', borderBottom: `1px solid ${panelBorder}`, fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: labelText, background: isDarkMode ? 'rgba(13,47,96,0.35)' : '#f4f4f6' }}>
+          <div style={{ padding: '14px 14px', borderBottom: `1px solid ${panelBorder}`, fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: labelText, background: footerBg }}>
             Transcript · brief backing
           </div>
           <div style={{ overflowY: 'auto', padding: '12px 14px', fontSize: 11, lineHeight: 1.5, color: bodyText, whiteSpace: 'pre-wrap', flex: 1 }}>

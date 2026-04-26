@@ -27,6 +27,7 @@ export interface MatterLookupOption {
   clientName?: string;
   description?: string;
   matterId?: string;
+  source?: 'current' | 'legacy';
   // Raw payload so consumers can recover fields we haven't surfaced.
   raw?: unknown;
 }
@@ -54,7 +55,8 @@ export interface MatterLookupProps {
   className?: string;
 }
 
-const defaultEndpoint = '/api/matters-unified';
+const currentMattersEndpoint = '/api/matter-operations/search';
+const legacyMattersEndpoint = '/api/outstanding-balances/matter-search';
 
 function normalizeApiMatter(m: any): MatterLookupOption {
   return {
@@ -74,6 +76,48 @@ async function defaultFetcher(q: string, signal: AbortSignal, endpoint: string, 
   const data = await res.json();
   const raw = (data?.matters || data || []);
   return (Array.isArray(raw) ? raw : []).slice(0, limit).map(normalizeApiMatter);
+}
+
+function normalizeCurrentMatter(m: any): MatterLookupOption {
+  return {
+    key: m.DisplayNumber || m.displayNumber || m.display_number || m.MatterID || m.matterId || '',
+    displayNumber: m.DisplayNumber || m.displayNumber || m.display_number || '',
+    clientName: m.ClientName || m.clientName || m.client_name || '',
+    description: m.Description || m.description || '',
+    matterId: String(m.MatterID || m.matterId || m.matter_id || ''),
+    source: 'current',
+    raw: m,
+  };
+}
+
+function normalizeLegacyMatter(m: any): MatterLookupOption {
+  return {
+    key: m.displayNumber || m.display_number || m.matterId || m.matter_id || '',
+    displayNumber: m.displayNumber || m.display_number || '',
+    clientName: m.clientName || m.client_name || '',
+    description: m.description || '',
+    matterId: String(m.matterId || m.matter_id || ''),
+    source: 'legacy',
+    raw: m,
+  };
+}
+
+async function fetchCurrentMatters(q: string, signal: AbortSignal, endpoint: string, limit: number): Promise<MatterLookupOption[]> {
+  const url = `${endpoint}?term=${encodeURIComponent(q)}&limit=${limit}`;
+  const res = await fetch(url, { signal });
+  if (!res.ok) return [];
+  const data = await res.json();
+  const raw = Array.isArray(data?.matters) ? data.matters : [];
+  return raw.slice(0, limit).map(normalizeCurrentMatter).filter((item: MatterLookupOption) => item.displayNumber);
+}
+
+async function fetchLegacyMatters(q: string, signal: AbortSignal, limit: number): Promise<MatterLookupOption[]> {
+  const url = `${legacyMattersEndpoint}?q=${encodeURIComponent(q)}&limit=${limit}`;
+  const res = await fetch(url, { signal });
+  if (!res.ok) return [];
+  const data = await res.json();
+  const raw = Array.isArray(data?.results) ? data.results : [];
+  return raw.slice(0, limit).map(normalizeLegacyMatter).filter((item: MatterLookupOption) => item.displayNumber);
 }
 
 function filterLocal(matters: MatterLookupOption[], q: string, limit: number): MatterLookupOption[] {
@@ -99,13 +143,15 @@ export default function MatterLookup({
   minChars = 2,
   debounceMs = 300,
   maxResults = 20,
-  endpoint = defaultEndpoint,
+  endpoint = currentMattersEndpoint,
   inputStyle,
   dropdownStyle,
   rowStyle,
   className,
 }: MatterLookupProps) {
   const [results, setResults] = useState<MatterLookupOption[]>([]);
+  const [includeLegacy, setIncludeLegacy] = useState(false);
+  const [legacyAvailable, setLegacyAvailable] = useState(false);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
@@ -132,49 +178,99 @@ export default function MatterLookup({
     };
   }, []);
 
+  useEffect(() => {
+    setIncludeLegacy(false);
+    setLegacyAvailable(false);
+  }, [value]);
+
   const resolvedFetcher = useMemo<MatterLookupProps['fetcher'] | null>(() => {
     if (fetcher) return fetcher;
     if (matters) return null; // local filter path
     return (q, signal) => defaultFetcher(q, signal, endpoint, maxResults);
   }, [fetcher, matters, endpoint, maxResults]);
 
-  const runQuery = useCallback((q: string) => {
+  const runQuery = useCallback(async (q: string, options?: { includeLegacy?: boolean }) => {
     latestQueryRef.current = q;
     if (!q || q.trim().length < minChars) {
       setResults([]);
       setLoading(false);
+      setLegacyAvailable(false);
       return;
     }
-    // Local-filter path.
-    if (matters && !fetcher) {
-      setResults(filterLocal(matters, q, maxResults));
+    const hasLocalMatters = Boolean(matters && !fetcher);
+    if (hasLocalMatters) {
+      const localResults = filterLocal(matters || [], q, maxResults);
+      if (localResults.length > 0) {
+        setResults(localResults);
+        setLoading(false);
+        setLegacyAvailable(false);
+        return;
+      }
+    }
+    if (hasLocalMatters && options?.includeLegacy !== true) {
+      setResults([]);
       setLoading(false);
+      setLegacyAvailable(true);
       return;
     }
-    if (!resolvedFetcher) return;
     if (abortRef.current) abortRef.current.abort();
     const controller = new AbortController();
     abortRef.current = controller;
     setLoading(true);
-    resolvedFetcher(q, controller.signal)
-      .then(next => {
-        // Late responses for stale queries: drop.
+    try {
+      if (fetcher && resolvedFetcher) {
+        const next = await resolvedFetcher(q, controller.signal);
         if (latestQueryRef.current !== q) return;
         setResults(next);
-      })
-      .catch(() => { /* silent: abort or network */ })
-      .finally(() => {
-        if (latestQueryRef.current === q) setLoading(false);
-      });
-  }, [fetcher, matters, maxResults, minChars, resolvedFetcher]);
+        setLegacyAvailable(false);
+        return;
+      }
+
+      if (!hasLocalMatters) {
+        const currentResults = await fetchCurrentMatters(q, controller.signal, endpoint, maxResults);
+        if (latestQueryRef.current !== q) return;
+        if (currentResults.length > 0) {
+          setResults(currentResults);
+          setLegacyAvailable(false);
+          return;
+        }
+      }
+
+      const legacyResults = await fetchLegacyMatters(q, controller.signal, options?.includeLegacy ? maxResults : 1);
+      if (latestQueryRef.current !== q) return;
+      if (options?.includeLegacy) {
+        setResults(legacyResults);
+        setLegacyAvailable(false);
+      } else {
+        setResults([]);
+        setLegacyAvailable(legacyResults.length > 0);
+      }
+    } catch {
+      if (latestQueryRef.current !== q) return;
+      setResults([]);
+      setLegacyAvailable(false);
+    } finally {
+      if (latestQueryRef.current === q) setLoading(false);
+    }
+  }, [endpoint, fetcher, matters, maxResults, minChars, resolvedFetcher]);
 
   const handleChange = useCallback((val: string) => {
     onChange(val);
     setOpen(true);
     setActiveIndex(-1);
+    setIncludeLegacy(false);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => runQuery(val), debounceMs);
   }, [onChange, runQuery, debounceMs]);
+
+  const handleLegacyReveal = useCallback(() => {
+    const q = value.trim();
+    if (!q || q.length < minChars) return;
+    setIncludeLegacy(true);
+    setOpen(true);
+    setActiveIndex(-1);
+    void runQuery(q, { includeLegacy: true });
+  }, [minChars, runQuery, value]);
 
   const handleSelect = useCallback((option: MatterLookupOption) => {
     onSelect(option);
@@ -205,6 +301,10 @@ export default function MatterLookup({
   const text = isDarkMode ? '#f3f4f6' : colours.light.text;
   const muted = isDarkMode ? '#A0A0A0' : '#6B6B6B';
   const rowHover = isDarkMode ? 'rgba(135,243,243,0.12)' : '#d6e8ff';
+  const sourceChipBorder = isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(6,23,51,0.14)';
+  const sourceChipBg = isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(6,23,51,0.03)';
+  const shouldRenderDropdown = open && (value || '').trim().length >= minChars;
+  const emptyMessage = includeLegacy ? 'No legacy matters found.' : 'No current matters found.';
 
   return (
     <div
@@ -235,7 +335,7 @@ export default function MatterLookup({
           ...inputStyle,
         }}
       />
-      {open && (value || '').trim().length >= minChars && (loading || results.length > 0) && (
+      {shouldRenderDropdown && (
         <div
           role="listbox"
           style={{
@@ -256,8 +356,38 @@ export default function MatterLookup({
           {loading && results.length === 0 && (
             <div style={{ padding: '10px 12px', fontSize: 12, color: muted }}>Searching…</div>
           )}
+          {!loading && results.length === 0 && legacyAvailable && (
+            <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ fontSize: 11, color: muted }}>No current matters found.</div>
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={handleLegacyReveal}
+                style={{
+                  alignSelf: 'flex-start',
+                  padding: '5px 10px',
+                  background: 'transparent',
+                  border: `1px solid ${border}`,
+                  color: accent,
+                  fontSize: 10,
+                  fontWeight: 700,
+                  letterSpacing: '0.06em',
+                  textTransform: 'uppercase',
+                  fontFamily: 'Raleway, sans-serif',
+                  cursor: 'pointer',
+                  borderRadius: 0,
+                }}
+              >
+                Check legacy matters?
+              </button>
+            </div>
+          )}
+          {!loading && results.length === 0 && !legacyAvailable && (
+            <div style={{ padding: '10px 12px', fontSize: 11, color: muted }}>{emptyMessage}</div>
+          )}
           {results.map((r, idx) => {
             const isActive = idx === activeIndex;
+            const sourceLabel = r.source === 'legacy' ? 'Legacy' : 'Current';
             return (
               <div
                 key={`${r.key}-${idx}`}
@@ -275,7 +405,25 @@ export default function MatterLookup({
                   ...rowStyle,
                 }}
               >
-                <div style={{ fontWeight: 600, color: accent, fontSize: 12 }}>{r.displayNumber}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, color: accent, fontSize: 12, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.displayNumber}</div>
+                  <span
+                    style={{
+                      flexShrink: 0,
+                      fontSize: 8,
+                      fontWeight: 700,
+                      letterSpacing: '0.08em',
+                      textTransform: 'uppercase',
+                      padding: '2px 6px',
+                      border: `1px solid ${sourceChipBorder}`,
+                      background: sourceChipBg,
+                      color: muted,
+                      borderRadius: 0,
+                    }}
+                  >
+                    {sourceLabel}
+                  </span>
+                </div>
                 {(r.clientName || r.description) && (
                   <div style={{ fontSize: 11, color: muted, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {r.clientName}{r.clientName && r.description ? ' · ' : ''}{r.description}

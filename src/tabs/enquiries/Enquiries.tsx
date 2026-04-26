@@ -1745,7 +1745,17 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     // Subscribe to app shell's SSE stream instead of opening a duplicate EventSource.
     // The app shell (index.tsx) maintains the sole SSE connection to /api/enquiries-unified/stream
     // and broadcasts parsed events to registered listeners.
-    if (!subscribeToEnquiryStream || !isActive || !refreshRef.current) {
+    //
+    // 2026-04-24: do NOT gate on `isActive`. The component is kept-alive
+    // (mounted with display:none) when on other tabs — keeping the
+    // subscription open in the background means when the user returns,
+    // the dataset is already current. The just-arrived row pulse only
+    // fires when the user is actually looking at the table, because the
+    // diff effect that drives the animation only runs while the rows are
+    // visible (state mutations on hidden tabs still happen, but the user
+    // doesn't see the pre-pulse state, so the next visit just renders
+    // the latest set with no flash).
+    if (!subscribeToEnquiryStream || !refreshRef.current) {
       if (refreshTimerRef.current) {
         window.clearTimeout(refreshTimerRef.current);
         refreshTimerRef.current = null;
@@ -1814,7 +1824,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         refreshTimerRef.current = null;
       }
     };
-  }, [isActive, subscribeToEnquiryStream]);
+  }, [subscribeToEnquiryStream]);
 
   // Pulse polling — fallback for missed SSE events. Runs at 60s intervals.
   useEffect(() => {

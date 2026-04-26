@@ -204,6 +204,7 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
           width: 36,
           height: 36,
           minWidth: 36,
+          marginRight: 16,
           position: 'relative',
           flexShrink: 0,
         } as React.CSSProperties}

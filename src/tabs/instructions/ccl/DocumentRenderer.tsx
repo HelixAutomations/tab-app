@@ -27,6 +27,10 @@ interface DocumentRendererProps {
     fieldStates?: Record<string, DocumentFieldState>;
     fieldElementRefs?: React.MutableRefObject<Record<string, HTMLSpanElement | null>>;
     rootRef?: React.Ref<HTMLDivElement>;
+    /** Cross-pane hover wiring: the queue strip dot currently hovered (or null). */
+    hoveredFieldKey?: string | null;
+    /** Cross-pane hover wiring: notify parent when a placeholder span is hovered. */
+    onFieldHover?: (fieldKey: string | null) => void;
     /** Page break data: array of { beforeBlockId, pageNumber }. Drives A4 page gap rendering. */
     pageBreaks?: Array<{ beforeBlockId: string; pageNumber: number }>;
     /** Total page count — used for "Page N / Total" labels. */
@@ -55,6 +59,8 @@ interface RenderContext {
     onFieldValueChange?: (fieldKey: string, value: string) => void;
     fieldStates?: Record<string, DocumentFieldState>;
     fieldElementRefs?: React.MutableRefObject<Record<string, HTMLSpanElement | null>>;
+    hoveredFieldKey?: string | null;
+    onFieldHover?: (fieldKey: string | null) => void;
 }
 
 type DocumentSection = {
@@ -245,7 +251,7 @@ function renderLinkedText(text: string, keyPrefix: string): React.ReactNode {
         parts.push(text.slice(lastIndex));
     }
 
-    return <>{parts}</>;
+    return <React.Fragment key={`${keyPrefix}-group`}>{parts}</React.Fragment>;
 }
 
 function renderInlineContent(text: string, keyPrefix: string, context: RenderContext): React.ReactNode {
@@ -269,10 +275,63 @@ function renderInlineContent(text: string, keyPrefix: string, context: RenderCon
         const fieldState = context.fieldStates?.[fieldKey];
         const fieldElementRefs = context.fieldElementRefs;
         const statePresentation = buildFieldStatePresentation(fieldState, isInteractive, isActive);
+        const isCrossHovered = !!context.hoveredFieldKey && context.hoveredFieldKey === fieldKey;
         const titleText = [label, ...statePresentation.stateLabels].join(' · ');
         const inputWidth = rawValue
             ? `${Math.max(2, Math.min(rawValue.length + 0.5, 28))}ch`
-            : `${Math.max(4, Math.min(label.length, 12))}ch`;
+            : `${Math.max(8, Math.min(label.length + 2, 40))}ch`;
+        const activeCue = isActive ? (
+            <span
+                aria-hidden="true"
+                style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 5,
+                    marginLeft: isMultiLine ? 0 : 6,
+                    marginBottom: isMultiLine ? 6 : 0,
+                    padding: '2px 7px',
+                    background: 'rgba(214,232,255,0.78)',
+                    border: '1px solid rgba(54,144,206,0.3)',
+                    boxShadow: '0 1px 3px rgba(13,47,96,0.08)',
+                    lineHeight: 1.2,
+                    verticalAlign: 'text-top',
+                    position: 'relative',
+                    top: isMultiLine ? 0 : '-0.12em',
+                    whiteSpace: 'nowrap',
+                }}
+            >
+                <span
+                    style={{
+                        width: 6,
+                        height: 6,
+                        borderRadius: '50%',
+                        background: colours.highlight,
+                        flexShrink: 0,
+                    }}
+                />
+                <span
+                    style={{
+                        fontSize: 8.5,
+                        fontWeight: 700,
+                        color: '#0D2F60',
+                        letterSpacing: '0.08em',
+                        textTransform: 'uppercase',
+                    }}
+                >
+                    Reviewing
+                </span>
+                <span
+                    style={{
+                        fontSize: 9.5,
+                        fontWeight: 700,
+                        color: '#0f172a',
+                        letterSpacing: '0.01em',
+                    }}
+                >
+                    {label}
+                </span>
+            </span>
+        ) : null;
 
         parts.push(
             <span
@@ -280,10 +339,14 @@ function renderInlineContent(text: string, keyPrefix: string, context: RenderCon
                 ref={fieldElementRefs ? (node) => {
                     fieldElementRefs.current[fieldKey] = node;
                 } : undefined}
+                data-ccl-field-key={fieldKey}
+                className={isCrossHovered ? 'ccl-doc-placeholder is-cross-hovered' : 'ccl-doc-placeholder'}
                 onClick={isInteractive ? () => context.onFieldClick?.(fieldKey) : undefined}
+                onMouseEnter={context.onFieldHover ? () => context.onFieldHover?.(fieldKey) : undefined}
+                onMouseLeave={context.onFieldHover ? () => context.onFieldHover?.(null) : undefined}
                 title={isInteractive ? `Review ${titleText}` : titleText}
                 style={{
-                    background: isEditable ? 'transparent' : statePresentation.background,
+                    background: isEditable ? 'transparent' : (isCrossHovered ? 'rgba(135, 243, 243, 0.22)' : statePresentation.background),
                     color: statePresentation.color,
                     borderBottom: isEditable ? 'none' : statePresentation.borderBottom,
                     cursor: isInteractive ? 'pointer' : 'inherit',
@@ -295,12 +358,20 @@ function renderInlineContent(text: string, keyPrefix: string, context: RenderCon
                     maxWidth: isMultiLine ? '100%' : undefined,
                     margin: isMultiLine ? '4px 0' : undefined,
                     verticalAlign: isMultiLine ? 'middle' : undefined,
-                    boxShadow: isEditable ? 'none' : statePresentation.boxShadow,
+                    boxShadow: isEditable
+                        ? 'none'
+                        : (isCrossHovered
+                            ? '0 0 0 2px rgba(135, 243, 243, 0.55)'
+                            : isActive
+                                ? '0 0 0 2px rgba(54,144,206,0.18), inset 0 0 0 1px rgba(54,144,206,0.34)'
+                                : statePresentation.boxShadow),
                     transition: 'background-color 180ms ease, color 180ms ease, box-shadow 220ms ease, border-bottom-color 180ms ease',
                 }}
             >
                 {isEditable ? (
                     isMultiLine ? (
+                    <>
+                    {activeCue}
                     <textarea
                         value={String(context.fieldValues?.[fieldKey] || '')}
                         aria-label={label}
@@ -328,7 +399,9 @@ function renderInlineContent(text: string, keyPrefix: string, context: RenderCon
                             borderRadius: 0,
                         }}
                     />
+                    </>
                     ) : (
+                    <>
                     <input
                         type="text"
                         value={String(context.fieldValues?.[fieldKey] || '')}
@@ -354,9 +427,14 @@ function renderInlineContent(text: string, keyPrefix: string, context: RenderCon
                             borderRadius: 0,
                         }}
                     />
+                    {activeCue}
+                    </>
                     )
                 ) : (
-                    renderLinkedText(displayValue, `${keyPrefix}-${fieldKey}-value-${match.index}`)
+                    <>
+                    {renderLinkedText(displayValue, `${keyPrefix}-${fieldKey}-value-${match.index}`)}
+                    {activeCue}
+                    </>
                 )}
             </span>
         );
@@ -604,7 +682,7 @@ function renderSectionContent(lines: string[], sectionKey: string, context: Rend
     return elements;
 }
 
-export const DocumentRenderer = ({ template, fieldValues, interactiveFieldKeys = [], activeFieldKey = null, placeholderLabels, onFieldClick, editableFieldKey = null, onFieldValueChange, fieldStates, fieldElementRefs, rootRef, pageBreaks, totalPages, contentPaddingX = 52, contentPaddingY, firstPageHeader, firstPageFooter, currentPageNumber, hoveredPageNumber = null }: DocumentRendererProps) => {
+export const DocumentRenderer = ({ template, fieldValues, interactiveFieldKeys = [], activeFieldKey = null, placeholderLabels, onFieldClick, editableFieldKey = null, onFieldValueChange, fieldStates, fieldElementRefs, rootRef, hoveredFieldKey = null, onFieldHover, pageBreaks, totalPages, contentPaddingX = 52, contentPaddingY, firstPageHeader, firstPageFooter, currentPageNumber, hoveredPageNumber = null }: DocumentRendererProps) => {
     const sections = buildDocumentSections(template);
     const context: RenderContext = {
         fieldValues,
@@ -616,6 +694,8 @@ export const DocumentRenderer = ({ template, fieldValues, interactiveFieldKeys =
         onFieldValueChange,
         fieldStates,
         fieldElementRefs,
+        hoveredFieldKey,
+        onFieldHover,
     };
 
     const topLevelSectionRe = /^(\d+)\s+(.+)$/;

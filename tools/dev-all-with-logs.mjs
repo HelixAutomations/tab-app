@@ -334,7 +334,8 @@ async function main() {
     });
   }
 
-  // ── Staggered launch: backend first, then frontend after port 8080 is up ──
+  // ── Parallel launch: backend + frontend start together so cold backend
+  // stalls do not prevent webpack from compiling in the background. ──
   const backendItem = commands.find((c) => c.key === 'backend');
   const frontendItem = commands.find((c) => c.key === 'frontend');
 
@@ -359,30 +360,31 @@ async function main() {
   })();
 
   spawnCommand(backendItem);
-  announce('backend spawned — waiting for port 8080 before starting frontend…');
-
-  try {
-    await waitForPort(8080, '127.0.0.1', 240_000);
-    const readyMs = relMs(startedAtMs);
-    announce(`backend ready on port 8080 (+${readyMs}ms) — starting frontend`);
-  } catch {
-    announce('backend port 8080 wait timed out — starting frontend anyway', 'error');
-  }
-  // Make sure the az warmup promise doesn't trigger an unhandled rejection.
-  await azWarm.catch(() => {});
+  announce('backend spawned — starting frontend in parallel while backend warms…');
 
   spawnCommand(frontendItem);
-  announce('frontend spawned — webpack compiling (this takes ~60-90s)…');
+  announce('frontend spawned — webpack compiling (this now overlaps backend warmup)…');
 
-  // Watch for port 3000 to confirm frontend is ready (react-scripts' "Compiled
-  // successfully" message uses terminal control chars that get swallowed by pipes)
-  try {
-    await waitForPort(3000, '127.0.0.1', 180_000);
-    const readyMs = relMs(startedAtMs);
-    announce(`frontend ready on port 3000 (+${readyMs}ms) — open http://localhost:3000`, 'frontend');
-  } catch {
-    announce('frontend port 3000 wait timed out — check for compilation errors', 'error');
-  }
+  const backendReady = waitForPort(8080, '127.0.0.1', 240_000)
+    .then(() => {
+      const readyMs = relMs(startedAtMs);
+      announce(`backend ready on port 8080 (+${readyMs}ms)`);
+    })
+    .catch(() => {
+      announce('backend port 8080 wait timed out — check backend logs', 'error');
+    });
+
+  const frontendReady = waitForPort(3000, '127.0.0.1', 180_000)
+    .then(() => {
+      const readyMs = relMs(startedAtMs);
+      announce(`frontend ready on port 3000 (+${readyMs}ms) — open http://localhost:3000`, 'frontend');
+    })
+    .catch(() => {
+      announce('frontend port 3000 wait timed out — check for compilation errors', 'error');
+    });
+
+  // Make sure the az warmup promise does not trigger an unhandled rejection.
+  await Promise.allSettled([backendReady, frontendReady, azWarm.catch(() => {})]);
 }
 
 main().catch((error) => {

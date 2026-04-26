@@ -17,6 +17,7 @@ const {
   createCard: createHubTodoCard,
   reconcileAllByRef: reconcileHubTodoByRef,
 } = require('../utils/hubTodoLog');
+const { sendHelixEmail } = require('../utils/helixEmail');
 const router = express.Router();
 
 const TRANSIENT_SQL_CODES = new Set(['ESOCKET', 'ECONNCLOSED', 'ECONNRESET', 'ETIMEDOUT', 'ETIMEOUT']);
@@ -144,7 +145,6 @@ async function sendPayrollAnnualLeaveNotification({ req, leaveRecord, effectiveS
   const startedAt = Date.now();
   const requestId = String(leaveRecord?.request_id || '');
   const operation = 'annual-leave-payroll-email';
-  const baseUrl = `${req.protocol}://${req.get('host')}`;
   const person = String(leaveRecord?.fe || '').trim() || 'Unknown';
   const daysTaken = Number(leaveRecord?.days_taken);
   const safeDaysTaken = Number.isFinite(daysTaken) ? daysTaken : 0;
@@ -180,23 +180,24 @@ async function sendPayrollAnnualLeaveNotification({ req, leaveRecord, effectiveS
   `;
 
   try {
-    const emailResp = await fetch(`${baseUrl}/api/sendEmail`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+    const emailResult = await sendHelixEmail({
+      req,
+      route: 'server:/api/attendance/payroll-email',
+      body: {
         user_email: 'kw@helix-law.com',
         cc_emails: 'lz@helix-law.com',
         subject,
         email_contents: bodyHtml,
         from_email: 'automations@helix-law.com',
         skip_signature: true,
-      }),
+        contextLabel: 'Attendance payroll annual leave notification',
+        source: 'attendance-payroll',
+      },
     });
 
     const durationMs = Date.now() - startedAt;
-    if (!emailResp.ok) {
-      const emailErrorText = await emailResp.text();
-      const emailError = new Error(`Payroll annual leave email failed: ${emailResp.status} ${emailErrorText}`);
+    if (!emailResult.ok) {
+      const emailError = new Error(`Payroll annual leave email failed: ${emailResult.status || 500} ${emailResult.error || ''}`.trim());
       trackException(emailError, {
         operation,
         phase: 'send-email',

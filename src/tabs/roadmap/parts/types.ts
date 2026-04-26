@@ -2,7 +2,19 @@ export type FeedStatus = 'success' | 'error' | 'active' | 'info';
 
 export interface ActivityFeedItem {
   id: string;
-  source: 'teams.bot' | 'teams.card' | 'activity.cardlab' | 'activity.card.send' | 'teams.bot.action' | 'activity.dm.send';
+  source:
+    | 'teams.bot'
+    | 'teams.card'
+    | 'activity.cardlab'
+    | 'activity.card.send'
+    | 'teams.bot.action'
+    | 'activity.dm.send'
+    | 'activity.ccl.autopilot'
+    | 'forms.submission'
+    | 'ai.proposal'
+    | 'hub.todo'
+    | 'activity.email.search'
+    | 'activity.email.forward';
   sourceLabel: string;
   status: FeedStatus;
   title: string;

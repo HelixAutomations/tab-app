@@ -20,7 +20,7 @@ If {{handler}} is not available, the following members of staff may be able to d
 
 {{names_and_contact_details_of_other_members_of_staff_who_can_help_with_queries}}
 
-The person with overall responsibility for supervising your matter is {{name}}, who is a Partner.
+The person with overall responsibility for supervising your matter is {{name}}, who is a {{supervisor_role}}.
 
 2 Scope of services
 

@@ -17,7 +17,9 @@ const { getSecret } = require('../utils/getSecret');
 const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
 const { getClioAccessToken, CLIO_API_BASE } = require('../utils/clioAuth');
 const { generateWordFromJson } = require('../utils/wordGenerator.js');
-const { getCclContentById, getLatestCclContent, markCclUploaded } = require('../utils/cclPersistence');
+const { getCclContentById, getLatestCclContent, markCclUploaded, saveCclSent, updateCclStatus } = require('../utils/cclPersistence');
+const { sendHelixEmail } = require('../utils/helixEmail');
+const { resolveRequestActor } = require('../utils/requestActor');
 
 // CCL docx lives in public/ccls/{matterId}.docx (matches ccl.js)
 const CCL_DIR = path.join(process.cwd(), 'public', 'ccls');
@@ -122,6 +124,45 @@ async function getNetDocumentsAccessToken() {
 
   netDocumentsTokenCache = { token: accessToken, exp: now + (tokenData.expires_in || 3600) };
   return accessToken;
+}
+
+function safeParseJson(value, fallback = null) {
+  if (!value) return fallback;
+  if (typeof value === 'object') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
+
+function getAppBaseUrl() {
+  const explicitBase = String(process.env.PUBLIC_BASE_URL || '').trim();
+  if (explicitBase) return explicitBase.replace(/\/$/, '');
+
+  const port = process.env.PORT || 8080;
+  const isNamedPipe = typeof port === 'string' && port.startsWith('\\\\.\\pipe\\');
+  if (isNamedPipe && process.env.WEBSITE_HOSTNAME) {
+    return `https://${process.env.WEBSITE_HOSTNAME}`;
+  }
+
+  return `http://localhost:${port}`;
+}
+
+function normalizeInternalHelixEmail(value) {
+  const email = String(value || '').trim().toLowerCase();
+  if (!email || !email.endsWith('@helix-law.com')) return null;
+  return email;
+}
+
+function uniqueEmails(values) {
+  const seen = new Set();
+  return values.filter((value) => {
+    const email = String(value || '').trim().toLowerCase();
+    if (!email || seen.has(email)) return false;
+    seen.add(email);
+    return true;
+  });
 }
 
 async function resolveDemoNdWorkspace() {
@@ -857,6 +898,230 @@ router.post('/upload-nd', async (req, res) => {
       durationMs: String(durationMs),
     });
     return res.status(500).json({ ok: false, error: error.message || 'NetDocuments upload failed.' });
+  }
+});
+
+router.post('/mark-sent', async (req, res) => {
+  const { matterId, cclContentId, sentAt, channel } = req.body || {};
+  const startMs = Date.now();
+  const actor = resolveRequestActor(req);
+  const sentBy = actor && actor !== 'unknown' ? actor : 'Hub';
+
+  if (!matterId && !cclContentId) {
+    return res.status(400).json({ ok: false, error: 'matterId or cclContentId is required' });
+  }
+
+  try {
+    const latestContent = cclContentId
+      ? await getCclContentById(Number(cclContentId))
+      : await getLatestCclContent(String(matterId));
+
+    if (!latestContent?.CclContentId) {
+      return res.status(404).json({ ok: false, error: 'No CCL content found for mark-sent' });
+    }
+
+    const normalizedSentAt = sentAt ? new Date(sentAt) : new Date();
+    if (Number.isNaN(normalizedSentAt.getTime())) {
+      return res.status(400).json({ ok: false, error: 'Invalid sentAt value' });
+    }
+
+    const sendChannel = String(channel || 'manual').trim() || 'manual';
+    const matterRef = String(latestContent.MatterId || matterId || '');
+    const provenance = safeParseJson(latestContent.ProvenanceJson, {});
+
+    trackEvent('CCL.Sent.Started', {
+      matterId: matterRef,
+      cclContentId: String(latestContent.CclContentId),
+      triggeredBy: sentBy,
+      channel: sendChannel,
+    });
+
+    const sentId = await saveCclSent({
+      cclContentId: latestContent.CclContentId,
+      sentBy,
+      sentAt: normalizedSentAt,
+      channel: sendChannel,
+    });
+    if (!sentId) {
+      throw new Error('Failed to persist sent row');
+    }
+    await updateCclStatus(matterRef, 'sent', { actor: sentBy }).catch(() => null);
+
+    const durationMs = Date.now() - startMs;
+    trackEvent('CCL.Sent.Recorded', {
+      matterId: matterRef,
+      cclContentId: String(latestContent.CclContentId),
+      sentId: String(sentId || ''),
+      sentBy,
+      channel: sendChannel,
+      promptVersion: String(provenance?.promptVersion || provenance?.ai?.promptVersion || ''),
+      templateVersion: String(latestContent.TemplateVersion || provenance?.templateVersion || ''),
+      durationMs: String(durationMs),
+    });
+    trackMetric('CCL.Sent.Duration', durationMs, { matterId: matterRef, channel: sendChannel });
+
+    return res.json({
+      ok: true,
+      sentId,
+      cclContentId: latestContent.CclContentId,
+      matterId: matterRef,
+      sentAt: normalizedSentAt.toISOString(),
+      sentBy,
+      channel: sendChannel,
+      sentChannel: sendChannel,
+    });
+  } catch (error) {
+    const durationMs = Date.now() - startMs;
+    trackException(error, { operation: 'CCL.Sent', matterId: String(matterId || ''), cclContentId: String(cclContentId || '') });
+    trackEvent('CCL.Sent.Failed', {
+      matterId: String(matterId || ''),
+      cclContentId: String(cclContentId || ''),
+      sentBy,
+      durationMs: String(durationMs),
+      error: error.message,
+    });
+    return res.status(500).json({ ok: false, error: 'Failed to record sent event' });
+  }
+});
+
+router.post('/send-to-client', async (req, res) => {
+  const { matterId, cclContentId } = req.body || {};
+  const startMs = Date.now();
+  const actor = resolveRequestActor(req);
+  const sentBy = actor && actor !== 'unknown' ? actor : 'Hub';
+
+  if (!matterId && !cclContentId) {
+    return res.status(400).json({ ok: false, error: 'matterId or cclContentId is required' });
+  }
+
+  try {
+    const latestContent = cclContentId
+      ? await getCclContentById(Number(cclContentId))
+      : await getLatestCclContent(String(matterId));
+
+    if (!latestContent?.CclContentId) {
+      return res.status(404).json({ ok: false, error: 'No CCL content found for guarded send' });
+    }
+
+    const fields = safeParseJson(latestContent.FieldsJson, {}) || {};
+    const matterRef = String(latestContent.MatterId || matterId || '').trim();
+    const matterDisplayNumber = String(fields.matter || matterRef || '').trim() || matterRef;
+    const clientName = String(latestContent.ClientName || fields.insert_clients_name || 'Client').trim() || 'Client';
+    const feeEarnerName = String(latestContent.FeeEarner || fields.name_of_person_handling_matter || 'Fee earner').trim() || 'Fee earner';
+    const feeEarnerEmail = normalizeInternalHelixEmail(latestContent.FeeEarnerEmail || fields.fee_earner_email || '');
+
+    if (!feeEarnerEmail) {
+      return res.status(409).json({ ok: false, error: 'Fee earner internal email is required before guarded send can run' });
+    }
+
+    const toRecipients = ['lz@helix-law.com'];
+    const ccRecipients = uniqueEmails([feeEarnerEmail, 'ac@helix-law.com']).filter((email) => !toRecipients.includes(email));
+    const clientEmail = String(latestContent.ClientEmail || fields.client_email || '').trim();
+    const baseUrl = getAppBaseUrl();
+    const reviewUrl = `${baseUrl}/?tab=operations&cclMatter=${encodeURIComponent(matterRef)}&autoReview=1`;
+    const documentUrl = `${baseUrl}/ccls/${encodeURIComponent(matterRef)}.docx`;
+    const subject = `[Internal only] CCL ready for ${matterDisplayNumber}`;
+    const bodyHtml = `
+      <div data-no-signature="true">
+        <p><strong>Internal only:</strong> this send path is hard-guarded and the client was not emailed.</p>
+        <p>The CCL for <strong>${matterDisplayNumber}</strong> (${clientName}) is ready. Luke is the only To recipient while the send path is under guard. Alex and the fee earner are copied for confidence and supervision.</p>
+        <ul>
+          <li><strong>Matter:</strong> ${matterDisplayNumber}</li>
+          <li><strong>Client:</strong> ${clientName}</li>
+          <li><strong>Fee earner:</strong> ${feeEarnerName} (${feeEarnerEmail})</li>
+          <li><strong>Uploaded to NetDocuments:</strong> ${latestContent.UploadedToNd ? 'Yes' : 'Not yet'}</li>
+        </ul>
+        <p><a href="${reviewUrl}" target="_blank" rel="noopener noreferrer">Open CCL review</a></p>
+        <p><a href="${documentUrl}" target="_blank" rel="noopener noreferrer">Open generated DOCX</a></p>
+        <p>When the client send path is enabled later, the client address will move into <strong>To:</strong> and the fee earner will remain copied.</p>
+      </div>
+    `;
+
+    trackEvent('CCL.SendToClient.Guarded.Started', {
+      matterId: matterRef,
+      cclContentId: String(latestContent.CclContentId),
+      triggeredBy: sentBy,
+      toCount: String(toRecipients.length),
+      ccCount: String(ccRecipients.length),
+      clientExcluded: clientEmail ? 'true' : 'false',
+    });
+
+    const emailResult = await sendHelixEmail({
+      req,
+      route: 'server:/api/ccl-ops/send-to-client',
+      body: {
+        user_email: toRecipients.join(';'),
+        cc_emails: ccRecipients.join(';'),
+        subject,
+        email_contents: bodyHtml,
+        from_email: 'automations@helix-law.com',
+        skip_signature: true,
+        matterRef,
+        instructionRef: latestContent.InstructionRef || null,
+        contextLabel: 'CCL guarded internal send',
+        template_name: 'ccl-guarded-internal-send',
+        source: 'ccl-guarded-send',
+      },
+    });
+
+    if (!emailResult.ok) {
+      throw new Error(emailResult.error || `Guarded send failed (${emailResult.status || 500})`);
+    }
+
+    const normalizedSentAt = new Date();
+    const sentId = await saveCclSent({
+      cclContentId: latestContent.CclContentId,
+      sentBy,
+      sentAt: normalizedSentAt,
+      channel: 'internal-guarded',
+    });
+    if (!sentId) {
+      throw new Error('Failed to persist guarded sent row');
+    }
+
+    await updateCclStatus(matterRef, 'sent', { actor: sentBy }).catch(() => null);
+
+    const durationMs = Date.now() - startMs;
+    trackEvent('CCL.SendToClient.Guarded.Completed', {
+      matterId: matterRef,
+      cclContentId: String(latestContent.CclContentId),
+      sentId: String(sentId),
+      sentBy,
+      toCount: String(toRecipients.length),
+      ccCount: String(ccRecipients.length),
+      clientExcluded: clientEmail ? 'true' : 'false',
+      durationMs: String(durationMs),
+    });
+    trackMetric('CCL.SendToClient.Guarded.Duration', durationMs, { matterId: matterRef });
+
+    return res.json({
+      ok: true,
+      sentId,
+      cclContentId: latestContent.CclContentId,
+      matterId: matterRef,
+      sentAt: normalizedSentAt.toISOString(),
+      sentBy,
+      sentChannel: 'internal-guarded',
+      recipients: {
+        to: toRecipients,
+        cc: ccRecipients,
+      },
+      guard: {
+        clientExcluded: true,
+        lockedTo: toRecipients,
+      },
+    });
+  } catch (error) {
+    const durationMs = Date.now() - startMs;
+    trackException(error, { operation: 'CCL.SendToClient.Guarded', matterId: String(matterId || ''), cclContentId: String(cclContentId || '') });
+    trackEvent('CCL.SendToClient.Guarded.Failed', {
+      matterId: String(matterId || ''),
+      cclContentId: String(cclContentId || ''),
+      sentBy,
+      durationMs: String(durationMs),
+      error: error.message,
+    });
+    return res.status(500).json({ ok: false, error: error.message || 'Guarded send failed' });
   }
 });
 

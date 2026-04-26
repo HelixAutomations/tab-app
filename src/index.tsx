@@ -18,6 +18,7 @@ import { clearRequestAuthContext, writeRequestAuthContext } from "./utils/reques
 import { disposeOnHmr, onServerBounced } from "./utils/devHmr";
 import { stampBuildAttribute, registerWayfindingDebugApi } from "./utils/devWayfinding";
 import { useDevServerBoot } from "./hooks/useDevServerBoot";
+import { useRealtimeChannel } from "./hooks/useRealtimeChannel";
 const WayfindingOverlay = process.env.NODE_ENV !== 'production'
   ? lazy(() => import('./components/dev/WayfindingOverlay'))
   : null;
@@ -1481,7 +1482,7 @@ const AppWithContext: React.FC = () => {
   }, [userData]);
 
   // Refresh matters function - clears local caches and fetches normalized matters for current user
-  const refreshMatters = async () => {
+  const refreshMatters = React.useCallback(async () => {
     if (!userData || !userData[0]) return;
     actionLog.start('Matters refresh');
 
@@ -1508,7 +1509,7 @@ const AppWithContext: React.FC = () => {
       console.error('❌ Error refreshing matters:', err);
       actionLog.warn('Matters refresh failed');
     }
-  };
+  }, [userData, teamData]);
 
   // Pipeline SSE → patch matters in-place (same pattern as instruction patching in App.tsx).
   // Reacts to matter.opened / matter.closed events so the Matters tab updates without manual refresh.
@@ -1590,6 +1591,77 @@ const AppWithContext: React.FC = () => {
 
     return unsubscribe;
   }, [subscribeToPipelineStream]);
+
+  // 2026-04-24: realtime safety net for matters across the whole app.
+  //
+  // The pipeline SSE only patches matters opened *in this session*. The
+  // matters SSE channel (`/api/matters/stream`) covers everything else
+  // (Clio webhook, another user opening a matter, server scheduler).
+  //
+  // Home.tsx also subscribes for the tile pulse, but its subscription is
+  // gated to `isActive` (Home being the active tab). When the user
+  // navigates to the Matters tab Home goes inactive and that channel
+  // closes — defeating the purpose. The shared connection registry in
+  // useRealtimeChannel dedupes by URL, so adding a parallel always-on
+  // subscription here keeps the single underlying EventSource alive
+  // regardless of which tab is active. No extra network cost.
+  //
+  // Page-visibility gating: we only want to pay the cost while the tab
+  // is actually visible. The browser will replay missed events on
+  // reconnect (server keeps a small buffer via Last-Event-ID), and the
+  // refresh on reconnect will catch any drift.
+  const [isPageVisible, setIsPageVisible] = React.useState(() =>
+    typeof document !== 'undefined' ? document.visibilityState !== 'hidden' : true,
+  );
+  React.useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const onVis = () => setIsPageVisible(document.visibilityState !== 'hidden');
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, []);
+
+  const mattersRefreshInFlight = React.useRef(false);
+  const mattersRefreshTimer = React.useRef<number | null>(null);
+  const requestMattersRefresh = React.useCallback(() => {
+    if (mattersRefreshTimer.current != null) {
+      window.clearTimeout(mattersRefreshTimer.current);
+    }
+    mattersRefreshTimer.current = window.setTimeout(async () => {
+      mattersRefreshTimer.current = null;
+      if (mattersRefreshInFlight.current) return;
+      if (!userData || !userData[0]) return;
+      mattersRefreshInFlight.current = true;
+      try {
+        await refreshMatters();
+      } finally {
+        mattersRefreshInFlight.current = false;
+      }
+    }, 600);
+  }, [userData, refreshMatters]);
+
+  // Cleanup the pending timer on unmount so we never call refresh against
+  // an unmounted tree.
+  React.useEffect(() => () => {
+    if (mattersRefreshTimer.current != null) {
+      window.clearTimeout(mattersRefreshTimer.current);
+      mattersRefreshTimer.current = null;
+    }
+  }, []);
+
+  // The shared registry will collapse this with Home's subscription into a
+  // single EventSource. When Home unsubscribes (user on another tab), this
+  // keeps it alive; when both subscribe, only one connection exists.
+  useRealtimeChannel('/api/matters/stream', {
+    event: 'matters.changed',
+    name: 'matters-app-shell',
+    enabled: !!(userData && userData[0]) && isPageVisible,
+    onChange: () => {
+      requestMattersRefresh();
+      // Re-emit the legacy window event so other listeners (e.g. Home tile
+      // pulse) still get notified independently of which subscription fires.
+      try { window.dispatchEvent(new CustomEvent('helix:mattersChanged')); } catch { /* ignore */ }
+    },
+  });
 
   // Update user data when local areas change
   const updateLocalUserData = (areas: string[]) => {

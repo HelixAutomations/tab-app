@@ -2,6 +2,9 @@
     "name": "tab-app-server",
     "version": "1.0.0",
     "main": "index.js",
+    "engines": {
+        "node": "20 || 22"
+    },
     "scripts": {
         "start": "node index.js"
     },

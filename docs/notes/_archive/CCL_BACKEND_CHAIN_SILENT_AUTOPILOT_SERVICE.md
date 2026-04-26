@@ -183,6 +183,8 @@ Scripts / docs:
 ```yaml
 # Stash metadata
 id: ccl-backend-chain-silent-autopilot-service
+shipped: true
+shipped_on: 2026-04-24
 verified: 2026-04-19
 branch: main
 touches:

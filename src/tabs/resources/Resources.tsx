@@ -14,6 +14,7 @@ import { app } from '@microsoft/teams-js';
 import { colours } from '../../app/styles/colours';
 import BespokePanel from '../../app/functionality/BespokePanel';
 import ResourceCard from './ResourceCard';
+import TemplatesSection from './sections/TemplatesSection';
 import { sharedSearchBoxContainerStyle, sharedSearchBoxStyle } from '../../app/styles/FilterStyles';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { useNavigatorActions } from '../../app/functionality/NavigatorContext';
@@ -1098,7 +1099,7 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
   }, [selectedResource, asanaTeams.length, asanaTeamsLoading, fetchAsanaTeams]);
 
   return (
-    <div className={containerStyle(isDarkMode)}>
+    <div className={containerStyle(isDarkMode)} data-helix-region="tab/resources">
       {/* Header */}
       <header className={headerStyle(isDarkMode)}>
         {/* Search Box */}
@@ -1115,6 +1116,8 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
 
       {/* Main Content */}
       <main className={mainContentStyle(isDarkMode)}>
+        <TemplatesSection isDarkMode={isDarkMode} />
+
         {/* Render Favorites Section Only if There are Favorites */}
         {filteredSections.Favorites.length > 0 && (
           <section key="Favorites" className={sectionStyle(isDarkMode)}>
@@ -1154,7 +1157,7 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
         {filteredSections.WithIcons.length > 0 && (
           <section key="WithIcons" className={sectionStyle(isDarkMode)}>
             <Text variant="large" className={sectionHeaderStyleCustom(isDarkMode)}>
-              Resources
+              Quick links
             </Text>
             <div className={resourceGridStyle}>
               {filteredSections.WithIcons.map((resource: Resource, index: number) => {

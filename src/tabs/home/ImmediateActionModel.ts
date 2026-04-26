@@ -59,6 +59,8 @@ export interface TodoExpansion {
   actions?: TodoExpansionAction[];
 }
 
+export type HomeImmediateActionTier = 'primary' | 'secondary';
+
 export interface HomeImmediateAction {
   title: string;
   onClick: () => void;
@@ -69,6 +71,8 @@ export interface HomeImmediateAction {
   totalCount?: number;
   subtitle?: string;
   meta?: ImmediateActionMeta;
+  /** Secondary rows are quiet nudges that fill spare panel space under real tasks. */
+  tier?: HomeImmediateActionTier;
   /** Phase E: optional read-then-act pane surfaced inline under the row. */
   expansion?: TodoExpansion;
 }

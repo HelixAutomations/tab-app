@@ -61,7 +61,7 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
 }) => {
   const { isDarkMode: contextDarkMode } = useTheme();
   const isDark = contextDarkMode ?? propDarkMode ?? false;
-  const [showSuccess, setShowSuccess] = useState(false);
+  const [completionToastCount, setCompletionToastCount] = useState(0);
   const [allowEmptyState, setAllowEmptyState] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
@@ -71,11 +71,17 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
   const hasRenderedLive = useRef(false);
   const sectionRef = useRef<HTMLDivElement | null>(null);
   const chipGridRef = useRef<HTMLDivElement | null>(null);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
   const [layoutMode, setLayoutMode] = useState<'flow' | 'split' | 'stacked' | 'single'>('flow');
   const [chipGridHeight, setChipGridHeight] = useState<number>(0);
+  const [bodyHeight, setBodyHeight] = useState<number>(0);
 
   const actions = immediateActionsList;
+  const primaryActions = actions.filter((action) => action.tier !== 'secondary');
+  const secondaryActions = actions.filter((action) => action.tier === 'secondary');
+  const hasPrimaryActions = primaryActions.length > 0;
   const isCompact = layoutMode === 'stacked' || layoutMode === 'single';
+  const previousPrimaryCountRef = useRef(primaryActions.length);
 
   // Single-open contract: only one panel row's expansion pane can be visible
   // at a time. Opening another auto-collapses the previous. Keeps the To Do
@@ -84,8 +90,8 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
 
   // Collapse back to strip when actions disappear while expanded
   useEffect(() => {
-    if (actions.length === 0 && expanded) setExpanded(false);
-  }, [actions.length, expanded]);
+    if (primaryActions.length === 0 && expanded) setExpanded(false);
+  }, [primaryActions.length, expanded]);
 
   // If the expanded row is no longer in the list, clear it.
   useEffect(() => {
@@ -133,12 +139,25 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
     return () => observer.disconnect();
   }, []);
 
+  useEffect(() => {
+    const element = bodyRef.current;
+    if (!element) return;
+    const updateHeight = (height: number) => setBodyHeight(Math.ceil(height));
+    updateHeight(element.getBoundingClientRect().height);
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        updateHeight(entry.contentRect.height);
+      }
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
   const toggleExpanded = useCallback(() => setExpanded(prev => !prev), []);
 
   // Progressive display: show chips the moment they exist, don't wait for
   // all deps to finish. Skeletons only when the list is empty AND still loading.
   const stillLoading = !immediateActionsReady;
-  const hasActions = actions.length > 0;
 
   // Avoid flicker: keep skeletons briefly when ready-but-empty, to allow
   // attendance/instructions derived actions to appear without showing empty state first.
@@ -148,7 +167,7 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
       hasRenderedLive.current = false;
       return;
     }
-    if (hasActions) {
+    if (hasPrimaryActions) {
       setAllowEmptyState(true);
       return;
     }
@@ -161,12 +180,12 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
     // we're mid-recovery, it gives downstream sources time to populate.
     const timer = setTimeout(() => setAllowEmptyState(true), 1200);
     return () => clearTimeout(timer);
-  }, [immediateActionsReady, hasActions]);
+  }, [immediateActionsReady, hasPrimaryActions]);
 
   // Show skeletons only when we have no actions yet and data is still arriving
-  const showSkeletons = !hasActions && stillLoading;
+  const showSkeletons = !hasPrimaryActions && stillLoading;
   // Show chips whenever they exist — even if more data is still loading
-  const showChips = hasActions;
+  const showChips = hasPrimaryActions;
   const shouldWrapChipText = layoutMode === 'stacked' || layoutMode === 'single';
   const chipGridTemplateColumns = layoutMode === 'single'
     ? '1fr'
@@ -176,15 +195,25 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
         ? 'repeat(auto-fit, minmax(190px, 1fr))'
         : 'repeat(auto-fit, minmax(180px, 1fr))';
 
-  // Show success briefly when loading completes with no actions
-  // (only after settling delay, so it doesn't flash during transient empty state)
   useEffect(() => {
-    if (immediateActionsReady && allowEmptyState && actions.length === 0) {
-      setShowSuccess(true);
-      const timer = setTimeout(() => setShowSuccess(false), 2000);
+    if (!immediateActionsReady) {
+      previousPrimaryCountRef.current = primaryActions.length;
+      return;
+    }
+
+    const previousCount = previousPrimaryCountRef.current;
+    if (previousCount > primaryActions.length) {
+      const completedCount = previousCount - primaryActions.length;
+      setCompletionToastCount(completedCount);
+      const timer = setTimeout(() => {
+        setCompletionToastCount(0);
+      }, 1550);
+      previousPrimaryCountRef.current = primaryActions.length;
       return () => clearTimeout(timer);
     }
-  }, [immediateActionsReady, allowEmptyState, actions.length]);
+
+    previousPrimaryCountRef.current = primaryActions.length;
+  }, [immediateActionsReady, primaryActions.length]);
 
   // Mark first live render done after this render cycle completes
   useEffect(() => {
@@ -194,8 +223,28 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
     }
   }, [showChips]);
 
+  const expandedAction = actions.find((action, index) => (action.meta?.actionId ?? `${action.title}-${index}`) === expandedActionKey);
+  const hasExpandedPrimaryAction = Boolean(expandedActionKey && expandedAction?.tier !== 'secondary');
+  const fallbackSecondaryCount = primaryActions.length === 0
+    ? Math.min(secondaryActions.length, 3)
+    : Math.max(0, Math.min(secondaryActions.length, 4 - primaryActions.length));
+  const secondaryVisibleCount = !seamless
+    ? 0
+    : hasExpandedPrimaryAction
+      ? 0
+      : (() => {
+          if (secondaryActions.length === 0) return 0;
+          if (!bodyHeight) return fallbackSecondaryCount;
+          if (primaryActions.length === 0) {
+            return Math.min(secondaryActions.length, Math.max(1, Math.min(3, Math.floor(bodyHeight / 46))));
+          }
+          const slackHeight = bodyHeight - (primaryActions.length * 54);
+          return Math.min(secondaryActions.length, Math.max(0, Math.min(3, Math.floor(slackHeight / 44))));
+        })();
+  const visibleSecondaryActions = secondaryActions.slice(0, secondaryVisibleCount);
+
   // Empty state — on compact (small screens), render nothing to reclaim space
-  if (immediateActionsReady && allowEmptyState && actions.length === 0) {
+  if (immediateActionsReady && allowEmptyState && primaryActions.length === 0 && visibleSecondaryActions.length === 0) {
     if (isCompact && !seamless) return null;
     return (
       <Section isDark={isDark} seamless={seamless} quiet>
@@ -206,15 +255,15 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
     );
   }
 
-  const totalCount = actions.reduce((sum, a) => sum + (a.count ?? 1), 0);
+  const totalCount = primaryActions.reduce((sum, a) => sum + (a.count ?? 1), 0);
 
   // Responsive props driven by ResizeObserver layoutMode (no CSS media queries)
   const hideChipChevron = layoutMode !== 'flow';
-  const shrinkSingleAction = actions.length === 1 && !showSkeletons;
+  const shrinkSingleAction = primaryActions.length === 1 && !showSkeletons;
 
   // ── Compact strip mode (≤720px) — skip when seamless (panel fills parent) ─
-  if (isCompact && hasActions && !seamless) {
-    const compactSummary = buildCompactSummary(actions);
+  if (isCompact && hasPrimaryActions && !seamless) {
+    const compactSummary = buildCompactSummary(primaryActions);
 
     return (
       <Section isDark={isDark} seamless={seamless} highlighted={highlighted} compact>
@@ -305,7 +354,7 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
                 paddingBottom: 4,
               }}
             >
-              {actions.map((action, idx) => {
+              {primaryActions.map((action, idx) => {
                 const shouldAnimate = !hasRenderedLive.current && expanded;
                 return (
                   <div
@@ -355,9 +404,9 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
         {!seamless && (
           <HeaderRow layoutMode={layoutMode}>
             <SectionLabel isDark={isDark} />
-            {actions.length > 0 && <CountBadge isDark={isDark}>{totalCount}</CountBadge>}
+            {primaryActions.length > 0 && <CountBadge isDark={isDark}>{totalCount}</CountBadge>}
             {!immediateActionsReady && <Spinner isDark={isDark} />}
-            {showSuccess && <SuccessCheck />}
+            {completionToastCount > 0 && <CompletionToast isDark={isDark} count={completionToastCount} />}
             {scopeSlot && <div style={{ marginLeft: 'auto' }}>{scopeSlot}</div>}
           </HeaderRow>
         )}
@@ -368,15 +417,15 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
             this strip when there's actually something transient to show
             (loading or post-action checkmark) so the rows can sit at the top
             of the card body in the steady state. */}
-        {seamless && (!immediateActionsReady || showSuccess || scopeSlot) && (
+        {seamless && (!immediateActionsReady || completionToastCount > 0 || scopeSlot) && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
             {!immediateActionsReady && <Spinner isDark={isDark} />}
-            {showSuccess && <SuccessCheck />}
+            {completionToastCount > 0 && <CompletionToast isDark={isDark} count={completionToastCount} />}
             {scopeSlot && <div style={{ marginLeft: 'auto' }}>{scopeSlot}</div>}
           </div>
         )}
 
-        <div style={{
+        <div ref={bodyRef} style={{
           display: 'flex',
           flexDirection: seamless ? 'column' as const : undefined as any,
           ...(seamless ? {} : {
@@ -413,7 +462,7 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
             )
           )}
 
-          {showChips && actions.map((action, idx) => {
+          {showChips && primaryActions.map((action, idx) => {
             const shouldAnimate = !hasRenderedLive.current;
             const key = action.meta?.actionId ?? `${action.title}-${idx}`;
             return seamless ? (
@@ -450,6 +499,46 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
             </div>
             );
           })}
+
+          {seamless && visibleSecondaryActions.length > 0 && (
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 4,
+              marginTop: primaryActions.length > 0 ? 6 : 0,
+              paddingTop: primaryActions.length > 0 ? 8 : 0,
+              paddingBottom: 2,
+              paddingInline: 2,
+              borderRadius: 2,
+              borderTop: primaryActions.length > 0
+                ? `1px solid ${isDark ? withAlpha(colours.dark.border, 0.32) : withAlpha(colours.helixBlue, 0.1)}`
+                : 'none',
+              background: primaryActions.length > 0
+                ? (isDark
+                  ? `linear-gradient(180deg, ${withAlpha(colours.darkBlue, 0.16)} 0%, transparent 100%)`
+                  : `linear-gradient(180deg, ${withAlpha(colours.highlightBlue, 0.18)} 0%, transparent 100%)`)
+                : 'transparent',
+              animation: 'iabSecondaryLaneIn 0.24s cubic-bezier(0.16, 1, 0.3, 1) both',
+            }}>
+              <SecondarySectionLabel isDark={isDark} />
+              {visibleSecondaryActions.map((action, idx) => {
+                const key = action.meta?.actionId ?? `${action.title}-secondary-${idx}`;
+                return (
+                  <PanelActionRow
+                    key={key}
+                    action={action}
+                    isDark={isDark}
+                    shouldAnimate={!hasRenderedLive.current && primaryActions.length === 0}
+                    animDelay={idx * 0.03}
+                    expanded={expandedActionKey === key}
+                    onToggleExpanded={() => {
+                      setExpandedActionKey((prev) => (prev === key ? null : key));
+                    }}
+                  />
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     </Section>
@@ -499,23 +588,29 @@ const PanelActionRow: React.FC<{
   const [hovered, setHovered] = React.useState(false);
   const canExpand = Boolean(action.expansion);
   const ChipIcon = getChipIcon(action.icon);
+  const isSecondary = action.tier === 'secondary';
   const category: ImmediateActionCategory = action.category || 'critical';
-  const categoryAccent = category === 'success'
+  const baseAccent = category === 'success'
     ? colours.green
     : category === 'warning'
       ? colours.orange
       : category === 'standard'
         ? (isDark ? colours.accent : colours.blue)
         : colours.cta;
+  const categoryAccent = isSecondary ? withAlpha(baseAccent, isDark ? 0.78 : 0.65) : baseAccent;
 
   const text = isDark ? colours.dark.text : colours.light.text;
   const textMuted = isDark ? colours.subtleGrey : colours.greyText;
-  const surface = isDark
-    ? withAlpha(colours.darkBlue, 0.6)
-    : withAlpha(colours.highlightBlue, 0.25);
-  const hoverSurface = isDark
-    ? `linear-gradient(135deg, ${withAlpha(categoryAccent, 0.1)} 0%, ${withAlpha(colours.darkBlue, 0.7)} 100%)`
-    : `linear-gradient(135deg, ${withAlpha(categoryAccent, 0.07)} 0%, ${withAlpha(colours.highlightBlue, 0.3)} 100%)`;
+  const surface = isSecondary
+    ? (isDark ? withAlpha(colours.darkBlue, 0.38) : withAlpha(colours.highlightBlue, 0.14))
+    : (isDark ? withAlpha(colours.darkBlue, 0.6) : withAlpha(colours.highlightBlue, 0.25));
+  const hoverSurface = isSecondary
+    ? (isDark
+      ? `linear-gradient(135deg, ${withAlpha(categoryAccent, 0.06)} 0%, ${withAlpha(colours.darkBlue, 0.46)} 100%)`
+      : `linear-gradient(135deg, ${withAlpha(categoryAccent, 0.04)} 0%, ${withAlpha(colours.highlightBlue, 0.18)} 100%)`)
+    : (isDark
+      ? `linear-gradient(135deg, ${withAlpha(categoryAccent, 0.1)} 0%, ${withAlpha(colours.darkBlue, 0.7)} 100%)`
+      : `linear-gradient(135deg, ${withAlpha(categoryAccent, 0.07)} 0%, ${withAlpha(colours.highlightBlue, 0.3)} 100%)`);
   // Removed the 1px outer border — combined with the 3px borderLeft accent it
   // visibly framed the card, making loaded rows read as inset compared to the
   // flat skeleton bars. Hover lift + box-shadow already signal interactivity.
@@ -562,19 +657,19 @@ const PanelActionRow: React.FC<{
         flexDirection: 'column',
         background: hovered ? hoverSurface : surface,
         border,
-        borderLeft: `3px solid ${categoryAccent}`,
+        borderLeft: `${isSecondary ? 2 : 3}px solid ${categoryAccent}`,
         boxSizing: 'border-box',
         borderRadius: 2,
         opacity: action.disabled ? 0.5 : 1,
         fontFamily: 'var(--font-primary)',
         transition: 'all 0.15s ease',
-        boxShadow: hovered ? `0 2px 8px ${withAlpha(categoryAccent, isDark ? 0.12 : 0.06)}` : 'none',
-        transform: hovered ? 'translateY(-0.5px)' : 'none',
+        boxShadow: hovered ? `0 2px 8px ${withAlpha(categoryAccent, isDark ? (isSecondary ? 0.08 : 0.12) : (isSecondary ? 0.04 : 0.06))}` : 'none',
+        transform: hovered ? `translateY(${isSecondary ? '-0.25px' : '-0.5px'})` : 'none',
         animation: shouldAnimate ? `iabChipIn 0.22s ease ${animDelay}s both` : 'none',
         overflow: 'hidden',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', minHeight: 48, width: '100%' }}>
+      <div style={{ display: 'flex', alignItems: 'center', minHeight: isSecondary ? 42 : 48, width: '100%' }}>
         <button
           type="button"
           onClick={handleMainClick}
@@ -585,8 +680,8 @@ const PanelActionRow: React.FC<{
             alignItems: 'center',
             gap: 10,
             minWidth: 0,
-            minHeight: 48,
-            padding: '10px 0 10px 12px',
+            minHeight: isSecondary ? 42 : 48,
+            padding: isSecondary ? '8px 0 8px 11px' : '10px 0 10px 12px',
             background: 'transparent',
             border: 'none',
             cursor: action.disabled ? 'not-allowed' : 'pointer',
@@ -597,13 +692,13 @@ const PanelActionRow: React.FC<{
         >
           {/* Icon circle */}
           <div style={{
-            width: 26,
-            height: 26,
+            width: isSecondary ? 24 : 26,
+            height: isSecondary ? 24 : 26,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             flexShrink: 0,
-            background: withAlpha(categoryAccent, isDark ? 0.12 : 0.08),
+            background: withAlpha(categoryAccent, isDark ? (isSecondary ? 0.08 : 0.12) : (isSecondary ? 0.05 : 0.08)),
             borderRadius: 2,
             color: categoryAccent,
             transition: 'background 0.15s ease',
@@ -638,7 +733,7 @@ const PanelActionRow: React.FC<{
           {/* Title + (optional) subtitle */}
           <div style={{ flex: 1, minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', gap: 1 }}>
             <div style={{
-              fontSize: 12,
+              fontSize: isSecondary ? 11.5 : 12,
               fontWeight: 600,
               lineHeight: 1.3,
               whiteSpace: 'nowrap',
@@ -655,14 +750,14 @@ const PanelActionRow: React.FC<{
               // mode, leaving the panel cards under-utilised. 11px, muted,
               // single-line ellipsis within the 48px panel row.
               <div style={{
-                fontSize: 11,
-                fontWeight: 500,
+                fontSize: isSecondary ? 10.5 : 11,
+                fontWeight: isSecondary ? 400 : 500,
                 lineHeight: 1.25,
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 color: textMuted,
-                opacity: 0.85,
+                opacity: isSecondary ? 0.78 : 0.85,
               }}>
                 {action.subtitle}
               </div>
@@ -746,6 +841,32 @@ const PanelActionRow: React.FC<{
     </div>
   );
 };
+
+const SecondarySectionLabel: React.FC<{ isDark: boolean }> = ({ isDark }) => (
+  <div style={{
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    minHeight: 18,
+    padding: '0 2px',
+    color: isDark ? withAlpha(colours.dark.text, 0.6) : withAlpha(colours.greyText, 0.9),
+    fontSize: 10,
+    fontWeight: 600,
+    letterSpacing: '0.08em',
+    textTransform: 'uppercase',
+    userSelect: 'none',
+  }}>
+    <span aria-hidden style={{
+      width: 4,
+      height: 4,
+      borderRadius: '50%',
+      background: isDark ? withAlpha(colours.accent, 0.8) : withAlpha(colours.highlight, 0.8),
+      boxShadow: `0 0 0 3px ${isDark ? withAlpha(colours.accent, 0.08) : withAlpha(colours.highlight, 0.08)}`,
+      flexShrink: 0,
+    }} />
+    Suggested next
+  </div>
+);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Sub-components
@@ -903,6 +1024,36 @@ const Spinner: React.FC<{ isDark: boolean }> = ({ isDark }) => (
   }} />
 );
 
+const CompletionToast: React.FC<{ isDark: boolean; count: number }> = ({ isDark, count }) => (
+  <span style={{
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    height: 24,
+    padding: '0 10px 0 8px',
+    borderRadius: 999,
+    background: isDark
+      ? `linear-gradient(135deg, ${withAlpha(colours.green, 0.18)} 0%, ${withAlpha(colours.darkBlue, 0.62)} 100%)`
+      : `linear-gradient(135deg, ${withAlpha(colours.green, 0.1)} 0%, rgba(255,255,255,0.94) 100%)`,
+    border: `1px solid ${isDark ? withAlpha(colours.green, 0.32) : withAlpha(colours.green, 0.2)}`,
+    boxShadow: isDark ? '0 4px 14px rgba(0, 3, 25, 0.28)' : '0 2px 10px rgba(6, 23, 51, 0.08)',
+    color: colours.green,
+    fontSize: 10,
+    fontWeight: 700,
+    letterSpacing: '0.06em',
+    textTransform: 'uppercase',
+    animation: 'iabCompletionToastIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) both',
+    whiteSpace: 'nowrap',
+    marginLeft: 'auto',
+  }}>
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+      <path d="M20 6L9 17l-5-5" />
+    </svg>
+    <span>{count}</span>
+    <span>{count === 1 ? 'cleared' : 'cleared'}</span>
+  </span>
+);
+
 // Consolidated styles — single injection for keyframes
 const iabStyleId = 'iab-styles';
 if (typeof document !== 'undefined' && !document.head.querySelector(`style[data-${iabStyleId}]`)) {
@@ -910,20 +1061,22 @@ if (typeof document !== 'undefined' && !document.head.querySelector(`style[data-
   s.setAttribute(`data-${iabStyleId}`, '');
   s.textContent = `
     @keyframes iabChipIn {
-      from { opacity: 0; }
-      to { opacity: 1; }
+      from { opacity: 0; transform: translateY(2px) scale(0.99); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
     }
     @keyframes iabSpin {
       to { transform: rotate(360deg); }
     }
+    @keyframes iabSecondaryLaneIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes iabCompletionToastIn {
+      from { opacity: 0; transform: translateY(-5px) scale(0.98); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
   `;
   document.head.appendChild(s);
 }
-
-const SuccessCheck: React.FC = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={colours.green} strokeWidth="3" style={{ marginLeft: 'auto' }}>
-    <path d="M20 6L9 17l-5-5" />
-  </svg>
-);
 
 export default ImmediateActionsBar;

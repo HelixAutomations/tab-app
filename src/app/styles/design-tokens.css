@@ -299,6 +299,69 @@
 }
 
 /* ═══════════════════════════════════════════════════════════
+   Home typography contract (2026-04-26)
+   ───────────────────────────────────────────────────────────
+   Canonical roles for KPI panels, action queues, calls, and
+   day-card eyebrows. Apply these classes instead of inlining
+   fontSize/fontWeight/letterSpacing/textTransform per call site.
+
+   Casing rule:
+     - .helix-eyebrow ..... UPPERCASE (one per panel, structural)
+     - .helix-tile-label .. Title Case (KPI / row labels)
+     - .helix-tile-value .. numeric, primary text
+     - .helix-tile-meta ... Sentence case (deltas, "prev …")
+     - .helix-pill ........ Sentence case label, uppercase styling
+   ═══════════════════════════════════════════════════════════ */
+
+.helix-eyebrow {
+  font-family: var(--font-primary);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  line-height: 1.1;
+}
+
+.helix-tile-label {
+  font-family: var(--font-primary);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  line-height: 1.3;
+}
+
+.helix-tile-value {
+  font-family: var(--font-primary);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.helix-tile-meta {
+  font-family: var(--font-primary);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.helix-pill {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-primary);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  line-height: 1.2;
+  color: var(--text-secondary);
+}
+
+/* ═══════════════════════════════════════════════════════════
    CCL review tokens & utilities
    ═══════════════════════════════════════════════════════════ */
 
@@ -313,85 +376,115 @@
 
 .ccl-review-field-header {
   display: grid;
-  gap: 10px;
+  gap: 12px;
 }
 
-.ccl-review-field-header__orientation {
+.ccl-review-field-header__topline {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   flex-wrap: wrap;
-  gap: 6px;
-  font-size: 11px;
-  line-height: 1.4;
-  color: var(--text-muted);
+  gap: 8px;
 }
 
-.ccl-review-field-header--mobile .ccl-review-field-header__orientation {
-  font-size: 11.5px;
-}
-
-.ccl-review-field-header__orientation-count {
-  font-weight: 700;
-  color: var(--text-accent);
-  letter-spacing: 0.04em;
-}
-
-.ccl-review-field-header__orientation-sep {
-  color: var(--text-muted);
-  opacity: 0.7;
-}
-
-.ccl-review-field-header__orientation-label {
-  color: var(--text-primary);
-  font-weight: 600;
-}
-
-.ccl-review-field-header__orientation-group {
-  color: var(--text-muted);
-}
-
-/* Group pill — sits inline with the decision counter. Uses the sole
-   borderRadius:0 exception (999 pill) per the brand rules. */
-.ccl-review-field-header__group-pill {
+.ccl-review-field-header__count-chip,
+.ccl-review-field-header__section-chip,
+.ccl-review-field-header__context-label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 3px 8px;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--text-accent);
-  background: rgba(var(--accent-rgb), 0.1);
-  border: 1px solid rgba(var(--accent-rgb), 0.35);
+  line-height: 1.2;
   border-radius: 999px;
-  padding: 2px 8px;
-  line-height: 1.4;
 }
 
-.ccl-review-field-header__ask {
-  font-size: 16px;
-  line-height: 1.3;
-  font-weight: 700;
-  color: var(--text-primary);
-  letter-spacing: -0.01em;
+.ccl-review-field-header__count-chip {
+  color: var(--text-accent);
+  background: rgba(var(--accent-rgb), 0.08);
+  border: 1px solid rgba(var(--accent-rgb), 0.22);
 }
 
-.ccl-review-field-header--mobile .ccl-review-field-header__ask {
-  font-size: 17px;
+.ccl-review-field-header__section-chip {
+  color: var(--text-secondary);
+  background: rgba(var(--subtle-grey-rgb), 0.1);
+  border: 1px solid rgba(var(--subtle-grey-rgb), 0.18);
 }
 
-.ccl-review-field-header__why-block {
+.ccl-review-field-header__title-block {
   display: grid;
-  gap: 6px;
+  gap: 4px;
+}
+
+.ccl-review-field-header__title {
+  font-size: 20px;
+  line-height: 1.15;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+
+.ccl-review-field-header__subtitle {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.ccl-review-field-header__guidance {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-body);
+  max-width: 54ch;
+}
+
+.ccl-review-field-header__context {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid rgba(var(--subtle-grey-rgb), 0.18);
+  background: rgba(var(--subtle-grey-rgb), 0.06);
+}
+
+.ccl-review-field-header__context--safety-net {
+  border-color: rgba(var(--orange-rgb), 0.22);
+  background: rgba(var(--orange-rgb), 0.06);
+}
+
+.ccl-review-field-header__context-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ccl-review-field-header__context-chips {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ccl-review-field-header__context-label {
+  color: var(--text-accent);
+  background: rgba(var(--accent-rgb), 0.08);
+  border: 1px solid rgba(var(--accent-rgb), 0.2);
 }
 
 .ccl-review-field-header__safety-net-tag {
-  justify-self: start;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--helix-orange);
   background: rgba(var(--orange-rgb), 0.12);
-  border: 1px solid rgba(var(--orange-rgb), 0.4);
+  border: 1px solid rgba(var(--orange-rgb), 0.32);
   padding: 3px 8px;
+  border-radius: 999px;
   animation: cclSafetyNetTagIn 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
@@ -400,14 +493,67 @@
   to   { opacity: 1; transform: translateY(0); }
 }
 
+.ccl-review-field-header__context-toggle {
+  border: none;
+  background: transparent;
+  padding: 0;
+  color: var(--text-secondary);
+  font-family: var(--font-primary);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color var(--transition-fast);
+}
+
+.ccl-review-field-header__context-toggle:hover {
+  color: var(--text-accent);
+}
+
 .ccl-review-field-header__why {
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  max-width: 60ch;
+}
+
+.ccl-review-field-header__context-meta {
+  display: grid;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(var(--subtle-grey-rgb), 0.16);
+}
+
+.ccl-review-field-header__context-meta-row {
+  display: grid;
+  gap: 2px;
+}
+
+.ccl-review-field-header__context-meta-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.ccl-review-field-header__context-meta-value {
+  font-size: 11px;
+  line-height: 1.55;
   color: var(--text-body);
 }
 
+.ccl-review-field-header--mobile .ccl-review-field-header__title {
+  font-size: 21px;
+}
+
+.ccl-review-field-header--mobile .ccl-review-field-header__guidance {
+  font-size: 13.5px;
+}
+
 .ccl-review-field-header--mobile .ccl-review-field-header__why {
-  font-size: 12.5px;
+  font-size: 13px;
 }
 
 /* Queue strip — persistent per-decision dot row at the top of the review rail.
@@ -471,39 +617,35 @@
 
 .ccl-review-decision__choices {
   display: grid;
-  gap: 2px;
+  gap: 8px;
 }
 
 .ccl-review-decision__choice {
-  border: none;
-  border-left: 2px solid transparent;
-  border-bottom: 1px solid rgba(var(--subtle-grey-rgb), 0.14);
-  background: transparent;
-  padding: 12px 14px 12px 12px;
+  border: 1px solid rgba(var(--subtle-grey-rgb), 0.16);
+  background: rgba(255, 255, 255, 0.02);
+  padding: 14px 15px;
   text-align: left;
   cursor: pointer;
   display: grid;
-  gap: 6px;
+  gap: 8px;
   color: var(--text-primary);
   font-family: var(--font-primary);
-  transition: background 180ms cubic-bezier(0.22, 1, 0.36, 1), border-color 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition: background 180ms cubic-bezier(0.22, 1, 0.36, 1), border-color 180ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 180ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .ccl-review-decision__choice:hover {
-  background: rgba(var(--subtle-grey-rgb), 0.06);
-}
-
-.ccl-review-decision__choice:last-child {
-  border-bottom: none;
+  background: rgba(var(--subtle-grey-rgb), 0.08);
+  border-color: rgba(var(--accent-rgb), 0.2);
 }
 
 .ccl-review-decision__choice--selected {
-  border-left-color: var(--text-accent);
-  background: rgba(var(--accent-rgb), 0.06);
+  border-color: rgba(var(--accent-rgb), 0.42);
+  background: linear-gradient(180deg, rgba(var(--accent-rgb), 0.09), rgba(var(--accent-rgb), 0.04));
+  box-shadow: inset 2px 0 0 var(--text-accent);
 }
 
 .ccl-review-decision__choice--selected:hover {
-  background: rgba(var(--accent-rgb), 0.09);
+  background: linear-gradient(180deg, rgba(var(--accent-rgb), 0.12), rgba(var(--accent-rgb), 0.06));
 }
 
 .ccl-review-decision__choice-header {
@@ -515,7 +657,7 @@
 }
 
 .ccl-review-decision__choice-title {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   color: var(--text-primary);
   letter-spacing: 0.01em;
@@ -528,12 +670,14 @@
 .ccl-review-decision__choice-pill {
   font-size: 9px;
   font-weight: 700;
-  color: var(--helix-navy);
-  background: var(--text-accent);
-  padding: 2px 6px;
-  letter-spacing: 0.06em;
+  color: var(--text-accent);
+  background: rgba(var(--accent-rgb), 0.08);
+  border: 1px solid rgba(var(--accent-rgb), 0.28);
+  padding: 2px 7px;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   flex-shrink: 0;
+  border-radius: 999px;
   animation: cclDecisionPillIn 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
@@ -543,8 +687,8 @@
 }
 
 .ccl-review-decision__choice-preview {
-  font-size: 10.5px;
-  line-height: 1.55;
+  font-size: 12.5px;
+  line-height: 1.6;
   color: var(--text-body);
   white-space: pre-wrap;
 }
@@ -561,12 +705,12 @@
   outline: none;
   background: rgba(var(--accent-rgb), 0.04);
   color: var(--text-primary);
-  padding: 12px 14px;
-  font-size: 12px;
-  line-height: 1.7;
+  padding: 14px 16px;
+  font-size: 13px;
+  line-height: 1.65;
   resize: none;
   font-family: var(--font-primary);
-  min-height: 96px;
+  min-height: 108px;
   overflow: hidden;
   transition: background 180ms cubic-bezier(0.22, 1, 0.36, 1);
 }
@@ -631,9 +775,17 @@
 }
 
 .ccl-review-decision__step:hover:not(:disabled) {
-  color: var(--text-primary);
-  border-color: rgba(135, 243, 243, 0.5);
-  background: rgba(135, 243, 243, 0.08);
+  color: var(--text-accent);
+  border-color: var(--text-accent);
+  background: rgba(var(--accent-rgb), 0.08);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(var(--accent-rgb), 0.18);
+}
+
+.ccl-review-decision__step:focus-visible {
+  outline: none;
+  border-color: var(--text-accent);
+  box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.35);
 }
 
 .ccl-review-decision__step:disabled {
@@ -669,6 +821,351 @@
   width: 100%;
 }
 
+/* ───────────────────────────────────────────────────────────
+   Launch timeline (rail variant) — shared markup with the
+   modal overlay timeline. The component-scoped <style> block
+   in OperationsDashboard handles the overlay; this rail
+   variant is global so it can render inside the review rail.
+   ─────────────────────────────────────────────────────────── */
+.ccl-launch-timeline--rail {
+  display: grid;
+  gap: 0;
+  align-content: start;
+}
+
+.ccl-launch-timeline--rail .ccl-launch-timeline__row {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  gap: 12px;
+  align-items: start;
+  padding: 4px 0;
+  min-height: 42px;
+}
+
+.ccl-launch-timeline--rail .ccl-launch-timeline__marker {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  padding-top: 2px;
+  min-height: 42px;
+}
+
+.ccl-launch-timeline--rail .ccl-launch-timeline__dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(160, 160, 160, 0.45);
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 220ms ease, background 220ms ease;
+}
+
+.ccl-launch-timeline--rail .ccl-launch-timeline__spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(135, 243, 243, 0.18);
+  box-sizing: border-box;
+  animation: helix-spin 0.85s linear infinite;
+}
+
+.ccl-launch-timeline--rail .ccl-launch-timeline__connector {
+  position: absolute;
+  top: 16px;
+  bottom: -8px;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  transition: background 220ms ease;
+}
+
+.ccl-launch-timeline--rail .ccl-launch-timeline__body {
+  display: grid;
+  gap: 3px;
+  padding-bottom: 6px;
+}
+
+.ccl-launch-timeline--rail .ccl-launch-timeline__label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-family: var(--font-primary);
+  transition: color 220ms ease;
+}
+
+.ccl-launch-timeline--rail .ccl-launch-timeline__detail {
+  font-size: 12px;
+  line-height: 1.45;
+  font-family: var(--font-primary);
+  transition: color 220ms ease;
+}
+
+.ccl-launch-timeline--rail .ccl-launch-timeline__row.is-active .ccl-launch-timeline__label {
+  letter-spacing: 0.07em;
+}
+
+.ccl-launch-strip {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  background: rgba(var(--accent-rgb), 0.04);
+  border: 1px solid rgba(var(--subtle-grey-rgb), 0.22);
+}
+
+.ccl-launch-strip__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ccl-launch-strip__title {
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-family: var(--font-primary);
+  color: var(--text-muted);
+}
+
+.ccl-launch-strip__summary {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  font-family: var(--font-primary);
+  color: var(--text-secondary);
+}
+
+.ccl-launch-timeline--launch-strip .ccl-launch-timeline__row {
+  padding: 3px 0;
+  min-height: 38px;
+}
+
+.ccl-launch-timeline--launch-strip .ccl-launch-timeline__marker {
+  min-height: 38px;
+}
+
+.ccl-launch-timeline--launch-strip .ccl-launch-timeline__dot {
+  color: transparent;
+}
+
+.ccl-launch-timeline--launch-strip .ccl-launch-timeline__spinner {
+  border-color: rgba(var(--accent-rgb), 0.18);
+  border-top-color: var(--text-accent);
+}
+
+.ccl-launch-timeline--launch-strip .ccl-launch-timeline__connector {
+  bottom: -4px;
+  background: rgba(var(--subtle-grey-rgb), 0.28);
+}
+
+.ccl-launch-timeline--launch-strip .ccl-launch-timeline__label {
+  color: var(--text-secondary);
+  letter-spacing: 0.08em;
+}
+
+.ccl-launch-timeline--launch-strip .ccl-launch-timeline__detail {
+  min-height: 17px;
+  color: var(--text-body);
+}
+
+.ccl-launch-timeline--launch-strip .ccl-launch-timeline__body.has-expanded-content {
+  gap: 8px;
+}
+
+.ccl-launch-timeline--launch-strip .ccl-launch-timeline__row.has-expanded-content .ccl-launch-timeline__marker {
+  align-self: stretch;
+  min-height: 100%;
+}
+
+.ccl-launch-timeline--launch-strip .ccl-launch-timeline__expanded {
+  position: relative;
+  border: 1px solid rgba(var(--accent-rgb), 0.18);
+  background: rgba(var(--accent-rgb), 0.05);
+  padding: 10px 12px;
+  overflow: hidden;
+  animation: ccl-launch-strip-panel-in 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.ccl-launch-timeline--launch-strip .ccl-launch-timeline__detail.is-hidden {
+  opacity: 0;
+}
+
+.ccl-launch-timeline--launch-strip .ccl-launch-timeline__row.is-done .ccl-launch-timeline__dot {
+  border-color: rgba(var(--green-rgb), 0.85);
+  background: rgba(var(--green-rgb), 0.85);
+  color: var(--surface-section);
+}
+
+.ccl-launch-timeline--launch-strip .ccl-launch-timeline__row.is-done .ccl-launch-timeline__label {
+  color: var(--text-body);
+}
+
+.ccl-launch-timeline--launch-strip .ccl-launch-timeline__row.is-done .ccl-launch-timeline__connector {
+  background: rgba(var(--green-rgb), 0.4);
+}
+
+.ccl-launch-timeline--launch-strip .ccl-launch-timeline__row.is-active .ccl-launch-timeline__label {
+  color: var(--text-primary);
+}
+
+.ccl-launch-timeline--launch-strip .ccl-launch-timeline__row.is-active .ccl-launch-timeline__connector {
+  background: rgba(var(--accent-rgb), 0.3);
+}
+
+.ccl-launch-timeline--launch-strip .ccl-launch-timeline__row.is-error .ccl-launch-timeline__dot {
+  border-color: rgba(var(--cta-rgb), 0.82);
+  background: rgba(var(--cta-rgb), 0.82);
+  color: var(--surface-section);
+}
+
+.ccl-launch-timeline--launch-strip .ccl-launch-timeline__row.is-error .ccl-launch-timeline__label,
+.ccl-launch-timeline--launch-strip .ccl-launch-timeline__row.is-error .ccl-launch-timeline__detail {
+  color: var(--status-error);
+}
+
+.ccl-launch-timeline--launch-strip .ccl-launch-timeline__row.is-error .ccl-launch-timeline__expanded {
+  border-color: rgba(var(--cta-rgb), 0.24);
+  background: rgba(var(--cta-rgb), 0.06);
+}
+
+.ccl-launch-timeline--launch-strip .ccl-launch-timeline__row.is-pending .ccl-launch-timeline__dot {
+  border-color: rgba(var(--subtle-grey-rgb), 0.45);
+  background: transparent;
+}
+
+.ccl-launch-timeline--launch-strip .ccl-launch-timeline__row.is-pending .ccl-launch-timeline__label {
+  color: var(--text-muted);
+}
+
+.ccl-launch-step-ticker {
+  display: grid;
+  gap: 10px;
+}
+
+.ccl-launch-step-ticker__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ccl-launch-step-ticker__summary {
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-family: var(--font-primary);
+  color: var(--text-accent);
+}
+
+.ccl-launch-step-ticker__elapsed {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  font-family: var(--font-primary);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-body);
+}
+
+.ccl-launch-step-ticker__caption {
+  font-size: 11px;
+  line-height: 1.45;
+  font-family: var(--font-primary);
+  color: var(--text-body);
+}
+
+.ccl-launch-step-ticker__window {
+  position: relative;
+  height: 132px;
+  overflow: hidden;
+  background: linear-gradient(180deg, rgba(var(--accent-rgb), 0.02) 0%, rgba(var(--accent-rgb), 0.05) 50%, rgba(var(--accent-rgb), 0.02) 100%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 28%, #000 72%, transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0%, #000 28%, #000 72%, transparent 100%);
+}
+
+.ccl-launch-step-ticker__window::before {
+  content: '';
+  position: absolute;
+  top: 44px;
+  right: 0;
+  left: 0;
+  height: 44px;
+  border-top: 1px solid rgba(var(--accent-rgb), 0.16);
+  border-bottom: 1px solid rgba(var(--accent-rgb), 0.16);
+  background: linear-gradient(90deg, rgba(var(--accent-rgb), 0.03) 0%, rgba(var(--accent-rgb), 0.08) 50%, rgba(var(--accent-rgb), 0.03) 100%);
+  pointer-events: none;
+}
+
+.ccl-launch-step-ticker__reel {
+  transition: transform 520ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+}
+
+.ccl-launch-step-ticker__row {
+  height: 44px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  font-size: 12px;
+  line-height: 1.25;
+  font-weight: 500;
+  font-family: var(--font-primary);
+  color: rgba(var(--subtle-grey-rgb), 0.72);
+  opacity: 0.74;
+  transition: color 520ms ease, opacity 520ms ease, font-size 520ms ease;
+}
+
+.ccl-launch-step-ticker__row.is-active {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  opacity: 1;
+}
+
+.ccl-launch-step-ticker__field {
+  display: -webkit-box;
+  width: 100%;
+  overflow: hidden;
+  word-break: break-word;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+@keyframes ccl-launch-strip-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Cross-pane hover linkage — when a queue-strip dot or a {{placeholder}}
+   in the document is hovered, the counterpart highlights so the
+   relationship is visible at a glance. Brand accent only; smooth fade. */
+.ccl-doc-placeholder {
+  transition: background-color 180ms ease, color 180ms ease, box-shadow 220ms ease, border-bottom-color 180ms ease;
+}
+
+.ccl-doc-placeholder.is-cross-hovered {
+  outline: 1px solid var(--text-accent);
+  outline-offset: 1px;
+}
+
+.ccl-review-queue-strip__dot.is-cross-hovered {
+  filter: brightness(1.15);
+}
+
+/* Dev tools panel — flush extension of the rail, not a floating
+   widget. Single 1px top divider, no rounded corners, no tinted
+   panel fill. */
 .ccl-review-decision__action {
   border: none;
   padding: 12px 16px;
@@ -724,26 +1221,28 @@
 }
 
 .ccl-review-devtools {
-  padding-top: 10px;
-  border-top: 1px dashed rgba(var(--accent-rgb), 0.24);
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-base);
   display: grid;
-  gap: 6px;
+  gap: 8px;
 }
 
 .ccl-review-devtools__summary,
 .ccl-review-devtools__danger-summary {
-  font-size: 8px;
-  color: rgba(var(--subtle-grey-rgb), 0.82);
+  font-size: 10px;
+  color: var(--text-accent);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   font-weight: 700;
   cursor: pointer;
   user-select: none;
+  font-family: var(--font-primary);
 }
 
 .ccl-review-devtools--mobile .ccl-review-devtools__summary,
 .ccl-review-devtools--mobile .ccl-review-devtools__danger-summary {
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .ccl-review-devtools__chain {
