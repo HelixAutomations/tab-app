@@ -914,6 +914,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
   })();
 
   const isProductionPreview = featureToggles?.viewAsProd === true || viewAsProdFromStorage;
+  const enableExperimentalPitchFlow = !isProductionPreview && typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname);
   // Request Docs should be available in all environments by default.
   // Use a feature toggle kill switch if needed.
   const requestDocsEnabled = featureToggles?.docRequestWorkspace !== false;
@@ -1880,6 +1881,14 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
   };
 
   const openPitchBuilder = () => {
+    if (!enableExperimentalPitchFlow) {
+      if (onOpenPitchBuilder) {
+        onOpenPitchBuilder();
+        return;
+      }
+      showToast('Pitch builder not available here', 'info');
+      return;
+    }
     const existingPitches = scopedTimeline.filter((t) => t.type === 'pitch');
     if (existingPitches.length > 0) {
       setShowPitchConfirm(true);
@@ -4656,7 +4665,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
 
   // Pitch confirmation and scenario picker modal
   const renderPitchConfirmModal = () => {
-    if (!showPitchConfirm) return null;
+    if (!enableExperimentalPitchFlow || !showPitchConfirm) return null;
 
     const existingPitches = scopedTimeline.filter((t) => t.type === 'pitch');
     

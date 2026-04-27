@@ -52,6 +52,7 @@ import { ModalSkeleton } from '../../components/ModalSkeleton';
 import { getProxyBaseUrl } from '../../utils/getProxyBaseUrl';
 import OperationStatusToast from '../enquiries/pitch-builder/OperationStatusToast';
 import ReleaseNotesModal from '../../components/ReleaseNotesModal';
+import OpenAnotherMatterModal from '../instructions/MatterOpening/OpenAnotherMatterModal';
 
 import { FormItem, Matter, Transaction, TeamData, OutstandingClientBalance, BoardroomBooking, SoundproofPodBooking, SpaceBooking, FutureBookingsResponse, InstructionData, Enquiry, NormalizedMatter } from '../../app/functionality/types';
 
@@ -90,6 +91,10 @@ import { enrichImmediateActions, type HomeImmediateAction, type ToDoCard } from 
 import { getActionableInstructions } from './InstructionsPrompt.helpers';
 import type { InstructionSummary } from './InstructionsPrompt';
 import { HomeTeamInsightSkeleton } from './HomeSkeletons';
+import { AnnualLeaveModal } from '../../CustomForms/AnnualLeaveModal';
+import PersonalAttendanceConfirm from './PersonalAttendanceConfirm';
+import AttendancePortal from './AttendancePortal';
+import TeamInsight from './TeamInsight';
 
 import RateChangeModal from './RateChangeModal';
 import { useRateChangeData } from './useRateChangeData';
@@ -127,7 +132,6 @@ function appendHomeBootMonitorEvent(source: string, status: string, timestamp: n
 // Lazy-loaded form components
 const Tasking = lazy(() => import('../../CustomForms/Tasking'));
 const TelephoneAttendance = lazy(() => import('../../CustomForms/TelephoneAttendance'));
-import { AnnualLeaveModal } from '../../CustomForms/AnnualLeaveModal';
 // NEW: Import placeholders for approvals & bookings
 const AnnualLeaveApprovals = lazy(() => import('../../CustomForms/AnnualLeaveApprovals').then(m => ({ default: m.default || m })));
 const AnnualLeaveBookings = lazy(() => import('../../CustomForms/AnnualLeaveBookings').then(m => ({ default: m.default || m })));
@@ -135,9 +139,6 @@ const BookSpaceForm = lazy(() => import('../../CustomForms/BookSpaceForm').then(
 const SnippetEditsApproval = lazy(() => import('../../CustomForms/SnippetEditsApproval'));
 const VerificationCheckForm = lazy(() => import('../../CustomForms/VerificationCheckForm'));
 const LearningDevelopmentForm = lazy(() => import('../../CustomForms/LearningDevelopmentForm'));
-import PersonalAttendanceConfirm from './PersonalAttendanceConfirm';
-import AttendancePortal from './AttendancePortal';
-import TeamInsight from './TeamInsight';
 const OutstandingBalancesList = lazy(() => import('../transactions/OutstandingBalancesList'));
 
 // Icons initialized in index.tsx
@@ -376,6 +377,7 @@ const quickActionOrder: Record<string, number> = {
   'Update Attendance': 4,
   'Confirm Attendance': 4,
   'Open Matter': 5,
+  'New Matter': 5,
   'Review Instructions': 6,
   // Instruction workflow actions
   'Review ID': 6,
@@ -878,6 +880,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
     || canSeePrivateHubControls(userData?.[0] || null)
     || canSeePrivateHubControls(originalAdminUser || null);
   const [showReleaseNotes, setShowReleaseNotes] = useState(false);
+  const [showOpenAnotherMatter, setShowOpenAnotherMatter] = useState(false);
   const { setContent } = useNavigatorActions();
   const inTeams = isInTeams();
   const useLocalData =
@@ -1132,7 +1135,8 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
     setReplacePipelineAndMattersState(v);
     writeBoolToggle(LAYOUT_TOGGLE_KEYS.replacePipelineAndMatters, v);
   }, [LAYOUT_TOGGLE_KEYS.replacePipelineAndMatters]);
-  const opsQueuePreviewEnabled = canUseOpsQueuePreview && featureToggles.showOpsQueue === true;
+  const isProductionPreview = featureToggles.viewAsProd === true;
+  const opsQueuePreviewEnabled = canUseOpsQueuePreview && featureToggles.showOpsQueue === true && !isProductionPreview;
 
   // Consolidation 2026-04-21: the Home layout overlay is gone. CommandDeck
   // (via HubToolsChip) is now the single surface for these toggles. It writes
@@ -4437,7 +4441,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
       const now = new Date();
       const today = startOfDay(now);
       const dayOfWeek = today.getDay(); // 0=Sun, 6=Sat
-      // Skip weekends: on Mon compare vs Fri; on Sat/Sun show Fri vs Thu
+      const yesterday = startOfDay(addDays(today, -1));
       const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
       const lastWorkingDay = startOfDay(
         dayOfWeek === 1 ? addDays(today, -3) // Monday → Friday
@@ -4449,12 +4453,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         lastWorkingDay.getDay() === 1 ? addDays(lastWorkingDay, -3) // Mon → Fri
         : addDays(lastWorkingDay, -1) // otherwise → previous calendar day
       );
-      // Effective "current" and "previous" days for the Today card
-      const todayEffective = isWeekend ? lastWorkingDay : today;
-      const comparisonDay = isWeekend ? prevWorkingDay : lastWorkingDay;
       const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-      const todayCardLabel = isWeekend ? dayNames[todayEffective.getDay()] : 'Today';
-      const comparisonDayLabel = isWeekend || dayOfWeek === 1 ? dayNames[comparisonDay.getDay()] : 'Yesterday';
       const todayWeekIndex = (today.getDay() + 6) % 7;
       const startOfWeek = addDays(today, -todayWeekIndex);
       const prevWeekStart = addDays(startOfWeek, -7);
@@ -4778,6 +4777,19 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
       };
 
       const workingDayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+      const weekendTodayEnquiries = isWeekend ? countEnquiriesInRange(today, today, 'day') : 0;
+      const weekendYesterdayEnquiries = isWeekend ? countEnquiriesInRange(yesterday, yesterday, 'day') : 0;
+      const weekendTodayMatters = isWeekend ? countMattersInRange(today, today) : 0;
+      const weekendYesterdayMatters = isWeekend ? countMattersInRange(yesterday, yesterday) : 0;
+      const useWeekendWorkingFallback = isWeekend
+        && weekendTodayEnquiries === 0
+        && weekendYesterdayEnquiries === 0
+        && weekendTodayMatters === 0
+        && weekendYesterdayMatters === 0;
+      const todayEffective = useWeekendWorkingFallback ? lastWorkingDay : today;
+      const comparisonDay = useWeekendWorkingFallback ? prevWorkingDay : yesterday;
+      const todayCardLabel = useWeekendWorkingFallback ? dayNames[todayEffective.getDay()] : 'Today';
+      const comparisonDayLabel = useWeekendWorkingFallback ? dayNames[comparisonDay.getDay()] : 'Yesterday';
       const buildHourlyBuckets = (currentDayDate: Date, previousDayDate: Date) => (
         Array.from({ length: 11 }, (_, index) => {
           const hour = 8 + index;
@@ -5353,13 +5365,9 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
   const demoConversionComparison = useMemo<ConversionComparisonPayload>(() => {
     const demoNow = new Date();
     const demoDow = demoNow.getDay();
-    const demoIsWeekend = demoDow === 0 || demoDow === 6;
-    const demoNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    const demoCurrentLabel = demoIsWeekend ? 'Friday' : 'Today';
-    const demoPrevLabel = (demoIsWeekend || demoDow === 1)
-      ? demoNames[demoDow === 1 ? 5 : 4] // Mon→Fri→Thu; Sat/Sun→Fri→Thu
-      : 'Yesterday';
-    const demoTitle = demoIsWeekend ? 'Friday' : 'Today';
+    const demoCurrentLabel = 'Today';
+    const demoPrevLabel = 'Yesterday';
+    const demoTitle = 'Today';
 
     // 2026-04-21: synthesise demo prospect chips so the trail in the
     // Conversion panel renders themed AoW bezels (icon + colour + +N
@@ -6327,6 +6335,11 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     }
   }, []);
   const handleActionClick = useCallback((action: { title: string; icon: string }) => {
+    // Localhost-gated: open the shared OpenAnotherMatterModal directly (no bespoke panel).
+    if (action.title === 'New Matter') {
+      setShowOpenAnotherMatter(true);
+      return;
+    }
     let content: React.ReactNode = <div>No form available.</div>;
     let titleText = action.title;
     let descriptionText = '';
@@ -6687,8 +6700,13 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
           if (isOwn) {
             return { ...baseAction, subtitle };
           }
-          // Read-only: keep the row clickable for navigation but strip
-          // destructive actions and disable the chip-level onClick.
+          // Others' cards: stay clickable so the dev owner can open the
+          // review rail / register pane and inspect what's queued. We only
+          // strip *destructive* expansion actions (keep "Open ..." entries)
+          // so we can't accidentally complete or reconcile someone else's
+          // todo from the god-view. The chip-level click is preserved —
+          // tapping the row routes through the same `onClick` the owner
+          // would see.
           const safeExpansion = baseAction.expansion
             ? {
                 ...baseAction.expansion,
@@ -6699,8 +6717,6 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
           return {
             ...baseAction,
             subtitle,
-            disabled: true,
-            onClick: () => {},
             expansion: safeExpansion,
           };
         };
@@ -6716,30 +6732,36 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
             // CustomEvent (handled by OperationsDashboard).
             const matterRef = String(card.matterRef || '').trim();
             const matterId = readStringValue(payload?.matterId) || matterRef || undefined;
+            const matterDisplayNumber = readStringValue(payload?.matterDisplayNumber) || '';
+            const instructionRef = readStringValue(payload?.instructionRef) || '';
+            const clientName = readStringValue(payload?.clientName) || '';
+            const practiceArea = readStringValue(payload?.practiceArea) || '';
             const flaggedCount = readNumberValue(payload?.flaggedCount);
+            const titleRef = matterDisplayNumber || matterRef || instructionRef;
             const subtitleParts: string[] = [];
-            if (matterRef) subtitleParts.push(matterRef);
-            if (flaggedCount != null && flaggedCount > 0) {
-              subtitleParts.push(`${flaggedCount} to check`);
-            } else if (card.lastEvent) {
-              subtitleParts.push(card.lastEvent);
-            }
+            if (clientName) subtitleParts.push(clientName);
+            if (practiceArea) subtitleParts.push(practiceArea);
+            const subtitle = subtitleParts.length > 0
+              ? subtitleParts.join(' \u2013 ')
+              : (instructionRef || matterRef || card.summary || 'Client Care Letter');
             const openReview = () => openHomeCclReview(matterId);
             return decorate(card, {
-              title: 'Review CCL',
-              subtitle: subtitleParts.filter(Boolean).join(' \u00b7 ') || (card.summary || 'Client Care Letter'),
+              title: titleRef ? `Review CCL \u00b7 ${titleRef}` : 'Review CCL',
+              subtitle,
               icon: 'Send',
               category: (flaggedCount != null && flaggedCount > 0 ? 'critical' : 'standard') as ImmediateActionCategory,
               onClick: openReview,
               expansion: {
                 kind: 'generic',
-                primary: card.summary || (matterRef ? `Review CCL \u00b7 ${matterRef}` : 'Review CCL'),
+                primary: card.summary || (titleRef ? `Review CCL \u00b7 ${titleRef}` : 'Review CCL'),
                 secondary: card.lastEvent || (flaggedCount != null ? `${flaggedCount} field${flaggedCount === 1 ? '' : 's'} surfaced by Safety Net` : 'Safety Net finished'),
                 description: 'The autopilot generated the CCL and the Safety Net surfaced fields for fee-earner review. Open the review to sign-off or adjust wording before upload.',
                 fields: [
-                  ...(matterRef ? [{ label: 'Matter', value: matterRef }] : []),
+                  ...(matterDisplayNumber ? [{ label: 'Matter', value: matterDisplayNumber }] : matterRef ? [{ label: 'Matter', value: matterRef }] : []),
+                  ...(clientName ? [{ label: 'Client', value: clientName }] : []),
+                  ...(practiceArea ? [{ label: 'Work type', value: practiceArea }] : []),
+                  ...(instructionRef && instructionRef !== matterDisplayNumber ? [{ label: 'Instruction', value: instructionRef }] : []),
                   ...(flaggedCount != null ? [{ label: 'Flagged', value: `${flaggedCount}` }] : []),
-                  ...(card.stage ? [{ label: 'Stage', value: String(card.stage) }] : []),
                 ],
                 actions: [
                   { label: 'Open review', onClick: openReview, tone: 'primary' },
@@ -7083,8 +7105,8 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
 
       // generic-kind expansion — neutral accent, no aow, no primary-entity navigation
       actions.push({
-        title: 'Review CCL',
-        subtitle: 'Demo Draft · ready for sign-off',
+        title: 'Review CCL · DEMO-3311402',
+        subtitle: 'Patel Construction Ltd \u2013 Commercial',
         icon: 'Send',
         onClick: () => demoToast('open CCL review'),
         category: 'standard',
@@ -7095,6 +7117,8 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
           description: 'The Safety Net pass scored 9+ across all intake fields. Review and send, or edit inline before approving.',
           fields: [
             { label: 'Matter', value: 'DEMO-3311402' },
+            { label: 'Client', value: 'Patel Construction Ltd' },
+            { label: 'Work type', value: 'Commercial' },
             { label: 'Confidence', value: 'Full' },
             { label: 'Safety Net', value: 'Passed' },
           ],
@@ -7157,14 +7181,19 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
 
       const openProspect = () => openEnquiryById(enquiryId);
       const label = String(prospect.displayName || `Enquiry ${enquiryId}`).trim();
+      // Suggestion framing: this row stands in for "this prospect was pitched
+      // but hasn't converted yet". Title leads with the prospect (so the fee
+      // earner sees who, not a meta-instruction); subtitle gives the area /
+      // owner / status hint. The intent — nudge while it's warm — is implicit
+      // in the secondary tier and made explicit in the expansion description.
       const subtitleParts = [
-        label,
         String(prospect.aow || '').trim() || undefined,
         prospect.feeEarnerInitials ? `@${String(prospect.feeEarnerInitials).trim()}` : undefined,
+        'pitched, no reply yet',
       ].filter(Boolean) as string[];
 
       addSuggestion({
-        title: 'Encourage follow-up',
+        title: `Follow up · ${label}`,
         subtitle: subtitleParts.join(' · '),
         onClick: openProspect,
         icon: 'Phone',
@@ -7185,7 +7214,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
             prospect.feeEarnerInitials ? `Fee earner ${String(prospect.feeEarnerInitials).trim()}` : undefined,
           ].filter(Boolean).join(' · '),
           aow: String(prospect.aow || '').trim() || undefined,
-          description: 'A recent prospect is still live but has not yet converted. Encourage the next follow-up while the thread is still warm.',
+          description: 'Pitched but not yet converted. A nudge while the thread is still warm often tips it over — worth a short follow-up call or email.',
           fields: [
             { label: 'Enquiry', value: enquiryId },
             ...(prospect.aow ? [{ label: 'Area', value: String(prospect.aow).trim() }] : []),
@@ -7217,12 +7246,13 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
       const openEnquiry = () => openEnquiryById(enquiryId);
       const openBoard = () => openUnclaimedEnquiriesBoard();
       const valueHint = item.value > 0 ? gbp.format(item.value) : undefined;
+      const enquiryLabel = String(item.name || `Enquiry ${enquiryId}`).trim();
 
       addSuggestion({
-        title: 'Nudge unclaimed enquiry',
+        title: `Unclaimed · ${enquiryLabel}`,
         subtitle: [
-          String(item.name || `Enquiry ${enquiryId}`).trim(),
-          `${item.ageDays}d unclaimed`,
+          `${item.ageDays}d sitting`,
+          String(item.aow || '').trim() || undefined,
           valueHint,
         ].filter(Boolean).join(' · '),
         onClick: openEnquiry,
@@ -7287,11 +7317,18 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         }
         return true;
       });
+    // Dev preview: LZ + AC see "New Matter" everywhere (incl. prod) so they can exercise the flow against real data.
+    // Backend chain is still STUBBED (Phase 2 pending) — payload validates and returns simulated:true; no Clio side effects.
+    // Promote to isAdminUser() once Phase 2 ships, then to everyone after a week of clean runs.
+    const isLzOrAc = ['LZ', 'AC'].includes(userInitials.toUpperCase());
+    if (isLocalhost) {
+      actions.push({ title: 'New Matter', icon: 'OpenFolderHorizontal' });
+    }
     actions.sort(
       (a, b) => (quickActionOrder[a.title] || 99) - (quickActionOrder[b.title] || 99)
     );
     return actions;
-  }, [userInitials]);
+  }, [userInitials, isLocalhost]);
 
 
   // Use useLayoutEffect to avoid infinite loops and set content once per dependency change
@@ -7316,7 +7353,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         userDisplayName={currentUserName}
         userIdentifier={currentUserEmail}
         onToggleTheme={toggleTheme}
-        onOpenReleaseNotes={['LZ', 'AC'].includes(userInitials.toUpperCase()) || checkIsLocalDev() ? () => setShowReleaseNotes(true) : undefined}
+        onOpenReleaseNotes={['LZ', 'AC'].includes(userInitials.toUpperCase()) || checkIsLocalDev(featureToggles) ? () => setShowReleaseNotes(true) : undefined}
         loading={!quickActionsReady}
       />
     );
@@ -7464,42 +7501,51 @@ const conversionRate = displayEnquiriesMonthToDate
       role="group"
       aria-label="Home to-do scope"
       style={{
+        // 2026-04-27: subtle header-line variant — no pill container, no
+        // background fill. Sits inline with the "To Do" section header
+        // (right-aligned) and mirrors the Mine/Team toggle in the Call
+        // Filing Workspace header strip so all section-header scope
+        // toggles feel identical.
         display: 'inline-flex',
         alignItems: 'center',
-        gap: 0,
-        background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)',
-        borderRadius: 999,
-        padding: 2,
+        gap: 4,
         fontFamily: 'var(--font-primary)',
+        lineHeight: 1,
       }}
     >
-      {(['mine', 'all'] as const).map((opt) => {
+      {(['mine', 'all'] as const).map((opt, idx) => {
         const active = homeTodoScope === opt;
         const label = opt === 'mine' ? 'Mine' : 'Everyone';
         return (
-          <button
-            key={opt}
-            type="button"
-            onClick={(e) => { e.stopPropagation(); handleTodoScopeChange(opt); }}
-            style={{
-              border: 'none',
-              borderRadius: 999,
-              padding: '3px 10px',
-              fontSize: 11,
-              fontWeight: 600,
-              cursor: 'pointer',
-              background: active
-                ? (isDarkMode ? colours.accent : colours.highlight)
-                : 'transparent',
-              color: active
-                ? (isDarkMode ? colours.dark.background : '#ffffff')
-                : colours.subtleGrey,
-              transition: 'background 0.15s ease, color 0.15s ease',
-              fontFamily: 'var(--font-primary)',
-            }}
-          >
-            {label}
-          </button>
+          <React.Fragment key={opt}>
+            {idx > 0 && (
+              <span aria-hidden="true" style={{ fontSize: 9, color: colours.subtleGrey, opacity: 0.55 }}>·</span>
+            )}
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); handleTodoScopeChange(opt); }}
+              style={{
+                appearance: 'none',
+                border: 'none',
+                background: 'transparent',
+                padding: '2px 2px',
+                fontSize: 9,
+                fontWeight: 700,
+                letterSpacing: '0.08em',
+                textTransform: 'uppercase',
+                cursor: active ? 'default' : 'pointer',
+                color: active
+                  ? (isDarkMode ? colours.accent : colours.highlight)
+                  : colours.subtleGrey,
+                opacity: active ? 1 : 0.85,
+                transition: 'color 0.15s ease, opacity 0.15s ease',
+                fontFamily: 'var(--font-primary)',
+                lineHeight: 1,
+              }}
+            >
+              {label}
+            </button>
+          </React.Fragment>
         );
       })}
     </div>
@@ -7512,6 +7558,7 @@ const conversionRate = displayEnquiriesMonthToDate
       immediateActionsList={displayImmediateActionsList}
       highlighted={Boolean(homeCclReviewRequest)}
       seamless={false}
+      enableSuggestedNext={isLocalhost}
       scopeSlot={todoScopeToggle}
     />
   );
@@ -7609,6 +7656,7 @@ const conversionRate = displayEnquiriesMonthToDate
               matterLookupMatters={matterLookupMatters}
               demoModeEnabled={demoModeEnabled}
               isActive={isActive}
+              viewAsProd={isProductionPreview}
               teamData={deferredTeamData ?? undefined}
               wipDailyData={memoWipDailyData}
               onRefresh={handleRefreshTimeMetrics}
@@ -7629,9 +7677,10 @@ const conversionRate = displayEnquiriesMonthToDate
                   immediateActionsList={displayImmediateActionsList}
                   highlighted={Boolean(homeCclReviewRequest)}
                   seamless={true}
-                  scopeSlot={todoScopeToggle}
+                  enableSuggestedNext={isLocalhost}
                 />
               ) : null}
+              todoScopeSlot={replacePipelineAndMatters ? todoScopeToggle : null}
             />
             </LivePulse>
           </div>
@@ -7656,7 +7705,7 @@ const conversionRate = displayEnquiriesMonthToDate
                   isAdmin={userIsAdmin || canUseOpsQueuePreview}
                   isV2User={canUseOpsQueuePreview}
                   isDevOwner={isDevOwner(userData?.[0])}
-                  showHomeOpsCclDates={featureToggles.showHomeOpsCclDates === true}
+                  showHomeOpsCclDates={featureToggles.showHomeOpsCclDates === true && !isProductionPreview}
                   isActive={isActive}
                 />
                 </LivePulse>
@@ -7901,6 +7950,13 @@ const conversionRate = displayEnquiriesMonthToDate
         onClose={() => setShowReleaseNotes(false)}
         isDarkMode={isDarkMode}
       />
+      {(isLocalhost || ['LZ', 'AC'].includes(userInitials.toUpperCase())) && (
+        <OpenAnotherMatterModal
+          open={showOpenAnotherMatter}
+          onClose={() => setShowOpenAnotherMatter(false)}
+          currentUserInitials={userInitials}
+        />
+      )}
     </div>
   );
 };

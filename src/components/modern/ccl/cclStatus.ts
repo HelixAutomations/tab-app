@@ -27,7 +27,17 @@ export interface CclStatus {
   } | null;
 }
 
-export function getCanonicalCclStage(status?: string | null): 'pending' | 'compiled' | 'generated' | 'pressure-tested' | 'reviewed' | 'sent' {
+export type CanonicalCclStage =
+  | 'pending'
+  | 'compiled'
+  | 'generated'
+  | 'pressure-tested'
+  | 'reviewed'
+  | 'sent'
+  | 'nd-uploaded'
+  | 'client-sent';
+
+export function getCanonicalCclStage(status?: string | null): CanonicalCclStage {
   switch (String(status || '').trim().toLowerCase()) {
     case 'compiled':
       return 'compiled';
@@ -43,8 +53,18 @@ export function getCanonicalCclStage(status?: string | null): 'pending' | 'compi
     case 'final':
       return 'reviewed';
     case 'sent':
-    case 'uploaded':
+    case 'sent-internal':
+    case 'internal-sent':
       return 'sent';
+    case 'nd-uploaded':
+    case 'nd_uploaded':
+    case 'uploaded':
+    case 'uploaded-nd':
+      return 'nd-uploaded';
+    case 'client-sent':
+    case 'sent-client':
+    case 'sent-to-client':
+      return 'client-sent';
     default:
       return 'pending';
   }
@@ -65,7 +85,11 @@ export function getCanonicalCclLabel(status?: string | null, explicitLabel?: str
     case 'reviewed':
       return 'Reviewed';
     case 'sent':
-      return 'Sent';
+      return 'Sent internal';
+    case 'nd-uploaded':
+      return 'ND uploaded';
+    case 'client-sent':
+      return 'Sent to client';
     default:
       return 'Pending';
   }
@@ -75,7 +99,14 @@ export function isCompileOnlyCclStatus(ccl?: CclStatus | null): boolean {
   if (!ccl) return false;
   const stage = getCanonicalCclStage(ccl.stage || ccl.status);
   if (stage === 'compiled') return true;
-  if (stage === 'generated' || stage === 'pressure-tested' || stage === 'reviewed' || stage === 'sent') {
+  if (
+    stage === 'generated'
+    || stage === 'pressure-tested'
+    || stage === 'reviewed'
+    || stage === 'sent'
+    || stage === 'nd-uploaded'
+    || stage === 'client-sent'
+  ) {
     return false;
   }
   return !Number(ccl.version || 0) && Boolean(ccl.compiledAt || ccl.compileSummary);

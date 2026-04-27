@@ -50,10 +50,6 @@ export default function CclLaunchStepFieldTicker({
         </span>
       </div>
 
-      <div className="ccl-launch-step-ticker__caption">
-        Checking against source evidence
-      </div>
-
       <div className="ccl-launch-step-ticker__window">
         <div
           className="ccl-launch-step-ticker__reel"

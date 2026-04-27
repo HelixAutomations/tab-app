@@ -52,9 +52,8 @@ export const TodoItemExpandedPane: React.FC<TodoItemExpandedPaneProps> = ({
         display: 'flex',
         gap: 0,
         background: surface,
-        borderLeft: `3px solid ${accent}`,
         borderTop: `1px solid ${divider}`,
-        padding: '10px 12px 10px 11px',
+        padding: '10px 12px',
         fontFamily: 'var(--font-primary)',
         animation: 'iabChipIn 0.18s ease both',
       }}

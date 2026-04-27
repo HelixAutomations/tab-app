@@ -8,7 +8,7 @@
 
 ## 1. Why this exists (user intent)
 
-From the realignment call (verbatim, [docs/notes/realignmentcall_scope.md](realignmentcall_scope.md)):
+From the realignment call (verbatim, [docs/realignmentcall_scope.md](../realignmentcall_scope.md)):
 
 - *"remove chat for now. We'll come back to that"*
 - *"we might re-add it later... so keep the bot piece in place"*
@@ -113,8 +113,6 @@ touches:
 depends_on: []
 coordinates_with:
   - home-todo-single-pickup-surface
-  - ccl-backend-chain-silent-autopilot-service
-  - ccl-review-pickup-via-todo-and-addressee-fix
   - demo-mode-hardening-production-presentable-end-to-end
   - home-animation-order-and-demo-insert-fidelity
   - ui-responsiveness-hover-scroll-and-tab-navigation

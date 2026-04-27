@@ -900,7 +900,7 @@ export default function CclReviewModal({
                           {ptRunningHere ? 'Safety Net Status' : 'Review Status'}
                         </div>
                         <div style={{ fontSize: isMobileReview ? 11 : 10, color: '#d1d5db', lineHeight: 1.45, fontWeight: 700 }}>
-                          {ptRunningHere ? 'Safety Net is checking the draft now.' : 'No review points are waiting.'}
+                          {ptRunningHere ? 'Checking the draft against source evidence now.' : 'No review points are waiting.'}
                         </div>
                         <div style={{ fontSize: isMobileReview ? 11 : 10, color: colours.subtleGrey, lineHeight: 1.45 }}>
                           {ptRunningHere
@@ -960,6 +960,42 @@ export default function CclReviewModal({
 
                 {selectedFieldKey && selectedFieldMeta && (
                   <div className="ccl-review-decision-stage" style={{ display: 'flex', flexDirection: 'column', gap: 14, width: '100%', marginBlock: 'auto', paddingBlock: isMobileReview ? 8 : 16 }}>
+                    {ptRunningHere && (
+                      <div
+                        role="status"
+                        aria-live="polite"
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 10,
+                          padding: '8px 10px',
+                          border: `1px solid ${colours.orange}`,
+                          background: 'rgba(255, 140, 0, 0.08)',
+                          fontFamily: "'Raleway', Arial, Helvetica, sans-serif",
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: 12,
+                            height: 12,
+                            flexShrink: 0,
+                            border: `2px solid rgba(255, 140, 0, 0.25)`,
+                            borderTopColor: colours.orange,
+                            borderRadius: '50%',
+                            animation: 'helix-spin 0.8s linear infinite',
+                          }}
+                          aria-hidden="true"
+                        />
+                        <div style={{ display: 'grid', gap: 2, minWidth: 0 }}>
+                          <div style={{ fontSize: isMobileReview ? 11 : 10.5, fontWeight: 700, color: colours.orange, letterSpacing: '0.02em' }}>
+                            Pressure test still running
+                          </div>
+                          <div style={{ fontSize: isMobileReview ? 11 : 10, color: '#d1d5db', lineHeight: 1.45 }}>
+                            New review points may surface and the count may change. Hold sign-off until the check finishes.
+                          </div>
+                        </div>
+                      </div>
+                    )}
                     <CclReviewQueueStrip
                       isMobile={isMobileReview}
                       items={queueStripItems}
@@ -970,6 +1006,7 @@ export default function CclReviewModal({
                     />
                     <CclReviewDecisionPanel
                       isMobile={isMobileReview}
+                      fieldLabel={selectedFieldMeta.label}
                       choiceConfig={structuredChoiceConfig}
                       selectedFieldOutput={selectedFieldOutput}
                       selectedFieldIsReviewed={selectedFieldIsReviewed}

@@ -572,6 +572,7 @@ Every Area of Work indicator across the app MUST use these exact tokens. No RGB 
 - **highlightBlue for light-mode surfaces** — `highlightBlue` (#d6e8ff) for hover backgrounds, selected rows, badge fills in light mode.
 - **True highlight naming rule (critical)** — when specs/UX say “highlight blue”, use `colours.blue` / `colours.highlight` (`#3690CE`). Do **not** substitute `highlightBlue` (`#d6e8ff`), which is a light surface tint only.
 - **No ad-hoc blue shades** — if a needed blue is missing, update `src/app/styles/colours.ts` first and then consume that token; never inline a new hex/RGB in component code.
+- **Mixed comparison charts** — use lines or line-plus-stems for flow metrics, bars for completed outcomes, and reserve filled areas for single-series charts only. In quiet windows, calm motion and legend chrome before adding decoration.
 - **Status colours** — ready/success: `green`, loading: `blue`, warning: `orange`, error: `cta`, idle/neutral: `subtleGrey`.
 - **No off-brand colours** — never use Tailwind defaults (sky-400, blue-400, #22c55e, #4ade80, etc.), Material Design (`#FFB74D`, `#E65100`), or raw hex that doesn't map to a token. Violations to watch: `#0ea5e9`, `#60a5fa`, `#f59e0b`, `#10b981`, `#8b5cf6`, `#ef4444`, `#E53935`, `#0078d4` (use `colours.blue`).
 - **Dark text hierarchy** — `dark.text` (#f3f4f6) for primary, `subtleGrey` for secondary, `greyText` for tertiary.

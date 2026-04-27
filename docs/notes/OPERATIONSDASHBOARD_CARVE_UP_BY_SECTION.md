@@ -252,10 +252,6 @@ depends_on: []
 coordinates_with:
   - home-todo-single-pickup-surface
   - chat-tab-removal-retain-infra
-  - ccl-review-experience-calm-rail-override-rerun-fix-docx-fidelity
-  - ccl-review-pickup-via-todo-and-addressee-fix
-  - ccl-review-landing-terser-intro-start-from-scratch-affordance-pipeline-toasting
-  - ccl-backend-chain-silent-autopilot-service
   - operationsdashboard-sections-visual-alignment
   - home-animation-order-and-demo-insert-fidelity
   - ui-responsiveness-hover-scroll-and-tab-navigation

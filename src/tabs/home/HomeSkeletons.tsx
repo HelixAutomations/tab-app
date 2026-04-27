@@ -341,7 +341,7 @@ export const HomeDashboardSkeleton: React.FC<{ isDarkMode: boolean; billingTileC
         <div className="home-dashboard-skeleton-conversion" style={{ background: 'var(--home-card-bg)', border: '1px solid var(--home-card-border)', display: 'flex', flexDirection: 'column' }}>
           <SkeletonSectionLabel
             title="Conversion warming up"
-            description="Pulling enquiries, matters, and area-of-work mix."
+            description="Pulling enquiries, matters, and conversion trend."
             isDarkMode={isDarkMode}
           />
           {/* Period tabs row (Today/Week/Month/Quarter) — mirrors live tab bar */}
@@ -352,64 +352,80 @@ export const HomeDashboardSkeleton: React.FC<{ isDarkMode: boolean; billingTileC
           </div>
 
           {hidePipelineAndMatters ? (
-            // ── Phase D layout: sub-strip + two banded sections with pocket charts + trails ──
-            <div style={{ padding: '12px 14px 10px', display: 'grid', gap: 12, flex: 1, alignContent: 'start' }}>
-              {/* Conversion % sub-strip */}
-              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', paddingBottom: 8, borderBottom: '1px solid var(--home-card-border)' }}>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                  {skeletonBlock(72, 9, 'var(--home-skel-fill-faint)')}
-                  {skeletonBlock(56, 22, 'var(--home-skel-fill)')}
-                  {skeletonBlock(38, 10, 'var(--home-skel-fill-weak)')}
-                </div>
-                {skeletonBlock(108, 9, 'var(--home-skel-fill-faint)')}
+            // Paired layout mirrors live: KPI row + supporting trend block + quiet trails.
+            <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)', borderBottom: '1px solid var(--home-card-border)' }}>
+                {[
+                  { key: 'enquiries', labelWidth: 64, valueWidth: 52, metaWidth: 148 },
+                  { key: 'matters', labelWidth: 58, valueWidth: 42, metaWidth: 136 },
+                  { key: 'conversion', labelWidth: 66, valueWidth: 48, metaWidth: 112 },
+                ].map((tile, index) => (
+                  <div key={tile.key} style={{ padding: '12px 14px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6, borderRight: index === 2 ? 'none' : '1px solid var(--home-card-border)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {tile.key === 'enquiries' ? <span style={{ width: 12, height: 2, background: 'var(--home-skel-fill)' }} /> : null}
+                      {tile.key === 'matters' ? <span style={{ width: 6, height: 6, background: 'var(--home-skel-fill)' }} /> : null}
+                      {skeletonBlock(tile.labelWidth, 9, 'var(--home-skel-fill)')}
+                    </div>
+                    {skeletonBlock(tile.valueWidth, 24, 'var(--home-skel-fill)')}
+                    {skeletonBlock(tile.metaWidth, 10, 'var(--home-skel-fill-faint)')}
+                  </div>
+                ))}
               </div>
 
-              {/* Two banded sections: Enquiries + Matters. Left column
-                  stacks label + big number + copy; chart drops into the
-                  right column spanning that full height (2026-04-20). */}
-              {['enquiries', 'matters'].map((key, sIdx) => (
-                <div key={key} style={{ display: 'grid', gap: 8 }}>
-                  {/* Row 1: left stack (label + big number + copy) + right chart */}
-                  <div style={{ display: 'flex', alignItems: 'stretch', gap: 14, flexWrap: 'wrap' }}>
-                    <div style={{ flex: '1 1 160px', minWidth: 0, display: 'grid', gap: 6, alignContent: 'start' }}>
-                      {skeletonBlock(sIdx === 0 ? 64 : 58, 9, 'var(--home-skel-fill)')}
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-                        {skeletonBlock(sIdx === 0 ? 48 : 42, 26, 'var(--home-skel-fill)')}
-                        {skeletonBlock(28, 9, 'var(--home-skel-fill-weak)')}
-                        {sIdx === 1 && skeletonBlock(34, 10, 'var(--home-skel-fill-weak)')}
-                      </div>
-                      {skeletonBlock(sIdx === 0 ? 180 : 200, 8, 'var(--home-skel-fill-faint)')}
-                    </div>
-                    <div style={{ width: 200, height: 68, background: 'var(--home-skel-fill-faint)', position: 'relative', overflow: 'hidden', flexShrink: 0, marginLeft: 'auto', animation: pulse(sIdx * 0.1) }}>
-                      {[16, 32, 48].map((y) => (
-                        <span key={y} style={{ position: 'absolute', left: 0, right: 0, top: y, height: 1, background: 'var(--home-skel-fill-weak)', opacity: 0.6 }} />
-                      ))}
-                    </div>
-                  </div>
-                  {/* AoW roulette bezels */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
-                    {Array.from({ length: sIdx === 0 ? 6 : 4 }).map((_, ti) => (
-                      <span
-                        key={ti}
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 6,
-                          height: 22,
-                          padding: '0 8px',
-                          border: '1px solid var(--home-skel-fill-faint)',
-                          background: 'var(--home-skel-fill-weak)',
-                          animation: pulse(ti * 0.05 + sIdx * 0.08),
-                        }}
-                      >
-                        <span style={{ width: 13, height: 13, background: 'var(--home-skel-fill-faint)' }} />
-                        <span style={{ width: 24 + (ti % 3) * 8, height: 8, background: 'var(--home-skel-fill-faint)' }} />
-                      </span>
-                    ))}
-                    {skeletonBlock(18, 8, 'var(--home-skel-fill-weak)')}
-                  </div>
+              <div style={{ padding: '8px 12px 10px', borderBottom: '1px solid var(--home-card-border)', display: 'grid', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  {skeletonBlock(34, 9, 'var(--home-skel-fill)')}
+                  {skeletonBlock(52, 8, 'var(--home-skel-fill-faint)')}
+                  {skeletonBlock(44, 8, 'var(--home-skel-fill-faint)')}
                 </div>
-              ))}
+                <div style={{ width: '100%', height: 58, background: 'var(--home-skel-fill-faint)', position: 'relative', overflow: 'hidden', animation: pulse(0.12) }}>
+                  {[0.25, 0.5, 0.75].map((ratio) => (
+                    <span key={ratio} style={{ position: 'absolute', left: 8, right: 8, top: Math.round(58 * ratio), height: 1, background: 'var(--home-skel-fill-weak)', opacity: 0.55 }} />
+                  ))}
+                  <span style={{ position: 'absolute', left: 8, right: 8, bottom: 8, height: 1, background: 'var(--home-skel-fill)', opacity: 0.65 }} />
+                  {[14, 34, 54, 74, 90].map((left, index) => (
+                    <span key={`stem-${left}`} style={{ position: 'absolute', left: `${left}%`, bottom: 8, width: 1, height: index % 2 === 0 ? 22 : 14, background: 'var(--home-skel-fill)', opacity: 0.34, transform: 'translateX(-50%)' }} />
+                  ))}
+                  {[16, 36, 56, 76, 92].map((left, index) => (
+                    <span key={`bar-${left}`} style={{ position: 'absolute', left: `${left}%`, bottom: 8, display: 'inline-flex', gap: 2, transform: 'translateX(-50%)' }}>
+                      <span style={{ width: 3, height: index % 2 === 0 ? 9 : 6, background: 'var(--home-skel-fill-weak)', opacity: 0.7 }} />
+                      <span style={{ width: 3, height: index % 2 === 0 ? 12 : 8, background: 'var(--home-skel-fill)', opacity: 0.85 }} />
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ padding: '12px 14px 12px', display: 'flex', flexDirection: 'column', gap: 12, flex: 1 }}>
+                {['enquiries', 'matters'].map((key, sIdx) => (
+                  <div key={key} style={{ minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+                      {key === 'enquiries' ? <span style={{ width: 12, height: 2, background: 'var(--home-skel-fill)' }} /> : <span style={{ width: 6, height: 6, background: 'var(--home-skel-fill)' }} />}
+                      {skeletonBlock(key === 'enquiries' ? 52 : 42, 9, 'var(--home-skel-fill)')}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      {Array.from({ length: sIdx === 0 ? 6 : 4 }).map((_, ti) => (
+                        <span
+                          key={ti}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            height: 22,
+                            padding: '0 8px',
+                            border: '1px solid var(--home-skel-fill-faint)',
+                            background: 'var(--home-skel-fill-weak)',
+                            animation: pulse(ti * 0.05 + sIdx * 0.08),
+                          }}
+                        >
+                          <span style={{ width: 11, height: 11, background: 'var(--home-skel-fill-faint)' }} />
+                          <span style={{ width: 24 + (ti % 3) * 8, height: 8, background: 'var(--home-skel-fill-faint)' }} />
+                        </span>
+                      ))}
+                      {skeletonBlock(18, 8, 'var(--home-skel-fill-weak)')}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           ) : (
             // ── Legacy layout: hero KPI + full chart + AoW mix footer ──

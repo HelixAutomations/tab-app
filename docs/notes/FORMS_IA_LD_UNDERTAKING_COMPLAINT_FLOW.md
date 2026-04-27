@@ -8,7 +8,7 @@
 
 ## 1. Why this exists (user intent)
 
-From the realignment call (verbatim, [docs/notes/realignmentcall_scope.md](realignmentcall_scope.md)):
+From the realignment call (verbatim, [docs/realignmentcall_scope.md](../realignmentcall_scope.md)):
 
 - *"learning and development... I want that to be coming into my to do list and for me to then review it and add it to the register on their behalf. We don't need to give access to the register to any user"*
 - *"complaints... the only surface on which it needs to be addressed is the to-do list I have, because I always deal with complaints"*

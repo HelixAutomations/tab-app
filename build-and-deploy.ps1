@@ -2,7 +2,6 @@ $ErrorActionPreference = 'Stop'
 
 $zipPath   = Join-Path $PSScriptRoot 'build.zip'
 $copyPath  = Join-Path $PSScriptRoot 'last-deploy.zip'
-$cfgPath   = Join-Path $PSScriptRoot 'server\web.config'
 $deployDir = Join-Path $PSScriptRoot 'deploy'
 
 Write-Host "Removing existing zip artifacts"

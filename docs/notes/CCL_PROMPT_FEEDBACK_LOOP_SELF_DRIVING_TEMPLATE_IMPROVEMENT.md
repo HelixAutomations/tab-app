@@ -186,8 +186,6 @@ touches:
 depends_on:
   - resources-tab-restructure-with-templates-section
 coordinates_with:
-  - ccl-backend-chain-silent-autopilot-service
-  - ccl-review-experience-calm-rail-override-rerun-fix-docx-fidelity
   - database-index-and-dual-db-audit
 conflicts_with: []
 ```

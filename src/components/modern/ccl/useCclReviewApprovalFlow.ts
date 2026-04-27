@@ -1,16 +1,6 @@
 import React from 'react';
 import { approveCcl, sendCclToClient, uploadToNetDocuments } from '../../../tabs/matters/ccl/cclAiService';
-
-interface CclStatusEntry {
-  status?: string;
-  stage?: string;
-  label?: string;
-  finalizedAt?: string;
-  sentAt?: string;
-  sentBy?: string;
-  sentChannel?: string;
-  [key: string]: unknown;
-}
+import type { CclStatus } from './cclStatus';
 
 interface CclToastOptions {
   type: 'success' | 'error';
@@ -26,11 +16,21 @@ interface CreateCclReviewApprovalHandlerParams {
   cclApprovingMatter: string | null;
   setCclApprovingMatter: React.Dispatch<React.SetStateAction<string | null>>;
   setCclApprovalStep: React.Dispatch<React.SetStateAction<string>>;
-  setCclMap: React.Dispatch<React.SetStateAction<Record<string, CclStatusEntry>>>;
+  setCclMap: React.Dispatch<React.SetStateAction<Record<string, CclStatus>>>;
   setCclSelectedReviewFieldByMatter: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   setCclJustApproved: React.Dispatch<React.SetStateAction<string | null>>;
   setCclLetterModal: React.Dispatch<React.SetStateAction<string | null>>;
+  cclUploadingMatter: string | null;
+  setCclUploadingMatter: React.Dispatch<React.SetStateAction<string | null>>;
+  setCclUploadedMatter: React.Dispatch<React.SetStateAction<string | null>>;
   showToast: (options: CclToastOptions) => void;
+}
+
+export interface CclReviewApprovalHandlers {
+  /** Stage 1 — Approve + send guarded internal copy. Does NOT touch NetDocuments. */
+  handleApprove: () => Promise<void>;
+  /** Stage 2 — Manual upload of the approved letter to NetDocuments. */
+  handleUploadToNd: () => Promise<void>;
 }
 
 export default function createCclReviewApprovalHandler({
@@ -44,9 +44,12 @@ export default function createCclReviewApprovalHandler({
   setCclSelectedReviewFieldByMatter,
   setCclJustApproved,
   setCclLetterModal,
+  cclUploadingMatter,
+  setCclUploadingMatter,
+  setCclUploadedMatter,
   showToast,
-}: CreateCclReviewApprovalHandlerParams) {
-  return async () => {
+}: CreateCclReviewApprovalHandlerParams): CclReviewApprovalHandlers {
+  const handleApprove = async () => {
     if (!matterId || cclApprovingMatter) return;
 
     setCclApprovingMatter(matterId);
@@ -75,17 +78,6 @@ export default function createCclReviewApprovalHandler({
           finalizedAt,
         },
       }));
-
-      setCclApprovalStep('Uploading to NetDocuments…');
-      try {
-        await uploadToNetDocuments({
-          matterId,
-          matterDisplayNumber: matterDisplayNumber || matterId,
-          fields: structuredReviewFields,
-        });
-      } catch (ndErr) {
-        console.warn('[ccl] ND upload after approval failed (non-blocking):', ndErr);
-      }
 
       setCclApprovalStep('Sending internal copy…');
       const guardedSend = await sendCclToClient({ matterId });
@@ -116,7 +108,7 @@ export default function createCclReviewApprovalHandler({
       showToast({
         type: 'success',
         title: 'Internal copy sent',
-        message: 'Luke received the CCL, Alex and the fee earner were copied, and the client was excluded by the current guard.',
+        message: 'Luke received the CCL, Alex and the fee earner were copied. Choose what to do next: upload to NetDocuments or close.',
         duration: 4500,
       });
 
@@ -127,11 +119,10 @@ export default function createCclReviewApprovalHandler({
       });
 
       setCclApprovalStep('');
+      // Stage 1 is the entry point of a multi-step ceremony — leave the success
+      // overlay mounted so the operator can explicitly choose: upload to ND, or
+      // close. No auto-dismiss.
       setCclJustApproved(matterId);
-      window.setTimeout(() => {
-        setCclJustApproved((prev) => (prev === matterId ? null : prev));
-        setCclLetterModal((prev) => (prev === matterId ? null : prev));
-      }, 2200);
     } catch (err) {
       console.error('[ccl] Approval error:', err);
       showToast({
@@ -145,4 +136,66 @@ export default function createCclReviewApprovalHandler({
       setCclApprovalStep('');
     }
   };
+
+  const handleUploadToNd = async () => {
+    if (!matterId || cclUploadingMatter) return;
+
+    setCclUploadingMatter(matterId);
+    try {
+      const ndResult = await uploadToNetDocuments({
+        matterId,
+        matterDisplayNumber: matterDisplayNumber || matterId,
+        fields: structuredReviewFields,
+      });
+
+      if (!ndResult.ok) {
+        showToast({
+          type: 'error',
+          title: 'NetDocuments upload failed',
+          message: ndResult.error || 'Could not upload the approved letter. Try again or upload manually.',
+          duration: 6500,
+        });
+        return;
+      }
+
+      setCclMap((prev) => ({
+        ...prev,
+        [matterId]: {
+          ...prev[matterId],
+          status: 'nd-uploaded',
+          stage: 'nd-uploaded',
+          label: 'ND uploaded',
+          uploadedToNd: true,
+        },
+      }));
+      setCclUploadedMatter(matterId);
+
+      showToast({
+        type: 'success',
+        title: 'Uploaded to NetDocuments',
+        message: 'The approved letter is filed in the matter workspace.',
+        duration: 4000,
+      });
+
+      // Close the success overlay shortly after the ND step lands so the
+      // operator returns to the dashboard cleanly.
+      window.setTimeout(() => {
+        setCclJustApproved((prev) => (prev === matterId ? null : prev));
+        setCclUploadedMatter((prev) => (prev === matterId ? null : prev));
+        setCclLetterModal((prev) => (prev === matterId ? null : prev));
+      }, 1800);
+    } catch (err) {
+      console.error('[ccl] ND upload error:', err);
+      showToast({
+        type: 'error',
+        title: 'NetDocuments upload error',
+        message: 'Something went wrong uploading to NetDocuments. Try again.',
+        duration: 6500,
+      });
+    } finally {
+      setCclUploadingMatter(null);
+    }
+  };
+
+  return { handleApprove, handleUploadToNd };
 }

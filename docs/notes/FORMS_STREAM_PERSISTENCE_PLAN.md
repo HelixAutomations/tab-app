@@ -310,7 +310,7 @@ touches:
     - server/utils/formSubmissionLog.js  # NEW
   submodules: []
 depends_on: []
-coordinates_with: [dev-preview-and-view-as]   # both touch FormsHub.tsx admin gating
+coordinates_with: []
 conflicts_with: []
 ```
 

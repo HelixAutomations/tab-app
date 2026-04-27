@@ -43,7 +43,7 @@ import {
   sanitiseCclPressureTestFields,
 } from './ccl/cclReviewModel';
 import BillingRailSkeleton from './BillingRailSkeleton';
-import ConversionProspectBasket from './ConversionProspectBasket';
+import ConversionProspectBasket, { type ConversionProspectChipItem } from './ConversionProspectBasket';
 import ConversionStreamLedger from './ConversionStreamLedger';
 import ConversionStreamPreview from './ConversionStreamPreview';
 import { buildConversionPocketChartSVG, buildCombinedConversionChartSVG } from './conversionPocketChart';
@@ -510,6 +510,7 @@ export interface OperationsDashboardProps {
   wipDailyData?: WipDailyData;
   demoModeEnabled?: boolean;
   isActive?: boolean;
+  viewAsProd?: boolean;
   reviewRequest?: { requestedAt: number; matterId?: string; openInspector?: boolean } | null;
   /**
    * When true, the caller (Home) is rendering its own ToDo surface in place of the
@@ -531,6 +532,12 @@ export interface OperationsDashboardProps {
    * section header label as a small badge. Hidden when 0/undefined.
    */
   todoCount?: number;
+  /**
+   * Optional control rendered right-aligned inside the To Do section header
+   * strip (inline with the label). Used by Home to place the Mine/Everyone
+   * scope toggle so it sits in the header line rather than inside the body.
+   */
+  todoScopeSlot?: React.ReactNode;
 }
 
 function getAttentionSummary(reason?: string | null): string {
@@ -917,10 +924,12 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
   wipDailyData,
   demoModeEnabled = false,
   isActive = true,
+  viewAsProd = false,
   reviewRequest = null,
   hidePipelineAndMatters = false,
   todoSlot = null,
   todoCount,
+  todoScopeSlot = null,
 }) => {
   const { showToast, updateToast, hideToast } = useToast();
   const cclPipelineToasts = useCclPipelineToasts();
@@ -1118,7 +1127,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
   // (staging / prod), plus anyone running on localhost. Prevents the
   // previous behaviour where the hostname-only gate hid the panel from
   // the dev group in hosted envs and showed it to non-devs locally.
-  const canSeeCclDevPanel = isLocalDev
+  const canSeeCclDevPanel = (!viewAsProd && isLocalDev)
     || isDevGroupOrHigher({ Initials: userInitials, Email: userEmail } as any);
   const matterStepsInline = canSeeCcl || dashboardWidthBand === 'lg';
   const callsAndNotesNarrow = dashboardWidthBand === 'xs';
@@ -1293,6 +1302,8 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
   const [cclApprovingMatter, setCclApprovingMatter] = React.useState<string | null>(null);
   const [cclApprovalStep, setCclApprovalStep] = React.useState<string>('');
   const [cclJustApproved, setCclJustApproved] = React.useState<string | null>(null);
+  const [cclUploadingMatter, setCclUploadingMatter] = React.useState<string | null>(null);
+  const [cclUploadedMatter, setCclUploadedMatter] = React.useState<string | null>(null);
   const [cclContactSourceByMatter, setCclContactSourceByMatter] = React.useState<Record<string, CclContactSource>>({});
   const [cclAiStreamLog, setCclAiStreamLog] = React.useState<{ key: string; value: string }[]>([]);
   const [cclPressureTestByMatter, setCclPressureTestByMatter] = React.useState<Record<string, PressureTestResponse>>({});
@@ -1871,7 +1882,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
   }, [cclLetterModal, clearCclTransientLaunchState, dismissCclLaunchToast]);
 
   React.useEffect(() => {
-    if (!isLocalDev || !cclLetterModal) return undefined;
+    if (viewAsProd || !isLocalDev || !cclLetterModal) return undefined;
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       const tagName = target?.tagName || '';
@@ -1945,6 +1956,35 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
       }))
       .filter((matter) => Boolean(matter.displayNumber || matter.key));
   }, [matterLookupMatters, recentMatters]);
+
+  const callFilingRecentEnquiries = React.useMemo(() => {
+    const out: import('../matter-lookup/ProspectLookup').ProspectLookupOption[] = [];
+    const seen = new Set<string>();
+    for (const r of recentEnquiryRecords || []) {
+      const rawId = (r as any).enquiryId ?? (r as any).id;
+      const id = Number(rawId);
+      if (!Number.isFinite(id)) continue;
+      const source: 'instructions' | 'legacy' = ((r as any).dataSource === 'legacy') ? 'legacy' : 'instructions';
+      const key = `${source}:${id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const fullName = String((r as any).name || '').trim();
+      const sp = fullName.indexOf(' ');
+      const firstName = sp === -1 ? fullName : fullName.slice(0, sp);
+      const lastName = sp === -1 ? '' : fullName.slice(sp + 1);
+      out.push({
+        id,
+        firstName,
+        lastName,
+        email: String((r as any).email || ''),
+        phone: '',
+        aow: String((r as any).aow || ''),
+        source,
+      });
+      if (out.length >= 8) break;
+    }
+    return out;
+  }, [recentEnquiryRecords]);
 
   const demoModeActive = React.useMemo(() => {
     if (demoModeEnabled) return true;
@@ -3025,7 +3065,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
     const pressureRunningHere = cclPressureTestRunning === matterId;
     const pressureReady = !!cclPressureTestByMatter[matterId];
     const pressureErrored = !!cclPressureTestError && !pressureRunningHere && hasAiContext && !pressureReady;
-    const launchHeldLocally = isLocalDev && cclLaunchDevHold;
+    const launchHeldLocally = !viewAsProd && isLocalDev && cclLaunchDevHold;
     const launchNeedsWork = draftLoadingHere
       || traceLoadingHere
       || aiRunningHere
@@ -3212,18 +3252,21 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
       : 560;
     const combinedChartHeight = conversionLayout.chartHasOwnLine
       ? breakpoint === 'narrow'
-        ? 224
+        ? 208
         : 212
       : breakpoint === 'wide'
-        ? 196
-        : 188;
+        ? 184
+        : 176;
     const sparkStroke = isDarkMode ? 'rgba(135,243,243,0.95)' : 'rgba(54,144,206,1)';
     const sparkPrevStroke = isDarkMode ? 'rgba(209,213,219,0.7)' : 'rgba(55,65,81,0.55)';
     const sparkGrid = isDarkMode ? 'rgba(148,163,184,0.18)' : 'rgba(15,23,42,0.09)';
-    const combinedPlotFill = isDarkMode ? 'rgba(8,28,48,0.72)' : 'rgba(255,255,255,0.92)';
-    const combinedPlotBorder = isDarkMode ? 'rgba(135,243,243,0.12)' : 'rgba(13,47,96,0.08)';
-    const combinedBandFill = isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(13,47,96,0.025)';
-    const combinedBandAltFill = isDarkMode ? 'rgba(135,243,243,0.022)' : 'rgba(54,144,206,0.028)';
+    // Embedded plot — no fill, no border. Inner-only dotted separators
+    // (no alternating column shading) provide subtle bucket delineation.
+    const combinedPlotFill = 'transparent';
+    const combinedPlotBorder = 'transparent';
+    const combinedBandFill = 'transparent';
+    const combinedBandAltFill = 'transparent';
+    const combinedSeparatorStroke = isDarkMode ? 'rgba(135,243,243,0.10)' : 'rgba(13,47,96,0.10)';
     const combinedAxisMuted = isDarkMode ? 'rgba(160,160,160,0.62)' : 'rgba(107,107,107,0.58)';
     const combinedXAxisFill = isDarkMode ? 'rgba(209,213,219,0.68)' : 'rgba(55,65,81,0.54)';
     const combinedTooltipBg = isDarkMode ? 'rgba(2,6,23,0.96)' : 'rgba(255,255,255,0.96)';
@@ -3241,8 +3284,12 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
         ? 'This month'
         : 'Current';
     const chartPreviousLabel = item.comparisonLabel || 'Previous';
-    const combinedMattersCurrentStroke = isDarkMode ? colours.highlight : colours.darkBlue;
-    const combinedMattersPreviousStroke = isDarkMode ? colours.highlight : colours.helixBlue;
+    const combinedMattersCurrentStroke = isDarkMode ? colours.highlight : colours.highlight;
+    // 2026-04-27: previous matter bar now uses the same neutral grey as the
+    // previous-enquiries line so the secondary period reads as one quiet
+    // baseline across both series, while the current matter bar carries the
+    // bold highlight blue identity on its own.
+    const combinedMattersPreviousStroke = sparkPrevStroke;
     const baseOpts = {
       stroke: sparkStroke,
       previousStroke: sparkPrevStroke,
@@ -3276,6 +3323,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
         plotBorder: combinedPlotBorder,
         bucketBandFill: combinedBandFill,
         bucketBandAltFill: combinedBandAltFill,
+        bucketSeparatorStroke: combinedSeparatorStroke,
         axisMutedFill: combinedAxisMuted,
         xAxisLabelFill: combinedXAxisFill,
         tooltipBg: combinedTooltipBg,
@@ -3299,29 +3347,34 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
   }, [selectedConversionKey]);
   const useExperimentalConversion = enableConversionComparison && conversionRows.length > 0;
   const showExperimentalConversionSkeleton = enableConversionComparison && isResolvingConversionComparison;
-  // When experimental conversion is paired with the ToDo slot, the panel is
-  // shorter than the old pipeline+matters stack — lower the floor so ToDo can
-  // cap to the measured Conversion height (D5) without being forced taller.
-  const conversionTodoPaired = Boolean(useExperimentalConversion && hidePipelineAndMatters && todoSlot);
+  const todoPairedWithConversion = Boolean(hidePipelineAndMatters && todoSlot);
+  // The experimental conversion variant is materially shorter than the old
+  // pipeline+matters stack, so only that version needs the lower floor. The
+  // measured height match itself should still apply to the default paired view.
+  const compactPairedConversionRail = Boolean(useExperimentalConversion && todoPairedWithConversion);
   React.useLayoutEffect(() => {
     if (!isActive) return;
     measureDashboardLayout();
   }, [
     isActive,
     measureDashboardLayout,
+    showExperimentalConversionSkeleton,
     selectedConversionItem,
     conversionInlineLedger,
-    conversionTodoPaired,
+    conversionCardWidth,
+    conversionLayout.breakpoint,
+    conversionLayout.chartHasOwnLine,
+    todoPairedWithConversion,
   ]);
   const primaryRailMinHeight = isNarrow
     ? undefined
-    : conversionTodoPaired
+    : compactPairedConversionRail
       ? 360
       : (useExperimentalConversion ? 440 : 520);
-  // Measured height of the Conversion rail — ToDo cap (D5). Only used when
-  // paired and not narrow. Falls back to the min-height floor otherwise so
-  // the skeleton→live transition doesn't pop.
-  const todoMatchedHeight = conversionTodoPaired && conversionRailHeight ? conversionRailHeight : undefined;
+  // Measured height of the Conversion rail — ToDo cap (D5). Apply this to the
+  // full paired Home layout, not just the experimental conversion variant, so
+  // the two cards read as peers by default.
+  const todoMatchedHeight = todoPairedWithConversion && conversionRailHeight ? conversionRailHeight : undefined;
   const pipelineRailHeight = isNarrow
     ? undefined
     : Math.max(primaryRailMinHeight ?? 0, conversionRailHeight ?? 0) || undefined;
@@ -4210,19 +4263,8 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
     // resolving skeleton → live render transitions stay visually flush.
     const paired = hidePipelineAndMatters && Boolean(todoSlot);
     if (paired) {
-      // 2026-04-20: skeleton geometry mirrors the settled paired layout
-      // *exactly* — same outer card, same substrip-outside-body pattern,
-      // same body padding (12/14/12), same per-band padding (10px 0) with
-      // borderBottom (except last), same chart width/height per breakpoint.
-      // Previously the skeleton wrapped the substrip *inside* the body with
-      // extra gap, which made it visibly taller than the live render — the
-      // "jolt" the user noticed when the data arrived.
-      // 2026-04-20: the card has ample room to the left of the chart — the
-      // label/number/copy stack rarely fills its `1 1 160px` track. Widen
-      // the chart so we take that space when available; flex-wrap still
-      // drops the chart below when the card narrows.
-      const pairedChartWidth = conversionBreakpoint === 'wide' ? 340 : 260;
-      const pairedChartHeight = conversionBreakpoint === 'wide' ? 84 : 72;
+      // 2026-04-27: paired skeleton now mirrors the current live contract:
+      // period tabs → 3 KPI row → supporting trend block → two quiet trails.
       return (
         <div
           style={{
@@ -4256,108 +4298,121 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
             })}
           </div>
 
-          {/* Conversion % substrip — OUTSIDE the body, matches live padding 8/14/8 */}
           <div
             style={{
-              display: 'flex',
-              alignItems: 'baseline',
-              justifyContent: 'space-between',
-              gap: 12,
-              padding: '8px 14px 8px',
+              display: 'grid',
+              gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)',
               borderBottom: `1px solid ${rowBorder}`,
-              flexWrap: 'wrap',
             }}
           >
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 3 }}>
-              {skeletonBlock(72, 9, { background: skeletonTint })}
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                {skeletonBlock(56, 22, { background: skeletonStrong })}
-                {skeletonBlock(38, 9, { background: skeletonSoft })}
+            {[
+              { key: 'enquiries', labelWidth: 64, valueWidth: 52, metaWidth: 148 },
+              { key: 'matters', labelWidth: 58, valueWidth: 42, metaWidth: 136 },
+              { key: 'conversion', labelWidth: 66, valueWidth: 48, metaWidth: 112 },
+            ].map((tile, index) => (
+              <div
+                key={`conversion-skeleton-kpi-${tile.key}`}
+                style={{
+                  padding: '12px 14px',
+                  minWidth: 0,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 6,
+                  borderRight: index === 2 ? 'none' : `1px solid ${rowBorder}`,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {tile.key === 'enquiries' ? <span style={{ width: 12, height: 2, background: skeletonStrong }} /> : null}
+                  {tile.key === 'matters' ? <span style={{ width: 6, height: 6, background: skeletonStrong }} /> : null}
+                  {skeletonBlock(tile.labelWidth, 9, { background: skeletonStrong })}
+                </div>
+                {skeletonBlock(tile.valueWidth, 24, { background: skeletonStrong })}
+                {skeletonBlock(tile.metaWidth, 10, { background: skeletonTint })}
               </div>
-            </div>
-            {skeletonBlock(108, 9, { background: skeletonTint })}
+            ))}
           </div>
 
-          {/* Body — padding 12/14/12, gap 0, flex column; bands bordered individually */}
-          <div style={{ padding: '12px 14px 12px', display: 'flex', flexDirection: 'column', gap: 0, flex: 1 }}>
-            {['enquiries', 'matters'].map((key, sIdx) => {
-              const isLast = sIdx === 1;
-              return (
-                <div
-                  key={`conversion-skeleton-band-${key}`}
+          <div
+            style={{
+              padding: conversionBreakpoint === 'narrow' ? '8px 10px 10px' : '8px 12px 10px',
+              borderBottom: `1px solid ${rowBorder}`,
+              display: 'grid',
+              gap: 8,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              {skeletonBlock(34, 9, { background: skeletonStrong })}
+              {skeletonBlock(52, 8, { background: skeletonTint })}
+              {skeletonBlock(44, 8, { background: skeletonTint })}
+            </div>
+            <div
+              style={{
+                width: '100%',
+                height: 58,
+                background: skeletonTint,
+                position: 'relative',
+                overflow: 'hidden',
+                animation: 'opsDashPulse 1.5s ease-in-out infinite',
+              }}
+            >
+              {[0.25, 0.5, 0.75].map((ratio) => (
+                <span
+                  key={`conversion-skeleton-grid-${ratio}`}
                   style={{
-                    display: 'grid',
-                    gap: 6,
-                    padding: '10px 0',
-                    borderBottom: isLast ? 'none' : `1px solid ${rowBorder}`,
+                    position: 'absolute',
+                    left: 8,
+                    right: 8,
+                    top: Math.round(58 * ratio),
+                    height: 1,
+                    background: skeletonSoft,
+                    opacity: 0.55,
                   }}
-                >
-                  {/* Row 1: left stack + right chart (matches live gap 14 + rowGap 6) */}
-                  <div style={{ display: 'flex', alignItems: 'stretch', gap: 14, flexWrap: 'wrap', rowGap: 6 }}>
-                    <div style={{ flex: '1 1 160px', minWidth: 0, display: 'grid', gap: 6, alignContent: 'start' }}>
-                      {skeletonBlock(sIdx === 0 ? 64 : 58, 9, { background: skeletonStrong })}
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-                        {skeletonBlock(sIdx === 0 ? 48 : 42, 26, { background: skeletonStrong })}
-                        {skeletonBlock(28, 9, { background: skeletonSoft })}
-                        {sIdx === 1 ? skeletonBlock(34, 11, { background: skeletonSoft }) : null}
-                      </div>
-                      {skeletonBlock(sIdx === 0 ? 180 : 200, 10, { background: skeletonTint })}
-                    </div>
-                    <div
+                />
+              ))}
+              <span style={{ position: 'absolute', left: 8, right: 8, bottom: 8, height: 1, background: skeletonStrong, opacity: 0.65 }} />
+              {[14, 34, 54, 74, 90].map((left, index) => (
+                <span key={`conversion-skeleton-stem-${left}`} style={{ position: 'absolute', left: `${left}%`, bottom: 8, width: 1, height: index % 2 === 0 ? 22 : 14, background: skeletonStrong, opacity: 0.36, transform: 'translateX(-50%)' }} />
+              ))}
+              {[16, 36, 56, 76, 92].map((left, index) => (
+                <span key={`conversion-skeleton-bar-${left}`} style={{ position: 'absolute', left: `${left}%`, bottom: 8, display: 'inline-flex', gap: 2, transform: 'translateX(-50%)' }}>
+                  <span style={{ width: 3, height: index % 2 === 0 ? 9 : 6, background: skeletonSoft, opacity: 0.7 }} />
+                  <span style={{ width: 3, height: index % 2 === 0 ? 12 : 8, background: skeletonStrong, opacity: 0.85 }} />
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ padding: '12px 14px 12px', display: 'flex', flexDirection: 'column', gap: 12, flex: 1 }}>
+            {['enquiries', 'matters'].map((key, sIdx) => (
+              <div key={`conversion-skeleton-trail-group-${key}`} style={{ minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+                  {key === 'enquiries' ? <span style={{ width: 12, height: 2, background: skeletonStrong }} /> : <span style={{ width: 6, height: 6, background: skeletonStrong }} />}
+                  {skeletonBlock(key === 'enquiries' ? 52 : 42, 9, { background: skeletonStrong })}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  {Array.from({ length: sIdx === 0 ? 6 : 4 }).map((_, ti) => (
+                    <span
+                      key={`conversion-skeleton-trail-${key}-${ti}`}
                       style={{
-                        width: pairedChartWidth,
-                        height: pairedChartHeight,
-                        background: skeletonTint,
-                        position: 'relative',
-                        overflow: 'hidden',
-                        flexShrink: 0,
-                        marginLeft: 'auto',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        height: 22,
+                        padding: '0 8px',
+                        border: `1px solid ${skeletonTint}`,
+                        background: skeletonSoft,
                         animation: 'opsDashPulse 1.5s ease-in-out infinite',
-                        animationDelay: `${sIdx * 0.1}s`,
+                        animationDelay: `${ti * 0.05 + sIdx * 0.08}s`,
                       }}
                     >
-                      {[0.25, 0.5, 0.75].map((r) => (
-                        <span
-                          key={r}
-                          style={{
-                            position: 'absolute',
-                            left: 0,
-                            right: 0,
-                            top: Math.round(pairedChartHeight * r),
-                            height: 1,
-                            background: skeletonSoft,
-                            opacity: 0.6,
-                          }}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                  {/* AoW trail — marginTop 6 matches live */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
-                    {Array.from({ length: sIdx === 0 ? 6 : 4 }).map((_, ti) => (
-                      <span
-                        key={`conversion-skeleton-trail-${key}-${ti}`}
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 6,
-                          height: 22,
-                          padding: '0 8px',
-                          border: `1px solid ${skeletonTint}`,
-                          background: skeletonSoft,
-                          animation: 'opsDashPulse 1.5s ease-in-out infinite',
-                          animationDelay: `${ti * 0.05 + sIdx * 0.08}s`,
-                        }}
-                      >
-                        <span style={{ width: 13, height: 13, background: skeletonTint }} />
-                        <span style={{ width: 24 + (ti % 3) * 8, height: 8, background: skeletonTint }} />
-                      </span>
-                    ))}
-                    {skeletonBlock(18, 8, { background: skeletonSoft })}
-                  </div>
+                      <span style={{ width: 11, height: 11, background: skeletonTint }} />
+                      <span style={{ width: 24 + (ti % 3) * 8, height: 8, background: skeletonTint }} />
+                    </span>
+                  ))}
+                  {skeletonBlock(18, 8, { background: skeletonSoft })}
                 </div>
-              );
-            })}
+              </div>
+            ))}
           </div>
         </div>
       );
@@ -4702,7 +4757,11 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
             : [0, Math.floor((buckets.length - 1) / 3), Math.floor(((buckets.length - 1) * 2) / 3), buckets.length - 1],
     );
     const currentFill = isDarkMode ? withAlpha(colours.highlight, 0.62) : withAlpha(colours.highlight, 0.48);
-    const previousFill = isDarkMode ? withAlpha(colours.highlight, 0.18) : withAlpha(colours.highlight, 0.14);
+    // 2026-04-27: previous bars now share the previous-line colour identity
+    // (highlightBlue in dark, highlight in light) and sit at a slightly
+    // higher fill alpha so the secondary layer reads as a clean soft
+    // backdrop without the previous bar feeling like a different series.
+    const previousFill = isDarkMode ? withAlpha(colours.highlightBlue, 0.12) : withAlpha(colours.highlight, 0.08);
     const currentMatterStroke = isDarkMode ? withAlpha(colours.highlight, 0.98) : withAlpha(colours.highlight, 0.94);
     const previousMatterStroke = isDarkMode ? withAlpha(colours.highlightBlue, 0.9) : withAlpha(colours.highlight, 0.72);
     const currentMatterSeparator = isDarkMode ? withAlpha(colours.light.background, 0.24) : withAlpha(colours.light.background, 0.52);
@@ -4712,7 +4771,6 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
     const chartGrid = isDarkMode ? 'rgba(255,255,255,0.045)' : 'rgba(13,47,96,0.05)';
     const axisText = isDarkMode ? 'rgba(244,244,246,0.5)' : 'rgba(6,23,51,0.48)';
     const axisCaption = isDarkMode ? 'rgba(160,160,160,0.48)' : 'rgba(107,107,107,0.52)';
-    const hoverGuideStroke = isDarkMode ? 'rgba(135,243,243,0.16)' : 'rgba(13,47,96,0.12)';
     const hoverGuideFill = isDarkMode ? 'rgba(135,243,243,0.035)' : 'rgba(54,144,206,0.035)';
     const matterTicks = [maxMatters, Math.max(0, Math.round(maxMatters / 2)), 0];
     const enquiryTicks = [maxEnquiries, Math.max(0, Math.round(maxEnquiries / 2)), 0];
@@ -4824,6 +4882,16 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                   height={previousH}
                   fill={previousFill}
                 />
+                {previousH > 0 ? (
+                  <path
+                    d={`M${previousX} ${previousY + previousH} L${previousX} ${previousY} L${previousX + barWidth} ${previousY} L${previousX + barWidth} ${previousY + previousH}`}
+                    fill="none"
+                    stroke={previousEnquiryStroke}
+                    strokeWidth="1"
+                    strokeLinecap="square"
+                    strokeLinejoin="miter"
+                  />
+                ) : null}
                 {previousSeparators.map((lineY, lineIndex) => (
                   <line
                     key={`${item.key}-${bucket.label}-previous-sep-${lineIndex}`}
@@ -4846,7 +4914,6 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
             strokeWidth="1.32"
             strokeLinecap="round"
             strokeLinejoin="round"
-            strokeDasharray="4 3"
           />
           <path
             d={currentEnquiryPath}
@@ -4907,16 +4974,6 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                 />
                 {isHovered ? (
                   <>
-                    <line
-                      className="chart-hover-guide"
-                      x1={centreX}
-                      y1={padTop}
-                      x2={centreX}
-                      y2={xAxisY}
-                      stroke={hoverGuideStroke}
-                      strokeWidth="0.8"
-                      strokeDasharray="2 2"
-                    />
                     <text
                       className="chart-hover-label"
                       x={centreX}
@@ -5222,45 +5279,41 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
           display: grid;
           gap: 0;
           position: relative;
+          /* 2026-04-27: switched from a mask-composite ring with 0.75px
+             padding to a solid 1px inset box-shadow. The mask trick was
+             dropping the bottom edge intermittently on standard-DPI
+             displays (sub-pixel padding rounds to 0). An inset shadow
+             paints all four sides as integer pixels, can't be clipped,
+             and stays sharp. Stage colour comes from --billing-frame-bg
+             (kept the variable name so the stage selectors still drive
+             it; gradients collapsed to a solid stage colour). */
+          box-shadow: inset 0 0 0 1px var(--billing-frame-bg, transparent);
+          transition: box-shadow 0.4s ease;
         }
         .ops-billing-frame::before {
+          /* Retained for any downstream styling that may target it; now
+             fully transparent. The real ring lives on the host element
+             via the inset box-shadow above. */
           content: '';
           position: absolute;
           inset: 0;
           pointer-events: none;
-          padding: 0.75px;
-          background: var(--billing-frame-bg, transparent);
-          -webkit-mask:
-            linear-gradient(#000 0 0) content-box,
-            linear-gradient(#000 0 0);
-          -webkit-mask-composite: xor;
-          mask:
-            linear-gradient(#000 0 0) content-box,
-            linear-gradient(#000 0 0);
-          mask-composite: exclude;
-          opacity: var(--billing-frame-opacity, 0);
-          transition: opacity 0.4s ease, background 0.4s ease;
+          opacity: 0;
         }
-        /* 2026-04-21: stage-driven border gradients. The earlier inline
-           IIFE that piped --billing-frame-bg into element style was lost
-           in a refactor, so the frame border has been invisible. Restore
-           via [data-billing-stage] selectors so the same JSX scaffolding
-           drives the visuals. */
+        /* 2026-04-27: stage-driven inset border colour. Solid per-stage
+           tones (sharp, serious) replace the previous diagonal gradients
+           — gradients on a 1px ring read as noise rather than progress. */
         .ops-billing-frame[data-billing-stage="early"] {
-          --billing-frame-bg: linear-gradient(135deg, ${withAlpha(colours.highlight, 0.55)} 0%, ${withAlpha(colours.highlight, 0.25)} 100%);
-          --billing-frame-opacity: 0.55;
+          --billing-frame-bg: ${withAlpha(colours.highlight, 0.45)};
         }
         .ops-billing-frame[data-billing-stage="mid"] {
-          --billing-frame-bg: linear-gradient(135deg, ${withAlpha(colours.highlight, 0.65)} 0%, ${withAlpha(colours.accent, 0.55)} 100%);
-          --billing-frame-opacity: 0.7;
+          --billing-frame-bg: ${withAlpha(colours.highlight, 0.6)};
         }
         .ops-billing-frame[data-billing-stage="closing"] {
-          --billing-frame-bg: linear-gradient(135deg, ${withAlpha(colours.accent, 0.55)} 0%, ${withAlpha(colours.green, 0.7)} 45%, ${withAlpha(colours.green, 0.75)} 100%);
-          --billing-frame-opacity: 0.78;
+          --billing-frame-bg: ${withAlpha(colours.green, 0.6)};
         }
         .ops-billing-frame[data-billing-stage="done"] {
-          --billing-frame-bg: linear-gradient(135deg, ${withAlpha(colours.green, 0.85)} 0%, #1a8c5a 60%, ${withAlpha(colours.green, 0.85)} 100%);
-          --billing-frame-opacity: 0.85;
+          --billing-frame-bg: ${withAlpha(colours.green, 0.85)};
         }
         /* One-shot completion sweep: a brighter green/accent ring fades in
            and out once when the stage flips to done. Re-keyed via a state
@@ -5440,7 +5493,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
       {/* ── Billing rail ── */}
       {(billingMetrics.length > 0 || isLoading) && (
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '2px 0 3px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: 18 }}>
             <span className="home-section-header"><TbCurrencyPound size={11} className="home-section-header-icon" />Billing</span>
             {onRefresh && (
               <FiRefreshCw
@@ -5687,7 +5740,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
           <div style={{ display: 'grid', gridTemplateColumns: isNarrow ? 'minmax(0, 1fr)' : (hidePipelineAndMatters ? (todoSlot ? 'minmax(0, 1fr) minmax(0, 1fr)' : 'minmax(0, 1fr)') : 'minmax(0, 1fr) minmax(0, 2fr)'), gap: 6 }}>
           {/* ── Left: Conversion ── */}
           <div>
-            <div className="home-section-header" style={{ animation: 'opsDashFadeIn 0.25s ease both' }}><FiTrendingUp size={10} className="home-section-header-icon" />Conversion</div>
+            <div className="home-section-header" style={{ minHeight: 18, animation: 'opsDashFadeIn 0.25s ease both' }}><FiTrendingUp size={10} className="home-section-header-icon" />Conversion</div>
             <div ref={conversionRailRef} style={{ minHeight: primaryRailMinHeight }}>
               {(!enquiryMetrics || enquiryMetrics.length === 0 || showExperimentalConversionSkeleton || (enableConversionComparison && !useExperimentalConversion)) ? (
                 renderConversionSkeleton()
@@ -5725,6 +5778,20 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                         const matterProspects: ConversionProspectChipItem[] = Array.isArray(item.currentMatterProspects) ? item.currentMatterProspects : [];
                         const showChart = hasChart && conversionSparklines !== null;
                         const combinedSVG = conversionSparklines?.combinedSVG ?? '';
+                        const trendTotals = item.buckets.reduce((acc, bucket) => {
+                          acc.currentEnquiries += Number(bucket.currentEnquiries || 0);
+                          acc.previousEnquiries += Number(bucket.previousEnquiries || 0);
+                          acc.currentMatters += Number(bucket.currentMatters || 0);
+                          acc.previousMatters += Number(bucket.previousMatters || 0);
+                          return acc;
+                        }, { currentEnquiries: 0, previousEnquiries: 0, currentMatters: 0, previousMatters: 0 });
+                        const quietTrendState = trendTotals.currentEnquiries === 0
+                          && trendTotals.previousEnquiries === 0
+                          && trendTotals.currentMatters === 0
+                          && trendTotals.previousMatters === 0;
+                        const sparseTrendState = !quietTrendState
+                          && (trendTotals.currentEnquiries + trendTotals.previousEnquiries) <= 8
+                          && (trendTotals.currentMatters + trendTotals.previousMatters) <= 3;
 
                         // 2026-04-24: restructured into a 3-KPI row (Enquiries /
                         // Matters / Conversion%) + a single combined chart
@@ -5738,8 +5805,12 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                           return `${sign}${fmt.int(delta)}`;
                         };
                         const enquiriesAccent = isDarkMode ? 'rgba(135,243,243,0.95)' : colours.highlight;
-                        const mattersAccent = isDarkMode ? colours.accent : colours.darkBlue;
-                        const mattersPreviousAccent = isDarkMode ? colours.highlight : colours.helixBlue;
+                        const mattersAccent = isDarkMode ? colours.highlight : colours.highlight;
+                        // 2026-04-27: previous matter swatch now matches the
+                        // previous-enquiries grey so the legend reads as one
+                        // shared baseline across both series.
+                        const enquiriesPreviousAccent = isDarkMode ? 'rgba(209,213,219,0.7)' : 'rgba(55,65,81,0.55)';
+                        const mattersPreviousAccent = enquiriesPreviousAccent;
                         const conversionAccent = isDarkMode ? colours.accent : colours.highlight;
 
                         const renderKpi = (
@@ -5762,18 +5833,20 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                               padding: '12px 14px 12px',
                               minWidth: 0,
                               display: 'flex',
-                                    flexDirection: 'column',
-                                    gap: 5,
+                              flexDirection: 'column',
+                              gap: 5,
                               borderRight: isLast ? 'none' : `1px solid ${rowBorder}`,
                               cursor: onClick ? 'pointer' : 'default',
                               transition: 'background 0.2s ease',
                             }}
                           >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: key === 'conversion' ? 0 : 6 }}>
                               {key === 'enquiries' ? (
                                 <span aria-hidden="true" style={{ width: 12, height: 2, background: accent, flexShrink: 0 }} />
+                              ) : key === 'matters' ? (
+                                <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: 0, background: accent, flexShrink: 0 }} />
                               ) : (
-                                <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: key === 'matters' ? 0 : '50%', background: accent, flexShrink: 0 }} />
+                                null
                               )}
                               <span className="helix-eyebrow" style={{ color: muted, opacity: 0.82 }}>{label}</span>
                             </div>
@@ -5789,6 +5862,30 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                               <div style={{ fontSize: 10, minHeight: 14 }} aria-hidden="true">&nbsp;</div>
                             )}
                           </div>
+                        );
+
+                        const renderTrendKey = (
+                          label: string,
+                          swatch: React.ReactNode,
+                        ) => (
+                          <span
+                            key={label}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 6,
+                              color: muted,
+                              fontSize: conversionBreakpoint === 'narrow' ? 8.5 : 9,
+                              fontWeight: 600,
+                              letterSpacing: '0.02em',
+                              opacity: 0.84,
+                            }}
+                          >
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, minWidth: 24 }}>
+                              {swatch}
+                            </span>
+                            {label}
+                          </span>
                         );
 
                         return (
@@ -5889,67 +5986,98 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
 
                             {/* Combined trend chart */}
                             {showChart && combinedSVG ? (
-                              <div style={{ padding: conversionBreakpoint === 'narrow' ? '8px 10px 8px' : '10px 14px 10px', borderBottom: `1px solid ${rowBorder}`, animation: 'opsDashRowFade 0.28s ease 0.12s both' }}>
-                                <div style={{
-                                  display: 'grid',
-                                  gap: conversionBreakpoint === 'narrow' ? 8 : 10,
-                                  padding: conversionBreakpoint === 'narrow' ? '8px 9px 10px' : '10px 12px 12px',
-                                  border: `1px solid ${isDarkMode ? 'rgba(135,243,243,0.12)' : 'rgba(13,47,96,0.08)'}`,
-                                  background: isDarkMode
-                                    ? 'linear-gradient(180deg, rgba(8,28,48,0.9) 0%, rgba(6,23,51,0.82) 100%)'
-                                    : 'linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(244,244,246,0.96) 100%)',
-                                  boxShadow: isDarkMode
-                                    ? 'inset 0 1px 0 rgba(135,243,243,0.05)'
-                                    : 'inset 0 1px 0 rgba(255,255,255,0.6)',
-                                }}>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: conversionBreakpoint === 'narrow' ? 6 : 8, flexWrap: 'wrap' }}>
-                                    <span className="helix-eyebrow" style={{ color: muted, opacity: 0.82 }}>Trend</span>
-                                    <span style={{
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      gap: 6,
-                                      padding: conversionBreakpoint === 'narrow' ? '4px 7px' : '4px 8px',
-                                      border: `1px solid ${isDarkMode ? 'rgba(135,243,243,0.12)' : 'rgba(54,144,206,0.12)'}`,
-                                      background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(54,144,206,0.05)',
-                                      color: muted,
-                                      fontSize: conversionBreakpoint === 'narrow' ? 8.5 : 9,
-                                      fontWeight: 700,
-                                      letterSpacing: '0.04em',
-                                      borderRadius: 999,
-                                    }}>
-                                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                                        <span style={{ width: 8, height: 0, borderTop: `1.5px dashed ${isDarkMode ? 'rgba(209,213,219,0.7)' : 'rgba(55,65,81,0.55)'}` }} />
-                                        <span style={{ width: 10, height: 2, background: enquiriesAccent }} />
-                                      </span>
-                                      Enquiries prev/current
-                                    </span>
-                                    <span style={{
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      gap: 6,
-                                      padding: conversionBreakpoint === 'narrow' ? '4px 7px' : '4px 8px',
-                                      border: `1px solid ${withAlpha(isDarkMode ? colours.highlight : colours.darkBlue, isDarkMode ? 0.16 : 0.14)}`,
-                                      background: withAlpha(isDarkMode ? colours.highlight : colours.darkBlue, isDarkMode ? 0.07 : 0.05),
-                                      color: muted,
-                                      fontSize: conversionBreakpoint === 'narrow' ? 8.5 : 9,
-                                      fontWeight: 700,
-                                      letterSpacing: '0.04em',
-                                      borderRadius: 999,
-                                    }}>
-                                      <span style={{ display: 'inline-flex', alignItems: 'flex-end', gap: 2, height: 10 }}>
-                                        <span style={{ width: 4, height: 6, background: mattersPreviousAccent, opacity: 0.72 }} />
-                                        <span style={{ width: 4, height: 9, background: isDarkMode ? colours.highlight : mattersAccent, opacity: 0.96 }} />
-                                      </span>
-                                      Matters prev/current
-                                    </span>
-                                  </div>
-                                  <div
-                                    aria-label="Enquiries and matters trend for selected period"
-                                    className="conv-combined-chart"
-                                    style={{ width: '100%', lineHeight: 0 }}
-                                    dangerouslySetInnerHTML={{ __html: combinedSVG }}
-                                  />
-                                </div>
+                              <div style={{
+                                padding: conversionBreakpoint === 'narrow' ? '8px 10px 10px' : '8px 12px 10px',
+                                borderBottom: `1px solid ${rowBorder}`,
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: 8,
+                                animation: 'opsDashRowFade 0.28s ease 0.12s both',
+                              }}>
+                                {quietTrendState ? (
+                                  <>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                      <span className="helix-eyebrow" style={{ color: muted, opacity: 0.82 }}>Trend</span>
+                                      <span className="helix-tile-meta" style={{ color: muted, opacity: 0.78 }}>No activity yet in this window</span>
+                                    </div>
+                                    <div
+                                      aria-hidden="true"
+                                      style={{
+                                        width: '100%',
+                                        height: 44,
+                                        position: 'relative',
+                                        overflow: 'hidden',
+                                        background: isDarkMode ? 'rgba(255,255,255,0.015)' : 'rgba(13,47,96,0.03)',
+                                        border: `1px solid ${rowBorder}`,
+                                      }}
+                                    >
+                                      {[0.25, 0.5, 0.75].map((ratio) => (
+                                        <span
+                                          key={`quiet-trend-grid-${ratio}`}
+                                          style={{
+                                            position: 'absolute',
+                                            left: 10,
+                                            right: 10,
+                                            top: Math.round(44 * ratio),
+                                            height: 1,
+                                            background: rowBorder,
+                                            opacity: 0.58,
+                                          }}
+                                        />
+                                      ))}
+                                      <span style={{ position: 'absolute', left: 10, right: 10, bottom: 8, height: 1, background: isDarkMode ? 'rgba(135,243,243,0.26)' : 'rgba(54,144,206,0.22)' }} />
+                                      {item.buckets.map((bucket, index) => {
+                                        const left = item.buckets.length <= 1 ? 50 : (index / (item.buckets.length - 1)) * 100;
+                                        const pending = bucket.currentAvailable === false;
+                                        return (
+                                          <span
+                                            key={`quiet-trend-tick-${index}`}
+                                            style={{
+                                              position: 'absolute',
+                                              left: `${left}%`,
+                                              bottom: 8,
+                                              width: 1,
+                                              height: pending ? 4 : 8,
+                                              background: isDarkMode ? 'rgba(135,243,243,0.28)' : 'rgba(54,144,206,0.22)',
+                                              opacity: pending ? 0.42 : 0.7,
+                                              transform: 'translateX(-50%)',
+                                            }}
+                                          />
+                                        );
+                                      })}
+                                    </div>
+                                  </>
+                                ) : (
+                                  <>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                                      <span className="helix-eyebrow" style={{ color: muted, opacity: 0.82 }}>Trend</span>
+                                      {renderTrendKey(
+                                        'Enquiries',
+                                        <>
+                                          <span style={{ width: 10, height: 2, background: enquiriesAccent }} />
+                                          <span style={{ width: 8, height: 0, borderTop: `1.5px dashed ${enquiriesPreviousAccent}` }} />
+                                        </>,
+                                      )}
+                                      <span aria-hidden="true" style={{ width: 1, height: 10, background: rowBorder, opacity: 0.45 }} />
+                                      {renderTrendKey(
+                                        'Matters',
+                                        <span style={{ display: 'inline-flex', alignItems: 'flex-end', gap: 2, height: 10 }}>
+                                          <span style={{ width: 4, height: 9, background: isDarkMode ? colours.highlight : mattersAccent, opacity: 0.92 }} />
+                                          <span style={{ width: 4, height: 6, background: mattersPreviousAccent, opacity: 0.68 }} />
+                                        </span>,
+                                      )}
+                                      {sparseTrendState ? (
+                                        <span className="helix-tile-meta" style={{ color: muted, opacity: 0.72, marginLeft: 'auto' }}>Quiet window</span>
+                                      ) : null}
+                                    </div>
+                                    <div
+                                      aria-label="Enquiries and matters trend for selected period"
+                                      className="conv-combined-chart"
+                                      style={{ width: '100%', lineHeight: 0, marginTop: 4 }}
+                                      dangerouslySetInnerHTML={{ __html: combinedSVG }}
+                                    />
+                                  </>
+                                )}
                               </div>
                             ) : null}
 
@@ -5981,7 +6109,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                                     isDarkMode={isDarkMode}
                                     maxVisible={14}
                                     breakpoint={conversionBreakpoint}
-                                    onOpenProspect={selectedConversionInsightTarget ? () => openInsight(selectedConversionInsightTarget) : undefined}
+                                    onOpenProspect={() => openInsight(selectedConversionInsightTarget || 'today')}
                                     onOpenAll={selectedConversionInsightTarget ? () => openInsight(selectedConversionInsightTarget) : undefined}
                                     overflowExpanded={conversionInlineLedger === key}
                                     onOverflowToggle={() => toggleConversionInlineLedger(key)}
@@ -7251,34 +7379,41 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
           {/* ── Right: ToDo (replaces Pipeline when toggled) ── */}
           {hidePipelineAndMatters && todoSlot && (
             <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%' }}>
-              <div className="home-section-header" style={{ minHeight: 18 }}>
-                <FiCheckCircle size={10} className="home-section-header-icon" />To Do
-                {/* 2026-04-21: count moved inline with the header label as a
-                    subtle pill — sized to the label cap-height so it never
-                    increases the header strip's vertical footprint. The
-                    standalone strip inside ImmediateActionsBar (seamless mode)
-                    is removed in tandem to reclaim the vertical space. */}
-                {typeof todoCount === 'number' && todoCount > 0 && (
-                  <span
-                    aria-label={`${todoCount} outstanding`}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      minWidth: 16,
-                      height: 14,
-                      padding: '0 5px',
-                      marginLeft: 6,
-                      borderRadius: 999,
-                      fontSize: 9,
-                      fontWeight: 600,
-                      letterSpacing: '0.04em',
-                      lineHeight: 1,
-                      background: isDarkMode ? withAlpha(colours.accent, 0.18) : withAlpha(colours.highlight, 0.12),
-                      color: isDarkMode ? colours.accent : colours.highlight,
-                    }}
-                  >
-                    {todoCount}
+              <div className="home-section-header" style={{ minHeight: 18, justifyContent: 'space-between', width: '100%' }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <FiCheckCircle size={10} className="home-section-header-icon" />To Do
+                  {/* 2026-04-21: count moved inline with the header label as a
+                      subtle pill — sized to the label cap-height so it never
+                      increases the header strip's vertical footprint. The
+                      standalone strip inside ImmediateActionsBar (seamless mode)
+                      is removed in tandem to reclaim the vertical space. */}
+                  {typeof todoCount === 'number' && todoCount > 0 && (
+                    <span
+                      aria-label={`${todoCount} outstanding`}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        minWidth: 16,
+                        height: 14,
+                        padding: '0 5px',
+                        marginLeft: 0,
+                        borderRadius: 999,
+                        fontSize: 9,
+                        fontWeight: 600,
+                        letterSpacing: '0.04em',
+                        lineHeight: 1,
+                        background: isDarkMode ? withAlpha(colours.accent, 0.18) : withAlpha(colours.highlight, 0.12),
+                        color: isDarkMode ? colours.accent : colours.highlight,
+                      }}
+                    >
+                      {todoCount}
+                    </span>
+                  )}
+                </span>
+                {todoScopeSlot && (
+                  <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+                    {todoScopeSlot}
                   </span>
                 )}
               </div>
@@ -7331,7 +7466,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
               </div>
             )}
           >
-            <CallsAndNotes isDarkMode={isDarkMode} userInitials={userInitials || ''} userEmail={userEmail} userRate={currentUserTeamMember?.Rate} isNarrow={callsAndNotesNarrow} demoModeEnabled={demoModeEnabled} isActive={isActive} matterLookupOptions={callFilingMatterLookupOptions} />
+            <CallsAndNotes isDarkMode={isDarkMode} userInitials={userInitials || ''} userEmail={userEmail} userRate={currentUserTeamMember?.Rate} isNarrow={callsAndNotesNarrow} demoModeEnabled={demoModeEnabled} isActive={isActive} matterLookupOptions={callFilingMatterLookupOptions} recentEnquiryOptions={callFilingRecentEnquiries} viewAsProd={viewAsProd} />
           </React.Suspense>
         </ErrorBoundary>
 
@@ -8263,7 +8398,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
         const launchPressureErrored = !!cclPressureTestError && !launchPressureRunning && launchHasAiData && !launchPressureReady;
         const reviewRailPrimed = !!cclReviewRailPrimedByMatter[cclLetterModal];
         const launchHandoffActive = cclLaunchHandoffMatter === cclLetterModal;
-        const launchHeldLocally = isLocalDev && cclLaunchDevHold;
+        const launchHeldLocally = !viewAsProd && isLocalDev && cclLaunchDevHold;
         const launchDraftLoading = cclDraftLoading === cclLetterModal;
         const launchReadyForHandoff = !!draft
           && !launchDraftLoading
@@ -8800,7 +8935,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                 ? 'Review ready'
                 : launchHeadline;
         const setupHeaderBody: React.ReactNode = launchPressureRunning
-          ? 'The Safety Net is checking each generated field against source evidence inside the pipeline below.'
+          ? 'Each generated field is being checked against the source evidence below.'
           : launchBody;
         const setupDisplaySteps = launchHandoffActive
           ? launchSteps.map((step, i) => {
@@ -8955,7 +9090,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
           scrollContainer?.scrollTo({ top: 0, behavior });
         };
 
-        const handleApproveCurrentLetter = createCclReviewApprovalHandler({
+        const cclApprovalHandlers = createCclReviewApprovalHandler({
           matterId: cclLetterModal,
           matterDisplayNumber: matter?.displayNumber || cclLetterModal,
           structuredReviewFields: structuredReviewFields as Record<string, string>,
@@ -8966,8 +9101,13 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
           setCclSelectedReviewFieldByMatter,
           setCclJustApproved,
           setCclLetterModal,
+          cclUploadingMatter,
+          setCclUploadingMatter,
+          setCclUploadedMatter,
           showToast,
         });
+        const handleApproveCurrentLetter = cclApprovalHandlers.handleApprove;
+        const handleUploadCurrentLetterToNd = cclApprovalHandlers.handleUploadToNd;
 
         // Keyboard nav — delegated from the top-level document listener via ref.
         // ↑ previous · ↓ next · Enter (with Ctrl) approve · R toggle reviewed
@@ -9518,8 +9658,14 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                 : 'Final review workspace';
         const isGeneratingAiReview = cclAiFillingMatter === cclLetterModal;
         const isApproving = cclApprovingMatter === cclLetterModal;
+        const isUploadingNd = cclUploadingMatter === cclLetterModal;
+        const isUploadedNd = cclUploadedMatter === cclLetterModal;
+        const isInApprovalCeremony = isApproving
+          || cclJustApproved === cclLetterModal
+          || isUploadingNd
+          || isUploadedNd;
         const approvalLabel = isApproving ? (cclApprovalStep || 'Approving…') : 'Approve + send internal copy';
-        const approvalOverlay = (cclApprovingMatter === cclLetterModal || cclJustApproved === cclLetterModal) ? (
+        const approvalOverlay = isInApprovalCeremony ? (
           <div style={{
             position: 'absolute', inset: 0, zIndex: 50,
             background: 'rgba(6, 23, 51, 0.96)',
@@ -9527,14 +9673,80 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
             animation: 'opsDashFadeIn 0.25s ease both',
             fontFamily: "'Raleway', Arial, Helvetica, sans-serif",
           }}>
-            {cclJustApproved === cclLetterModal ? (
+            {isUploadedNd ? (
+              <>
+                <div style={{ width: 52, height: 52, borderRadius: '50%', background: 'rgba(32, 178, 108, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={colours.green} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                </div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: '#f3f4f6', marginBottom: 6 }}>Uploaded to NetDocuments</div>
+                <div style={{ fontSize: 13, color: colours.subtleGrey, maxWidth: 320, textAlign: 'center', lineHeight: 1.5 }}>
+                  The approved letter is filed in the matter workspace.
+                </div>
+              </>
+            ) : isUploadingNd ? (
+              <>
+                <div style={{ position: 'relative', width: 44, height: 44, marginBottom: 20 }}>
+                  <div style={{ position: 'absolute', inset: 0, border: '2px solid rgba(135, 243, 243, 0.08)', borderRadius: '50%' }} />
+                  <div style={{ position: 'absolute', inset: 0, border: '2px solid transparent', borderTopColor: colours.accent, borderRadius: '50%', animation: 'cclLoadPulse 1.2s ease-in-out infinite, cclApprovalSpin 1s linear infinite' }} />
+                </div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#f3f4f6', marginBottom: 6 }}>Uploading to NetDocuments…</div>
+                <div style={{ fontSize: 12, color: colours.subtleGrey }}>Filing the approved letter in the matter workspace.</div>
+              </>
+            ) : cclJustApproved === cclLetterModal ? (
               <>
                 <div style={{ width: 52, height: 52, borderRadius: '50%', background: 'rgba(32, 178, 108, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
                   <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={colours.green} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
                 </div>
                 <div style={{ fontSize: 16, fontWeight: 700, color: '#f3f4f6', marginBottom: 6 }}>Letter approved and sent internally</div>
-                <div style={{ fontSize: 13, color: colours.subtleGrey, maxWidth: 320, textAlign: 'center', lineHeight: 1.5 }}>
+                <div style={{ fontSize: 13, color: colours.subtleGrey, maxWidth: 360, textAlign: 'center', lineHeight: 1.5, marginBottom: 22 }}>
                   {matter?.displayNumber || 'This letter'} has been finalised, sent to Luke internally, and copied to Alex plus the fee earner. The client was not emailed.
+                </div>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <button
+                    type="button"
+                    onClick={() => { void handleUploadCurrentLetterToNd(); }}
+                    disabled={isUploadingNd}
+                    style={{
+                      borderRadius: 0,
+                      border: 'none',
+                      background: colours.highlight,
+                      color: '#ffffff',
+                      padding: '10px 18px',
+                      fontFamily: "'Raleway', Arial, Helvetica, sans-serif",
+                      fontSize: 13,
+                      fontWeight: 700,
+                      letterSpacing: '0.02em',
+                      cursor: isUploadingNd ? 'wait' : 'pointer',
+                      opacity: isUploadingNd ? 0.6 : 1,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 8,
+                    }}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>
+                    Upload to NetDocuments
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCclJustApproved((prev) => (prev === cclLetterModal ? null : prev));
+                      closeCclLetterModal();
+                    }}
+                    style={{
+                      borderRadius: 0,
+                      border: '1px solid rgba(255,255,255,0.18)',
+                      background: 'transparent',
+                      color: '#f3f4f6',
+                      padding: '10px 16px',
+                      fontFamily: "'Raleway', Arial, Helvetica, sans-serif",
+                      fontSize: 13,
+                      fontWeight: 600,
+                      letterSpacing: '0.02em',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Done
+                  </button>
                 </div>
               </>
             ) : (

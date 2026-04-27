@@ -234,9 +234,6 @@ coordinates_with:
   - home-todo-single-pickup-surface
   - home-skeletons-aligned-cascade
   - home-animation-order-and-demo-insert-fidelity
-  - ccl-review-experience-calm-rail-override-rerun-fix-docx-fidelity
-  - ccl-review-pickup-via-todo-and-addressee-fix
-  - ccl-review-landing-terser-intro-start-from-scratch-affordance-pipeline-toasting
   - userbubble-and-private-hub-tools-control-consolidation-and-sort
   - vault-room-developer-hygiene-hmr-dev-performance-and-ai-clutter-guardrails
   - ui-responsiveness-hover-scroll-and-tab-navigation

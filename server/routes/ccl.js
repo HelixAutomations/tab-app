@@ -1379,6 +1379,8 @@ router.post('/service/run', async (req, res) => {
                                 matterId: String(matterId),
                                 matterDisplayNumber: matterDisplayNumber || null,
                                 instructionRef: instructionRef || null,
+                                clientName: clientName || null,
+                                practiceArea: practiceArea || null,
                                 flaggedCount,
                                 ptTrackingId: ptResult?.trackingId || null,
                                 awaitingNdApproval: true,

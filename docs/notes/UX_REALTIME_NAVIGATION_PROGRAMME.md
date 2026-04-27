@@ -129,7 +129,7 @@ Five phases. Each independently revertable. Each lands behind a dev-preview gate
 | 0.2 | Client interaction tracker | `src/utils/interactionTracker.ts` (NEW) | `markInteractionStart(name)` / `markInteractionEnd(name)` wrappers using `performance.mark`/`performance.measure`. Debounced, batched every 5 s. |
 | 0.3 | Debug overlay (LZ/AC only) | `src/components/DebugLatencyOverlay.tsx` (NEW) | Corner pill, last 3 interactions + rolling p95. Gated by `canSeePrivateHubControls()` AND `?ux-debug=1`. Mounted in [src/app/App.tsx](../../src/app/App.tsx). Dismissible per session. |
 | 0.4 | Instrument hot interactions | [src/app/App.tsx](../../src/app/App.tsx), [src/components/Navigator.tsx](../../src/components/Navigator.tsx) | `nav.tabSwitch` on `setActiveTab`; `hover.feedback` via shared `useInteractionTiming()` hook on QuickActionsBar / command-centre. |
-| 0.5 | Live tracker | `docs/notes/UX_REALTIME_PROGRAMME.md` (NEW) | Phase checklist, baseline slot, decisions log, deferrals. |
+| 0.5 | Live tracker | `docs/UX_REALTIME_PROGRAMME.md` (NEW) | Phase checklist, baseline slot, decisions log, deferrals. |
 | 0.6 | Record baseline | tracker | Walk Home→Matters→Enquiries→Reporting ×3 with overlay on; paste numbers. |
 
 **Phase 0 acceptance:**
@@ -209,7 +209,7 @@ All of Phase 3 gated via `?nav-v2=1` + LZ/AC preview. Legacy nav untouched.
 | 4.4 | Loading vocabulary | [docs/COMPONENT_STYLE_GUIDE.md](../../docs/COMPONENT_STYLE_GUIDE.md) | Three shapes only: skeleton (initial), shimmer (refresh), spinner (in-flight). |
 | 4.5 | Empty-state audit | all lists/tables | Helix-styled: icon + guidance line + primary action. |
 | 4.6 | Promote nav-v2 | remove `?nav-v2=1` gate | Delete old shell code; `setActiveTab` shim stays. |
-| 4.7 | Tracker close-out | `docs/notes/UX_REALTIME_PROGRAMME.md` → `docs/notes/_archive/` | Final metrics; programme summary entry in `logs/changelog.md`. |
+| 4.7 | Tracker close-out | `docs/UX_REALTIME_PROGRAMME.md` → `docs/notes/_archive/` | Final metrics; programme summary entry in `logs/changelog.md`. |
 
 **Phase 4 acceptance:**
 - `grep -r "style={{" src/` returns only dynamic values.
@@ -325,7 +325,7 @@ Each numbered item triggers a `logs/changelog.md` entry at completion.
 - Existing `/api/telemetry` route — consumes client interaction batches (no schema change expected).
 
 **Scripts / docs:**
-- `docs/notes/UX_REALTIME_PROGRAMME.md` (NEW) — live tracker, baselines, decisions, deferrals.
+- `docs/UX_REALTIME_PROGRAMME.md` (NEW) — live tracker, baselines, decisions, deferrals.
 - [docs/COMPONENT_STYLE_GUIDE.md](../../docs/COMPONENT_STYLE_GUIDE.md) — motion tokens, loading vocabulary, empty-state spec.
 - [logs/changelog.md](../../logs/changelog.md) — entry per phase (and each ≥1-day sub-step).
 - `/memories/repo/ux-realtime-programme.md` — short repo memory, updated at each phase close.

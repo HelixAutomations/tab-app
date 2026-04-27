@@ -19,15 +19,14 @@ import { disposeOnHmr, onServerBounced } from "./utils/devHmr";
 import { stampBuildAttribute, registerWayfindingDebugApi } from "./utils/devWayfinding";
 import { useDevServerBoot } from "./hooks/useDevServerBoot";
 import { useRealtimeChannel } from "./hooks/useRealtimeChannel";
-const WayfindingOverlay = process.env.NODE_ENV !== 'production'
-  ? lazy(() => import('./components/dev/WayfindingOverlay'))
-  : null;
-
 import "./utils/callLogger";
 import { initializeIcons } from '@fluentui/react/lib/Icons';
 import Loading from "./app/styles/Loading";
 import ErrorBoundary from "./components/ErrorBoundary";
 import EntryGate from "./components/EntryGate";
+const WayfindingOverlay = process.env.NODE_ENV !== 'production'
+  ? lazy(() => import('./components/dev/WayfindingOverlay'))
+  : null;
 const Data = lazy(() => import("./tabs/Data"));
 
 // Initialize icons once.

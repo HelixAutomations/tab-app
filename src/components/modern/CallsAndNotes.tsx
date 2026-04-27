@@ -147,6 +147,8 @@ interface CallsAndNotesProps {
   demoModeEnabled?: boolean;
   isActive?: boolean;
   matterLookupOptions?: MatterOption[];
+  recentEnquiryOptions?: import('../matter-lookup/ProspectLookup').ProspectLookupOption[];
+  viewAsProd?: boolean;
 }
 
 type JourneyFilter = 'all' | 'external' | 'internal' | 'notes' | 'activity' | 'emails';
@@ -570,7 +572,7 @@ function NotePromptInspector({ systemPrompt, userPrompt, isDarkMode, accent, tex
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
-export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, userRate, isNarrow, demoModeEnabled = false, isActive = true, matterLookupOptions = [] }: CallsAndNotesProps) {
+export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, userRate, isNarrow, demoModeEnabled = false, isActive = true, matterLookupOptions = [], recentEnquiryOptions = [], viewAsProd = false }: CallsAndNotesProps) {
   const showAll = isDevOwner({ Initials: userInitials, Email: userEmail || '' } as any);
   // Dubber API requests go directly to the Express backend on localhost to avoid
   // HTTP/1.1 connection exhaustion — the 6+ SSE streams through the CRA proxy
@@ -585,12 +587,13 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
   }, []);
   // Activities disabled in production — local and staging only
   const activitiesEnabled = React.useMemo(() => {
+    if (viewAsProd) return false;
     if (typeof window === 'undefined') return false;
     const hostname = window.location.hostname;
     if (hostname === 'localhost' || hostname === '127.0.0.1') return true;
     if (['staging', 'uat', 'dev', 'preview'].some((s) => hostname.includes(s))) return true;
     return false;
-  }, []);
+  }, [viewAsProd]);
   const demoModeActive = React.useMemo(() => {
     if (demoModeEnabled) return true;
     try {
@@ -655,6 +658,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
   const scrollRef = useRef<HTMLDivElement>(null);
   const rightRailRef = useRef<HTMLDivElement>(null);
   const [rightRailHeight, setRightRailHeight] = useState<number | null>(null);
+  const [snappedJourneyListHeight, setSnappedJourneyListHeight] = useState<number | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const journeyLoadedKeyRef = useRef<string | null>(null);
   const journeyRequestContextRef = useRef('');
@@ -891,6 +895,13 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
       setIsLoadingJourney(false);
       setIsRefreshingJourney(false);
       setActivitiesLoading(false);
+      return;
+    }
+
+    // Don't fire until user identity is resolved — without initials/email the
+    // request hits production with no auth context and userContextMiddleware
+    // cannot resolve req.user, so requireUser returns 401.
+    if (!userInitials && !userEmail) {
       return;
     }
 
@@ -1759,6 +1770,64 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
     return lastStableJourneyItems.filter((item) => matchesJourneyFilter(item, journeyFilter));
   }, [filteredJourneyItems, isLoadingJourney, journeyFilter, lastStableJourneyItems]);
 
+  const recomputeSnappedJourneyListHeight = useCallback(() => {
+    if (!callCentreEnabled || isNarrow) {
+      setSnappedJourneyListHeight(null);
+      return;
+    }
+
+    const container = scrollRef.current;
+    if (!container) return;
+
+    const heightLimit = Math.max(Math.floor((rightRailHeight && rightRailHeight > 0 ? rightRailHeight : 560)), 280);
+    const itemBlocks = Array.from(container.querySelectorAll<HTMLElement>('[data-journey-item="true"]'));
+
+    if (itemBlocks.length === 0) {
+      setSnappedJourneyListHeight((prev) => (prev === heightLimit ? prev : heightLimit));
+      return;
+    }
+
+    const containerTop = container.getBoundingClientRect().top;
+    let snappedHeight = Math.ceil(itemBlocks[0].getBoundingClientRect().bottom - containerTop);
+    for (const block of itemBlocks) {
+      const blockBottom = Math.ceil(block.getBoundingClientRect().bottom - containerTop);
+      snappedHeight = blockBottom;
+      if (blockBottom >= heightLimit) {
+        break;
+      }
+    }
+
+    setSnappedJourneyListHeight((prev) => (prev === snappedHeight ? prev : snappedHeight));
+  }, [callCentreEnabled, isNarrow, rightRailHeight]);
+
+  React.useLayoutEffect(() => {
+    if (!callCentreEnabled || isNarrow) {
+      setSnappedJourneyListHeight(null);
+      return;
+    }
+
+    const container = scrollRef.current;
+    if (!container) return;
+
+    let frame = window.requestAnimationFrame(recomputeSnappedJourneyListHeight);
+    if (typeof ResizeObserver === 'undefined') {
+      return () => window.cancelAnimationFrame(frame);
+    }
+
+    const observer = new ResizeObserver(() => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(recomputeSnappedJourneyListHeight);
+    });
+
+    observer.observe(container);
+    Array.from(container.querySelectorAll<HTMLElement>('[data-journey-item="true"], [data-journey-prefix="true"], [data-journey-spacer="true"]')).forEach((block) => observer.observe(block));
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [callCentreEnabled, isNarrow, recomputeSnappedJourneyListHeight, visibleJourneyItems, selectedCallId, journeyWarnings]);
+
   const freshJourneyKeys = useFreshIds(visibleJourneyItems, (item) => item.key);
 
   const journeyFilterCounts = React.useMemo(() => ({
@@ -1840,9 +1909,8 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
   const streamCardPadding = '6px 8px';
   const streamIconColumnWidth = 14;
   const streamAccessoryColumnWidth = 22;
-  const streamViewportTrimPx = 14;
   const syncedJourneyListHeight = callCentreEnabled && !isNarrow
-    ? Math.max((rightRailHeight && rightRailHeight > 0 ? rightRailHeight : 560) - streamViewportTrimPx, 280)
+    ? (snappedJourneyListHeight ?? Math.max(Math.floor((rightRailHeight && rightRailHeight > 0 ? rightRailHeight : 560)), 280))
     : (isNarrow ? 360 : 420);
 
   // Billable units: 6-minute increments. Minimum 1 unit per recorded call.
@@ -2178,94 +2246,147 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
           </div>
         )}
 
+      {(() => null)()}
+      {/* Right-aligned controls (Mine/Team scope toggle + manual refresh)
+          reused in both the single-header (legacy/narrow) and split-header
+          (call-centre wide) layouts below so the JSX is only declared once. */}
+      {/* Define the shared controls block as a JSX const just before the
+          main panel so both header layouts can drop it into the correct slot.
+          IIFE returns the JSX node for inline reuse. */}
       <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-        <div style={{ padding: '2px 0 3px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
-          <span className="home-section-header" style={{ minWidth: 0 }}>
-            <FiPhone className="home-section-header-icon" />
-            {callCentreEnabled ? 'Call Centre' : 'Activity'}
-          </span>
-
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6, flexWrap: 'wrap' }}>
-            {canToggleJourneyScope && ([
-              { key: 'all', label: 'Team', suffix: 'all' },
-              { key: 'user', label: 'Mine', suffix: 'only' },
-            ] as const).map((scopeOption) => {
-              const active = resolvedJourneyScope === scopeOption.key;
-              return (
-                <button
-                  key={scopeOption.key}
-                  type="button"
-                  onClick={() => {
-                    if (resolvedJourneyScope === scopeOption.key) return;
-                    setSelectedJourneyScope(scopeOption.key);
-                    setSelectedCallId(null);
-                    setGeneratedNote(null);
-                    // Re-apply the scope-appropriate default filter: Mine shows
-                    // everything (including team↔team internal calls); Team defaults
-                    // to external-only so office chatter does not swamp the feed.
-                    if (callCentreEnabled) {
-                      setJourneyFilter(scopeOption.key === 'user' ? 'all' : 'external');
-                    }
-                  }}
-                  title={scopeOption.key === 'all' ? (callCentreEnabled ? 'Show team calls' : 'Show team activity') : (callCentreEnabled ? 'Show only my calls' : 'Show only my activity')}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 4,
-                    border: `1px solid ${active ? (isDarkMode ? 'rgba(54,144,206,0.55)' : 'rgba(54,144,206,0.32)') : (isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(6,23,51,0.08)')}`,
-                    background: active ? (isDarkMode ? 'rgba(13,47,96,0.55)' : 'rgba(214,232,255,0.6)') : 'transparent',
-                    color: active ? text : muted,
-                    padding: '5px 8px',
-                    fontSize: 9,
-                    fontWeight: 700,
-                    letterSpacing: '0.08em',
-                    textTransform: 'uppercase',
-                    cursor: 'pointer',
-                    fontFamily: 'Raleway, sans-serif',
-                    flexShrink: 0,
-                  }}
-                >
-                  <span>{scopeOption.label}</span>
-                  <span style={{ opacity: 0.72 }}>{scopeOption.suffix}</span>
-                </button>
-              );
-            })}
-
-            <button
-              type="button"
-              onClick={handleManualJourneyRefresh}
-              disabled={!canManualJourneyRefresh}
-              title={canManualJourneyRefresh ? (callCentreEnabled ? 'Refresh call centre now' : 'Refresh activity now') : `${callCentreEnabled ? 'Call Centre' : 'Activity'} ${liveStatusLabel.toLowerCase()}`}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: 20,
-                height: 20,
-                padding: 0,
-                border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(6,23,51,0.08)'}`,
-                borderRadius: 0,
-                background: 'transparent',
-                color: liveStatusLabel === 'Paused' ? muted : accent,
-                cursor: canManualJourneyRefresh ? 'pointer' : 'default',
-                opacity: canManualJourneyRefresh ? 0.92 : 0.58,
-                fontFamily: 'Raleway, sans-serif',
-                margin: 0,
-                appearance: 'none',
-                WebkitAppearance: 'none',
-                flexShrink: 0,
-              }}
-            >
-              {isRefreshingJourney || isLoadingJourney || activitiesLoading ? (
-                <FiRefreshCw size={9} style={{ animation: 'opsDashSpin 1s linear infinite' }} />
-              ) : canManualJourneyRefresh ? (
-                <FiRefreshCw size={9} />
-              ) : (
-                <FiClock size={9} />
+        {(() => {
+          const journeyHeaderControls = (
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: 'var(--font-primary)', lineHeight: 1 }}>
+              {canToggleJourneyScope && (
+                <div role="group" aria-label={callCentreEnabled ? 'Call scope' : 'Activity scope'} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  {([
+                    { key: 'user', label: 'Mine' } as const,
+                    { key: 'all', label: 'Team' } as const,
+                  ]).map((scopeOption, idx) => {
+                    const active = resolvedJourneyScope === scopeOption.key;
+                    return (
+                      <React.Fragment key={scopeOption.key}>
+                        {idx > 0 && (
+                          <span aria-hidden="true" style={{ fontSize: 9, color: muted, opacity: 0.55 }}>·</span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (resolvedJourneyScope === scopeOption.key) return;
+                            setSelectedJourneyScope(scopeOption.key);
+                            setSelectedCallId(null);
+                            setGeneratedNote(null);
+                            // Re-apply the scope-appropriate default filter:
+                            // Mine shows everything (including team↔team
+                            // internal calls); Team defaults to external-only
+                            // so office chatter does not swamp the feed.
+                            if (callCentreEnabled) {
+                              setJourneyFilter(scopeOption.key === 'user' ? 'all' : 'external');
+                            }
+                          }}
+                          title={scopeOption.key === 'all' ? (callCentreEnabled ? 'Show team calls' : 'Show team activity') : (callCentreEnabled ? 'Show only my calls' : 'Show only my activity')}
+                          style={{
+                            appearance: 'none',
+                            border: 'none',
+                            background: 'transparent',
+                            padding: '2px 2px',
+                            fontSize: 9,
+                            fontWeight: 700,
+                            letterSpacing: '0.08em',
+                            textTransform: 'uppercase',
+                            cursor: active ? 'default' : 'pointer',
+                            color: active ? (isDarkMode ? colours.accent : colours.highlight) : muted,
+                            opacity: active ? 1 : 0.85,
+                            transition: 'color 0.15s ease, opacity 0.15s ease',
+                            fontFamily: 'var(--font-primary)',
+                            lineHeight: 1,
+                            flexShrink: 0,
+                          }}
+                        >
+                          {scopeOption.label}
+                        </button>
+                      </React.Fragment>
+                    );
+                  })}
+                </div>
               )}
-            </button>
-          </div>
-        </div>
+
+              <button
+                type="button"
+                onClick={handleManualJourneyRefresh}
+                disabled={!canManualJourneyRefresh}
+                title={canManualJourneyRefresh ? (callCentreEnabled ? 'Refresh call notes now' : 'Refresh activity now') : `${callCentreEnabled ? 'External Calls' : 'Activity'} ${liveStatusLabel.toLowerCase()}`}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: 16,
+                  height: 16,
+                  padding: 0,
+                  border: 'none',
+                  borderRadius: 0,
+                  background: 'transparent',
+                  color: liveStatusLabel === 'Paused' ? muted : (isDarkMode ? colours.accent : colours.highlight),
+                  cursor: canManualJourneyRefresh ? 'pointer' : 'default',
+                  opacity: canManualJourneyRefresh ? 0.9 : 0.5,
+                  fontFamily: 'var(--font-primary)',
+                  margin: 0,
+                  appearance: 'none',
+                  WebkitAppearance: 'none',
+                  flexShrink: 0,
+                }}
+              >
+                {isRefreshingJourney || isLoadingJourney || activitiesLoading ? (
+                  <FiRefreshCw size={9} style={{ animation: 'opsDashSpin 1s linear infinite' }} />
+                ) : canManualJourneyRefresh ? (
+                  <FiRefreshCw size={9} />
+                ) : (
+                  <FiClock size={9} />
+                )}
+              </button>
+            </div>
+          );
+
+          // In call-centre mode the panel has two halves (External Calls +
+          // Call Filing Workspace). Lift those eyebrow labels OUT of the box
+          // and mirror the body's two-column grid above it, matching the
+          // "Conversion" / "Today's actions" section-label pattern used
+          // elsewhere on Home — no parent "Call Notes" header.
+          if (callCentreEnabled && !isNarrow) {
+            return (
+              <div style={{ minHeight: 18, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', columnGap: 12, alignItems: 'center' }}>
+                <span className="home-section-header" style={{ minWidth: 0, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <FiPhoneIncoming className="home-section-header-icon" />
+                  External Calls
+                  <span style={{ fontSize: 10, fontWeight: 600, opacity: 0.7, fontVariantNumeric: 'tabular-nums', letterSpacing: 0, textTransform: 'none' }}>
+                    {visibleJourneyFilterCounts.external}
+                  </span>
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, minWidth: 0 }}>
+                  <span className="home-section-header" style={{ minWidth: 0, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <FiFileText className="home-section-header-icon" />
+                    Call Filing Workspace
+                    {selectedCall && (
+                      <span style={{ fontSize: 10, fontWeight: 500, opacity: 0.65, textTransform: 'none', letterSpacing: 0 }}>
+                        · {externalPartyName(selectedCall)}
+                      </span>
+                    )}
+                  </span>
+                  {journeyHeaderControls}
+                </div>
+              </div>
+            );
+          }
+          return (
+            <div style={{ minHeight: 18, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+              <span className="home-section-header" style={{ minWidth: 0 }}>
+                <FiPhone className="home-section-header-icon" />
+                {callCentreEnabled ? 'External Calls' : 'Activity'}
+              </span>
+              {journeyHeaderControls}
+            </div>
+          );
+        })()}
 
         <div style={{ background: cardBg, border: `1px solid ${cardBorder}`, boxShadow: cardShadow, display: 'flex', flexDirection: 'column', flex: 1, minHeight: 220 }}>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '8px 10px', borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(6,23,51,0.06)'}` }}>
@@ -2311,21 +2432,9 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                 </button>
               );
             })}
-            {callCentreEnabled && (
-                <span className="helix-eyebrow" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: muted, opacity: 0.82, lineHeight: 1.1 }}>
-                <FiPhoneIncoming size={9} style={{ color: accent, opacity: 0.9 }} />
-                External Calls
-                <span style={{ opacity: 0.72, fontVariantNumeric: 'tabular-nums' }}>{visibleJourneyFilterCounts.external}</span>
-              </span>
-            )}
-            {journeyMeta.generatedAt && !isLoadingJourney && (
-              <span style={{ marginLeft: 'auto', fontSize: 8, color: muted, opacity: 0.7, whiteSpace: 'nowrap', alignSelf: 'center', fontVariantNumeric: 'tabular-nums' }}>
-                as of {new Date(journeyMeta.generatedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: LONDON_TIMEZONE })}
-              </span>
-            )}
           </div>
           <div style={{ display: callCentreEnabled ? 'grid' : 'block', gridTemplateColumns: callCentreEnabled && !isNarrow ? 'minmax(0, 1fr) minmax(0, 1fr)' : '1fr', alignItems: callCentreEnabled && !isNarrow ? 'stretch' : 'start', flex: 1, minHeight: 0 }}>
-          <div ref={scrollRef} className="ops-dash-scroll" style={{ minHeight: 0, overflowY: 'auto', overflowX: 'hidden', maxHeight: syncedJourneyListHeight, height: callCentreEnabled && !isNarrow ? `calc(100% - ${streamViewportTrimPx}px)` : undefined, paddingBottom: callCentreEnabled && !isNarrow ? 8 : 0, boxSizing: 'border-box', borderRight: callCentreEnabled && !isNarrow ? `1px solid ${isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(6,23,51,0.06)'}` : 'none', scrollPaddingBottom: 24 }}>
+          <div ref={scrollRef} className="ops-dash-scroll" style={{ minHeight: 0, overflowY: 'auto', overflowX: 'hidden', maxHeight: syncedJourneyListHeight, height: callCentreEnabled && !isNarrow ? syncedJourneyListHeight : undefined, borderRight: callCentreEnabled && !isNarrow ? `1px solid ${isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(6,23,51,0.06)'}` : 'none', scrollPaddingBottom: 24 }}>
             {!panelActivated ? (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, gap: 6 }}>
                 <FiPhone size={12} style={{ color: muted, opacity: 0.45 }} />
@@ -2407,7 +2516,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
             ) : (
               <>
                 {journeyWarnings && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', marginBottom: 4, fontSize: 9, color: colours.orange, background: isDarkMode ? 'rgba(255,140,0,0.06)' : 'rgba(255,140,0,0.03)', border: `1px solid ${isDarkMode ? 'rgba(255,140,0,0.12)' : 'rgba(255,140,0,0.08)'}` }}>
+                  <div data-journey-prefix="true" style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', marginBottom: 4, fontSize: 9, color: colours.orange, background: isDarkMode ? 'rgba(255,140,0,0.06)' : 'rgba(255,140,0,0.03)', border: `1px solid ${isDarkMode ? 'rgba(255,140,0,0.12)' : 'rgba(255,140,0,0.08)'}` }}>
                     Some data sources unavailable: {Object.values(journeyWarnings).join('; ')}
                   </div>
                 )}
@@ -2523,7 +2632,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                     };
 
                     return (
-                      <React.Fragment key={item.key}>
+                      <div key={item.key} data-journey-item="true" style={{ display: 'flex', flexDirection: 'column' }}>
                         <div data-fresh={freshJourneyKeys.has(item.key) ? 'true' : undefined} style={{ display: 'grid', gridTemplateColumns: `${streamDateColumnWidth}px minmax(0, 1fr)`, gap: streamRowGap, padding: streamRowPadding, borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)'}`, animation: freshJourneyKeys.has(item.key) ? 'opsDashRowFade 0.2s ease both' : undefined }}>
                           <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: 0, color: muted }}>
                             <span style={{ fontSize: 9, fontWeight: 700, lineHeight: 1.05, color: stamp.secondary ? text : muted }}>{stamp.primary}</span>
@@ -2587,77 +2696,76 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                                   );
                                 })()}
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 3, minWidth: 0, order: callCentreEnabled ? 3 : 2 }}>
-                                  {callCentreEnabled ? (
-                                    <>
-                                      {(() => {
-                                        const units = unitsForDuration(call.duration_seconds);
-                                        const amount = parsedUserRate != null && units > 0 ? (units * parsedUserRate) / 10 : null;
-                                        // £ pill tracks filing status. Pending: "Record Time · £x".
-                                        // Done: "{N} units · £x recorded".
-                                        const costLit = hasTimeEntry;
-                                        const amountLabel = amount != null ? formatGbp(amount) : null;
-                                        const costLabel = costLit
-                                          ? (amountLabel
-                                            ? `${units} unit${units === 1 ? '' : 's'} · ${amountLabel}`
-                                            : `${units} unit${units === 1 ? '' : 's'} recorded`)
-                                          : (amountLabel ? `Record Time · ${amountLabel}` : 'Record Time');
-                                        const costBorder = costLit
-                                          ? (isDarkMode ? 'rgba(135,243,243,0.22)' : 'rgba(54,144,206,0.2)')
-                                          : cardBorder;
-                                        const costBg = costLit
-                                          ? (isDarkMode ? 'rgba(135,243,243,0.08)' : 'rgba(54,144,206,0.06)')
-                                          : 'transparent';
-                                        const costColor = costLit ? (isDarkMode ? accent : colours.highlight) : muted;
-                                        return (
-                                          <span
-                                            style={{
-                                              ...actionBoxBaseStyle,
-                                              minWidth: 96,
-                                              padding: '6px 10px',
-                                              border: `1px solid ${costBorder}`,
-                                              background: costBg,
-                                              color: costColor,
-                                              cursor: 'default',
-                                              opacity: 1,
-                                            }}
-                                            title={costLit
-                                              ? `Clio time entry recorded · ${units} unit${units === 1 ? '' : 's'}${amountLabel ? ` · ${amountLabel} at £${parsedUserRate}/hr` : ''}`
-                                              : amountLabel
-                                                ? `No Clio time entry yet · suggested ${units} unit${units === 1 ? '' : 's'} (${amountLabel}) at £${parsedUserRate}/hr`
-                                                : 'No Clio time entry yet — open this call to record time'}
-                                          >
-                                            <img
-                                              src={clioLogo}
-                                              alt=""
-                                              style={{ width: 10, height: 10, opacity: costLit ? 0.95 : 0.6, filter: clioLogoFilter, flexShrink: 0 }}
-                                            />
-                                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{costLabel}</span>
-                                          </span>
-                                        );
-                                      })()}
-                                      <span
-                                        style={{
-                                          ...actionBoxBaseStyle,
-                                          gridTemplateColumns: '6px auto',
-                                          minWidth: 96,
-                                          padding: '6px 10px',
-                                          border: `1px solid ${hasNdCue
-                                            ? (isDarkMode ? 'rgba(32,178,108,0.22)' : 'rgba(32,178,108,0.14)')
-                                            : cardBorder}`,
-                                          background: hasNdCue
-                                            ? (isDarkMode ? 'rgba(32,178,108,0.08)' : 'rgba(32,178,108,0.04)')
-                                            : 'transparent',
-                                          color: hasNdCue ? colours.green : muted,
-                                          cursor: 'default',
-                                          opacity: hasNdCue ? 1 : 0.8,
-                                        }}
-                                        title={hasNdCue ? 'Attendance note uploaded to NetDocuments' : 'Not yet uploaded to NetDocuments'}
-                                      >
-                                        <span style={ndDotStyle} />
-                                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{hasNdCue ? 'Saved to File' : 'Save to File'}</span>
-                                      </span>
-                                    </>
-                                  ) : (
+                                  {callCentreEnabled ? (() => {
+                                    // Status indicators only — the actual actions live in the
+                                    // call filing workspace below. When both legs have completed
+                                    // we collapse to a single audit stamp.
+                                    const units = unitsForDuration(call.duration_seconds);
+                                    const amount = parsedUserRate != null && units > 0 ? (units * parsedUserRate) / 10 : null;
+                                    const amountLabel = amount != null ? formatGbp(amount) : null;
+                                    const fullyFiled = hasTimeEntry && hasNdCue;
+                                    const indicatorBase: React.CSSProperties = {
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: 4,
+                                      fontSize: 9,
+                                      letterSpacing: '0.04em',
+                                      textTransform: 'uppercase',
+                                      fontWeight: 600,
+                                      whiteSpace: 'nowrap',
+                                      fontFamily: 'Raleway, sans-serif',
+                                      padding: '2px 4px',
+                                    };
+                                    const dot = (lit: boolean, tone: string): React.CSSProperties => ({
+                                      display: 'inline-block',
+                                      width: 6,
+                                      height: 6,
+                                      borderRadius: '50%',
+                                      border: `1px solid ${tone}`,
+                                      background: lit ? tone : 'transparent',
+                                      boxSizing: 'border-box',
+                                    });
+                                    if (fullyFiled) {
+                                      return (
+                                        <span
+                                          style={{ ...indicatorBase, color: colours.green, gap: 6 }}
+                                          title={`Filed · Clio time entry recorded · NetDocuments uploaded${amountLabel ? ` · ${units} unit${units === 1 ? '' : 's'} · ${amountLabel}` : ''}`}
+                                        >
+                                          <FiCheck size={10} style={{ color: colours.green }} />
+                                          <span style={{ color: colours.green }}>Filed</span>
+                                          {amountLabel && (
+                                            <span style={{ color: muted, fontWeight: 500, fontVariantNumeric: 'tabular-nums', textTransform: 'none', letterSpacing: 0 }}>
+                                              · {units}u · {amountLabel}
+                                            </span>
+                                          )}
+                                        </span>
+                                      );
+                                    }
+                                    const timeTone = hasTimeEntry ? (isDarkMode ? accent : colours.highlight) : muted;
+                                    const fileTone = hasNdCue ? colours.green : muted;
+                                    return (
+                                      <>
+                                        <span
+                                          style={{ ...indicatorBase, color: timeTone }}
+                                          title={hasTimeEntry
+                                            ? `Time recorded · ${units} unit${units === 1 ? '' : 's'}${amountLabel ? ` · ${amountLabel}` : ''}`
+                                            : amountLabel
+                                              ? `Time pending · suggested ${units} unit${units === 1 ? '' : 's'} (${amountLabel}) — record in the workspace below`
+                                              : 'Time pending — record in the workspace below'}
+                                        >
+                                          <span style={dot(hasTimeEntry, timeTone)} />
+                                          <span>{hasTimeEntry ? `${units}u` : 'Time pending'}</span>
+                                        </span>
+                                        <span
+                                          style={{ ...indicatorBase, color: fileTone }}
+                                          title={hasNdCue ? 'Attendance note uploaded to NetDocuments' : 'File pending — save in the workspace below'}
+                                        >
+                                          <span style={dot(hasNdCue, fileTone)} />
+                                          <span>{hasNdCue ? 'Filed' : 'File pending'}</span>
+                                        </span>
+                                      </>
+                                    );
+                                  })() : (
                                     <>
                                       <button
                                         type="button"
@@ -2757,25 +2865,24 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                           </div>
                         </div>
 
-                        {isSelected && !callCentreEnabled && (
-                          <div style={{ display: 'grid', gridTemplateColumns: `${streamDateColumnWidth}px minmax(0, 1fr)`, gap: streamRowGap, padding: streamDetailPadding, borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)'}` }}>
-                            <div />
+                        {isSelected && (
+                          <div style={{ padding: '0 10px 10px', borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)'}` }}>
                             <div style={{
-                              padding: '5px 10px 8px', border: `1px solid ${cardBorder}`,
+                              padding: '10px 12px 12px', border: `1px solid ${cardBorder}`,
                               background: isDarkMode ? 'rgba(0,0,0,0.1)' : 'rgba(0,0,0,0.015)',
                               animation: 'opsDashRowFade 0.15s ease both',
                             }}>
-                          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
-                            <span style={{ fontSize: 9, color: muted }}>{formatDate(call.start_time_utc)} · {formatTime(call.start_time_utc)}</span>
-                            <span style={{ fontSize: 9, color: muted }}>{formatDuration(call.duration_seconds)}</span>
+                          <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: 11, color: muted, lineHeight: 1.4 }}>{formatDate(call.start_time_utc)} · {formatTime(call.start_time_utc)}</span>
+                            <span style={{ fontSize: 11, color: muted, lineHeight: 1.4 }}>{formatDuration(call.duration_seconds)}</span>
                             {call.matched_team_initials && (
-                              <span style={{ fontSize: 9, fontWeight: 600, color: accent }}>{call.matched_team_initials}</span>
+                              <span style={{ fontSize: 11, fontWeight: 600, color: accent, letterSpacing: '0.04em' }}>{call.matched_team_initials}</span>
                             )}
                           </div>
                           {/* Pipeline match info */}
                           {call.resolved_ref && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 9, color: text, marginBottom: 6 }}>
-                              <FiLink size={9} style={{ color: accent }} />
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: text, marginBottom: 10 }}>
+                              <FiLink size={11} style={{ color: accent }} />
                               <span>{call.resolved_ref}</span>
                               {call.resolved_area && <span style={{ color: muted }}>· {call.resolved_area}</span>}
                             </div>
@@ -2814,20 +2921,23 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                                 {/* AI Summary */}
                                 {aiSummary && (
                                   <div style={{
-                                    padding: '5px 8px', marginBottom: 5, fontSize: 9, lineHeight: 1.5,
+                                    padding: '8px 10px', marginBottom: 10, fontSize: 11, lineHeight: 1.55,
                                     color: isDarkMode ? '#d1d5db' : '#374151',
                                     background: isDarkMode ? 'rgba(54,144,206,0.06)' : 'rgba(13,47,96,0.03)',
                                     border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.12)' : 'rgba(13,47,96,0.06)'}`,
                                   }}>
-                                    <div style={{ fontSize: 8, fontWeight: 700, color: accent, letterSpacing: '0.4px', marginBottom: 3 }}>AI SUMMARY</div>
+                                    <div style={{ fontSize: 10, fontWeight: 700, color: accent, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>AI Summary</div>
                                     {aiSummary.summary_text}
                                   </div>
                                 )}
 
                                 {/* Transcript sentences */}
                                 {hasSentences && (<>
-                                <div style={{ fontSize: 8, fontWeight: 700, color: muted, letterSpacing: '0.4px', marginBottom: 3, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                  <span>TRANSCRIPT · {td.sentences.length} sentences</span>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, gap: 8 }}>
+                                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
+                                    <span style={{ fontSize: 10, fontWeight: 700, color: muted, letterSpacing: '0.08em', textTransform: 'uppercase' }}>Transcript</span>
+                                    <span style={{ fontSize: 10, color: muted, letterSpacing: '0.02em' }}>{td.sentences.length} {td.sentences.length === 1 ? 'sentence' : 'sentences'}</span>
+                                  </div>
                                   <button
                                     onClick={() => {
                                       const lines = td.sentences.map((s, i) => `${i + 1}. ${s.speaker ? s.speaker + ': ' : ''}${s.content}`).join('\n');
@@ -2840,22 +2950,22 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                                       URL.revokeObjectURL(url);
                                     }}
                                     title="Download transcript as .txt"
-                                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: muted, padding: '0 2px', display: 'flex', alignItems: 'center' }}
+                                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: muted, padding: '2px 4px', display: 'flex', alignItems: 'center' }}
                                   >
-                                    <FiDownload size={9} />
+                                    <FiDownload size={11} />
                                   </button>
                                 </div>
                                 <div style={{
-                                  maxHeight: 160, overflowY: 'auto', padding: '4px 6px',
+                                  maxHeight: 180, overflowY: 'auto', padding: '8px 10px',
                                   background: isDarkMode ? 'rgba(0,0,0,0.12)' : 'rgba(0,0,0,0.02)',
                                   border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)'}`,
                                 }}>
                                   {td.sentences.map((s, si) => (
                                     <div key={si} style={{
-                                      fontSize: 9, lineHeight: 1.5, padding: '1px 0',
+                                      fontSize: 11, lineHeight: 1.55, padding: '2px 0',
                                       color: isDarkMode ? '#d1d5db' : '#374151',
                                     }}>
-                                      <span style={{ color: muted, fontSize: 8, marginRight: 4, fontVariantNumeric: 'tabular-nums' }}>{si + 1}.</span>
+                                      <span style={{ color: muted, fontSize: 10, marginRight: 6, fontVariantNumeric: 'tabular-nums' }}>{si + 1}.</span>
                                       {s.content}
                                     </div>
                                   ))}
@@ -2865,8 +2975,8 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                             );
                           })()}
 
-                          {/* Saved note inline */}
-                          {(() => {
+                          {/* Saved note inline (legacy view — call-centre mode shows this in the right pane) */}
+                          {!callCentreEnabled && (() => {
                             const cached = savedNoteCache[call.recording_id];
                             const isLoadingSaved = loadingSavedNote === call.recording_id;
                             if (isLoadingSaved) {
@@ -2916,13 +3026,13 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                             );
                           })()}
 
-                          {/* Note generation error */}
-                          {noteGenError && selectedCallId === call.recording_id && !generatingNoteFor && (
+                          {/* Note generation error / Generate button (legacy view only) */}
+                          {!callCentreEnabled && noteGenError && selectedCallId === call.recording_id && !generatingNoteFor && (
                             <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', marginBottom: 4, fontSize: 9, color: colours.cta, background: isDarkMode ? 'rgba(214,85,65,0.08)' : 'rgba(214,85,65,0.04)', border: `1px solid ${isDarkMode ? 'rgba(214,85,65,0.15)' : 'rgba(214,85,65,0.1)'}` }}>
                               {noteGenError}
                             </div>
                           )}
-                          {/* Generate / Regenerate attendance note button */}
+                          {!callCentreEnabled && (
                           <button
                             onClick={() => generateNote(call.recording_id)}
                             disabled={!!generatingNoteFor}
@@ -2949,10 +3059,11 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                               <><FiEdit3 size={10} /> Generate attendance note</>
                             )}
                           </button>
+                          )}
                             </div>
                           </div>
                         )}
-                      </React.Fragment>
+                      </div>
                     );
                   }
 
@@ -2964,7 +3075,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                     const savedStamp = formatCompactDateTime(note.saved_at);
                     const callStamp = linkedCall ? formatCompactDateTime(linkedCall.start_time_utc) : formatCompactDateTime(note.call_date);
                     return (
-                      <div key={item.key} data-fresh={freshJourneyKeys.has(item.key) ? 'true' : undefined} style={{ display: 'grid', gridTemplateColumns: `${streamDateColumnWidth}px minmax(0, 1fr)`, gap: streamRowGap, padding: streamRowPadding, borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)'}`, animation: freshJourneyKeys.has(item.key) ? 'opsDashRowFade 0.2s ease both' : undefined }}>
+                      <div key={item.key} data-journey-item="true" data-fresh={freshJourneyKeys.has(item.key) ? 'true' : undefined} style={{ display: 'grid', gridTemplateColumns: `${streamDateColumnWidth}px minmax(0, 1fr)`, gap: streamRowGap, padding: streamRowPadding, borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)'}`, animation: freshJourneyKeys.has(item.key) ? 'opsDashRowFade 0.2s ease both' : undefined }}>
                         <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: 0, color: muted }}>
                           <span style={{ fontSize: 9, fontWeight: 700, lineHeight: 1.05, color: stamp.secondary ? text : muted }}>{stamp.primary}</span>
                           <span style={{ fontSize: 7, lineHeight: 1.05, opacity: stamp.secondary ? 0.82 : 0.45 }}>{stamp.secondary || '—'}</span>
@@ -3022,7 +3133,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                     const refLabel = email.matterRef || email.instructionRef || email.enquiryRef || null;
 
                     return (
-                      <div key={item.key} data-fresh={freshJourneyKeys.has(item.key) ? 'true' : undefined} style={{ display: 'grid', gridTemplateColumns: `${streamDateColumnWidth}px minmax(0, 1fr)`, gap: streamRowGap, padding: streamRowPadding, borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)'}`, animation: freshJourneyKeys.has(item.key) ? 'opsDashRowFade 0.2s ease both' : undefined }}>
+                      <div key={item.key} data-journey-item="true" data-fresh={freshJourneyKeys.has(item.key) ? 'true' : undefined} style={{ display: 'grid', gridTemplateColumns: `${streamDateColumnWidth}px minmax(0, 1fr)`, gap: streamRowGap, padding: streamRowPadding, borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)'}`, animation: freshJourneyKeys.has(item.key) ? 'opsDashRowFade 0.2s ease both' : undefined }}>
                         <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: 0, color: muted }}>
                           <span style={{ fontSize: 9, fontWeight: 700, lineHeight: 1.05, color: stamp.secondary ? text : muted }}>{stamp.primary}</span>
                           <span style={{ fontSize: 7, lineHeight: 1.05, opacity: stamp.secondary ? 0.82 : 0.45 }}>{stamp.secondary || '—'}</span>
@@ -3058,7 +3169,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                   const activityValue = formatMoneyValue(activity.total);
 
                   return (
-                    <div key={item.key} data-fresh={freshJourneyKeys.has(item.key) ? 'true' : undefined} style={{ display: 'grid', gridTemplateColumns: `${streamDateColumnWidth}px minmax(0, 1fr)`, gap: streamRowGap, padding: streamRowPadding, borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)'}`, animation: freshJourneyKeys.has(item.key) ? 'opsDashRowFade 0.2s ease both' : undefined }}>
+                    <div key={item.key} data-journey-item="true" data-fresh={freshJourneyKeys.has(item.key) ? 'true' : undefined} style={{ display: 'grid', gridTemplateColumns: `${streamDateColumnWidth}px minmax(0, 1fr)`, gap: streamRowGap, padding: streamRowPadding, borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)'}`, animation: freshJourneyKeys.has(item.key) ? 'opsDashRowFade 0.2s ease both' : undefined }}>
                       <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: 0, color: muted }}>
                         <span style={{ fontSize: 9, fontWeight: 700, lineHeight: 1.05, color: stamp.secondary ? text : muted }}>{stamp.primary}</span>
                         <span style={{ fontSize: 7, lineHeight: 1.05, opacity: stamp.secondary ? 0.82 : 0.45 }}>{stamp.secondary || '—'}</span>
@@ -3085,7 +3196,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                 {/* Bottom spacer: guarantees the last row clears the scroll-port
                     edge so it can never appear half-clipped against the
                     rightRailHeight cap (subpixel rounding + border math). */}
-                <div aria-hidden="true" style={{ flex: '0 0 16px', height: 16 }} />
+                <div aria-hidden="true" data-journey-spacer="true" style={{ flex: '0 0 16px', height: 16 }} />
               </>
             )}
           </div>
@@ -3101,11 +3212,11 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                 maxHeight: 'none',
                 overflow: 'visible',
                 borderTop: isNarrow ? `1px solid ${isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(6,23,51,0.06)'}` : 'none',
-                background: isDarkMode ? 'rgba(2,6,23,0.32)' : 'rgba(244,244,246,0.65)',
+                background: 'transparent',
               }}
             >
               {!selectedCall ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0, padding: '10px 10px 12px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0, flex: 1, padding: '10px 10px 12px', overflow: 'hidden' }}>
                   <div style={{ minHeight: 0, flex: 1, display: 'flex' }}>
                     <AttendanceNoteBox
                       variant="embedded"
@@ -3115,13 +3226,17 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                       callDate={new Date().toISOString()}
                       durationSec={0}
                       isBlankDraft
+                      dateEditable
                       generatedSummary=""
                       generatedBody=""
                       actionItems={[]}
                       transcriptText=""
                       matterOptions={localMatterLookupOptions}
+                      recentMatters={localMatterLookupOptions}
+                      recentEnquiries={recentEnquiryOptions}
                       saveLegs={attendanceSaveLegs}
                       saving={workspaceSaving}
+                      hourlyRate={parsedUserRate}
                       onClose={() => {
                         setAttendanceSaveLegs([]);
                         // Rotate the draft id so toggles/state reset cleanly.
@@ -3135,65 +3250,35 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                   </div>
                 </div>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0, padding: '10px 10px 12px' }}>
-                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, padding: '2px 2px 0' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{externalPartyName(selectedCall)}</span>
-                      <span style={{ fontSize: 9, color: muted, lineHeight: 1.4 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0, flex: 1, padding: '12px 12px 14px', overflow: 'hidden' }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, padding: '2px 2px 0' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', letterSpacing: '0.01em' }}>{externalPartyName(selectedCall)}</span>
+                      <span style={{ fontSize: 11, color: muted, lineHeight: 1.45 }}>
                         {selectedCall.call_type === 'inbound' ? 'Incoming call' : 'Outgoing call'} · {formatDate(selectedCall.start_time_utc)} · {formatTime(selectedCall.start_time_utc)} · {formatDuration(selectedCall.duration_seconds)}
                       </span>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 2 }}>
                         {(selectedSavedNoteSummary || selectedCachedSavedNote || pipeline.saved) && (
-                          <span style={{ fontSize: 8, fontWeight: 700, padding: '2px 6px', background: isDarkMode ? 'rgba(255,140,0,0.08)' : 'rgba(255,140,0,0.05)', border: `1px solid ${isDarkMode ? 'rgba(255,140,0,0.18)' : 'rgba(255,140,0,0.12)'}`, color: colours.orange, letterSpacing: '0.04em', textTransform: 'uppercase' }}>Filed</span>
+                          <span style={{ fontSize: 9, fontWeight: 700, padding: '3px 7px', background: isDarkMode ? 'rgba(255,140,0,0.08)' : 'rgba(255,140,0,0.05)', border: `1px solid ${isDarkMode ? 'rgba(255,140,0,0.18)' : 'rgba(255,140,0,0.12)'}`, color: colours.orange, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Filed</span>
                         )}
                         {(selectedSavedNoteSummary?.uploaded_nd || selectedCachedSavedNote?.meta?.uploaded_nd || pipeline.uploaded) && (
-                          <span style={{ fontSize: 8, fontWeight: 700, padding: '2px 6px', background: isDarkMode ? 'rgba(32,178,108,0.08)' : 'rgba(32,178,108,0.05)', border: `1px solid ${isDarkMode ? 'rgba(32,178,108,0.18)' : 'rgba(32,178,108,0.12)'}`, color: colours.green, letterSpacing: '0.04em', textTransform: 'uppercase' }}>ND</span>
+                          <span style={{ fontSize: 9, fontWeight: 700, padding: '3px 7px', background: isDarkMode ? 'rgba(32,178,108,0.08)' : 'rgba(32,178,108,0.05)', border: `1px solid ${isDarkMode ? 'rgba(32,178,108,0.18)' : 'rgba(32,178,108,0.12)'}`, color: colours.green, letterSpacing: '0.06em', textTransform: 'uppercase' }}>ND</span>
                         )}
                         {attendanceSaveLegs.some((leg) => leg.leg === 'clio-time-entry' && leg.status === 'success') && (
-                          <span style={{ fontSize: 8, fontWeight: 700, padding: '2px 6px', background: isDarkMode ? 'rgba(54,144,206,0.08)' : 'rgba(54,144,206,0.05)', border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.18)' : 'rgba(54,144,206,0.12)'}`, color: accent, letterSpacing: '0.04em', textTransform: 'uppercase' }}>Clio</span>
+                          <span style={{ fontSize: 9, fontWeight: 700, padding: '3px 7px', background: isDarkMode ? 'rgba(54,144,206,0.08)' : 'rgba(54,144,206,0.05)', border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.18)' : 'rgba(54,144,206,0.12)'}`, color: accent, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Clio</span>
                         )}
                         {selectedWorkspaceMatter && (
-                          <span style={{ fontSize: 8, color: accent, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                          <span style={{ fontSize: 9, color: accent, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 600 }}>
                             {selectedWorkspaceMatter.displayNumber}{pipeline.matterChainRef === selectedWorkspaceMatter.displayNumber ? ' · auto-linked' : ''}
                           </span>
                         )}
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => void generateNote(selectedCall.recording_id)}
-                      disabled={generatingNoteFor === selectedCall.recording_id}
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 5,
-                        padding: '6px 10px',
-                        background: isDarkMode ? 'rgba(54,144,206,0.08)' : 'rgba(13,47,96,0.04)',
-                        border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.18)' : 'rgba(54,144,206,0.14)'}`,
-                        color: accent,
-                        fontSize: 9,
-                        fontWeight: 700,
-                        letterSpacing: '0.06em',
-                        textTransform: 'uppercase',
-                        cursor: generatingNoteFor === selectedCall.recording_id ? 'wait' : 'pointer',
-                        fontFamily: 'Raleway, sans-serif',
-                        opacity: generatingNoteFor === selectedCall.recording_id ? 0.7 : 1,
-                      }}
-                    >
-                      {generatingNoteFor === selectedCall.recording_id ? <FiRefreshCw size={10} style={{ animation: 'opsDashSpin 1s linear infinite' }} /> : <FiEdit3 size={10} />}
-                      {selectedWorkspaceNote ? 'Regenerate note' : 'Generate note'}
-                    </button>
                   </div>
 
                   {noteGenError && selectedCallId === selectedCall.recording_id && !generatingNoteFor && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 8px', fontSize: 9, color: colours.cta, background: isDarkMode ? 'rgba(214,85,65,0.08)' : 'rgba(214,85,65,0.04)', border: `1px solid ${isDarkMode ? 'rgba(214,85,65,0.15)' : 'rgba(214,85,65,0.1)'}` }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', fontSize: 11, lineHeight: 1.45, color: colours.cta, background: isDarkMode ? 'rgba(214,85,65,0.08)' : 'rgba(214,85,65,0.04)', border: `1px solid ${isDarkMode ? 'rgba(214,85,65,0.15)' : 'rgba(214,85,65,0.1)'}` }}>
                       {noteGenError}
-                    </div>
-                  )}
-
-                  {!selectedWorkspaceNote && generatingNoteFor !== selectedCall.recording_id && (
-                    <div style={{ padding: '6px 8px', fontSize: 9, color: muted, lineHeight: 1.5, background: isDarkMode ? 'rgba(54,144,206,0.05)' : 'rgba(13,47,96,0.03)', border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.12)' : 'rgba(13,47,96,0.08)'}` }}>
-                      Generate a note to prefill the narrative and action points, or file manually using the workspace below.
                     </div>
                   )}
 
@@ -3211,8 +3296,13 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                       transcriptText={selectedTranscriptText}
                       prefillMatter={selectedWorkspaceMatter}
                       matterOptions={localMatterLookupOptions}
+                      recentMatters={localMatterLookupOptions}
+                      recentEnquiries={recentEnquiryOptions}
                       saveLegs={attendanceSaveLegs}
                       saving={workspaceSaving}
+                      hourlyRate={parsedUserRate}
+                      onGenerateNote={() => void generateNote(selectedCall.recording_id)}
+                      generating={generatingNoteFor === selectedCall.recording_id}
                       onClose={() => {
                         setSelectedCallId(null);
                         resetSelectedWorkspace();

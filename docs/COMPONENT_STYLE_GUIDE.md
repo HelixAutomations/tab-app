@@ -99,6 +99,17 @@ Loading states must preserve the final page geometry. Skeletons are not decorati
 - Prefer in-place fade or settle-in reveals inside a fixed shell over late insertion of whole cards or sections.
 - Treat layout shift, header bounce, and control bar remounts as UX bugs, not polish debt.
 
+## 1e. Mixed Comparison Charts
+
+When one chart combines different kinds of measures in the same frame, each series must use a visual grammar that matches what it represents.
+
+- Use **lines** for flow, in-progress accumulation, or rate-of-arrival metrics (for example enquiries, leads, visits).
+- If the flow series needs more body, use **centre-aligned stems** under the current points. This adds volume without claiming the full bucket width.
+- Use **bars** for completed discrete outcomes (for example matters opened, invoices sent, approvals landed).
+- Reserve **area fills** for single-series charts only. In mixed charts, a fill reads as ownership of the whole bucket and visually fights neighbouring bars.
+- In sparse or quiet periods, remove decorative motion first and let the chart step down to a calm state rather than forcing a loud empty graphic.
+- On dashboard cards, keep the KPI read primary and the chart secondary. Legend copy should do only enough to disambiguate the series.
+
 ## 2. Dark-Mode Surface Depth Ladder
 
 All dark surfaces sit on a 215° hue ramp. Moving "up" in the stack means higher lightness. Never skip levels — start from page and work up.

@@ -215,7 +215,6 @@ touches:
   submodules: []
 depends_on: []
 coordinates_with:
-  - home-conversion-panel-rebalance
   - home-todo-single-pickup-surface
   - home-animation-order-and-demo-insert-fidelity
   - demo-mode-hardening-production-presentable-end-to-end

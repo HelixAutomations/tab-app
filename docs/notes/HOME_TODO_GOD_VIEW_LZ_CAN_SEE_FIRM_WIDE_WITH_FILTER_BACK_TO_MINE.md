@@ -94,7 +94,6 @@ depends_on: []
 coordinates_with:
   - home-todo-single-pickup-surface
   - home-skeletons-aligned-cascade
-  - ccl-backend-chain-silent-autopilot-service
   - demo-mode-hardening-production-presentable-end-to-end
   - forms-ia-ld-undertaking-complaint-flow
   - home-animation-order-and-demo-insert-fidelity

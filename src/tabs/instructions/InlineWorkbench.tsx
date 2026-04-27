@@ -6,6 +6,7 @@ import type { TeamData } from '../../app/functionality/types';
 import { colours } from '../../app/styles/colours';
 import { useCclStatus } from '../../contexts/CclStatusContext';
 import PortalLaunchModal from '../../components/portal/PortalLaunchModal';
+import OpenAnotherMatterModal from './MatterOpening/OpenAnotherMatterModal';
 import { useToast } from '../../components/feedback/ToastProvider';
 import { buildPortalLaunchModel, type PortalLaunchModel } from '../../utils/portalLaunch';
 import { resolveActiveCampaignContactId } from '../../utils/resolveActiveCampaignContactId';
@@ -258,6 +259,9 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const [showLocalRiskModal, setShowLocalRiskModal] = useState(false);
   const [riskEditMode, setRiskEditMode] = useState(false);
   const [showLocalMatterModal, setShowLocalMatterModal] = useState(false);
+  // Localhost-only: open another matter for an existing prospect (re-uses existing EID + Clio contact).
+  // Promote behind isAdminUser() once Phase 2 chain ships and end-to-end is validated.
+  const [showOpenAnotherMatter, setShowOpenAnotherMatter] = useState(false);
   const [isEnterMotionActive, setIsEnterMotionActive] = useState(false);
   const [isTabMotionActive, setIsTabMotionActive] = useState(false);
   const [isAutoRefreshing, setIsAutoRefreshing] = useState(false);
@@ -281,6 +285,15 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     } catch { /* ignore */ }
     return true;
   })();
+  // Dev preview tier: LZ + AC see the "+ Another" matter button in prod too.
+  // Backend chain is still STUBBED (Phase 2 pending) — surfacing the entry point only.
+  // Promote to all admins once Phase 2 ships.
+  const isDevPreviewUser = (() => {
+    const email = (currentUser?.Email || '').toLowerCase();
+    const prefix = email.split('@')[0];
+    return ['lz', 'ac'].includes(prefix);
+  })();
+  const canSeeOpenAnother = isLocalDev;
   const [isPitchContentExpanded, setIsPitchContentExpanded] = useState(false);
   const [isRawRecordExpanded, setIsRawRecordExpanded] = useState(false);
   const [isVerificationDataExpanded, setIsVerificationDataExpanded] = useState(false);
@@ -784,8 +797,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
       return;
     }
 
-    setShowPitchComposerPanel(!hasExistingPitchRecord);
-  }, [activeTab, baseInstructionRef, prospectId, hasExistingPitchRecord, isFetchingPitchContent, pitch, fetchedPitchContent]);
+    setShowPitchComposerPanel(isLocalDev && !hasExistingPitchRecord);
+  }, [activeTab, baseInstructionRef, prospectId, hasExistingPitchRecord, isFetchingPitchContent, isLocalDev, pitch, fetchedPitchContent]);
 
   const teamsIdentifier = useMemo(() => {
     const asNumber = (v: any): number | null => {
@@ -3773,7 +3786,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     onRequestPaymentLink?: () => void;
   }) => {
     const activePayments = payments.filter((p: any) => !p.archived && !p.deleted);
-    const isLocalEnv = typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname);
+    const isLocalEnv = isLocalDev;
     const dealAmount = Number(deal?.Amount || deal?.amount || 0);
     const paymentCount = activePayments.length;
     const successCount = activePayments.filter((p: any) => p.payment_status === 'succeeded' || p.payment_status === 'confirmed').length;
@@ -10009,6 +10022,24 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                             <span style={{ fontSize: 10, fontWeight: 600, fontFamily: 'monospace', color: isDarkMode ? '#d1d5db' : '#374151' }}>{matterClioId}</span>
                           </a>
                         )}
+                        {canSeeOpenAnother && matterClioId && matterClioId !== '—' && (inst?.InstructionRef || inst?.instructionRef) && (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setShowOpenAnotherMatter(true); }}
+                            title="Open another matter for this prospect (re-uses existing EID + Clio contact)"
+                            style={{
+                              display: 'inline-flex', alignItems: 'center', gap: 4,
+                              padding: '2px 7px', borderRadius: 0,
+                              background: 'transparent',
+                              border: `1px dashed ${isDarkMode ? colours.accent : colours.highlight}`,
+                              color: isDarkMode ? colours.accent : colours.highlight,
+                              fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.45px',
+                              cursor: 'pointer', flexShrink: 0,
+                            }}
+                          >
+                            + Another
+                          </button>
+                        )}
                         </div>
                       </div>
 
@@ -10325,7 +10356,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
               </div>
             )}
 
-            {hasExistingPitchRecord && !showPitchComposerPanel && !isFetchingPitchContent && (
+            {isLocalDev && hasExistingPitchRecord && !showPitchComposerPanel && !isFetchingPitchContent && (
               <div
                 style={{
                   display: 'flex',
@@ -10365,7 +10396,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
               </div>
             )}
 
-            {hasExistingPitchRecord && showPitchComposerPanel && (
+            {isLocalDev && hasExistingPitchRecord && showPitchComposerPanel && (
               <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                 <button
                   type="button"
@@ -10386,7 +10417,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
               </div>
             )}
 
-            {(!hasExistingPitchRecord && !isFetchingPitchContent) || showPitchComposerPanel ? (
+            {isLocalDev && (((!hasExistingPitchRecord && !isFetchingPitchContent) || showPitchComposerPanel)) ? (
               <React.Suspense
                 fallback={(
                   <div
@@ -10973,6 +11004,28 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         model={portalLaunchModel}
         onClose={() => setIsPortalLaunchOpen(false)}
       />
+
+      {canSeeOpenAnother && (
+        <OpenAnotherMatterModal
+          open={showOpenAnotherMatter}
+          onClose={() => setShowOpenAnotherMatter(false)}
+          presetSourceInstructionRef={inst?.InstructionRef || inst?.instructionRef || undefined}
+          presetDefaults={{
+            areaOfWork: (inst as any)?.AreaOfWork || (inst as any)?.areaOfWork,
+            capacity: ((inst as any)?.ClientType === 'Company' || (inst as any)?.clientType === 'Company') ? 'Company' : 'Individual',
+          }}
+          currentUserInitials={(() => {
+            if (currentUser?.Email && teamData) {
+              const match = teamData.find(t => t.Email?.toLowerCase() === currentUser.Email!.toLowerCase());
+              if (match?.Initials) return match.Initials.toUpperCase();
+            }
+            return undefined;
+          })()}
+          onSuccess={(result) => {
+            try { showToast({ type: 'success', message: `Matter opened: ${result.displayNumber || result.newInstructionRef || 'OK'}` }); } catch { /* noop */ }
+          }}
+        />
+      )}
 
     </div>
   );

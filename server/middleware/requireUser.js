@@ -5,6 +5,7 @@
  * Whitelisted paths bypass the check (health probes, webhooks, static assets).
  */
 const { trackEvent } = require('../utils/appInsights');
+const { SSE_PATH_PREFIXES } = require('../utils/sseEndpoints');
 
 // Paths that must work without a user context
 const PUBLIC_PREFIXES = [
@@ -17,6 +18,13 @@ const PUBLIC_PREFIXES = [
     '/api/team-data',       // EntryGate bootstrap outside Teams (route returns slim active-user payload when anonymous)
 ];
 
+// SSE endpoints — EventSource cannot attach custom headers, so they cannot
+// pass x-helix-* identity. Payload is always a "something changed" poke or
+// admin-gated UI; no per-user PII leaves the server. The canonical list
+// lives in server/utils/sseEndpoints.js and is shared with the compression
+// skip in server/index.js.
+const PUBLIC_SSE_PREFIXES = SSE_PATH_PREFIXES;
+
 function requireUser(req, res, next) {
     // Non-API paths (static files, SPA catch-all) are always public
     if (!req.path.startsWith('/api/')) return next();
@@ -27,6 +35,9 @@ function requireUser(req, res, next) {
 
     // Check whitelist
     for (const prefix of PUBLIC_PREFIXES) {
+        if (req.path.startsWith(prefix)) return next();
+    }
+    for (const prefix of PUBLIC_SSE_PREFIXES) {
         if (req.path.startsWith(prefix)) return next();
     }
 

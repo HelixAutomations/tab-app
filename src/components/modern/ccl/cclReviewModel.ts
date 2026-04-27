@@ -563,6 +563,8 @@ type BuildCclReviewSelectionSupportInput = {
   unresolvedPlaceholders: string[];
 };
 
+type CclReviewCueTone = 'static' | 'ai' | 'placeholder' | 'mail-merge';
+
 export function buildCclReviewSelectionSupport({
   selectedFieldKey,
   selectedFieldConfidence,
@@ -647,7 +649,7 @@ export function buildCclReviewSelectionSupport({
       : selectedFieldState?.isMailMergeValue
         ? 'Mail merge'
         : 'Static text';
-  const selectedFieldCueTone = selectedFieldState?.isUnresolved
+  const selectedFieldCueTone: CclReviewCueTone = selectedFieldState?.isUnresolved
     ? 'placeholder'
     : (selectedFieldState?.isAiGenerated || selectedFieldState?.isAiUpdated)
       ? 'ai'

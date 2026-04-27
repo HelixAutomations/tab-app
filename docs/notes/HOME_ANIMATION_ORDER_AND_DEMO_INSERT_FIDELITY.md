@@ -232,7 +232,6 @@ depends_on: []
 coordinates_with:
   - userbubble-and-private-hub-tools-control-consolidation-and-sort
   - demo-mode-hardening-production-presentable-end-to-end
-  - ccl-backend-chain-silent-autopilot-service
   - enquiries-live-feed-freshness-wiring
   - realtime-delta-merge-upgrade
   - ui-responsiveness-hover-scroll-and-tab-navigation

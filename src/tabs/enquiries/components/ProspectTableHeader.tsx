@@ -245,7 +245,7 @@ const ProspectTableHeader: React.FC<ProspectTableHeaderProps> = ({
   const filterStages: { stage: EnquiryPipelineStage; label: string; chipIndex: number }[] = [
     { stage: 'pitched', label: 'PITCH', chipIndex: 1 },
     { stage: 'instructed', label: 'INSTRUCTION', chipIndex: 2 },
-    { stage: 'idcheck', label: 'EID CHECK', chipIndex: 3 },
+    { stage: 'idcheck', label: 'ID CHECK', chipIndex: 3 },
     { stage: 'paid', label: 'PAYMENT', chipIndex: 4 },
     { stage: 'risk', label: 'RISK', chipIndex: 5 },
     { stage: 'matter', label: 'MATTER', chipIndex: 6 },

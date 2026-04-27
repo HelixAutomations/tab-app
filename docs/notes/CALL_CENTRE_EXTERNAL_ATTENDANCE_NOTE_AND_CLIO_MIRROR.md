@@ -8,7 +8,7 @@
 
 ## 1. Why this exists (user intent)
 
-From the realignment call (verbatim, [docs/notes/realignmentcall_scope.md](realignmentcall_scope.md)):
+From the realignment call (verbatim, [docs/realignmentcall_scope.md](../realignmentcall_scope.md)):
 
 - *"this should not be identified as activity. This is not activity. This should be calls... amended to say call centre"*
 - *"there should not be a distinction between all external, internal notes, emails, all of that gets cut. That whole banner... just external calls, full stop"*
@@ -240,13 +240,9 @@ coordinates_with:
   - demo-mode-hardening-production-presentable-end-to-end
   - forms-ia-ld-undertaking-complaint-flow
   - forms-stream-persistence
-  - realtime-delta-merge
+  - realtime-delta-merge-upgrade
   - session-probing-activity-tab-visibility-and-persistence
-  - ccl-backend-chain-silent-autopilot-service
   - ccl-prompt-feedback-loop-self-driving-template-improvement
-  - ccl-review-experience-calm-rail-override-rerun-fix-docx-fidelity
-  - ccl-review-landing-terser-intro-start-from-scratch-affordance-pipeline-toasting
-  - ccl-review-pickup-via-todo-and-addressee-fix
 conflicts_with: []
 ```
 

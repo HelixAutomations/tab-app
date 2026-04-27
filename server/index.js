@@ -323,6 +323,7 @@ const clioClientLookupRouter = require('./routes/clio-client-lookup');
 const relatedClientsRouter = require('./routes/related-clients');
 const matterOperationsRouter = require('./routes/matter-operations');
 const mattersRouter = require('./routes/matters');
+const openAnotherMatterRouter = require('./routes/openAnotherMatter');
 const getMattersRouter = require('./routes/getMatters');
 const riskAssessmentsRouter = require('./routes/riskAssessments');
 const bundleRouter = require('./routes/bundle');
@@ -419,12 +420,14 @@ const errorHandler = require('./middleware/errorHandler');
 _bootMark('routes:require:done');
 
 const app = express();
-// Enable gzip compression if available, but skip SSE endpoints
+// Enable gzip compression if available, but skip SSE endpoints.
+// SSE prefix list lives in server/utils/sseEndpoints.js and is shared with requireUser.
+const { isSsePath } = require('./utils/sseEndpoints');
 if (compression) {
     const compress = compression();
     app.use((req, res, next) => {
         // Skip compression for Server-Sent Events to avoid buffering
-        if (req.path.startsWith('/api/reporting-stream') || req.path.startsWith('/api/home-metrics') || req.path.startsWith('/api/logs/stream') || req.path.startsWith('/api/ccl-date') || req.path.startsWith('/api/enquiries-unified/stream') || req.path.startsWith('/api/attendance/annual-leave/stream') || req.path.startsWith('/api/attendance/attendance/stream') || req.path.startsWith('/api/future-bookings/stream') || req.path.startsWith('/api/data-operations/stream') || req.path.startsWith('/api/ops-pulse')) {
+        if (isSsePath(req.path)) {
             res.setHeader('Cache-Control', 'no-cache, no-transform');
             return next();
         }
@@ -580,6 +583,8 @@ app.use('/api/clio-client-query', clioClientQueryRouter);
 app.use('/api/clio-client-lookup', clioClientLookupRouter);
 app.use('/api/related-clients', relatedClientsRouter);
 app.use('/api/matter-operations', matterOperationsRouter);
+// Mount BEFORE /api/matters so '/api/matters/open-another' doesn't get caught by matters.js GET /:id
+app.use('/api/matters/open-another', openAnotherMatterRouter);
 app.use('/api/matters', mattersRouter);
 app.use('/api/getMatters', getMattersRouter);
 // Deprecated: getAllMatters has been removed in favor of unified matters endpoint

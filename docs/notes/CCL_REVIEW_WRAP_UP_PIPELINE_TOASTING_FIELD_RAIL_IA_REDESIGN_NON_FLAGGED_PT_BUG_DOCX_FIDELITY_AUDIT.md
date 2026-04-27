@@ -349,7 +349,6 @@ depends_on: []
 coordinates_with:
   - operationsdashboard-carve-up-by-section
   - ccl-prompt-feedback-loop-self-driving-template-improvement
-  - ccl-review-pickup-via-todo-and-addressee-fix
   - resources-tab-restructure-with-templates-section
   - docs-transfer-review-ccl-review-fixes
 conflicts_with: []

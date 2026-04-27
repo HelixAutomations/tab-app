@@ -403,7 +403,7 @@ const App: React.FC<AppProps> = ({
   }, [isLocalDev]);
   const isProductionPreview = Boolean(featureToggles?.viewAsProd);
   const homeFeatureToggles = useMemo(
-    () => ({ ...(featureToggles || {}), viewAsProd: false }),
+    () => ({ ...(featureToggles || {}) }),
     [featureToggles]
   );
   const showActivityTab = canSeeActivityTab(currentUser, isLocalDev) && !isProductionPreview;
@@ -733,7 +733,16 @@ const App: React.FC<AppProps> = ({
       ? document.querySelector('.app-root')
       : document.querySelector('.app-scroll-region')) as HTMLElement | null;
     if (scrollContainer) {
-      scrollContainer.scrollTop = tabScrollPositions.current[activeTab] || 0;
+      // Home should always re-enter at the top. Restoring a remembered offset
+      // there makes tab switches feel like the previous tab's viewport leaked
+      // across, especially when coming from Prospects/Enquiries.
+      const nextScrollTop = activeTab === 'home'
+        ? 0
+        : (tabScrollPositions.current[activeTab] || 0);
+      if (activeTab === 'home') {
+        tabScrollPositions.current.home = 0;
+      }
+      scrollContainer.scrollTop = nextScrollTop;
     }
 
     const navNode = navigatorChromeRef.current;
@@ -1567,10 +1576,10 @@ const App: React.FC<AppProps> = ({
 
   const { setContent } = useNavigatorActions();
 
-  // Ensure Navigator content is cleared when navigating away from keep-alive tabs
-  // to non-keep-alive tabs (Instructions, Matters, Reporting) which don't write content.
+  // Clear the shared navigator only for tabs that do not own banner content.
+  // Home, Enquiries, and Matters all manage the navigator themselves.
   React.useEffect(() => {
-    if (activeTab !== 'home' && activeTab !== 'enquiries') {
+    if (activeTab !== 'home' && activeTab !== 'enquiries' && activeTab !== 'matters') {
       setContent(null);
     }
   }, [activeTab, setContent]);

@@ -234,7 +234,6 @@ touches:
 depends_on: []
 coordinates_with:
   - home-animation-order-and-demo-insert-fidelity
-  - ccl-backend-chain-silent-autopilot-service
   - demo-mode-hardening-production-presentable-end-to-end
   - ui-responsiveness-hover-scroll-and-tab-navigation
   - ux-realtime-navigation-programme

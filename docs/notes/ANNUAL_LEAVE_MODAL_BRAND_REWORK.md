@@ -161,7 +161,6 @@ touches:
   submodules: []
 depends_on: []
 coordinates_with:
-  - annual-leave-approvals-brand-rework
   - ux-realtime-navigation-programme
 conflicts_with: []
 ```

@@ -8,7 +8,7 @@
 
 ## 1. Why this exists (user intent)
 
-From the realignment call (verbatim, [docs/notes/realignmentcall_scope.md](realignmentcall_scope.md)):
+From the realignment call (verbatim, [docs/realignmentcall_scope.md](../realignmentcall_scope.md)):
 
 - *"amend this and not have these as two separate items... literally have the to do and keep it really simple"*
 - *"not including Asana, but including things like... you need to do the risk assessment because this person's completed the ID. You need to open the file because... the person's completed the ID... and the risk assessment has been done, but you didn't click open file"*
@@ -327,8 +327,6 @@ touches:
 depends_on: []
 coordinates_with:
   - forms-stream-persistence
-  - ccl-review-experience-calm-rail-override-rerun-fix-docx-fidelity
-  - ccl-review-pickup-via-todo-and-addressee-fix
   - call-centre-external-attendance-note-and-clio-mirror
   - forms-ia-ld-undertaking-complaint-flow
   - chat-tab-removal-retain-infra
@@ -337,7 +335,6 @@ coordinates_with:
   - session-probing-activity-tab-visibility-and-persistence
   - ccl-prompt-feedback-loop-self-driving-template-improvement
   - ccl-review-wrap-up-pipeline-toasting-field-rail-ia-redesign-non-flagged-pt-bug-docx-fidelity-audit
-  - ccl-review-landing-terser-intro-start-from-scratch-affordance-pipeline-toasting
   - home-animation-order-and-demo-insert-fidelity
   - home-todo-god-view-lz-can-see-firm-wide-with-filter-back-to-mine
   - to-do-confidence-reveal-one-at-a-time-demo-parity-predictable-redirects-completion-state-updates
@@ -348,7 +345,7 @@ coordinates_with:
   - userbubble-and-private-hub-tools-control-consolidation-and-sort
   - ux-realtime-navigation-programme
 conflicts_with:
-  - ccl-backend-chain-silent-autopilot-service
+  []
 ```
 
 ---

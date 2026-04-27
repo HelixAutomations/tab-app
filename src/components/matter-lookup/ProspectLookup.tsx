@@ -13,7 +13,8 @@
 // The component is presentational + self-contained; the host owns the
 // selected option.
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { colours } from '../../app/styles/colours';
 
 export interface ProspectLookupOption {
@@ -40,6 +41,10 @@ export interface ProspectLookupProps {
   debounceMs?: number;
   maxResults?: number;
   endpoint?: string;
+  /** Optional recent enquiries to surface when the input is empty/short. */
+  recents?: ProspectLookupOption[];
+  recentsLabel?: string;
+  recentsLimit?: number;
 }
 
 const defaultEndpoint = '/api/people-search';
@@ -92,6 +97,9 @@ export default function ProspectLookup({
   debounceMs = 300,
   maxResults = 20,
   endpoint = defaultEndpoint,
+  recents,
+  recentsLabel = 'Recent enquiries',
+  recentsLimit = 6,
 }: ProspectLookupProps) {
   const [results, setResults] = useState<ProspectLookupOption[]>([]);
   const [includeLegacy, setIncludeLegacy] = useState(false);
@@ -100,14 +108,20 @@ export default function ProspectLookup({
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const dropdownRef = useRef<HTMLDivElement | null>(null);
+  const [anchorRect, setAnchorRect] = useState<{ top: number; left: number; width: number } | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const latestQueryRef = useRef<string>('');
 
   useEffect(() => {
     const onDocClick = (ev: MouseEvent) => {
-      if (!containerRef.current) return;
-      if (!containerRef.current.contains(ev.target as Node)) setOpen(false);
+      const target = ev.target as Node | null;
+      if (!target) return;
+      if (containerRef.current && containerRef.current.contains(target)) return;
+      if (dropdownRef.current && dropdownRef.current.contains(target)) return;
+      setOpen(false);
     };
     document.addEventListener('mousedown', onDocClick);
     return () => document.removeEventListener('mousedown', onDocClick);
@@ -155,16 +169,52 @@ export default function ProspectLookup({
   }, [value]);
 
   const accent = isDarkMode ? '#87F3F3' : colours.highlight;
-  const panelBg = isDarkMode ? 'rgba(8,28,48,0.98)' : '#ffffff';
-  const panelBorder = isDarkMode ? 'rgba(75,85,99,0.55)' : 'rgba(6,23,51,0.15)';
-  const rowBorder = isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(6,23,51,0.04)';
-  const text = isDarkMode ? '#f3f4f6' : colours.light.text;
+  const panelBg = isDarkMode ? colours.dark.cardBackground : '#ffffff';
+  const panelBorder = isDarkMode ? `rgba(135, 243, 243, 0.22)` : `rgba(13, 47, 96, 0.22)`;
+  const rowBorder = isDarkMode ? `rgba(135, 243, 243, 0.08)` : `rgba(13, 47, 96, 0.06)`;
+  const text = isDarkMode ? colours.dark.text : colours.light.text;
   const bodyText = isDarkMode ? '#d1d5db' : '#374151';
-  const muted = isDarkMode ? '#A0A0A0' : '#6B6B6B';
+  const muted = isDarkMode ? colours.subtleGrey : colours.greyText;
+  const eyebrowBg = isDarkMode ? colours.darkBlue : colours.grey;
   const inputBg = isDarkMode ? 'rgba(5,21,37,0.9)' : '#ffffff';
   const inputBorder = isDarkMode ? 'rgba(255,255,255,0.14)' : 'rgba(6,23,51,0.22)';
   const sourceChipBorder = isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(6,23,51,0.14)';
   const sourceChipBg = isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(6,23,51,0.03)';
+  const dividerColor = isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(6,23,51,0.08)';
+  const recentsList = useMemo<ProspectLookupOption[]>(() => {
+    if (!recents || recents.length === 0) return [];
+    const seen = new Set<string>();
+    const cleaned: ProspectLookupOption[] = [];
+    for (const r of recents) {
+      const key = `${r.source || 'instructions'}:${r.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      cleaned.push(r);
+      if (cleaned.length >= recentsLimit) break;
+    }
+    return cleaned;
+  }, [recents, recentsLimit]);
+  const trimmedValue = (value || '').trim();
+  const showRecentsOnly = open && trimmedValue.length < minChars && recentsList.length > 0;
+  const shouldRenderDropdown = (open && trimmedValue.length >= minChars) || showRecentsOnly;
+
+  // Track input rect so the portalled dropdown follows the input.
+  useEffect(() => {
+    if (!shouldRenderDropdown) return;
+    const update = () => {
+      const el = inputRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      setAnchorRect({ top: r.bottom + 2, left: r.left, width: r.width });
+    };
+    update();
+    window.addEventListener('scroll', update, true);
+    window.addEventListener('resize', update);
+    return () => {
+      window.removeEventListener('scroll', update, true);
+      window.removeEventListener('resize', update);
+    };
+  }, [shouldRenderDropdown]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (!open) return;
@@ -203,6 +253,7 @@ export default function ProspectLookup({
   return (
     <div ref={containerRef} style={{ position: 'relative' }}>
       <input
+        ref={inputRef}
         type="text"
         value={value}
         onChange={(e) => { onChange(e.target.value); setOpen(true); setActiveIndex(-1); }}
@@ -223,31 +274,66 @@ export default function ProspectLookup({
           ...inputStyle,
         }}
       />
-      {open && value.trim().length >= minChars && (
+      {shouldRenderDropdown && anchorRect && typeof document !== 'undefined' && createPortal((
         <div
+          ref={dropdownRef}
           style={{
-            position: 'absolute',
-            top: '100%',
-            left: 0,
-            right: 0,
-            marginTop: 2,
+            position: 'fixed',
+            top: anchorRect.top,
+            left: anchorRect.left,
+            width: anchorRect.width,
             background: panelBg,
             border: `1px solid ${panelBorder}`,
             maxHeight: 260,
             overflowY: 'auto',
-            zIndex: 60,
-            boxShadow: '0 4px 16px rgba(0,0,0,0.25)',
+            zIndex: 10000,
+            boxShadow: isDarkMode ? '0 12px 32px rgba(0, 3, 25, 0.55)' : '0 12px 32px rgba(13, 47, 96, 0.18)',
+            fontFamily: 'Raleway, sans-serif',
           }}
         >
-          {loading && (
+          {showRecentsOnly && (
+            <>
+              <div style={{ padding: '8px 12px 4px', fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: muted, background: eyebrowBg, borderBottom: `1px solid ${rowBorder}` }}>{recentsLabel}</div>
+              {recentsList.map((opt) => {
+                const fullName = `${opt.firstName} ${opt.lastName}`.trim() || '(unnamed)';
+                return (
+                  <div
+                    key={`recent-${opt.source}:${opt.id}`}
+                    role="option"
+                    aria-selected={false}
+                    onMouseDown={(e) => { e.preventDefault(); handlePick(opt); }}
+                    style={{
+                      padding: '8px 12px',
+                      borderBottom: `1px solid ${rowBorder}`,
+                      cursor: 'pointer',
+                      display: 'grid',
+                      gridTemplateColumns: 'minmax(0, 1fr)',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: text, fontWeight: 600 }}>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fullName}</span>
+                        <span style={{ fontSize: 10, color: muted, fontWeight: 400 }}>#{opt.id}</span>
+                      </div>
+                      <div style={{ fontSize: 10, color: bodyText, opacity: 0.8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {opt.aow || '—'}{opt.email ? ` · ${opt.email}` : ''}{!opt.email && opt.phone ? ` · ${opt.phone}` : ''}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </>
+          )}
+          {!showRecentsOnly && loading && (
             <div style={{ padding: '10px 12px', fontSize: 11, color: muted }}>Searching…</div>
           )}
-          {!loading && results.length === 0 && !legacyAvailable && (
+          {!showRecentsOnly && !loading && results.length === 0 && !legacyAvailable && (
             <div style={{ padding: '10px 12px', fontSize: 11, color: muted }}>
               {includeLegacy ? 'No legacy enquiries found.' : 'No matches in current records.'}
             </div>
           )}
-          {!loading && results.length === 0 && legacyAvailable && (
+          {!showRecentsOnly && !loading && results.length === 0 && legacyAvailable && (
             <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
               <div style={{ fontSize: 11, color: muted }}>No matches in current records.</div>
               <button
@@ -272,7 +358,7 @@ export default function ProspectLookup({
               </button>
             </div>
           )}
-          {!loading && results.map((opt, i) => {
+          {!showRecentsOnly && !loading && results.map((opt, i) => {
             const active = i === activeIndex;
             const sourceLabel = opt.source === 'legacy' ? 'Legacy' : 'Current';
             const fullName = `${opt.firstName} ${opt.lastName}`.trim() || '(unnamed)';
@@ -323,8 +409,42 @@ export default function ProspectLookup({
               </div>
             );
           })}
+          {!showRecentsOnly && results.length > 0 && recentsList.length > 0 && (
+            <>
+              <div style={{ padding: '8px 12px 4px', marginTop: 4, borderTop: `1px solid ${dividerColor}`, fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: muted, background: eyebrowBg }}>{recentsLabel}</div>
+              {recentsList.map((opt) => {
+                const fullName = `${opt.firstName} ${opt.lastName}`.trim() || '(unnamed)';
+                return (
+                  <div
+                    key={`recent-tail-${opt.source}:${opt.id}`}
+                    role="option"
+                    aria-selected={false}
+                    onMouseDown={(e) => { e.preventDefault(); handlePick(opt); }}
+                    style={{
+                      padding: '8px 12px',
+                      borderBottom: `1px solid ${rowBorder}`,
+                      cursor: 'pointer',
+                      display: 'grid',
+                      gridTemplateColumns: 'minmax(0, 1fr)',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: text, fontWeight: 600 }}>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fullName}</span>
+                        <span style={{ fontSize: 10, color: muted, fontWeight: 400 }}>#{opt.id}</span>
+                      </div>
+                      <div style={{ fontSize: 10, color: bodyText, opacity: 0.8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {opt.aow || '—'}{opt.email ? ` · ${opt.email}` : ''}{!opt.email && opt.phone ? ` · ${opt.phone}` : ''}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </>
+          )}
         </div>
-      )}
+      ), document.body)}
     </div>
   );
 }

@@ -217,10 +217,6 @@ touches:
 depends_on: []
 coordinates_with:
   - home-todo-single-pickup-surface                 # parent framework — adds new kind
-  - ccl-review-pickup-via-todo-and-addressee-fix    # same review rail area
-  - ccl-review-experience-calm-rail-override-rerun-fix-docx-fidelity
-  - ccl-review-landing-terser-intro-start-from-scratch-affordance-pipeline-toasting
-  - ccl-polish-workbench-chip-toast-dedupe-pipeline-latency
   - ccl-prompt-feedback-loop-self-driving-template-improvement
   - call-centre-external-attendance-note-and-clio-mirror
   - forms-ia-ld-undertaking-complaint-flow
@@ -244,7 +240,7 @@ coordinates_with:
   - ux-realtime-navigation-programme
   - vault-room-developer-hygiene-hmr-dev-performance-and-ai-clutter-guardrails
 conflicts_with:
-  - ccl-backend-chain-silent-autopilot-service      # Phase A inverts its core assumption (ND auto-upload is a prerequisite for the Teams-notify chain). Resolving requires either: (a) gate the Teams-notify chain on the explicit-approve callback instead of the silent upload, or (b) drop Phase A and live with silent ND writes. Decision required before Phase A ships.
+  []
 ```
 
 ---

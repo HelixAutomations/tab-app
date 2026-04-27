@@ -246,16 +246,12 @@ depends_on: []
 coordinates_with:
   - home-todo-single-pickup-surface
   - demo-mode-hardening-production-presentable-end-to-end
-  - ccl-review-pickup-via-todo-and-addressee-fix
-  - ccl-review-experience-calm-rail-override-rerun-fix-docx-fidelity
-  - ccl-review-landing-terser-intro-start-from-scratch-affordance-pipeline-toasting
   - home-animation-order-and-demo-insert-fidelity
   - home-skeletons-aligned-cascade
   - forms-stream-persistence
   - ui-responsiveness-hover-scroll-and-tab-navigation
   - ux-realtime-navigation-programme
   - call-centre-external-attendance-note-and-clio-mirror
-  - ccl-backend-chain-silent-autopilot-service
   - ccl-prompt-feedback-loop-self-driving-template-improvement
   - forms-ia-ld-undertaking-complaint-flow
   - operationsdashboard-carve-up-by-section

@@ -279,7 +279,7 @@ function buildHeaderChildren(data) {
                             },
                             children: [clientName, ...clientAddressLines].filter(Boolean).map((line, index) => paragraph(line, {
                                 alignment: AlignmentType.LEFT,
-                                size: META_SIZE,
+                                size: BODY_SIZE,
                                 bold: index === 0,
                                 after: index === clientAddressLines.length ? 30 : 20,
                             })),
@@ -294,7 +294,7 @@ function buildHeaderChildren(data) {
                             },
                             children: matterMetaLines.map((line, index) => paragraph(line, {
                                 alignment: AlignmentType.RIGHT,
-                                size: META_SIZE,
+                                size: BODY_SIZE,
                                 after: index === matterMetaLines.length - 1 ? 0 : 40,
                             })),
                         }),
@@ -305,7 +305,7 @@ function buildHeaderChildren(data) {
     ];
 
     if (data.client_email) {
-        children.push(paragraph(`BY EMAIL ONLY - ${data.client_email}`, { alignment: AlignmentType.LEFT, size: META_SIZE, after: 140 }));
+        children.push(paragraph(`BY EMAIL ONLY - ${data.client_email}`, { alignment: AlignmentType.LEFT, size: BODY_SIZE, after: 140 }));
     }
 
     children.push(
@@ -535,16 +535,54 @@ function buildDocument(data) {
             footers: {
                 first: new Footer({
                     children: [
+                        // Address — two lines, body-grey, small. Top divider
+                        // separates the footer block from the letter body.
                         new Paragraph({
                             alignment: AlignmentType.CENTER,
-                            spacing: { before: 0, after: 80, line: 240 },
+                            spacing: { before: 0, after: 20, line: 240 },
                             border: {
                                 top: { style: BorderStyle.SINGLE, size: 4, color: 'D5DBE3', space: 6 },
                             },
                             children: [
-                                new TextRun({ text: FIRM_SIGNATURE_CONTACT, font: FONT_FAMILY, size: 15, color: HELIX.greyText }),
+                                new TextRun({ text: 'Helix Law Ltd, Second Floor, Britannia House', font: FONT_FAMILY, size: 16, color: HELIX.greyText }),
                             ],
                         }),
+                        new Paragraph({
+                            alignment: AlignmentType.CENTER,
+                            spacing: { before: 0, after: 140, line: 240 },
+                            children: [
+                                new TextRun({ text: '21 Station Street, Brighton BN1 4DE', font: FONT_FAMILY, size: 16, color: HELIX.greyText }),
+                            ],
+                        }),
+                        // Phone / Email / Website — labels in highlight blue
+                        // bold, values in normal grey. Centred to match address.
+                        new Paragraph({
+                            alignment: AlignmentType.CENTER,
+                            spacing: { before: 0, after: 20, line: 240 },
+                            children: [
+                                new TextRun({ text: 'Phone: ', font: FONT_FAMILY, size: 16, color: HELIX.highlight, bold: true }),
+                                new TextRun({ text: '0345 314 2044', font: FONT_FAMILY, size: 16, color: HELIX.greyText }),
+                            ],
+                        }),
+                        new Paragraph({
+                            alignment: AlignmentType.CENTER,
+                            spacing: { before: 0, after: 20, line: 240 },
+                            children: [
+                                new TextRun({ text: 'Email: ', font: FONT_FAMILY, size: 16, color: HELIX.highlight, bold: true }),
+                                new TextRun({ text: 'info@helix-law.com', font: FONT_FAMILY, size: 16, color: HELIX.greyText }),
+                            ],
+                        }),
+                        new Paragraph({
+                            alignment: AlignmentType.CENTER,
+                            spacing: { before: 0, after: 140, line: 240 },
+                            children: [
+                                new TextRun({ text: 'Website: ', font: FONT_FAMILY, size: 16, color: HELIX.highlight, bold: true }),
+                                new TextRun({ text: 'www.helix-law.com', font: FONT_FAMILY, size: 16, color: HELIX.greyText }),
+                            ],
+                        }),
+                        // Small print — regulatory paragraph at the smallest
+                        // size; this is the only block in the document the
+                        // user wants visibly smaller than body copy.
                         new Paragraph({
                             alignment: AlignmentType.JUSTIFIED,
                             spacing: { before: 0, after: 0, line: 220 },

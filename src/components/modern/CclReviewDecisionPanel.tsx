@@ -14,6 +14,7 @@ interface ReviewChoiceConfig {
 
 interface CclReviewDecisionPanelProps {
   isMobile: boolean;
+  fieldLabel?: string;
   choiceConfig?: ReviewChoiceConfig | null;
   selectedFieldOutput: string;
   selectedFieldIsReviewed: boolean;
@@ -35,6 +36,7 @@ interface CclReviewDecisionPanelProps {
 
 export default function CclReviewDecisionPanel({
   isMobile,
+  fieldLabel,
   choiceConfig,
   selectedFieldOutput,
   selectedFieldIsReviewed,
@@ -74,6 +76,9 @@ export default function CclReviewDecisionPanel({
   return (
     <div className={`ccl-review-decision${isMobile ? ' ccl-review-decision--mobile' : ''}`}>
       <div className="ccl-review-decision__panel">
+        {fieldLabel && (
+          <div className="ccl-review-decision__field-label">{fieldLabel}</div>
+        )}
         {choiceConfig ? (
           <div className="ccl-review-decision__choices" role="radiogroup" aria-label="Wording options">
             {choiceConfig.options.map((option) => {

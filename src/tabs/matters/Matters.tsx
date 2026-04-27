@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect, useDeferredValue, useRef } from 'react';
+import React, { useMemo, useState, useEffect, useLayoutEffect, useDeferredValue, useRef } from 'react';
 import { SpinnerSize } from '@fluentui/react/lib/Spinner';
 import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
 import { Icon } from '@fluentui/react/lib/Icon';
@@ -639,10 +639,12 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
 
   // No auto-toggle for admins; let Luke/Alex choose when to see everyone's matters.
 
-  // Set up navigation content with filter bar
-  useEffect(() => {
+  // Write navigator content before paint so tab switches do not briefly
+  // drop the shared filter bar to an empty state.
+  useLayoutEffect(() => {
     if (!isActive) {
-      setContent(null);
+      // Don't write null here. The newly-active tab will overwrite the shared
+      // navigator, and clearing it races with that write during tab switches.
       return;
     }
 
@@ -896,13 +898,12 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
 
   useEffect(() => {
     return () => {
-      setContent(null);
       if (detailEnterTimerRef.current) {
         window.clearTimeout(detailEnterTimerRef.current);
         detailEnterTimerRef.current = null;
       }
     };
-  }, [setContent]);
+  }, []);
 
   function beginDetailEntryTransition() {
     setIsEnteringDetail(true);

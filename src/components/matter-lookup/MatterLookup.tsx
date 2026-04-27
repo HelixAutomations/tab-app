@@ -19,6 +19,7 @@
 //   - Keep `matter_ref = 'call:<dubberCallId>'` convention in consumers.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { colours } from '../../app/styles/colours';
 
 export interface MatterLookupOption {
@@ -40,6 +41,13 @@ export interface MatterLookupProps {
   matters?: MatterLookupOption[];
   /** Async mode: called after `minChars` chars with 300ms debounce. */
   fetcher?: (q: string, signal: AbortSignal) => Promise<MatterLookupOption[]>;
+  /** Optional recents to surface in the dropdown when the input is empty/short.
+   *  When provided, the dropdown opens on focus regardless of `minChars`. */
+  recents?: MatterLookupOption[];
+  /** Override the eyebrow label above the recents section. */
+  recentsLabel?: string;
+  /** Cap the recents list. Defaults to 6. */
+  recentsLimit?: number;
   placeholder?: string;
   disabled?: boolean;
   isDarkMode?: boolean;
@@ -137,6 +145,9 @@ export default function MatterLookup({
   onSelect,
   matters,
   fetcher,
+  recents,
+  recentsLabel = 'Recent',
+  recentsLimit = 6,
   placeholder = 'Search matter by number, client, or description',
   disabled = false,
   isDarkMode = false,
@@ -156,6 +167,9 @@ export default function MatterLookup({
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const dropdownRef = useRef<HTMLDivElement | null>(null);
+  const [anchorRect, setAnchorRect] = useState<{ top: number; left: number; width: number } | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const latestQueryRef = useRef<string>('');
@@ -163,8 +177,11 @@ export default function MatterLookup({
   // Click-outside to close.
   useEffect(() => {
     const onDocClick = (ev: MouseEvent) => {
-      if (!containerRef.current) return;
-      if (!containerRef.current.contains(ev.target as Node)) setOpen(false);
+      const target = ev.target as Node | null;
+      if (!target) return;
+      if (containerRef.current && containerRef.current.contains(target)) return;
+      if (dropdownRef.current && dropdownRef.current.contains(target)) return;
+      setOpen(false);
     };
     document.addEventListener('mousedown', onDocClick);
     return () => document.removeEventListener('mousedown', onDocClick);
@@ -295,16 +312,101 @@ export default function MatterLookup({
     }
   }, [open, results, activeIndex, handleSelect]);
 
-  const accent = isDarkMode ? '#87F3F3' : colours.highlight;
-  const bg = isDarkMode ? 'rgba(8,28,48,0.92)' : '#ffffff';
-  const border = isDarkMode ? 'rgba(255,255,255,0.14)' : 'rgba(6,23,51,0.22)';
-  const text = isDarkMode ? '#f3f4f6' : colours.light.text;
-  const muted = isDarkMode ? '#A0A0A0' : '#6B6B6B';
-  const rowHover = isDarkMode ? 'rgba(135,243,243,0.12)' : '#d6e8ff';
-  const sourceChipBorder = isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(6,23,51,0.14)';
-  const sourceChipBg = isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(6,23,51,0.03)';
-  const shouldRenderDropdown = open && (value || '').trim().length >= minChars;
+  const accent = isDarkMode ? colours.accent : colours.highlight;
+  const bg = isDarkMode ? colours.dark.cardBackground : '#ffffff';
+  const border = isDarkMode ? `rgba(135, 243, 243, 0.22)` : `rgba(13, 47, 96, 0.22)`;
+  const text = isDarkMode ? colours.dark.text : colours.light.text;
+  const muted = isDarkMode ? colours.subtleGrey : colours.greyText;
+  const rowHover = isDarkMode ? `rgba(135, 243, 243, 0.10)` : colours.highlightBlue;
+  const sourceChipBorder = isDarkMode ? `rgba(135, 243, 243, 0.20)` : `rgba(13, 47, 96, 0.18)`;
+  const sourceChipBg = isDarkMode ? `rgba(135, 243, 243, 0.06)` : `rgba(13, 47, 96, 0.04)`;
+  const dividerColor = isDarkMode ? `rgba(135, 243, 243, 0.14)` : `rgba(13, 47, 96, 0.10)`;
+  const eyebrowBg = isDarkMode ? colours.darkBlue : colours.grey;
+  const recentsList = useMemo<MatterLookupOption[]>(() => {
+    if (!recents || recents.length === 0) return [];
+    const seen = new Set<string>();
+    const cleaned: MatterLookupOption[] = [];
+    for (const r of recents) {
+      const k = (r.displayNumber || r.key || '').toLowerCase();
+      if (!k || seen.has(k)) continue;
+      seen.add(k);
+      cleaned.push(r);
+      if (cleaned.length >= recentsLimit) break;
+    }
+    return cleaned;
+  }, [recents, recentsLimit]);
+  const trimmedValue = (value || '').trim();
+  const showRecentsOnly = open && trimmedValue.length < minChars && recentsList.length > 0;
+  const shouldRenderDropdown = (open && trimmedValue.length >= minChars) || showRecentsOnly;
   const emptyMessage = includeLegacy ? 'No legacy matters found.' : 'No current matters found.';
+
+  // Track input rect so the portalled dropdown follows the input on scroll/resize.
+  useEffect(() => {
+    if (!shouldRenderDropdown) return;
+    const update = () => {
+      const el = inputRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      setAnchorRect({ top: r.bottom + 2, left: r.left, width: r.width });
+    };
+    update();
+    window.addEventListener('scroll', update, true);
+    window.addEventListener('resize', update);
+    return () => {
+      window.removeEventListener('scroll', update, true);
+      window.removeEventListener('resize', update);
+    };
+  }, [shouldRenderDropdown]);
+
+  const renderResultRow = (r: MatterLookupOption, idx: number, opts: { activeIndex: number; isRecent?: boolean }) => {
+    const isActive = idx === opts.activeIndex && !opts.isRecent;
+    const sourceLabel = r.source === 'legacy' ? 'Legacy' : 'Current';
+    return (
+      <div
+        key={`${opts.isRecent ? 'recent-' : ''}${r.key}-${idx}`}
+        role="option"
+        aria-selected={isActive}
+        onMouseEnter={() => { if (!opts.isRecent) setActiveIndex(idx); }}
+        onMouseDown={(e) => { e.preventDefault(); handleSelect(r); }}
+        style={{
+          padding: '8px 12px',
+          cursor: 'pointer',
+          background: isActive ? rowHover : 'transparent',
+          borderTop: idx === 0 ? 'none' : `1px solid ${isDarkMode ? `rgba(135, 243, 243, 0.08)` : `rgba(13, 47, 96, 0.06)`}`,
+          fontSize: 12,
+          color: text,
+          ...rowStyle,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+          <div style={{ fontWeight: 600, color: accent, fontSize: 12, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.displayNumber}</div>
+          {!opts.isRecent && (
+            <span
+              style={{
+                flexShrink: 0,
+                fontSize: 8,
+                fontWeight: 700,
+                letterSpacing: '0.08em',
+                textTransform: 'uppercase',
+                padding: '2px 6px',
+                border: `1px solid ${sourceChipBorder}`,
+                background: sourceChipBg,
+                color: muted,
+                borderRadius: 0,
+              }}
+            >
+              {sourceLabel}
+            </span>
+          )}
+        </div>
+        {(r.clientName || r.description) && (
+          <div style={{ fontSize: 11, color: muted, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {r.clientName}{r.clientName && r.description ? ' · ' : ''}{r.description}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div
@@ -313,6 +415,7 @@ export default function MatterLookup({
       style={{ position: 'relative', fontFamily: 'Raleway, sans-serif' }}
     >
       <input
+        ref={inputRef}
         type="text"
         value={value}
         onChange={(e) => handleChange(e.target.value)}
@@ -335,28 +438,36 @@ export default function MatterLookup({
           ...inputStyle,
         }}
       />
-      {shouldRenderDropdown && (
+      {shouldRenderDropdown && anchorRect && typeof document !== 'undefined' && createPortal((
         <div
+          ref={dropdownRef}
           role="listbox"
           style={{
-            position: 'absolute',
-            top: 'calc(100% + 2px)',
-            left: 0,
-            right: 0,
+            position: 'fixed',
+            top: anchorRect.top,
+            left: anchorRect.left,
+            width: anchorRect.width,
             background: bg,
             border: `1px solid ${border}`,
-            boxShadow: '0 4px 16px rgba(0,0,0,0.35)',
+            boxShadow: isDarkMode ? '0 12px 32px rgba(0, 3, 25, 0.55)' : '0 12px 32px rgba(13, 47, 96, 0.18)',
             maxHeight: 260,
             overflowY: 'auto',
-            zIndex: 1000,
+            zIndex: 10000,
             borderRadius: 0,
+            fontFamily: 'Raleway, sans-serif',
             ...dropdownStyle,
           }}
         >
-          {loading && results.length === 0 && (
+          {showRecentsOnly && (
+            <>
+              <div style={{ padding: '8px 12px 4px', fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: muted, background: eyebrowBg, borderBottom: `1px solid ${dividerColor}` }}>{recentsLabel}</div>
+              {recentsList.map((r, idx) => renderResultRow(r, idx, { activeIndex, isRecent: true }))}
+            </>
+          )}
+          {!showRecentsOnly && loading && results.length === 0 && (
             <div style={{ padding: '10px 12px', fontSize: 12, color: muted }}>Searching…</div>
           )}
-          {!loading && results.length === 0 && legacyAvailable && (
+          {!showRecentsOnly && !loading && results.length === 0 && legacyAvailable && (
             <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
               <div style={{ fontSize: 11, color: muted }}>No current matters found.</div>
               <button
@@ -382,58 +493,18 @@ export default function MatterLookup({
               </button>
             </div>
           )}
-          {!loading && results.length === 0 && !legacyAvailable && (
+          {!showRecentsOnly && !loading && results.length === 0 && !legacyAvailable && (
             <div style={{ padding: '10px 12px', fontSize: 11, color: muted }}>{emptyMessage}</div>
           )}
-          {results.map((r, idx) => {
-            const isActive = idx === activeIndex;
-            const sourceLabel = r.source === 'legacy' ? 'Legacy' : 'Current';
-            return (
-              <div
-                key={`${r.key}-${idx}`}
-                role="option"
-                aria-selected={isActive}
-                onMouseEnter={() => setActiveIndex(idx)}
-                onMouseDown={(e) => { e.preventDefault(); handleSelect(r); }}
-                style={{
-                  padding: '8px 12px',
-                  cursor: 'pointer',
-                  background: isActive ? rowHover : 'transparent',
-                  borderTop: idx === 0 ? 'none' : `1px solid ${isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(6,23,51,0.06)'}`,
-                  fontSize: 12,
-                  color: text,
-                  ...rowStyle,
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, color: accent, fontSize: 12, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.displayNumber}</div>
-                  <span
-                    style={{
-                      flexShrink: 0,
-                      fontSize: 8,
-                      fontWeight: 700,
-                      letterSpacing: '0.08em',
-                      textTransform: 'uppercase',
-                      padding: '2px 6px',
-                      border: `1px solid ${sourceChipBorder}`,
-                      background: sourceChipBg,
-                      color: muted,
-                      borderRadius: 0,
-                    }}
-                  >
-                    {sourceLabel}
-                  </span>
-                </div>
-                {(r.clientName || r.description) && (
-                  <div style={{ fontSize: 11, color: muted, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {r.clientName}{r.clientName && r.description ? ' · ' : ''}{r.description}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+          {!showRecentsOnly && results.map((r, idx) => renderResultRow(r, idx, { activeIndex }))}
+          {!showRecentsOnly && results.length > 0 && recentsList.length > 0 && (
+            <>
+              <div style={{ padding: '8px 12px 4px', marginTop: 4, borderTop: `1px solid ${dividerColor}`, fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: muted, background: eyebrowBg }}>{recentsLabel}</div>
+              {recentsList.map((r, idx) => renderResultRow(r, idx, { activeIndex: -1, isRecent: true }))}
+            </>
+          )}
         </div>
-      )}
+      ), document.body)}
     </div>
   );
 }

@@ -794,9 +794,13 @@ router.post('/upload-clio', async (req, res) => {
 // Uploads the generated CCL .docx into the shared HELIX01-01 demo workspace.
 
 router.post('/upload-nd', async (req, res) => {
-  const { matterId, matterDisplayNumber, ndWorkspaceId: requestedWorkspaceId, fileName, fields: liveFields } = req.body;
+  const { matterId, matterDisplayNumber, ndWorkspaceId: requestedWorkspaceId, fileName, fields: liveFields, triggeredBy: triggeredByRaw } = req.body;
   const startMs = Date.now();
   const uploadedBy = req.user?.initials || 'Hub';
+  // Since 2026-04-27, ND upload is always an explicit solicitor click after
+  // approval. The default tag captures that; callers (e.g. legacy chains) can
+  // pass their own triggeredBy in the body if needed.
+  const triggeredBy = String(triggeredByRaw || 'manual-after-approval');
 
   try {
     const prepared = await prepareCclDocx({
@@ -827,6 +831,7 @@ router.post('/upload-nd', async (req, res) => {
       fileName: prepared.docxName,
       fileSizeBytes: String(fileBuffer.length),
       uploadedBy,
+      triggeredBy,
     });
 
     const ndPayload = await uploadDocumentToNetDocuments({
@@ -875,6 +880,7 @@ router.post('/upload-nd', async (req, res) => {
       ndDocumentId: ndDocumentId ? String(ndDocumentId) : '',
       fileName: prepared.docxName,
       durationMs: String(durationMs),
+      triggeredBy,
     });
     trackMetric('CCL.Upload.ND.Duration', durationMs, {
       matterId: String(matterDisplayNumber || matterId || ''),
@@ -896,6 +902,7 @@ router.post('/upload-nd', async (req, res) => {
       matterId: String(matterDisplayNumber || matterId || ''),
       error: error.message,
       durationMs: String(durationMs),
+      triggeredBy,
     });
     return res.status(500).json({ ok: false, error: error.message || 'NetDocuments upload failed.' });
   }

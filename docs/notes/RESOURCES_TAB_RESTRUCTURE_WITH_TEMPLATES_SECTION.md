@@ -200,7 +200,6 @@ touches:
 depends_on: []
 coordinates_with:
   - ccl-prompt-feedback-loop-self-driving-template-improvement
-  - ccl-backend-chain-silent-autopilot-service
 conflicts_with: []
 ```
 

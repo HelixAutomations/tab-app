@@ -6667,7 +6667,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                             {/* Inst / ID / Pay / Risk / Matter - chip indices 2-6 - tri-state toggles */}
                             {([
                               { stage: 'instructed' as const, label: 'INSTR', fullLabel: 'INSTRUCTION', icon: 'CheckMark', textIcon: null, chipIndex: 2 },
-                              { stage: 'idcheck' as const, label: 'EID', fullLabel: 'EID CHECK', icon: 'ContactCard', textIcon: null, chipIndex: 3 },
+                              { stage: 'idcheck' as const, label: 'EID', fullLabel: 'ID CHECK', icon: 'ContactCard', textIcon: null, chipIndex: 3 },
                               { stage: 'paid' as const, label: 'PAY', fullLabel: 'PAYMENT', icon: null, textIcon: '£', chipIndex: 4 },
                               { stage: 'risk' as const, label: 'RISK', fullLabel: 'RISK', icon: 'Shield', textIcon: null, chipIndex: 5 },
                               { stage: 'matter' as const, label: 'MATTER', fullLabel: 'MATTER', icon: 'OpenFolderHorizontal', textIcon: null, chipIndex: 6 },

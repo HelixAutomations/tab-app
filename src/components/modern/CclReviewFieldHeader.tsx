@@ -24,19 +24,18 @@ function normaliseText(value: string): string {
   return value.toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
-function splitFieldGroup(fieldGroup: string, fieldLabel: string, showLabel: boolean): {
+function splitFieldGroup(fieldGroup: string, fieldLabel: string): {
   sectionLabel: string;
   title: string;
-  subtitle: string;
 } {
   const parts = (fieldGroup || '').split('·').map((part) => part.trim()).filter(Boolean);
   const sectionLabel = parts.length > 1 ? parts[0] : '';
   const groupTitle = parts.length > 1 ? parts.slice(1).join(' · ') : (fieldGroup || '').trim();
-  const title = (showLabel ? fieldLabel : groupTitle) || fieldLabel || groupTitle || 'Review point';
-  const subtitle = showLabel && groupTitle && normaliseText(groupTitle) !== normaliseText(fieldLabel)
-    ? groupTitle
-    : '';
-  return { sectionLabel, title, subtitle };
+  // Header always orients by section/group — the placeholder label is docked
+  // directly above the editor (CclReviewDecisionPanel), so we never render
+  // fieldLabel here. Fall back to fieldLabel only if no group is set.
+  const title = groupTitle || fieldLabel || 'Review point';
+  return { sectionLabel, title };
 }
 
 function getAskSentence(fieldType: ReviewFieldType, isFlagged: boolean): string {
@@ -93,9 +92,12 @@ export default function CclReviewFieldHeader({
   const normLabel = normaliseText(fieldLabel || '');
   const labelRedundant = !!normLabel && !!normGroup && normGroup.endsWith(normLabel);
   const showLabel = !!fieldLabel && !labelRedundant;
-  const { sectionLabel, title, subtitle } = React.useMemo(
-    () => splitFieldGroup(fieldGroup, fieldLabel, showLabel),
-    [fieldGroup, fieldLabel, showLabel],
+  // showLabel is retained for downstream use (queue strip / a11y) but the
+  // header itself no longer renders fieldLabel — it's docked above the editor.
+  void showLabel;
+  const { sectionLabel, title } = React.useMemo(
+    () => splitFieldGroup(fieldGroup, fieldLabel),
+    [fieldGroup, fieldLabel],
   );
 
   // Expander: only meaningful when we have something to reveal beyond the
@@ -124,9 +126,6 @@ export default function CclReviewFieldHeader({
 
       <div className="ccl-review-field-header__title-block">
         <div className="ccl-review-field-header__title">{title}</div>
-        {subtitle && (
-          <div className="ccl-review-field-header__subtitle">{subtitle}</div>
-        )}
         {askSentence && (
           <div className="ccl-review-field-header__guidance">{askSentence}</div>
         )}

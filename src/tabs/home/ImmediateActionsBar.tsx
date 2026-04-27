@@ -33,6 +33,7 @@ interface ImmediateActionsBarProps {
   immediateActionsList: HomeImmediateAction[];
   highlighted?: boolean;
   seamless?: boolean;
+  enableSuggestedNext?: boolean;
   /** Optional control rendered in the bar header (LZ-only god-view scope toggle). */
   scopeSlot?: React.ReactNode;
 }
@@ -57,6 +58,7 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
   immediateActionsList,
   highlighted = false,
   seamless = false,
+  enableSuggestedNext = false,
   scopeSlot,
 }) => {
   const { isDarkMode: contextDarkMode } = useTheme();
@@ -76,7 +78,9 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
   const [chipGridHeight, setChipGridHeight] = useState<number>(0);
   const [bodyHeight, setBodyHeight] = useState<number>(0);
 
-  const actions = immediateActionsList;
+  const actions = enableSuggestedNext
+    ? immediateActionsList
+    : immediateActionsList.filter((action) => action.tier !== 'secondary');
   const primaryActions = actions.filter((action) => action.tier !== 'secondary');
   const secondaryActions = actions.filter((action) => action.tier === 'secondary');
   const hasPrimaryActions = primaryActions.length > 0;
@@ -604,13 +608,12 @@ const PanelActionRow: React.FC<{
   const surface = isSecondary
     ? (isDark ? withAlpha(colours.darkBlue, 0.38) : withAlpha(colours.highlightBlue, 0.14))
     : (isDark ? withAlpha(colours.darkBlue, 0.6) : withAlpha(colours.highlightBlue, 0.25));
+  // Hover: subtle, flat tone-shift. The accent stripe carries the brand cue;
+  // the inset 1px ring (applied on the row container) confirms the armed
+  // state. Tones step up enough to read clearly without looking glossy.
   const hoverSurface = isSecondary
-    ? (isDark
-      ? `linear-gradient(135deg, ${withAlpha(categoryAccent, 0.06)} 0%, ${withAlpha(colours.darkBlue, 0.46)} 100%)`
-      : `linear-gradient(135deg, ${withAlpha(categoryAccent, 0.04)} 0%, ${withAlpha(colours.highlightBlue, 0.18)} 100%)`)
-    : (isDark
-      ? `linear-gradient(135deg, ${withAlpha(categoryAccent, 0.1)} 0%, ${withAlpha(colours.darkBlue, 0.7)} 100%)`
-      : `linear-gradient(135deg, ${withAlpha(categoryAccent, 0.07)} 0%, ${withAlpha(colours.highlightBlue, 0.3)} 100%)`);
+    ? (isDark ? withAlpha(colours.helixBlue, 0.55) : withAlpha(colours.highlightBlue, 0.3))
+    : (isDark ? withAlpha(colours.helixBlue, 0.78) : withAlpha(colours.highlightBlue, 0.42));
   // Removed the 1px outer border — combined with the 3px borderLeft accent it
   // visibly framed the card, making loaded rows read as inset compared to the
   // flat skeleton bars. Hover lift + box-shadow already signal interactivity.
@@ -662,9 +665,14 @@ const PanelActionRow: React.FC<{
         borderRadius: 2,
         opacity: action.disabled ? 0.5 : 1,
         fontFamily: 'var(--font-primary)',
-        transition: 'all 0.15s ease',
-        boxShadow: hovered ? `0 2px 8px ${withAlpha(categoryAccent, isDark ? (isSecondary ? 0.08 : 0.12) : (isSecondary ? 0.04 : 0.06))}` : 'none',
-        transform: hovered ? `translateY(${isSecondary ? '-0.25px' : '-0.5px'})` : 'none',
+        // Sharp, immediate hover response. Snappy 90ms transition + a 1px
+        // inset accent ring (paints inside the row so it can't shift content)
+        // gives the row a clean "armed" state without any lift, glow, or
+        // gradient. Reads as serious — like a focus ring rather than a tooltip.
+        transition: 'background 90ms ease, box-shadow 90ms ease',
+        boxShadow: hovered
+          ? `inset 0 0 0 1px ${withAlpha(categoryAccent, isDark ? 0.55 : 0.45)}`
+          : 'inset 0 0 0 1px transparent',
         animation: shouldAnimate ? `iabChipIn 0.22s ease ${animDelay}s both` : 'none',
         overflow: 'hidden',
       }}
@@ -786,31 +794,42 @@ const PanelActionRow: React.FC<{
           </span>
         )}
 
-        {/* Chevron — expand toggle if expandable, else navigation cue */}
+        {/* Chevron — expand toggle if expandable, else navigation cue.
+            Subtle bordered chip. Sharp, serious, low contrast at rest;
+            firms up on hover/expanded. Distinct from row click (which opens
+            the item). */}
         {canExpand ? (
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); toggleExpanded(); }}
             aria-expanded={expanded}
-            aria-label={expanded ? 'Collapse details' : 'Show details'}
+            aria-label={expanded ? 'Hide details' : 'Show details'}
+            title={expanded ? 'Hide details' : 'Show details'}
             style={{
               flexShrink: 0,
               display: 'inline-flex',
               alignItems: 'center',
               justifyContent: 'center',
-              width: 28,
-              height: 32,
-              marginRight: 4,
-              background: 'transparent',
-              border: 'none',
+              width: 22,
+              height: 22,
+              marginRight: 8,
+              background: expanded
+                ? (isDark ? withAlpha(colours.dark.text, 0.06) : withAlpha(colours.helixBlue, 0.06))
+                : 'transparent',
+              border: `1px solid ${expanded
+                ? (isDark ? withAlpha(colours.dark.text, 0.35) : withAlpha(colours.helixBlue, 0.3))
+                : (hovered
+                  ? (isDark ? withAlpha(colours.dark.text, 0.25) : withAlpha(colours.helixBlue, 0.22))
+                  : (isDark ? withAlpha(colours.dark.border, 0.4) : withAlpha(colours.helixBlue, 0.14)))}`,
+              borderRadius: 2,
               cursor: 'pointer',
               color: textMuted,
-              opacity: hovered || expanded ? 0.9 : 0.45,
-              transition: 'opacity 0.15s ease, transform 0.2s ease',
+              transition: 'background 0.12s ease, border-color 0.12s ease, transform 0.18s ease',
               transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)',
+              padding: 0,
             }}
           >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M9 18l6-6-6-6" />
             </svg>
           </button>

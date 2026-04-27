@@ -1,0 +1,24 @@
+
+> teamhub@0.1.0 build
+> craco build
+
+Creating an optimized production build...
+Compiled with the following type errors (you may want to check these before deploying your app):
+
+[eslint] 
+src\index.tsx
+  Line 26:1:  Import in body of module; reorder to top  import/first
+  Line 27:1:  Import in body of module; reorder to top  import/first
+  Line 28:1:  Import in body of module; reorder to top  import/first
+  Line 29:1:  Import in body of module; reorder to top  import/first
+  Line 30:1:  Import in body of module; reorder to top  import/first
+
+src\tabs\home\Home.tsx
+  Line 130:1:  Import in body of module; reorder to top  import/first
+  Line 138:1:  Import in body of module; reorder to top  import/first
+  Line 139:1:  Import in body of module; reorder to top  import/first
+  Line 140:1:  Import in body of module; reorder to top  import/first
+
+Search for the keywords to learn more about each error.
+
+
