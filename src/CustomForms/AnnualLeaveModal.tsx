@@ -100,6 +100,78 @@ function getLeaveRecordDisplayDays(record: AnnualLeaveRecord): number {
   return computedDays;
 }
 
+function formatDateInputValue(value?: string | null): string {
+  if (!value) return '';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '';
+  return format(parsed, 'yyyy-MM-dd');
+}
+
+type LeaveCoverageValue = 'full' | 'single-am' | 'single-pm' | 'range-starts-pm' | 'range-ends-am' | 'range-starts-pm-ends-am';
+
+function getLeaveCoverageValue(startDate: string, endDate: string, halfDayStart?: boolean, halfDayEnd?: boolean): LeaveCoverageValue {
+  const isSingleDay = startDate === endDate;
+  if (isSingleDay) {
+    if (halfDayStart && !halfDayEnd) return 'single-pm';
+    if (halfDayEnd && !halfDayStart) return 'single-am';
+    return 'full';
+  }
+
+  if (halfDayStart && halfDayEnd) return 'range-starts-pm-ends-am';
+  if (halfDayStart) return 'range-starts-pm';
+  if (halfDayEnd) return 'range-ends-am';
+  return 'full';
+}
+
+function getCoverageFlags(value: LeaveCoverageValue, isSingleDay: boolean): { halfDayStart: boolean; halfDayEnd: boolean; label: string } {
+  if (isSingleDay) {
+    if (value === 'single-am' || value === 'range-ends-am') {
+      return { halfDayStart: false, halfDayEnd: true, label: 'AM only' };
+    }
+    if (value === 'single-pm' || value === 'range-starts-pm') {
+      return { halfDayStart: true, halfDayEnd: false, label: 'PM only' };
+    }
+    return { halfDayStart: false, halfDayEnd: false, label: 'Full day' };
+  }
+
+  switch (value) {
+    case 'range-starts-pm':
+      return { halfDayStart: true, halfDayEnd: false, label: 'Starts PM' };
+    case 'range-ends-am':
+      return { halfDayStart: false, halfDayEnd: true, label: 'Ends AM' };
+    case 'range-starts-pm-ends-am':
+      return { halfDayStart: true, halfDayEnd: true, label: 'Starts PM / ends AM' };
+    default:
+      return { halfDayStart: false, halfDayEnd: false, label: 'Full range' };
+  }
+}
+
+function calculateWorkingLeaveDays(
+  startDate: string,
+  endDate: string,
+  bankHolidays?: Set<string>,
+  halfDayStart = false,
+  halfDayEnd = false
+): number {
+  if (!startDate || !endDate) return 0;
+
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) {
+    return 0;
+  }
+
+  const workingDays = eachDayOfInterval({ start, end }).filter((day) => {
+    const dayKey = format(day, 'yyyy-MM-dd');
+    return !isWeekend(day) && !bankHolidays?.has(dayKey);
+  }).length;
+
+  let computedDays = workingDays;
+  if (halfDayStart) computedDays -= 0.5;
+  if (halfDayEnd) computedDays -= 0.5;
+  return Math.max(computedDays, 0);
+}
+
 interface AnnualLeaveModalProps {
   userData: any;
   totals: { standard: number; purchase?: number; unpaid?: number; sale: number; rejected?: number };
@@ -164,6 +236,9 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
   // Admin state
   const [selectedEmployee, setSelectedEmployee] = useState<string | null>(null);
   const [editingRecord, setEditingRecord] = useState<AnnualLeaveRecord | null>(null);
+  const [editStartDate, setEditStartDate] = useState<string>('');
+  const [editEndDate, setEditEndDate] = useState<string>('');
+  const [editCoverage, setEditCoverage] = useState<LeaveCoverageValue>('full');
   const [editDays, setEditDays] = useState<string>('');
   const [editStatus, setEditStatus] = useState<string>('');
   const [editLeaveType, setEditLeaveType] = useState<string>('');
@@ -197,8 +272,8 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
   const [loadingStage, setLoadingStage] = useState<string | null>(null); // Track current loading stage
   const [manualHalfDayDate, setManualHalfDayDate] = useState<string>(() => format(new Date(), 'yyyy-MM-dd'));
   const [manualEndDate, setManualEndDate] = useState<string>('');
-  const [manualStatus, setManualStatus] = useState<'booked' | 'requested'>('booked');
-  const [manualHalfDayType, setManualHalfDayType] = useState<'standard' | 'purchase' | 'sale'>('standard');
+  const [manualStatus, setManualStatus] = useState<'booked' | 'approved' | 'requested'>('booked');
+  const [manualHalfDayType, setManualHalfDayType] = useState<'standard' | 'purchase' | 'sale' | 'unpaid'>('standard');
   const [manualDuration, setManualDuration] = useState<'full' | 'half'>('full');
   const [manualHalfDaySlot, setManualHalfDaySlot] = useState<'am' | 'pm'>('am');
   const [manualHalfDayReason, setManualHalfDayReason] = useState<string>('Manual admin leave entry');
@@ -209,8 +284,69 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
   const viewingInitials = isAdmin && selectedEmployee ? selectedEmployee : ownInitials;
   const userInitials = viewingInitials; // Alias for compatibility
 
+  const adminCreateTarget = selectedEmployee || ownInitials;
+  const manualEffectiveEndDate = manualEndDate || manualHalfDayDate;
+  const manualHalfDayStartFlag = manualDuration === 'half' && manualHalfDaySlot === 'pm';
+  const manualHalfDayEndFlag = manualDuration === 'half' && manualHalfDaySlot === 'am';
+  const manualCreateDays = manualHalfDayDate
+    ? calculateWorkingLeaveDays(
+        manualHalfDayDate,
+        manualEffectiveEndDate,
+        bankHolidays,
+        manualHalfDayStartFlag,
+        manualHalfDayEndFlag
+      )
+    : 0;
+  const manualCoverageLabel = manualDuration === 'half'
+    ? (manualHalfDaySlot === 'am' ? 'AM only' : 'PM only')
+    : (manualEffectiveEndDate !== manualHalfDayDate ? 'Full range' : 'Full day');
+  const manualStatusLabel = manualStatus === 'booked'
+    ? 'Booked immediately'
+    : (manualStatus === 'approved' ? 'Approved, waiting for booking' : 'Requested for approval');
+  const manualCalendarLabel = manualStatus === 'booked'
+    ? (manualHalfDayType === 'standard' ? 'Calendar sync will run.' : 'Booked, but only standard leave syncs calendars.')
+    : 'Calendars sync once the record is moved to booked.';
+
+  const currentEditStartDate = editingRecord ? formatDateInputValue(editingRecord.start_date) : '';
+  const currentEditEndDate = editingRecord ? formatDateInputValue(editingRecord.end_date) : '';
+  const currentEditDays = editingRecord ? getLeaveRecordDisplayDays(editingRecord) : 0;
+  const currentEditReason = String(editingRecord?.reason || '');
+  const currentEditStatus = String(editingRecord?.status || '').trim().toLowerCase();
+  const currentEditLeaveType = normalizeLeaveType(editingRecord?.leave_type || 'standard');
+  const currentEditCoverage = editingRecord
+    ? getLeaveCoverageValue(
+        currentEditStartDate,
+        currentEditEndDate,
+        Boolean(editingRecord.half_day_start),
+        Boolean(editingRecord.half_day_end)
+      )
+    : 'full';
+  const editScheduleIsSingleDay = Boolean(editStartDate && editEndDate && editStartDate === editEndDate);
+  const editCoverageFlags = getCoverageFlags(editCoverage, editScheduleIsSingleDay);
+  const editDerivedDays = editingRecord
+    ? calculateWorkingLeaveDays(
+        editStartDate,
+        editEndDate,
+        bankHolidays,
+        editCoverageFlags.halfDayStart,
+        editCoverageFlags.halfDayEnd
+      )
+    : 0;
+  const editHasChanges = Boolean(editingRecord) && (
+    editStartDate !== currentEditStartDate ||
+    editEndDate !== currentEditEndDate ||
+    editCoverage !== currentEditCoverage ||
+    editStatus !== currentEditStatus ||
+    editLeaveType !== currentEditLeaveType ||
+    Number(editDays) !== currentEditDays ||
+    editReason.trim() !== currentEditReason.trim()
+  );
+
   const closeEditDialog = useCallback(() => {
     setEditingRecord(null);
+    setEditStartDate('');
+    setEditEndDate('');
+    setEditCoverage('full');
     setEditStatus('');
     setEditLeaveType('');
     setEditDays('');
@@ -219,6 +355,9 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
 
   useEffect(() => {
     if (!editingRecord) {
+      setEditStartDate('');
+      setEditEndDate('');
+      setEditCoverage('full');
       setEditStatus('');
       setEditLeaveType('');
       setEditDays('');
@@ -226,10 +365,20 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
       return;
     }
 
-    setEditStatus('');
-    setEditLeaveType('');
-    setEditDays('');
-    setEditReason('');
+    const currentStartDate = formatDateInputValue(editingRecord.start_date);
+    const currentEndDate = formatDateInputValue(editingRecord.end_date);
+    setEditStartDate(currentStartDate);
+    setEditEndDate(currentEndDate);
+    setEditCoverage(getLeaveCoverageValue(
+      currentStartDate,
+      currentEndDate,
+      Boolean(editingRecord.half_day_start),
+      Boolean(editingRecord.half_day_end)
+    ));
+    setEditStatus(String(editingRecord.status || '').trim().toLowerCase());
+    setEditLeaveType(normalizeLeaveType(editingRecord.leave_type || 'standard'));
+    setEditDays(String(getLeaveRecordDisplayDays(editingRecord)));
+    setEditReason(String(editingRecord.reason || ''));
   }, [editingRecord]);
 
   useEffect(() => {
@@ -362,13 +511,19 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
   const propTotals = useMemo(() => normalizeLeaveTotals(totals), [totals]);
 
   const effectiveFutureLeave = useMemo(() => {
+    if (localLeaveData) {
+      return localLeaveData.future;
+    }
     if (futureLeave && futureLeave.length > 0) return futureLeave;
-    return localLeaveData?.future || [];
+    return [];
   }, [futureLeave, localLeaveData]);
 
   const effectiveAllLeave = useMemo(() => {
+    if (localLeaveData) {
+      return localLeaveData.all;
+    }
     if (allLeave && allLeave.length > 0) return allLeave;
-    return localLeaveData?.all || [];
+    return [];
   }, [allLeave, localLeaveData]);
 
   // Get the effective totals - use fetched employee data when viewing someone else
@@ -499,8 +654,6 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
   const handleAdminManualHalfDayCreate = useCallback(async () => {
     if (!isAdmin) return;
 
-    const targetEmployee = selectedEmployee || ownInitials;
-
     if (!manualHalfDayDate) {
       setToast({ type: 'error', text: 'Select a date first.' });
       return;
@@ -510,42 +663,25 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
     setMessage(null);
 
     try {
-      const isHalfDay = manualDuration === 'half';
-      const effectiveEndDate = manualEndDate || manualHalfDayDate;
-
-      // Calculate working days for ranges
-      let daysTaken: number;
-      if (effectiveEndDate !== manualHalfDayDate) {
-        // Multi-day range — count weekdays
-        const start = new Date(manualHalfDayDate);
-        const end = new Date(effectiveEndDate);
-        const days = eachDayOfInterval({ start, end });
-        daysTaken = days.filter(d => !isWeekend(d) && !bankHolidays?.has(format(d, 'yyyy-MM-dd'))).length;
-      } else {
-        daysTaken = isHalfDay ? 0.5 : 1;
-      }
-
       const payload: Record<string, unknown> = {
-        fe: targetEmployee,
+        fe: adminCreateTarget,
         dateRanges: [
           {
             start_date: manualHalfDayDate,
-            end_date: effectiveEndDate,
-            half_day_start: isHalfDay ? manualHalfDaySlot === 'am' : false,
-            half_day_end: isHalfDay ? manualHalfDaySlot === 'pm' : false,
-            leave_type: manualHalfDayType
+            end_date: manualEffectiveEndDate,
+            half_day_start: manualHalfDayStartFlag,
+            half_day_end: manualHalfDayEndFlag,
+            leave_type: manualHalfDayType,
+            days_taken: manualCreateDays,
           }
         ],
         reason: manualHalfDayReason?.trim() || 'Manual admin leave entry',
-        days_taken: daysTaken,
+        days_taken: manualCreateDays,
         leave_type: manualHalfDayType,
         hearing_confirmation: 'yes',
-        hearing_details: ''
+        hearing_details: '',
+        admin_status: manualStatus,
       };
-
-      if (manualStatus === 'booked') {
-        payload.admin_status = 'booked';
-      }
 
       const response = await fetch('/api/attendance/annual-leave', {
         method: 'POST',
@@ -558,9 +694,9 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
         throw new Error(result?.error || `Request failed with status ${response.status}`);
       }
 
-      const daysLabel = daysTaken === 0.5 ? '0.5-day' : `${daysTaken}-day`;
-      setMessage({ type: 'success', text: `✅ Created ${daysLabel} ${manualHalfDayType} record for ${targetEmployee}.` });
-      setToast({ type: 'success', text: `${daysLabel} ${manualHalfDayType} record created for ${targetEmployee}.` });
+      const daysLabel = manualCreateDays === 0.5 ? '0.5-day' : `${manualCreateDays}-day`;
+      setMessage({ type: 'success', text: `✅ Created ${daysLabel} ${manualHalfDayType} ${manualStatus} record for ${adminCreateTarget}.` });
+      setToast({ type: 'success', text: `${daysLabel} ${manualHalfDayType} ${manualStatus} record created for ${adminCreateTarget}.` });
 
       await refreshEmployeeData();
       onSubmitSuccess();
@@ -573,16 +709,15 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
     }
   }, [
     isAdmin,
-    selectedEmployee,
-    ownInitials,
+    adminCreateTarget,
     manualHalfDayDate,
-    manualEndDate,
-    manualDuration,
-    manualHalfDaySlot,
+    manualEffectiveEndDate,
+    manualCreateDays,
+    manualHalfDayStartFlag,
+    manualHalfDayEndFlag,
     manualHalfDayType,
     manualHalfDayReason,
     manualStatus,
-    bankHolidays,
     refreshEmployeeData,
     onSubmitSuccess
   ]);
@@ -617,12 +752,14 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
         await refreshEmployeeData();
       } else {
         setLocalLeaveData((prev) => {
-          if (!prev) return prev;
           const recordId = String(record.request_id);
+          const baseAll = prev?.all || effectiveAllLeave;
+          const baseFuture = prev?.future || effectiveFutureLeave;
+          const baseTotals = prev?.totals || effectiveTotals;
           return {
-            ...prev,
-            all: prev.all.filter((item) => String(item.request_id ?? item.id) !== recordId),
-            future: prev.future.filter((item) => String(item.request_id ?? item.id) !== recordId)
+            all: baseAll.filter((item) => String(item.request_id ?? item.id) !== recordId),
+            future: baseFuture.filter((item) => String(item.request_id ?? item.id) !== recordId),
+            totals: baseTotals
           };
         });
         setSelectedRecordIds((prev) => {
@@ -636,7 +773,7 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
     } finally {
       setIsDeleting(false);
     }
-  }, [onSubmitSuccess, isAdmin, selectedEmployee, refreshEmployeeData]);
+  }, [effectiveAllLeave, effectiveFutureLeave, effectiveTotals, onSubmitSuccess, isAdmin, selectedEmployee, refreshEmployeeData]);
 
   const handleBulkUpdate = useCallback(async () => {
     if (!selectedRecordIds.size) return;
@@ -695,43 +832,69 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
   const handleEditLeave = useCallback(async () => {
     if (!editingRecord?.request_id) return;
 
+    if (!editStartDate || !editEndDate) {
+      setToast({ type: 'error', text: 'Start and end dates are required.' });
+      return;
+    }
+
+    if (new Date(editEndDate) < new Date(editStartDate)) {
+      setToast({ type: 'error', text: 'End date must be on or after the start date.' });
+      return;
+    }
+
     const payload: {
       id: number;
       newStatus?: string;
       days_taken?: number;
       leave_type?: string;
       reason?: string;
+      start_date?: string;
+      end_date?: string;
+      half_day_start?: boolean;
+      half_day_end?: boolean;
     } = {
       id: editingRecord.request_id,
     };
-
-    const currentStatus = String(editingRecord.status || '').trim().toLowerCase();
-    const currentLeaveType = normalizeLeaveType(editingRecord.leave_type || 'standard');
-    const currentDays = getLeaveRecordDisplayDays(editingRecord);
-    const currentReason = String(editingRecord.reason || '').trim();
     const nextReason = editReason.trim();
+    const scheduleChanged = editStartDate !== currentEditStartDate
+      || editEndDate !== currentEditEndDate
+      || editCoverage !== currentEditCoverage;
 
-    if (editStatus && editStatus !== currentStatus) {
+    if (editStatus !== currentEditStatus) {
       payload.newStatus = editStatus;
     }
 
-    if (editLeaveType && editLeaveType !== currentLeaveType) {
+    if (editLeaveType !== currentEditLeaveType) {
       payload.leave_type = editLeaveType;
     }
 
-    if (editDays !== '') {
-      const parsedDays = Number(editDays);
-      if (!Number.isFinite(parsedDays) || parsedDays < 0) {
-        setToast({ type: 'error', text: 'Days taken must be 0 or more.' });
-        return;
-      }
-      if (parsedDays !== currentDays) {
-        payload.days_taken = parsedDays;
-      }
+    const parsedDays = Number(editDays);
+    if (!Number.isFinite(parsedDays) || parsedDays < 0) {
+      setToast({ type: 'error', text: 'Days taken must be 0 or more.' });
+      return;
     }
 
-    if (nextReason && nextReason !== currentReason) {
+    if (parsedDays !== currentEditDays) {
+      payload.days_taken = parsedDays;
+    } else if (scheduleChanged && editDerivedDays !== currentEditDays) {
+      payload.days_taken = editDerivedDays;
+    }
+
+    if (nextReason !== currentEditReason.trim()) {
       payload.reason = nextReason;
+    }
+
+    if (editStartDate !== currentEditStartDate) {
+      payload.start_date = editStartDate;
+    }
+
+    if (editEndDate !== currentEditEndDate) {
+      payload.end_date = editEndDate;
+    }
+
+    if (editCoverage !== currentEditCoverage) {
+      payload.half_day_start = editCoverageFlags.halfDayStart;
+      payload.half_day_end = editCoverageFlags.halfDayEnd;
     }
 
     if (Object.keys(payload).length === 1) {
@@ -762,7 +925,30 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
     } finally {
       setIsEditing(false);
     }
-  }, [editingRecord, editStatus, editDays, editLeaveType, editReason, closeEditDialog, onSubmitSuccess, isAdmin, selectedEmployee, refreshEmployeeData]);
+  }, [
+    editingRecord,
+    editStartDate,
+    editEndDate,
+    editCoverage,
+    editCoverageFlags,
+    editDerivedDays,
+    editStatus,
+    editDays,
+    editLeaveType,
+    editReason,
+    currentEditStartDate,
+    currentEditEndDate,
+    currentEditCoverage,
+    currentEditStatus,
+    currentEditLeaveType,
+    currentEditDays,
+    currentEditReason,
+    closeEditDialog,
+    onSubmitSuccess,
+    isAdmin,
+    selectedEmployee,
+    refreshEmployeeData
+  ]);
 
   // Build calendar days for current month
   const calendarDays = useMemo(() => {
@@ -1442,7 +1628,7 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
 
       {/* Admin Controls */}
       {isAdmin && (
-        <div className="annual-leave-modal__admin cascade-item" style={{
+        <div className="annual-leave-modal__admin cascade-item" data-helix-region="modal/annual-leave/admin-controls" style={{
           padding: '12px 14px',
           borderRadius: 0
         }}>
@@ -1612,161 +1798,279 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
 
           <div style={{
             marginTop: '10px',
-            padding: '10px',
+            padding: '14px',
             background: bgElevated,
             border: `1px solid ${borderColor}`,
             borderRadius: 0
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-              <Icon iconName="Add" style={{ fontSize: '10px', color: colours.green }} />
-              <Text style={{ fontSize: '11px', fontWeight: 600, color: textPrimary }}>
-                Admin quick create
-              </Text>
-              <Text style={{ fontSize: '10px', color: textMuted }}>
-                {selectedEmployee ? `Target: ${selectedEmployee}` : `Target: ${ownInitials} (you)`}
-              </Text>
+          }} data-helix-region="modal/annual-leave/admin-create">
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              gap: '12px',
+              flexWrap: 'wrap',
+              alignItems: 'flex-start',
+              marginBottom: '12px'
+            }}>
+              <div style={{ minWidth: '280px', flex: '1 1 320px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                  <div style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '4px 10px',
+                    border: `1px solid ${isDarkMode ? `${colours.green}55` : `${colours.green}40`}`,
+                    background: isDarkMode ? `${colours.green}1C` : `${colours.green}12`,
+                    color: colours.green,
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.6px'
+                  }}>
+                    <Icon iconName="Add" style={{ fontSize: '10px' }} />
+                    Admin insert
+                  </div>
+                  <Text style={{ fontSize: '10px', color: textMuted }}>
+                    {selectedEmployee ? `Target: ${selectedEmployee}` : `Target: ${ownInitials} (you)`}
+                  </Text>
+                </div>
+                <Text style={{ fontSize: '20px', fontWeight: 700, color: textPrimary, display: 'block', marginBottom: '6px' }}>
+                  Insert leave record
+                </Text>
+                <Text style={{ fontSize: '12px', color: textMuted, display: 'block', lineHeight: 1.5, maxWidth: '680px' }}>
+                  Create a leave record directly for the selected employee. Use this panel for manual admin inserts; use the history rows below when you need to edit or delete an existing record.
+                </Text>
+              </div>
+
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', justifyContent: 'flex-end', flex: '0 1 360px' }}>
+                {['1. Choose employee', '2. Set schedule', '3. Insert record'].map((step) => (
+                  <div key={step} style={{
+                    padding: '6px 10px',
+                    border: `1px solid ${borderColor}`,
+                    background: bgControl,
+                    color: textMuted,
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px'
+                  }}>
+                    {step}
+                  </div>
+                ))}
+              </div>
             </div>
 
-            <div className="annual-leave-modal__quick-create" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-              <div className="annual-leave-modal__quick-field" style={{ minWidth: '140px' }}>
-                <Text style={{ fontSize: '10px', color: textMuted, marginBottom: '4px', display: 'block' }}>Start date</Text>
-                <TextField
-                  type="date"
-                  value={manualHalfDayDate}
-                  onChange={(_, value) => setManualHalfDayDate(value || '')}
-                  disabled={isManualHalfDaySubmitting || isLoadingEmployeeData}
+            <MessageBar
+              messageBarType={MessageBarType.info}
+              isMultiline={false}
+              styles={{
+                root: {
+                  marginBottom: '12px',
+                  background: isDarkMode ? `${colours.accent}1A` : `${colours.highlight}12`,
+                  border: `1px solid ${isDarkMode ? `${colours.accent}55` : `${colours.highlight}35`}`,
+                  color: textPrimary,
+                  borderRadius: 0,
+                },
+                content: { fontSize: '11px' },
+                icon: { color: isDarkMode ? colours.accent : colours.highlight }
+              }}
+            >
+              Standard leave booked here will sync calendars. Requested and approved records stay internal until later moved to booked.
+            </MessageBar>
+
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'minmax(0, 1.65fr) minmax(260px, 0.95fr)',
+              gap: '12px',
+              alignItems: 'start'
+            }}>
+              <div className="annual-leave-modal__quick-create" style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+                gap: '10px',
+                padding: '12px',
+                background: bgControl,
+                border: `1px solid ${borderColor}`,
+                alignItems: 'end'
+              }}>
+                <div className="annual-leave-modal__quick-field">
+                  <Text style={{ fontSize: '10px', color: textMuted, marginBottom: '4px', display: 'block' }}>Start date</Text>
+                  <TextField
+                    type="date"
+                    value={manualHalfDayDate}
+                    onChange={(_, value) => setManualHalfDayDate(value || '')}
+                    disabled={isManualHalfDaySubmitting || isLoadingEmployeeData}
+                    styles={{
+                      fieldGroup: {
+                        height: '32px',
+                        borderRadius: 0,
+                        borderColor,
+                        backgroundColor: bgInput
+                      },
+                      field: { color: textPrimary, fontSize: '11px', background: 'transparent' }
+                    }}
+                  />
+                </div>
+
+                <div className="annual-leave-modal__quick-field">
+                  <Text style={{ fontSize: '10px', color: textMuted, marginBottom: '4px', display: 'block' }}>End date <span style={{ color: textMuted, fontWeight: 400 }}>(blank = same day)</span></Text>
+                  <TextField
+                    type="date"
+                    value={manualEndDate}
+                    onChange={(_, value) => setManualEndDate(value || '')}
+                    disabled={isManualHalfDaySubmitting || isLoadingEmployeeData}
+                    styles={{
+                      fieldGroup: {
+                        height: '32px',
+                        borderRadius: 0,
+                        borderColor,
+                        backgroundColor: bgInput
+                      },
+                      field: { color: textPrimary, fontSize: '11px', background: 'transparent' }
+                    }}
+                  />
+                </div>
+
+                <div className="annual-leave-modal__quick-field">
+                  <Text style={{ fontSize: '10px', color: textMuted, marginBottom: '4px', display: 'block' }}>Status</Text>
+                  <select
+                    value={manualStatus}
+                    onChange={(e) => setManualStatus(e.target.value as 'booked' | 'approved' | 'requested')}
+                    disabled={isManualHalfDaySubmitting || isLoadingEmployeeData}
+                    style={{ ...nativeSelect(true), opacity: (isManualHalfDaySubmitting || isLoadingEmployeeData) ? 0.5 : 1 }}
+                  >
+                    <option value="booked">Booked</option>
+                    <option value="approved">Approved</option>
+                    <option value="requested">Requested</option>
+                  </select>
+                </div>
+
+                <div className="annual-leave-modal__quick-field">
+                  <Text style={{ fontSize: '10px', color: textMuted, marginBottom: '4px', display: 'block' }}>Type</Text>
+                  <select
+                    value={manualHalfDayType}
+                    onChange={(e) => setManualHalfDayType(e.target.value as 'standard' | 'purchase' | 'sale' | 'unpaid')}
+                    disabled={isManualHalfDaySubmitting || isLoadingEmployeeData}
+                    style={{ ...nativeSelect(true), opacity: (isManualHalfDaySubmitting || isLoadingEmployeeData) ? 0.5 : 1 }}
+                  >
+                    <option value="standard">Standard</option>
+                    <option value="purchase">Purchase</option>
+                    <option value="sale">Sale</option>
+                    <option value="unpaid">Unpaid</option>
+                  </select>
+                </div>
+
+                <div className="annual-leave-modal__quick-field">
+                  <Text style={{ fontSize: '10px', color: textMuted, marginBottom: '4px', display: 'block' }}>Duration</Text>
+                  <select
+                    value={manualDuration}
+                    onChange={(e) => setManualDuration(e.target.value as 'full' | 'half')}
+                    disabled={isManualHalfDaySubmitting || isLoadingEmployeeData}
+                    style={{ ...nativeSelect(true), opacity: (isManualHalfDaySubmitting || isLoadingEmployeeData) ? 0.5 : 1 }}
+                  >
+                    <option value="full">Full day</option>
+                    <option value="half">Half day (0.5)</option>
+                  </select>
+                </div>
+
+                <div className="annual-leave-modal__quick-field">
+                  <Text style={{ fontSize: '10px', color: textMuted, marginBottom: '4px', display: 'block' }}>Half-day slot</Text>
+                  <select
+                    value={manualHalfDaySlot}
+                    onChange={(e) => setManualHalfDaySlot(e.target.value as 'am' | 'pm')}
+                    disabled={isManualHalfDaySubmitting || isLoadingEmployeeData || manualDuration !== 'half'}
+                    style={{ ...nativeSelect(true), opacity: (isManualHalfDaySubmitting || isLoadingEmployeeData || manualDuration !== 'half') ? 0.5 : 1 }}
+                  >
+                    <option value="am">AM only</option>
+                    <option value="pm">PM only</option>
+                  </select>
+                </div>
+
+                <div className="annual-leave-modal__quick-field annual-leave-modal__quick-field--reason" style={{ gridColumn: '1 / -1' }}>
+                  <Text style={{ fontSize: '10px', color: textMuted, marginBottom: '4px', display: 'block' }}>Reason</Text>
+                  <TextField
+                    value={manualHalfDayReason}
+                    onChange={(_, value) => setManualHalfDayReason(value || '')}
+                    disabled={isManualHalfDaySubmitting || isLoadingEmployeeData}
+                    styles={{
+                      fieldGroup: {
+                        height: '32px',
+                        borderRadius: 0,
+                        borderColor,
+                        backgroundColor: bgInput
+                      },
+                      field: { color: textPrimary, fontSize: '11px', background: 'transparent' }
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div style={{
+                display: 'grid',
+                gap: '10px',
+                padding: '12px',
+                background: bgControl,
+                border: `1px solid ${borderColor}`
+              }}>
+                <Text style={{ fontSize: '10px', fontWeight: 700, color: textMuted, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Insert summary
+                </Text>
+                <div style={{ display: 'grid', gap: '6px' }}>
+                  {[
+                    { label: 'Target', value: adminCreateTarget },
+                    { label: 'Days', value: `${manualCreateDays}` },
+                    { label: 'Coverage', value: manualCoverageLabel },
+                    { label: 'Status', value: formatLeaveValueLabel(manualStatus) },
+                    { label: 'Type', value: formatLeaveValueLabel(manualHalfDayType) },
+                  ].map((item) => (
+                    <div key={item.label} style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', fontSize: '11px' }}>
+                      <span style={{ color: textMuted }}>{item.label}</span>
+                      <span style={{ color: textPrimary, fontWeight: 600, textAlign: 'right' }}>{item.value}</span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{
+                  padding: '10px',
+                  border: `1px solid ${borderColor}`,
+                  background: bgElevated,
+                  display: 'grid',
+                  gap: '4px'
+                }}>
+                  <Text style={{ fontSize: '11px', color: textPrimary, fontWeight: 600 }}>
+                    {manualStatusLabel}
+                  </Text>
+                  <Text style={{ fontSize: '10px', color: textMuted, lineHeight: 1.5 }}>
+                    {manualCalendarLabel}
+                  </Text>
+                  <Text style={{ fontSize: '10px', color: textMuted, lineHeight: 1.5 }}>
+                    Existing records are edited from the History section below.
+                  </Text>
+                </div>
+                <PrimaryButton
+                  className="annual-leave-modal__quick-action"
+                  text={isManualHalfDaySubmitting ? 'Creating…' : `Insert ${formatLeaveValueLabel(manualStatus)} record`}
+                  onClick={handleAdminManualHalfDayCreate}
+                  disabled={isManualHalfDaySubmitting || isLoadingEmployeeData || !manualHalfDayDate}
                   styles={{
-                    fieldGroup: {
-                      height: '30px',
+                    root: {
+                      height: '34px',
                       borderRadius: 0,
-                      borderColor,
-                      backgroundColor: bgInput
+                      background: colours.highlight,
+                      border: 'none',
+                      fontSize: '12px',
+                      fontWeight: 700
                     },
-                    field: { color: textPrimary, fontSize: '11px', background: 'transparent' }
+                    rootHovered: {
+                      background: colours.highlight,
+                      opacity: 0.88
+                    },
+                    label: {
+                      fontSize: '12px',
+                      fontWeight: 700
+                    }
                   }}
+                  iconProps={isManualHalfDaySubmitting ? undefined : { iconName: 'Add' }}
                 />
               </div>
-
-              <div className="annual-leave-modal__quick-field" style={{ minWidth: '140px' }}>
-                <Text style={{ fontSize: '10px', color: textMuted, marginBottom: '4px', display: 'block' }}>End date <span style={{ color: textMuted, fontWeight: 400 }}>(blank = same day)</span></Text>
-                <TextField
-                  type="date"
-                  value={manualEndDate}
-                  onChange={(_, value) => setManualEndDate(value || '')}
-                  disabled={isManualHalfDaySubmitting || isLoadingEmployeeData}
-                  styles={{
-                    fieldGroup: {
-                      height: '30px',
-                      borderRadius: 0,
-                      borderColor,
-                      backgroundColor: bgInput
-                    },
-                    field: { color: textPrimary, fontSize: '11px', background: 'transparent' }
-                  }}
-                />
-              </div>
-
-              <div className="annual-leave-modal__quick-field" style={{ minWidth: '100px' }}>
-                <Text style={{ fontSize: '10px', color: textMuted, marginBottom: '4px', display: 'block' }}>Status</Text>
-                <select
-                  value={manualStatus}
-                  onChange={(e) => setManualStatus(e.target.value as 'booked' | 'requested')}
-                  disabled={isManualHalfDaySubmitting || isLoadingEmployeeData}
-                  style={{ ...nativeSelect(true), opacity: (isManualHalfDaySubmitting || isLoadingEmployeeData) ? 0.5 : 1 }}
-                >
-                  <option value="booked">Booked</option>
-                  <option value="requested">Requested</option>
-                </select>
-              </div>
-
-              <div className="annual-leave-modal__quick-field" style={{ minWidth: '130px' }}>
-                <Text style={{ fontSize: '10px', color: textMuted, marginBottom: '4px', display: 'block' }}>Type</Text>
-                <select
-                  value={manualHalfDayType}
-                  onChange={(e) => setManualHalfDayType(e.target.value as 'standard' | 'purchase' | 'sale')}
-                  disabled={isManualHalfDaySubmitting || isLoadingEmployeeData}
-                  style={{ ...nativeSelect(true), opacity: (isManualHalfDaySubmitting || isLoadingEmployeeData) ? 0.5 : 1 }}
-                >
-                  <option value="standard">Standard</option>
-                  <option value="purchase">Purchase</option>
-                  <option value="sale">Sale</option>
-                </select>
-              </div>
-
-              <div className="annual-leave-modal__quick-field" style={{ minWidth: '150px' }}>
-                <Text style={{ fontSize: '10px', color: textMuted, marginBottom: '4px', display: 'block' }}>Duration</Text>
-                <select
-                  value={manualDuration}
-                  onChange={(e) => setManualDuration(e.target.value as 'full' | 'half')}
-                  disabled={isManualHalfDaySubmitting || isLoadingEmployeeData}
-                  style={{ ...nativeSelect(true), opacity: (isManualHalfDaySubmitting || isLoadingEmployeeData) ? 0.5 : 1 }}
-                >
-                  <option value="full">Full day</option>
-                  <option value="half">Half day (0.5)</option>
-                </select>
-              </div>
-
-              <div className="annual-leave-modal__quick-field" style={{ minWidth: '130px' }}>
-                <Text style={{ fontSize: '10px', color: textMuted, marginBottom: '4px', display: 'block' }}>Half-day slot</Text>
-                <select
-                  value={manualHalfDaySlot}
-                  onChange={(e) => setManualHalfDaySlot(e.target.value as 'am' | 'pm')}
-                  disabled={isManualHalfDaySubmitting || isLoadingEmployeeData || manualDuration !== 'half'}
-                  style={{ ...nativeSelect(true), opacity: (isManualHalfDaySubmitting || isLoadingEmployeeData || manualDuration !== 'half') ? 0.5 : 1 }}
-                >
-                  <option value="am">AM (start)</option>
-                  <option value="pm">PM (end)</option>
-                </select>
-              </div>
-
-              <div className="annual-leave-modal__quick-field annual-leave-modal__quick-field--reason" style={{ minWidth: '260px', flex: '1 1 260px' }}>
-                <Text style={{ fontSize: '10px', color: textMuted, marginBottom: '4px', display: 'block' }}>Reason</Text>
-                <TextField
-                  value={manualHalfDayReason}
-                  onChange={(_, value) => setManualHalfDayReason(value || '')}
-                  disabled={isManualHalfDaySubmitting || isLoadingEmployeeData}
-                  styles={{
-                    fieldGroup: {
-                      height: '30px',
-                      borderRadius: 0,
-                      borderColor,
-                      backgroundColor: bgInput
-                    },
-                    field: { color: textPrimary, fontSize: '11px', background: 'transparent' }
-                  }}
-                />
-              </div>
-
-              <DefaultButton
-                className="annual-leave-modal__quick-action"
-                text={isManualHalfDaySubmitting ? 'Creating...' : (() => {
-                  const effectiveEnd = manualEndDate || manualHalfDayDate;
-                  if (manualHalfDayDate && effectiveEnd && effectiveEnd !== manualHalfDayDate) {
-                    const days = eachDayOfInterval({ start: new Date(manualHalfDayDate), end: new Date(effectiveEnd) });
-                    const workingDays = days.filter(d => !isWeekend(d) && !bankHolidays?.has(format(d, 'yyyy-MM-dd'))).length;
-                    return `Create (${workingDays} days)`;
-                  }
-                  return manualDuration === 'half' ? 'Create (0.5 day)' : 'Create (1 day)';
-                })()}
-                onClick={handleAdminManualHalfDayCreate}
-                disabled={isManualHalfDaySubmitting || isLoadingEmployeeData || !manualHalfDayDate}
-                styles={{
-                  root: {
-                    height: '30px',
-                    minWidth: '120px',
-                    borderRadius: 0,
-                    border: `1px solid ${isDarkMode ? colours.accent : colours.highlight}`,
-                    color: isDarkMode ? colours.accent : colours.highlight,
-                    background: isDarkMode ? `${colours.accent}24` : bgSelected,
-                    fontSize: '11px',
-                    fontWeight: 600
-                  },
-                  rootHovered: {
-                    background: isDarkMode ? `${colours.accent}33` : bgSelectedStrong
-                  }
-                }}
-                iconProps={isManualHalfDaySubmitting ? undefined : { iconName: 'Add' }}
-              />
             </div>
           </div>
         </div>
@@ -3476,21 +3780,26 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                     Pending changes
                   </Text>
                   {(() => {
-                    const currentDays = getLeaveRecordDisplayDays(editingRecord);
-                    const currentStatus = String(editingRecord.status || '').trim().toLowerCase();
-                    const currentLeaveType = normalizeLeaveType(editingRecord.leave_type || 'standard');
                     const changeLines: string[] = [];
-                    if (editStatus && editStatus !== currentStatus) {
+                    if (editStartDate !== currentEditStartDate || editEndDate !== currentEditEndDate) {
+                      changeLines.push(`Dates -> ${format(new Date(editStartDate), 'd MMM yyyy')} to ${format(new Date(editEndDate), 'd MMM yyyy')}`);
+                    }
+                    if (editCoverage !== currentEditCoverage) {
+                      changeLines.push(`Coverage -> ${editCoverageFlags.label}`);
+                    }
+                    if (editStatus !== currentEditStatus) {
                       changeLines.push(`Status -> ${formatLeaveValueLabel(editStatus)}`);
                     }
-                    if (editLeaveType && editLeaveType !== currentLeaveType) {
+                    if (editLeaveType !== currentEditLeaveType) {
                       changeLines.push(`Type -> ${formatLeaveValueLabel(editLeaveType)}`);
                     }
-                    if (editDays !== '' && Number(editDays) !== currentDays) {
+                    if (Number(editDays) !== currentEditDays) {
                       changeLines.push(`Days -> ${editDays}`);
+                    } else if ((editStartDate !== currentEditStartDate || editEndDate !== currentEditEndDate || editCoverage !== currentEditCoverage) && editDerivedDays !== currentEditDays) {
+                      changeLines.push(`Days -> ${editDerivedDays} (recalculated)`);
                     }
-                    if (editReason.trim() && editReason.trim() !== String(editingRecord.reason || '').trim()) {
-                      changeLines.push('Reason replaced');
+                    if (editReason.trim() !== currentEditReason.trim()) {
+                      changeLines.push('Reason updated');
                     }
 
                     if (changeLines.length === 0) {
@@ -3541,7 +3850,15 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                     { label: 'Status', value: formatLeaveValueLabel(editingRecord.status) },
                     { label: 'Leave type', value: formatLeaveValueLabel(normalizeLeaveType(editingRecord.leave_type || 'standard')) },
                     { label: 'Days taken', value: `${getLeaveRecordDisplayDays(editingRecord)}` },
-                    { label: 'Coverage', value: editingRecord.half_day_start || editingRecord.half_day_end ? 'Half day' : 'Full day / range' }
+                    { label: 'Coverage', value: getCoverageFlags(
+                      getLeaveCoverageValue(
+                        formatDateInputValue(editingRecord.start_date),
+                        formatDateInputValue(editingRecord.end_date),
+                        Boolean(editingRecord.half_day_start),
+                        Boolean(editingRecord.half_day_end)
+                      ),
+                      formatDateInputValue(editingRecord.start_date) === formatDateInputValue(editingRecord.end_date)
+                    ).label }
                   ].map((item) => (
                     <div key={item.label} style={{
                       padding: '10px 12px',
@@ -3626,6 +3943,107 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                       display: 'block',
                       marginBottom: '8px'
                     }}>
+                      Schedule
+                    </Text>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px' }}>
+                      <TextField
+                        label="Start date"
+                        type="date"
+                        value={editStartDate}
+                        onChange={(_, val) => setEditStartDate(val || '')}
+                        styles={{
+                          fieldGroup: {
+                            background: isDarkMode ? colours.darkBlue : colours.grey,
+                            border: `1px solid ${borderColor}`,
+                            borderRadius: 0,
+                            selectors: {
+                              ':hover': {
+                                borderColor: isDarkMode ? colours.accent : colours.highlight
+                              }
+                            }
+                          },
+                          field: {
+                            background: 'transparent',
+                            color: textPrimary,
+                            fontSize: '13px'
+                          },
+                          subComponentStyles: {
+                            label: { root: { color: textMuted, fontSize: '10px', textTransform: 'uppercase' } }
+                          }
+                        }}
+                      />
+                      <TextField
+                        label="End date"
+                        type="date"
+                        value={editEndDate}
+                        onChange={(_, val) => setEditEndDate(val || '')}
+                        styles={{
+                          fieldGroup: {
+                            background: isDarkMode ? colours.darkBlue : colours.grey,
+                            border: `1px solid ${borderColor}`,
+                            borderRadius: 0,
+                            selectors: {
+                              ':hover': {
+                                borderColor: isDarkMode ? colours.accent : colours.highlight
+                              }
+                            }
+                          },
+                          field: {
+                            background: 'transparent',
+                            color: textPrimary,
+                            fontSize: '13px'
+                          },
+                          subComponentStyles: {
+                            label: { root: { color: textMuted, fontSize: '10px', textTransform: 'uppercase' } }
+                          }
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <Text style={{ 
+                      fontSize: '11px', 
+                      fontWeight: 600, 
+                      color: textMuted, 
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.5px',
+                      display: 'block',
+                      marginBottom: '8px'
+                    }}>
+                      Coverage
+                    </Text>
+                    <select
+                      value={editCoverage}
+                      onChange={(e) => setEditCoverage(e.target.value as LeaveCoverageValue)}
+                      style={nativeSelect()}
+                    >
+                      <option value="full">{editScheduleIsSingleDay ? 'Full day' : 'Full range'}</option>
+                      {editScheduleIsSingleDay ? (
+                        <>
+                          <option value="single-am">Half day AM only</option>
+                          <option value="single-pm">Half day PM only</option>
+                        </>
+                      ) : (
+                        <>
+                          <option value="range-starts-pm">Range starts PM</option>
+                          <option value="range-ends-am">Range ends AM</option>
+                          <option value="range-starts-pm-ends-am">Range starts PM / ends AM</option>
+                        </>
+                      )}
+                    </select>
+                  </div>
+
+                  <div>
+                    <Text style={{ 
+                      fontSize: '11px', 
+                      fontWeight: 600, 
+                      color: textMuted, 
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.5px',
+                      display: 'block',
+                      marginBottom: '8px'
+                    }}>
                       Status
                     </Text>
                     <select
@@ -3633,7 +4051,6 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                       onChange={(e) => setEditStatus(e.target.value)}
                       style={nativeSelect()}
                     >
-                      <option value="">Leave unchanged · currently {formatLeaveValueLabel(editingRecord.status)}</option>
                       <option value="requested">Requested</option>
                       <option value="approved">Approved</option>
                       <option value="booked">Booked</option>
@@ -3660,7 +4077,6 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                       onChange={(e) => setEditLeaveType(e.target.value)}
                       style={nativeSelect()}
                     >
-                      <option value="">Leave unchanged · currently {formatLeaveValueLabel(normalizeLeaveType(editingRecord.leave_type || 'standard'))}</option>
                       <option value="standard">Standard</option>
                       <option value="purchase">Purchase</option>
                       <option value="sale">Sale</option>
@@ -3705,6 +4121,11 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                         }
                       }}
                     />
+                    {(editStartDate !== currentEditStartDate || editEndDate !== currentEditEndDate || editCoverage !== currentEditCoverage) && Number(editDays) === currentEditDays && (
+                      <Text style={{ fontSize: '10px', color: textMuted, display: 'block', marginTop: '6px' }}>
+                        Leaving days unchanged will auto-recalculate to {editDerivedDays} from the new schedule.
+                      </Text>
+                    )}
                   </div>
 
                   <div>
@@ -3724,7 +4145,7 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                       autoAdjustHeight
                       value={editReason}
                       onChange={(_, val) => setEditReason(val || '')}
-                      placeholder={editingRecord.reason?.trim() ? 'Leave blank to keep current reason' : 'Add a reason or admin note'}
+                      placeholder="Add a reason or admin note"
                       styles={{
                         fieldGroup: {
                           background: isDarkMode ? colours.darkBlue : colours.grey,
@@ -3784,7 +4205,7 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
               <PrimaryButton
                 text={isEditing ? 'Saving...' : 'Apply changes'}
                 onClick={handleEditLeave}
-                disabled={isEditing || (!editStatus && !editLeaveType && editDays === '' && !editReason.trim())}
+                disabled={isEditing || !editHasChanges}
                 styles={{
                   root: {
                     background: colours.highlight,

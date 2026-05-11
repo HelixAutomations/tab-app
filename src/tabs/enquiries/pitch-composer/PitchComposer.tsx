@@ -138,7 +138,7 @@ const PitchComposer: React.FC<PitchComposerProps> = ({
             }}
             onMouseEnter={e => {
               e.currentTarget.style.borderColor = isDarkMode ? colours.accent : colours.highlight;
-              e.currentTarget.style.background = isDarkMode ? 'rgba(135, 243, 243, 0.04)' : 'rgba(54, 144, 206, 0.03)';
+              e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.04)' : 'rgba(54, 144, 206, 0.03)';
               e.currentTarget.style.transform = 'translateY(-1px)';
             }}
             onMouseLeave={e => {
@@ -172,7 +172,7 @@ const PitchComposer: React.FC<PitchComposerProps> = ({
             }}
             onMouseEnter={e => {
               e.currentTarget.style.borderColor = isDarkMode ? colours.accent : colours.highlight;
-              e.currentTarget.style.background = isDarkMode ? 'rgba(135, 243, 243, 0.04)' : 'rgba(54, 144, 206, 0.03)';
+              e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.04)' : 'rgba(54, 144, 206, 0.03)';
               e.currentTarget.style.transform = 'translateY(-1px)';
             }}
             onMouseLeave={e => {
@@ -264,7 +264,7 @@ const PitchComposer: React.FC<PitchComposerProps> = ({
                         : `1px solid ${borderColour}`,
                       borderRadius: 0,
                       background: isSelected
-                        ? (isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.06)')
+                        ? (isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)')
                         : 'transparent',
                       color: isSelected
                         ? (isDarkMode ? colours.accent : colours.highlight)
@@ -428,7 +428,7 @@ const PitchComposer: React.FC<PitchComposerProps> = ({
                           : borderColour}`,
                         borderRadius: 0,
                         background: active
-                          ? (isDarkMode ? 'rgba(135, 243, 243, 0.06)' : 'rgba(54, 144, 206, 0.04)')
+                          ? (isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.04)')
                           : 'transparent',
                         color: active
                           ? (isDarkMode ? colours.accent : colours.highlight)

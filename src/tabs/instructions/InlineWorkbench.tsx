@@ -9,8 +9,6 @@ import PortalLaunchModal from '../../components/portal/PortalLaunchModal';
 import OpenAnotherMatterModal from './MatterOpening/OpenAnotherMatterModal';
 import { useToast } from '../../components/feedback/ToastProvider';
 import { buildPortalLaunchModel, type PortalLaunchModel } from '../../utils/portalLaunch';
-import { resolveActiveCampaignContactId } from '../../utils/resolveActiveCampaignContactId';
-import activecampaignIcon from '../../assets/activecampaign.svg';
 import clioLogo from '../../assets/clio.svg';
 import { approveVerification, draftVerificationDocumentRequest, fetchVerificationDetails } from '../../services/verificationAPI';
 import {
@@ -25,24 +23,19 @@ import {
   FaCloudUploadAlt,
   FaDownload,
   FaEnvelope,
-  FaExchangeAlt,
   FaExclamationTriangle,
   FaExpand,
   FaFileAlt,
   FaFilePdf,
   FaFolder,
   FaFolderOpen,
-  FaHardHat,
-  FaBriefcase,
   FaRegFolder,
   FaHome,
   FaIdCard,
   FaLink,
   FaPassport,
-  FaPaperPlane,
   FaReceipt,
   FaShieldAlt,
-  FaStar,
   FaTimes,
   FaTimesCircle,
   FaUser,
@@ -52,6 +45,16 @@ import {
   FaExternalLinkAlt,
   FaKey,
 } from 'react-icons/fa';
+import {
+  FiAlertTriangle,
+  FiClipboard,
+  FiCreditCard,
+  FiFileText,
+  FiFolder,
+  FiInbox,
+  FiSend,
+  FiShield,
+} from 'react-icons/fi';
 import type { RiskCore } from '../../components/RiskAssessment';
 import DocumentUploadZone from '../../components/DocumentUploadZone';
 import FlatMatterOpening from './MatterOpening/FlatMatterOpening';
@@ -68,8 +71,8 @@ import type {
 } from '../../utils/workbenchTypes';
 
 type ContextStageKey = WorkbenchContextStage;
+type JourneyStageKey = 'enquiry' | 'claimed' | 'pitch' | 'instructed' | 'payment' | 'identity' | 'risk' | 'matter' | 'documents';
 type MatterClientTypeOption = 'Individual' | 'Company' | 'Multiple Individuals' | 'Existing Client';
-
 type MatterClientCandidate = {
   key: string;
   label: string;
@@ -94,6 +97,15 @@ const getCandidateName = (record: any): string => {
   const last = String(record?.LastName || record?.Surname || record?.last_name || '').trim();
   const full = `${first} ${last}`.trim();
   return full || 'Unnamed client';
+};
+
+const resolveWorkbenchCaseAccent = (raw: unknown): string => {
+  const value = String(raw ?? '').trim().toLowerCase();
+  if (value.includes('commercial')) return colours.blue;
+  if (value.includes('property')) return colours.green;
+  if (value.includes('construction')) return colours.orange;
+  if (value.includes('employment')) return colours.yellow;
+  return colours.greyText;
 };
 
 type VerificationDetails = {
@@ -256,7 +268,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   flatEmbedMode = false,
 }) => {
   const [activeTab, setActiveTab] = useState<WorkbenchTab>(initialTab);
-  const [showLocalRiskModal, setShowLocalRiskModal] = useState(false);
   const [riskEditMode, setRiskEditMode] = useState(false);
   const [showLocalMatterModal, setShowLocalMatterModal] = useState(false);
   // Localhost-only: open another matter for an existing prospect (re-uses existing EID + Clio contact).
@@ -264,7 +275,9 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const [showOpenAnotherMatter, setShowOpenAnotherMatter] = useState(false);
   const [isEnterMotionActive, setIsEnterMotionActive] = useState(false);
   const [isTabMotionActive, setIsTabMotionActive] = useState(false);
-  const [isAutoRefreshing, setIsAutoRefreshing] = useState(false);
+  const [tabMotionDirection, setTabMotionDirection] = useState<'forward' | 'back' | 'steady'>('steady');
+  const tabContentRef = React.useRef<HTMLDivElement | null>(null);
+  const [, setIsAutoRefreshing] = useState(false);
   const [localPoidData, setLocalPoidData] = useState<POID[]>([]);
   const [activeContextStage, setActiveContextStage] = useState<ContextStageKey | null>(initialContextStage);
   const [expandedPayment, setExpandedPayment] = useState<string | null>(null);
@@ -273,7 +286,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const [verificationDetails, setVerificationDetails] = useState<VerificationDetails | null>(null);
   const [isVerificationDetailsLoading, setIsVerificationDetailsLoading] = useState(false);
   const [verificationDetailsError, setVerificationDetailsError] = useState<string | null>(null);
-  const [isEidDetailsExpanded, setIsEidDetailsExpanded] = useState(true);
+  const [isEidDetailsExpanded] = useState(true);
   const [isEnquiryNotesExpanded, setIsEnquiryNotesExpanded] = useState(false);
   const isLocalDev = (() => {
     const actuallyLocal = typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname);
@@ -285,21 +298,21 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     } catch { /* ignore */ }
     return true;
   })();
-  // Dev preview tier: LZ + AC see the "+ Another" matter button in prod too.
-  // Backend chain is still STUBBED (Phase 2 pending) — surfacing the entry point only.
-  // Promote to all admins once Phase 2 ships.
+  // Dev preview tier: LZ + AC see in-progress affordances in prod too.
+  // Promote to all admins (isAdminUser) once the underlying flow is hardened.
   const isDevPreviewUser = (() => {
     const email = (currentUser?.Email || '').toLowerCase();
     const prefix = email.split('@')[0];
     return ['lz', 'ac'].includes(prefix);
   })();
-  const canSeeOpenAnother = isLocalDev;
+  // Keep the unfinished composer local-only until the wider pitch flow is ready.
+  const isPitchComposerVisible = isLocalDev;
+  const canSeeOpenAnother = isLocalDev || isDevPreviewUser;
   const [isPitchContentExpanded, setIsPitchContentExpanded] = useState(false);
   const [isRawRecordExpanded, setIsRawRecordExpanded] = useState(false);
   const [isVerificationDataExpanded, setIsVerificationDataExpanded] = useState(false);
   const [isVerificationActionLoading, setIsVerificationActionLoading] = useState(false);
   const [isTriggerEidLoading, setIsTriggerEidLoading] = useState(false);
-  const [showEidActionModal, setShowEidActionModal] = useState(false);
   const [showApproveModal, setShowApproveModal] = useState(false);
   const [showRequestDocsModal, setShowRequestDocsModal] = useState(false);
   const [showTriggerEidConfirmModal, setShowTriggerEidConfirmModal] = useState(false);
@@ -310,7 +323,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const [rawRecordSubmitState, setRawRecordSubmitState] = useState<'idle' | 'submitting' | 'submitted' | 'failed'>('idle');
   const [rawRecordSubmitMessage, setRawRecordSubmitMessage] = useState('');
   const [rawRecordSubmittedAt, setRawRecordSubmittedAt] = useState<string | null>(null);
-  const [copiedPaymentRefId, setCopiedPaymentRefId] = useState<string | null>(null);
   const { showToast, updateToast, hideToast } = useToast();
   const [eidProcessingState, setEidProcessingState] = useState<'idle' | 'processing' | 'complete' | 'error'>('idle');
   const eidProcessingToastRef = React.useRef<string | null>(null);
@@ -323,8 +335,12 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   
   // Pitch content fetch state (for when deal exists but pitch email content wasn't included)
   const [fetchedPitchContent, setFetchedPitchContent] = useState<any>(null);
-  const [isFetchingPitchContent, setIsFetchingPitchContent] = useState(false);
-    const [showPitchComposerPanel, setShowPitchComposerPanel] = useState(false);
+  const [, setIsFetchingPitchContent] = useState(false);
+  const pitchContentCacheRef = React.useRef<any>(null);
+  const pitchFetchInFlightRef = React.useRef(false);
+  const activeTabRef = React.useRef<WorkbenchTab>(activeTab);
+  const activeContextStageRef = React.useRef<ContextStageKey | null>(activeContextStage);
+  const [showPitchComposerPanel, setShowPitchComposerPanel] = useState(false);
 
   // Hub-side document management state
   const [hubDocuments, setHubDocuments] = useState<any[]>([]);
@@ -346,14 +362,21 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const [showMatterOpeningWizard, setShowMatterOpeningWizard] = useState<boolean>(false);
   const [portalLaunchModel, setPortalLaunchModel] = useState<PortalLaunchModel | null>(null);
   const [isPortalLaunchOpen, setIsPortalLaunchOpen] = useState(false);
+  const [copiedInstructionStamp, setCopiedInstructionStamp] = useState<'link' | 'ref' | 'pitch-link' | null>(null);
   const [matterWizardStage, setMatterWizardStage] = useState<'form' | 'review' | 'processing' | 'complete' | 'error'>('form');
   const [matterJointClientKeys, setMatterJointClientKeys] = useState<string[]>([]);
   const [optimisticMatterOpen, setOptimisticMatterOpen] = useState<{ openedAt: string; matterId: string | null } | null>(null);
+  const copiedInstructionStampTimeoutRef = React.useRef<number | null>(null);
   const matterWizardAnchorRef = React.useRef<HTMLDivElement | null>(null);
   const refreshNextAtRef = React.useRef(0);
   const refreshInFlightRef = React.useRef(false);
   const refreshIndicatorRef = React.useRef<HTMLSpanElement>(null);
   const matterBreadcrumbRef = React.useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    activeTabRef.current = activeTab;
+    activeContextStageRef.current = activeContextStage;
+  }, [activeTab, activeContextStage]);
   const matterPreflightPageRef = React.useRef<HTMLDivElement | null>(null);
   const matterWizardPageRef = React.useRef<HTMLDivElement | null>(null);
   const isCompactIdentityView = flatEmbedMode;
@@ -384,6 +407,25 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     }
   }, []);
 
+  const flashCopiedInstructionStamp = React.useCallback((stamp: 'link' | 'ref' | 'pitch-link') => {
+    setCopiedInstructionStamp(stamp);
+    if (copiedInstructionStampTimeoutRef.current !== null) {
+      window.clearTimeout(copiedInstructionStampTimeoutRef.current);
+    }
+    copiedInstructionStampTimeoutRef.current = window.setTimeout(() => {
+      setCopiedInstructionStamp(null);
+      copiedInstructionStampTimeoutRef.current = null;
+    }, 1400);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (copiedInstructionStampTimeoutRef.current !== null) {
+        window.clearTimeout(copiedInstructionStampTimeoutRef.current);
+      }
+    };
+  }, []);
+
   useEffect(() => {
     return () => {
       if (rawRecordPdfUrl) {
@@ -391,6 +433,17 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
       }
     };
   }, [rawRecordPdfUrl]);
+
+  const parseRawResponse = React.useCallback((raw: unknown) => {
+    if (typeof raw === 'string') {
+      try {
+        return JSON.parse(raw);
+      } catch {
+        return null;
+      }
+    }
+    return raw as any;
+  }, []);
 
   const getRawRecordText = useCallback(() => {
     const raw = verificationDetails?.rawResponse || (item as any)?.instruction?.EID_Result;
@@ -404,7 +457,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
       }
     }
     return typeof raw === 'string' ? raw : String(raw ?? '');
-  }, [verificationDetails, item]);
+  }, [verificationDetails, item, parseRawResponse]);
 
   const normaliseVerificationFieldValue = useCallback((value: unknown): string => {
     const rawValue = String(value ?? '').trim();
@@ -423,56 +476,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
       ''
     );
   }, [item]);
-
-  const resolvePitchEnquiryId = useCallback((): number | null => {
-    const candidates = [
-      (item as any)?.enquiry?.ID,
-      (item as any)?.enquiry?.id,
-      (item as any)?.enquiry?.pitchEnquiryId,
-      (item as any)?.instruction?.EnquiryId,
-      (item as any)?.instruction?.enquiryId,
-      (item as any)?.deal?.EnquiryId,
-      (item as any)?.deal?.enquiryId,
-      (item as any)?.deal?.ProspectId,
-      (item as any)?.deal?.prospectId,
-    ];
-
-    for (const candidate of candidates) {
-      if (typeof candidate === 'number' && Number.isFinite(candidate)) return candidate;
-      const parsed = Number.parseInt(String(candidate ?? ''), 10);
-      if (Number.isFinite(parsed)) return parsed;
-    }
-    return null;
-  }, [item]);
-
-  const resolveDocWorkspacePasscode = useCallback(async (): Promise<string> => {
-    const directPasscode =
-      String((item as any)?.metadata?.workspacePasscode || '').trim() ||
-      String((item as any)?.deal?.Passcode || '').trim() ||
-      String((item as any)?.deal?.passcode || '').trim() ||
-      String((item as any)?.instruction?.Passcode || '').trim() ||
-      String((item as any)?.instruction?.passcode || '').trim() ||
-      String((item as any)?.pitch?.Passcode || '').trim() ||
-      String((item as any)?.pitch?.passcode || '').trim();
-
-    if (directPasscode) return directPasscode;
-
-    const pitchEnquiryId = resolvePitchEnquiryId();
-    if (!pitchEnquiryId) return '';
-
-    try {
-      const statusRes = await fetch(`/api/doc-workspace/status?enquiry_id=${pitchEnquiryId}`);
-      if (!statusRes.ok) return '';
-      const statusData: unknown = await statusRes.json();
-      if (!statusData || typeof statusData !== 'object') return '';
-      const passcode = (statusData as Record<string, unknown>).passcode;
-      return typeof passcode === 'string' ? passcode.trim() : '';
-    } catch {
-      return '';
-    }
-  }, [item, resolvePitchEnquiryId]);
-
-
 
   useEffect(() => {
     if (initialTab) {
@@ -502,16 +505,20 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const enquiry = (item?.enquiry || item?.Enquiry || item?.enquiryRecord || item?.prospectEnquiry || null) as WorkbenchItem['enquiry'];
   const pitch = (item?.pitch || item?.Pitch || item?.pitchRecord || item?.pitchData || null) as WorkbenchItem['pitch'];
   const eid = item?.eid;
-  const eids = Array.isArray(item?.eids) ? item.eids : [];
+  const rawEids = item?.eids;
+  const eids = useMemo(() => (Array.isArray(rawEids) ? rawEids : []), [rawEids]);
   const risk = item?.risk;
-  const parentDocuments = item?.documents || inst?.documents || [];
+  const rawParentDocuments = item?.documents || inst?.documents;
+  const parentDocuments = useMemo(() => rawParentDocuments || [], [rawParentDocuments]);
   const payments = (() => {
     const instructionPayments = Array.isArray(inst?.payments) ? (inst?.payments ?? []) : [];
     const itemPayments = Array.isArray(item?.payments) ? item.payments : [];
     return instructionPayments.length > 0 ? instructionPayments : itemPayments;
   })();
-  const clients = item?.clients || [];
-  const matters = item?.matters || (inst as any)?.matters || [];
+  const rawClients = item?.clients;
+  const clients = useMemo(() => rawClients || [], [rawClients]);
+  const rawMatters = item?.matters || (inst as any)?.matters;
+  const matters = useMemo(() => rawMatters || [], [rawMatters]);
   const baseInstructionRef = (inst?.InstructionRef || inst?.instructionRef || deal?.InstructionRef || deal?.instructionRef || '').trim();
   const [hydratedInstruction, setHydratedInstruction] = useState<any | null>(null);
 
@@ -681,34 +688,42 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     deal?.ProspectId ||
     deal?.prospectId;
   
-  const acContactId = resolveActiveCampaignContactId(item);
-
   // Track which prospectId we've already attempted to fetch pitch content for
   const pitchFetchAttemptedRef = React.useRef<string | null>(null);
 
   // Reset the fetch attempt tracker when prospectId changes
   useEffect(() => {
     pitchFetchAttemptedRef.current = null;
+    pitchContentCacheRef.current = null;
+    pitchFetchInFlightRef.current = false;
     setFetchedPitchContent(null);
+    setIsFetchingPitchContent(false);
   }, [prospectId]);
 
-  // Fetch pitch content when pitch context is activated and we don't have pitch data yet
+  // Prefetch pitch content once a prospect is known. Background fetch state is
+  // kept in refs so Enquiry/Details does not repaint mid-cascade; React state is
+  // only used as a render tick when Pitch is actually visible.
   useEffect(() => {
     const prospectIdStr = prospectId ? String(prospectId) : null;
-    
-    const shouldFetch = 
-      activeTab === 'pitch' && 
-      prospectIdStr && 
-      !pitch && 
-      !fetchedPitchContent && 
-      !isFetchingPitchContent &&
-      pitchFetchAttemptedRef.current !== prospectIdStr; // Prevent refetching
+
+    const shouldFetch =
+      prospectIdStr &&
+      !pitch &&
+      !fetchedPitchContent &&
+      !pitchContentCacheRef.current &&
+      !pitchFetchInFlightRef.current &&
+      pitchFetchAttemptedRef.current !== prospectIdStr;
 
     if (!shouldFetch) return;
 
+    const isPitchVisible = () => (
+      activeTabRef.current === 'pitch' || activeContextStageRef.current === 'pitch'
+    );
+
     const fetchPitchContent = async () => {
       pitchFetchAttemptedRef.current = prospectIdStr; // Mark as attempted before fetch
-      setIsFetchingPitchContent(true);
+      pitchFetchInFlightRef.current = true;
+      if (isPitchVisible()) setIsFetchingPitchContent(true);
       try {
         const res = await fetch(`/api/pitches/${encodeURIComponent(prospectIdStr)}?_ts=${Date.now()}`, {
           cache: 'no-store',
@@ -718,23 +733,26 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
           const data = await res.json();
           const pitches = data.pitches || [];
           if (pitches.length > 0) {
-            // Use the most recent pitch
-            setFetchedPitchContent(pitches[0]);
+            const latestPitch = pitches[0];
+            pitchContentCacheRef.current = latestPitch;
+            if (isPitchVisible()) setFetchedPitchContent(latestPitch);
           }
           // If no pitches found, fetchedPitchContent stays null but pitchFetchAttemptedRef prevents refetch
         }
       } catch (e) {
         console.warn('[InlineWorkbench] Failed to fetch pitch content:', e);
       } finally {
-        setIsFetchingPitchContent(false);
+        pitchFetchInFlightRef.current = false;
+        if (isPitchVisible()) setIsFetchingPitchContent(false);
       }
     };
 
     void fetchPitchContent();
-  }, [activeContextStage, prospectId, pitch, fetchedPitchContent, isFetchingPitchContent]);
+  }, [prospectId, pitch, fetchedPitchContent]);
 
   // Merge fetched pitch content with existing pitch data
-  const effectivePitch = pitch || fetchedPitchContent;
+  const effectivePitch = pitch || fetchedPitchContent || pitchContentCacheRef.current;
+  const isPitchContentLoading = Boolean(pitchFetchInFlightRef.current && !effectivePitch);
   const pitchStatusValue = String(deal?.Status || deal?.status || effectivePitch?.Status || effectivePitch?.status || '').trim().toUpperCase();
   const pitchSubject = String(effectivePitch?.EmailSubject || effectivePitch?.emailSubject || '').trim();
   const pitchBodyHtml = String(effectivePitch?.EmailBody || effectivePitch?.emailBody || '').trim();
@@ -792,13 +810,13 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   useEffect(() => {
     if (activeTab !== 'pitch') return;
 
-    if (isFetchingPitchContent && !pitch && !fetchedPitchContent) {
+    if (isPitchContentLoading) {
       setShowPitchComposerPanel(false);
       return;
     }
 
-    setShowPitchComposerPanel(isLocalDev && !hasExistingPitchRecord);
-  }, [activeTab, baseInstructionRef, prospectId, hasExistingPitchRecord, isFetchingPitchContent, isLocalDev, pitch, fetchedPitchContent]);
+    setShowPitchComposerPanel(isPitchComposerVisible && !hasExistingPitchRecord);
+  }, [activeTab, baseInstructionRef, prospectId, hasExistingPitchRecord, isPitchContentLoading, isPitchComposerVisible]);
 
   const teamsIdentifier = useMemo(() => {
     const asNumber = (v: any): number | null => {
@@ -874,9 +892,22 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   // async and would cause the animation to fire twice if included.
   const enquiryIdForMotion = String((item as any)?.enquiry?.ID || (item as any)?.enquiry?.id || (item as any)?.prospectId || '');
   const tabMotionKey = `${activeTab}:${activeContextStage || 'default'}`;
+  const tabMotionRank = useMemo(() => {
+    if (activeTab === 'details') return activeContextStage === 'instructed' ? 3 : activeContextStage === 'enquiry' ? 1 : 0;
+    const rankByTab: Partial<Record<WorkbenchTab, number>> = {
+      pitch: 2,
+      payment: 4,
+      identity: 5,
+      risk: 6,
+      matter: 7,
+      documents: 8,
+    };
+    return rankByTab[activeTab] ?? 0;
+  }, [activeContextStage, activeTab]);
   const hasMountedTabMotionRef = React.useRef(false);
   const lastMotionIdRef = React.useRef<string>('');
   const suppressTabMotionUntilRef = React.useRef<number>(0);
+  const previousTabMotionRankRef = React.useRef<number | null>(null);
 
   useEffect(() => {
     if (!enquiryIdForMotion) {
@@ -905,15 +936,20 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   useEffect(() => {
     if (!hasMountedTabMotionRef.current) {
       hasMountedTabMotionRef.current = true;
+      previousTabMotionRankRef.current = tabMotionRank;
       return;
     }
     if (Date.now() < suppressTabMotionUntilRef.current) {
+      previousTabMotionRankRef.current = tabMotionRank;
       return;
     }
+    const previousRank = previousTabMotionRankRef.current ?? tabMotionRank;
+    setTabMotionDirection(tabMotionRank > previousRank ? 'forward' : tabMotionRank < previousRank ? 'back' : 'steady');
+    previousTabMotionRankRef.current = tabMotionRank;
     setIsTabMotionActive(true);
     const timer = window.setTimeout(() => setIsTabMotionActive(false), 420);
     return () => window.clearTimeout(timer);
-  }, [tabMotionKey]);
+  }, [tabMotionKey, tabMotionRank]);
 
   useEffect(() => {
     if (!onRefreshData) {
@@ -992,8 +1028,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     };
   }, [activeContextStage, activeTab, instructionRef, onRefreshData]);
 
-  const isRefreshDeferred = activeTab === 'details' && (activeContextStage ?? 'enquiry') === 'enquiry';
-
   useEffect(() => {
     setOptimisticMatterOpen(null);
   }, [instructionRef]);
@@ -1002,13 +1036,13 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const firstName = getValue(['First_Name', 'FirstName', 'firstName', 'first_name'], '');
   const lastName = getValue(['Last_Name', 'LastName', 'lastName', 'last_name'], '');
   const fullName = `${firstName} ${lastName}`.trim() || 'Unknown';
-  const email = getValue(['ClientEmail', 'Email', 'email', 'LeadClientEmail', 'EmailAddress']);
-  const phone = getValue(['Phone_Number', 'Telephone', 'Phone', 'phone', 'MobileNumber', 'Mobile']);
   const areaOfWork = getValue(['Area_of_Work', 'AreaOfWork', 'area', 'Area', 'aow', 'pitch']);
+  const caseAccentColor = resolveWorkbenchCaseAccent(areaOfWork);
+  const caseAccentSoftFill = isDarkMode ? `${caseAccentColor}12` : `${caseAccentColor}0a`;
+  const caseAccentBorder = isDarkMode ? `${caseAccentColor}2e` : `${caseAccentColor}24`;
   const pointOfContact = getValue(['Point_of_Contact', 'PointOfContact', 'pointOfContact', 'poc', 'Point of Contact']);
   const typeOfWork = getValue(['Type_of_Work', 'TypeOfWork', 'typeOfWork', 'tow', 'Type']);
   const methodOfContact = getValue(['Method_of_Contact', 'MethodOfContact', 'methodOfContact', 'moc', 'Method']);
-  const callTaker = getValue(['Call_Taker', 'CallTaker', 'callTaker', 'rep', 'pocname']);
   const enquiryValueRaw = getValue([
     'Value',
     'value',
@@ -1023,12 +1057,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   ]);
   const ultimateSource = getValue(['Ultimate_Source', 'UltimateSource', 'ultimateSource', 'Source', 'source']);
   const campaign = getValue(['Campaign', 'campaign']);
-  const adGroup = getValue(['Ad_Group', 'AdGroup', 'adGroup', 'ad_group']);
-  const searchKeyword = getValue(['Search_Keyword', 'SearchKeyword', 'searchKeyword', 'search_keyword']);
   const referralUrl = getValue(['Referral_URL', 'ReferralURL', 'referralUrl', 'url']);
-  const website = getValue(['Website', 'website']);
-  const gclid = getValue(['GCLID', 'gclid']);
-  const enquiryRating = getValue(['Rating', 'rating']);
   const enquiryNotesRaw = getValue(
     [
       'Initial_first_call_notes',
@@ -1060,10 +1089,26 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   // Personal details
   const title = getValue(['Title', 'title', 'Salutation', 'salutation'], '');
   const dobRaw = getValue(['DateOfBirth', 'dateOfBirth', 'DOB'], '') || resolvedInstruction?.DOB || resolvedInstruction?.DateOfBirth;
+  const parseDateLike = (raw: any): Date | null => {
+    if (raw instanceof Date) {
+      return Number.isNaN(raw.getTime()) ? null : raw;
+    }
+    if (raw === null || raw === undefined) return null;
+    if (typeof raw === 'number') {
+      const parsed = new Date(raw);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+    const text = String(raw).trim();
+    if (!text || text === '-' || text === '\u2014' || text.toLowerCase() === 'null' || text.toLowerCase() === 'undefined') return null;
+    const parsed = /^\d{10,13}$/.test(text)
+      ? new Date(text.length === 10 ? Number(text) * 1000 : Number(text))
+      : new Date(text);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  };
+  const toIsoDateTime = (raw: any): string => parseDateLike(raw)?.toISOString() ?? '';
   const formatDate = (raw: any) => {
-    if (!raw || raw === '—') return '—';
-    const parsed = new Date(raw);
-    if (Number.isNaN(parsed.getTime())) return '—';
+    const parsed = parseDateLike(raw);
+    if (!parsed) return '—';
     return parsed.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
   };
 
@@ -1079,9 +1124,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   };
 
   const formatRelativeDateOnly = (raw: any): string => {
-    if (!raw || raw === '—') return '—';
-    const parsed = new Date(raw);
-    if (Number.isNaN(parsed.getTime())) return '—';
+    const parsed = parseDateLike(raw);
+    if (!parsed) return '—';
     return formatRelativeDay(parsed);
   };
 
@@ -1140,6 +1184,41 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     inst?.InstructionDate || inst?.instructionDate ||
     deal?.CloseDate || deal?.closeDate || deal?.close_date || '—';
   const instructionSubmittedDate = formatDate(instructionSubmittedRaw);
+
+  const firstMeaningfulValue = (...values: unknown[]): string => {
+    for (const value of values) {
+      const text = String(value ?? '').trim();
+      if (!text || text === '—' || text === '-' || text === 'null' || text === 'undefined') continue;
+      return text;
+    }
+    return '';
+  };
+
+  const claimStageRaw = firstMeaningfulValue(
+    enrichmentTeamsData?.ClaimedAt,
+    (enquiry as any)?.ClaimedAt,
+    (enquiry as any)?.claimed_at,
+    (enquiry as any)?.ClaimTimestamp,
+    (enquiry as any)?.claim_timestamp,
+    (enquiry as any)?.AllocatedAt,
+    (enquiry as any)?.allocated_at,
+    (enquiry as any)?.Date_Claimed,
+    (enquiry as any)?.date_claimed,
+    (inst as any)?.ClaimedAt,
+    (inst as any)?.claimed_at,
+    (item as any)?.ClaimedAt,
+    (item as any)?.claimed_at,
+  );
+  const claimStageFallbackRaw = firstMeaningfulValue(
+    enrichmentTeamsData?.MessageTimestamp,
+    enrichmentTeamsData?.CreatedAt,
+    toIsoDateTime(enrichmentTeamsData?.CreatedAtMs),
+  );
+  const isDemoInstruction = Boolean((item as any)?.isDemo || (item as any)?.rawData?.isDemo || instructionRef === 'HLX-DEMO-00001');
+  const claimStageDateRaw = claimStageRaw || claimStageFallbackRaw;
+  const claimStageDate = claimStageDateRaw ? formatRelativeDateOnly(claimStageDateRaw) : null;
+  const hasClaimedStage = Boolean(claimStageRaw || enrichmentTeamsData?.ClaimedBy);
+  const hasClaimTracking = Boolean(hasClaimedStage || enrichmentTeamsData || teamsCardLink || teamsIdentifier || claimStageFallbackRaw || isDemoInstruction);
 
   const hasTimeEvidence = (raw: any): boolean => {
     if (!raw) return false;
@@ -1301,44 +1380,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   // ID status
   const passport = getValue(['PassportNumber', 'passportNumber'], '') || resolvedInstruction?.PassportNumber || resolvedInstruction?.passportNumber || '—';
   const license = getValue(['DriversLicenseNumber', 'driversLicenseNumber', 'DrivingLicenseNumber'], '') || resolvedInstruction?.DriversLicenseNumber || resolvedInstruction?.driversLicenseNumber || resolvedInstruction?.DrivingLicenseNumber || '—';
-  const passportExpiryRaw = getValue(['PassportExpiry', 'PassportExpiryDate', 'passportExpiry', 'passportExpiryDate']);
-  const licenseExpiryRaw = getValue(['DriversLicenseExpiry', 'DrivingLicenseExpiry', 'DrivingLicenceExpiry', 'LicenseExpiry', 'licenseExpiry']);
-  const passportExpiry = formatDate(passportExpiryRaw);
-  const licenseExpiry = formatDate(licenseExpiryRaw);
   const hasId = passport !== '—' || license !== '—';
-  
-  // Get the primary ID expiry (passport preferred, then license)
-  const primaryIdExpiryRaw = passport !== '—' ? passportExpiryRaw : licenseExpiryRaw;
-  const primaryIdExpiry = passport !== '—' ? passportExpiry : licenseExpiry;
-  const primaryIdType = passport !== '—' ? 'Passport' : license !== '—' ? 'License' : null;
-  
-  // Calculate expiry status color (green = 3 years away, neutral = today/expired)
-  const getExpiryStatusColor = (expiryRaw: string | null | undefined, isDark: boolean): { color: string; label: string } => {
-    if (!expiryRaw || expiryRaw === '—') return { color: isDark ? colours.subtleGrey : colours.greyText, label: '' };
-    const expiry = new Date(expiryRaw);
-    if (Number.isNaN(expiry.getTime())) return { color: isDark ? colours.subtleGrey : colours.greyText, label: '' };
-    
-    const now = new Date();
-    const diffMs = expiry.getTime() - now.getTime();
-    const diffDays = diffMs / (1000 * 60 * 60 * 24);
-    const maxDays = 3 * 365; // 3 years in days
-    
-    if (diffDays <= 0) {
-      return { color: '#D65541', label: 'Expired' }; // Red for expired
-    }
-    if (diffDays <= 90) {
-      return { color: colours.orange, label: 'Expiring soon' }; // Orange for < 3 months
-    }
-    if (diffDays <= 365) {
-      return { color: colours.yellow, label: '' }; // Yellow for < 1 year
-    }
-    
-    // Gradient from yellow (1 year) to blue (3 years)
-    const ratio = Math.min(diffDays / maxDays, 1);
-    if (ratio >= 0.9) return { color: colours.highlight, label: '' }; // Full blue
-    if (ratio >= 0.66) return { color: colours.blue, label: '' }; // Mid blue
-    return { color: colours.helixBlue, label: '' }; // Deep blue
-  };
   
   // Address
   const getInstValue = (keys: string[]) => {
@@ -1376,16 +1418,12 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const companyPostcode = getValue(['CompanyPostcode', 'companyPostcode']);
   
   // Display address (company if company client, individual otherwise)
-  const displayHouseNum = isCompany && companyHouseNum ? companyHouseNum : houseNum;
-  const displayStreetOnly = isCompany && companyStreet ? companyStreet : street;
   const displayStreet = isCompany && companyStreetFull !== '—' ? companyStreetFull : streetFull;
   const displayCity = isCompany && companyCity !== '—' ? companyCity : city;
   const displayCounty = isCompany && companyCounty !== '—' ? companyCounty : county;
   const displayPostcode = isCompany && companyPostcode !== '—' ? companyPostcode : postcode;
   const displayCountry = isCompany && companyCountry !== '—' ? companyCountry : country;
 
-  const displayHouseNumTrimmed = (displayHouseNum || '').trim();
-  
   // EID
   const eidResult = eid?.EIDOverallResult || '';
   const eidStatusValue = (eid?.EIDStatus || '').toLowerCase();
@@ -1415,8 +1453,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   );
   const eidDate = eid?.EIDCheckedDate ? new Date(eid.EIDCheckedDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
 
-  const isDemoInstruction = Boolean((item as any)?.isDemo || (item as any)?.rawData?.isDemo || instructionRef === 'HLX-DEMO-00001');
-
   type DemoEidOutcome = 'pass' | 'review' | 'fail' | 'manual-approved';
   type DemoEidSubResult = 'passed' | 'review' | 'failed';
   interface DemoEidSimConfig {
@@ -1424,7 +1460,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     pepResult: DemoEidSubResult;
     addressResult: DemoEidSubResult;
   }
-  const DEMO_EID_RAW_RESPONSE_SAMPLE = [
+  const DEMO_EID_RAW_RESPONSE_SAMPLE = useMemo(() => ([
     {
       correlationId: '632aabdd-227d-4051-ab86-ea766efc7baa',
       externalReferenceId: '18207',
@@ -1525,7 +1561,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
       overallResult: { id: 1, result: 'Passed' },
       overallStatus: { id: 3, status: 'Completed' },
     },
-  ] as const;
+  ] as const), []);
   const DEMO_EID_SIM_CONFIG_KEY = 'demoEidSimulationConfig';
   const readDemoEidSimConfig = React.useCallback((): DemoEidSimConfig => {
     try {
@@ -1561,8 +1597,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
       // Ignore demo config persistence failures.
     }
   }, []);
-
-  const activeCampaignBlueFilter = 'invert(33%) sepia(98%) saturate(1766%) hue-rotate(190deg) brightness(95%) contrast(92%)';
 
   const loadVerificationDetails = React.useCallback(async () => {
     if (!instructionRef) return;
@@ -1647,12 +1681,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     } finally {
       setIsVerificationDetailsLoading(false);
     }
-  }, [instructionRef, isDemoInstruction, item, eidResult, eidStatusValue, pepResult, addressVerification, eidDate]);
-
-  const openEidDetails = React.useCallback(() => {
-    setIsEidDetailsExpanded(true);
-    void loadVerificationDetails();
-  }, [loadVerificationDetails]);
+  }, [instructionRef, isDemoInstruction, item, eidResult, eidStatusValue, pepResult, addressVerification, eidDate, DEMO_EID_RAW_RESPONSE_SAMPLE]);
 
   const openTriggerEidConfirm = React.useCallback(() => {
     if (isDemoInstruction) {
@@ -1699,7 +1728,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
       setIsTriggerEidLoading(false);
       eidProcessingToastRef.current = null;
     }
-  }, [onTriggerEID, instructionRef, showToast, updateToast, isDemoInstruction, onRefreshData]);
+  }, [onTriggerEID, instructionRef, showToast, updateToast, onRefreshData]);
 
   useEffect(() => {
     if (activeTab !== 'identity') return;
@@ -1709,6 +1738,83 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     void loadVerificationDetails();
   }, [activeTab, instructionRef, isEidDetailsExpanded, verificationDetails, isVerificationDetailsLoading, loadVerificationDetails]);
 
+  useEffect(() => {
+    if (!instructionRef) return;
+
+    const currentRef = String(instructionRef).trim().toLowerCase();
+    const timers: number[] = [];
+    const normalise = (value: unknown) => String(value ?? '').trim().toLowerCase();
+
+    const runWorkbenchRefresh = (reloadIdentityDetails: boolean, reloadDocuments: boolean) => {
+      if (onRefreshData) {
+        void onRefreshData(instructionRef || undefined);
+      }
+      if (reloadIdentityDetails) {
+        setVerificationDetails(null);
+        setVerificationDetailsError(null);
+        void loadVerificationDetails();
+      }
+      if (reloadDocuments) {
+        void fetchDocuments();
+      }
+    };
+
+    const scheduleWorkbenchRefresh = (reloadIdentityDetails: boolean, reloadDocuments: boolean, delayMs = 0) => {
+      if (delayMs <= 0) {
+        runWorkbenchRefresh(reloadIdentityDetails, reloadDocuments);
+        return;
+      }
+      const timer = window.setTimeout(() => runWorkbenchRefresh(reloadIdentityDetails, reloadDocuments), delayMs);
+      timers.push(timer);
+    };
+
+    const handlePipelineRefresh = (event: Event) => {
+      const detail = (event as CustomEvent<any>).detail;
+      if (!detail || typeof detail !== 'object') return;
+
+      const data = detail.data && typeof detail.data === 'object' ? detail.data as Record<string, unknown> : {};
+      const instruction = data.instruction && typeof data.instruction === 'object' ? data.instruction as Record<string, unknown> : null;
+      const field = normalise(detail.field);
+      const eventType = normalise(detail.eventType);
+      const isIdentityEvent = ['id', 'identity', 'verification', 'id_verification', 'eid'].includes(field)
+        || eventType.startsWith('id.')
+        || eventType.includes('eid')
+        || eventType.includes('verification');
+      const isDocumentEvent = field === 'document' || field === 'documents' || eventType.includes('document');
+      const isWorkbenchEvent = isIdentityEvent
+        || isDocumentEvent
+        || ['instruction', 'payment', 'risk', 'matter'].includes(field)
+        || ['instruction', 'payment', 'risk', 'matter'].some(token => eventType.includes(token));
+
+      if (!isWorkbenchEvent) return;
+
+      const refs = new Set([
+        detail.entityId,
+        data.instructionRef,
+        data.InstructionRef,
+        data.instruction_ref,
+        data.ref,
+        data.Reference,
+        instruction?.InstructionRef,
+        instruction?.instructionRef,
+      ].map(normalise).filter(Boolean));
+
+      if (!refs.has(currentRef)) return;
+
+      const reloadIdentityDetails = isIdentityEvent;
+      const reloadDocuments = isIdentityEvent || isDocumentEvent;
+      scheduleWorkbenchRefresh(reloadIdentityDetails, reloadDocuments);
+      if (reloadIdentityDetails || reloadDocuments || field === 'matter') {
+        scheduleWorkbenchRefresh(reloadIdentityDetails, reloadDocuments, 1500);
+      }
+    };
+
+    window.addEventListener('helix:enquiriesChanged', handlePipelineRefresh as EventListener);
+    return () => {
+      window.removeEventListener('helix:enquiriesChanged', handlePipelineRefresh as EventListener);
+      timers.forEach(timer => window.clearTimeout(timer));
+    };
+  }, [fetchDocuments, instructionRef, loadVerificationDetails, onRefreshData]);
   useEffect(() => {
     if (!isDemoInstruction) return;
     if (activeTab !== 'identity') return;
@@ -1737,17 +1843,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     autoReportSubmitAttemptedRef.current[instructionRef] = true;
     void persistRawRecordPdfRef.current('auto');
   }, [isDemoInstruction, instructionRef, existingEidPdfDoc, eidStatus, hubDocsChecked, parentDocuments]);
-
-  const parseRawResponse = React.useCallback((raw: unknown) => {
-    if (typeof raw === 'string') {
-      try {
-        return JSON.parse(raw);
-      } catch {
-        return null;
-      }
-    }
-    return raw as any;
-  }, []);
 
   const getPrimaryRawVerificationRecord = React.useCallback((raw: unknown) => {
     const parsed = parseRawResponse(raw);
@@ -2513,8 +2608,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const complianceDate = risk?.ComplianceDate 
     ? new Date(risk.ComplianceDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
     : '—';
-  // ComplianceDate is DATE type in DB (no time stored), so just use date format
-  const complianceDateTime = complianceDate !== '—' ? complianceDate : null;
   const firmWideAMLConsidered = risk?.FirmWideAMLPolicyConsidered;
   const firmWideSanctionsConsidered = risk?.FirmWideSanctionsRiskConsidered;
   const clientRiskConsidered = risk?.ClientRiskConsidered || risk?.ClientRiskFactorsConsidered;
@@ -2661,7 +2754,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const matterOriginatingSolicitor = matter?.OriginatingSolicitor || matter?.['Originating Solicitor'] || matter?.originating_solicitor || inst?.OriginatingSolicitor || getValue(['OriginatingSolicitor']) || '—';
   const matterValue = matter?.ApproxValue || matter?.['Approx Value'] || matter?.approx_value || inst?.ApproxValue || getValue(['ApproxValue', 'MatterValue']) || '—';
   const matterClioId = matter?.MatterID || matter?.matter_id || matter?.['Unique ID'] || matter?.UniqueID || inst?.MatterId || optimisticMatterOpen?.matterId || '—';
-  const matterInstructionRef = matter?.InstructionRef || matter?.instruction_ref || matter?.['Instruction Ref'] || inst?.InstructionRef || instructionRef || '—';
   const matterClientId = matter?.ClientID || matter?.ClientId || matter?.client_id || inst?.ClientId || inst?.ClientID || getValue(['ClientId', 'ClientID', 'client_id']) || '—';
   const matterClientType = matter?.ClientType || matter?.client_type || inst?.ClientType || getValue(['ClientType', 'client_type']) || '—';
   const matterClientEmail = matter?.ClientEmail || matter?.client_email || inst?.Email || getValue(['Email', 'email', 'ClientEmail']) || '—';
@@ -2714,6 +2806,110 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const feeEarner = matter?.ResponsibleSolicitor || matter?.['Responsible Solicitor'] || getValue(['HelixContact', 'FeeEarner', 'feeEarner', 'ResponsibleSolicitor']);
   const matterOpenedBy = matter?.OpenedBy || matter?.opened_by || matter?.CreatedBy || matter?.created_by || matterResponsibleSolicitor || feeEarner || '—';
   const matterOpenedByDisplay = String(matterOpenedBy || '').trim() || '—';
+
+  const downloadRiskAssessmentNote = useCallback(() => {
+    if (!riskComplete) {
+      showToast({ type: 'warning', message: 'Complete the risk assessment before exporting a file-review note.' });
+      return;
+    }
+
+    const cleanValue = (value: unknown) => {
+      const text = String(value ?? '').trim();
+      return text && text !== '—' ? text : 'Not recorded';
+    };
+    const cleanBoolean = (value: unknown) => {
+      if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+      const text = String(value ?? '').trim().toLowerCase();
+      if (['true', 'yes', '1', 'considered'].includes(text)) return 'Yes';
+      if (['false', 'no', '0', 'not confirmed'].includes(text)) return 'No';
+      return cleanValue(value);
+    };
+    const scoreSuffix = (value: unknown) => {
+      const text = String(value ?? '').trim();
+      return text ? ` (score ${text})` : '';
+    };
+    const answerLine = (label: string, answer: unknown, score?: unknown) => (
+      `- ${label}: ${cleanValue(answer)}${scoreSuffix(score)}`
+    );
+    const generatedAt = new Date().toLocaleString('en-GB', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    const complianceExpiry = risk?.ComplianceExpiry
+      ? new Date(risk.ComplianceExpiry).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+      : 'Not recorded';
+    const safeRef = cleanValue(instructionRef || matterRef || 'risk-assessment')
+      .replace(/[^a-z0-9-_]+/gi, '-')
+      .replace(/^-+|-+$/g, '')
+      .toLowerCase() || 'risk-assessment';
+
+    const note = [
+      'Risk Assessment File Review Note',
+      `Generated: ${generatedAt}`,
+      `Generated by: ${cleanValue(currentUser?.FullName || currentUser?.Email)}`,
+      '',
+      'File',
+      `- Instruction ref: ${cleanValue(instructionRef)}`,
+      `- Matter ref: ${cleanValue(matterRef)}`,
+      `- Client: ${cleanValue(matterClientPrimaryDisplay || fullName)}`,
+      `- Area of work: ${cleanValue(areaOfWork)}`,
+      '',
+      'Risk Summary',
+      `- Risk assessment result: ${cleanValue(riskResult)}`,
+      `- Risk score: ${cleanValue(riskScore)}`,
+      `- Transaction risk level: ${cleanValue(riskLevel)}`,
+      `- Assessed by: ${cleanValue(riskAssessorDisplay)}`,
+      `- Assessment date: ${cleanValue(complianceDate)}`,
+      `- Compliance expiry: ${cleanValue(complianceExpiry)}`,
+      '',
+      'ID / Verification',
+      `- Electronic ID status: ${cleanValue(eidStatus)}`,
+      `- Electronic ID result: ${cleanValue(eidResult)}`,
+      `- Checked date: ${cleanValue(eidDate)}`,
+      `- PEP and sanctions: ${cleanValue(pepResult)}`,
+      `- Address verification: ${cleanValue(addressVerification)}`,
+      `- Manual approval: ${isManuallyApproved ? 'Yes' : 'No'}`,
+      `- Underlying review flags: ${hasUnderlyingIssues ? 'Yes' : 'No'}`,
+      `- EID records visible: ${eids.length}`,
+      `- EID PDF found in documents: ${existingEidPdfDoc ? 'Yes' : 'No'}`,
+      '',
+      'Confirmations',
+      `- Client risk factors considered: ${cleanBoolean(clientRiskConsidered)}`,
+      `- Transaction risk factors considered: ${cleanBoolean(transactionRiskConsidered)}`,
+      `- Firm-wide sanctions risk assessment considered: ${cleanBoolean(firmWideSanctionsConsidered)}`,
+      `- Firm-wide AML policy considered: ${cleanBoolean(firmWideAMLConsidered)}`,
+      '',
+      'Risk Answers',
+      answerLine('Client type', riskClientType, risk?.ClientType_Value),
+      answerLine('How introduced', howIntroduced, risk?.HowWasClientIntroduced_Value),
+      answerLine('Jurisdiction', jurisdiction),
+      answerLine('Source of funds', sourceOfFunds, risk?.SourceOfFunds_Value),
+      answerLine('Source of wealth', sourceOfWealth),
+      answerLine('Destination of funds', destinationOfFunds, risk?.DestinationOfFunds_Value),
+      answerLine('Funds type', fundsType, risk?.FundsType_Value),
+      answerLine('Value of instruction', valueOfInstruction, risk?.ValueOfInstruction_Value),
+      answerLine('Limitation period', limitationPeriod, risk?.Limitation_Value),
+      answerLine('Transaction risk', riskLevel),
+      '',
+      'Note',
+      'This note records the risk assessment and ID verification evidence visible in Helix Hub at the time of export. Save it to the matter file if required for file review.',
+      '',
+    ].join('\r\n');
+
+    const blob = new Blob([note], { type: 'text/plain;charset=utf-8' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `risk-assessment-note-${safeRef}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+    showToast({ type: 'success', title: 'Risk note ready', message: 'Downloaded for file review.' });
+  }, [addressVerification, areaOfWork, clientRiskConsidered, complianceDate, currentUser?.Email, currentUser?.FullName, destinationOfFunds, eidDate, eidResult, eidStatus, eids.length, existingEidPdfDoc, firmWideAMLConsidered, firmWideSanctionsConsidered, fullName, fundsType, hasUnderlyingIssues, howIntroduced, instructionRef, isManuallyApproved, jurisdiction, limitationPeriod, matterClientPrimaryDisplay, matterRef, pepResult, risk, riskAssessorDisplay, riskClientType, riskComplete, riskLevel, riskResult, riskScore, showToast, sourceOfFunds, sourceOfWealth, transactionRiskConsidered, valueOfInstruction]);
   const matterOpenTimestampRaw = matter?.OpenedAt || matter?.opened_at || matter?.CreatedAt || matter?.created_at || matter?.OpenDate || matter?.['Open Date'] || null;
   const matterTimelineInstructionRawCandidates = [
     inst?.SubmissionDate,
@@ -2792,7 +2988,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const matterOpenedTimelineParts = splitTimelineStamp(matterOpenedTimelineStamp);
   const matterPortalPasscode = deal?.Passcode || deal?.passcode || inst?.Passcode || inst?.passcode || '';
   const matterPortalPassword = matterClientId && matterClientId !== '—' ? String(matterClientId).trim() : '';
-  const matterPortalOpened = Boolean(hasMatter && matterPortalPasscode);
   const matterSupervisingPartner = matter?.SupervisingPartner || matter?.['Supervising Partner'] || matter?.supervising_partner || '—';
   const matterOpenTrail = [
     { label: 'Opened On', value: matterOpenDate !== '—' ? matterOpenDate : null },
@@ -2806,7 +3001,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const matterSourceDisplay = !isPlaceholderSource(matterSource) ? String(matterSource) : '—';
   const matterCloseDateRaw = matter?.CloseDate || matter?.['Close Date'] || matter?.close_date || matter?.closed_at || null;
   const matterCloseDate = formatDate(matterCloseDateRaw);
-  const isMatterClosed = /closed|complete|completed/i.test(String(matterStatus || ''));
   const instructionStage = String(inst?.Stage ?? inst?.stage ?? deal?.Stage ?? deal?.stage ?? '').trim();
   const isInstructionInitialised = /initiali[sz]ed/i.test(instructionStage);
 
@@ -2879,6 +3073,11 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const identityStatus: WorkbenchStageStatus = eidProcessingState === 'processing'
     ? 'processing'
     : derivedStageStatuses.id;
+  const isInstructedComplete = Boolean(instructionSubmittedRaw && instructionSubmittedRaw !== '—')
+    || Boolean(instructionStage && !isInstructionInitialised);
+  const instructedStatus: WorkbenchStageStatus = isInstructedComplete
+    ? 'complete'
+    : (Boolean(inst || instructionStage) ? 'processing' : 'pending');
   const paymentStatus: WorkbenchStageStatus = derivedStageStatuses.payment;
   const riskStatus: WorkbenchStageStatus = riskEditMode ? 'processing' : derivedStageStatuses.risk;
   const matterStageStatus: WorkbenchStageStatus = showLocalMatterModal ? 'processing' : derivedStageStatuses.matter;
@@ -2889,22 +3088,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     identityStatus === 'complete' && !(hasId || eidStatus === 'verified' || isManuallyApproved)
       ? 'pending'
       : identityStatus;
-  const paymentBannerStatus: WorkbenchStageStatus =
-    paymentStatus === 'complete' && !hasSuccessfulPayment
-      ? 'pending'
-      : paymentStatus;
-  const riskBannerStatus: WorkbenchStageStatus =
-    riskStatus === 'complete' && !riskComplete
-      ? 'pending'
-      : riskStatus;
-  const matterBannerStatus: WorkbenchStageStatus =
-    matterStageStatus === 'complete' && !hasMatter
-      ? 'pending'
-      : matterStageStatus;
-  const documentBannerStatus: WorkbenchStageStatus =
-    documentStatus === 'complete' && documents.length === 0
-      ? 'neutral'
-      : documentStatus;
 
   const matterClientCandidates = useMemo<MatterClientCandidate[]>(() => {
     const sourceRecords = [inst, ...(Array.isArray(clients) ? clients : [])];
@@ -3152,125 +3335,128 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     setShowMatterOpeningWizard(false);
     setMatterWizardStage('form');
     setMatterJointClientKeys([]);
-  }, [hasMatter, instructionRef, inst, matterClientCandidates]);
+  }, [hasMatter, instructionRef, inst, matterClientCandidates, deal?.ServiceDescription, deal?.service_description]);
 
-  const getStatusColors = React.useCallback((status: WorkbenchStageStatus) => {
-    if (status === 'complete') return { 
-      bg: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
-      border: colours.highlight,
-      text: colours.highlight
-    };
-    if (status === 'review') return {
-      bg: isDarkMode ? 'rgba(214, 85, 65, 0.12)' : 'rgba(214, 85, 65, 0.08)',
-      border: colours.cta,
-      text: colours.cta
-    };
-    if (status === 'warning') return {
-      bg: isDarkMode ? 'rgba(255, 140, 0, 0.12)' : 'rgba(255, 140, 0, 0.08)',
-      border: colours.orange,
-      text: colours.orange
-    };
-    if (status === 'processing') return {
-      bg: isDarkMode ? 'rgba(255, 140, 0, 0.12)' : 'rgba(255, 140, 0, 0.08)',
-      border: colours.orange,
-      text: colours.orange
-    };
-    if (status === 'neutral') return {
-      bg: isDarkMode ? `${colours.subtleGrey}0f` : `${colours.subtleGrey}0d`,
-      border: isDarkMode ? colours.dark.border : `${colours.subtleGrey}29`,
-      text: isDarkMode ? colours.subtleGrey : colours.greyText
-    };
-    return {
-      bg: isDarkMode ? `${colours.subtleGrey}14` : `${colours.subtleGrey}0f`,
-      border: isDarkMode ? colours.dark.border : `${colours.subtleGrey}38`,
-      text: isDarkMode ? colours.subtleGrey : colours.greyText
-    };
-  }, [isDarkMode]);
+  const journeyStageVisuals = useMemo<Record<JourneyStageKey, { label: string; icon: React.ReactNode }>>(() => ({
+    enquiry: { label: 'Enquiry', icon: <FiInbox size={12} strokeWidth={1.8} /> },
+    claimed: { label: 'Claimed', icon: <FiInbox size={12} strokeWidth={1.8} /> },
+    pitch: { label: 'Pitch', icon: <FiSend size={12} strokeWidth={1.8} /> },
+    instructed: { label: 'Instruction', icon: <FiClipboard size={12} strokeWidth={1.8} /> },
+    payment: { label: 'Payment', icon: <FiCreditCard size={12} strokeWidth={1.8} /> },
+    identity: { label: 'ID Check', icon: <FiShield size={12} strokeWidth={1.8} /> },
+    risk: { label: 'Risk', icon: <FiAlertTriangle size={12} strokeWidth={1.8} /> },
+    matter: { label: 'Matter', icon: <FiFolder size={12} strokeWidth={1.8} /> },
+    documents: { label: 'Documents', icon: <FiFileText size={12} strokeWidth={1.8} /> },
+  }), []);
 
-  const renderStatusBanner = (
-    title: string,
-    status: WorkbenchStageStatus,
-    prompt: string,
-    icon: React.ReactNode,
-    action?: React.ReactNode,
-  ) => {
-    const colors = getStatusColors(status);
-    const headerCueColor = isDarkMode && status === 'complete' ? colours.accent : colors.text;
-    return (
-      <div className="wb-status-banner" style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: 8,
-        padding: flatEmbedMode ? '6px 0' : '8px 14px',
-        background: flatEmbedMode ? 'transparent' : colors.bg,
-        border: flatEmbedMode ? 'none' : `1px solid ${colors.border}`,
-        borderRadius: 0,
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ color: headerCueColor, display: 'flex', alignItems: 'center' }}>
-            {icon}
-          </span>
-          <span style={{ fontSize: 10, fontWeight: 800, color: headerCueColor, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{title}</span>
-          <span style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? 'rgba(243, 244, 246, 0.85)' : 'rgba(6, 23, 51, 0.78)', marginLeft: 4 }}>{prompt}</span>
-        </div>
-        {action && <div>{action}</div>}
-      </div>
-    );
+  type JourneyStripEndpoint = {
+    stageKey: JourneyStageKey;
+    detail?: string | null;
+    stamp?: string | null;
+    color?: string;
+    onClick?: () => void;
+    cursor?: string;
+    title?: string;
   };
 
-  /** Road-style journey strip: ○ origin ···· elapsed ····▸ ● destination */
+  /** Road-style stage strip: [From stage] ···· elapsed ····▸ [Current stage] */
   const renderJourneyStrip = (
-    from: { label: string; stamp: string } | null,
-    to: { label: string; stamp?: string; color: string; icon: React.ReactNode; onClick?: () => void; cursor?: string; title?: string } | null,
+    from: JourneyStripEndpoint | null,
+    to: JourneyStripEndpoint | null,
     elapsed?: string | null,
   ) => {
     if (!from && !to) return null;
     const fromColor = isDarkMode ? colours.subtleGrey : colours.greyText;
-    const toColor = to?.color || fromColor;
+    const defaultToColor = isDarkMode ? colours.accent : colours.highlight;
+    const toColor = to?.color || defaultToColor;
     const hasBoth = Boolean(from && to);
+
+    const renderEndpoint = (endpoint: JourneyStripEndpoint, role: 'from' | 'to') => {
+      const visual = journeyStageVisuals[endpoint.stageKey];
+      const accent = role === 'to' ? (endpoint.color || defaultToColor) : fromColor;
+      const metaText = [endpoint.detail, endpoint.stamp].filter(Boolean).join(' · ');
+      const isDestination = role === 'to';
+      const isInteractive = isDestination && typeof endpoint.onClick === 'function';
+      const labelTone = isDestination
+        ? (isDarkMode ? colours.dark.text : colours.light.text)
+        : fromColor;
+      const detailTone = isDestination
+        ? (isDarkMode ? '#d1d5db' : '#374151')
+        : fromColor;
+      const stampTone = isDestination
+        ? (isDarkMode ? colours.subtleGrey : colours.greyText)
+        : fromColor;
+
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0, flexShrink: 0, alignItems: 'flex-start' }}>
+          <div
+            title={endpoint.title || `${visual.label}${metaText ? ` · ${metaText}` : ''}`}
+            onClick={isInteractive ? endpoint.onClick : undefined}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              minWidth: 0,
+              color: labelTone,
+              cursor: isInteractive ? (endpoint.cursor || 'pointer') : 'default',
+              transition: 'opacity 0.15s ease',
+            } as React.CSSProperties}
+          >
+            <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: accent, lineHeight: 1, flexShrink: 0 }}>
+              {visual.icon}
+            </span>
+            <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 4, minWidth: 0 }}>
+              <span style={{ fontSize: 10, fontWeight: isDestination ? 700 : 600, letterSpacing: '0.1px', whiteSpace: 'nowrap' }}>
+                {visual.label}
+              </span>
+              {endpoint.detail && (
+                <span style={{ fontSize: 10, fontWeight: 600, color: detailTone, opacity: isDestination ? 0.84 : 0.72, whiteSpace: 'nowrap' }}>
+                  {endpoint.detail}
+                </span>
+              )}
+            </span>
+          </div>
+
+          {endpoint.stamp && (
+            <span style={{
+              fontSize: 9,
+              fontWeight: 500,
+              color: stampTone,
+              opacity: isDestination ? 0.76 : 0.68,
+              paddingLeft: 18,
+              whiteSpace: 'nowrap',
+            }}>
+              {endpoint.stamp}
+            </span>
+          )}
+        </div>
+      );
+    };
+
     return (
       <div className="wb-journey-strip" style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 0,
-        padding: flatEmbedMode ? '7px 0' : '7px 14px',
-        minHeight: 28,
+        gap: 10,
+        padding: '7px 14px',
+        minHeight: 36,
+        boxSizing: 'border-box',
       }}>
-        {/* Origin waypoint */}
-        {from && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-            <div style={{
-              width: 6, height: 6, borderRadius: '50%',
-              border: `1.5px solid ${fromColor}`,
-              background: 'transparent',
-              flexShrink: 0,
-              opacity: 0.5,
-            }} />
-            <span style={{
-              fontSize: 10, fontWeight: 500, color: fromColor,
-              opacity: 0.65, whiteSpace: 'nowrap',
-            }}>
-              {from.label}
-              <span style={{ fontWeight: 400 }}> · {from.stamp}</span>
-            </span>
-          </div>
-        )}
+        {from && renderEndpoint(from, 'from')}
 
-        {/* Road segment */}
-        {from && (
+        {hasBoth && (
           <div style={{
             flex: 1,
             display: 'flex',
             alignItems: 'center',
-            padding: '0 8px',
-            minWidth: hasBoth ? 40 : 24,
+            padding: '0 2px',
+            minWidth: 48,
           }}>
             <div style={{
               flex: 1, height: 0,
               borderBottom: `1px dashed ${isDarkMode ? `${fromColor}30` : `${fromColor}25`}`,
             }} />
-            {elapsed && hasBoth && (
+            {elapsed && (
               <span style={{
                 fontSize: 9, fontWeight: 500,
                 color: fromColor,
@@ -3281,73 +3467,52 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                 {elapsed}
               </span>
             )}
-            {hasBoth && (
-              <>
-                <div style={{
-                  flex: 1, height: 0,
-                  borderBottom: `1px dashed ${isDarkMode ? `${toColor}40` : `${toColor}30`}`,
-                }} />
-                <div style={{
-                  width: 0, height: 0,
-                  borderLeft: `4px solid ${toColor}`,
-                  borderTop: '2.5px solid transparent',
-                  borderBottom: '2.5px solid transparent',
-                  flexShrink: 0,
-                  marginRight: 6,
-                  opacity: 0.5,
-                }} />
-              </>
-            )}
+            <div style={{
+              flex: 1, height: 0,
+              borderBottom: `1px dashed ${isDarkMode ? `${toColor}40` : `${toColor}30`}`,
+            }} />
+            <div style={{
+              width: 0, height: 0,
+              borderLeft: `4px solid ${toColor}`,
+              borderTop: '2.5px solid transparent',
+              borderBottom: '2.5px solid transparent',
+              flexShrink: 0,
+              marginRight: 2,
+              opacity: 0.5,
+            }} />
           </div>
         )}
 
-        {/* Destination waypoint */}
-        {to && (
-          <div
-            onClick={to.onClick ? (e: React.MouseEvent) => { e.stopPropagation(); to.onClick!(); } : undefined}
-            title={to.title}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0,
-              cursor: to.cursor || (to.onClick ? 'pointer' : 'default'),
-            }}
-          >
-            <span style={{ color: toColor, display: 'flex', alignItems: 'center' }}>
-              {to.icon}
-            </span>
-            <span style={{
-              fontSize: 10, fontWeight: 600, color: toColor,
-              whiteSpace: 'nowrap',
-            }}>
-              {to.label}
-              {to.stamp && (
-                <span style={{ fontWeight: 500, opacity: 0.75 }}> · {to.stamp}</span>
-              )}
-            </span>
-          </div>
-        )}
+        {to && renderEndpoint(to, 'to')}
       </div>
     );
   };
 
-  const isInstructedComplete = Boolean(instructionSubmittedRaw && instructionSubmittedRaw !== '—');
-  const instructedStatus: WorkbenchStageStatus = isInstructedComplete
-    ? 'complete'
-    : (isInstructionInitialised ? 'processing' : 'pending');
-
   // Timeline stages - unified navigation: Enquiry ? Pitch ? Instructed ? ID ? Pay ? Risk ? Matter ? Docs
   // Combines the old tabs with the timeline concept - clickable stages that also show completion
+  const hasClaimedStageProgress = Boolean(
+    hasClaimedStage ||
+    pitchDateRaw ||
+    isInstructedComplete ||
+    hasSuccessfulPayment ||
+    hasId ||
+    riskComplete ||
+    hasMatter ||
+    documents.length > 0
+  );
+
   const timelineStages = useMemo(() => {
     return [
-      { 
+      {
         key: 'enquiry' as const,
-        label: 'Enquiry', 
+        label: 'Enquiry',
         icon: <FaEnvelope size={10} />,
-        date: null, // No specific date shown
-        dateRaw: null,
-        isComplete: !!prospectId, // Has linked enquiry
+        date: submissionDate !== '—' ? submissionDate : null,
+        dateRaw: submissionDateRaw,
+        isComplete: !!prospectId,
         hasIssue: false,
         status: (prospectId ? 'complete' : 'neutral') as WorkbenchStageStatus,
-        navigatesTo: 'external' as const, // Special: navigates to Enquiries tab
+        navigatesTo: 'external' as const,
         externalAction: () => {
           if (prospectId) {
             window.dispatchEvent(new CustomEvent('navigateToEnquiry', {
@@ -3356,9 +3521,20 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
           }
         },
       },
-      { 
+      {
+        key: 'claimed' as const,
+        label: 'Claimed',
+        icon: <FaUserTie size={10} />,
+        date: claimStageDate,
+        dateRaw: claimStageDateRaw || null,
+        isComplete: hasClaimedStageProgress,
+        hasIssue: false,
+        status: (hasClaimedStageProgress ? 'complete' : hasClaimTracking ? 'processing' : 'pending') as WorkbenchStageStatus,
+        navigatesTo: 'details' as WorkbenchTab,
+      },
+      {
         key: 'pitch' as const,
-        label: 'Pitch', 
+        label: 'Pitch',
         icon: <FaUser size={10} />,
         date: pitchDate !== '—' ? pitchDate : null,
         dateRaw: pitchDateRaw,
@@ -3367,9 +3543,9 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         status: (pitchDateRaw ? 'complete' : 'pending') as WorkbenchStageStatus,
         navigatesTo: 'pitch' as WorkbenchTab,
       },
-      { 
+      {
         key: 'instructed' as const,
-        label: 'Instruction', 
+        label: 'Instruction',
         icon: <FaFileAlt size={10} />,
         date: instructionSubmittedDate !== '—' ? instructionSubmittedDate : null,
         dateRaw: instructionSubmittedRaw !== '—' ? instructionSubmittedRaw : null,
@@ -3378,9 +3554,9 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         status: instructedStatus,
         navigatesTo: 'details' as WorkbenchTab,
       },
-      { 
+      {
         key: 'payment' as const,
-        label: 'Pay', 
+        label: 'Payment',
         icon: <FaCreditCard size={10} />,
         date: paymentDate !== '—' ? paymentDate : null,
         dateRaw: paymentDateRaw,
@@ -3389,20 +3565,20 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         status: paymentStatus,
         navigatesTo: 'payment' as WorkbenchTab,
       },
-      { 
+      {
         key: 'identity' as const,
-        label: eidProcessingState === 'processing' ? 'ID Check' : 'ID', 
+        label: 'ID Check',
         icon: <FaIdCard size={10} />,
-        date: null, // No specific date for ID
+        date: null,
         dateRaw: null,
         isComplete: hasId || eidStatus === 'verified',
         hasIssue: eidStatus === 'failed' || eidStatus === 'review',
         status: identityStatus,
         navigatesTo: 'identity' as WorkbenchTab,
       },
-      { 
+      {
         key: 'risk' as const,
-        label: 'Risk', 
+        label: 'Risk',
         icon: <FaShieldAlt size={10} />,
         date: null,
         dateRaw: null,
@@ -3411,9 +3587,9 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         status: riskStatus,
         navigatesTo: 'risk' as WorkbenchTab,
       },
-      { 
+      {
         key: 'matter' as const,
-        label: 'Matter', 
+        label: 'Matter',
         icon: hasMatter ? <FaFolderOpen size={10} /> : <FaRegFolder size={10} />,
         date: matterOpenDate !== '—' ? matterOpenDate : null,
         dateRaw: matterOpenDateRaw,
@@ -3422,9 +3598,9 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         status: matterStageStatus,
         navigatesTo: 'matter' as WorkbenchTab,
       },
-      { 
+      {
         key: 'documents' as const,
-        label: 'Docs', 
+        label: 'Documents',
         icon: <FaFolder size={10} />,
         date: firstDocUploadDate || null,
         dateRaw: firstDocUploadDateRaw,
@@ -3435,7 +3611,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         navigatesTo: 'documents' as WorkbenchTab,
       },
     ];
-  }, [documentStatus, documents.length, firstDocUploadDate, firstDocUploadDateRaw, hasFailedPayment, hasId, hasMatter, hasSuccessfulPayment, identityStatus, instructedStatus, instructionSubmittedDate, instructionSubmittedRaw, isInstructedComplete, matterOpenDate, matterOpenDateRaw, matterStageStatus, paymentDate, paymentDateRaw, paymentStatus, pitchDate, pitchDateRaw, prospectId, riskStatus]);
+  }, [claimStageDate, claimStageDateRaw, documentStatus, documents.length, eidStatus, firstDocUploadDate, firstDocUploadDateRaw, hasClaimTracking, hasClaimedStageProgress, hasFailedPayment, hasId, hasMatter, hasSuccessfulPayment, identityStatus, instructedStatus, instructionSubmittedDate, instructionSubmittedRaw, isHighRisk, isInstructedComplete, isMediumRisk, matterOpenDate, matterOpenDateRaw, matterStageStatus, paymentDate, paymentDateRaw, paymentStatus, pitchDate, pitchDateRaw, prospectId, riskComplete, riskStatus, submissionDate, submissionDateRaw]);
 
   const contextStageKeyList = useMemo(() => {
     // If context stage chips disabled, don't show any context stages
@@ -3444,11 +3620,14 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     return contextStageKeys && contextStageKeys.length > 0
       ? contextStageKeys
       : (['enquiry', 'instructed'] as ContextStageKey[]);
-  }, [enableContextStageChips, contextStageKeys?.join('|')]);
+  }, [enableContextStageChips, contextStageKeys]);
 
   const pipelineStages = useMemo(() => {
     const allowedContextStages = new Set(contextStageKeyList);
     return timelineStages.filter((stage) => {
+      if (stage.key === 'claimed') {
+        return allowedContextStages.has('enquiry');
+      }
       if (['enquiry', 'instructed'].includes(stage.key)) {
         return allowedContextStages.has(stage.key as ContextStageKey);
       }
@@ -3457,80 +3636,100 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     });
   }, [timelineStages, contextStageKeyList, enableTabStages]);
 
-  const openEnquiryFromContext = React.useCallback(() => {
-    const enquiryStage = timelineStages.find(s => s.key === 'enquiry') as any;
-    const externalAction = enquiryStage?.externalAction as (() => void) | undefined;
-    if (typeof externalAction === 'function') externalAction();
-  }, [timelineStages]);
+  const headerCueAccent = caseAccentColor;
+  const workbenchPanelSurface = 'transparent';
+  const workbenchPanelBorder = 'none';
 
-  // Legacy tabs array for compatibility (maps from timeline stages)
-  const tabs = useMemo(() => timelineStages.filter(s => s.navigatesTo === s.key || ['identity', 'payment', 'risk', 'matter', 'documents'].includes(s.key)).map(s => ({
-    key: s.navigatesTo,
-    label: s.label,
-    icon: s.icon,
-    isComplete: s.isComplete,
-    hasIssue: s.hasIssue,
-    status: s.status,
-    count: (s as any).count,
-  })), [timelineStages]);
+  const isJourneyStageActive = (stage: (typeof pipelineStages)[number]) => {
+    const isContextStage = ['enquiry', 'claimed', 'instructed'].includes(stage.key);
+    const isTabStage = ['identity', 'payment', 'risk', 'matter', 'documents', 'pitch'].includes(stage.key);
+    if (stage.key === 'claimed') {
+      return activeTab === 'details' && activeContextStage === 'enquiry';
+    }
+    if (stage.key === 'enquiry') {
+      return false;
+    }
+    return (
+      (isTabStage && activeTab === stage.navigatesTo) ||
+      (isContextStage && (
+        (stage.key === 'instructed' && activeTab === 'details' && !activeContextStage) ||
+        activeContextStage === stage.key
+      ))
+    );
+  };
+  const getJourneyStageStateLabel = (stage: (typeof pipelineStages)[number], isActive: boolean) => {
+    if (isActive) return 'Viewing';
+    if ((stage as any).count !== undefined && (stage as any).count > 0) {
+      const unit = stage.key === 'documents'
+        ? ((stage as any).count === 1 ? 'document' : 'documents')
+        : ((stage as any).count === 1 ? 'item' : 'items');
+      return `${(stage as any).count} ${unit}`;
+    }
+    if (stage.hasIssue) return stage.status === 'warning' ? 'Check' : 'Review';
+    if (stage.status === 'processing') return 'In progress';
+    if (stage.isComplete) return stage.date ? `Done · ${stage.date}` : 'Done';
+    if (stage.status === 'neutral') return 'Open lead';
+    return 'Open view';
+  };
 
-  const isTabbedContent = ['identity', 'payment', 'risk', 'matter', 'documents'].includes(activeTab);
-  const headerCueAccent = isDarkMode ? colours.accent : colours.highlight;
+  const journeyProgressStopIndex = pipelineStages.findIndex((stage) => stage.hasIssue || !stage.isComplete);
+  const journeyLastPositiveIndex = journeyProgressStopIndex === -1
+    ? pipelineStages.length - 1
+    : Math.max(-1, journeyProgressStopIndex - 1);
+  const journeyNextIndex = journeyProgressStopIndex === -1 ? -1 : journeyProgressStopIndex;
+  const currentJourneyStage = pipelineStages.find(isJourneyStageActive) || null;
+  const nextJourneyStage = journeyNextIndex >= 0 ? pipelineStages[journeyNextIndex] : null;
+  const currentJourneyStageLabel = currentJourneyStage?.label || 'Overview';
+  const nextJourneyStageLabel = nextJourneyStage?.label || null;
 
-  // Palette helper for tab/timeline statuses
-  const getStagePalette = (stage: (typeof timelineStages)[number]) => {
-    if (stage.status === 'complete') return { 
-      bg: isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.08)',
-      border: isDarkMode ? 'rgba(32, 178, 108, 0.35)' : 'rgba(32, 178, 108, 0.3)',
-      text: colours.green,
-      line: colours.green,
-    };
-    if (stage.status === 'review') return {
-      bg: isDarkMode ? 'rgba(214, 85, 65, 0.15)' : 'rgba(214, 85, 65, 0.1)',
-      border: isDarkMode ? 'rgba(214, 85, 65, 0.4)' : 'rgba(214, 85, 65, 0.35)',
-      text: colours.cta,
-      line: colours.cta,
-    };
-    if (stage.status === 'warning') return {
-      bg: isDarkMode ? 'rgba(255, 140, 0, 0.15)' : 'rgba(255, 140, 0, 0.1)',
-      border: isDarkMode ? 'rgba(255, 140, 0, 0.4)' : 'rgba(255, 140, 0, 0.35)',
-      text: colours.orange,
-      line: colours.orange,
-    };
-    if (stage.status === 'processing') return {
-      bg: isDarkMode ? 'rgba(255, 140, 0, 0.15)' : 'rgba(255, 140, 0, 0.1)',
-      border: isDarkMode ? 'rgba(255, 140, 0, 0.4)' : 'rgba(255, 140, 0, 0.35)',
-      text: colours.orange,
-      line: colours.orange,
-    };
+  const getJourneyStageActionLabel = (stage: (typeof pipelineStages)[number]) => {
+    if (stage.key === 'enquiry') return 'Open enquiry record';
+    if (stage.key === 'claimed') return 'Show claimed enquiry view';
+    if (stage.key === 'instructed') return 'Show instruction view';
+    return `Show ${stage.label} view`;
+  };
+
+  const getJourneyStageTone = (stage: (typeof pipelineStages)[number], isActive: boolean) => {
+    const lateGreenStage = ['payment', 'identity', 'risk', 'matter', 'documents'].includes(stage.key);
+    if (stage.hasIssue) {
+      const alert = stage.status === 'warning' ? colours.orange : colours.cta;
+      return {
+        dot: alert,
+        text: isDarkMode ? colours.dark.text : colours.light.text,
+        subText: alert,
+        bg: isDarkMode ? `${alert}18` : `${alert}10`,
+        border: `${alert}66`,
+      };
+    }
+    if (stage.isComplete) {
+      const complete = lateGreenStage ? colours.green : (isDarkMode ? colours.accent : colours.highlight);
+      return {
+        dot: complete,
+        text: isDarkMode ? colours.dark.text : colours.light.text,
+        subText: complete,
+        bg: isDarkMode ? `${complete}16` : `${complete}0f`,
+        border: `${complete}55`,
+      };
+    }
+    if (isActive) {
+      const active = isDarkMode ? colours.accent : colours.highlight;
+      return {
+        dot: active,
+        text: isDarkMode ? colours.dark.text : colours.light.text,
+        subText: active,
+        bg: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.08)',
+        border: isDarkMode ? 'rgba(54, 144, 206, 0.34)' : 'rgba(54, 144, 206, 0.32)',
+      };
+    }
+    const pending = stage.status === 'processing' ? colours.orange : (isDarkMode ? colours.subtleGrey : colours.greyText);
     return {
-      bg: isDarkMode ? `${colours.subtleGrey}0f` : `${colours.subtleGrey}0d`,
-      border: isDarkMode ? colours.dark.border : `${colours.subtleGrey}26`,
-      text: isDarkMode ? colours.subtleGrey : colours.greyText,
-      line: isDarkMode ? colours.dark.border : `${colours.subtleGrey}26`,
+      dot: pending,
+      text: isDarkMode ? 'rgba(243, 244, 246, 0.82)' : 'rgba(6, 23, 51, 0.78)',
+      subText: isDarkMode ? colours.subtleGrey : colours.greyText,
+      bg: isDarkMode ? 'rgba(255, 255, 255, 0.025)' : 'rgba(0, 0, 0, 0.018)',
+      border: isDarkMode ? 'rgba(75, 85, 99, 0.6)' : 'rgba(160, 160, 160, 0.32)',
     };
   };
-
-  const activeStage = timelineStages.find(s => ['identity', 'payment', 'risk', 'matter', 'documents'].includes(s.key) && s.navigatesTo === activeTab) || null;
-  const activePalette = activeStage ? getStagePalette(activeStage) : null;
-  
-  // Revised Active Design: High contrast, brand-led
-  const activeTabPalette = {
-    bg: isDarkMode ? 'rgba(54, 144, 206, 0.16)' : 'rgba(54, 144, 206, 0.1)',
-    border: 'transparent', // We use the bottom line for focus, border is distracting
-    line: colours.highlight,
-    text: colours.highlight,
-    shadow: isDarkMode 
-      ? `inset 0 -3px 0 ${colours.highlight}, 0 4px 12px rgba(0,0,0,0.3)`
-      : `inset 0 -3px 0 ${colours.highlight}, 0 4px 12px rgba(54, 144, 206, 0.15)`,
-  };
-  
-  const tabBasePalette = {
-    bg: isDarkMode ? `${colours.subtleGrey}08` : `${colours.subtleGrey}0a`,
-    border: isDarkMode ? colours.dark.border : `${colours.subtleGrey}1f`,
-    text: isDarkMode ? colours.subtleGrey : colours.greyText,
-  };
-
   // Stop all click events from bubbling up to the row (which toggles expansion)
   const handleWorkbenchClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -3620,71 +3819,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
       try { await onRefreshData?.(instructionRef); } catch { /* silent */ }
     }
   }, [currentUser?.Email, currentUser?.FullName, instructionRef, onConfirmBankPayment, onRefreshData, showToast]);
-
-  // Status pill
-  const StatusPill = ({ status, label }: { status: 'pass' | 'fail' | 'pending' | 'warn'; label: string }) => {
-    const bg = status === 'pass' ? `${colours.highlight}1f` 
-      : status === 'fail' ? 'rgba(214, 85, 65, 0.12)'
-      : status === 'warn' ? 'rgba(214, 85, 65, 0.12)'
-      : (isDarkMode ? `${colours.subtleGrey}1a` : `${colours.subtleGrey}14`);
-    const color = status === 'pass' ? colours.highlight 
-      : status === 'fail' ? colours.cta
-      : status === 'warn' ? colours.cta
-      : (isDarkMode ? colours.subtleGrey : colours.greyText);
-    return (
-      <span style={{
-        fontSize: 9,
-        padding: '3px 8px',
-        borderRadius: 0,
-        background: bg,
-        color,
-        fontWeight: 600,
-        textTransform: 'uppercase',
-        letterSpacing: '0.3px',
-      }}>
-        {label}
-      </span>
-    );
-  };
-
-  // Payment Journey Step component - matches pipeline chip style
-  const JourneyStep = ({ label, isActive, isComplete }: { label: string; isActive: boolean; isComplete: boolean }) => {
-    const getColors = () => {
-      // Complete steps (including when active AND complete) show blue
-      if (isComplete || (isActive && label === 'Succeeded')) return { 
-        bg: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)',
-        border: colours.highlight,
-        text: colours.highlight
-      };
-      // Active but not complete (e.g. requires_action) shows amber
-      if (isActive) return {
-        bg: isDarkMode ? 'rgba(251, 191, 36, 0.15)' : 'rgba(251, 191, 36, 0.1)',
-        border: colours.orange,
-        text: colours.orange
-      };
-      return {
-        bg: isDarkMode ? `${colours.subtleGrey}1a` : `${colours.subtleGrey}14`,
-        border: isDarkMode ? colours.dark.borderColor : `${colours.subtleGrey}40`,
-        text: isDarkMode ? colours.subtleGrey : colours.greyText
-      };
-    };
-    const colors = getColors();
-    return (
-      <span style={{
-        padding: '4px 10px',
-        borderRadius: 0,
-        background: colors.bg,
-        border: `1px solid ${colors.border}`,
-        color: colors.text,
-        fontSize: 9,
-        fontWeight: 600,
-        textTransform: 'uppercase',
-        letterSpacing: '0.3px',
-      }}>
-        {label}
-      </span>
-    );
-  };
 
   // Bank Payment Confirmation Component - for manual date entry
   const BankPaymentConfirmation = ({
@@ -3790,19 +3924,12 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     const dealAmount = Number(deal?.Amount || deal?.amount || 0);
     const paymentCount = activePayments.length;
     const successCount = activePayments.filter((p: any) => p.payment_status === 'succeeded' || p.payment_status === 'confirmed').length;
-    const successfulPayments = activePayments.filter((p: any) => p.payment_status === 'succeeded' || p.payment_status === 'confirmed');
     const lastPayment = activePayments.length > 0 ? activePayments[activePayments.length - 1] : null;
     const lastPaymentDate = lastPayment?.created_at || lastPayment?.date || lastPayment?.payment_date;
     const formattedLastDate = lastPaymentDate
       ? new Date(lastPaymentDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
       : '\u2014';
-    const lastSuccessfulPayment = successfulPayments.length > 0 ? successfulPayments[successfulPayments.length - 1] : null;
-    const lastSuccessfulPaymentDateRaw = lastSuccessfulPayment?.created_at || lastSuccessfulPayment?.date || lastSuccessfulPayment?.payment_date;
-    const formattedPaidTimestamp = lastSuccessfulPaymentDateRaw
-      ? new Date(lastSuccessfulPaymentDateRaw).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-      : null;
     const allSuccess = successCount === paymentCount && paymentCount > 0;
-    const anyFailed = activePayments.some((p: any) => p.payment_status === 'failed');
     const showPerPaymentStatusPills = !(paymentCount === 1 && allSuccess);
 
     // Derive overall method from payments
@@ -3851,11 +3978,11 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
 
-        {/* \u2500\u2500 Payment Section Container \u2500\u2500 */}
+        {/* \u2500\u2500 Payment Content Inset \u2500\u2500 */}
         <div style={{
           padding: '12px 14px',
-          background: isDarkMode ? 'rgba(6, 23, 51, 0.35)' : 'rgba(255, 255, 255, 0.7)',
-          border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
+          background: 'transparent',
+          border: 'none',
           borderRadius: 0,
         }}>
 
@@ -3868,7 +3995,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
               gap: 0,
               fontFamily: 'Raleway, sans-serif',
               padding: '14px 0',
-              background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.25)',
+              background: 'transparent',
               borderTop: `1px solid ${sep}`,
               borderBottom: `1px solid ${sep}`,
               borderLeft: `1px solid ${sep}`,
@@ -4162,7 +4289,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                           flexWrap: 'wrap',
                           gap: 0,
                           padding: '10px 0',
-                          background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.25)',
+                          background: 'transparent',
                           borderRadius: 0,
                         }}>
                           {/* Date */}
@@ -4310,216 +4437,187 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         boxShadow: 'none',
       }}
     >
-      {/* Pipeline Tabs - Instructed → Pay → ID → Risk → Matter → Docs */}
+      {/* Journey stages */}
       {pipelineStages.length > 0 && (
       <div 
+        data-helix-region="instructions/workbench/journey-stages"
         data-action-button="true"
         onClick={(e) => e.stopPropagation()}
         onMouseDown={(e) => e.stopPropagation()}
         style={{
-          padding: '10px 16px 12px',
+          padding: '10px 16px 11px',
           borderBottom: `1px solid ${isDarkMode ? colours.dark.border : colours.grey}`,
           background: isDarkMode ? colours.dark.sectionBackground : 'rgba(255, 255, 255, 0.8)',
           position: 'relative',
           zIndex: 20,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 10,
+          marginBottom: 8,
+        }}>
+          <span style={{
+            fontSize: 10,
+            fontWeight: 800,
+            letterSpacing: '0.5px',
+            textTransform: 'uppercase',
+            color: isDarkMode ? colours.accent : colours.highlight,
+            whiteSpace: 'nowrap',
+          }}>
+            Journey stages
+          </span>
+          <span style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 5,
+            padding: '3px 7px',
+            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)'}`,
+            color: isDarkMode ? colours.accent : colours.highlight,
+            background: isDarkMode ? 'rgba(54, 144, 206, 0.05)' : 'rgba(54, 144, 206, 0.045)',
+            fontSize: 9,
+            fontWeight: 700,
+            textTransform: 'uppercase',
+            letterSpacing: '0.35px',
+            whiteSpace: 'nowrap',
+          }}>
+            Current view
+            <span style={{ color: isDarkMode ? '#d1d5db' : '#374151', letterSpacing: 0, textTransform: 'none' }}>
+              {currentJourneyStageLabel}
+            </span>
+          </span>
+          {nextJourneyStageLabel && (
+            <span style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5,
+              padding: '3px 7px',
+              border: `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.2)' : 'rgba(32, 178, 108, 0.16)'}`,
+              color: colours.green,
+              background: isDarkMode ? 'rgba(32, 178, 108, 0.06)' : 'rgba(32, 178, 108, 0.045)',
+              fontSize: 9,
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              letterSpacing: '0.35px',
+              whiteSpace: 'nowrap',
+            }}>
+              Next
+              <span style={{ color: isDarkMode ? '#d1d5db' : '#374151', letterSpacing: 0, textTransform: 'none' }}>
+                {nextJourneyStageLabel}
+              </span>
+            </span>
+          )}
+        </div>
+
+        <div className="wb-timeline-rail" style={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: 0,
+          overflowX: 'auto',
+          overflowY: 'hidden',
+          padding: '2px 2px 4px',
+          scrollbarWidth: 'thin',
+        }}>
           {pipelineStages.map((stage, idx) => {
             const prevStage = idx > 0 ? pipelineStages[idx - 1] : null;
-            // Enquiry and Pitch are context stages (data views)
-            const isContextStage = ['enquiry', 'instructed'].includes(stage.key);
-            const isTabStage = ['identity', 'payment', 'risk', 'matter', 'documents', 'pitch'].includes(stage.key);
-            
-            // Skip tab stages if disabled (they're shown in the parent pipeline)
-            if (isTabStage && !enableTabStages) return null;
-            
-            // Determine active state
-            const isTabActive = isTabStage && activeTab === stage.navigatesTo;
-            const isContextActive = isContextStage && (
-               // Instructed is active if we are on 'details' and NO specific context stage is set
-               (stage.key === 'instructed' && activeTab === 'details' && !activeContextStage) ||
-               // Enquiry/Pitch are active if they match the context stage
-               (activeContextStage === stage.key)
-            );
+            const externalAction = (stage as any).externalAction as (() => void) | undefined;
+            const isActive = isJourneyStageActive(stage);
+            const isNextStep = idx === journeyNextIndex && !isActive;
+            const stateLabel = getJourneyStageStateLabel(stage, isActive);
+            const stageTone = getJourneyStageTone(stage, isActive);
+            const prevStageTone = prevStage ? getJourneyStageTone(prevStage, false) : null;
+            const connectorIsAlert = idx === journeyProgressStopIndex && stage.hasIssue && !!prevStage?.isComplete && !prevStage?.hasIssue;
+            const connectorFilled = idx <= journeyLastPositiveIndex || connectorIsAlert;
+            const connectorFill = connectorIsAlert
+              ? `linear-gradient(90deg, ${prevStageTone?.dot || colours.green}, ${stageTone.dot})`
+              : idx >= 4
+                ? `linear-gradient(90deg, ${isDarkMode ? colours.accent : colours.highlight}, ${colours.green})`
+                : `linear-gradient(90deg, ${colours.highlight}, ${isDarkMode ? colours.accent : colours.highlight})`;
+            const count = (stage as any).count as number | undefined;
+            const isCompleteSafe = stage.isComplete && !stage.hasIssue;
 
-            const isActive = isTabActive || isContextActive;
-            
-            // Status colors
-            const statusColors = getStagePalette(stage); // Fallback colors for icon/text
-            
-            // Connector Logic - connector lights up when the PREVIOUS stage is complete
-            // This shows the progression/link between stages has been achieved
-            const connectorColor = prevStage?.isComplete 
-              ? colours.highlight  // Blue when previous stage is complete
-              : (isDarkMode ? colours.dark.border : '#d1d5db'); // Gray otherwise
-
-            // Click Handler
             const handleClick = (e: React.MouseEvent) => {
               e.stopPropagation();
-              
-              if (isContextStage) {
-                 setActiveTab('details');
-                 // Toggle logic or set context
-                 if (stage.key === 'enquiry') {
-                   // Click sets the enquiry context stage
-                   setActiveContextStage(stage.key as ContextStageKey);
-                 } else {
-                   // Instructed -> Clear context stage (shows default details)
-                   setActiveContextStage(null);
-                 }
-              } else {
-                // Tab Stage
-                setActiveContextStage(null);
-                if (isActive) {
-                   // Toggle off to details if already active? 
-                   setActiveTab('details');
-                } else {
-                   setActiveTab(stage.navigatesTo as WorkbenchTab);
-                }
+
+              if (stage.navigatesTo === 'external') {
+                if (typeof externalAction === 'function') externalAction();
+                return;
               }
+
+              if (stage.key === 'claimed') {
+                setActiveTab('details');
+                setActiveContextStage('enquiry');
+                return;
+              }
+
+              if (stage.key === 'instructed') {
+                setActiveTab('details');
+                setActiveContextStage(null);
+                return;
+              }
+
+              setActiveContextStage(null);
+              setActiveTab(stage.navigatesTo as WorkbenchTab);
             };
-
-            // Is the connector "lit" (previous stage complete)?
-            const isConnectorLit = prevStage?.isComplete;
-
-            const chipBaseBackground = isActive
-              ? 'rgba(54, 144, 206, 0.12)'
-              : (isDarkMode ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)');
-            const chipBaseBorder = isActive
-              ? '1px solid rgba(54, 144, 206, 0.45)'
-              : `1px solid ${isDarkMode ? colours.dark.border : `${colours.subtleGrey}33`}`;
-            const chipBaseOpacity = stage.status === 'pending' || stage.status === 'neutral' ? 0.7 : 1;
-            const chipHoverBackground = isActive
-              ? 'rgba(54, 144, 206, 0.16)'
-              : (isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.06)');
-            const chipHoverBorder = isActive
-              ? '1px solid rgba(54, 144, 206, 0.55)'
-              : '1px solid rgba(54, 144, 206, 0.35)';
 
             return (
               <React.Fragment key={stage.key}>
-                {/* Connector line - lights up green when previous stage is complete */}
                 {idx > 0 && (
-                  <div className="wb-connector" style={{ 
-                    display: 'flex',
-                    alignItems: 'center',
-                    '--chip-index': idx,
-                  } as React.CSSProperties}>
-                    <div style={{
-                      height: 2,
-                      width: 12,
-                      background: isConnectorLit 
-                        ? colours.green
-                        : (isDarkMode ? colours.dark.border : `${colours.greyText}66`),
-                      borderRadius: 1,
-                      margin: '0 2px',
-                    }} />
+                  <div
+                    className="wb-connector wb-timeline-link"
+                    title={prevStage ? `${prevStage.label} to ${stage.label}` : undefined}
+                    style={{ '--chip-index': idx } as React.CSSProperties}
+                  >
+                    <div className="wb-timeline-link-track">
+                      <div
+                        className="wb-timeline-link-fill"
+                        style={{
+                          width: connectorFilled ? '100%' : '0%',
+                          background: connectorFill,
+                        }}
+                      />
+                    </div>
                   </div>
                 )}
                 
                 <button
                   type="button"
-                  className="wb-chip"
+                  className={`wb-chip wb-timeline-stage${isActive ? ' wb-timeline-stage--active' : ''}${isNextStep ? ' wb-timeline-stage--next' : ''}${stage.hasIssue ? ' wb-timeline-stage--issue' : ''}${isActive && isTabMotionActive && !isEnterMotionActive ? ' wb-chip-active-pulse' : ''}`}
+                  aria-current={isActive ? 'step' : undefined}
+                  aria-label={`${getJourneyStageActionLabel(stage)}. ${stateLabel}`}
                   onClick={handleClick}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = chipHoverBackground;
-                    e.currentTarget.style.border = chipHoverBorder;
-                    e.currentTarget.style.opacity = '1';
-                    e.currentTarget.style.transform = 'translateY(-1px)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = chipBaseBackground;
-                    e.currentTarget.style.border = chipBaseBorder;
-                    e.currentTarget.style.opacity = String(chipBaseOpacity);
-                    e.currentTarget.style.transform = 'translateY(0)';
-                  }}
                   style={{
                     '--chip-index': idx,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 6,
-                    padding: '6px 12px',
-                    minHeight: 28,
-                    height: 28,
-                    borderRadius: 0,
-                    background: chipBaseBackground,
-                    border: chipBaseBorder,
-                    cursor: 'pointer',
-                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                    boxShadow: 'none',
-                    color: statusColors.text,
-                    fontSize: 11,
-                    fontWeight: isActive ? 700 : 600,
-                    lineHeight: 1,
-                    fontFamily: 'inherit',
-                    whiteSpace: 'nowrap' as const,
-                    position: 'relative',
-                    zIndex: 1,
-                    opacity: chipBaseOpacity,
+                    '--wb-stage-tone': stageTone.dot,
+                    '--wb-stage-border': stageTone.border,
+                    '--wb-stage-bg': stageTone.bg,
+                    color: stageTone.text,
                   } as React.CSSProperties}
-                  title={stage.date ? `${stage.label}: ${stage.date}` : `${stage.label}${stage.status === 'pending' || stage.status === 'neutral' ? ' — no records yet' : ''}`}
+                  title={`${getJourneyStageActionLabel(stage)} · ${stateLabel}${stage.date ? ` · ${stage.date}` : ''}`}
                 >
-                  <span style={{ 
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    width: 12,
-                    minWidth: 12,
-                    color: statusColors.text, 
-                    opacity: isActive ? 1 : 0.9,
-                  }}>
-                    {stage.icon}
-                  </span>
-                  
-                  <span style={{ display: 'inline-flex', alignItems: 'center', lineHeight: 1 }}>
-                    {stage.label}
+                  <span className="wb-timeline-dot" style={{ borderColor: stageTone.border }}>
+                    {isCompleteSafe ? (
+                      <FaCheck size={8} style={{ color: stageTone.dot }} />
+                    ) : stage.hasIssue ? (
+                      <FaExclamationTriangle size={8} style={{ color: stageTone.dot }} />
+                    ) : (
+                      <span className="wb-timeline-dot-core" style={{ background: stageTone.dot }} />
+                    )}
                   </span>
 
-                  {/* Status Badges / Checks */}
-                  {(stage as any).count !== undefined && (stage as any).count > 0 ? (
-                    <span style={{
-                      fontSize: 10,
-                      fontWeight: 700,
-                      padding: '1px 6px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      borderRadius: 999,
-                      background: isDarkMode ? `${colours.subtleGrey}2e` : `${colours.subtleGrey}2e`,
-                      color: isDarkMode ? 'rgba(243, 244, 246, 0.8)' : 'rgba(6, 23, 51, 0.7)',
-                      marginLeft: 2,
-                      flexShrink: 0,
-                    }}>
-                      {(stage as any).count}
+                  <span className="wb-timeline-copy">
+                    <span className="wb-timeline-label">
+                      {stage.label}
+                      {count !== undefined && count > 0 && (
+                        <span className="wb-timeline-count">{count}</span>
+                      )}
                     </span>
-                  ) : stage.isComplete ? (
-                    <span style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      width: 12,
-                      minWidth: 12,
-                      height: 12,
-                      marginLeft: 2,
-                      flexShrink: 0,
-                    }}>
-                      <FaCheck size={9} style={{ color: colours.highlight }} />
+                    <span className="wb-timeline-meta" style={{ color: stageTone.subText }}>
+                      {isNextStep ? `Next · ${stateLabel}` : stateLabel}
                     </span>
-                  ) : stage.hasIssue ? (
-                    <span style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      width: 12,
-                      minWidth: 12,
-                      height: 12,
-                      marginLeft: 2,
-                      flexShrink: 0,
-                    }}>
-                      <FaExclamationTriangle size={9} style={{ color: '#D65541' }} />
-                    </span>
-                  ) : null}
+                  </span>
                 </button>
               </React.Fragment>
             );
@@ -4529,7 +4627,10 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
       )}
 
       {/* Tab content - expand as needed */}
-      <div className={`wb-tab-content${isTabMotionActive && !isEnterMotionActive ? ' wb-tab-transition' : ''}`} style={{
+      <div
+        ref={tabContentRef}
+        className={`wb-tab-content${isTabMotionActive && !isEnterMotionActive ? ` wb-tab-transition wb-tab-${tabMotionDirection}` : ''}`}
+        style={{
         padding: '6px 8px 8px 8px',
         minHeight: 96,
         border: 'none',
@@ -4540,11 +4641,15 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         boxShadow: 'none',
       }}>
         {/* Details Tab - Client/Entity information landing page */}
-        {activeTab === 'details' && (
-          <div className="wb-tab-stack" key={`details-${activeContextStage || 'instructed'}`} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {/* Pitch tab also routes through here so the rich pitch panel matches the Claimed/Enquiry treatment. */}
+        {(activeTab === 'details' || activeTab === 'pitch') && (
+          <div className="wb-tab-stack" key={`details-${activeTab === 'pitch' ? 'pitch' : (activeContextStage || 'instructed')}`} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {(() => {
-              // Respect activeContextStage even if chips are hidden
-              const contextStage: ContextStageKey = activeContextStage ?? 'enquiry';
+              // Respect activeContextStage even if chips are hidden.
+              // When the Pitch tab is active, force the pitch context so the rich pitch block renders inline.
+              const contextStage: ContextStageKey = activeTab === 'pitch'
+                ? 'pitch'
+                : (activeContextStage ?? 'enquiry');
 
               return (
                 <>
@@ -4580,80 +4685,16 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
 
                     {/* Meta tags (match enquiry table/overview look & feel) */}
-                    <div>
+                    <div className={`wb-tab-substack wb-tab-substack--${contextStage}`}>
                       {(() => {
-                        const tagBase: React.CSSProperties = {
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 6,
-                          padding: '4px 8px',
-                          borderRadius: 0,
-                          border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(6, 23, 51, 0.06)'}`,
-                          background: isDarkMode ? 'rgba(160, 160, 160, 0.04)' : 'rgba(6, 23, 51, 0.02)',
-                          color: isDarkMode ? 'rgba(243, 244, 246, 0.78)' : 'rgba(6, 23, 51, 0.72)',
-                          fontSize: 10,
-                          fontWeight: 500,
-                          lineHeight: 1,
-                          maxWidth: '100%',
-                        };
-
-                        const tagText: React.CSSProperties = {
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                          maxWidth: 360,
-                        };
-
                         const isMeaningful = (v: any) => {
                           if (v === null || v === undefined) return false;
                           const s = String(v).trim();
                           return s.length > 0 && s !== '—';
                         };
 
-                        const resolveAowAccent = (raw: any): string => {
-                          const a = String(raw ?? '').toLowerCase();
-                          if (a.includes('commercial')) return colours.blue;
-                          if (a.includes('construction')) return colours.orange;
-                          if (a.includes('property')) return colours.green;
-                          if (a.includes('employment')) return colours.yellow;
-                          return colours.greyText;
-                        };
-
-                        const renderTag = (opts: {
-                          iconName: string;
-                          label: string;
-                          value: any;
-                          monospace?: boolean;
-                          accentLeft?: string;
-                          onClick?: () => void;
-                        }) => {
-                          if (!isMeaningful(opts.value)) return null;
-                          const valueText = String(opts.value);
-                          const clickable = Boolean(opts.onClick);
-                          return (
-                            <div
-                              title={`${opts.label}: ${valueText}`}
-                              onClick={(e) => {
-                                if (!opts.onClick) return;
-                                e.stopPropagation();
-                                opts.onClick();
-                              }}
-                              style={{
-                                ...tagBase,
-                                cursor: clickable ? 'pointer' : 'default',
-                                borderLeft: opts.accentLeft ? `3px solid ${opts.accentLeft}` : tagBase.borderLeft,
-                              }}
-                            >
-                              <Icon iconName={opts.iconName} styles={{ root: { fontSize: 11, opacity: 0.6 } }} />
-                              <span style={{ ...tagText, fontFamily: opts.monospace ? 'monospace' : undefined }}>
-                                {valueText}
-                              </span>
-                            </div>
-                          );
-                        };
-
                         if (contextStage === 'enquiry') {
-                          const aowAccent = resolveAowAccent(areaOfWork);
+                          const aowAccent = resolveWorkbenchCaseAccent(areaOfWork);
                           
                           // Claim timestamp for new space enquiries (from enquiry record, enrichment, or instruction data)
                           // Use empty-string fallback so we can fall through to enrichment data
@@ -4741,7 +4782,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                           const teamsTimestampRaw = enrichmentTeamsData?.ClaimedAt
                             || enrichmentTeamsData?.MessageTimestamp 
                             || enrichmentTeamsData?.CreatedAt 
-                            || (enrichmentTeamsData?.CreatedAtMs ? new Date(enrichmentTeamsData.CreatedAtMs).toISOString() : null);
+                            || toIsoDateTime(enrichmentTeamsData?.CreatedAtMs)
+                            || null;
 
                           const claimedFallbackRaw = getValue([
                             'ClaimedDateTime',
@@ -4840,16 +4882,10 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                           const hasTeamsData = Boolean(enrichmentTeamsData || teamsCardLink || teamsIdentifier || claimedDateTime || isDemoInstruction);
 
                           // Flattened layout tokens (no nested panel container)
-                          const textPrimary = isDarkMode ? colours.dark.text : colours.light.text;
                           const textMuted = isDarkMode ? colours.subtleGrey : colours.greyText;
                           const textBody = isDarkMode ? '#d1d5db' : '#374151';
-                          const dividerColour = isDarkMode ? colours.dark.border : colours.grey;
                           const enquiryId = enquiry?.ID || enquiry?.id || '';
 
-                          // ── Ledger tokens ──
-                          const borderLine = isDarkMode ? `1px solid ${colours.dark.border}50` : `1px solid ${colours.highlightNeutral}`;
-                          const hoverBg = isDarkMode ? 'rgba(13, 47, 96, 0.25)' : 'rgba(214, 232, 255, 0.25)';
-                          const insetBg = isDarkMode ? 'rgba(0, 3, 25, 0.25)' : 'rgba(255, 255, 255, 0.4)';
                           const separatorColor = isDarkMode ? `${colours.dark.border}40` : colours.highlightNeutral;
 
                           // Dispatch edit event
@@ -4917,16 +4953,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                             <div className="wb-data-sep" style={{ '--wb-col-index': index, width: 1, alignSelf: 'stretch', background: separatorColor, margin: '4px 0' } as React.CSSProperties} />
                           );
 
-                          // Inline action chip (contact / integration)
-                          const actionChipStyle: React.CSSProperties = {
-                            display: 'inline-flex', alignItems: 'center', gap: 5,
-                            padding: '4px 9px', borderRadius: 0,
-                            border: borderLine, background: 'transparent',
-                            fontSize: 11, fontWeight: 500, fontFamily: 'inherit',
-                            cursor: 'pointer', transition: 'background 0.12s ease',
-                            whiteSpace: 'nowrap',
-                          };
-
                           // Submission time (HH:MM) for v2/instruction space enquiries
                           const submissionTime = (() => {
                             const shouldHideTouchpointTime = (time: string | null): boolean => time === '00:00';
@@ -4968,8 +4994,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                             return null;
                           })();
 
-                          const claimTransitionLabel = claimDuration ? `to claim in ${claimDuration}` : null;
-
                           return (
                             <div className="wb-enquiry-stack" style={{
                               fontFamily: "'Raleway', 'Segoe UI', sans-serif",
@@ -4979,14 +5003,14 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                             }}>
                               {renderJourneyStrip(
                                 submissionDate && submissionDate !== '—'
-                                  ? { label: 'Enquiry submitted', stamp: `${formatRelativeDateOnly(submissionDateRaw)}${submissionTime ? ` · ${submissionTime}` : ''}` }
+                                  ? { stageKey: 'enquiry', detail: 'Submitted', stamp: `${formatRelativeDateOnly(submissionDateRaw)}${submissionTime ? ` · ${submissionTime}` : ''}` }
                                   : null,
                                 hasTeamsData
                                   ? {
-                                      label: claimedDateTime ? `Claimed by ${claimedByInitials}` : 'Teams',
+                                      stageKey: 'enquiry',
+                                      detail: claimedDateTime ? `Claimed by ${claimedByInitials}` : 'Tracked in Teams',
                                       stamp: claimedDateTime || undefined,
                                       color: colours.green,
-                                      icon: <Icon iconName="TeamsLogo" styles={{ root: { fontSize: 11 } }} />,
                                       onClick: effectiveTeamsLink ? () => window.open(effectiveTeamsLink, '_blank') : (teamsIdentifier && !teamsCardLink ? () => { void resolveTeamsCardLink(); } : undefined),
                                       cursor: effectiveTeamsLink ? 'pointer' : undefined,
                                       title: effectiveTeamsLink ? 'Open Teams Card' : 'Teams activity tracked',
@@ -4999,10 +5023,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                 display: 'flex',
                                 flexDirection: 'column',
                                 gap: 10,
-                                background: isDarkMode
-                                  ? 'rgba(2, 6, 23, 0.24)'
-                                  : 'rgba(255, 255, 255, 0.76)',
-                                border: `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.34)' : 'rgba(54, 144, 206, 0.08)'}`,
+                                background: workbenchPanelSurface,
+                                border: workbenchPanelBorder,
                                 borderRadius: 0,
                                 padding: '12px 14px',
                               }}>
@@ -5017,10 +5039,10 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                     <span style={{
                                       fontSize: 9, fontWeight: 700, letterSpacing: '0.5px',
                                       textTransform: 'uppercase',
-                                      color: isDarkMode ? colours.accent : colours.highlight,
+                                      color: headerCueAccent,
                                       display: 'flex', alignItems: 'center', gap: 4,
                                     }}>
-                                      <Icon iconName="EditNote" styles={{ root: { fontSize: 10, color: isDarkMode ? colours.accent : colours.highlight } }} />
+                                      <Icon iconName="EditNote" styles={{ root: { fontSize: 10, color: headerCueAccent } }} />
                                       Enquiry Notes
                                     </span>
                                     <span
@@ -5036,8 +5058,9 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                     whiteSpace: 'pre-wrap', maxHeight: 180, overflowY: 'auto',
                                     padding: '8px 14px',
                                     margin: '4px 0 10px',
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.04)' : 'rgba(54, 144, 206, 0.03)',
-                                    border: `1px solid ${separatorColor}`,
+                                    background: caseAccentSoftFill,
+                                    border: `1px solid ${caseAccentBorder}`,
+                                    boxShadow: `inset 2px 0 0 ${caseAccentColor}`,
                                   }}>
                                     {enquiryNotes}
                                   </div>
@@ -5049,9 +5072,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                 display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 0,
                                 padding: '14px 0',
                                 border: `1px solid ${separatorColor}`,
-                                background: isDarkMode
-                                  ? 'rgba(2, 6, 23, 0.4)'
-                                  : 'rgba(244, 244, 246, 0.46)',
+                                background: 'transparent',
                               }}>
                                 <DataCol
                                   label="Area"
@@ -5122,8 +5143,9 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                           );
                         }
 
-                        // Pitch context content moved to PitchComposer tab
-                        if (false as boolean) {
+                        // Rich pitch context block — rendered inline within the enquiry/details view.
+                        // Gated to the pitch context stage (set via Pitch chip or Pitch tab routing).
+                        if (contextStage === 'pitch') {
                           const dealId = deal?.DealId || deal?.dealId || effectivePitch?.DealId || effectivePitch?.dealId || '';
                           const dealPasscode = deal?.Passcode || deal?.passcode || effectivePitch?.Passcode || effectivePitch?.passcode || '';
                           const dealAmount = deal?.Amount || deal?.amount || deal?.FeeAmount || deal?.feeAmount || effectivePitch?.Amount || effectivePitch?.amount;
@@ -5136,7 +5158,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                             return match?.[1] || '';
                           })();
                           const pitchedBy = effectivePitch?.CreatedBy || effectivePitch?.createdBy || deal?.PitchedBy || deal?.pitchedBy || pointOfContact || '';
-                          const pitchStatus = deal?.Status || deal?.status || effectivePitch?.Status || effectivePitch?.status || '';
                           const pitchExpiryRawFromSource =
                             deal?.PitchValidUntil ||
                             deal?.pitchValidUntil ||
@@ -5208,7 +5229,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                           });
                           
                           // Check if we have any pitch data at all
-                          const hasNoPitchData = !deal && !effectivePitch && !isFetchingPitchContent;
+                          const hasNoPitchData = !deal && !effectivePitch && !isPitchContentLoading;
                           
                           // Combine PitchedDate and PitchedTime for accurate datetime
                           const pitchedDateRaw = deal?.PitchedDate || deal?.pitchedDate || effectivePitch?.CreatedAt || effectivePitch?.createdAt;
@@ -5292,9 +5313,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                             return remHrs > 0 ? `${days}d ${remHrs}h` : `${days}d`;
                           };
 
-                          const pitchedDateObj = (() => {
-                            return parseTimelineDate(pitchedDateRaw, pitchedTimelineTimeRaw);
-                          })();
                           const instructedDateObj = (() => {
                             return parseTimelineDate(instructedTimelineRaw, instructedTimelineTimeRaw);
                           })();
@@ -5302,20 +5320,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                             if (!pitchExpiryRaw) return null;
                             const date = new Date(pitchExpiryRaw);
                             return Number.isNaN(date.getTime()) ? null : date;
-                          })();
-
-                          const pitchToInstructCue = (() => {
-                            const diffLabel = formatTimelineDiff(
-                              pitchedDateRaw,
-                              instructedTimelineRaw,
-                              pitchedTimelineTimeRaw,
-                              instructedTimelineTimeRaw,
-                            );
-                            if (!diffLabel) return null;
-                            return {
-                              label: diffLabel,
-                              color: isDarkMode ? colours.accent : colours.highlight,
-                            };
                           })();
 
                           const instructToExpiryCue = (() => {
@@ -5361,7 +5365,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                             instructionStageLowerForPitch.includes('risk')
                           );
                           const hasInstructedChip = hasInstructedStageSignal && Boolean(instructedDateObj || instructedDateTime);
-                          const strikeExpiryChip = hasInstructedChip && Boolean(instructedDateObj);
                           
                           // Flattened layout tokens (matches enquiry section treatment)
                           const textMuted = isDarkMode ? colours.subtleGrey : colours.greyText;
@@ -5415,14 +5418,28 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                             <div className="wb-data-sep" style={{ '--wb-col-index': idx, width: 1, alignSelf: 'stretch', background: separatorColor, margin: '4px 0' } as React.CSSProperties} />
                           );};
 
-                          // Show loading state while fetching pitch content
-                          if (isFetchingPitchContent) {
+                          // Show skeleton shimmer mirroring the data-row layout while fetching
+                          if (isPitchContentLoading) {
                             return (
-                              <div style={{
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                padding: '24px', color: textMuted, fontSize: 12,
-                              }}>
-                                Loading pitch data...
+                              <div
+                                className="wb-pitch-skel"
+                                role="status"
+                                aria-live="polite"
+                                aria-label="Loading pitch data"
+                                style={{
+                                  display: 'flex', alignItems: 'stretch',
+                                  padding: '6px 0', gap: 0,
+                                }}
+                              >
+                                {[0, 1, 2, 3].map((i) => (
+                                  <React.Fragment key={i}>
+                                    <div className="wb-data-col" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: 34, gap: 6, padding: '0 14px', flex: 1 }}>
+                                      <span className="wb-pitch-skel__label shimmer" style={{ height: 8, width: '55%' }} />
+                                      <span className="wb-pitch-skel__value shimmer" style={{ height: 12, width: '78%' }} />
+                                    </div>
+                                    {i < 3 && <div style={{ width: 1, alignSelf: 'stretch', background: separatorColor, margin: '4px 0' }} />}
+                                  </React.Fragment>
+                                ))}
                               </div>
                             );
                           }
@@ -5441,7 +5458,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                             );
                           }
                           
-                          const instructedTimelineColour = instructToExpiryCue?.kind === 'confirmed-late' ? colours.cta : colours.green;
                           const isPitchExpired = !hasInstructedChip && instructToExpiryCue?.kind === 'expired';
                           const claimTimelineRaw = enrichmentTeamsData?.ClaimedAt
                             || getValue([
@@ -5478,6 +5494,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                             claimTimelineTimeRaw,
                             pitchedTimelineTimeRaw,
                           );
+                          const showClaimToPitchJourney = Boolean(hasPitchedChip || claimTimelineStamp || claimTimelineRaw || prospectId);
 
                           return (
                             <div className="wb-enquiry-stack" style={{
@@ -5487,31 +5504,131 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                               gap: 8,
                             }}>
                               {renderJourneyStrip(
-                                claimTimelineStamp
-                                  ? { label: 'Enquiry claimed', stamp: claimTimelineStamp }
+                                showClaimToPitchJourney
+                                  ? { stageKey: 'claimed', stamp: claimTimelineStamp || null }
                                   : null,
                                 hasPitchedChip
-                                  ? { label: 'Pitch sent', stamp: pitchedDateTime || pitchDate, color: colours.green, icon: <FaPaperPlane size={10} /> }
+                                  ? { stageKey: 'pitch', detail: 'Sent', stamp: pitchedDateTime || pitchDate, color: colours.green }
                                   : null,
                                 claimToPitchLabel || null,
                               )}
 
-                              <div style={{
-                                display: 'flex',
-                                flexDirection: 'column',
-                                gap: 10,
-                                background: isDarkMode ? 'rgba(6, 23, 51, 0.45)' : 'rgba(255, 255, 255, 0.7)',
-                                border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
-                                borderRadius: 0,
-                                padding: '12px 14px',
-                              }}>
+                              {/* ── Pitch link bar (top strip, matching instructed hierarchy) ── */}
+                              {resolvedPitchPasscode && (
+                                <div className="wb-stage-frame" style={{
+                                  display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12,
+                                  padding: '6px 14px',
+                                  margin: '0 14px',
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.04)' : 'rgba(54, 144, 206, 0.03)',
+                                  border: `1px solid ${separatorColor}`,
+                                }}>
+                                  {(() => {
+                                    const pitchLinkStatus = hasInstructedChip ? 'Instructed' : (isPitchExpired ? 'Expired' : 'Pending');
+                                    const pitchLinkColor = hasInstructedChip
+                                      ? colours.green
+                                      : isPitchExpired
+                                        ? colours.cta
+                                        : (isDarkMode ? colours.accent : colours.highlight);
+                                    const checkoutLabel = hasPitchContent ? 'Pitch Link' : 'Checkout Link';
+                                    const isCopied = copiedInstructionStamp === 'pitch-link';
+                                    return (
+                                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, width: '100%', flexWrap: 'wrap' }}>
+                                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                          <span style={{
+                                            fontSize: 9,
+                                            fontWeight: 700,
+                                            letterSpacing: '0.55px',
+                                            textTransform: 'uppercase',
+                                            color: textMuted,
+                                          }}>
+                                            {checkoutLabel}
+                                          </span>
+
+                                          <button
+                                            type="button"
+                                            onClick={async (e) => {
+                                              e.stopPropagation();
+                                              const copied = await safeCopy(`https://instruct.helix-law.com/pitch/${resolvedPitchPasscode}`);
+                                              if (copied) flashCopiedInstructionStamp('pitch-link');
+                                            }}
+                                            title={`Click to copy ${checkoutLabel.toLowerCase()}`}
+                                            style={{
+                                              display: 'inline-flex',
+                                              alignItems: 'center',
+                                              gap: 6,
+                                              padding: '3px 8px',
+                                              borderRadius: 0,
+                                              border: `1px dashed ${isCopied ? colours.green : (isDarkMode ? 'rgba(160, 160, 160, 0.26)' : 'rgba(6, 23, 51, 0.14)')}`,
+                                              background: isCopied
+                                                ? (isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.08)')
+                                                : (isDarkMode ? 'rgba(255,255,255,0.025)' : 'rgba(255,255,255,0.55)'),
+                                              color: isCopied ? colours.green : textBody,
+                                              fontSize: 10,
+                                              fontWeight: 600,
+                                              fontFamily: 'monospace',
+                                              letterSpacing: '0.2px',
+                                              cursor: 'pointer',
+                                              transform: isCopied ? 'translateY(-1px)' : 'translateY(0)',
+                                              boxShadow: isCopied
+                                                ? (isDarkMode ? '0 0 0 1px rgba(32, 178, 108, 0.22)' : '0 0 0 1px rgba(32, 178, 108, 0.16)')
+                                                : 'none',
+                                              transition: 'border-color 0.15s ease, background 0.15s ease, color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease',
+                                            }}
+                                            onMouseEnter={(e) => {
+                                              if (isCopied) return;
+                                              e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.34)' : 'rgba(54, 144, 206, 0.22)';
+                                              e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.05)' : 'rgba(54, 144, 206, 0.04)';
+                                            }}
+                                            onMouseLeave={(e) => {
+                                              if (isCopied) return;
+                                              e.currentTarget.style.borderColor = isDarkMode ? 'rgba(160, 160, 160, 0.26)' : 'rgba(6, 23, 51, 0.14)';
+                                              e.currentTarget.style.background = isDarkMode ? 'rgba(255,255,255,0.025)' : 'rgba(255,255,255,0.55)';
+                                            }}
+                                          >
+                                            {isCopied && (
+                                              <span style={{ display: 'inline-flex', alignItems: 'center', transform: 'translateY(-1px) scale(1.05)' }}>
+                                                <FaCheck size={9} />
+                                              </span>
+                                            )}
+                                            <span>{isCopied ? 'Copied' : `instruct.helix-law.com/pitch/${resolvedPitchPasscode}`}</span>
+                                          </button>
+                                        </div>
+
+                                        <span style={{
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: 5,
+                                          padding: '3px 8px',
+                                          borderRadius: 0,
+                                          border: `1px dashed ${pitchLinkColor}`,
+                                          background: hasInstructedChip
+                                            ? (isDarkMode ? 'rgba(32, 178, 108, 0.08)' : 'rgba(32, 178, 108, 0.05)')
+                                            : isPitchExpired
+                                              ? (isDarkMode ? 'rgba(214, 85, 65, 0.08)' : 'rgba(214, 85, 65, 0.05)')
+                                              : (isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.04)'),
+                                          color: pitchLinkColor,
+                                          fontSize: 10,
+                                          fontWeight: 700,
+                                          letterSpacing: '0.3px',
+                                          textTransform: 'uppercase',
+                                          whiteSpace: 'nowrap',
+                                        }}>
+                                          <FaLink size={9} />
+                                          {pitchLinkStatus}
+                                        </span>
+                                      </div>
+                                    );
+                                  })()}
+                                </div>
+                              )}
 
                               {/* ── Data bar: horizontal columns with vertical separators ── */}
-                              <div className="wb-data-bar" style={{
+                              <div className="wb-data-bar wb-stage-frame" style={{
                                 display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 0,
                                 padding: '14px 0',
+                                margin: '0 14px',
                                 border: `1px solid ${separatorColor}`,
-                                background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.4)',
+                                background: 'transparent',
                               }}>
                                 <DataCol
                                   label="Area"
@@ -5523,7 +5640,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                         width: 7,
                                         height: 7,
                                         borderRadius: '50%',
-                                        background: areaOfWork && areaOfWork !== '\u2014' ? resolveAowAccent(areaOfWork) : (isDarkMode ? colours.subtleGrey : colours.greyText),
+                                        background: areaOfWork && areaOfWork !== '\u2014' ? resolveWorkbenchCaseAccent(areaOfWork) : (isDarkMode ? colours.subtleGrey : colours.greyText),
                                         boxShadow: areaOfWork && areaOfWork !== '\u2014' ? `0 0 0 1px ${isDarkMode ? 'rgba(0, 3, 25, 0.5)' : 'rgba(255, 255, 255, 0.85)'}` : 'none',
                                         flexShrink: 0,
                                       }}
@@ -5546,10 +5663,11 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                               </div>
 
                               {/* ── Amount + Service side by side (amount first for fixed width) ── */}
-                              <div style={{
+                              <div className="wb-stage-frame" style={{
                                 display: 'flex', alignItems: 'stretch', gap: 0,
+                                margin: '0 14px',
                                 border: `1px solid ${separatorColor}`,
-                                background: isDarkMode ? 'rgba(2, 6, 23, 0.15)' : 'rgba(244, 244, 246, 0.25)',
+                                background: 'transparent',
                               }}>
                                 {/* Amount + VAT — left, fixed width with accent stripe */}
                                 <div style={{
@@ -5600,119 +5718,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                 </div>
                               </div>
 
-                              {/* ── Pitch link bar (below amount, matching instructed pattern) ── */}
-                              {resolvedPitchPasscode && (
-                                <div style={{
-                                  display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12,
-                                  padding: '6px 14px',
-                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.04)' : 'rgba(54, 144, 206, 0.03)',
-                                  border: `1px solid ${separatorColor}`,
-                                }}>
-                                  {(() => {
-                                    const pitchLinkStatus = hasInstructedChip ? 'Instructed' : (isPitchExpired ? 'Expired' : 'Pending');
-                                    const pitchLinkColor = hasInstructedChip
-                                      ? colours.green
-                                      : isPitchExpired
-                                        ? colours.cta
-                                        : (isDarkMode ? colours.accent : colours.highlight);
-                                    const checkoutLabel = hasPitchContent ? 'Pitch Link' : 'Checkout Link';
-                                    return (
-                                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                                        <span style={{
-                                          display: 'inline-flex', alignItems: 'center', gap: 5,
-                                          padding: '5px 10px', borderRadius: 0,
-                                          background: isDarkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(0,0,0,0.03)',
-                                          border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(0,0,0,0.06)'}`,
-                                          color: textMuted,
-                                          fontSize: 10,
-                                          fontWeight: 700,
-                                        }}>
-                                          <FaLink size={10} />
-                                          {checkoutLabel}
-                                        </span>
-
-                                        <button
-                                          type="button"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            setPortalLaunchModel(buildPortalLaunchModel({
-                                              passcode: resolvedPitchPasscode,
-                                              instructionRef: pitchInstructionRef,
-                                              hasInstruction: hasInstructedChip,
-                                              entryLabel: 'Inline workbench → Pitch / checkout',
-                                            }));
-                                            setIsPortalLaunchOpen(true);
-                                          }}
-                                          title={`Open pitch page: instruct.helix-law.com/pitch/${resolvedPitchPasscode}`}
-                                          style={{
-                                            display: 'inline-flex', alignItems: 'center', gap: 6,
-                                            padding: '5px 10px', borderRadius: 0,
-                                            fontFamily: 'inherit',
-                                            background: hasInstructedChip
-                                              ? (isDarkMode ? 'rgba(32, 178, 108, 0.08)' : 'rgba(32, 178, 108, 0.05)')
-                                              : isPitchExpired
-                                                ? (isDarkMode ? 'rgba(214, 85, 65, 0.08)' : 'rgba(214, 85, 65, 0.05)')
-                                                : (isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(54, 144, 206, 0.05)'),
-                                            border: `1px solid ${hasInstructedChip
-                                              ? (isDarkMode ? 'rgba(32, 178, 108, 0.2)' : 'rgba(32, 178, 108, 0.15)')
-                                              : isPitchExpired
-                                                ? (isDarkMode ? 'rgba(214, 85, 65, 0.2)' : 'rgba(214, 85, 65, 0.15)')
-                                                : (isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(54, 144, 206, 0.15)')}`,
-                                            color: pitchLinkColor,
-                                            fontSize: 10,
-                                            fontWeight: 600,
-                                            textDecoration: 'none',
-                                            cursor: 'pointer',
-                                            transition: 'all 0.15s ease',
-                                          }}
-                                          onMouseEnter={(e) => {
-                                            e.currentTarget.style.transform = 'translateY(-1px)';
-                                            e.currentTarget.style.boxShadow = isDarkMode ? '0 2px 8px rgba(0,0,0,0.35)' : '0 2px 8px rgba(6,23,51,0.12)';
-                                          }}
-                                          onMouseLeave={(e) => {
-                                            e.currentTarget.style.transform = 'translateY(0)';
-                                            e.currentTarget.style.boxShadow = 'none';
-                                          }}
-                                        >
-                                          <span style={{ fontFamily: 'Raleway, sans-serif', opacity: 0.95 }}>instruct.helix-law.com/pitch/{resolvedPitchPasscode}</span>
-                                        </button>
-
-
-                                        <button
-                                          type="button"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            void safeCopy(`https://instruct.helix-law.com/pitch/${resolvedPitchPasscode}`);
-                                            showToast({ type: 'success', message: 'Pitch link copied' });
-                                          }}
-                                          title="Copy pitch link"
-                                          style={{
-                                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                                            width: 24, height: 24,
-                                            borderRadius: 0,
-                                            border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.18)' : 'rgba(0,0,0,0.08)'}`,
-                                            background: isDarkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(0,0,0,0.02)',
-                                            color: textMuted,
-                                            cursor: 'pointer',
-                                            transition: 'all 0.15s ease',
-                                          }}
-                                          onMouseEnter={(e) => {
-                                            e.currentTarget.style.borderColor = pitchLinkColor;
-                                            e.currentTarget.style.color = pitchLinkColor;
-                                          }}
-                                          onMouseLeave={(e) => {
-                                            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(160, 160, 160, 0.18)' : 'rgba(0,0,0,0.08)';
-                                            e.currentTarget.style.color = textMuted;
-                                          }}
-                                        >
-                                          <FaCopy size={10} />
-                                        </button>
-                                      </div>
-                                    );
-                                  })()}
-                                </div>
-                              )}
-
                               {/* ── Pitch content / link generation confirmation ── */}
                               {(() => {
                                 // If we have pitch email content, show it
@@ -5722,7 +5727,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                     ? cleanEmailBody
                                     : `${cleanEmailBody.slice(0, 300)}...`;
                                   return (
-                                    <div>
+                                    <div className="wb-stage-frame" style={{ margin: '0 14px' }}>
                                       <div style={{
                                         display: 'flex', alignItems: 'center', padding: '4px 10px 3px',
                                       }}>
@@ -5771,7 +5776,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                 // If we have pitch notes (but no email content), show notes
                                 if (pitchNotes) {
                                   return (
-                                    <div>
+                                    <div className="wb-stage-frame" style={{ margin: '0 14px' }}>
                                       <div style={{
                                         display: 'flex', alignItems: 'center', padding: '4px 10px 3px',
                                       }}>
@@ -5802,7 +5807,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                 // No pitch content — confirm link generation
                                 return null;
                               })()}
-                              </div>
                             </div>
                           );
                         }
@@ -5810,9 +5814,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                         // Instructed context - show instruction data in rich layout like enquiry/pitch (instruction-only)
                         // Core instruction fields
                         const instInternalStatus = String(inst?.InternalStatus ?? inst?.internalStatus ?? '').trim();
-                        const instClientId = inst?.ClientId || inst?.clientId || '';
                         const instRelatedClientId = inst?.RelatedClientId || inst?.relatedClientId || '';
-                        const instConsent = inst?.ConsentGiven === true ? 'Yes' : inst?.ConsentGiven === false ? 'No' : '—';
                         
                         let instIdType = String(inst?.IdType ?? inst?.IDType ?? getValue(['IDType', 'id_type', 'IdType'], '')).trim();
                         if ((!instIdType || instIdType === '—') && ((passport && passport !== '—') || (license && license !== '—'))) {
@@ -5822,8 +5824,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                         
                         const instNotesRaw = String(inst?.Notes ?? '').trim();
                         const instNotes = instNotesRaw.length > 0 ? instNotesRaw : '';
-                        const instLastUpdatedRaw = inst?.LastUpdated || inst?.lastUpdated || null;
-                        const instLastUpdated = instLastUpdatedRaw ? formatDate(instLastUpdatedRaw) : null;
                         
                         // Personal details from instruction
                         const instTitle = String(inst?.Title ?? inst?.title ?? '').trim();
@@ -5835,7 +5835,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                           return (!raw || raw === '\ufffd' || raw === '\u2014') ? '\u2014' : raw;
                         })();
                         const instNationality = String(inst?.Nationality ?? inst?.nationality ?? nationalityFull ?? '').trim();
-                        const instNationalityAlpha = String(inst?.NationalityAlpha2 ?? inst?.nationalityAlpha2 ?? nationalityAlpha ?? '').trim();
                         const instDobRaw = inst?.DOB || inst?.dob || inst?.DateOfBirth || dobRaw;
                         const instDob = instDobRaw ? formatDate(instDobRaw) : dob;
                         const instAge = (() => {
@@ -5847,14 +5846,9 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                           return String(years);
                         })();
                         
-                        // Contact from instruction
-                        const instEmail = String(inst?.Email ?? inst?.email ?? email ?? '').trim();
-                        const instPhone = String(inst?.Phone ?? inst?.phone ?? inst?.Telephone ?? phone ?? '').trim();
-                        
                         // ID Documents from instruction
                         const instPassportNumber = String(inst?.PassportNumber ?? inst?.passportNumber ?? passport ?? '').trim();
                         const instDriversLicense = String(inst?.DriversLicenseNumber ?? inst?.driversLicenseNumber ?? license ?? '').trim();
-                        const hasIdDocuments = (instPassportNumber && instPassportNumber !== '—') || (instDriversLicense && instDriversLicense !== '—');
                         
                         // Individual Address from instruction
                         const instHouseNumber = String(inst?.HouseNumber ?? inst?.houseNumber ?? houseNum ?? '').trim();
@@ -5863,7 +5857,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                         const instCounty = String(inst?.County ?? inst?.county ?? county ?? '').trim();
                         const instPostcode = String(inst?.Postcode ?? inst?.postcode ?? postcode ?? '').trim();
                         const instCountry = String(inst?.Country ?? inst?.country ?? country ?? '').trim();
-                        const instCountryCode = String(inst?.CountryCode ?? inst?.countryCode ?? '').trim();
                         const instAddressParts = [
                           instHouseNumber && instStreet ? `${instHouseNumber} ${instStreet}` : instStreet || instHouseNumber,
                           instCity,
@@ -5906,28 +5899,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                         // Instruction datetime
                         const instructionDateTime = formatTimelineStamp(instructedTimelineRaw, instructedTimelineTimeRaw);
                         const pitchedDateTime = formatTimelineStamp(pitchedTimelineRaw, pitchedTimelineTimeRaw);
-                        
-                        // Determine instruction status label (instruction-specific stage, not matter status)
-                        const instStatusLabel = (() => {
-                          const stage = instructionStage.toLowerCase();
-                          if (stage.includes('matter-opened') || stage.includes('matter_opened') || stage.includes('matter opened')) return 'Instructed';
-                          if (stage.includes('proof-of-id') || stage.includes('proof_of_id')) return 'Proof-of-ID';
-                          if (stage.includes('complet')) return 'Completed';
-                          if (stage.includes('active') || stage.includes('progress')) return 'In Progress';
-                          if (stage.includes('initiali')) return 'Initialised';
-                          if (stage.includes('instruct')) return 'Instructed';
-                          if (stage) return instructionStage;
-                          return 'Instructed';
-                        })();
-                        
-                        // Status color based on instruction stage
-                        const instStatusColor = (() => {
-                          const stage = instructionStage.toLowerCase();
-                          if (stage.includes('complet')) return colours.green;
-                          if (stage.includes('active') || stage.includes('progress')) return colours.highlight;
-                          if (stage.includes('initiali')) return colours.orange;
-                          return colours.highlight;
-                        })();
                         
                         // Payment data for instructed context
                         const instPayment = firstSuccessfulPayment;
@@ -6023,10 +5994,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                           instructedTimelineTimeRaw,
                         );
                         const hasPitchedTimelineChip = Boolean(pitchedDateTime && pitchedDateTime !== '\u2014' && pitchedDateTime !== '\ufffd');
-                        const hasInstructionTimelineChip = Boolean(instructionDateTime);
-                        const showPitchToInstructionConnector = hasPitchedTimelineChip && hasInstructionTimelineChip;
-
-                        const pitchToInstructionLabel = pitchToInstElapsed ? `to instruction in ${pitchToInstElapsed}` : null;
 
                         return (
                           <div className="wb-enquiry-stack" style={{
@@ -6037,20 +6004,186 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                           }}>
                             {renderJourneyStrip(
                               hasPitchedTimelineChip
-                                ? { label: 'Pitch sent', stamp: pitchedDateTime! }
+                                ? { stageKey: 'pitch', detail: 'Sent', stamp: pitchedDateTime! }
                                 : null,
                               instructionDateTime
-                                ? { label: 'Instruction received', stamp: instructionDateTime, color: colours.green, icon: <FaCheckCircle size={10} /> }
+                                ? { stageKey: 'instructed', detail: 'Received', stamp: instructionDateTime, color: colours.green }
                                 : null,
                               pitchToInstElapsed || null,
+                            )}
+
+                            {(checkoutUrl || instructionRef) && (
+                              <div className="wb-stage-frame" style={{
+                                display: 'flex',
+                                flexWrap: 'wrap',
+                                alignItems: 'center',
+                                gap: 12,
+                                padding: '6px 14px',
+                                margin: '0 14px',
+                                background: isDarkMode ? 'rgba(54, 144, 206, 0.04)' : 'rgba(54, 144, 206, 0.03)',
+                                border: `1px solid ${separatorColor}`,
+                              }}>
+                                {checkoutUrl && instPasscode && (
+                                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                    {(() => {
+                                      const isCopied = copiedInstructionStamp === 'link';
+                                      return (
+                                        <>
+                                    <span style={{
+                                      fontSize: 9,
+                                      fontWeight: 700,
+                                      letterSpacing: '0.55px',
+                                      textTransform: 'uppercase',
+                                      color: textMuted,
+                                    }}>
+                                      Instruction Link
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={async (e) => {
+                                        e.stopPropagation();
+                                        const copied = await safeCopy(checkoutUrl);
+                                        if (copied) flashCopiedInstructionStamp('link');
+                                      }}
+                                      title="Click to copy instruction link"
+                                      style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: 6,
+                                        padding: '3px 8px',
+                                        borderRadius: 0,
+                                        border: `1px dashed ${isCopied ? colours.green : (isDarkMode ? 'rgba(160, 160, 160, 0.26)' : 'rgba(6, 23, 51, 0.14)')}`,
+                                        background: isCopied
+                                          ? (isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.08)')
+                                          : (isDarkMode ? 'rgba(255,255,255,0.025)' : 'rgba(255,255,255,0.55)'),
+                                        color: isCopied ? colours.green : textBody,
+                                        fontSize: 10,
+                                        fontWeight: 600,
+                                        fontFamily: 'monospace',
+                                        letterSpacing: '0.2px',
+                                        cursor: 'pointer',
+                                        transform: isCopied ? 'translateY(-1px)' : 'translateY(0)',
+                                        boxShadow: isCopied
+                                          ? (isDarkMode ? '0 0 0 1px rgba(32, 178, 108, 0.22)' : '0 0 0 1px rgba(32, 178, 108, 0.16)')
+                                          : 'none',
+                                        transition: 'border-color 0.15s ease, background 0.15s ease, color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease',
+                                      }}
+                                      onMouseEnter={(e) => {
+                                        if (isCopied) return;
+                                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.34)' : 'rgba(54, 144, 206, 0.22)';
+                                        e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.05)' : 'rgba(54, 144, 206, 0.04)';
+                                      }}
+                                      onMouseLeave={(e) => {
+                                        if (isCopied) return;
+                                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(160, 160, 160, 0.26)' : 'rgba(6, 23, 51, 0.14)';
+                                        e.currentTarget.style.background = isDarkMode ? 'rgba(255,255,255,0.025)' : 'rgba(255,255,255,0.55)';
+                                      }}
+                                    >
+                                      {isCopied && (
+                                        <span style={{ display: 'inline-flex', alignItems: 'center', transform: 'translateY(-1px) scale(1.05)' }}>
+                                          <FaCheck size={9} />
+                                        </span>
+                                      )}
+                                      <span>{isCopied ? 'Copied' : `instruct.helix-law.com/pitch/${instPasscode}`}</span>
+                                    </button>
+                                        </>
+                                      );
+                                    })()}
+                                  </div>
+                                )}
+
+                                {instructionRef && (
+                                  <div style={{
+                                    marginLeft: 'auto',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'flex-end',
+                                    gap: 10,
+                                    flexWrap: 'wrap',
+                                  }}>
+                                    {(() => {
+                                      const isCopied = copiedInstructionStamp === 'ref';
+                                      return (
+                                      <div
+                                        title="Click to copy instruction reference"
+                                        style={{
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: 8,
+                                          color: textMuted,
+                                          whiteSpace: 'nowrap',
+                                        }}
+                                      >
+                                        <span style={{
+                                          fontSize: 9,
+                                          fontWeight: 700,
+                                          letterSpacing: '0.55px',
+                                          textTransform: 'uppercase',
+                                          color: textMuted,
+                                        }}>
+                                          Instruction Ref
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={async (e) => {
+                                            e.stopPropagation();
+                                            const copied = await safeCopy(String(instructionRef));
+                                            if (copied) flashCopiedInstructionStamp('ref');
+                                          }}
+                                          style={{
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: 6,
+                                            padding: '3px 8px',
+                                            borderRadius: 0,
+                                            border: `1px dashed ${isCopied ? colours.green : (isDarkMode ? 'rgba(160, 160, 160, 0.26)' : 'rgba(6, 23, 51, 0.14)')}`,
+                                            background: isCopied
+                                              ? (isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.08)')
+                                              : (isDarkMode ? 'rgba(255,255,255,0.025)' : 'rgba(255,255,255,0.55)'),
+                                            color: isCopied ? colours.green : textBody,
+                                            fontSize: 10,
+                                            fontWeight: 600,
+                                            fontFamily: 'monospace',
+                                            letterSpacing: '0.2px',
+                                            cursor: 'pointer',
+                                            transform: isCopied ? 'translateY(-1px)' : 'translateY(0)',
+                                            boxShadow: isCopied
+                                              ? (isDarkMode ? '0 0 0 1px rgba(32, 178, 108, 0.22)' : '0 0 0 1px rgba(32, 178, 108, 0.16)')
+                                              : 'none',
+                                            transition: 'border-color 0.15s ease, background 0.15s ease, color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease',
+                                          }}
+                                          onMouseEnter={(e) => {
+                                            if (isCopied) return;
+                                            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.34)' : 'rgba(54, 144, 206, 0.22)';
+                                            e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.05)' : 'rgba(54, 144, 206, 0.04)';
+                                          }}
+                                          onMouseLeave={(e) => {
+                                            if (isCopied) return;
+                                            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(160, 160, 160, 0.26)' : 'rgba(6, 23, 51, 0.14)';
+                                            e.currentTarget.style.background = isDarkMode ? 'rgba(255,255,255,0.025)' : 'rgba(255,255,255,0.55)';
+                                          }}
+                                        >
+                                          {isCopied && (
+                                            <span style={{ display: 'inline-flex', alignItems: 'center', transform: 'translateY(-1px) scale(1.05)' }}>
+                                              <FaCheck size={9} />
+                                            </span>
+                                          )}
+                                          <span>{isCopied ? 'Copied' : instructionRef}</span>
+                                        </button>
+                                      </div>
+                                      );
+                                    })()}
+                                  </div>
+                                )}
+                              </div>
                             )}
 
                             <div style={{
                               display: 'flex',
                               flexDirection: 'column',
                               gap: 10,
-                              background: isDarkMode ? 'rgba(6, 23, 51, 0.45)' : 'rgba(255, 255, 255, 0.7)',
-                              border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
+                              background: workbenchPanelSurface,
+                              border: workbenchPanelBorder,
                               borderRadius: 0,
                               padding: '12px 14px',
                             }}>
@@ -6060,7 +6193,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                               display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 0,
                                 padding: '14px 0',
                                 border: `1px solid ${separatorColor}`,
-                                background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.4)',
+                                background: 'transparent',
                             }}>
                               <DataCol
                                 label="Type"
@@ -6129,8 +6262,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                 alignSelf: 'flex-start',
                                 padding: '5px 10px',
                                 borderRadius: 0,
-                                background: isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(54, 144, 206, 0.07)',
-                                border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.35)' : 'rgba(54, 144, 206, 0.22)'}`,
+                                background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.07)',
+                                border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.22)'}`,
                                 color: isDarkMode ? 'rgba(243, 244, 246, 0.88)' : '#475569',
                                 fontSize: 10,
                                 fontWeight: 600,
@@ -6143,7 +6276,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                             {/* ── Amount + Service side by side (matching pitch layout) ── */}
                             <div style={{
                               display: 'flex', alignItems: 'stretch', gap: 0,
-                              background: isDarkMode ? 'rgba(2, 6, 23, 0.15)' : 'rgba(244, 244, 246, 0.25)',
+                              background: 'transparent',
                               border: `1px solid ${separatorColor}`,
                             }}>
                               {/* Amount + VAT — left, fixed width with accent stripe */}
@@ -6195,139 +6328,10 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                               </div>
                             </div>
 
-                            {/* ── Link + Ref bar ── */}
-                            {(checkoutUrl || instructionRef) && (
-                              <div style={{
-                                display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12,
-                                padding: '6px 14px',
-                                background: isDarkMode ? 'rgba(54, 144, 206, 0.04)' : 'rgba(54, 144, 206, 0.03)',
-                                border: `1px solid ${separatorColor}`,
-                              }}>
-                                {checkoutUrl && instPasscode && (
-                                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                                    <span style={{
-                                      display: 'inline-flex', alignItems: 'center', gap: 5,
-                                      padding: '5px 10px', borderRadius: 0,
-                                      background: isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(54, 144, 206, 0.08)',
-                                      border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.28)' : 'rgba(54, 144, 206, 0.18)'}`,
-                                      color: isDarkMode ? colours.accent : colours.highlight,
-                                      fontSize: 10,
-                                      fontWeight: 700,
-                                    }}>
-                                      <FaLink size={10} />
-                                      Checkout Link
-                                    </span>
-
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setPortalLaunchModel(buildPortalLaunchModel({
-                                          passcode: instPasscode,
-                                          instructionRef: instructionRef,
-                                          hasInstruction: Boolean(instructionRef),
-                                          entryLabel: 'Inline workbench → Instruction view',
-                                        }));
-                                        setIsPortalLaunchOpen(true);
-                                      }}
-                                      title={`Open instruct page: instruct.helix-law.com/pitch/${instPasscode}`}
-                                      style={{
-                                        display: 'inline-flex', alignItems: 'center', gap: 6,
-                                        padding: '5px 10px', borderRadius: 0,
-                                        fontFamily: 'inherit',
-                                        background: isDarkMode ? 'rgba(32, 178, 108, 0.08)' : 'rgba(32, 178, 108, 0.05)',
-                                        border: `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.2)' : 'rgba(32, 178, 108, 0.15)'}`,
-                                        color: colours.green,
-                                        fontSize: 10,
-                                        fontWeight: 600,
-                                        cursor: 'pointer',
-                                        transition: 'all 0.15s ease',
-                                        textDecoration: 'none',
-                                      }}
-                                      onMouseEnter={(e) => {
-                                        e.currentTarget.style.transform = 'translateY(-1px)';
-                                        e.currentTarget.style.boxShadow = isDarkMode ? '0 2px 8px rgba(0,0,0,0.35)' : '0 2px 8px rgba(6,23,51,0.12)';
-                                      }}
-                                      onMouseLeave={(e) => {
-                                        e.currentTarget.style.transform = 'translateY(0)';
-                                        e.currentTarget.style.boxShadow = 'none';
-                                      }}
-                                    >
-                                      <span style={{ fontFamily: 'Raleway, sans-serif', opacity: 0.95 }}>instruct.helix-law.com/pitch/{instPasscode}</span>
-                                    </button>
-
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        void safeCopy(checkoutUrl);
-                                        showToast({ type: 'success', message: 'Checkout link copied' });
-                                      }}
-                                      title="Copy checkout link"
-                                      style={{
-                                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                                        width: 24, height: 24,
-                                        borderRadius: 0,
-                                        border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.18)' : 'rgba(0,0,0,0.08)'}`,
-                                        background: isDarkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(0,0,0,0.02)',
-                                        color: textMuted,
-                                        cursor: 'pointer',
-                                        transition: 'all 0.15s ease',
-                                      }}
-                                      onMouseEnter={(e) => {
-                                        e.currentTarget.style.borderColor = colours.green;
-                                        e.currentTarget.style.color = colours.green;
-                                      }}
-                                      onMouseLeave={(e) => {
-                                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(160, 160, 160, 0.18)' : 'rgba(0,0,0,0.08)';
-                                        e.currentTarget.style.color = textMuted;
-                                      }}
-                                    >
-                                      <FaCopy size={10} />
-                                    </button>
-                                  </div>
-                                )}
-                                {instructionRef && (
-                                  <span
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      void safeCopy(String(instructionRef));
-                                      showToast({ type: 'success', message: 'Instruction reference copied' });
-                                    }}
-                                    title="Click to copy instruction reference"
-                                    style={{
-                                      display: 'inline-flex', alignItems: 'center', gap: 5,
-                                      padding: '5px 10px', borderRadius: 0,
-                                      background: isDarkMode ? 'rgba(160, 160, 160, 0.06)' : 'rgba(0,0,0,0.02)',
-                                      border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(0,0,0,0.06)'}`,
-                                      fontSize: 10, fontWeight: 600, fontFamily: 'Raleway, sans-serif',
-                                      color: textBody, cursor: 'pointer',
-                                      transition: 'all 0.15s ease',
-                                    }}
-                                    onMouseEnter={(e) => {
-                                      e.currentTarget.style.borderColor = isDarkMode ? 'rgba(135, 243, 243, 0.3)' : 'rgba(54, 144, 206, 0.25)';
-                                      e.currentTarget.style.background = isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.05)';
-                                    }}
-                                    onMouseLeave={(e) => {
-                                      e.currentTarget.style.borderColor = isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(0,0,0,0.06)';
-                                      e.currentTarget.style.background = isDarkMode ? 'rgba(160, 160, 160, 0.06)' : 'rgba(0,0,0,0.02)';
-                                    }}
-                                  >
-                                    <Icon iconName="Tag" styles={{ root: { fontSize: 10, color: textMuted } }} />
-                                    <span>Instruction</span>
-                                    <span style={{ opacity: 0.92 }}>{instructionRef}</span>
-                                    <span style={{ display: 'inline-flex', alignItems: 'center', marginLeft: 2, opacity: 0.85 }} title="Click to copy">
-                                      <FaCopy size={9} />
-                                    </span>
-                                  </span>
-                                )}
-                              </div>
-                            )}
-
                             {/* ── Individual section ── */}
                             <div style={{
                               border: `1px solid ${separatorColor}`,
-                              background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.4)',
+                              background: 'transparent',
                             }}>
                                 {/* Header */}
                                 <div style={{
@@ -6400,7 +6404,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                             {hasCompanyDetails && (
                               <div style={{
                                 border: `1px solid ${separatorColor}`,
-                                background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.4)',
+                                background: 'transparent',
                               }}>
                                   {/* Header */}
                                   <div style={{
@@ -6426,8 +6430,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                         fontWeight: 700,
                                         letterSpacing: '0.4px',
                                         textTransform: 'uppercase',
-                                        background: isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(54, 144, 206, 0.08)',
-                                        border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.28)' : 'rgba(54, 144, 206, 0.18)'}`,
+                                        background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
+                                        border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.28)' : 'rgba(54, 144, 206, 0.18)'}`,
                                         color: isDarkMode ? colours.accent : colours.highlight,
                                       }}>
                                         Client
@@ -6487,7 +6491,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                   fontSize: 12, lineHeight: 1.6, color: textBody,
                                   whiteSpace: 'pre-wrap', maxHeight: 180, overflowY: 'auto',
                                   padding: '8px 10px',
-                                  margin: '4px 10px 10px',
+                                  margin: '4px 0 10px',
                                   background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
                                   border: `1px solid ${separatorColor}`,
                                 }}>
@@ -6504,7 +6508,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                     {/* Enquiry notes (collapsed by default, like table view) */}
                     {/* Show notes only for instructed context - enquiry has its own notes, pitch has pitch content */}
                     {hasEnquiryNotes && (activeContextStage ?? 'enquiry') === 'instructed' && (
-                      <div style={{ marginTop: 10 }}>
+                      <div style={{ margin: '10px 14px 0' }}>
                         <div
                           onClick={(e) => {
                             e.stopPropagation();
@@ -6667,18 +6671,14 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
               return renderJourneyStrip(
                 instructedStamp
-                  ? { label: 'Instruction received', stamp: instructedStamp }
+                  ? { stageKey: 'instructed', detail: 'Received', stamp: instructedStamp }
                   : null,
                 identityStamp
                   ? {
-                      label: identityBannerStatus === 'complete' ? 'Verified' : identityBannerStatus === 'review' ? 'Review' : 'Pending',
+                      stageKey: 'identity',
+                      detail: identityBannerStatus === 'complete' ? 'Verified' : identityBannerStatus === 'review' ? 'Review' : 'Pending',
                       stamp: identityStamp,
                       color: identityBannerStatus === 'complete' ? colours.green : identityBannerStatus === 'review' ? colours.cta : colours.highlight,
-                      icon: identityBannerStatus === 'complete'
-                        ? <FaCheckCircle size={10} />
-                        : identityBannerStatus === 'review'
-                          ? <FaExclamationTriangle size={10} />
-                          : <FaIdCard size={10} />,
                     }
                   : null,
                 elapsed || null,
@@ -6688,8 +6688,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
             {/* ID Verification Section */}
             <div style={{
               padding: '12px 14px',
-              background: isDarkMode ? 'rgba(6, 23, 51, 0.45)' : 'rgba(255, 255, 255, 0.7)',
-              border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
+              background: workbenchPanelSurface,
+              border: workbenchPanelBorder,
               borderRadius: 0
             }}>
               {/* Header */}
@@ -6707,7 +6707,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                   flexWrap: 'wrap',
                   gap: 0,
                   padding: '14px 0',
-                  background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.25)',
+                  background: 'transparent',
                   borderRadius: 0,
                   border: `1px solid ${isDarkMode ? `${colours.dark.border}40` : colours.highlightNeutral}`,
                   marginBottom: 12
@@ -6914,7 +6914,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                     const isPass = overallValue.toLowerCase().includes('pass') || overallValue.toLowerCase().includes('clear') || overallValue.toLowerCase() === 'approved';
                     const isWarn = overallValue.toLowerCase().includes('review') || overallValue.toLowerCase().includes('refer');
                     const isFail = overallValue.toLowerCase().includes('fail');
-                    const isOverallNeedsAction = isFail || isWarn;
                     const pillBg = isPass
                       ? (isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.08)')
                       : (isFail || isWarn)
@@ -7249,10 +7248,10 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                 {/* ── Inline Verification Report Panel ── */}
                 {showEidReportPanel && rawRecordPdfUrl && (
                   <div style={{
-                    border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
+                    border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(54, 144, 206, 0.12)'}`,
                     borderRadius: 0,
                     overflow: 'hidden',
-                    background: isDarkMode ? 'rgba(6, 23, 51, 0.45)' : 'rgba(255, 255, 255, 0.7)',
+                    background: isDarkMode ? 'rgba(6, 23, 51, 0.55)' : 'rgba(255, 255, 255, 0.78)',
                     transition: 'all 0.2s ease',
                   }}>
                     {/* Thin accent header */}
@@ -7324,8 +7323,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                       margin: 0,
                       padding: '8px 10px',
                       fontSize: 10,
-                      lineHeight: 1.45,
-                      fontFamily: 'monospace',
+                              border: workbenchPanelBorder,
                       color: isDarkMode ? 'rgba(243, 244, 246, 0.82)' : 'rgba(6, 23, 51, 0.72)',
                       background: isDarkMode ? 'rgba(6, 23, 51, 0.55)' : 'rgba(255, 255, 255, 0.75)',
                       whiteSpace: 'pre-wrap',
@@ -8048,18 +8046,67 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                 ) : (
                   <>
                     <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 14,
+                      flexWrap: 'wrap',
                       padding: isCompactIdentityView ? '10px 12px' : '12px 14px',
-                      background: isDarkMode ? 'rgba(2, 6, 23, 0.25)' : 'rgba(244, 244, 246, 0.25)',
-                      border: `1px solid ${isDarkMode ? `${colours.dark.border}40` : colours.highlightNeutral}`,
+                      background: isDarkMode ? 'rgba(54, 144, 206, 0.05)' : 'rgba(54, 144, 206, 0.045)',
+                      border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)'}`,
                       borderRadius: 0,
                       marginBottom: 10,
                     }}>
-                      <div style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.4px', color: isDarkMode ? 'rgba(160, 160, 160, 0.5)' : '#A0A0A0', marginBottom: 8 }}>
-                        Readiness
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: '1 1 280px', minWidth: 0 }}>
+                        <div style={{
+                          width: 28,
+                          height: 28,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.24)' : 'rgba(54, 144, 206, 0.18)'}`,
+                          color: isDarkMode ? colours.accent : colours.highlight,
+                          flexShrink: 0,
+                        }}>
+                          <FaIdCard size={12} />
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
+                          <div style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.45px', color: isDarkMode ? colours.accent : colours.highlight }}>
+                            Electronic ID check
+                          </div>
+                          <div style={{ fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151', lineHeight: 1.45 }}>
+                            Review this ID tab first, then start the check when you are ready. No client email is sent from this action.
+                          </div>
+                        </div>
                       </div>
-                      <div style={{ fontSize: 10, color: isDarkMode ? 'rgba(243, 244, 246, 0.8)' : 'rgba(6, 23, 51, 0.7)', lineHeight: 1.5 }}>
-                        Use <strong>Run Verification</strong> above to start the check.
-                      </div>
+                      <button
+                        type="button"
+                        disabled={!onTriggerEID || isTriggerEidLoading}
+                        onClick={(e) => { e.stopPropagation(); openTriggerEidConfirm(); }}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 6,
+                          padding: '8px 12px',
+                          borderRadius: 0,
+                          border: `1px solid ${onTriggerEID ? (isDarkMode ? 'rgba(54, 144, 206, 0.28)' : 'rgba(54, 144, 206, 0.22)') : (isDarkMode ? 'rgba(160, 160, 160, 0.18)' : 'rgba(107, 107, 107, 0.18)')}`,
+                          background: onTriggerEID
+                            ? (isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.08)')
+                            : 'transparent',
+                          color: onTriggerEID ? (isDarkMode ? colours.accent : colours.highlight) : (isDarkMode ? colours.subtleGrey : colours.greyText),
+                          cursor: onTriggerEID && !isTriggerEidLoading ? 'pointer' : 'default',
+                          opacity: isTriggerEidLoading ? 0.72 : 1,
+                          whiteSpace: 'nowrap',
+                          fontSize: 10,
+                          fontWeight: 800,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.35px',
+                        }}
+                      >
+                        <FaIdCard size={10} />
+                        {isTriggerEidLoading ? 'Starting...' : 'Run verification'}
+                      </button>
                     </div>
                     {!onTriggerEID && (
                       <div style={{ fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
@@ -8092,54 +8139,77 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
               >
                 <div
                   style={{
-                    background: isDarkMode ? colours.dark.sectionBackground : '#ffffff',
+                    background: isDarkMode ? colours.dark.cardBackground : '#ffffff',
                     borderRadius: 0,
-                    padding: 24,
-                    maxWidth: 460,
+                    padding: 0,
+                    maxWidth: 520,
                     width: '90%',
                     maxHeight: '85vh',
                     overflowY: 'auto',
-                    border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
+                    border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.22)' : 'rgba(54, 144, 206, 0.18)'}`,
                     boxShadow: isDarkMode ? '0 4px 16px rgba(0, 0, 0, 0.4)' : '0 4px 14px rgba(0, 0, 0, 0.14)',
                   }}
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
-                    <div style={{ width: 40, height: 40, borderRadius: '50%', background: isDarkMode ? `${colours.accent}20` : `${colours.highlight}1a`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <FaIdCard size={18} color={colours.highlight} />
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    padding: '16px 18px',
+                    borderBottom: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.16)' : 'rgba(54, 144, 206, 0.12)'}`,
+                  }}>
+                    <div style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: 0,
+                      background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.08)',
+                      border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.24)' : 'rgba(54, 144, 206, 0.18)'}`,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                    }}>
+                      <FaIdCard size={14} color={isDarkMode ? colours.accent : colours.highlight} />
                     </div>
                     <div>
-                      <div style={{ fontSize: 15, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text }}>Run ID Verification</div>
-                      <div style={{ fontSize: 11, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Confirm action</div>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: isDarkMode ? colours.dark.text : colours.light.text }}>Electronic ID check</div>
+                      <div style={{ fontSize: 11, color: isDarkMode ? '#d1d5db' : '#374151' }}>Start verification for this instruction</div>
                     </div>
                   </div>
 
                   <div style={{
-                    padding: 12,
-                    background: isDarkMode ? 'rgba(2, 6, 23, 0.24)' : 'rgba(244, 244, 246, 0.36)',
-                    border: `1px solid ${isDarkMode ? `${colours.dark.border}55` : colours.highlightNeutral}`,
+                    padding: '14px 18px 16px',
+                    background: 'transparent',
+                    border: 'none',
                     borderRadius: 0,
-                    marginBottom: 14,
                   }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text, marginBottom: 8 }}>
-                      What this does
+                    <div style={{ fontSize: 10, fontWeight: 800, color: isDarkMode ? colours.accent : colours.highlight, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.45px' }}>
+                      Before you start
                     </div>
                     <div style={{ fontSize: 12, lineHeight: 1.6, color: isDarkMode ? '#d1d5db' : '#374151' }}>
                       Starts an electronic ID verification and records the outcome to this instruction.
                     </div>
-                    <div style={{ marginTop: 10, fontSize: 11, lineHeight: 1.6, color: isDarkMode ? '#d1d5db' : '#374151' }}>
-                      <strong>Checks include:</strong>
-                      <ul style={{ margin: '6px 0 0 0', paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        <li>Identity match (name + date of birth)</li>
-                        <li>Address verification</li>
-                        <li>PEP / sanctions screening</li>
-                      </ul>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8, marginTop: 12 }}>
+                      {[
+                        { label: 'Identity', text: 'Name and date of birth' },
+                        { label: 'Address', text: 'Address verification' },
+                        { label: 'Screening', text: 'PEP and sanctions' },
+                      ].map((check) => (
+                        <div key={check.label} style={{
+                          padding: '9px 10px',
+                          border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(6, 23, 51, 0.08)'}`,
+                          background: isDarkMode ? 'rgba(2, 6, 23, 0.25)' : 'rgba(244, 244, 246, 0.45)',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 4,
+                        }}>
+                          <span style={{ fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.4px', color: isDarkMode ? colours.accent : colours.highlight }}>{check.label}</span>
+                          <span style={{ fontSize: 11, lineHeight: 1.35, color: isDarkMode ? '#d1d5db' : '#374151' }}>{check.text}</span>
+                        </div>
+                      ))}
                     </div>
-                    <div style={{ marginTop: 10, fontSize: 11, lineHeight: 1.6, color: isDarkMode ? '#d1d5db' : '#374151' }}>
-                      <strong>Client comms:</strong> No client emails are sent from Helix Hub in this flow.
-                    </div>
-                    <div style={{ marginTop: 10, fontSize: 11, lineHeight: 1.6, color: isDarkMode ? '#d1d5db' : '#374151' }}>
-                      You’ll see results appear under EID Results once the check completes.
+                    <div style={{ marginTop: 12, padding: '8px 10px', fontSize: 11, lineHeight: 1.5, color: isDarkMode ? '#d1d5db' : '#374151', border: `1px dashed ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.16)'}`, background: isDarkMode ? 'rgba(54, 144, 206, 0.04)' : 'rgba(54, 144, 206, 0.035)' }}>
+                      No client emails are sent from Helix Hub in this flow. Results appear here once the check completes.
                     </div>
 
                     {isDemoInstruction && (
@@ -8255,7 +8325,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                     )}
                   </div>
 
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '12px 18px 16px', borderTop: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(6, 23, 51, 0.08)'}` }}>
                     <button
                       type="button"
                       onClick={() => setShowTriggerEidConfirmModal(false)}
@@ -8323,14 +8393,14 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
               return renderJourneyStrip(
                 instructedStamp
-                  ? { label: 'Instruction received', stamp: instructedStamp }
+                  ? { stageKey: 'instructed', detail: 'Received', stamp: instructedStamp }
                   : null,
                 paymentStamp
                   ? {
-                      label: hasSuccessfulBankPayment ? 'Confirmed' : hasSuccessfulCardPayment ? 'Paid' : hasSuccessfulPayment ? 'Paid' : hasFailedPayment ? 'Failed' : 'Pending',
+                      stageKey: 'payment',
+                      detail: hasSuccessfulBankPayment ? 'Confirmed' : hasSuccessfulCardPayment ? 'Paid' : hasSuccessfulPayment ? 'Paid' : hasFailedPayment ? 'Failed' : 'Pending',
                       stamp: paymentStamp,
                       color: hasSuccessfulPayment ? colours.green : hasFailedPayment ? colours.cta : colours.orange,
-                      icon: hasSuccessfulPayment ? <FaCheckCircle size={10} /> : hasFailedPayment ? <FaExclamationTriangle size={10} /> : <FaClock size={10} />,
                     }
                   : null,
                 elapsed || null,
@@ -8356,7 +8426,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
           <div className="wb-tab-stack" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {onOpenDocumentWorkspace && (
               <div
-                className="wb-section"
+                className="wb-section wb-stage-frame"
                 style={{
                   '--section-index': 0,
                   display: 'flex',
@@ -8369,6 +8439,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                     : (isDarkMode ? 'rgba(75, 85, 99, 0.34)' : 'rgba(6, 23, 51, 0.08)')}`,
                   borderRadius: 0,
                   padding: '12px 14px',
+                  margin: '0 14px',
                 } as React.CSSProperties}
               >
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
@@ -8404,10 +8475,10 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                     borderRadius: 0,
                     border: `1px solid ${documentWorkspaceLive
                       ? (isDarkMode ? 'rgba(32, 178, 108, 0.28)' : 'rgba(32, 178, 108, 0.18)')
-                      : (isDarkMode ? 'rgba(135, 243, 243, 0.24)' : 'rgba(54, 144, 206, 0.18)')}`,
+                      : (isDarkMode ? 'rgba(54, 144, 206, 0.24)' : 'rgba(54, 144, 206, 0.18)')}`,
                     background: documentWorkspaceLive
                       ? (isDarkMode ? 'rgba(32, 178, 108, 0.1)' : 'rgba(32, 178, 108, 0.08)')
-                      : (isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.08)'),
+                      : (isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.08)'),
                     color: documentWorkspaceLive ? colours.green : (isDarkMode ? colours.accent : colours.highlight),
                     cursor: documentWorkspaceDisabled ? 'default' : 'pointer',
                     opacity: documentWorkspaceDisabled ? 0.55 : 1,
@@ -8427,8 +8498,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
               className="wb-section"
               style={{
                 '--section-index': 1,
-                background: isDarkMode ? 'rgba(6, 23, 51, 0.35)' : 'rgba(255, 255, 255, 0.7)',
-                border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
+                  background: workbenchPanelSurface,
+                  border: workbenchPanelBorder,
                 borderRadius: 0,
                 padding: '12px 14px',
               } as React.CSSProperties}
@@ -8464,14 +8535,14 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
               return renderJourneyStrip(
                 instructedStamp
-                  ? { label: 'Instruction received', stamp: instructedStamp }
+                  ? { stageKey: 'instructed', detail: 'Received', stamp: instructedStamp }
                   : null,
                 (riskStamp || riskComplete)
                   ? {
-                      label: riskComplete ? `${riskResult}${riskScore != null ? ` · ${riskScore}` : ''}` : 'Pending',
+                      stageKey: 'risk',
+                      detail: riskComplete ? `${riskResult}${riskScore != null ? ` · ${riskScore}` : ''}` : 'Pending',
                       stamp: riskStamp || undefined,
                       color: riskComplete ? riskColor : colours.orange,
-                      icon: riskComplete ? <FaShieldAlt size={10} /> : <FaClock size={10} />,
                     }
                   : null,
                 elapsed || null,
@@ -8481,18 +8552,76 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
             {/* Summary strip — shown when risk IS completed and NOT in edit mode */}
             {riskComplete && !riskEditMode && (
               <div style={{
-                background: isDarkMode ? 'rgba(6, 23, 51, 0.35)' : 'rgba(255, 255, 255, 0.7)',
-                border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
+                background: workbenchPanelSurface,
+                border: workbenchPanelBorder,
                 borderRadius: 0,
                 padding: '12px 14px',
               }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                    padding: '10px 12px',
+                    border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)'}`,
+                    background: isDarkMode ? 'rgba(54, 144, 206, 0.05)' : 'rgba(54, 144, 206, 0.045)',
+                    borderRadius: 0,
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0, flex: '1 1 260px' }}>
+                      <div style={{
+                        width: 26,
+                        height: 26,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.16)'}`,
+                        color: isDarkMode ? colours.accent : colours.highlight,
+                      }}>
+                        <FaFileAlt size={11} />
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.4px', color: isDarkMode ? colours.accent : colours.highlight }}>
+                          File review note
+                        </span>
+                        <span style={{ fontSize: 12, lineHeight: 1.35, color: isDarkMode ? '#d1d5db' : '#374151' }}>
+                          Export the risk result, assessor, answers, confirmations and ID status for the file.
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); downloadRiskAssessmentNote(); }}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        padding: '7px 11px',
+                        borderRadius: 0,
+                        border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.24)' : 'rgba(54, 144, 206, 0.2)'}`,
+                        background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.08)',
+                        color: isDarkMode ? colours.accent : colours.highlight,
+                        cursor: 'pointer',
+                        flex: '0 0 auto',
+                        whiteSpace: 'nowrap',
+                        fontSize: 10,
+                        fontWeight: 700,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.3px',
+                      }}
+                    >
+                      <FaDownload size={10} />
+                      Download note
+                    </button>
+                  </div>
+
                   {/* Row 2: Compliance Confirmations (data bar) */}
                   <div style={{
                     display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 0,
                     padding: '14px 0',
                     border: `1px solid ${isDarkMode ? `${colours.dark.border}40` : (colours.highlightNeutral || 'rgba(0,0,0,0.06)')}`,
-                    background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.4)',
+                    background: 'transparent',
                   }}>
                     {[{
                       label: 'Assessed By',
@@ -8689,10 +8818,10 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
               return (
                 <div style={{
-                  background: isDarkMode ? 'rgba(6, 23, 51, 0.35)' : 'rgba(255, 255, 255, 0.7)',
-                  border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
+                  background: workbenchPanelSurface,
+                  border: workbenchPanelBorder,
                   borderRadius: 0,
-                  padding: '10px 12px',
+                  padding: '12px 14px',
                 }}>
                   {/* Header: title + live score + cancel */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, paddingBottom: 8, borderBottom: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0,0,0,0.05)'}` }}>
@@ -8995,14 +9124,14 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
               return renderJourneyStrip(
                 instructedStamp
-                  ? { label: 'Instruction received', stamp: instructedStamp }
+                  ? { stageKey: 'instructed', detail: 'Received', stamp: instructedStamp }
                   : null,
                 matterStamp
                   ? {
-                      label: hasMatter ? 'Matter opened' : 'Matter pending',
+                      stageKey: 'matter',
+                      detail: hasMatter ? 'Opened' : 'Pending',
                       stamp: matterStamp,
                       color: hasMatter ? colours.green : colours.orange,
-                      icon: <FaFolderOpen size={10} />,
                     }
                   : null,
                 elapsed || null,
@@ -9012,6 +9141,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
               <>
                 {showMatterBreadcrumbRail && (
                   <div
+                    className="wb-stage-frame"
                     ref={matterBreadcrumbRef}
                     style={{
                       display: 'flex',
@@ -9021,6 +9151,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                       flexWrap: 'wrap',
                       scrollMarginTop: 80,
                       padding: '8px 10px',
+                      margin: '0 14px',
                       border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(0, 0, 0, 0.08)'}`,
                       background: isDarkMode ? 'rgba(6, 23, 51, 0.28)' : 'rgba(244, 244, 246, 0.45)',
                     }}
@@ -9141,10 +9272,10 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                     <div
                       ref={matterPreflightPageRef}
                       style={{
-                        background: isDarkMode ? 'rgba(6, 23, 51, 0.35)' : 'rgba(255, 255, 255, 0.7)',
-                        border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
+                        background: 'transparent',
+                        border: 'none',
                         borderRadius: 0,
-                        padding: '10px 12px',
+                        padding: '12px 14px',
                         display: 'flex',
                         flexDirection: 'column',
                         gap: 8,
@@ -9472,8 +9603,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                 textTransform: 'uppercase' as const,
                                 letterSpacing: '0.35px',
                                 padding: '2px 6px',
-                                border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.45)' : 'rgba(54, 144, 206, 0.35)'}`,
-                                background: isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.06)',
+                                border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.45)' : 'rgba(54, 144, 206, 0.35)'}`,
+                                background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)',
                                 color: isDarkMode ? colours.accent : colours.highlight,
                               }}>
                                 Linked to matter
@@ -10095,8 +10226,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                         <span style={{
                           display: 'inline-flex', alignItems: 'center', gap: 5,
                           padding: '5px 10px', borderRadius: 0,
-                          background: isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(54, 144, 206, 0.08)',
-                          border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.28)' : 'rgba(54, 144, 206, 0.18)'}`,
+                          background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
+                          border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.28)' : 'rgba(54, 144, 206, 0.18)'}`,
                           color: isDarkMode ? colours.accent : colours.highlight,
                           fontSize: 10,
                           fontWeight: 700,
@@ -10207,7 +10338,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                       display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 0,
                       padding: '14px 0',
                       border: `1px solid ${isDarkMode ? `${colours.dark.border}40` : 'rgba(6, 23, 51, 0.08)'}`,
-                      background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.4)',
+                      background: 'transparent',
                     }}>
                       {matterOpenTrail.map((item, idx) => (
                         <React.Fragment key={item.label}>
@@ -10237,22 +10368,29 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
         {/* ── Pitch Composer tab ── */}
         {activeTab === 'pitch' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {isFetchingPitchContent && !effectivePitch && (
+          <div className="wb-tab-stack" style={{ display: 'flex', flexDirection: 'column', gap: 10 }} data-helix-region="workbench/pitch-composer">
+            {isPitchContentLoading && !effectivePitch && (
               <div
+                className="wb-pitch-skel"
+                role="status"
+                aria-live="polite"
+                aria-label="Loading existing pitch"
                 style={{
+                  display: 'flex', flexDirection: 'column', gap: 8,
                   padding: '12px 14px',
                   border: `1px solid ${isDarkMode ? `${colours.dark.border}40` : 'rgba(6, 23, 51, 0.08)'}`,
                   background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.4)',
-                  color: isDarkMode ? 'rgba(209, 213, 219, 0.88)' : '#374151',
-                  fontSize: 12,
                 }}
               >
-                Loading existing pitch...
+                <span className="wb-pitch-skel__label shimmer" style={{ height: 9, width: 110 }} />
+                <span className="wb-pitch-skel__value shimmer" style={{ height: 14, width: '62%' }} />
+                <span className="wb-pitch-skel__value shimmer" style={{ height: 10, width: '90%' }} />
+                <span className="wb-pitch-skel__value shimmer" style={{ height: 10, width: '74%' }} />
               </div>
             )}
 
-            {hasExistingPitchRecord && (
+            {/* Compact pitch card removed — the rich pitch block above (rendered via details/pitch context) is the canonical view. */}
+            {false && hasExistingPitchRecord && (
               <div
                 style={{
                   display: 'flex',
@@ -10356,68 +10494,74 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
               </div>
             )}
 
-            {isLocalDev && hasExistingPitchRecord && !showPitchComposerPanel && !isFetchingPitchContent && (
+            {isPitchComposerVisible && hasExistingPitchRecord && !isPitchContentLoading && (
               <div
                 style={{
                   display: 'flex',
-                  justifyContent: 'space-between',
                   alignItems: 'center',
-                  gap: 12,
+                  gap: 8,
                   flexWrap: 'wrap',
-                  padding: '12px 14px',
-                  border: `1px solid ${isDarkMode ? `${colours.dark.border}40` : 'rgba(6, 23, 51, 0.08)'}`,
-                  background: isDarkMode ? 'rgba(2, 6, 23, 0.22)' : 'rgba(244, 244, 246, 0.35)',
+                  padding: '8px 14px 0',
                 }}
               >
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
-                    Pitch choices
-                  </span>
-                  <span style={{ fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151' }}>
-                    The last pitch is shown above. Open the composer only if you need to send a fresh pitch or quick link.
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowPitchComposerPanel(true)}
-                  style={{
-                    border: `1px solid ${isDarkMode ? colours.accent : colours.highlight}`,
-                    background: isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(54, 144, 206, 0.08)',
-                    color: isDarkMode ? colours.accent : colours.highlight,
-                    padding: '8px 12px',
-                    fontSize: 12,
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    fontFamily: 'inherit',
-                  }}
-                >
-                  Create another pitch
-                </button>
-              </div>
-            )}
-
-            {isLocalDev && hasExistingPitchRecord && showPitchComposerPanel && (
-              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                 <button
                   type="button"
                   onClick={() => setShowPitchComposerPanel(false)}
                   style={{
-                    border: `1px solid ${isDarkMode ? `${colours.dark.border}80` : 'rgba(6, 23, 51, 0.12)'}`,
-                    background: 'transparent',
-                    color: isDarkMode ? '#d1d5db' : '#374151',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    minHeight: 28,
                     padding: '6px 10px',
+                    borderRadius: 0,
+                    border: `1px solid ${!showPitchComposerPanel ? (isDarkMode ? 'rgba(54, 144, 206, 0.34)' : 'rgba(54, 144, 206, 0.26)') : (isDarkMode ? `${colours.dark.border}80` : 'rgba(6, 23, 51, 0.12)')}`,
+                    background: !showPitchComposerPanel
+                      ? (isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)')
+                      : 'transparent',
+                    color: !showPitchComposerPanel
+                      ? (isDarkMode ? colours.accent : colours.highlight)
+                      : (isDarkMode ? '#d1d5db' : '#374151'),
                     fontSize: 11,
-                    fontWeight: 600,
-                    cursor: 'pointer',
+                    fontWeight: !showPitchComposerPanel ? 700 : 600,
                     fontFamily: 'inherit',
+                    cursor: 'pointer',
+                    transition: 'border-color 0.15s ease, background 0.15s ease, color 0.15s ease',
                   }}
                 >
-                  Hide pitch choices
+                  <FaEnvelope size={10} />
+                  Pitch 1
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowPitchComposerPanel(true)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    minHeight: 28,
+                    padding: '6px 10px',
+                    borderRadius: 0,
+                    border: `1px dashed ${showPitchComposerPanel ? (isDarkMode ? colours.accent : colours.highlight) : (isDarkMode ? `${colours.dark.border}90` : 'rgba(6, 23, 51, 0.18)')}`,
+                    background: showPitchComposerPanel
+                      ? (isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)')
+                      : 'transparent',
+                    color: showPitchComposerPanel
+                      ? (isDarkMode ? colours.accent : colours.highlight)
+                      : (isDarkMode ? colours.subtleGrey : colours.greyText),
+                    fontSize: 11,
+                    fontWeight: showPitchComposerPanel ? 700 : 600,
+                    fontFamily: 'inherit',
+                    cursor: 'pointer',
+                    transition: 'border-color 0.15s ease, background 0.15s ease, color 0.15s ease',
+                  }}
+                >
+                  <span style={{ fontSize: 14, lineHeight: 1 }}>+</span>
+                  New pitch
                 </button>
               </div>
             )}
 
-            {isLocalDev && (((!hasExistingPitchRecord && !isFetchingPitchContent) || showPitchComposerPanel)) ? (
+            {isPitchComposerVisible && (((!hasExistingPitchRecord && !isPitchContentLoading) || showPitchComposerPanel)) ? (
               <React.Suspense
                 fallback={(
                   <div

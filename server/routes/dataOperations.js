@@ -349,21 +349,26 @@ function getHistoricalWipBounds() {
   return { start, end };
 }
 
-function buildNumericParityCheck({ key, scope, label, actual, expected, formatter, tolerance, okDescription, mismatchDescription, status = 'warn' }) {
+function buildNumericParityCheck({ key, scope, label, actual, expected, formatter, tolerance, okDescription, mismatchDescription, status = 'warn', isCurrent = false }) {
   const actualValue = toFiniteNumber(actual);
   const expectedValue = toFiniteNumber(expected);
   const delta = actualValue - expectedValue;
   const matches = Math.abs(delta) <= tolerance;
-  return {
+  const result = {
     key,
     scope,
     label,
     status: matches ? 'ok' : status,
+    actual: actualValue,
+    expected: expectedValue,
+    delta,
     value: matches ? formatter(actualValue) : formatAuditDelta(delta, formatter),
     description: matches
       ? okDescription(actualValue)
       : mismatchDescription({ actual: actualValue, expected: expectedValue, delta }),
   };
+  if (isCurrent) result.isCurrent = true;
+  return result;
 }
 
 function summariseWipRows(rows) {
@@ -642,6 +647,28 @@ async function buildReconciliationSnapshot(rawScope = 'all') {
           const previousMonth = getMonthBounds(-1);
           const currentMonthKey = formatSqlDate(currentMonth.start).slice(0, 7);
           const previousMonthKey = formatSqlDate(previousMonth.start).slice(0, 7);
+
+          // Phase A — rolling N closed months parity. Default 6, configurable via env.
+          // We widen the single Clio call to cover the rolling window so we still pay one Clio
+          // queue/poll round-trip; the per-month buckets come back in `clioCollected.months`.
+          const monthsBack = Math.max(1, Math.min(24, Number.parseInt(process.env.RECONCILIATION_MONTHS_BACK, 10) || 6));
+          // Include the current (in-flight) month at the end so the per-month breakdown
+          // surfaces today's parity as well as the rolling closed window. The current month
+          // is partial by definition — drift here is expected mid-month.
+          const rollingMonths = []; // oldest first → newest (current month last)
+          for (let i = monthsBack; i >= 0; i -= 1) {
+            const bounds = getMonthBounds(-i);
+            const key = formatSqlDate(bounds.start).slice(0, 7);
+            rollingMonths.push({
+              key,
+              label: bounds.start.toLocaleString('en-GB', { month: 'short', year: 'numeric' }),
+              start: bounds.start,
+              end: bounds.end,
+              isCurrent: i === 0,
+            });
+          }
+          const rollingStart = rollingMonths[0]?.start || previousMonth.start;
+
           const collectedProjection = await reporting.fetchRecoveredFeesSummary({ connectionString: coreConnStr, firm: true });
           const collectedSourceSummary = await corePool.request()
             .input('prevStart', formatSqlDate(previousMonth.start))
@@ -656,8 +683,28 @@ async function buildReconciliationSnapshot(rawScope = 'all') {
               WHERE payment_date BETWEEN @prevStart AND @currentEnd
             `);
           const collectedSourceRow = collectedSourceSummary.recordset[0] || {};
+
+          // Per-month SQL totals for the rolling window (one query, grouped).
+          const rollingSqlByMonth = new Map();
+          if (rollingMonths.length > 0) {
+            const rollingSqlSummary = await corePool.request()
+              .input('rollingStart', formatSqlDate(rollingStart))
+              .input('rollingEnd', formatSqlDate(currentMonth.end))
+              .query(`
+                SELECT
+                  CONVERT(CHAR(7), payment_date, 126) AS month_key,
+                  SUM(payment_allocated) AS month_total
+                FROM [dbo].[collectedTime]
+                WHERE payment_date BETWEEN @rollingStart AND @rollingEnd
+                GROUP BY CONVERT(CHAR(7), payment_date, 126)
+              `);
+            for (const row of rollingSqlSummary.recordset || []) {
+              if (row?.month_key) rollingSqlByMonth.set(row.month_key, toFiniteNumber(row.month_total));
+            }
+          }
+
           const clioCollected = await fetchCollectedClioMonthTotals({
-            startDate: formatSqlDate(previousMonth.start),
+            startDate: formatSqlDate(rollingStart),
             endDate: formatSqlDate(currentMonth.end),
           });
           const clioCurrentMonth = clioCollected.months[currentMonthKey]?.totalValue || 0;
@@ -673,6 +720,7 @@ async function buildReconciliationSnapshot(rawScope = 'all') {
             tolerance: RECONCILIATION_MONEY_TOLERANCE,
             okDescription: (value) => `The displayed collected total matches the Clio source report for the current month at ${formatAuditCurrency(value)}.`,
             mismatchDescription: ({ actual, expected, delta }) => `The displayed collected total shows ${formatAuditCurrency(actual)} but the Clio source report totals ${formatAuditCurrency(expected)} for the current month (${formatAuditDelta(delta, formatAuditCurrency)}).`,
+            isCurrent: true,
           }));
           checks.push(buildNumericParityCheck({
             key: 'collected-previous-month-ui-vs-clio',
@@ -695,7 +743,32 @@ async function buildReconciliationSnapshot(rawScope = 'all') {
             tolerance: RECONCILIATION_MONEY_TOLERANCE,
             okDescription: (value) => `The collectedTime table matches the Clio source report for the current month at ${formatAuditCurrency(value)}.`,
             mismatchDescription: ({ actual, expected, delta }) => `The collectedTime table sums to ${formatAuditCurrency(actual)} but the Clio source report totals ${formatAuditCurrency(expected)} for the current month (${formatAuditDelta(delta, formatAuditCurrency)}).`,
+            isCurrent: true,
           }));
+
+          // Per-closed-month parity rows. Oldest first → newest. Each row carries `month` + `monthLabel`
+          // so the readiness aggregator can build `findings[]` and the drill-down can resync per month.
+          for (const m of rollingMonths) {
+            const sqlTotal = rollingSqlByMonth.get(m.key) || 0;
+            const clioTotal = clioCollected.months[m.key]?.totalValue || 0;
+            const row = buildNumericParityCheck({
+              key: `collected-month-${m.key}-sql-vs-clio`,
+              scope: 'collected',
+              label: `${m.label} collected DB parity`,
+              actual: sqlTotal,
+              expected: clioTotal,
+              formatter: formatAuditCurrency,
+              tolerance: RECONCILIATION_MONEY_TOLERANCE,
+              okDescription: (value) => `${m.label}: collectedTime matches the Clio source report at ${formatAuditCurrency(value)}.`,
+              mismatchDescription: ({ actual, expected, delta }) => `${m.label}: collectedTime sums to ${formatAuditCurrency(actual)} but the Clio source report totals ${formatAuditCurrency(expected)} (${formatAuditDelta(delta, formatAuditCurrency)}).`,
+            });
+            row.month = m.key;
+            row.monthLabel = m.label;
+            row.monthStart = formatSqlDate(m.start);
+            row.monthEnd = formatSqlDate(m.end);
+            if (m.isCurrent) row.isCurrent = true;
+            checks.push(row);
+          }
         } else {
           checks.push({
             key: 'collected-summary-helper-missing',
@@ -3642,27 +3715,210 @@ router.get('/monthly-totals', async (req, res) => {
  * GET /api/data-operations/scheduler-status
  * Returns recent scheduler tier activity from the ops log.
  */
-router.get('/scheduler-status', (req, res) => {
-  const tiers = ['Hot', 'Warm', 'Cold'];
-  const ops = ['Collected', 'Wip'];
+const SCHEDULER_TIER_DEFS = {
+  collected: {
+    currentHourly: { operation: 'syncCollectedTimeCurrentHourly', schedule: ':05 current month' },
+    previousSeal: { operation: 'syncCollectedTimePreviousSeal', schedule: 'D1 03:33/12:33/23:33 · D2-14 02:33 · D21 02:33 · last day 23:33' },
+  },
+  wip: {
+    currentHourly: { operation: 'syncWipCurrentHourly', schedule: ':20 current month' },
+    previousSeal: { operation: 'syncWipPreviousSeal', schedule: 'D1 03:50/12:50/23:50 · D2-14 02:50 · D21 02:50 · last day 23:50' },
+  },
+};
 
-  const status = {};
-  for (const op of ops) {
-    status[op.toLowerCase()] = {};
-    for (const tier of tiers) {
-      const prefix = op === 'Collected' ? `syncCollectedTime${tier}` : `syncWip${tier}`;
-      const last = [...operationLog]
-        .filter((o) => o.operation === prefix && (o.status === 'completed' || o.status === 'error'))
-        .sort((a, b) => b.ts - a.ts)[0] || null;
-      const nextLabel = tier === 'Hot' ? ':03/:08 (1h)' : tier === 'Warm' ? '00/06/12/18 (6h)' : '23:03/23:08 (nightly)';
-      status[op.toLowerCase()][tier.toLowerCase()] = {
-        lastRun: last ? { ts: last.ts, status: last.status, message: last.message } : null,
-        schedule: nextLabel,
-      };
-    }
+const TIER_LIFECYCLE_STATUSES = new Set(['queued', 'started', 'running', 'completed', 'error', 'timeout', 'skipped']);
+const SCHEDULER_TIER_META_BY_OPERATION = Object.entries(SCHEDULER_TIER_DEFS).reduce((acc, [entity, tiers]) => {
+  Object.entries(tiers).forEach(([tier, config]) => {
+    acc[config.operation] = { entity, tier, schedule: config.schedule };
+  });
+  return acc;
+}, {});
+
+function toIsoDateString(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString().slice(0, 10);
+}
+
+function inclusiveDaySpan(startDate, endDate) {
+  if (!startDate || !endDate) return null;
+  const start = new Date(`${startDate}T00:00:00.000Z`);
+  const end = new Date(`${endDate}T00:00:00.000Z`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+  return Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
+}
+
+function getSyncEntity(operation) {
+  if (!operation) return null;
+  if (operation.startsWith('syncCollectedTime')) return 'collected';
+  if (operation.startsWith('syncWip')) return 'wip';
+  return null;
+}
+
+function getModeLabel(triggeredBy) {
+  switch (triggeredBy) {
+    case 'scheduler-boot':
+      return 'Restart catch-up';
+    case 'scheduler':
+      return 'Scheduled';
+    case 'manual':
+      return 'Manual';
+    default:
+      return triggeredBy || 'Unknown';
+  }
+}
+
+function getSyncWindowLabel(row) {
+  const startDate = toIsoDateString(row.startDate);
+  const endDate = toIsoDateString(row.endDate);
+  const span = inclusiveDaySpan(startDate, endDate);
+
+  switch (row.operation) {
+    case 'syncCollectedTimeDaily':
+      return 'Today only';
+    case 'syncCollectedTimeRolling7d':
+      return 'Rolling 7 days';
+    case 'syncWipDaily':
+      return 'Today only';
+    case 'syncWipRolling7d':
+      return 'Rolling 7 days';
+    case 'syncWipRolling21d':
+      return 'Rolling 21 days';
+    case 'syncWipRolling56d':
+      return 'Rolling 56 days';
+    default:
+      break;
   }
 
-  res.json({ enabled: true, tiers: status });
+  if (row.operation === 'syncCollectedTime' && span === 2) return 'Today + yesterday';
+  if (row.operation === 'syncCollectedTime' && span === 4) return 'Rolling 3 days';
+  if (row.operation === 'syncWip' && span === 7) return 'Rolling 7 days';
+  if (row.operation === 'syncWip' && span === 21) return 'Rolling 21 days';
+  if (row.operation === 'syncWip' && span === 56) return 'Rolling 56 days';
+
+  if (startDate && endDate) return `${startDate} -> ${endDate}`;
+  return row.operation;
+}
+
+function getSyncResultLabel(row) {
+  if (row.deletedRows != null || row.insertedRows != null) {
+    return `Deleted ${row.deletedRows ?? 0}, inserted ${row.insertedRows ?? 0}`;
+  }
+  return row.message || null;
+}
+
+async function getPersistedSchedulerSnapshot(limit = 160) {
+  const base = {
+    tiers: Object.entries(SCHEDULER_TIER_DEFS).reduce((acc, [entity, tiers]) => {
+      acc[entity] = Object.entries(tiers).reduce((tierAcc, [tier, config]) => {
+        tierAcc[tier] = { lastRun: null, schedule: config.schedule };
+        return tierAcc;
+      }, {});
+      return acc;
+    }, {}),
+    recentRuns: [],
+  };
+
+  const pool = await getLogPool();
+  if (!pool) return base;
+
+  const safeLimit = Math.max(40, Math.min(Number(limit) || 160, 400));
+  const result = await pool.request().query(`
+    SELECT TOP (${safeLimit})
+      ts,
+      operation,
+      status,
+      message,
+      startDate,
+      endDate,
+      deletedRows,
+      insertedRows,
+      durationMs,
+      triggeredBy,
+      invokedBy
+    FROM dataOpsLog
+    WHERE status <> 'progress'
+      AND (
+        operation LIKE 'syncCollectedTime%'
+        OR operation LIKE 'syncWip%'
+      )
+    ORDER BY ts DESC
+  `);
+
+  const rows = (result.recordset || []).map((row) => ({
+    ...row,
+    tsMs: row.ts instanceof Date ? row.ts.getTime() : new Date(row.ts).getTime(),
+    startDate: toIsoDateString(row.startDate),
+    endDate: toIsoDateString(row.endDate),
+  }));
+
+  for (const [operation, meta] of Object.entries(SCHEDULER_TIER_META_BY_OPERATION)) {
+    const match = rows.find((row) => row.operation === operation && TIER_LIFECYCLE_STATUSES.has(row.status));
+    if (!match) continue;
+    base.tiers[meta.entity][meta.tier].lastRun = {
+      ts: match.tsMs,
+      status: match.status,
+      message: match.message || null,
+      triggeredBy: match.triggeredBy || null,
+    };
+  }
+
+  const recentRuns = [];
+  const dedupeWindowMs = 30 * 60 * 1000;
+
+  for (const row of rows) {
+    const meta = SCHEDULER_TIER_META_BY_OPERATION[row.operation];
+    if (meta) continue;
+    if (!getSyncEntity(row.operation)) continue;
+    if (row.operation.toLowerCase().includes('validate')) continue;
+
+    const dedupeKey = [
+      row.operation,
+      row.triggeredBy || '',
+      row.startDate || '',
+      row.endDate || '',
+      row.invokedBy || '',
+    ].join('|');
+
+    const duplicate = recentRuns.find((existing) => existing.dedupeKey === dedupeKey && Math.abs(existing.ts - row.tsMs) < dedupeWindowMs);
+    if (duplicate) continue;
+
+    recentRuns.push({
+      id: `${row.operation}-${row.tsMs}-${recentRuns.length}`,
+      dedupeKey,
+      ts: row.tsMs,
+      entity: getSyncEntity(row.operation),
+      operation: row.operation,
+      status: row.status,
+      triggeredBy: row.triggeredBy || 'manual',
+      modeLabel: getModeLabel(row.triggeredBy),
+      invokedBy: row.invokedBy || null,
+      startDate: row.startDate,
+      endDate: row.endDate,
+      windowLabel: getSyncWindowLabel(row),
+      resultLabel: getSyncResultLabel(row),
+      durationMs: row.durationMs ?? null,
+      deletedRows: row.deletedRows ?? null,
+      insertedRows: row.insertedRows ?? null,
+      message: row.message || null,
+    });
+
+    if (recentRuns.length >= 24) break;
+  }
+
+  base.recentRuns = recentRuns;
+  return base;
+}
+
+router.get('/scheduler-status', async (req, res) => {
+  try {
+    const persisted = await getPersistedSchedulerSnapshot();
+    res.json({ enabled: true, ...persisted, serverTime: Date.now() });
+  } catch (error) {
+    trackException(error, { operation: 'scheduler-status', phase: 'query' });
+    res.status(500).json({ error: 'Failed to retrieve scheduler status' });
+  }
 });
 
 /**
@@ -3670,10 +3926,11 @@ router.get('/scheduler-status', (req, res) => {
  * Returns live scheduler state: tier statuses, mutex, next fire countdowns, plus recent operation log.
  * Consumed by SyncHistory panel in Reports tab.
  */
-router.get('/sync-history', (req, res) => {
+router.get('/sync-history', async (req, res) => {
   try {
     const { getSchedulerState } = require('../utils/dataOperationsScheduler');
     const state = getSchedulerState();
+    const persisted = await getPersistedSchedulerSnapshot();
 
     // Merge operation log for each tier (last 3 entries per operation)
     const recentByOp = {};
@@ -3690,6 +3947,7 @@ router.get('/sync-history', (req, res) => {
     res.json({
       scheduler: state,
       recentLog: recentByOp,
+      persisted,
       serverTime: Date.now(),
     });
   } catch (err) {
@@ -3987,10 +4245,83 @@ router.get('/explain/sample', async (req, res) => {
 // Attach SSE stream endpoint at /api/data-operations/stream
 attachDataOpsStream(router);
 
+/**
+ * Read the most recent in-memory reconciliation snapshot (manual or scheduled).
+ * Used by the Management Dashboard trust gate to reflect parity confidence
+ * without re-running the heavy live Clio report on every dashboard open.
+ *
+ * @returns {object|null} The snapshot object, or null if none has been built since last server boot.
+ */
+function getLatestReconciliationSnapshot() {
+  return latestReconciliationSnapshot;
+}
+
+/**
+ * Rebuild a partial reconciliation snapshot for the given scope and merge it
+ * into the existing in-memory snapshot, preserving rows from other scopes.
+ *
+ * Used by the Management Dashboard trust gate's Phase D remediation loop:
+ * after `syncCollectedTime` rewrites the SQL data, the gate needs the
+ * snapshot to reflect the new figures so the next readiness build sees
+ * `delta ≈ 0`. Without this the gate would stay blocked despite the sync
+ * succeeding (the snapshot is module-private and only refreshed by the
+ * manual /reconciliation-snapshot endpoint or this helper).
+ *
+ * @param {string} [scope='collected'] - 'pipeline' | 'collected' | 'wip' | 'all'
+ * @returns {Promise<object>} The new merged snapshot.
+ */
+async function refreshReconciliationSnapshot(scope = 'collected') {
+  const partial = await buildReconciliationSnapshot(scope);
+  const previous = latestReconciliationSnapshot;
+  if (!previous || scope === 'all') {
+    latestReconciliationSnapshot = partial;
+    return partial;
+  }
+  // Replace rows of the rebuilt scope, keep everything else.
+  const mergedChecks = (previous.checks || [])
+    .filter((c) => c.scope !== scope)
+    .concat(partial.checks || []);
+  // Findings: same merge strategy. Findings carry their own scope.
+  const mergedFindings = (previous.findings || [])
+    .filter((f) => f.scope !== scope)
+    .concat(partial.findings || []);
+  // Recompute summary tallies from merged checks so the overall status reflects reality.
+  const summary = {
+    warnCount: mergedChecks.filter((c) => c.status === 'warn').length,
+    monitorCount: mergedChecks.filter((c) => c.status === 'monitor').length,
+    errorCount: mergedChecks.filter((c) => c.status === 'error').length,
+    okCount: mergedChecks.filter((c) => c.status === 'ok').length,
+    issueCount: mergedFindings.length,
+    checkCount: mergedChecks.length,
+  };
+  summary.status = summary.errorCount > 0
+    ? 'error'
+    : summary.warnCount > 0
+      ? 'warn'
+      : summary.monitorCount > 0
+        ? 'monitor'
+        : 'ok';
+  const merged = {
+    ...previous,
+    generatedAt: partial.generatedAt,
+    // Keep previous.scope so the snapshot still reflects the broadest view it has covered.
+    scope: previous.scope === 'all' ? 'all' : (previous.scope === scope ? scope : 'mixed'),
+    scopeLabel: previous.scope === 'all' ? previous.scopeLabel : `${previous.scopeLabel} + ${partial.scopeLabel}`,
+    summary,
+    checks: mergedChecks,
+    findings: mergedFindings,
+  };
+  latestReconciliationSnapshot = merged;
+  return merged;
+}
+
 module.exports = {
   router,
   syncCollectedTime,
   syncWip,
   logOperation,
   logProgress,
+  getLatestReconciliationSnapshot,
+  refreshReconciliationSnapshot,
+  getPersistedSchedulerSnapshot,
 };

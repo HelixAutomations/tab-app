@@ -51,6 +51,7 @@ import SnippetEditPopover from './pitch-builder/SnippetEditPopover';
 
 import { placeholderSuggestions } from '../../app/customisation/InsertSuggestions';
 import { getProxyBaseUrl } from '../../utils/getProxyBaseUrl';
+import { getApiBase } from '../../utils/getApiUrl';
 import { isInTeams } from '../../app/functionality/isInTeams';
 import {
   cleanTemplateString,
@@ -1332,13 +1333,15 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const defaultFollowUpBcc = '1day@followupthen.com';
+
   // Default subject
   const [subject, setSubject] = useState<string>('Your Enquiry');
 
   // Default recipient fields
   const [to, setTo] = useState<string>(enquiry.Email || '');
   const [cc, setCc] = useState<string>('');
-  const [bcc, setBcc] = useState<string>('1day@followupthen.com');
+  const [bcc, setBcc] = useState<string>(defaultFollowUpBcc);
 
   // Extracted blocks (handled as qualifying sections above editor). They won't appear as placeholders inside the editor.
   const EXTRACTED_BLOCKS: string[] = [
@@ -2898,7 +2901,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
     setSubject('Your Enquiry');
     setTo(enquiry.Email || '');
     setCc('');
-    setBcc('1day@followupthen.com');
+    setBcc(defaultFollowUpBcc);
     // Re-load the base template
     const newBody = generateInitialBody(
       templateBlocks.filter(b => !hiddenBlocks[b.title])
@@ -2966,7 +2969,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
     return true;
   }
 
-  async function insertDealIfNeeded(options?: { background?: boolean; bccAdditional?: string; linkOnly?: boolean }): Promise<string | null> {
+  async function insertDealIfNeeded(options?: { background?: boolean; bccAdditional?: string; linkOnly?: boolean; excludeFollowUpBcc?: boolean }): Promise<string | null> {
     try {
       // Check if deal creation is already in progress
       if (dealCreationInProgress) {
@@ -3079,7 +3082,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
         emailRecipients: {
           to: to || enquiry.Point_of_Contact || enquiry.Email,
           cc: cc || '',
-          bcc: buildBccList(options?.bccAdditional),
+          bcc: buildBccList(options?.bccAdditional, { excludeFollowUp: options?.excludeFollowUpBcc }),
           feeEarnerEmail: userEmailAddress
         },
         // Pitch content fields
@@ -3230,7 +3233,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
     
     try {
       // Use the same pattern as other API calls in the app
-      const response = await fetch(`${getProxyBaseUrl()}/api/team-lookup?initials=${encodeURIComponent(initials.trim())}`);
+      const response = await fetch(`${getApiBase()}/api/team-lookup?initials=${encodeURIComponent(initials.trim())}`);
       if (response.ok) {
         const data = await response.json();
         return data.email || '';
@@ -3290,21 +3293,24 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
   /**
    * Build BCC list with safety addresses
    */
-  function buildBccList(additionalBcc?: string): string {
-    const bccList: string[] = [];
-    
-    // Add existing BCC
-    if (bcc && bcc.trim()) {
-      bccList.push(bcc.trim());
-    }
-    
-    // Add additional BCC if provided (exclude lz@helix-law.com)
-    if (additionalBcc && additionalBcc.trim() && additionalBcc.trim() !== 'lz@helix-law.com') {
-      bccList.push(additionalBcc.trim());
-    }
-    
-    // Remove duplicates and filter out lz@helix-law.com
-    const filtered = Array.from(new Set(bccList)).filter(email => email !== 'lz@helix-law.com');
+  function buildBccList(additionalBcc?: string, options?: { excludeFollowUp?: boolean }): string {
+    const splitRecipients = (value?: string): string[] =>
+      String(value || '')
+        .split(/[;,]/)
+        .map((email) => email.trim())
+        .filter(Boolean);
+
+    const bccList = [
+      ...splitRecipients(bcc),
+      ...splitRecipients(additionalBcc)
+    ];
+
+    const filtered = Array.from(new Set(bccList)).filter((email) => {
+      const normalizedEmail = email.toLowerCase();
+      if (normalizedEmail === 'lz@helix-law.com') return false;
+      if (options?.excludeFollowUp && normalizedEmail === defaultFollowUpBcc) return false;
+      return true;
+    });
     return filtered.join(', ');
   }
 
@@ -3604,7 +3610,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
       });
       return;
     }
-    const currentPasscode = await insertDealIfNeeded({ bccAdditional: undefined });
+    const currentPasscode = await insertDealIfNeeded({ bccAdditional: undefined, excludeFollowUpBcc: true });
     if (!currentPasscode) {
       setEmailStatus('error');
       setEmailMessage('Deal save failed');
@@ -3650,8 +3656,8 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
       .trim()
       .toUpperCase();
 
-    // Draft: send to the user themselves; BCC only safety addresses (no CC)
-    const bccList = buildBccList(); // LZ/CB only
+    // Draft: send to the user themselves without the automated follow-up reminder.
+    const bccList = buildBccList(undefined, { excludeFollowUp: true });
 
     const requestBody = {
       body_html: finalHtml,

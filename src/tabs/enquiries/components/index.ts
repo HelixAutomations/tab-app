@@ -59,7 +59,6 @@ export type {
   RowPipelineHandlers,
   RowActionHandlers,
   RowDisplayState,
-  RowHoverHandlers,
   RowDataDeps,
   ProspectTableRowProps,
 } from './rowTypes';

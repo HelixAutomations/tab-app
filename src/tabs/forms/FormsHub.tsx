@@ -1,4 +1,4 @@
-import React, { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from '@fluentui/react/lib/Icon';
 import { NormalizedMatter, TeamData, UserData } from '../../app/functionality/types';
 import { useTheme } from '../../app/functionality/ThemeContext';
@@ -8,7 +8,7 @@ import FormEmbed from '../../components/FormEmbed';
 import { laneOrder, processDefinitions, ProcessDefinition, ProcessLane, ProcessStreamItem, streamStatusMeta } from './processHubData';
 import { buildStreamItem, isProcessStreamStatus, LEDGER_VISIBLE_STATUSES, PROCESS_STREAM_UPDATED_EVENT, readStoredStream, writeStoredStream } from './processStreamStore';
 import AiComposerDrawer from './AiComposerDrawer';
-import { getProxyBaseUrl } from '../../utils/getProxyBaseUrl';
+import { getApiBase } from '../../utils/getApiUrl';
 import '../home/home-tokens.css';
 import './forms-tokens.css';
 
@@ -22,6 +22,8 @@ type FormsHubProps = {
   matters: NormalizedMatter[];
   onDismiss: () => void;
   onInitialFormHandled?: () => void;
+  focusSubmissionId?: string | null;
+  onFocusSubmissionHandled?: () => void;
   teamData?: TeamData[] | null;
   userData: UserData[] | null;
 };
@@ -39,6 +41,24 @@ type ProcessHubHealthState = {
   checkedAt: string | null;
   message: string;
   status: 'checking' | 'healthy' | 'unhealthy';
+};
+
+type FormRouteProbeStatus = 'checking' | 'healthy' | 'unhealthy' | 'unconfigured';
+
+type FormRouteProbeState = {
+  checkedAt: string | null;
+  description?: string;
+  error?: string;
+  responseMs?: number;
+  status: FormRouteProbeStatus;
+};
+
+type FormRouteProbeCheck = {
+  description?: string;
+  error?: string;
+  id?: string;
+  responseMs?: number;
+  status?: string;
 };
 
 const FORM_RECENTS_KEY = 'forms-hub:recents';
@@ -87,8 +107,8 @@ function getProcessAccent(lane: ProcessLane) {
     case 'Start':
       return 'var(--helix-highlight)';
     case 'Request':
-      // Was --helix-accent (#87F3F3) which is dark-mode-only teal and reads as
-      // a conflicting cyan in light mode. Green keeps Request distinct from
+      // Was the old dark-mode teal accent, which read as a conflicting highlight.
+      // Green keeps Request distinct from
       // Start/Log/Find (all blue family) and Escalate (cta) while remaining
       // readable in both themes.
       return 'var(--helix-green)';
@@ -103,12 +123,37 @@ function getProcessAccent(lane: ProcessLane) {
   }
 }
 
+function getFormRouteProbeTitle(form: ProcessDefinition, routeProbe?: FormRouteProbeState) {
+  if (!form.healthCheckId) {
+    return 'No processing route probe configured yet';
+  }
+
+  if (!routeProbe || routeProbe.status === 'checking') {
+    return 'Probing processing route';
+  }
+
+  if (routeProbe.status === 'unconfigured') {
+    return 'No processing route probe configured yet';
+  }
+
+  const parts = [
+    routeProbe.status === 'healthy' ? 'Processing route ready' : 'Processing route needs attention',
+    routeProbe.responseMs !== undefined ? `${routeProbe.responseMs}ms` : null,
+    routeProbe.checkedAt ? `Checked ${formatTimestamp(routeProbe.checkedAt)}` : null,
+    routeProbe.error || routeProbe.description || null,
+  ];
+
+  return parts.filter(Boolean).join(' - ');
+}
+
 export default function FormsHub({
   initialFormTitle = null,
   isOpen,
   matters,
   onDismiss,
   onInitialFormHandled,
+  focusSubmissionId = null,
+  onFocusSubmissionHandled,
   teamData,
   userData,
 }: FormsHubProps) {
@@ -130,6 +175,7 @@ export default function FormsHub({
     message: 'Pressure testing route',
     status: 'checking',
   });
+  const [formRouteHealth, setFormRouteHealth] = useState<Record<string, FormRouteProbeState>>({});
   const [recentTitles, setRecentTitles] = useState<string[]>(() => readStoredTitles(FORM_RECENTS_KEY));
   const [streamItems, setStreamItems] = useState<ProcessStreamItem[]>(() => readStoredStream());
   const deferredQuery = useDeferredValue(searchQuery.trim().toLowerCase());
@@ -168,6 +214,10 @@ export default function FormsHub({
       accumulator[form.title] = form;
       return accumulator;
     }, {});
+  }, [processes]);
+
+  const formRouteProbeIds = useMemo(() => {
+    return Array.from(new Set(processes.map((process) => process.healthCheckId).filter((id): id is string => Boolean(id))));
   }, [processes]);
 
   const filteredProcesses = useMemo(() => {
@@ -242,6 +292,47 @@ export default function FormsHub({
   const visibleStreamItems = useMemo(() => {
     return streamItems.filter((item) => LEDGER_VISIBLE_STATUSES.includes(item.status));
   }, [streamItems]);
+
+  // Forms-stream landing deep-link: when a form just submitted lands the user
+  // here with a focusSubmissionId, scroll the matching row into view and flash
+  // a brief highlight so they can see the deposit was recorded. Uses a
+  // requestAnimationFrame to wait for the rail to render after the SSE / store
+  // event surfaces the new entry.
+  const streamListRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!focusSubmissionId || !isOpen) return;
+    let cancelled = false;
+    let attempts = 0;
+    const tryFocus = () => {
+      if (cancelled) return;
+      attempts += 1;
+      const root = streamListRef.current;
+      const target = root?.querySelector<HTMLElement>(
+        `[data-submission-id="${CSS.escape(focusSubmissionId)}"]`,
+      );
+      if (target) {
+        try {
+          target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } catch { /* non-critical */ }
+        target.classList.add('forms-hub__stream-item--focus-flash');
+        window.setTimeout(() => {
+          target.classList.remove('forms-hub__stream-item--focus-flash');
+        }, 2200);
+        onFocusSubmissionHandled?.();
+      } else if (attempts < 12) {
+        window.setTimeout(tryFocus, 250);
+      } else {
+        // Give up quietly — the row may not have surfaced yet (server lag) or
+        // the user has filtered it out. Clear the pending focus regardless.
+        onFocusSubmissionHandled?.();
+      }
+    };
+    const handle = window.requestAnimationFrame(tryFocus);
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(handle);
+    };
+  }, [focusSubmissionId, isOpen, visibleStreamItems, onFocusSubmissionHandled]);
 
   useEffect(() => {
     writeStoredTitles(FORM_RECENTS_KEY, recentTitles);
@@ -379,7 +470,7 @@ export default function FormsHub({
       setComposerActive(false);
       if (proposalId) {
         try {
-          void fetch(`${getProxyBaseUrl()}/api/forms-ai/plan/${proposalId}/accepted`, {
+          void fetch(`${getApiBase()}/api/forms-ai/plan/${proposalId}/accepted`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ mode: 'review-and-send' }),
@@ -652,6 +743,97 @@ export default function FormsHub({
 
   useEffect(() => {
     if (!isOpen) {
+      setFormRouteHealth({});
+      return;
+    }
+
+    if (formRouteProbeIds.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+
+    setFormRouteHealth((current) => {
+      const next = { ...current };
+      formRouteProbeIds.forEach((id) => {
+        next[id] = {
+          checkedAt: null,
+          status: 'checking',
+        };
+      });
+      return next;
+    });
+
+    async function loadFormRouteHealth() {
+      try {
+        const response = await fetch(`${getApiBase()}/api/form-health`, {
+          headers: { 'Content-Type': 'application/json' },
+        });
+        const payload = await response.json().catch(() => ({})) as {
+          checks?: FormRouteProbeCheck[];
+          timestamp?: string;
+        };
+
+        if (!response.ok) {
+          throw new Error(`Form route probe failed (${response.status})`);
+        }
+
+        const checkedAt = payload.timestamp || new Date().toISOString();
+        const probeIds = new Set(formRouteProbeIds);
+        const next: Record<string, FormRouteProbeState> = {};
+
+        formRouteProbeIds.forEach((id) => {
+          next[id] = {
+            checkedAt,
+            error: 'No result returned for this route',
+            status: 'unhealthy',
+          };
+        });
+
+        (payload.checks || []).forEach((check) => {
+          if (!check.id || !probeIds.has(check.id)) {
+            return;
+          }
+
+          next[check.id] = {
+            checkedAt,
+            description: check.description,
+            error: check.error,
+            responseMs: typeof check.responseMs === 'number' ? check.responseMs : undefined,
+            status: check.status === 'healthy' ? 'healthy' : 'unhealthy',
+          };
+        });
+
+        if (!cancelled) {
+          setFormRouteHealth(next);
+        }
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        const message = error instanceof Error ? error.message : 'Form route probe failed';
+        const checkedAt = new Date().toISOString();
+        setFormRouteHealth(formRouteProbeIds.reduce<Record<string, FormRouteProbeState>>((next, id) => {
+          next[id] = {
+            checkedAt,
+            error: message,
+            status: 'unhealthy',
+          };
+          return next;
+        }, {}));
+      }
+    }
+
+    void loadFormRouteHealth();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [formRouteProbeIds, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) {
       setProcessHubHealth({
         alertSent: false,
         alertSuppressed: false,
@@ -769,7 +951,7 @@ export default function FormsHub({
                     type="button"
                     style={{ borderBottom: '1px dashed var(--border-base, rgba(75,85,99,0.38))' }}
                   >
-                    <span className="forms-hub__search-option-icon" style={{ color: isDarkMode ? '#87F3F3' : '#3690CE' }}>
+                    <span className="forms-hub__search-option-icon" style={{ color: isDarkMode ? '#3690CE' : '#3690CE' }}>
                       <Icon iconName="Lightbulb" />
                     </span>
                     <span className="forms-hub__search-option-text">
@@ -834,28 +1016,42 @@ export default function FormsHub({
                       </div>
                     </div>
                     <div className="forms-hub__bookmark-list">
-                      {section.processes.map((process) => (
-                        <button
-                          className={`forms-hub__bookmark-item${highlightedFormTitle === process.title ? ' forms-hub__bookmark-item--preview' : ''}`}
-                          key={process.title}
-                          onClick={() => handleSelectForm(process)}
-                          onMouseEnter={() => setHighlightedFormTitle(process.title)}
-                          onMouseLeave={() => setHighlightedFormTitle((current) => (current === process.title ? null : current))}
-                          type="button"
-                        >
-                          <span className="forms-hub__bookmark-item-icon" style={{ color: getProcessAccent(process.lane) }}>
-                            <Icon iconName={process.icon || 'Document'} />
-                          </span>
-                          <span className="forms-hub__bookmark-item-text">
-                            <span className="forms-hub__bookmark-item-title">{process.title}</span>
-                          </span>
-                          {process.embedScript && (
-                            <span className="forms-hub__bookmark-item-cognito" title="Cognito form">
-                              <Icon iconName="Settings" />
+                      {section.processes.map((process) => {
+                        const routeProbe = process.healthCheckId ? formRouteHealth[process.healthCheckId] : undefined;
+                        const routeProbeStatus: FormRouteProbeStatus = process.healthCheckId
+                          ? routeProbe?.status || 'checking'
+                          : 'unconfigured';
+
+                        return (
+                          <button
+                            className={`forms-hub__bookmark-item${highlightedFormTitle === process.title ? ' forms-hub__bookmark-item--preview' : ''}`}
+                            key={process.title}
+                            onClick={() => handleSelectForm(process)}
+                            onMouseEnter={() => setHighlightedFormTitle(process.title)}
+                            onMouseLeave={() => setHighlightedFormTitle((current) => (current === process.title ? null : current))}
+                            type="button"
+                          >
+                            <span className="forms-hub__bookmark-item-icon" style={{ color: getProcessAccent(process.lane) }}>
+                              <Icon iconName={process.icon || 'Document'} />
                             </span>
-                          )}
-                        </button>
-                      ))}
+                            <span className="forms-hub__bookmark-item-text">
+                              <span className="forms-hub__bookmark-item-title">{process.title}</span>
+                            </span>
+                            <span className="forms-hub__bookmark-item-actions">
+                              {process.embedScript && (
+                                <span className="forms-hub__bookmark-item-cognito" title="Cognito form">
+                                  <Icon iconName="Settings" />
+                                </span>
+                              )}
+                              <span
+                                aria-hidden="true"
+                                className={`forms-hub__route-health-dot forms-hub__bookmark-route-dot forms-hub__route-health-dot--${routeProbeStatus}`}
+                                title={getFormRouteProbeTitle(process, routeProbe)}
+                              />
+                            </span>
+                          </button>
+                        );
+                      })}
                     </div>
                   </section>
                 )) : (
@@ -896,6 +1092,7 @@ export default function FormsHub({
           <div
             aria-hidden={isStreamCollapsed}
             className={`forms-hub__stream-list${isStreamCollapsed ? ' forms-hub__stream-list--collapsed' : ''}`}
+            ref={streamListRef}
           >
             {visibleStreamItems.length > 0 ? visibleStreamItems.map((item) => {
               const statusMeta = streamStatusMeta[item.status];
@@ -904,14 +1101,26 @@ export default function FormsHub({
 
               return (
                 <React.Fragment key={item.id}>
-                  <button
+                  <div
+                    aria-disabled={!target}
                     className={`forms-hub__stream-item${isEditing ? ' forms-hub__stream-item--editing' : ''}`}
+                    data-submission-id={item.submissionId || undefined}
                     onClick={() => {
                       if (target) {
                         handleSelectForm(target);
                       }
                     }}
-                    type="button"
+                    onKeyDown={(event) => {
+                      if (!target) {
+                        return;
+                      }
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        handleSelectForm(target);
+                      }
+                    }}
+                    role={target ? 'button' : undefined}
+                    tabIndex={target ? 0 : -1}
                   >
                     <span
                       aria-hidden="true"
@@ -948,7 +1157,7 @@ export default function FormsHub({
                         </button>
                       )}
                     </div>
-                  </button>
+                  </div>
                   {canManageStreamEntries && isEditing && (
                     <div className="forms-hub__stream-edit-panel">
                       <div className="forms-hub__stream-edit-header">

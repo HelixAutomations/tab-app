@@ -115,10 +115,13 @@ router.post('/', async (req, res) => {
             if (!tokenResp.ok) {
                 const text = await tokenResp.text();
                 console.error('Asana token refresh failed', text);
-                return res.status(500).json({ error: 'Asana token refresh failed' });
+                await recordStep(submissionId, { name: 'asana.tokenRefresh', status: 'failed', error: text.slice(0, 500) });
+                await markFailed(submissionId, { lastEvent: 'asana.tokenRefresh:failed', error: new Error('Asana token refresh failed') });
+                return res.status(500).json({ error: 'Asana token refresh failed', submissionId });
             }
             const tokenData = await tokenResp.json();
             accessToken = tokenData.access_token;
+            await recordStep(submissionId, { name: 'asana.tokenRefresh', status: 'success' });
         } else {
             console.log('Local mode - skipping Asana token refresh');
             accessToken = 'local-token';
@@ -191,7 +194,9 @@ router.post('/', async (req, res) => {
             if (!resp.ok) {
                 const text = await resp.text();
                 console.error('Asana task creation failed', text);
-                return res.status(500).json({ error: 'Asana task creation failed' });
+                await recordStep(submissionId, { name: 'asana.create', status: 'failed', error: text.slice(0, 500) });
+                await markFailed(submissionId, { lastEvent: 'asana.create:failed', error: new Error('Asana task creation failed') });
+                return res.status(500).json({ error: 'Asana task creation failed', submissionId });
             }
             const data = await resp.json();
 
@@ -259,11 +264,14 @@ router.post('/', async (req, res) => {
                 if (!emailResp.ok) {
                     const errText = await emailResp.text();
                     console.warn('Bundle notification email failed', errText);
+                    await recordStep(submissionId, { name: 'email.operations', status: 'failed', error: errText.slice(0, 500) });
                 } else {
                     console.log('Bundle notification email sent');
+                    await recordStep(submissionId, { name: 'email.operations', status: 'success' });
                 }
             } catch (emailErr) {
                 console.warn('Email notification error:', emailErr);
+                await recordStep(submissionId, { name: 'email.operations', status: 'failed', error: emailErr?.message || String(emailErr) });
                 // Don't fail the whole request if email fails
             }
 
@@ -273,7 +281,13 @@ router.post('/', async (req, res) => {
                 output: { taskId: data?.data?.gid },
             });
             await markComplete(submissionId, { lastEvent: 'bundle task created' });
-            return res.json({ ok: true, task: data.data, mode: 'live' });
+            return res.json({
+                ok: true,
+                task: data.data,
+                mode: 'live',
+                submissionId,
+                streamUrl: submissionId ? `forms?focusSubmission=${submissionId}` : null,
+            });
         } else {
             console.log('Simulated mode - skipping Asana task creation and email notification');
             await recordStep(submissionId, {
@@ -282,14 +296,20 @@ router.post('/', async (req, res) => {
                 output: { simulated: true },
             });
             await markComplete(submissionId, { lastEvent: 'bundle simulated' });
-            return res.json({ ok: true, simulated: true, mode: forceSimulate ? 'forced' : (usingTestCreds ? 'test-credentials' : (inLocalMode() ? 'local' : 'auto-skip')) });
+            return res.json({
+                ok: true,
+                simulated: true,
+                mode: forceSimulate ? 'forced' : (usingTestCreds ? 'test-credentials' : (inLocalMode() ? 'local' : 'auto-skip')),
+                submissionId,
+                streamUrl: submissionId ? `forms?focusSubmission=${submissionId}` : null,
+            });
         }
     } catch (err) {
         console.error('Bundle submission failed', err);
         if (submissionId) {
             await markFailed(submissionId, { lastEvent: 'bundle:failed', error: err });
         }
-        res.status(500).json({ error: 'Bundle submission failed' });
+        res.status(500).json({ error: 'Bundle submission failed', submissionId });
     }
 });
 

@@ -12,6 +12,7 @@ import { Icon } from '@fluentui/react/lib/Icon';
 import { Link as FluentLink } from '@fluentui/react/lib/Link';
 import { app } from '@microsoft/teams-js';
 import { colours } from '../../app/styles/colours';
+import { isDevOwner } from '../../app/admin';
 import BespokePanel from '../../app/functionality/BespokePanel';
 import ResourceCard from './ResourceCard';
 import TemplatesSection from './sections/TemplatesSection';
@@ -502,6 +503,29 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
     return initialSections;
   }, []);
 
+  // Hide dev-only resource tiles (Azure portal, GitHub, Postman, Power
+  // Automate, Power BI) from non-dev users. These are internal tooling and
+  // were flagged as noise during the staging review.
+  const showDevResources = useMemo(() => {
+    const onLocalhost = typeof window !== 'undefined' &&
+      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+    return onLocalhost || isDevOwner(userData?.[0]);
+  }, [userData]);
+
+  const DEV_ONLY_RESOURCE_TITLES = useMemo(
+    () => new Set(['Azure', 'Power Automate', 'Power BI', 'Postman', 'GitHub']),
+    [],
+  );
+
+  const visibleResourcesSections: ResourcesSections = useMemo(() => {
+    if (showDevResources) return resourcesSections;
+    return {
+      ...resourcesSections,
+      WithIcons: resourcesSections.WithIcons.filter(r => !DEV_ONLY_RESOURCE_TITLES.has(r.title)),
+      WithoutIcons: resourcesSections.WithoutIcons.filter(r => !DEV_ONLY_RESOURCE_TITLES.has(r.title)),
+    };
+  }, [resourcesSections, showDevResources, DEV_ONLY_RESOURCE_TITLES]);
+
   // Load stored favorites from localStorage
   useEffect(() => {
     const storedFavorites = localStorage.getItem('resourcesFavorites');
@@ -610,10 +634,10 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
 
     return {
       Favorites: sortResources(favoriteResources),
-      WithIcons: sortResources(filterResources(resourcesSections.WithIcons)),
-      WithoutIcons: sortResources(filterResources(resourcesSections.WithoutIcons)),
+      WithIcons: sortResources(filterResources(visibleResourcesSections.WithIcons)),
+      WithoutIcons: sortResources(filterResources(visibleResourcesSections.WithoutIcons)),
     };
-  }, [favorites, resourcesSections, searchQuery]);
+  }, [favorites, visibleResourcesSections, searchQuery]);
 
   // Calculate animation delays based on row and column
   const calculateAnimationDelay = (row: number, col: number) => {

@@ -8,6 +8,32 @@ import './home-tokens.css';
 import type { HomeImmediateAction } from './ImmediateActionModel';
 import { TodoItemExpandedPane } from '../../components/modern/todo/TodoItemExpandedPane';
 import { trackClientEvent } from '../../utils/telemetry';
+import { resolveResponsiveBand, type ResponsiveBand } from '../../components/modern/hooks/useContainerWidth';
+
+type ImmediateActionsLayoutMode = 'flow' | 'split' | 'stacked' | 'single';
+
+const IMMEDIATE_ACTIONS_LAYOUT_BANDS: readonly ResponsiveBand<ImmediateActionsLayoutMode>[] = [
+  { mode: 'single', max: 430 },
+  { mode: 'stacked', max: 720 },
+  { mode: 'split', max: 980 },
+  { mode: 'flow', max: Number.POSITIVE_INFINITY },
+];
+
+const IMMEDIATE_ACTIONS_LAYOUT_HYSTERESIS_PX = 16;
+
+function readInlineSize(entry: ResizeObserverEntry): number {
+  const contentBox = Array.isArray(entry.contentBoxSize)
+    ? entry.contentBoxSize[0]
+    : entry.contentBoxSize;
+  return contentBox?.inlineSize || entry.contentRect.width;
+}
+
+function readBlockSize(entry: ResizeObserverEntry): number {
+  const borderBox = Array.isArray(entry.borderBoxSize)
+    ? entry.borderBoxSize[0]
+    : entry.borderBoxSize;
+  return Math.ceil(borderBox?.blockSize ?? entry.contentRect.height);
+}
 
 // Canonical AoW colour map — mirrors `.github/copilot-instructions.md` table.
 // Inlined here (not imported from a shared util) because the existing
@@ -74,9 +100,12 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
   const sectionRef = useRef<HTMLDivElement | null>(null);
   const chipGridRef = useRef<HTMLDivElement | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
-  const [layoutMode, setLayoutMode] = useState<'flow' | 'split' | 'stacked' | 'single'>('flow');
+  const [layoutMode, setLayoutMode] = useState<ImmediateActionsLayoutMode>('flow');
   const [chipGridHeight, setChipGridHeight] = useState<number>(0);
   const [bodyHeight, setBodyHeight] = useState<number>(0);
+  const layoutModeRef = useRef<ImmediateActionsLayoutMode>('flow');
+  const chipGridHeightRef = useRef(0);
+  const bodyHeightRef = useRef(0);
 
   const actions = enableSuggestedNext
     ? immediateActionsList
@@ -108,53 +137,122 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
     const element = sectionRef.current;
     if (!element) return undefined;
 
-    const updateLayout = (width: number) => {
-      if (width <= 430) {
-        setLayoutMode('single');
-      } else if (width <= 720) {
-        setLayoutMode('stacked');
-      } else if (width <= 980) {
-        setLayoutMode('split');
-      } else {
-        setLayoutMode('flow');
+    let frameId: number | null = null;
+    let pendingWidth = element.getBoundingClientRect().width;
+
+    const flushLayout = () => {
+      frameId = null;
+      const nextMode = resolveResponsiveBand(
+        pendingWidth,
+        layoutModeRef.current,
+        IMMEDIATE_ACTIONS_LAYOUT_BANDS,
+        IMMEDIATE_ACTIONS_LAYOUT_HYSTERESIS_PX,
+      );
+      if (nextMode === layoutModeRef.current) {
+        return;
       }
+      layoutModeRef.current = nextMode;
+      setLayoutMode(nextMode);
     };
 
-    updateLayout(element.getBoundingClientRect().width);
+    const queueLayout = (width: number) => {
+      pendingWidth = width;
+      if (frameId !== null) {
+        return;
+      }
+      frameId = window.requestAnimationFrame(flushLayout);
+    };
+
+    queueLayout(pendingWidth);
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
-        updateLayout(entry.contentRect.width);
+        queueLayout(readInlineSize(entry));
       }
     });
     observer.observe(element);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+    };
   }, []);
 
   // Measure the chip grid's natural height for smooth expand/collapse animation
   useEffect(() => {
     const grid = chipGridRef.current;
     if (!grid) return;
+    let frameId: number | null = null;
+    let pendingHeight = Math.ceil(grid.getBoundingClientRect().height);
+
+    const flushHeight = () => {
+      frameId = null;
+      if (pendingHeight === chipGridHeightRef.current) {
+        return;
+      }
+      chipGridHeightRef.current = pendingHeight;
+      setChipGridHeight(pendingHeight);
+    };
+
+    const queueHeight = (height: number) => {
+      pendingHeight = height;
+      if (frameId !== null) {
+        return;
+      }
+      frameId = window.requestAnimationFrame(flushHeight);
+    };
+
+    queueHeight(pendingHeight);
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
-        setChipGridHeight(Math.ceil(entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height));
+        queueHeight(readBlockSize(entry));
       }
     });
     observer.observe(grid);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+    };
   }, []);
 
   useEffect(() => {
     const element = bodyRef.current;
     if (!element) return;
-    const updateHeight = (height: number) => setBodyHeight(Math.ceil(height));
-    updateHeight(element.getBoundingClientRect().height);
+    let frameId: number | null = null;
+    let pendingHeight = Math.ceil(element.getBoundingClientRect().height);
+
+    const flushHeight = () => {
+      frameId = null;
+      if (pendingHeight === bodyHeightRef.current) {
+        return;
+      }
+      bodyHeightRef.current = pendingHeight;
+      setBodyHeight(pendingHeight);
+    };
+
+    const queueHeight = (height: number) => {
+      pendingHeight = Math.ceil(height);
+      if (frameId !== null) {
+        return;
+      }
+      frameId = window.requestAnimationFrame(flushHeight);
+    };
+
+    queueHeight(pendingHeight);
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
-        updateHeight(entry.contentRect.height);
+        queueHeight(entry.contentRect.height);
       }
     });
     observer.observe(element);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+    };
   }, []);
 
   const toggleExpanded = useCallback(() => setExpanded(prev => !prev), []);
@@ -177,12 +275,15 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
     }
 
     setAllowEmptyState(false);
-    // 2026-04-20: 400ms was tight enough that a transient ready-empty
-    // window (e.g. backend reconnect, SSE proxy hiccup) could flash
-    // "All caught up" before the actual actions arrived. Bumped to 1200ms
-    // — if the user really has nothing to do, the extra second is fine; if
-    // we're mid-recovery, it gives downstream sources time to populate.
-    const timer = setTimeout(() => setAllowEmptyState(true), 1200);
+    // 2026-04-27 (A3): trimmed from 1200ms → 500ms. The original 1200ms was
+    // tuned defensively for SSE-hiccup recovery, but on cold reload it's
+    // the dominant source of the To Do flash above Conversion: the strip
+    // sits in skeleton state for over a second after data is technically
+    // ready. 500ms is enough for late-arriving derived actions
+    // (attendance / instructions) to land while keeping the page feeling
+    // responsive. Genuine SSE hiccups will surface via a brief shimmer
+    // rather than pinning skeletons for over a second.
+    const timer = setTimeout(() => setAllowEmptyState(true), 500);
     return () => clearTimeout(timer);
   }, [immediateActionsReady, hasPrimaryActions]);
 
@@ -247,6 +348,27 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
         })();
   const visibleSecondaryActions = secondaryActions.slice(0, secondaryVisibleCount);
 
+  // 2026-04-27 (A2): when the bar is portal-mounted (non-seamless) and has
+  // resolved to empty, signal the portal wrapper to collapse its reserved
+  // 56px horizon to 0 smoothly. When chips arrive, remove the class so the
+  // wrapper grows back. The CSS handles the transition.
+  const isResolvedEmpty = immediateActionsReady && allowEmptyState && !hasPrimaryActions && visibleSecondaryActions.length === 0;
+  useEffect(() => {
+    if (seamless) return;
+    const el = document.getElementById('app-level-immediate-actions');
+      if (!el) return;
+      el.classList.add('has-portal-content');
+    if (isResolvedEmpty) {
+      el?.classList.add('is-resolved-empty');
+    } else {
+      el?.classList.remove('is-resolved-empty');
+    }
+    return () => {
+        el?.classList.remove('has-portal-content');
+      el?.classList.remove('is-resolved-empty');
+    };
+  }, [seamless, isResolvedEmpty]);
+
   // Empty state — on compact (small screens), render nothing to reclaim space
   if (immediateActionsReady && allowEmptyState && primaryActions.length === 0 && visibleSecondaryActions.length === 0) {
     if (isCompact && !seamless) return null;
@@ -270,7 +392,7 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
     const compactSummary = buildCompactSummary(primaryActions);
 
     return (
-      <Section isDark={isDark} seamless={seamless} highlighted={highlighted} compact>
+      <Section isDark={isDark} seamless={seamless} highlighted={highlighted} compact loading={showSkeletons}>
         <div ref={sectionRef} style={{ width: '100%', minWidth: 0 }}>
           {/* Compact strip row — tap to expand */}
           <button
@@ -394,7 +516,7 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
   // spacing, no inner section chrome, and taller card rows.
 
   return (
-    <Section isDark={isDark} seamless={seamless} highlighted={highlighted}>
+    <Section isDark={isDark} seamless={seamless} highlighted={highlighted} loading={showSkeletons}>
       <div ref={sectionRef} style={{
         width: '100%',
         minWidth: 0,
@@ -891,12 +1013,13 @@ const SecondarySectionLabel: React.FC<{ isDark: boolean }> = ({ isDark }) => (
 // Sub-components
 // ─────────────────────────────────────────────────────────────────────────────
 
-const Section: React.FC<{ isDark: boolean; seamless?: boolean; highlighted?: boolean; quiet?: boolean; compact?: boolean; children: React.ReactNode }> = ({ 
+const Section: React.FC<{ isDark: boolean; seamless?: boolean; highlighted?: boolean; quiet?: boolean; compact?: boolean; loading?: boolean; children: React.ReactNode }> = ({
   isDark, 
   seamless = false,
   highlighted = false,
   quiet = false,
   compact = false,
+  loading = false,
   children 
 }) => (
   <section style={{
@@ -908,10 +1031,14 @@ const Section: React.FC<{ isDark: boolean; seamless?: boolean; highlighted?: boo
     padding: seamless ? 0 : (compact ? '2px 0 2px' : '4px 0 6px'),
     minHeight: compact ? 'auto' : quiet ? 40 : 56,
     fontFamily: 'var(--font-primary)',
-    background: seamless ? 'transparent' : 'var(--home-strip-bg)',
+    // 2026-04-27 (A1): on first paint while skeletons are showing, render a
+    // transparent shell. The tinted strip background + border only paint
+    // once chips are confirmed present — prevents the "rectangle appears
+    // and vanishes" flash on cold reload of Home.
+    background: seamless || loading ? 'transparent' : 'var(--home-strip-bg)',
     border: 'none',
-    borderBottom: seamless ? 'none' : '1px solid var(--home-strip-border)',
-    boxShadow: seamless
+    borderBottom: seamless || loading ? 'none' : '1px solid var(--home-strip-border)',
+    boxShadow: seamless || loading
       ? 'none'
       : highlighted
         ? `inset 0 1px 0 ${isDark ? withAlpha(colours.accent, 0.1) : withAlpha(colours.highlight, 0.1)}`
@@ -922,13 +1049,17 @@ const Section: React.FC<{ isDark: boolean; seamless?: boolean; highlighted?: boo
     height: seamless ? '100%' : undefined,
     display: seamless ? 'flex' : undefined,
     flexDirection: seamless ? 'column' : undefined,
-    transition: 'min-height 0.2s ease, padding 0.15s ease, opacity 0.18s ease',
+    // 2026-04-27 (A1): include background + border-color in the transition so
+    // the chrome fades in smoothly the moment chips arrive (instead of
+    // popping the tinted rectangle into existence over an already-painted
+    // skeleton).
+    transition: 'min-height 0.2s ease, padding 0.15s ease, opacity 0.18s ease, background-color 0.18s ease, border-color 0.18s ease',
   }}>
     {children}
   </section>
 );
 
-const HeaderRow: React.FC<{ children: React.ReactNode; layoutMode: 'flow' | 'split' | 'stacked' | 'single' }> = ({ children, layoutMode }) => (
+const HeaderRow: React.FC<{ children: React.ReactNode; layoutMode: ImmediateActionsLayoutMode }> = ({ children, layoutMode }) => (
   <div style={{
     display: 'flex',
     alignItems: 'center',

@@ -21,7 +21,7 @@ export const InstructionCardSkeleton: React.FC<InstructionCardSkeletonProps> = (
     padding: '12px 18px',
     background: isDarkMode ? '#0f172a' : '#ffffff',
     border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.2)' : 'rgba(0,0,0,0.08)'}`,
-    borderLeft: `2px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.3)' : 'rgba(13, 47, 96, 0.3)'}`,
+    borderLeft: `2px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(13, 47, 96, 0.3)'}`,
     boxShadow: isDarkMode ? 'none' : '0 4px 6px rgba(0, 0, 0, 0.07)',
     display: 'flex',
     flexDirection: 'column',

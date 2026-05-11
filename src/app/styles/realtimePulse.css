@@ -7,8 +7,7 @@
  * Aesthetic reference: UserBubble's `helix-ai-border` frameworks box +
  * existing `bookingRowPulse` ring. Subtle, single-shot, ease-out.
  *
- * Colour rule: rgba(54,144,206,...) = colours.highlight (#3690CE) for light;
- * dark mode swaps to colours.accent (#87F3F3) via [data-theme="dark"] override.
+ * Colour rule: use colours.highlight (#3690CE) across themes.
  */
 
 :root {
@@ -17,8 +16,8 @@
 }
 
 [data-theme="dark"] {
-  --live-pulse-color: 135, 243, 243; /* rgba components for #87F3F3 */
-  --live-pulse-color-strong: 135, 243, 243;
+  --live-pulse-color: 54, 144, 206; /* rgba components for #3690CE */
+  --live-pulse-color-strong: 54, 144, 206;
 }
 
 /* --- BORDER variant: soft inset border-pulse for inserts / row-level changes ---- */

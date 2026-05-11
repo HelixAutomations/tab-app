@@ -34,6 +34,93 @@ const milestoneMatchers = [
 
 const dryRun = process.argv.includes('--dry-run');
 
+const DEFAULT_IDLE_TIMEOUT_MINUTES = 120;
+
+function parseIdleTimeoutMinutes(argv, env) {
+  const disableFlag = argv.includes('--no-idle-timeout') || env.HELIX_DEV_IDLE_TIMEOUT_MINUTES === '0';
+  if (disableFlag) return 0;
+
+  const arg = argv.find((value) => value.startsWith('--idle-timeout-minutes='));
+  const argValue = arg ? Number.parseInt(arg.split('=')[1], 10) : NaN;
+  const envValue = Number.parseInt(env.HELIX_DEV_IDLE_TIMEOUT_MINUTES || '', 10);
+
+  if (Number.isFinite(argValue) && argValue >= 0) return argValue;
+  if (Number.isFinite(envValue) && envValue >= 0) return envValue;
+  return DEFAULT_IDLE_TIMEOUT_MINUTES;
+}
+
+const idleTimeoutMinutes = parseIdleTimeoutMinutes(process.argv, process.env);
+const idleTimeoutMs = idleTimeoutMinutes > 0 ? idleTimeoutMinutes * 60_000 : 0;
+
+// Terminal noise filter — defaults on. Set HELIX_DEV_TERMINAL_VERBOSE=1
+// (or pass --verbose) to see every line. Filtered lines are still written
+// to logs/dev-all/<run>/backend.log and combined.log.
+const verboseTerminal = process.argv.includes('--verbose')
+  || process.env.HELIX_DEV_TERMINAL_VERBOSE === '1';
+
+const TERMINAL_NOISE_PATTERNS = [
+  // Health polls (UI ping every couple of seconds)
+  /\sGET\s+\/(?:api\/)?dev\/health/i,
+  /\sGET\s+\/(?:api\/)?health\s/i,
+  // SSE connect/disconnect chatter — fine in the log, useless in terminal
+  /SSE connected\s*$/i,
+  // Boot-timing micro landmarks (keep the banner; suppress the +Nms steps)
+  /\[boot-timing\]/i,
+  // AppInsights & Clio-webhook env notices (known + intentional in dev)
+  /\[AppInsights\] No connection string/i,
+  /\[clio-webhook\] CLIO_WEBHOOK_SECRET not set/i,
+  /\[Secrets\] .*resolved via Key Vault/i,
+  // Repeated team-data summary line
+  /\[teamData\] Summary \{/i,
+  // Webpack-dev-server deprecation warnings (one-time, can't be silenced upstream)
+  /DEP_WEBPACK_DEV_SERVER_/i,
+  /\(Use `node --trace-deprecation/i,
+  /\(node:\d+\)\s*\[DEP_/i,
+  // Nodemon banner (keep "restarting due to changes", drop the noise)
+  /\[nodemon\] (?:to restart|watching path|watching extensions|3\.1\.\d+)/i,
+  // CRA dev-server "you can now view" preamble (the "Compiled successfully"
+  // line above it is the real signal)
+  /You can now view teamhub/i,
+  /^(?:Local|On Your Network|Note that the development build|To create a production build):/i,
+  // CRA HPM proxy created banner
+  /\[HPM\] Proxy created:/i,
+  // CRACO still probes for CRA's ESLintWebpackPlugin even when dev-all
+  // intentionally disables it for faster local compiles.
+  /Cannot find ESLint plugin \(ESLintWebpackPlugin\)\./i,
+  // HMR ECONNRESET storm during nodemon restart — already obvious from the
+  // "[nodemon] restarting" line; the per-stream errors are pure scroll-fill.
+  /\[HPM\] ECONNRESET/i,
+  /\[HPM\] Error occurred while proxying request.*ECONNRESET/i,
+  /SSE proxy error for.*ECONNRESET/i,
+  /Proxy error for .*ECONNRESET/i,
+  /at TCP\.onStreamRead/i,
+  /errno: -4077/i,
+  /code: 'ECONNRESET'/i,
+  /syscall: 'read'/i,
+];
+
+// Activity watchdog should ignore passive background noise so an abandoned
+// browser tab doesn't keep the whole dev stack alive forever.
+const IDLE_ACTIVITY_IGNORE_PATTERNS = [
+  ...TERMINAL_NOISE_PATTERNS,
+  /\[status\]\s+Data scheduler/i,
+  /\[status\]\s+Event poller/i,
+  /\s(?:GET|POST)\s+\/todo\?/i,
+  /\sGET\s+\/home-journey\?.*&since=/i,
+  /\sGET\s+\/reporting\/management-readiness/i,
+  /\sGET\s+\/reporting\/management-datasets\?datasets=recoveredFeesSummary/i,
+  /\sPOST\s+\/ccl\/batch-status/i,
+];
+
+function shouldSuppressInTerminal(message) {
+  if (verboseTerminal) return false;
+  return TERMINAL_NOISE_PATTERNS.some((re) => re.test(message));
+}
+
+function shouldCountAsActivity(message) {
+  return !IDLE_ACTIVITY_IGNORE_PATTERNS.some((re) => re.test(message));
+}
+
 const colour = {
   reset: '\u001b[0m',
   dim: '\u001b[2m',
@@ -138,7 +225,11 @@ async function main() {
   const milestoneLog = fs.createWriteStream(path.join(runDir, 'milestones.jsonl'), { flags: 'a' });
   const commandLogs = new Map();
   const children = new Map();
+  const milestoneWaiters = new Map();
   let shuttingDown = false;
+  let idleTimer = null;
+  let lastActivityAt = Date.now();
+  let lastActivityLabel = 'runner start';
 
   for (const item of commands) {
     commandLogs.set(item.key, fs.createWriteStream(path.join(runDir, item.logFile), { flags: 'a' }));
@@ -163,7 +254,64 @@ async function main() {
     safeWrite(combinedLog, `${new Date().toISOString()} ${stamp(startedAtMs)} [system] ${message}`);
   };
 
+  const formatIdleDuration = (ms) => {
+    const totalMinutes = Math.max(1, Math.round(ms / 60_000));
+    if (totalMinutes < 60) return `${totalMinutes}m`;
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return minutes === 0 ? `${hours}h` : `${hours}h ${minutes}m`;
+  };
+
+  const scheduleIdleShutdown = () => {
+    if (idleTimeoutMs <= 0 || shuttingDown) return;
+    if (idleTimer) clearTimeout(idleTimer);
+
+    const remainingMs = Math.max(0, idleTimeoutMs - (Date.now() - lastActivityAt));
+    idleTimer = setTimeout(() => {
+      const idleForMs = Date.now() - lastActivityAt;
+      if (idleForMs < idleTimeoutMs) {
+        scheduleIdleShutdown();
+        return;
+      }
+      shutdown(
+        `idle timeout (${formatIdleDuration(idleForMs)} since ${lastActivityLabel})`,
+        0,
+      );
+    }, remainingMs + 50);
+    idleTimer.unref?.();
+  };
+
+  const recordActivity = (label) => {
+    if (idleTimeoutMs <= 0 || shuttingDown) return;
+    lastActivityAt = Date.now();
+    lastActivityLabel = label;
+    scheduleIdleShutdown();
+  };
+
+  function waitForMilestone(type, timeoutMs = 120_000) {
+    return new Promise((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        milestoneWaiters.delete(type);
+        reject(new Error(`Timed out waiting for milestone ${type}`));
+      }, timeoutMs);
+
+      milestoneWaiters.set(type, {
+        resolve: (payload) => {
+          clearTimeout(timeoutId);
+          milestoneWaiters.delete(type);
+          resolve(payload);
+        },
+      });
+    });
+  }
+
   announce(`writing logs to ${path.relative(cwd, runDir)}`);
+  if (!verboseTerminal) {
+    announce('terminal quiet mode on (health/SSE/boot-timing hidden) — full lines in backend.log. Pass --verbose for everything.');
+  }
+  if (idleTimeoutMs > 0) {
+    announce(`idle auto-shutdown enabled (${idleTimeoutMinutes}m). Set HELIX_DEV_IDLE_TIMEOUT_MINUTES=0 or pass --no-idle-timeout to disable.`);
+  }
 
   if (dryRun) {
     announce('dry run enabled; no child processes started');
@@ -183,6 +331,10 @@ async function main() {
       return;
     }
     shuttingDown = true;
+    if (idleTimer) {
+      clearTimeout(idleTimer);
+      idleTimer = null;
+    }
     announce(`shutting down (${reason})`, exitCode === 0 ? 'system' : 'error');
 
     for (const child of children.values()) {
@@ -212,6 +364,8 @@ async function main() {
 
   process.on('SIGINT', () => shutdown('SIGINT', 0));
   process.on('SIGTERM', () => shutdown('SIGTERM', 0));
+  process.stdin.on('data', () => recordActivity('terminal input'));
+  scheduleIdleShutdown();
 
   // ── Helper: spawn a command and wire up logging ──────────────────────
   function spawnCommand(item) {
@@ -266,19 +420,34 @@ async function main() {
 
       for (const matcher of milestoneMatchers) {
         if (matcher.pattern.test(message)) {
-          safeWrite(milestoneLog, JSON.stringify({
+          const payload = {
             at: new Date().toISOString(),
             relMs: relMs(startedAtMs),
             source: item.key,
             type: matcher.type,
             message,
+          };
+          safeWrite(milestoneLog, JSON.stringify({
+            ...payload,
           }));
+          const waiter = milestoneWaiters.get(matcher.type);
+          if (waiter) {
+            waiter.resolve(payload);
+          }
         }
+      }
+
+      if (shouldCountAsActivity(message)) {
+        recordActivity(`${item.key}:${message.slice(0, 80)}`);
       }
 
       const tagColour = item.key === 'backend' ? colour.backend : colour.frontend;
       const target = streamName === 'stderr' ? process.stderr : process.stdout;
-      target.write(`${colour.dim}${stamp(startedAtMs)}${colour.reset} ${tagColour}[${item.key}]${colour.reset} ${message}\n`);
+      // Quiet mode: skip noisy lines from the terminal echo only — the full
+      // text is still in the per-process log file and combined.log.
+      if (!shouldSuppressInTerminal(message)) {
+        target.write(`${colour.dim}${stamp(startedAtMs)}${colour.reset} ${tagColour}[${item.key}]${colour.reset} ${message}\n`);
+      }
     };
 
     createLinePump(child.stdout, (line) => writeEvent('stdout', line));
@@ -374,13 +543,13 @@ async function main() {
       announce('backend port 8080 wait timed out — check backend logs', 'error');
     });
 
-  const frontendReady = waitForPort(3000, '127.0.0.1', 180_000)
+  const frontendReady = waitForMilestone('frontend-compiled', 180_000)
     .then(() => {
       const readyMs = relMs(startedAtMs);
-      announce(`frontend ready on port 3000 (+${readyMs}ms) — open http://localhost:3000`, 'frontend');
+      announce(`frontend compiled and ready on port 3000 (+${readyMs}ms) — open http://localhost:3000`, 'frontend');
     })
     .catch(() => {
-      announce('frontend port 3000 wait timed out — check for compilation errors', 'error');
+      announce('frontend compile wait timed out — check for compilation errors', 'error');
     });
 
   // Make sure the az warmup promise does not trigger an unhandled rejection.

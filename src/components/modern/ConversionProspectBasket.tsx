@@ -1,8 +1,8 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { FiChevronDown, FiChevronUp, FiExternalLink, FiArrowUpRight } from 'react-icons/fi';
+import { FiChevronDown, FiChevronUp, FiArrowUpRight, FiBriefcase, FiUser } from 'react-icons/fi';
 import { CSSTransition, TransitionGroup } from 'react-transition-group';
-import { colours } from '../../app/styles/colours';
+import { colours, withAlpha } from '../../app/styles/colours';
 import type { ConversionBreakpoint } from './hooks/useContainerWidth';
 import clioIcon from '../../assets/clio.svg';
 import activecampaignIcon from '../../assets/activecampaign.svg';
@@ -24,6 +24,14 @@ export interface ConversionProspectChipItem {
   displayName: string;
   /** Optional fee-earner prefix (ignored in the trail render — kept on the type for future re-use). */
   feeEarnerInitials?: string;
+  feeEarnerLabel?: string;
+  pocLabel?: string;
+  responsibleSolicitor?: string;
+  responsibleLabel?: string;
+  originatingSolicitor?: string;
+  originatingLabel?: string;
+  supervisingPartner?: string;
+  supervisingLabel?: string;
   /** Area of Work label used for colouring via aowColor(). */
   aow: string;
   /** True for matter chips (renders a small tick glyph before the dot). */
@@ -32,6 +40,10 @@ export interface ConversionProspectChipItem {
   fullName?: string;
   /** ISO timestamp or formatted string for the stream preview modal (D3). */
   occurredAt?: string;
+  enquiryDate?: string;
+  claimDate?: string;
+  pitchDate?: string;
+  instructionDate?: string;
   /** 2026-04-20: matter display number for matter trail labels (replaces the
    *  surname approach, which doesn't work for company clients). */
   displayNumber?: string;
@@ -76,6 +88,10 @@ export interface ConversionProspectBasketProps {
 
 const CHIP_ANIM_ID = 'conv-prospect-chip-styles';
 const CHIP_RESIZE_TRANSITION_MS = 180;
+
+type ChipShellStyle = React.CSSProperties & {
+  '--conv-chip-width': string;
+};
 
 function ensureChipStyles() {
   if (typeof document === 'undefined') return;
@@ -169,7 +185,8 @@ function ensureChipStyles() {
     .conv-pop.is-open { opacity: 1; transform: translateY(0); }
     .conv-pop-action {
       display: inline-flex; align-items: center; gap: 5px;
-      height: 22px; padding: 0 8px;
+      height: 18px; width: 18px; padding: 0;
+      justify-content: center;
       font-size: 9.5px; font-weight: 700;
       letter-spacing: 0.06em; text-transform: uppercase;
       border-radius: 0; cursor: pointer;
@@ -257,18 +274,6 @@ const AcMarkImg: React.FC<{ size?: number; isDarkMode: boolean }> = ({ size = 13
   />
 );
 
-const MatterTick: React.FC<{ colour: string; size?: number }> = ({ colour, size = 8 }) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 12 12"
-    aria-hidden="true"
-    style={{ flexShrink: 0, opacity: 0.9 }}
-  >
-    <path d="M2 6.5 L5 9 L10 3" fill="none" stroke={colour} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-  </svg>
-);
-
 /**
  * Extract the shortest readable token from a redacted display name.
  * Incoming names are already in "F. Lastname" or "Lastname" form, so
@@ -310,9 +315,13 @@ function tintColour(colour: string, alpha: number): string {
   return trimmed;
 }
 
-function getOverflowChipWidth(bezelHeight: number, overflowCount: number): number {
-  const overflowLen = overflowCount > 0 ? String(`+${overflowCount}`).length : 1;
-  return Math.max(bezelHeight, 14 + overflowLen * 6);
+// 2026-04-27: width is locked to a single fixed value regardless of the
+// `+N` count so the RHS overflow control sits at a consistent width across
+// the Enquiries and Matters baskets. Comfortably fits up to "+999"; the
+// chevron (single glyph) is centered inside the same box, so the hover
+// swap doesn't shift the trail's right edge.
+function getOverflowChipWidth(bezelHeight: number, _overflowCount: number): number {
+  return Math.max(bezelHeight, bezelHeight + 14);
 }
 
 function numberRecordEqual(left: Record<string, number>, right: Record<string, number>): boolean {
@@ -329,6 +338,24 @@ function numberRecordEqual(left: Record<string, number>, right: Record<string, n
   return true;
 }
 
+function formatJourneyTimestamp(value: string | undefined): { date: string; time: string; full: string } | null {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+
+  const dateOnlyMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const parsed = dateOnlyMatch
+    ? new Date(Number(dateOnlyMatch[1]), Number(dateOnlyMatch[2]) - 1, Number(dateOnlyMatch[3]))
+    : new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return null;
+
+  const date = parsed.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+  const hasTime = /(?:T|\s)\d{1,2}:\d{2}/.test(raw);
+  const time = hasTime
+    ? parsed.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })
+    : 'date only';
+  return { date, time, full: `${date}${hasTime ? ` ${time}` : ''}` };
+}
+
 // 2026-04-24 (rev 2): hover popover renderer. Lives at module scope so the
 // chip render path stays cheap. The popover is portalled into document.body
 // so it can never be clipped by the trail's `overflow-x: clip` or any
@@ -342,6 +369,7 @@ type HoverPopoverConfig = {
   open: boolean;
   isDarkMode: boolean;
   accent: string;
+  category?: AowCategory;
   onMouseEnter: () => void;
   onMouseLeave: () => void;
   onOpenInApp?: (item: ConversionProspectChipItem) => void;
@@ -354,6 +382,7 @@ const HoverPopover: React.FC<HoverPopoverConfig> = ({
   open,
   isDarkMode,
   accent,
+  category,
   onMouseEnter,
   onMouseLeave,
   onOpenInApp,
@@ -398,11 +427,10 @@ const HoverPopover: React.FC<HoverPopoverConfig> = ({
     setPos({ left, top, placement });
   }, [anchor.left, anchor.top, anchor.width, anchor.height, item.id]);
 
-  const surface = isDarkMode ? 'rgba(8,28,48,0.98)' : 'rgba(255,255,255,0.99)';
-  const surfaceBorder = isDarkMode ? 'rgba(135,243,243,0.28)' : 'rgba(54,144,206,0.24)';
-  const text = isDarkMode ? 'rgba(243,244,246,0.96)' : 'rgba(6,23,51,0.92)';
-  const muted = isDarkMode ? 'rgba(209,213,219,0.6)' : 'rgba(55,65,81,0.55)';
-  const ctaColour = isDarkMode ? colours.accent : colours.highlight;
+  const surface = isDarkMode ? 'rgba(2,6,23,0.96)' : 'rgba(255,255,255,0.96)';
+  const surfaceBorder = tintColour(accent || colours.highlight, isDarkMode ? 0.5 : 0.45);
+  const text = isDarkMode ? 'rgba(243,244,246,0.96)' : 'rgba(6,23,51,0.96)';
+  const muted = isDarkMode ? 'rgba(209,213,219,0.74)' : 'rgba(75,85,99,0.74)';
   const isMatter = section === 'matters';
   const matterLabel = (item.displayNumber || '').trim();
   const enqName = (item.fullName || item.displayName || '').trim();
@@ -416,88 +444,210 @@ const HoverPopover: React.FC<HoverPopoverConfig> = ({
   const acUrl = !isMatter && item.acid
     ? `https://helix-law54533.activehosted.com/app/contacts/${encodeURIComponent(item.acid)}`
     : null;
+  const rowLabel = isMatter ? 'Matter' : 'Name';
+  const rowValue = headline;
+  const detailLabel = isMatter ? 'Worktype' : 'Area';
+  const detailValue = item.aow || (isMatter ? 'Unknown worktype' : 'Unknown area');
+  const journeyStages = [
+    { key: 'enquiry', label: 'Enquiry', value: item.enquiryDate || (!isMatter ? item.occurredAt : undefined) },
+    { key: 'claim', label: 'Claim', value: item.claimDate },
+    { key: 'pitch', label: 'Pitch', value: item.pitchDate },
+    { key: 'instruction', label: 'Instruction', value: item.instructionDate || (isMatter ? item.occurredAt : undefined) },
+  ].map((stage) => ({ ...stage, stamp: formatJourneyTimestamp(stage.value) }));
+  const latestJourneyStage = [...journeyStages].reverse().find((stage) => stage.stamp);
+  const hasActions = Boolean(onOpenInApp || clioUrl || acUrl);
+  const actionBackground = isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(6,23,51,0.04)';
+  const actionBorder = isDarkMode ? 'rgba(243,244,246,0.18)' : 'rgba(6,23,51,0.18)';
+  const actionStyle: React.CSSProperties = {
+    background: actionBackground,
+    border: `1px solid ${actionBorder}`,
+    color: text,
+    textDecoration: 'none',
+  };
+  const normalizePersonValue = (value: string | undefined) => String(value || '').trim().toLowerCase();
+  const responsibleValue = isMatter
+    ? (item.responsibleLabel || item.feeEarnerLabel || item.feeEarnerInitials || '')
+    : (item.pocLabel || item.feeEarnerLabel || item.feeEarnerInitials || '');
+  const originatingValue = isMatter ? (item.originatingLabel || '') : '';
+  const supervisingValue = isMatter ? (item.supervisingLabel || '') : '';
+  const responsibleCompare = item.responsibleSolicitor || responsibleValue;
+  const originatingCompare = item.originatingSolicitor || originatingValue;
+  const showOriginating = Boolean(originatingValue)
+    && normalizePersonValue(originatingCompare) !== normalizePersonValue(responsibleCompare);
+  const peopleChips = [
+    responsibleValue ? { key: isMatter ? 'responsible' : 'poc', label: isMatter ? 'RS' : 'POC', value: responsibleValue } : null,
+    showOriginating ? { key: 'originating', label: 'OS', value: originatingValue } : null,
+    supervisingValue ? { key: 'supervising', label: 'SP', value: supervisingValue } : null,
+  ].filter(Boolean) as Array<{ key: string; label: string; value: string }>;
+  const hasActionRow = hasActions || peopleChips.length > 0;
+
+  const renderRow = (label: React.ReactNode, value: string, title?: string, valueIcon?: React.ReactNode) => (
+    <div style={{ display: 'grid', gridTemplateColumns: '58px minmax(0, 1fr)', alignItems: 'center', columnGap: 6, height: 10 }}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, minWidth: 0, fontSize: 8, fontWeight: 600, color: muted, letterSpacing: '0.04em', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+        {label}
+      </span>
+      <span
+        aria-label={title || value}
+        style={{ minWidth: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', gap: 3, overflow: 'hidden', whiteSpace: 'nowrap', textAlign: 'right', fontSize: 9, fontWeight: 700, color: text, fontFeatureSettings: '"tnum" 1, "lnum" 1' }}
+      >
+        {valueIcon ? <span aria-hidden="true" style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>{valueIcon}</span> : null}
+        <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{value}</span>
+      </span>
+    </div>
+  );
+
+  const renderPersonChip = (chip: { key: string; label: string; value: string }) => (
+    <span
+      key={chip.key}
+      aria-label={`${chip.label} ${chip.value}`}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 3,
+        minWidth: 0,
+        maxWidth: chip.label === 'POC' ? 78 : 58,
+        height: 18,
+        padding: '0 4px',
+        border: `1px solid ${withAlpha(colours.highlight, isDarkMode ? 0.14 : 0.1)}`,
+        background: isDarkMode ? 'rgba(255,255,255,0.025)' : 'rgba(6,23,51,0.025)',
+        flexShrink: 1,
+      }}
+    >
+      <span style={{ fontSize: 7, fontWeight: 700, color: muted, letterSpacing: '0.05em', flexShrink: 0 }}>{chip.label}</span>
+      <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 8.5, fontWeight: 700, color: text, letterSpacing: '0.02em' }}>{chip.value}</span>
+    </span>
+  );
+
+  const renderJourneyStage = (stage: typeof journeyStages[number]) => {
+    const active = Boolean(stage.stamp);
+    const stageBorder = active
+      ? withAlpha(accent || colours.highlight, isDarkMode ? 0.32 : 0.22)
+      : withAlpha(colours.greyText, isDarkMode ? 0.2 : 0.16);
+    const stageBackground = active
+      ? withAlpha(accent || colours.highlight, isDarkMode ? 0.08 : 0.055)
+      : withAlpha(colours.greyText, isDarkMode ? 0.045 : 0.035);
+    const stageLabelColor = active ? muted : withAlpha(colours.greyText, isDarkMode ? 0.58 : 0.5);
+    const stageDateColor = active ? text : withAlpha(isDarkMode ? colours.dark.text : colours.darkBlue, 0.38);
+    const stageTimeColor = active
+      ? withAlpha(isDarkMode ? colours.dark.text : colours.darkBlue, 0.7)
+      : withAlpha(isDarkMode ? colours.dark.text : colours.darkBlue, 0.32);
+    return (
+      <div
+        key={stage.key}
+        aria-label={`${stage.label} ${stage.stamp?.full || 'not recorded'}`}
+        style={{
+          minWidth: 0,
+          padding: '5px 6px 4px',
+          border: `1px solid ${stageBorder}`,
+          background: stageBackground,
+          borderRadius: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 2,
+        }}
+      >
+        <span style={{ fontSize: 7.5, fontWeight: 700, color: stageLabelColor, letterSpacing: 0, lineHeight: '9px', textTransform: 'uppercase', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {stage.label}
+        </span>
+        <span style={{ fontSize: 9.5, fontWeight: 800, color: stageDateColor, letterSpacing: 0, lineHeight: '11px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {stage.stamp?.date || '—'}
+        </span>
+        <span style={{ fontSize: 8, fontWeight: 700, color: stageTimeColor, letterSpacing: 0, lineHeight: '9px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {stage.stamp?.time || '—'}
+        </span>
+      </div>
+    );
+  };
 
   const popover = (
     <div
       ref={ref}
       className={`conv-pop${open ? ' is-open' : ''}`}
       role="tooltip"
+      aria-label={`${isMatter ? 'Matter' : 'Enquiry'} ${headline}, ${subline}`}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
       style={{
         left: pos?.left ?? -9999,
         top: pos?.top ?? -9999,
-        minWidth: 180,
-        maxWidth: 280,
-        padding: '8px 10px 8px',
+        width: 'min(292px, calc(100vw - 16px))',
+        padding: hasActions ? '7px 8px 7px' : '7px 8px',
         background: surface,
         border: `1px solid ${surfaceBorder}`,
-        borderRadius: 0,
-        boxShadow: isDarkMode ? '0 10px 30px rgba(0,0,0,0.5)' : '0 10px 30px rgba(6,23,51,0.18)',
+        borderRadius: 2,
+        boxShadow: isDarkMode ? '0 8px 22px rgba(0,0,0,0.42)' : '0 8px 22px rgba(6,23,51,0.16)',
         color: text,
         fontFamily: 'Raleway, sans-serif',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-        <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: isMatter ? 0 : '50%', background: accent, flexShrink: 0 }} />
-        <span style={{ fontSize: 11, fontWeight: 700, color: text, letterSpacing: '0.02em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFeatureSettings: '"tnum" 1, "lnum" 1' }}>{headline}</span>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 6, minWidth: 0 }}>
+        <div style={{ minWidth: 0, textAlign: 'left' }}>
+          <div style={{ fontSize: 8.5, fontWeight: 800, color: text, letterSpacing: 0, textTransform: 'uppercase', lineHeight: '10px' }}>
+            {isMatter ? 'Matter' : 'Enquiry'}
+          </div>
+          <div style={{ marginTop: 2, fontSize: 8, fontWeight: 700, color: muted, letterSpacing: 0, lineHeight: '10px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {latestJourneyStage?.stamp ? `${latestJourneyStage.label} · ${latestJourneyStage.stamp.full}` : 'Journey not recorded'}
+          </div>
+        </div>
       </div>
-      <div style={{ fontSize: 10, fontWeight: 500, color: muted, letterSpacing: '0.02em', marginBottom: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{subline}</div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-        {onOpenInApp ? (
-          <button
-            type="button"
-            className="conv-pop-action"
-            onClick={(e) => { e.stopPropagation(); onOpenInApp(item); }}
-            style={{
-              background: tintColour(ctaColour, isDarkMode ? 0.16 : 0.12),
-              border: `1px solid ${tintColour(ctaColour, 0.45)}`,
-              color: ctaColour,
-            }}
-          >
-            <FiArrowUpRight size={11} aria-hidden="true" />
-            Open in Hub
-          </button>
-        ) : null}
-        {clioUrl ? (
-          <a
-            href={clioUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="conv-pop-action"
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(6,23,51,0.04)',
-              border: `1px solid ${isDarkMode ? 'rgba(243,244,246,0.18)' : 'rgba(6,23,51,0.18)'}`,
-              color: text,
-              textDecoration: 'none',
-            }}
-          >
-            <ClioMarkImg size={11} isDarkMode={isDarkMode} />
-            Open in Clio
-            <FiExternalLink size={10} aria-hidden="true" style={{ opacity: 0.6 }} />
-          </a>
-        ) : null}
-        {acUrl ? (
-          <a
-            href={acUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="conv-pop-action"
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(6,23,51,0.04)',
-              border: `1px solid ${isDarkMode ? 'rgba(243,244,246,0.18)' : 'rgba(6,23,51,0.18)'}`,
-              color: text,
-              textDecoration: 'none',
-            }}
-          >
-            <AcMarkImg size={11} isDarkMode={isDarkMode} />
-            Open in ActiveCampaign
-            <FiExternalLink size={10} aria-hidden="true" style={{ opacity: 0.6 }} />
-          </a>
-        ) : null}
+      <div style={{ marginBottom: 6, paddingBottom: 6, borderBottom: `1px solid ${withAlpha(colours.highlight, isDarkMode ? 0.12 : 0.1)}` }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 4 }}>
+          {journeyStages.map(renderJourneyStage)}
+        </div>
       </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {renderRow(rowLabel, rowValue, headline, isMatter ? <FiBriefcase size={8} /> : <FiUser size={8} />)}
+        {renderRow(
+          detailLabel,
+          detailValue,
+          subline,
+          <AowIcon area={item.aow} colour={accent} size={9} category={category} />,
+        )}
+      </div>
+      {hasActionRow ? <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginTop: 4, paddingTop: 4, borderTop: `1px solid ${withAlpha(colours.highlight, isDarkMode ? 0.12 : 0.1)}`, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 3, minWidth: 0, overflow: 'hidden', flex: 1 }}>
+          {peopleChips.map(renderPersonChip)}
+        </div>
+        {hasActions ? <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4, flexShrink: 0 }}>
+          {onOpenInApp ? (
+            <button
+              type="button"
+              className="conv-pop-action"
+              aria-label="Open in Hub"
+              onClick={(e) => { e.stopPropagation(); onOpenInApp(item); }}
+              style={actionStyle}
+            >
+              <FiArrowUpRight size={11} aria-hidden="true" />
+            </button>
+          ) : null}
+          {clioUrl ? (
+            <a
+              href={clioUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="conv-pop-action"
+              aria-label="Open in Clio"
+              onClick={(e) => e.stopPropagation()}
+              style={actionStyle}
+            >
+              <ClioMarkImg size={11} isDarkMode={isDarkMode} />
+            </a>
+          ) : null}
+          {acUrl ? (
+            <a
+              href={acUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="conv-pop-action"
+              aria-label="Open in ActiveCampaign"
+              onClick={(e) => e.stopPropagation()}
+              style={actionStyle}
+            >
+              <AcMarkImg size={11} isDarkMode={isDarkMode} />
+            </a>
+          ) : null}
+        </div> : null}
+      </div> : null}
     </div>
   );
 
@@ -555,7 +705,7 @@ const ConversionProspectBasket: React.FC<ConversionProspectBasketProps> = ({
   }, []);
 
   const measureRefs = React.useRef(new Map<string, HTMLSpanElement>());
-  const transitionRefs = React.useRef(new Map<string, React.RefObject<HTMLSpanElement | null>>());
+  const transitionRefs = React.useRef(new Map<string, React.RefObject<HTMLSpanElement>>());
   const [chipWidths, setChipWidths] = React.useState<Record<string, number>>({});
   const measuredItems = React.useMemo(
     () => items.slice(0, Math.min(items.length, maxVisible)),
@@ -654,7 +804,9 @@ const ConversionProspectBasket: React.FC<ConversionProspectBasketProps> = ({
   // user move pointer onto the popover without it disappearing.
   type HoverState = { id: string; item: ConversionProspectChipItem; rect: DOMRect };
   const [hover, setHover] = React.useState<HoverState | null>(null);
+  const [pinnedId, setPinnedId] = React.useState<string | null>(null);
   const [popOpen, setPopOpen] = React.useState(false);
+  const pointerOverItemRef = React.useRef<string | null>(null);
   const enterTimer = React.useRef<number | null>(null);
   const leaveTimer = React.useRef<number | null>(null);
   const cancelTimers = React.useCallback(() => {
@@ -668,6 +820,9 @@ const ConversionProspectBasket: React.FC<ConversionProspectBasketProps> = ({
     }
   }, []);
   const openHover = React.useCallback((item: ConversionProspectChipItem, el: HTMLElement) => {
+    if (pinnedId && pinnedId !== item.id) {
+      return;
+    }
     cancelTimers();
     const rect = el.getBoundingClientRect();
     enterTimer.current = window.setTimeout(() => {
@@ -675,11 +830,38 @@ const ConversionProspectBasket: React.FC<ConversionProspectBasketProps> = ({
       // small RAF so the entry transition runs.
       window.requestAnimationFrame(() => setPopOpen(true));
     }, 90);
+  }, [cancelTimers, pinnedId]);
+  const collapseHover = React.useCallback(() => {
+    cancelTimers();
+    setPinnedId(null);
+    setPopOpen(false);
+    window.setTimeout(() => setHover(null), 180);
   }, [cancelTimers]);
+  const togglePinned = React.useCallback((item: ConversionProspectChipItem, el: HTMLElement) => {
+    cancelTimers();
+    const rect = el.getBoundingClientRect();
+    if (pinnedId === item.id) {
+      setPinnedId(null);
+      if (pointerOverItemRef.current === item.id) {
+        setHover({ id: item.id, item, rect });
+        window.requestAnimationFrame(() => setPopOpen(true));
+      } else {
+        setPopOpen(false);
+        window.setTimeout(() => setHover(null), 180);
+      }
+      return;
+    }
+    setPinnedId(item.id);
+    setHover({ id: item.id, item, rect });
+    window.requestAnimationFrame(() => setPopOpen(true));
+  }, [cancelTimers, pinnedId]);
   const closeHover = React.useCallback(() => {
     if (enterTimer.current !== null) {
       window.clearTimeout(enterTimer.current);
       enterTimer.current = null;
+    }
+    if (pinnedId && hover?.id === pinnedId) {
+      return;
     }
     if (leaveTimer.current !== null) {
       window.clearTimeout(leaveTimer.current);
@@ -689,7 +871,7 @@ const ConversionProspectBasket: React.FC<ConversionProspectBasketProps> = ({
       // Wait for the fade-out before removing the node.
       window.setTimeout(() => setHover((prev) => (prev ? null : prev)), 180);
     }, 180);
-  }, []);
+  }, [hover?.id, pinnedId]);
   const keepOpen = React.useCallback(() => {
     if (leaveTimer.current !== null) {
       window.clearTimeout(leaveTimer.current);
@@ -697,10 +879,15 @@ const ConversionProspectBasket: React.FC<ConversionProspectBasketProps> = ({
     }
   }, []);
   React.useEffect(() => () => cancelTimers(), [cancelTimers]);
+  React.useEffect(() => {
+    if (!pinnedId || visible.some((item) => item.id === pinnedId)) {
+      return;
+    }
+    collapseHover();
+  }, [collapseHover, pinnedId, visible]);
 
   const renderChipBezel = (item: ConversionProspectChipItem, ref?: React.Ref<HTMLSpanElement>) => {
     const accent = aowColor(item.aow);
-    const showTick = section === 'matters' || item.matterOpened;
     const isMatter = section === 'matters';
     const category = resolveAowCategory ? resolveAowCategory(item.aow) : undefined;
     const iconSize = breakpoint === 'wide' ? 14 : 13;
@@ -712,97 +899,80 @@ const ConversionProspectBasket: React.FC<ConversionProspectBasketProps> = ({
       : (enqName ? `${enqName}${item.acid ? ` · ${item.acid}` : ''} · ${item.aow}` : item.aow);
 
     // Hover handlers shared by both rows. Focus also opens (keyboard a11y).
-    const handleEnter = (e: React.MouseEvent<HTMLSpanElement>) => openHover(item, e.currentTarget);
-    const handleLeave = () => closeHover();
+    const handleEnter = (e: React.MouseEvent<HTMLSpanElement>) => {
+      pointerOverItemRef.current = item.id;
+      openHover(item, e.currentTarget);
+    };
+    const handleLeave = () => {
+      if (pointerOverItemRef.current === item.id) {
+        pointerOverItemRef.current = null;
+      }
+      closeHover();
+    };
     const handleFocus = (e: React.FocusEvent<HTMLSpanElement>) => openHover(item, e.currentTarget);
     const handleBlur = () => closeHover();
-
-    if (!isMatter) {
-      // Enquiries: subtle icon-only chip. Borderless at rest, faint background
-      // tint on hover so the affinity with the popover is obvious.
-      const hoverFill = tintColour(accent, isDarkMode ? 0.1 : 0.08);
-      const hoverBorder = tintColour(accent, isDarkMode ? 0.32 : 0.28);
-      const isHovered = hover?.id === item.id;
-      return (
-        <span
-          key={item.id}
-          ref={ref}
-          tabIndex={0}
-          className="conv-prospect-bezel conv-prospect-bezel--quiet"
-          title={titleText}
-          aria-label={titleText}
-          onMouseEnter={handleEnter}
-          onMouseLeave={handleLeave}
-          onFocus={handleFocus}
-          onBlur={handleBlur}
-          style={{
-            position: 'relative',
-            flexShrink: 0,
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            height: bezelHeight,
-            width: bezelHeight,
-            padding: 0,
-            border: `1px solid ${isHovered ? hoverBorder : 'transparent'}`,
-            background: isHovered ? hoverFill : 'transparent',
-            borderRadius: 0,
-            opacity: isDarkMode ? 0.85 : 0.8,
-            transition: 'background 140ms ease, border-color 140ms ease',
-            outline: 'none',
-            cursor: 'default',
-          }}
-        >
-          <AowIcon area={item.aow} colour={accent} size={iconSize} category={category} />
-        </span>
-      );
-    }
-
-    // Matters: bordered icon chip (plus the green tick if opened). Click =
-    // open the popover (which carries the action buttons). Keyboard chip
-    // remains focusable for a11y; Enter/Space opens the popover too.
-    const border = tintColour(accent, 0.32);
-    const fill = tintColour(accent, isDarkMode ? 0.1 : 0.08);
+    const handleClick = (e: React.MouseEvent<HTMLSpanElement>) => {
+      e.stopPropagation();
+      togglePinned(item, e.currentTarget);
+    };
     const handleKey = (e: React.KeyboardEvent<HTMLSpanElement>) => {
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
-        openHover(item, e.currentTarget);
+        togglePinned(item, e.currentTarget);
       }
       if (e.key === 'Escape') {
-        closeHover();
+        collapseHover();
       }
     };
+
+    // 2026-04-27: matter and enquiry chips share one render. Both are
+    // square, borderless at rest, with a faint AoW tint + border on hover.
+    // Matter chips no longer carry a green tick (was misleading — it was
+    // unconditional, not state-driven) or a coloured fill (was off-brand
+    // and made matters look heavier than enquiries). The popover continues
+    // to carry any per-chip actions (Clio / AC deep links).
+    const hoverFill = tintColour(accent, isDarkMode ? 0.1 : 0.08);
+    const hoverBorder = tintColour(accent, isDarkMode ? 0.32 : 0.28);
+    const pinnedFill = tintColour(accent, isDarkMode ? 0.18 : 0.14);
+    const pinnedBorder = tintColour(accent, isDarkMode ? 0.58 : 0.48);
+    const isHovered = hover?.id === item.id;
+    const isPinned = pinnedId === item.id;
     return (
       <span
         key={item.id}
         ref={ref}
         tabIndex={0}
-        className="conv-prospect-bezel"
-        title={titleText}
-        aria-label={titleText}
+        role="button"
+        className={isMatter ? 'conv-prospect-bezel' : 'conv-prospect-bezel conv-prospect-bezel--quiet'}
+        aria-label={isPinned ? `${titleText} selected` : titleText}
+        aria-pressed={isPinned}
         onMouseEnter={handleEnter}
         onMouseLeave={handleLeave}
         onFocus={handleFocus}
         onBlur={handleBlur}
+        onClick={handleClick}
         onKeyDown={handleKey}
         style={{
+          position: 'relative',
           flexShrink: 0,
           display: 'inline-flex',
           alignItems: 'center',
           justifyContent: 'center',
-          gap: 3,
           height: bezelHeight,
-          padding: '0 4px',
-          lineHeight: 1,
-          border: `1px solid ${border}`,
-          background: fill,
+          width: bezelHeight,
+          padding: 0,
+          border: `1px solid ${isPinned ? pinnedBorder : isHovered ? hoverBorder : 'transparent'}`,
+          background: isPinned ? pinnedFill : isHovered ? hoverFill : 'transparent',
           borderRadius: 0,
+          boxShadow: isPinned ? `0 0 0 1px ${tintColour(accent, isDarkMode ? 0.28 : 0.2)} inset` : 'none',
+          opacity: isPinned || isHovered ? 1 : isDarkMode ? 0.85 : 0.8,
+          transition: 'background 140ms ease, border-color 140ms ease, box-shadow 140ms ease, opacity 140ms ease, transform 140ms ease',
+          transform: isPinned ? 'translateY(-0.5px)' : 'translateY(0)',
           outline: 'none',
-          cursor: 'default',
+          cursor: 'pointer',
         }}
       >
         <AowIcon area={item.aow} colour={accent} size={iconSize} category={category} />
-        {showTick ? <MatterTick colour={colours.green} size={breakpoint === 'wide' ? 9 : 8} /> : null}
       </span>
     );
   };
@@ -843,7 +1013,7 @@ const ConversionProspectBasket: React.FC<ConversionProspectBasketProps> = ({
           {Array.from({ length: phVisible }).map((_, idx) => (
             <div
               key={`ph-${idx}`}
-              title={isEnq ? 'Enquiry (loading…)' : 'Matter (loading…)'}
+              aria-label={isEnq ? 'Enquiry loading' : 'Matter loading'}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -950,11 +1120,12 @@ const ConversionProspectBasket: React.FC<ConversionProspectBasketProps> = ({
         <TransitionGroup component={null}>
           {visible.map((item) => {
             const nodeRef = getTransitionRef(item.id);
+            const transitionNodeRef = nodeRef as unknown as React.RefObject<HTMLElement | undefined>;
             const chipWidth = chipWidths[item.id] ?? fallbackChipWidth;
             return (
               <CSSTransition
                 key={item.id}
-                nodeRef={nodeRef}
+                nodeRef={transitionNodeRef}
                 timeout={animate ? CHIP_RESIZE_TRANSITION_MS : 0}
                 classNames="conv-prospect-chip"
               >
@@ -963,8 +1134,8 @@ const ConversionProspectBasket: React.FC<ConversionProspectBasketProps> = ({
                   className="conv-prospect-chip-shell"
                   style={{
                     maxWidth: chipWidth,
-                    ['--conv-chip-width' as '--conv-chip-width']: `${chipWidth}px`,
-                  }}
+                    '--conv-chip-width': `${chipWidth}px`,
+                  } as ChipShellStyle}
                 >
                   {renderChipBezel(item)}
                 </span>
@@ -982,8 +1153,12 @@ const ConversionProspectBasket: React.FC<ConversionProspectBasketProps> = ({
         const showChevron = overflowExpanded || overflowHover;
         const ChevIcon = overflowExpanded ? FiChevronUp : FiChevronDown;
         const interactive = Boolean(onOverflowToggle);
-        const accent = isDarkMode ? colours.dark.text : colours.light.text;
-        const labelColour = isDarkMode ? 'rgba(243,244,246,0.9)' : 'rgba(6,23,51,0.88)';
+        const activeColour = isDarkMode ? colours.dark.text : colours.highlight;
+        const labelColour = isDarkMode ? colours.highlight : colours.helixBlue;
+        const idleBackground = isDarkMode ? withAlpha(colours.dark.sectionBackground, 0.86) : withAlpha(colours.grey, 0.72);
+        const activeBackground = isDarkMode ? withAlpha(colours.highlight, 0.16) : withAlpha(colours.highlight, 0.12);
+        const idleBorder = isDarkMode ? withAlpha(colours.highlight, 0.2) : withAlpha(colours.helixBlue, 0.14);
+        const activeBorder = isDarkMode ? withAlpha(colours.highlight, 0.28) : withAlpha(colours.highlight, 0.2);
         const stableWidth = getOverflowChipWidth(bezelHeight, overflow);
         return (
           <button
@@ -1010,16 +1185,12 @@ const ConversionProspectBasket: React.FC<ConversionProspectBasketProps> = ({
               padding: 0,
               fontSize: 9,
               fontWeight: 700,
-              color: showChevron ? accent : labelColour,
+              color: showChevron ? activeColour : labelColour,
               letterSpacing: '0.06em',
               textTransform: 'uppercase',
               lineHeight: 1,
-              background: showChevron
-                ? tintColour(isDarkMode ? '#87F3F3' : '#3690CE', isDarkMode ? 0.14 : 0.12)
-                : (isDarkMode ? 'rgba(8,28,48,0.95)' : 'rgba(255,255,255,0.95)'),
-              border: `1px solid ${showChevron
-                ? tintColour(isDarkMode ? '#87F3F3' : '#3690CE', 0.4)
-                : (isDarkMode ? 'rgba(209,213,219,0.18)' : 'rgba(55,65,81,0.18)')}`,
+              background: showChevron ? activeBackground : idleBackground,
+              border: `1px solid ${showChevron ? activeBorder : idleBorder}`,
               borderRadius: 0,
               cursor: interactive ? 'pointer' : 'default',
               transition: 'width 0.16s ease, color 0.16s ease, background 0.16s ease, border-color 0.16s ease, transform 0.16s ease',
@@ -1043,6 +1214,7 @@ const ConversionProspectBasket: React.FC<ConversionProspectBasketProps> = ({
         open: popOpen,
         isDarkMode,
         accent: aowColor(hover.item.aow),
+        category: resolveAowCategory ? resolveAowCategory(hover.item.aow) : undefined,
         onMouseEnter: keepOpen,
         onMouseLeave: closeHover,
         onOpenInApp: onOpenProspect,

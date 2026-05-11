@@ -81,9 +81,16 @@ export const statusBadgeStyle = (status: 'active' | 'closed', isDarkMode: boolea
 
 export const mainLayoutStyle = mergeStyles({
   display: 'grid',
-  gridTemplateColumns: '1fr 320px',
+  gridTemplateColumns: 'minmax(0, 1fr) clamp(272px, 28vw, 320px)',
   gap: 0,
   flex: 1,
+  minWidth: 0,
+  '@media (max-width: 1280px)': {
+    gridTemplateColumns: 'minmax(0, 1fr) 288px',
+  },
+  '@media (max-width: 1120px)': {
+    gridTemplateColumns: '1fr',
+  },
   '@media (max-width: 1024px)': {
     gridTemplateColumns: '1fr',
   },
@@ -96,7 +103,14 @@ export const leftColumnStyle = (isDarkMode: boolean) =>
     display: 'flex',
     flexDirection: 'column',
     gap: 16,
+    minWidth: 0,
     backgroundColor: isDarkMode ? 'transparent' : '#ffffff',
+    '@media (max-width: 1280px)': {
+      padding: 20,
+    },
+    '@media (max-width: 1120px)': {
+      padding: 18,
+    },
   });
 
 
@@ -108,6 +122,15 @@ export const rightColumnStyle = (isDarkMode: boolean) =>
     display: 'flex',
     flexDirection: 'column',
     gap: 16,
+    minWidth: 0,
+    '@media (max-width: 1280px)': {
+      padding: 20,
+    },
+    '@media (max-width: 1120px)': {
+      padding: 18,
+      borderLeft: 'none',
+      borderTop: `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}66` : 'rgba(6, 23, 51, 0.08)'}`,
+    },
     '@media (max-width: 1024px)': {
       borderLeft: 'none',
       borderTop: `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}66` : 'rgba(6, 23, 51, 0.08)'}`,
@@ -135,7 +158,11 @@ export const sectionCardStyle = (isDarkMode: boolean) =>
     display: 'flex',
     flexDirection: 'column',
     gap: 16,
+    minWidth: 0,
     boxShadow: isDarkMode ? 'none' : '0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04)',
+    '@media (max-width: 1280px)': {
+      padding: 14,
+    },
   });
 
 

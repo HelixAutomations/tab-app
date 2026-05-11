@@ -246,6 +246,107 @@ router.post('/dm-test', async (req, res) => {
   }
 });
 
+// ── POST /error-report — Auto-notify Luke when a UI error boundary trips ──
+// Called from src/components/ErrorBoundary.tsx on mount. Fire-and-forget on
+// the client; the server still returns the delivery result so the UI can
+// switch its envelope animation to a tick.
+router.post('/error-report', async (req, res) => {
+  try {
+    const {
+      errorCode,
+      message,
+      stack,
+      componentStack,
+      url,
+      userInitials,
+      userEmail,
+      environment,
+      timestamp,
+    } = req.body || {};
+
+    const safeMessage = typeof message === 'string' ? message.slice(0, 600) : 'Unknown error';
+    const safeStack = typeof stack === 'string' ? stack.split('\n').slice(0, 8).join('\n') : '';
+    const safeComponentStack = typeof componentStack === 'string' ? componentStack.split('\n').slice(0, 8).join('\n') : '';
+    const ts = timestamp || new Date().toISOString();
+
+    const card = {
+      type: 'AdaptiveCard',
+      $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
+      version: '1.4',
+      body: [
+        {
+          type: 'TextBlock',
+          text: 'Hub error boundary tripped',
+          weight: 'Bolder',
+          size: 'Medium',
+          color: 'Attention',
+        },
+        {
+          type: 'TextBlock',
+          text: `${userInitials || 'unknown user'}${userEmail ? ` · ${userEmail}` : ''}${environment ? ` · ${environment}` : ''}`,
+          isSubtle: true,
+          spacing: 'None',
+          size: 'Small',
+          wrap: true,
+        },
+        {
+          type: 'FactSet',
+          facts: [
+            { title: 'Ref', value: errorCode || 'unknown' },
+            { title: 'When', value: ts },
+            { title: 'Where', value: url || 'n/a' },
+          ],
+        },
+        {
+          type: 'TextBlock',
+          text: safeMessage,
+          wrap: true,
+          spacing: 'Medium',
+        },
+        ...(safeStack ? [{
+          type: 'TextBlock',
+          text: `\`\`\`\n${safeStack}\n\`\`\``,
+          wrap: true,
+          isSubtle: true,
+          fontType: 'Monospace',
+          size: 'Small',
+        }] : []),
+        ...(safeComponentStack ? [{
+          type: 'TextBlock',
+          text: `\`\`\`\n${safeComponentStack}\n\`\`\``,
+          wrap: true,
+          isSubtle: true,
+          fontType: 'Monospace',
+          size: 'Small',
+        }] : []),
+      ],
+    };
+
+    const result = await sendCardToDM('lz@helix-law.com', card, `Hub error · ${errorCode || 'unknown'}`);
+
+    trackEvent('Hub.ErrorBoundary.AutoNotified', {
+      errorCode: String(errorCode || 'unknown'),
+      userInitials: String(userInitials || ''),
+      delivered: String(!!result.success),
+    });
+
+    append({
+      type: 'activity.error.auto-notify',
+      action: 'error-boundary',
+      status: result.success ? 'success' : 'error',
+      errorCode: errorCode || null,
+      userInitials: userInitials || null,
+      timestamp: ts,
+    });
+
+    return res.status(result.success ? 200 : 502).json(result);
+  } catch (err) {
+    log.error('[TeamsNotifyRoute] /error-report error:', err.message);
+    trackException(err, { operation: 'TeamsNotifyRoute.ErrorReport' });
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ── GET /health — Token acquisition + channel list ───────────
 router.get('/health', async (req, res) => {
   try {

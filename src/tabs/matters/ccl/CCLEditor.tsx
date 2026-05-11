@@ -6,7 +6,6 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { Icon } from '@fluentui/react/lib/Icon';
 import type { NormalizedMatter, TeamData } from '../../../app/functionality/types';
-import { colours } from '../../../app/styles/colours';
 import { useTheme } from '../../../app/functionality/ThemeContext';
 import {
   DEFAULT_CCL_TEMPLATE,
@@ -17,7 +16,7 @@ import {
   type DisbursementsChoice,
 } from '../../../shared/ccl';
 import { CCL_SECTIONS, autoFillFromMatter, DEMO_FIELDS, type EditorStepType } from './cclSections';
-import { buildCclApiUrl, fetchAiFillStream, type AiFillResponse, type AiDebugTrace } from './cclAiService';
+import { buildCclApiUrl, fetchAiFillStream, type AiDebugTrace } from './cclAiService';
 import QuestionnaireStep from './QuestionnaireStep';
 import EditorStep from './EditorStep';
 import PreviewStep from './PreviewStep';

@@ -13,7 +13,7 @@
   --helix-highlight: #3690CE;
   --helix-cta: #D65541;
   --helix-grey: #F4F4F6;
-  --helix-accent: #87F3F3;
+  --helix-accent: #3690CE;
   --helix-highlight-blue: #d6e8ff;
 
   /* Status / area-of-work */
@@ -106,10 +106,10 @@
   --text-body: #d1d5db;
   --text-secondary: rgba(160, 160, 160, 0.8);
   --text-muted: #A0A0A0;
-  --text-accent: #87F3F3;
+  --text-accent: #3690CE;
 
   /* RGB channels */
-  --accent-rgb: 135, 243, 243;
+  --accent-rgb: 54, 144, 206;
   --highlight-rgb: 54, 144, 206;
   --subtle-grey-rgb: 160, 160, 160;
   --grey-text-rgb: 107, 107, 107;
@@ -274,8 +274,8 @@
 
 [data-theme="dark"] .helix-dropzone:hover,
 [data-theme="dark"] .helix-dropzone--active {
-  border-color: var(--helix-accent);
-  background: rgba(135, 243, 243, 0.04);
+  border-color: var(--helix-highlight);
+  background: rgba(54, 144, 206, 0.04);
 }
 
 .helix-section-title {
@@ -573,7 +573,7 @@
 }
 
 .ccl-review-queue-strip__dot:focus-visible {
-  box-shadow: 0 0 0 2px rgba(135, 243, 243, 0.55);
+  box-shadow: 0 0 0 2px rgba(54, 144, 206, 0.55);
 }
 
 .ccl-review-queue-strip__dot--idle {
@@ -585,7 +585,7 @@
 }
 
 .ccl-review-queue-strip__dot--current {
-  color: #87F3F3; /* colours.accent */
+  color: #3690CE; /* colours.accent */
   animation: cclQueueStripPulse 1.6s ease-in-out infinite;
 }
 
@@ -875,7 +875,7 @@
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  border: 1.5px solid rgba(135, 243, 243, 0.18);
+  border: 1.5px solid rgba(54, 144, 206, 0.18);
   box-sizing: border-box;
   animation: helix-spin 0.85s linear infinite;
 }
@@ -1594,10 +1594,9 @@
     conic-gradient(
       from var(--helix-ai-angle),
       #3690CE 0deg,
-      #87F3F3 80deg,
-      #20b26c 150deg,
-      #87F3F3 210deg,
-      #8b5cf6 290deg,
+      #0D2F60 90deg,
+      #20b26c 180deg,
+      #0D2F60 270deg,
       #3690CE 360deg
     );
   animation: helix-ai-border-rotate 45s linear infinite;
@@ -1611,7 +1610,7 @@
 /* Fallback for browsers without @property: a static gradient. */
 @supports not (background: conic-gradient(from var(--helix-ai-angle), red, blue)) {
   .helix-ai-border {
-    background: linear-gradient(135deg, #3690CE, #87F3F3, #20b26c, #8b5cf6, #3690CE);
+    background: linear-gradient(135deg, #3690CE, #0D2F60, #20b26c, #3690CE);
     animation: none;
   }
 }
@@ -1647,10 +1646,10 @@
 }
 [data-theme="dark"] {
   --pipeline-chip-inactive: rgba(160, 160, 160, 0.25);
-  --pipeline-chip-hover: rgba(135, 243, 243, 0.06);
+  --pipeline-chip-hover: rgba(54, 144, 206, 0.06);
   --pipeline-connector: var(--border-base);
   --pipeline-connector-done: var(--helix-green);
-  --pipeline-pulse-glow: rgba(135, 243, 243, 0.1);
+  --pipeline-pulse-glow: rgba(54, 144, 206, 0.1);
 }
 
 /* ─── Workbench tokens ─── */
@@ -1679,8 +1678,8 @@
   --wb-surface: var(--surface-card);
   --wb-surface-elevated: var(--surface-card-hover);
   --wb-tab-border: var(--border-base);
-  --wb-tab-active-bg: rgba(135, 243, 243, 0.06);
-  --wb-tab-active-border: var(--helix-accent);
+  --wb-tab-active-bg: rgba(54, 144, 206, 0.06);
+  --wb-tab-active-border: var(--helix-highlight);
   --wb-info-strip-bg: rgba(54, 144, 206, 0.06);
   --wb-info-strip-border: rgba(54, 144, 206, 0.12);
   --wb-status-complete-bg: rgba(32, 178, 108, 0.1);
@@ -1763,8 +1762,8 @@
   background: rgba(54, 144, 206, 0.08);
 }
 [data-theme="dark"] .helix-action-btn:hover {
-  color: var(--helix-accent);
-  background: rgba(135, 243, 243, 0.06);
+  color: var(--helix-highlight);
+  background: rgba(54, 144, 206, 0.06);
 }
 
 /* ─── Workbench status badge ─── */
@@ -2048,8 +2047,8 @@
   color: var(--text-primary);
 }
 .helix-chip--accent {
-  background: rgba(135, 243, 243, 0.08);
-  border-color: rgba(135, 243, 243, 0.15);
+  background: rgba(54, 144, 206, 0.08);
+  border-color: rgba(54, 144, 206, 0.15);
   color: var(--text-accent);
 }
 [data-theme="light"] .helix-chip--accent {

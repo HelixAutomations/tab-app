@@ -14,6 +14,8 @@ interface OperationStatusToastProps {
   progress?: number; // 0-100 for progress bar
   icon?: string;
   isDarkMode?: boolean;
+  actionLabel?: string;
+  onAction?: () => void;
 }
 
 const OperationStatusToast: React.FC<OperationStatusToastProps> = ({ 
@@ -24,7 +26,9 @@ const OperationStatusToast: React.FC<OperationStatusToastProps> = ({
   details,
   progress,
   icon,
-  isDarkMode = false
+  isDarkMode = false,
+  actionLabel,
+  onAction,
 }) => {
   const nodeRef = React.useRef<HTMLDivElement>(null);
 
@@ -159,6 +163,26 @@ const OperationStatusToast: React.FC<OperationStatusToastProps> = ({
                 }}>
                   {details}
                 </div>
+              )}
+
+              {actionLabel && onAction && (
+                <button
+                  type="button"
+                  onClick={onAction}
+                  style={{
+                    marginTop: 8,
+                    padding: '4px 0',
+                    border: 'none',
+                    background: 'transparent',
+                    color: getTypeColor(),
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    letterSpacing: '0.2px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {actionLabel}
+                </button>
               )}
             </div>
           </div>

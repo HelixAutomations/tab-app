@@ -45,6 +45,14 @@ function push(entry: CallLogEntry) {
         return;
     }
 
+    // 2026-04-27: dev/health is a 3s background poller — its server time is
+    // always sub-50ms, so any "slow" telemetry here is browser queue time
+    // (background-tab throttling, HTTP/1.1 connection saturation). Not
+    // actionable; would only pollute the Activity slow-call panel.
+    if (path === '/api/dev/health') {
+        return;
+    }
+
     if (entry.status == null || entry.status >= 500) {
         trackClientError('Network', 'request-failed', `${entry.method} ${path} failed`, {
             path,

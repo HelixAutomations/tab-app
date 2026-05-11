@@ -20,6 +20,7 @@ import { useOpsPulse } from './hooks/useOpsPulse';
 import { useActivityLayout } from './hooks/useActivityLayout';
 import { ActivityProvider } from './ActivityContext';
 import { ActivityFeedItem } from './parts/types';
+import { useNavigatorActions } from '../../app/functionality/NavigatorContext';
 import './Activity.css';
 
 interface ActivityProps {
@@ -213,8 +214,26 @@ const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, 
   const userTier = getUserTier(primaryUser);
   const userInitials = (primaryUser?.Initials || '').toString().toUpperCase().trim();
   const isDevOwner = userInitials === 'LZ';
+  const isAC = userInitials === 'AC';
+  const canSeeForge = isDevOwner || isAC;
+  const FORGE_VIEW_MODE_KEY = 'helix.forge.viewMode';
+  const initialForgeViewMode: 'dev' | 'roadmap' = (() => {
+    if (!canSeeForge) return 'dev';
+    if (isAC) return 'roadmap';
+    if (typeof window === 'undefined') return 'dev';
+    const stored = window.localStorage.getItem(FORGE_VIEW_MODE_KEY);
+    return stored === 'roadmap' ? 'roadmap' : 'dev';
+  })();
+  const [forgeViewMode, setForgeViewMode] = useState<'dev' | 'roadmap'>(initialForgeViewMode);
+  const handleForgeViewModeChange = useCallback((next: 'dev' | 'roadmap') => {
+    setForgeViewMode(next);
+    if (typeof window !== 'undefined') {
+      try { window.localStorage.setItem(FORGE_VIEW_MODE_KEY, next); } catch { /* ignore */ }
+    }
+  }, []);
   const opsPulse = useOpsPulse(showLiveMonitor);
   const [formsTodayCount, setFormsTodayCount] = useState<number>(() => getFormsTodayCount());
+  const [signalsOpenCount, setSignalsOpenCount] = useState<number | null>(null);
   const [briefsOpenCount, setBriefsOpenCount] = useState<number | null>(null);
   const [content, setContent] = useState('');
   const [activityItems, setActivityItems] = useState<ActivityFeedItem[]>([]);
@@ -237,6 +256,15 @@ const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, 
     if (!loading && !dashReady) setDashReady(true);
   }, [loading, dashReady]);
 
+  // Activity owns no navigator chrome — clear any content the previous tab
+  // left behind (e.g. Home's QuickActionsBar) so the navigator collapses
+  // structurally instead of relying on a CSS hide class.
+  const { setContent: setNavigatorContent } = useNavigatorActions();
+  useEffect(() => {
+    setNavigatorContent(null);
+    return () => setNavigatorContent(null);
+  }, [setNavigatorContent]);
+
   // Forms today count — refresh on stream updates
   useEffect(() => {
     const refresh = () => setFormsTodayCount(getFormsTodayCount());
@@ -248,6 +276,32 @@ const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, 
       window.clearInterval(tick);
     };
   }, []);
+
+  // Open signals count (dev group only)
+  useEffect(() => {
+    if (!canSeeForge) return;
+    let disposed = false;
+    const authHeaders: Record<string, string> = userInitials ? { 'x-user-initials': userInitials } : {};
+    const load = async () => {
+      try {
+        const params = new URLSearchParams({ status: 'open', limit: '80' });
+        if (userInitials) params.set('initials', userInitials);
+        const res = await fetch(`/api/signals?${params.toString()}`, { headers: authHeaders });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (disposed) return;
+        setSignalsOpenCount(Array.isArray(data?.items) ? data.items.length : 0);
+      } catch {
+        if (!disposed) setSignalsOpenCount(null);
+      }
+    };
+    void load();
+    const tick = window.setInterval(load, 120000);
+    return () => {
+      disposed = true;
+      window.clearInterval(tick);
+    };
+  }, [canSeeForge, userInitials]);
 
   // Stashed briefs open count (dev-owner only)
   useEffect(() => {
@@ -399,13 +453,6 @@ const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, 
     return counts;
   }, [allEntries]);
 
-  const handleCardLabItemSent = useCallback((item: ActivityFeedItem) => {
-    setActivityItems((current) => [item, ...current.filter((existing) => existing.id !== item.id)].slice(0, 24));
-    setActivityFeedLastSyncAt(Date.now());
-    setActivityFeedUsingSnapshot(false);
-    setActivityError(null);
-  }, []);
-
   const textColour = isDarkMode ? colours.dark.text : colours.light.text;
   const mutedColour = isDarkMode ? colours.subtleGrey : colours.greyText;
   const accentColour = isDarkMode ? colours.accent : colours.highlight;
@@ -417,12 +464,28 @@ const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, 
     <div style={containerStyles(isDarkMode)}>
       {/* ═══ Hero — title, lens chips, KPI tiles ═══ */}
       {(() => {
+        const checksFailingCount = opsPulse.opsChecks?.failingCount ?? 0;
+        const checksWarningCount = opsPulse.opsChecks?.warningCount ?? 0;
+        const checksIssueCount = checksFailingCount + checksWarningCount;
+        const checksTrackedCount = opsPulse.opsChecks?.totalTracked ?? 0;
         const lenses: LensSpec[] = showLiveMonitor
           ? [
               { key: 'all', label: 'All', count: activityItems.length },
               { key: 'forms', label: 'Forms', count: formsTodayCount },
               { key: 'matters', label: 'Matters' },
               { key: 'sync', label: 'Sync' },
+              {
+                key: 'checks',
+                label: 'Checks',
+                count: checksIssueCount > 0 ? checksIssueCount : undefined,
+                tone: checksFailingCount > 0
+                  ? 'danger'
+                  : checksWarningCount > 0
+                    ? 'warning'
+                    : checksTrackedCount > 0
+                      ? 'success'
+                      : 'neutral',
+              },
               {
                 key: 'trace',
                 label: 'Trace',
@@ -441,12 +504,34 @@ const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, 
                 count: opsPulse.errors?.length || 0,
                 tone: (opsPulse.errors?.length || 0) > 0 ? 'danger' : 'neutral',
               },
+              ...(canSeeForge
+                ? [{
+                    key: 'signals' as ActivityLens,
+                    label: 'Signals',
+                    count: (signalsOpenCount ?? 0) > 0 ? signalsOpenCount ?? undefined : undefined,
+                    tone: (signalsOpenCount ?? 0) > 0 ? 'warning' as const : 'neutral' as const,
+                  }]
+                : []),
+              ...(canSeeForge
+                ? [{
+                    key: 'forge' as ActivityLens,
+                    label: 'Controls',
+                    tone: 'success' as const,
+                  }]
+                : []),
               ...(isDevOwner
                 ? [{
                     key: 'briefs' as ActivityLens,
                     label: 'Briefs',
                     count: briefsOpenCount ?? undefined,
                     tone: (briefsOpenCount ?? 0) > 0 ? 'warning' as const : 'neutral' as const,
+                  }]
+                : []),
+              ...(isDevOwner
+                ? [{
+                    key: 'actions' as ActivityLens,
+                    label: 'Actions',
+                    tone: 'success' as const,
                   }]
                 : []),
             ]
@@ -470,6 +555,17 @@ const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, 
                 lens: 'errors',
                 group: 'health',
               },
+              ...((opsPulse.doubledApi?.length ?? 0) > 0
+                ? [{
+                    key: 'doubledApi',
+                    label: '/api/api/ hits',
+                    value: opsPulse.doubledApi?.length ?? 0,
+                    accent: colours.cta,
+                    hint: 'proxy regression',
+                    lens: 'errors' as ActivityLens,
+                    group: 'health' as const,
+                  }]
+                : []),
               {
                 key: 'trace',
                 label: 'Session trace',
@@ -480,11 +576,26 @@ const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, 
                     ? colours.orange
                     : colours.green,
                 hint: opsPulse.sessionTraces
-                  ? `${opsPulse.sessionTraces.degraded} degraded · ${opsPulse.sessionTraces.busy} busy`
+                  ? `${opsPulse.sessionTraces.degraded} degraded - ${opsPulse.sessionTraces.busy} busy`
                   : undefined,
                 lens: 'trace',
                 group: 'health',
               },
+              ...(checksTrackedCount > 0
+                ? [{
+                    key: 'checks',
+                    label: 'Route checks',
+                    value: checksIssueCount > 0 ? checksIssueCount : checksTrackedCount,
+                    accent: checksFailingCount > 0
+                      ? colours.cta
+                      : checksWarningCount > 0
+                        ? colours.orange
+                        : colours.green,
+                    hint: `${checksFailingCount} fail - ${checksWarningCount} warn`,
+                    lens: 'checks' as ActivityLens,
+                    group: 'health' as const,
+                  }]
+                : []),
               {
                 key: 'forms',
                 label: 'Forms today',
@@ -493,6 +604,16 @@ const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, 
                 lens: 'forms',
                 group: 'workload',
               },
+              ...(canSeeForge && signalsOpenCount != null
+                ? [{
+                    key: 'signals',
+                    label: 'Signals open',
+                    value: signalsOpenCount,
+                    accent: signalsOpenCount > 0 ? colours.orange : colours.green,
+                    lens: 'signals' as ActivityLens,
+                    group: 'workload' as const,
+                  }]
+                : []),
               {
                 key: 'rpm',
                 label: 'RPM',
@@ -519,7 +640,7 @@ const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, 
         return (
           <ActivityHero
             isDarkMode={isDarkMode}
-            title="Activity"
+            title="System"
             connected={showLiveMonitor ? opsPulse.connected : null}
             showLiveDot={showLiveMonitor}
             lastSyncAt={activityFeedLastSyncAt}
@@ -531,7 +652,7 @@ const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, 
               userTier === 'devGroup'
                 ? 'Dev group preview'
                 : !showLiveMonitor
-                ? `${activityItems.length > 0 ? `${activityItems.length} live signals` : ''}${activityItems.length > 0 && allEntries.length > 0 ? ' · ' : ''}${allEntries.length > 0 ? `${allEntries.length} updates` : 'Platform updates and improvements'}`
+                ? `${activityItems.length > 0 ? `${activityItems.length} live signals` : ''}${activityItems.length > 0 && allEntries.length > 0 ? ' - ' : ''}${allEntries.length > 0 ? `${allEntries.length} updates` : 'Platform updates and improvements'}`
                 : undefined
             }
           />
@@ -555,6 +676,11 @@ const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, 
                 opsPulse={opsPulse}
                 initials={userInitials || null}
                 isDevOwner={isDevOwner}
+                forgeViewMode={forgeViewMode}
+                forgeCanToggle={isDevOwner}
+                onForgeViewModeChange={handleForgeViewModeChange}
+                canSeeSignals={canSeeForge}
+                onSignalsCountChange={setSignalsOpenCount}
                 selectedSessionId={layout.selectedSessionId}
                 selectedErrorTs={layout.selectedErrorTs}
               />
@@ -605,18 +731,44 @@ const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, 
         </div>
       )}
 
-      {/* ═══ Tools drawer (Release Notes / API Heat / Card Lab / Boot Trace) ═══ */}
-      {!loading && !error && (
-        <ToolsDrawer
-          isDarkMode={isDarkMode}
-          hasReleaseNotes={allEntries.length > 0}
-          showLiveMonitor={showLiveMonitor}
-          isLocalDev={isLocalDev}
-          showBootMonitor={showBootMonitor}
-          releaseNotesContent={
-            <>
-              {/* Filter chips */}
-              <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
+      {/* ═══ Release Notes — promoted from the Tools drawer.
+            Changelog is user-facing (everyone benefits from "what's new") so
+            it sits above the operator-tools drawer rather than competing
+            with API Heat / Card Lab / Boot Trace inside it. ═══ */}
+      {!loading && !error && allEntries.length > 0 && (
+        <section
+          style={{
+            marginTop: 24,
+            paddingTop: 16,
+            borderTop: `1px solid ${borderColour}`,
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'baseline',
+              gap: 10,
+              marginBottom: 12,
+            }}
+          >
+            <h3
+              style={{
+                margin: 0,
+                fontSize: 11,
+                fontWeight: 800,
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px',
+                color: textColour,
+                fontFamily: 'Raleway, sans-serif',
+              }}
+            >
+              Release notes
+            </h3>
+            <span style={{ fontSize: 11, color: mutedColour }}>{allEntries.length} entries</span>
+          </div>
+          <>
+            {/* Filter chips */}
+            <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
                 <FilterChip label="All" count={allEntries.length} active={filter === 'all'} colour={accentColour} isDarkMode={isDarkMode} onClick={() => setFilter('all')} />
                 {(['feature', 'improvement', 'fix', 'ops'] as const).map((category) => (
                   <FilterChip
@@ -680,7 +832,19 @@ const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, 
                 </div>
               )}
             </>
-          }
+          </section>
+      )}
+
+      {/* ═══ Operator tools drawer (API Heat / Card Lab / Boot Trace) ═══
+            Operator-only — visibility is gated by the tabs themselves
+            (`showLiveMonitor`, `isLocalDev`, `showBootMonitor`). The drawer
+            renders nothing when zero tabs are available. ═══ */}
+      {!loading && !error && (
+        <ToolsDrawer
+          isDarkMode={isDarkMode}
+          showLiveMonitor={showLiveMonitor}
+          isLocalDev={isLocalDev}
+          showBootMonitor={showBootMonitor}
           apiHeatContent={<ApiHeatSection requests={opsPulse.requests} isDarkMode={isDarkMode} />}
           cardLabContent={null}
           bootTraceContent={<HomeBootMonitor />}

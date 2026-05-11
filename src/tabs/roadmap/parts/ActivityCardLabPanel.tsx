@@ -377,7 +377,7 @@ const ActivityCardLabPanel: React.FC<ActivityCardLabPanelProps> = ({ onItemSent 
                   <p className="activity-card-lab__recent-title">{item.title}</p>
                   <div className="activity-card-lab__recent-meta">
                     <div>{formatDateTime(item.timestamp)}</div>
-                    <div>{item.originLabel || 'One-off send'} · {(item.deliveryMode || 'channel').toUpperCase()} · {item.routeLabel}</div>
+                    <div>{item.originLabel || 'One-off send'} - {(item.deliveryMode || 'channel').toUpperCase()} - {item.routeLabel}</div>
                     {item.summary && <div>{item.summary}</div>}
                   </div>
                 </div>
@@ -435,7 +435,7 @@ const ActivityCardLabPanel: React.FC<ActivityCardLabPanelProps> = ({ onItemSent 
           </div>
 
           <div className="activity-card-lab__status">
-            {catalogLoading ? 'Loading templates…' : templateLoading ? 'Loading template…' : selectedTemplate ? `${selectedTemplate.category}${selectedTemplate.originLabel ? ` · ${selectedTemplate.originLabel}` : ''} · ${selectedTemplate.description}` : 'Choose a template from the library above.'}
+            {catalogLoading ? 'Loading templates…' : templateLoading ? 'Loading template…' : selectedTemplate ? `${selectedTemplate.category}${selectedTemplate.originLabel ? ` - ${selectedTemplate.originLabel}` : ''} - ${selectedTemplate.description}` : 'Choose a template from the library above.'}
           </div>
 
           <label className="activity-card-lab__field">

@@ -20,12 +20,14 @@ const { generateWordFromJson } = require('../utils/wordGenerator.js');
 const { getCclContentById, getLatestCclContent, markCclUploaded, saveCclSent, updateCclStatus } = require('../utils/cclPersistence');
 const { sendHelixEmail } = require('../utils/helixEmail');
 const { resolveRequestActor } = require('../utils/requestActor');
+const { resolveNdFolderForRef, isRehearsalRef } = require('../utils/rehearsalGuard');
 
 // CCL docx lives in public/ccls/{matterId}.docx (matches ccl.js)
 const CCL_DIR = path.join(process.cwd(), 'public', 'ccls');
 const CCL_OUTPUT_DIR = path.join(process.cwd(), 'logs', 'ccl-outputs');
 const DEMO_ND_WORKSPACE_REF = process.env.CCL_ND_DEMO_WORKSPACE || '5257922/HELIX01-01';
-const CCL_ND_UPLOAD_FOLDER = process.env.CCL_ND_UPLOAD_FOLDER || '4126-8772-0295'; // luke-sandbox folder in HELIX01-01
+// Phase C2 — resolveNdFolderForRef() picks REHEARSAL vs PROD per ref.
+// CCL_ND_UPLOAD_FOLDER kept as a back-compat fallback inside the helper.
 let netDocumentsTokenCache = { token: null, exp: 0 };
 
 async function safeGetSecret(name) {
@@ -769,6 +771,28 @@ router.post('/upload-clio', async (req, res) => {
     });
     trackMetric('CCL.Upload.Clio.Duration', durationMs, { matterId: matterDisplayNumber || matterId });
 
+    // 2026-05-11: auto-close any matching `review-ccl` hub_todo. Best-effort —
+    // never blocks the response or surfaces errors to the client.
+    try {
+      const { reconcileAllByRef } = require('../utils/hubTodoLog');
+      const matterRef = matterDisplayNumber || String(matterId || '');
+      if (matterRef) {
+        await reconcileAllByRef({
+          kind: 'review-ccl',
+          matterRef,
+          completedVia: 'ccl-ops.upload-clio',
+          lastEvent: docId ? `Uploaded to Clio · doc ${docId}` : 'Uploaded to Clio',
+        });
+      }
+    } catch (todoErr) {
+      trackEvent('Todo.Card.Reconcile.Failed', {
+        kind: 'review-ccl',
+        matterId: String(matterId || ''),
+        completedVia: 'ccl-ops.upload-clio',
+        error: todoErr?.message || String(todoErr),
+      });
+    }
+
     return res.json({
       ok: true,
       message: `Document uploaded to Clio matter successfully.`,
@@ -824,18 +848,34 @@ router.post('/upload-nd', async (req, res) => {
       : await resolveDemoNdWorkspace();
     const fileBuffer = fs.readFileSync(prepared.docxPath);
 
+    // Phase C2 — pick REHEARSAL vs PROD ND folder based on the matter ref.
+    const matterRefForFolder = matterDisplayNumber || String(matterId || '');
+    const ndUploadFolder = resolveNdFolderForRef(matterRefForFolder);
+    const folderRouted = isRehearsalRef(matterRefForFolder) ? 'REHEARSAL' : 'PROD';
+
     trackEvent('CCL.Upload.ND.Started', {
       matterId: String(matterDisplayNumber || matterId || ''),
       targetWorkspace: workspace.workspaceName,
       targetWorkspaceId: workspace.workspaceId,
+      targetFolderId: ndUploadFolder,
+      folderRouted,
       fileName: prepared.docxName,
       fileSizeBytes: String(fileBuffer.length),
       uploadedBy,
       triggeredBy,
     });
 
+    if (folderRouted === 'REHEARSAL') {
+      trackEvent('Demo.ND.RouteSwitched', {
+        matterRef: matterRefForFolder,
+        folderId: ndUploadFolder,
+        seed: 'rehearsal',
+        uploadedBy,
+      });
+    }
+
     const ndPayload = await uploadDocumentToNetDocuments({
-      workspaceId: CCL_ND_UPLOAD_FOLDER,
+      workspaceId: ndUploadFolder,
       fileName: prepared.docxName,
       fileBuffer,
     });
@@ -954,6 +994,26 @@ router.post('/mark-sent', async (req, res) => {
     }
     await updateCclStatus(matterRef, 'sent', { actor: sentBy }).catch(() => null);
 
+    // 2026-05-11: auto-close any matching `review-ccl` hub_todo. Best-effort.
+    try {
+      const { reconcileAllByRef } = require('../utils/hubTodoLog');
+      if (matterRef) {
+        await reconcileAllByRef({
+          kind: 'review-ccl',
+          matterRef,
+          completedVia: 'ccl-ops.mark-sent',
+          lastEvent: `Marked sent · ${sendChannel}`,
+        });
+      }
+    } catch (todoErr) {
+      trackEvent('Todo.Card.Reconcile.Failed', {
+        kind: 'review-ccl',
+        matterId: matterRef,
+        completedVia: 'ccl-ops.mark-sent',
+        error: todoErr?.message || String(todoErr),
+      });
+    }
+
     const durationMs = Date.now() - startMs;
     trackEvent('CCL.Sent.Recorded', {
       matterId: matterRef,
@@ -1022,7 +1082,9 @@ router.post('/send-to-client', async (req, res) => {
     }
 
     const toRecipients = ['lz@helix-law.com'];
-    const ccRecipients = uniqueEmails([feeEarnerEmail, 'ac@helix-law.com']).filter((email) => !toRecipients.includes(email));
+    // Safety lock: never CC fee earners or anyone else from the internal CCL send path.
+    // Only Luke receives the internal copy until the guarded send path is fully validated.
+    const ccRecipients = [];
     const clientEmail = String(latestContent.ClientEmail || fields.client_email || '').trim();
     const baseUrl = getAppBaseUrl();
     const reviewUrl = `${baseUrl}/?tab=operations&cclMatter=${encodeURIComponent(matterRef)}&autoReview=1`;
@@ -1030,8 +1092,9 @@ router.post('/send-to-client', async (req, res) => {
     const subject = `[Internal only] CCL ready for ${matterDisplayNumber}`;
     const bodyHtml = `
       <div data-no-signature="true">
+        <p><strong>This client care letter has been approved internally.</strong> Please now open the matter in NetDocuments, finalise the document, and send it to the client.</p>
         <p><strong>Internal only:</strong> this send path is hard-guarded and the client was not emailed.</p>
-        <p>The CCL for <strong>${matterDisplayNumber}</strong> (${clientName}) is ready. Luke is the only To recipient while the send path is under guard. Alex and the fee earner are copied for confidence and supervision.</p>
+        <p>The CCL for <strong>${matterDisplayNumber}</strong> (${clientName}) is ready. Luke is the only recipient while the send path is under guard — fee earners are not copied for safety.</p>
         <ul>
           <li><strong>Matter:</strong> ${matterDisplayNumber}</li>
           <li><strong>Client:</strong> ${clientName}</li>
@@ -1087,6 +1150,27 @@ router.post('/send-to-client', async (req, res) => {
     }
 
     await updateCclStatus(matterRef, 'sent', { actor: sentBy }).catch(() => null);
+
+    // 2026-05-11: auto-close any matching `review-ccl` hub_todo. Best-effort.
+    try {
+      const { reconcileAllByRef } = require('../utils/hubTodoLog');
+      const todoMatterRef = matterDisplayNumber || matterRef;
+      if (todoMatterRef) {
+        await reconcileAllByRef({
+          kind: 'review-ccl',
+          matterRef: todoMatterRef,
+          completedVia: 'ccl-ops.send-to-client',
+          lastEvent: 'Approved · internal copy sent',
+        });
+      }
+    } catch (todoErr) {
+      trackEvent('Todo.Card.Reconcile.Failed', {
+        kind: 'review-ccl',
+        matterId: matterRef,
+        completedVia: 'ccl-ops.send-to-client',
+        error: todoErr?.message || String(todoErr),
+      });
+    }
 
     const durationMs = Date.now() - startMs;
     trackEvent('CCL.SendToClient.Guarded.Completed', {

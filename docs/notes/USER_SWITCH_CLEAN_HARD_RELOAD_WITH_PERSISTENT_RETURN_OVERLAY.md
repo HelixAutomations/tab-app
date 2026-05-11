@@ -48,7 +48,7 @@ Current flow (L1627–1708):
 - No `window.location.reload()` or router remount — every mounted component keeps its local state, timers, EventSources, and IntersectionObservers.
 - SSE consumers (enquiries live-feed, forms-stream, realtime-delta-merge, Matter Opening Pipeline telemetry, server-bounce listener) keep the **old** identity's streams open because they were opened in `useEffect` tied to the previous `userData[0]`. Until the consumer's dep array change fires, the stream is wrong.
 - Schedulers / pollers that key off the signed-in user (Home's six `isDevOwner(...) && !originalAdminUser` gates — Home.tsx L1791, L1931, L3045, L4054, L4821, L5271) DO respond to the state change. But the transition is jank: skeletons reserved for LZ's firm-wide data collapse and re-reserve for the new scope.
-- `canSeePrivateHubControls()` inline `isLzOrAc` checks flip instantly — correct — but also flip Home's `HOME_FORCE_MINE_LOCAL` derivations in surprising ways (changelog entry 2026-04-22 documents the local-dev mine-only path).
+- `canSeePrivateHubControls()` inline `isLzOrAc` checks flip instantly — correct — and Home's firm-wide derivations now respond directly to `originalAdminUser`, so the remaining transition jank is the scope collapse from firm-wide to person-wide rather than a hidden local override.
 - Caches NOT cleared: matters (by design), `sessionStorage`, IndexedDB, Teams auth token cache, Clio token pool (server-side, unaffected), App Insights correlation context.
 - `writeRequestAuthContext` writes to a module-level mutable — fine for new requests, but any in-flight fetch that closed over the old context completes against the old identity and merges its result into the new user's state.
 
@@ -156,7 +156,7 @@ Ship only after A is stable for a few days.
 Wrap the app root in `<AppRoot key={sessionEpoch}>` and bump `sessionEpoch` on switch.
 
 *Pros:* No browser repaint; faster; preserves Teams iframe state.
-*Cons:* Module-level mutable state (`writeRequestAuthContext` target, `HOME_FORCE_MINE_LOCAL` constant, any singleton caches) NOT reset. Timers outside React lifecycle may leak.
+*Cons:* Module-level mutable state (`writeRequestAuthContext` target, any singleton caches) NOT reset. Timers outside React lifecycle may leak.
 
 **Default: B1.a.** Correctness > flash. If flash is too harsh, revisit.
 
@@ -318,6 +318,6 @@ conflicts_with: []
 - `canSwitchUser = isAdminUser(user) || !!originalAdminUser` — the `|| originalAdminUser` clause is why a switched-to non-admin user still sees the picker. Do not simplify this in the banner; the banner shows whenever `originalAdminUser` is truthy, regardless of whether the current user is admin.
 - Teams tab context: `window.location.reload()` inside the Teams iframe is supported (the `ServerBouncedReload` branch in `useDevServerBoot` effectively reloads). Do NOT use `window.top.location.reload()` — will fail the Teams iframe CSP.
 - App Insights correlation: on `location.reload`, the SDK re-initialises — distinct-id persists via localStorage, session id rolls. Acceptable.
-- `HOME_FORCE_MINE_LOCAL` (dev-only mine-only default for LZ) is module-level, evaluated once at import. A full reload re-imports, no cache to invalidate. A soft remount does NOT re-evaluate it — another reason B1.a is safer.
+- The former `HOME_FORCE_MINE_LOCAL` branch was removed on 2026-04-30. This brief no longer needs to account for that import-time override; the remaining soft-remount risks are `writeRequestAuthContext` and singleton caches.
 - Banner z-index: UserBubble uses a large z-index for its command-centre overlay. Banner should sit one tier below (~2000) so opening the popover doesn't collide.
 - The existing `View-as` segmented control (Phase C of `dev-preview-and-view-as`) also uses `originalAdminUser || user` as the "real user" anchor (UserBubble L117 `realUser`). Keep this pattern — don't introduce a second notion of "real user".

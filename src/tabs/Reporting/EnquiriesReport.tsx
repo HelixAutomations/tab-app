@@ -205,7 +205,7 @@ const PIE_COLORS = [
   colours.darkBlue,       // #061733 - Dark brand blue
   colours.websiteBlue,    // #000319 - Website blue
   colours.helixBlue,     // #0d2f60 - Helix blue
-  colours.accent,         // #87F3F3 - Brand accent
+  colours.accent,         // #3690CE - Brand accent
   colours.highlight,      // #3690CE - Highlight (same as blue)
   colours.dark.subText,   // #3690CE - Sub text blue
   colours.dark.highlight, // #3690CE - Dark mode highlight
@@ -455,7 +455,7 @@ const displayName = (record?: TeamData | null): string => {
 
 const getDatePickerStyles = (isDarkMode: boolean): Partial<IDatePickerStyles> => {
   const baseBorder = isDarkMode ? `${colours.dark.borderColor}66` : 'rgba(6, 23, 51, 0.12)';
-  const hoverBorder = isDarkMode ? 'rgba(135, 243, 243, 0.2)' : 'rgba(54, 144, 206, 0.3)';
+  const hoverBorder = isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.3)';
   const focusBorder = isDarkMode ? colours.accent : colours.highlight;
   const backgroundColour = isDarkMode ? colours.websiteBlue : 'rgba(255, 255, 255, 0.95)';
   const hoverBackground = isDarkMode ? colours.dark.cardBackground : colours.grey;
@@ -491,7 +491,7 @@ const getDatePickerStyles = (isDarkMode: boolean): Partial<IDatePickerStyles> =>
             border: `0.5px solid ${focusBorder} !important`,
             background: `${focusBackground} !important`,
             boxShadow: isDarkMode
-              ? '0 0 0 2px rgba(135, 243, 243, 0.08) !important'
+              ? '0 0 0 2px rgba(54, 144, 206, 0.08) !important'
               : '0 0 0 2px rgba(54, 144, 206, 0.08) !important',
           },
         },
@@ -601,11 +601,11 @@ const getTeamButtonStyles = (
   const opacity = greyedOut ? 0.4 : 1;
 
   const activeBackground = active
-    ? (isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.08)')
+    ? (isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.08)')
     : 'transparent';
 
   const activeBorder = active
-    ? `1.5px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.55)' : 'rgba(54, 144, 206, 0.50)'}`
+    ? `1.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.55)' : 'rgba(54, 144, 206, 0.50)'}`
     : `0.5px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.30)' : 'rgba(6, 23, 51, 0.10)'}`;
 
   const textColor = active
@@ -632,14 +632,14 @@ const getTeamButtonStyles = (
     },
     rootHovered: {
       background: active
-        ? (isDarkMode ? 'rgba(135, 243, 243, 0.14)' : 'rgba(54, 144, 206, 0.14)')
-        : (isDarkMode ? 'rgba(135, 243, 243, 0.06)' : 'rgba(54, 144, 206, 0.06)'),
+        ? (isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(54, 144, 206, 0.14)')
+        : (isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.06)'),
       boxShadow: 'none',
     },
     rootPressed: {
       background: active
-        ? (isDarkMode ? 'rgba(135, 243, 243, 0.18)' : 'rgba(54, 144, 206, 0.18)')
-        : (isDarkMode ? 'rgba(135, 243, 243, 0.10)' : 'rgba(54, 144, 206, 0.10)'),
+        ? (isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.18)')
+        : (isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(54, 144, 206, 0.10)'),
     },
   };
 };
@@ -3482,7 +3482,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                 year: 'numeric'
               });
               // Connector accent: brand accent in dark mode (higher alpha), standard blue in light mode
-              const accent = isDarkMode ? 'rgba(135, 243, 243, 0.55)' : colours.helixBlue;
+              const accent = isDarkMode ? 'rgba(54, 144, 206, 0.55)' : colours.helixBlue;
               const connectorStyle: React.CSSProperties = {
                 position: 'absolute',
                 left: 10,

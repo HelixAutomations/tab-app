@@ -17,7 +17,7 @@
 //   • Summary / narrative (editable textarea — defaults to first 500 chars
 //     of the generated note)
 //   • Action points (checklist derived from the generated note)
-//   • Toggles: upload to NetDocuments (opt-in) and record Clio time entry
+//   • Toggles: upload to NetDocuments (on for matter) and record Clio time entry
 //     (opt-in; the endpoint ships in Cut 3 — when off, the Save leg no-ops)
 //
 // The transcript pane is a collapsible side panel so the fee earner can
@@ -29,7 +29,7 @@
 // calls (existing save-note, existing upload-note-nd, new clio-time-entry
 // in Cut 3, /api/todo/reconcile at the end).
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FiFileText, FiUploadCloud, FiClock, FiX, FiCheck, FiAlertCircle, FiCalendar, FiUser, FiCloud, FiEdit3 } from 'react-icons/fi';
 import { colours, withAlpha } from '../../app/styles/colours';
 import MatterLookup from '../matter-lookup/MatterLookup';
@@ -46,6 +46,27 @@ export interface AttendanceNoteBoxSaveLegStatus {
 
 export type AttendanceNoteTarget = 'matter' | 'prospect';
 
+export type AttendanceNoteAttendeeRole = 'primary' | 'supporting' | 'learning' | 'external';
+
+export interface AttendanceNoteAttendee {
+  id: string;
+  kind: 'internal' | 'external';
+  role: AttendanceNoteAttendeeRole;
+  name: string;
+  initials?: string | null;
+  email?: string | null;
+  source: 'transcript' | 'manual';
+}
+
+export interface AttendanceNoteTeamOption {
+  key: string;
+  name: string;
+  initials?: string | null;
+  email?: string | null;
+  role?: string | null;
+  rate?: string | number | null;
+}
+
 export interface AttendanceNoteBoxPayload {
   recordingId: string;
   target: AttendanceNoteTarget;
@@ -53,15 +74,21 @@ export interface AttendanceNoteBoxPayload {
   matterClientName: string;
   /** Prospect mode: enquiry id (required) */
   enquiryId?: number | null;
+  /** Prospect mode: ActiveCampaign contact id, when already known from lookup */
+  acContactId?: string | null;
+  /** Prospect mode: contact email, used by the server to recover stale AC IDs */
+  prospectEmail?: string | null;
   /** Prospect mode: optional workspace passcode (auto-resolved server-side if blank) */
   passcode?: string | null;
   /** Prospect mode: optional contact display name — used for filename */
   contactName?: string | null;
   date: string;
+  callStartedAt?: string | null;
   durationSec: number;
   chargeableMinutes: number;
   narrative: string;
   actionPoints: string[];
+  attendees: AttendanceNoteAttendee[];
   uploadToNd: boolean;
   recordClioTimeEntry: boolean;
 }
@@ -80,6 +107,8 @@ export interface AttendanceNoteBoxProps {
   isBlankDraft?: boolean;
   /** Initial target. Defaults to 'matter' — we never auto-infer prospect. */
   initialTarget?: AttendanceNoteTarget;
+  /** Render the target switch inside the box. Embedded Home renders this in the panel header. */
+  showTargetTabs?: boolean;
   /** When true, the date field is editable (used for blank/manual drafts). */
   dateEditable?: boolean;
   /** Pre-filled summary from the generated note (first 500 chars shown). */
@@ -98,6 +127,12 @@ export interface AttendanceNoteBoxProps {
   recentMatters?: MatterLookupOption[];
   /** Optional list of the user's recent enquiries surfaced in the prospect picker dropdown. */
   recentEnquiries?: ProspectLookupOption[];
+  /** Prefill the prospect picker with a selected enquiry/contact. */
+  prefillProspect?: ProspectLookupOption | null;
+  /** Active team members for the attendee picker. */
+  teamOptions?: AttendanceNoteTeamOption[];
+  /** Attendees detected from a generated note/transcript, or restored from a saved note. */
+  initialAttendees?: AttendanceNoteAttendee[];
   /** Save leg statuses surfaced by the host. */
   saveLegs?: AttendanceNoteBoxSaveLegStatus[];
   /** True while any leg is running. */
@@ -108,6 +143,10 @@ export interface AttendanceNoteBoxProps {
   onGenerateNote?: () => void;
   /** True while the host is generating an attendance note. Locks the form and animates the note icon. */
   generating?: boolean;
+  /** When true, render the note for review only and block filing/edit controls. */
+  readOnly?: boolean;
+  /** Optional explanation shown when the form is read-only. */
+  readOnlyMessage?: string;
   onClose: () => void;
   onSave: (payload: AttendanceNoteBoxPayload) => void;
 }
@@ -150,7 +189,23 @@ function normaliseDateForClio(iso: string): string {
   }
 }
 
-const NARRATIVE_LIMIT = 500;
+function normaliseSaveLegMessage(message?: string): string | undefined {
+  const text = String(message || '').trim();
+  if (!text) return undefined;
+  return text
+    .replace(/(Saved in Hub,[^.]*\.)\s+Saved in Hub\.$/i, '$1')
+    .replace(/(Saved in Hub\.)\s+Saved in Hub\.$/i, '$1');
+}
+
+function formatProspectLabel(prospect?: ProspectLookupOption | null): string {
+  if (!prospect) return '';
+  const fullName = `${prospect.firstName} ${prospect.lastName}`.trim();
+  return fullName || prospect.email || String(prospect.id || '').trim();
+}
+
+const NARRATIVE_LIMIT = 1500;
+const EMPTY_TEAM_OPTIONS: AttendanceNoteTeamOption[] = [];
+const EMPTY_ATTENDEES: AttendanceNoteAttendee[] = [];
 
 export default function AttendanceNoteBox({
   isDarkMode,
@@ -161,23 +216,30 @@ export default function AttendanceNoteBox({
   durationSec,
   isBlankDraft = false,
   initialTarget = 'matter',
+  showTargetTabs = true,
   dateEditable = false,
   generatedSummary,
   generatedBody,
   actionItems,
-  transcriptText: _transcriptText,
+  transcriptText,
   prefillMatter,
   matterOptions,
   recentMatters,
   recentEnquiries,
+  prefillProspect = null,
+  teamOptions = EMPTY_TEAM_OPTIONS,
+  initialAttendees = EMPTY_ATTENDEES,
   saveLegs = [],
   saving = false,
   hourlyRate = null,
   onGenerateNote,
   generating = false,
+  readOnly = false,
+  readOnlyMessage = 'Only the primary call owner can file this note.',
   onClose,
   onSave,
 }: AttendanceNoteBoxProps) {
+  const initialProspectLabel = formatProspectLabel(prefillProspect);
   const [target, setTarget] = useState<AttendanceNoteTarget>(initialTarget);
   const [matterTerm, setMatterTerm] = useState<string>(prefillMatter?.displayNumber || '');
   const [matterSelection, setMatterSelection] = useState<MatterLookupOption | null>(
@@ -185,11 +247,11 @@ export default function AttendanceNoteBox({
       ? { key: prefillMatter.displayNumber, displayNumber: prefillMatter.displayNumber, clientName: prefillMatter.clientName, description: prefillMatter.description }
       : null,
   );
-  const [enquiryIdInput, setEnquiryIdInput] = useState<string>('');
+  const [enquiryIdInput, setEnquiryIdInput] = useState<string>(() => (prefillProspect?.id ? String(prefillProspect.id) : ''));
   const [passcodeInput, setPasscodeInput] = useState<string>('');
-  const [contactNameInput, setContactNameInput] = useState<string>('');
-  const [prospectTerm, setProspectTerm] = useState<string>('');
-  const [prospectSelection, setProspectSelection] = useState<ProspectLookupOption | null>(null);
+  const [contactNameInput, setContactNameInput] = useState<string>(initialProspectLabel);
+  const [prospectTerm, setProspectTerm] = useState<string>(initialProspectLabel);
+  const [prospectSelection, setProspectSelection] = useState<ProspectLookupOption | null>(prefillProspect);
   const [narrative, setNarrative] = useState<string>((generatedSummary || generatedBody || '').slice(0, NARRATIVE_LIMIT));
   // When no call is selected, start with no units — the user hasn't picked a
   // duration to base them on. Once a call is selected the effect below fills
@@ -203,11 +265,16 @@ export default function AttendanceNoteBox({
   // toggle lets the user veto the time entry without flipping the chargeable
   // gate (which also clears the units field).
   const [recordClioTime, setRecordClioTime] = useState<boolean>(true);
+  const [attendees, setAttendees] = useState<AttendanceNoteAttendee[]>(() => initialAttendees || []);
+  const [internalAttendeeKey, setInternalAttendeeKey] = useState<string>('');
+  const [internalAttendeeRole, setInternalAttendeeRole] = useState<AttendanceNoteAttendeeRole>('supporting');
+  const [externalAttendeeName, setExternalAttendeeName] = useState<string>('');
   const [matterPromptNudge, setMatterPromptNudge] = useState<boolean>(false);
   const [clioPromptNudge, setClioPromptNudge] = useState<boolean>(false);
   const [manualNarrative, setManualNarrative] = useState<boolean>(false);
   const narrativeTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [dateValue, setDateValue] = useState<string>(() => normaliseDateForClio(callDate || new Date().toISOString()));
+  const controlsDisabled = saving || readOnly;
 
   // Re-prefill if the host swaps call.
   useEffect(() => {
@@ -226,6 +293,12 @@ export default function AttendanceNoteBox({
   useEffect(() => {
     setCheckedActionPoints((actionItems || []).map(() => true));
   }, [recordingId, actionItems]);
+  useEffect(() => {
+    setAttendees(initialAttendees || []);
+    setInternalAttendeeKey('');
+    setInternalAttendeeRole('supporting');
+    setExternalAttendeeName('');
+  }, [recordingId, initialAttendees]);
   useEffect(() => {
     if (prefillMatter) {
       setMatterTerm(prefillMatter.displayNumber || '');
@@ -248,13 +321,14 @@ export default function AttendanceNoteBox({
   }, [recordingId, callDate]);
   // Reset target when the host swaps draft context.
   useEffect(() => {
+    const prospectLabel = formatProspectLabel(prefillProspect);
     setTarget(initialTarget);
-    setEnquiryIdInput('');
+    setEnquiryIdInput(prefillProspect?.id ? String(prefillProspect.id) : '');
     setPasscodeInput('');
-    setContactNameInput('');
-    setProspectTerm('');
-    setProspectSelection(null);
-  }, [recordingId, initialTarget]);
+    setContactNameInput(prospectLabel);
+    setProspectTerm(prospectLabel);
+    setProspectSelection(prefillProspect || null);
+  }, [recordingId, initialTarget, prefillProspect]);
 
   const accent = isDarkMode ? colours.accent : colours.highlight;
   const panelBg = isDarkMode ? withAlpha(colours.dark.cardBackground, 0.98) : '#ffffff';
@@ -266,16 +340,15 @@ export default function AttendanceNoteBox({
   const inputBg = isDarkMode ? colours.dark.sectionBackground : '#ffffff';
   const mutedInputBg = isDarkMode ? withAlpha(colours.dark.sectionBackground, 0.68) : colours.grey;
   const inputBorder = isDarkMode ? withAlpha(colours.dark.text, 0.14) : withAlpha(colours.darkBlue, 0.22);
-  const tabRailBg = isDarkMode ? withAlpha(colours.dark.sectionBackground, 0.75) : '#ffffff';
-  // Accent-fill active tab styling, mirroring the Mine/Everyone toggle in the
-  // Home To Do panel: solid accent (dark) / highlight (light) background with
-  // contrasting text on the active option, so the toggle visibly dictates the
-  // form rather than reading as a passive segmented chip.
-  const activeTabBg = isDarkMode ? colours.accent : colours.highlight;
-  const activeTabText = isDarkMode ? colours.dark.background : '#ffffff';
   const headerBg = isDarkMode ? withAlpha(colours.helixBlue, 0.55) : colours.grey;
   const footerBg = isDarkMode ? withAlpha(colours.helixBlue, 0.35) : colours.grey;
   const isEmbedded = variant === 'embedded';
+  const transcriptBody = transcriptText.trim();
+  const transcriptIsInformational = transcriptBody === 'Loading transcript…'
+    || transcriptBody.startsWith('No transcript available')
+    || transcriptBody.startsWith('Could not load transcript')
+    || transcriptBody.startsWith('Network error loading transcript')
+    || transcriptBody.startsWith('Transcript request timed out');
 
   const parsedEnquiryId = useMemo(() => {
     if (prospectSelection?.id && prospectSelection.id > 0) return prospectSelection.id;
@@ -283,8 +356,83 @@ export default function AttendanceNoteBox({
     return Number.isFinite(n) && n > 0 ? n : null;
   }, [prospectSelection, enquiryIdInput]);
 
+  const attendeeRoleLabel = useCallback((role: AttendanceNoteAttendeeRole) => {
+    switch (role) {
+      case 'primary': return 'Primary';
+      case 'learning': return 'Learning';
+      case 'external': return 'External';
+      case 'supporting':
+      default:
+        return 'Supporting';
+    }
+  }, []);
+
+  const activeTeamOptions = useMemo(() => (
+    (teamOptions || [])
+      .filter((member) => member?.key && member?.name)
+      .slice()
+      .sort((left, right) => left.name.localeCompare(right.name))
+  ), [teamOptions]);
+
+  const selectedInternalKeys = useMemo(() => new Set(
+    attendees
+      .filter((attendee) => attendee.kind === 'internal')
+      .map((attendee) => attendee.id),
+  ), [attendees]);
+
+  const addInternalAttendee = useCallback(() => {
+    if (controlsDisabled) return;
+    const option = activeTeamOptions.find((member) => member.key === internalAttendeeKey);
+    if (!option || selectedInternalKeys.has(option.key)) return;
+    setAttendees(prev => ([
+      ...prev,
+      {
+        id: option.key,
+        kind: 'internal',
+        role: internalAttendeeRole,
+        name: option.name,
+        initials: option.initials || null,
+        email: option.email || null,
+        source: 'manual',
+      },
+    ]));
+    setInternalAttendeeKey('');
+    setInternalAttendeeRole('supporting');
+  }, [activeTeamOptions, controlsDisabled, internalAttendeeKey, internalAttendeeRole, selectedInternalKeys]);
+
+  const addExternalAttendee = useCallback(() => {
+    if (controlsDisabled) return;
+    const name = externalAttendeeName.trim();
+    if (!name) return;
+    const normalized = name.toLowerCase();
+    if (attendees.some((attendee) => attendee.kind === 'external' && attendee.name.trim().toLowerCase() === normalized)) return;
+    setAttendees(prev => ([
+      ...prev,
+      {
+        id: `external:${normalized}`,
+        kind: 'external',
+        role: 'external',
+        name,
+        initials: null,
+        email: null,
+        source: 'manual',
+      },
+    ]));
+    setExternalAttendeeName('');
+  }, [attendees, controlsDisabled, externalAttendeeName]);
+
+  const updateAttendeeRole = useCallback((id: string, role: AttendanceNoteAttendeeRole) => {
+    setAttendees(prev => prev.map((attendee) => (
+      attendee.id === id ? { ...attendee, role } : attendee
+    )));
+  }, []);
+
+  const removeAttendee = useCallback((id: string) => {
+    setAttendees(prev => prev.filter((attendee) => attendee.id !== id));
+  }, []);
+
   const canSave = useMemo(() => {
-    if (saving) return false;
+    if (controlsDisabled) return false;
     if (!narrative.trim()) return false;
     if (target === 'matter') {
       if (!matterSelection || !matterSelection.displayNumber) return false;
@@ -295,7 +443,7 @@ export default function AttendanceNoteBox({
     // prospect
     if (!parsedEnquiryId) return false;
     return true;
-  }, [saving, target, matterSelection, narrative, chargeable, chargeableMinutes, parsedEnquiryId]);
+  }, [controlsDisabled, target, matterSelection, narrative, chargeable, chargeableMinutes, parsedEnquiryId]);
 
   const handleSave = () => {
     if (!canSave) return;
@@ -306,16 +454,20 @@ export default function AttendanceNoteBox({
       matterDisplayNumber: target === 'matter' ? (matterSelection?.displayNumber || '') : '',
       matterClientName: target === 'matter' ? (matterSelection?.clientName || '') : '',
       enquiryId: target === 'prospect' ? parsedEnquiryId : null,
+      acContactId: target === 'prospect' ? (prospectSelection?.acContactId || prospectSelection?.acid || null) : null,
+      prospectEmail: target === 'prospect' ? (prospectSelection?.email || null) : null,
       passcode: target === 'prospect' ? (passcodeInput.trim() || null) : null,
       contactName: target === 'prospect'
         ? (contactNameInput.trim()
           || (prospectSelection ? `${prospectSelection.firstName} ${prospectSelection.lastName}`.trim() || null : null))
         : null,
       date: dateValue || normaliseDateForClio(callDate || new Date().toISOString()),
+      callStartedAt: callDate || null,
       durationSec,
       chargeableMinutes: target === 'matter' && chargeable ? chargeableMinutes : 0,
       narrative: narrative.trim(),
       actionPoints: (actionItems || []).filter((_, i) => checkedActionPoints[i]),
+      attendees,
       uploadToNd: target === 'matter' ? uploadToNd : false,
       // Clio time entry leg requires BOTH chargeable units and the explicit
       // fee-earner confirmation toggle being on.
@@ -327,7 +479,7 @@ export default function AttendanceNoteBox({
   // missing matter selection, nudge the destinations strip + matter input
   // instead of silently doing nothing.
   const requestSave = () => {
-    if (saving) return;
+    if (controlsDisabled) return;
     if (target === 'matter' && (!matterSelection || !matterSelection.displayNumber)) {
       setMatterPromptNudge(false);
       // restart animation by toggling
@@ -416,6 +568,41 @@ export default function AttendanceNoteBox({
     }
   };
 
+  const prospectSaveLeg = target === 'prospect'
+    ? saveLegs.find((leg) => leg.leg === 'save-note') || null
+    : null;
+  const prospectSaveMessage = normaliseSaveLegMessage(prospectSaveLeg?.message);
+  const prospectHubSaved = prospectSaveLeg?.status === 'success' || /saved in hub/i.test(prospectSaveMessage || '');
+  const prospectHubCopy = (() => {
+    if (!prospectSaveLeg) return 'Original note will be saved in Hub first with the full audit payload.';
+    if (prospectSaveLeg.status === 'running') return 'Saving the original note in Hub with the full audit payload.';
+    if (prospectHubSaved) return 'Original note saved in Hub with the full audit payload.';
+    if (prospectSaveLeg.status === 'failed') return 'Hub save did not complete. Nothing was posted to ActiveCampaign.';
+    return 'Original note will be saved in Hub first with the full audit payload.';
+  })();
+  const prospectAcCopy = (() => {
+    if (!prospectSaveLeg) return 'Contact note will be posted after acid is resolved on save.';
+    if (prospectSaveLeg.status === 'running') return 'Resolving acid and posting the ActiveCampaign contact note.';
+    if (prospectSaveLeg.status === 'success') return 'Contact note posted to ActiveCampaign after acid was resolved on save.';
+    if (prospectSaveLeg.status === 'failed' && prospectHubSaved) return 'ActiveCampaign note was not created. Hub copy is saved.';
+    if (prospectSaveLeg.status === 'failed') return 'ActiveCampaign was not attempted because the Hub save failed.';
+    return 'Contact note will be posted after acid is resolved on save.';
+  })();
+  const prospectHubIconColour = prospectSaveLeg?.status === 'running'
+    ? accent
+    : prospectHubSaved
+      ? colours.green
+      : prospectSaveLeg?.status === 'failed'
+        ? colours.cta
+        : accent;
+  const prospectAcIconColour = prospectSaveLeg?.status === 'running'
+    ? accent
+    : prospectSaveLeg?.status === 'success'
+      ? colours.green
+      : prospectSaveLeg?.status === 'failed'
+        ? colours.cta
+        : accent;
+
   const content = (
     <div
       data-helix-region={isEmbedded ? 'home/calls-and-notes/workspace' : 'modal/attendance-note-box'}
@@ -484,7 +671,17 @@ export default function AttendanceNoteBox({
           outline: none;
         }
         .atb-root .atb-empty-cta:disabled { cursor: not-allowed; }
-        .atb-root .atb-empty-cta-stack { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+        .atb-root .atb-empty-cta-stack { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+        .atb-root .atb-empty-cta-label {
+          font-family: 'Raleway', sans-serif;
+          font-size: 13px;
+          font-weight: 700;
+          letter-spacing: 0.04em;
+          color: ${labelText};
+          text-align: center;
+        }
+        .atb-root .atb-empty-cta:hover:not(:disabled) .atb-empty-cta-label,
+        .atb-root .atb-empty-cta:focus-visible:not(:disabled) .atb-empty-cta-label { color: ${accent}; }
         .atb-root .atb-empty-manual {
           background: transparent;
           border: none;
@@ -582,12 +779,28 @@ export default function AttendanceNoteBox({
         )}
 
         <div className="atb-form-scroll" data-generating={generating ? 'true' : 'false'} style={{ overflowY: 'auto', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 12, flex: 1 }}>
-            {/* Target toggle — dictates the rest of the form */}
+            {readOnly && (
+              <div className="atb-section" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 11px', color: colours.orange, background: isDarkMode ? 'rgba(255,140,0,0.08)' : 'rgba(255,140,0,0.05)', border: `1px solid ${isDarkMode ? 'rgba(255,140,0,0.18)' : 'rgba(255,140,0,0.14)'}`, fontSize: 11, lineHeight: 1.4 }}>
+                <FiAlertCircle size={13} aria-hidden />
+                <span>{readOnlyMessage}</span>
+              </div>
+            )}
+            {/* Target picker — embedded Home renders the tabs in the panel header. */}
             <div className="atb-section" style={{ animationDelay: '20ms' }}>
+              {showTargetTabs && (
               <div
                 role="tablist"
                 aria-label="File to"
-                style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', border: `1px solid ${inputBorder}`, background: tabRailBg, borderRadius: 0, marginBottom: 8 }}
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                  minHeight: 30,
+                  border: `1px solid ${isDarkMode ? withAlpha(colours.accent, 0.18) : withAlpha(colours.darkBlue, 0.14)}`,
+                  background: isDarkMode ? withAlpha(colours.dark.sectionBackground, 0.34) : withAlpha(colours.grey, 0.72),
+                  borderRadius: 0,
+                  marginBottom: 8,
+                  overflow: 'hidden',
+                }}
               >
                 {(['matter', 'prospect'] as const).map((opt) => {
                   const active = target === opt;
@@ -596,29 +809,44 @@ export default function AttendanceNoteBox({
                       key={opt}
                       role="tab"
                       aria-selected={active}
+                      aria-label={opt === 'matter' ? 'File to a Matter' : 'File to a Prospect'}
                       type="button"
+                      title={opt === 'matter' ? 'File to a Matter' : 'File to a Prospect'}
                       onClick={() => setTarget(opt)}
                       disabled={saving}
                       className={`atb-tab${active ? ' is-active' : ''}`}
                       style={{
-                        padding: '10px 12px',
-                        fontSize: 11,
+                        minHeight: 30,
+                        padding: '0 10px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 6,
+                        fontSize: 10,
                         fontFamily: 'Raleway, sans-serif',
                         letterSpacing: '0.08em',
                         textTransform: 'uppercase',
                         fontWeight: 700,
-                        border: 'none',
-                        background: active ? activeTabBg : 'transparent',
-                        color: active ? activeTabText : muted,
+                        borderStyle: 'solid',
+                        borderWidth: opt === 'prospect' ? '0 0 0 1px' : 0,
+                        borderColor: isDarkMode ? withAlpha(colours.accent, 0.12) : withAlpha(colours.darkBlue, 0.1),
+                        background: active ? (isDarkMode ? withAlpha(colours.accent, 0.12) : withAlpha(colours.highlight, 0.12)) : 'transparent',
+                        color: active ? accent : muted,
                         cursor: saving ? 'not-allowed' : 'pointer',
                         borderRadius: 0,
+                        lineHeight: 1.15,
+                        whiteSpace: 'normal',
                       }}
                     >
-                      {opt === 'matter' ? 'File to a Matter' : 'File to a Prospect'}
+                      {opt === 'matter'
+                        ? <FiFileText size={12} aria-hidden />
+                        : <FiUser size={12} aria-hidden />}
+                      <span>{opt === 'matter' ? 'Matter' : 'Prospect'}</span>
                     </button>
                   );
                 })}
               </div>
+              )}
               {target === 'matter' ? (
                 <>
                   <MatterLookup
@@ -644,14 +872,15 @@ export default function AttendanceNoteBox({
                     onChange={(term) => {
                       setProspectTerm(term);
                       // User is retyping — drop any stale selection.
-                      if (prospectSelection && term !== `${prospectSelection.firstName} ${prospectSelection.lastName}`.trim()) {
+                      if (prospectSelection && term !== formatProspectLabel(prospectSelection)) {
                         setProspectSelection(null);
                       }
                     }}
                     onSelect={(opt) => {
                       setProspectSelection(opt);
+                      setProspectTerm(formatProspectLabel(opt));
                       setEnquiryIdInput(String(opt.id));
-                      setContactNameInput(`${opt.firstName} ${opt.lastName}`.trim());
+                      setContactNameInput(formatProspectLabel(opt));
                     }}
                     isDarkMode={isDarkMode}
                     disabled={saving}
@@ -802,6 +1031,123 @@ export default function AttendanceNoteBox({
               )}
             </div>
 
+            {/* Attendees */}
+            <div className="atb-section" style={{ animationDelay: '120ms' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: labelText, marginBottom: 6 }}>
+                <FiUser size={12} aria-hidden style={{ color: muted }} />
+                Attendees
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, border: `1px solid ${inputBorder}`, background: mutedInputBg, padding: '8px 10px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.45fr) minmax(108px, 0.65fr) auto', gap: 6 }}>
+                  <select
+                    value={internalAttendeeKey}
+                    onChange={(event) => setInternalAttendeeKey(event.target.value)}
+                    disabled={saving || activeTeamOptions.length === 0}
+                    className="atb-input"
+                    aria-label="Add internal attendee"
+                    style={{ minWidth: 0, padding: '8px 10px', background: inputBg, border: `1px solid ${inputBorder}`, color: internalAttendeeKey ? text : muted, fontSize: 12, fontFamily: 'Raleway, sans-serif', borderRadius: 0, outline: 'none' }}
+                  >
+                    <option value="">Add internal attendee</option>
+                    {activeTeamOptions.map((member) => (
+                      <option key={member.key} value={member.key} disabled={selectedInternalKeys.has(member.key)}>
+                        {member.name}{member.initials ? ` (${member.initials})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={internalAttendeeRole}
+                    onChange={(event) => setInternalAttendeeRole(event.target.value as AttendanceNoteAttendeeRole)}
+                    disabled={saving}
+                    className="atb-input"
+                    aria-label="Internal attendee role"
+                    style={{ minWidth: 0, padding: '8px 10px', background: inputBg, border: `1px solid ${inputBorder}`, color: text, fontSize: 12, fontFamily: 'Raleway, sans-serif', borderRadius: 0, outline: 'none' }}
+                  >
+                    <option value="primary">Primary</option>
+                    <option value="supporting">Supporting</option>
+                    <option value="learning">Learning</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={addInternalAttendee}
+                    disabled={saving || !internalAttendeeKey}
+                    aria-label="Add internal attendee"
+                    style={{ padding: '0 10px', minWidth: 40, background: inputBg, border: `1px solid ${inputBorder}`, color: internalAttendeeKey ? accent : muted, cursor: saving || !internalAttendeeKey ? 'not-allowed' : 'pointer', borderRadius: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                  >
+                    <FiCheck size={13} aria-hidden />
+                  </button>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 6 }}>
+                  <input
+                    type="text"
+                    value={externalAttendeeName}
+                    onChange={(event) => setExternalAttendeeName(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        addExternalAttendee();
+                      }
+                    }}
+                    disabled={saving}
+                    className="atb-input"
+                    aria-label="Add external attendee"
+                    placeholder="Add external attendee"
+                    style={{ minWidth: 0, padding: '8px 10px', background: inputBg, border: `1px solid ${inputBorder}`, color: text, fontSize: 12, fontFamily: 'Raleway, sans-serif', borderRadius: 0, outline: 'none' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={addExternalAttendee}
+                    disabled={saving || !externalAttendeeName.trim()}
+                    aria-label="Add external attendee"
+                    style={{ padding: '0 10px', minWidth: 40, background: inputBg, border: `1px solid ${inputBorder}`, color: externalAttendeeName.trim() ? accent : muted, cursor: saving || !externalAttendeeName.trim() ? 'not-allowed' : 'pointer', borderRadius: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                  >
+                    <FiCheck size={13} aria-hidden />
+                  </button>
+                </div>
+
+                {attendees.length > 0 ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                    {attendees.map((attendee) => (
+                      <div key={attendee.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(104px, 0.45fr) auto', gap: 6, alignItems: 'center' }}>
+                        <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 6, color: bodyText, fontSize: 12 }}>
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600 }}>{attendee.name}</span>
+                          {attendee.initials && <span style={{ color: muted, fontSize: 10 }}>{attendee.initials}</span>}
+                          {attendee.source === 'transcript' && <span style={{ color: accent, fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Transcript</span>}
+                        </div>
+                        {attendee.kind === 'internal' ? (
+                          <select
+                            value={attendee.role}
+                            onChange={(event) => updateAttendeeRole(attendee.id, event.target.value as AttendanceNoteAttendeeRole)}
+                            disabled={saving}
+                            className="atb-input"
+                            aria-label={`Role for ${attendee.name}`}
+                            style={{ minWidth: 0, padding: '6px 8px', background: inputBg, border: `1px solid ${inputBorder}`, color: text, fontSize: 11, fontFamily: 'Raleway, sans-serif', borderRadius: 0, outline: 'none' }}
+                          >
+                            <option value="primary">Primary</option>
+                            <option value="supporting">Supporting</option>
+                            <option value="learning">Learning</option>
+                          </select>
+                        ) : (
+                          <span style={{ color: muted, fontSize: 11 }}>{attendeeRoleLabel(attendee.role)}</span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => removeAttendee(attendee.id)}
+                          disabled={saving}
+                          aria-label={`Remove ${attendee.name}`}
+                          style={{ padding: 4, background: 'transparent', border: 'none', color: muted, cursor: saving ? 'not-allowed' : 'pointer', borderRadius: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                        >
+                          <FiX size={12} aria-hidden />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 10, color: muted, fontStyle: 'italic' }}>No additional attendees tagged.</div>
+                )}
+              </div>
+            </div>
+
             {/* Narrative */}
             <div className="atb-section" data-narrative-section="true" style={{ animationDelay: '140ms' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, gap: 8 }}>
@@ -822,14 +1168,17 @@ export default function AttendanceNoteBox({
               {generating || (!narrative && !manualNarrative && onGenerateNote) ? (
                 <button
                   type="button"
-                  onClick={() => { if (!generating && onGenerateNote) onGenerateNote(); }}
-                  disabled={generating || !onGenerateNote}
+                  onClick={() => { if (!readOnly && !generating && onGenerateNote) onGenerateNote(); }}
+                  disabled={readOnly || generating || !onGenerateNote}
                   aria-label={generating ? 'Generating attendance note' : 'Generate attendance note from transcript'}
                   className={`atb-empty-cta${generating ? ' is-generating' : ''}`}
                 >
                   <span className="atb-empty-cta-stack">
                     <span className="atb-empty-icon" aria-hidden><FiFileText size={22} /></span>
-                    {!generating && (
+                    <span className="atb-empty-cta-label">
+                      {generating ? 'Generating from transcript…' : 'Generate from transcript'}
+                    </span>
+                    {!generating && !readOnly && (
                       <span
                         role="button"
                         tabIndex={0}
@@ -861,7 +1210,7 @@ export default function AttendanceNoteBox({
                   value={narrative}
                   onChange={(e) => setNarrative(e.target.value.slice(0, NARRATIVE_LIMIT))}
                   rows={5}
-                  disabled={saving || generating}
+                  disabled={controlsDisabled || generating}
                   className="atb-textarea"
                   style={{
                     width: '100%',
@@ -879,6 +1228,30 @@ export default function AttendanceNoteBox({
                 />
               )}
             </div>
+
+            {!!transcriptBody && (
+              <div className="atb-section" style={{ animationDelay: '160ms' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: labelText, marginBottom: 6 }}>
+                  Transcript
+                </div>
+                <div
+                  style={{
+                    maxHeight: isEmbedded ? 180 : 220,
+                    overflowY: 'auto',
+                    padding: '10px 12px',
+                    background: mutedInputBg,
+                    border: `1px solid ${inputBorder}`,
+                    color: transcriptIsInformational ? muted : bodyText,
+                    fontSize: 12,
+                    lineHeight: 1.5,
+                    whiteSpace: 'pre-wrap',
+                    fontStyle: transcriptIsInformational ? 'italic' : 'normal',
+                  }}
+                >
+                  {transcriptBody}
+                </div>
+              </div>
+            )}
 
             {/* Action points */}
             {actionItems && actionItems.length > 0 && (
@@ -1020,19 +1393,17 @@ export default function AttendanceNoteBox({
               <div className="atb-section" style={{ display: 'flex', flexDirection: 'column', gap: 8, borderTop: `1px solid ${panelBorder}`, paddingTop: 10, animationDelay: '220ms' }}>
                 <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: muted, marginBottom: 2 }}>Destinations</div>
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                  <FiCloud size={13} style={{ color: accent, marginTop: 2, flexShrink: 0 }} />
+                  <FiCloud size={13} style={{ color: prospectHubIconColour, marginTop: 2, flexShrink: 0 }} />
                   <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-                    <span style={{ fontSize: 12, color: bodyText, fontWeight: 600 }}>Cloud</span>
-                    <span style={{ fontSize: 10, color: muted }}>Saved to the prospect doc-workspace under <strong style={{ color: bodyText }}>Telephone Attendance Notes</strong></span>
+                    <span style={{ fontSize: 12, color: bodyText, fontWeight: 600 }}>Hub SQL</span>
+                    <span style={{ fontSize: 10, color: muted }}>{prospectHubCopy}</span>
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                  <FiUser size={13} style={{ color: accent, marginTop: 2, flexShrink: 0 }} />
+                  <FiUser size={13} style={{ color: prospectAcIconColour, marginTop: 2, flexShrink: 0 }} />
                   <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-                    <span style={{ fontSize: 12, color: bodyText, fontWeight: 600 }}>ActiveCampaigns</span>
-                    <span style={{ fontSize: 10, color: muted }}>
-                      Contact note posted to ActiveCampaign — acid resolved on save
-                    </span>
+                    <span style={{ fontSize: 12, color: bodyText, fontWeight: 600 }}>ActiveCampaign</span>
+                    <span style={{ fontSize: 10, color: muted }}>{prospectAcCopy}</span>
                   </div>
                 </div>
                 <div style={{ fontSize: 10, color: muted, fontStyle: 'italic', marginTop: 2 }}>Not billable.</div>
@@ -1045,8 +1416,8 @@ export default function AttendanceNoteBox({
                 {saveLegs.map((leg) => (
                   <div key={leg.leg} style={{ display: 'flex', alignItems: 'center', gap: 8, color: leg.status === 'failed' ? colours.cta : bodyText }}>
                     {legIcon(leg.status)}
-                    <span>{legLabel(leg.leg)}</span>
-                    {leg.message && <span style={{ color: muted, marginLeft: 'auto', fontSize: 10 }}>{leg.message}</span>}
+                    <span>{target === 'prospect' && leg.leg === 'save-note' ? 'Prospect note filing' : legLabel(leg.leg)}</span>
+                    {leg.message && <span style={{ color: muted, marginLeft: 'auto', fontSize: 10 }}>{normaliseSaveLegMessage(leg.message)}</span>}
                   </div>
                 ))}
               </div>
@@ -1066,7 +1437,7 @@ export default function AttendanceNoteBox({
             <button
               type="button"
               onClick={requestSave}
-              disabled={saving || (!canSave && !(target === 'matter' && narrative.trim() && (!matterSelection || (chargeable && recordClioTime && chargeableMinutes <= 0))))}
+              disabled={controlsDisabled || (!canSave && !(target === 'matter' && narrative.trim() && (!matterSelection || (chargeable && recordClioTime && chargeableMinutes <= 0))))}
               title={
                 target === 'matter' && !matterSelection
                   ? 'Pick a matter to file against'

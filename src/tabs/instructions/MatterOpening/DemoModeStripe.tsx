@@ -25,8 +25,8 @@ const DemoModeStripe: React.FC<DemoModeStripeProps> = ({
   compact = false,
 }) => {
   const accentColour = isDarkMode ? colours.accent : colours.highlight;
-  const bgColour = isDarkMode ? 'rgba(135, 243, 243, 0.10)' : 'rgba(54, 144, 206, 0.08)';
-  const borderColour = isDarkMode ? 'rgba(135, 243, 243, 0.22)' : 'rgba(54, 144, 206, 0.20)';
+  const bgColour = isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(54, 144, 206, 0.08)';
+  const borderColour = isDarkMode ? 'rgba(54, 144, 206, 0.22)' : 'rgba(54, 144, 206, 0.20)';
   const labelColour = isDarkMode ? colours.accent : colours.highlight;
   const bodyColour = isDarkMode ? '#d1d5db' : '#374151';
 

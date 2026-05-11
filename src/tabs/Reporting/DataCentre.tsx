@@ -19,6 +19,7 @@ import { useToast } from '../../components/feedback/ToastProvider';
 import { useNavigatorActions } from '../../app/functionality/NavigatorContext';
 import NavigatorDetailBar from '../../components/NavigatorDetailBar';
 import OutstandingMatterExplorer from './components/OutstandingMatterExplorer';
+import ManagementDashboardTrustRail from './ManagementDashboardTrustRail';
 
 type PlanData = {
   startDate: string;
@@ -82,6 +83,44 @@ function humaniseMessage(raw?: string): string {
   return raw.length > 120 ? raw.slice(0, 117) + '…' : raw;
 }
 
+function formatSchedulerAgo(ts?: number | null): string {
+  if (!ts) return '—';
+  const diff = Date.now() - ts;
+  if (diff < 60_000) return 'just now';
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
+  if (diff < 86_400_000) {
+    const hours = Math.floor(diff / 3_600_000);
+    const minutes = Math.floor((diff % 3_600_000) / 60_000);
+    return minutes > 0 ? `${hours}h ${minutes}m ago` : `${hours}h ago`;
+  }
+  return `${Math.floor(diff / 86_400_000)}d ago`;
+}
+
+function formatSchedulerDuration(durationMs?: number | null): string {
+  if (durationMs == null) return '—';
+  if (durationMs < 1000) return `${durationMs}ms`;
+  if (durationMs < 60_000) return `${(durationMs / 1000).toFixed(1)}s`;
+  return `${Math.floor(durationMs / 60_000)}m ${Math.round((durationMs % 60_000) / 1000)}s`;
+}
+
+function schedulerStatusColour(status?: string | null): string {
+  switch (status) {
+    case 'completed':
+      return colours.green;
+    case 'running':
+    case 'started':
+    case 'queued':
+      return colours.blue;
+    case 'error':
+    case 'timeout':
+      return colours.cta;
+    case 'skipped':
+      return colours.orange;
+    default:
+      return colours.subtleGrey;
+  }
+}
+
 type MonthAuditEntry = {
   key: string;
   label: string;
@@ -121,16 +160,37 @@ type MonthlyTotal = {
 };
 
 type SchedulerTierInfo = {
-  lastRun: { ts: number; status: string; message?: string } | null;
+  lastRun: { ts: number; status: string; message?: string | null; triggeredBy?: string | null } | null;
   schedule: string;
+};
+
+type SchedulerRecentRun = {
+  id: string;
+  ts: number;
+  entity: ReportingAuditScope;
+  operation: string;
+  status: string;
+  triggeredBy: string;
+  modeLabel: string;
+  invokedBy?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  windowLabel: string;
+  resultLabel?: string | null;
+  durationMs?: number | null;
+  deletedRows?: number | null;
+  insertedRows?: number | null;
+  message?: string | null;
 };
 
 type SchedulerStatus = {
   enabled: boolean;
   tiers: {
-    collected: { hot: SchedulerTierInfo; warm: SchedulerTierInfo; cold: SchedulerTierInfo };
+    collected: { hot: SchedulerTierInfo; warm: SchedulerTierInfo; cold: SchedulerTierInfo; monthly: SchedulerTierInfo };
     wip: { hot: SchedulerTierInfo; warm: SchedulerTierInfo; cold: SchedulerTierInfo };
   };
+  recentRuns: SchedulerRecentRun[];
+  serverTime?: number;
 };
 
 type DataOperationStatus = {
@@ -604,6 +664,7 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
   const [dataHubLoaded, setDataHubLoaded] = React.useState(true);
   const [dataHubLoading, setDataHubLoading] = React.useState(false);
   const opsLogIntervalRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+  const schedulerStatusIntervalRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
 
   const toggleCoverage = React.useCallback(async (op: 'collectedTime' | 'wip' | 'agedDebt') => {
     if (coverageOpen && monthAuditOp === op) {
@@ -833,6 +894,10 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
   // Fetch scheduler status on mount
   React.useEffect(() => {
     fetchSchedulerStatus();
+    schedulerStatusIntervalRef.current = setInterval(fetchSchedulerStatus, 30_000);
+    return () => {
+      if (schedulerStatusIntervalRef.current) clearInterval(schedulerStatusIntervalRef.current);
+    };
   }, [fetchSchedulerStatus]);
 
   // Auto-expand logs when a sync is in progress so user sees activity
@@ -1812,6 +1877,13 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
       {(activeOp === 'collected' || activeOp === 'wip') && (
       <section style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <>
+        {/* Collected fees parity check — pressure-tests SQL against Clio
+            across the rolling 6-month window. Lives here (the realtime
+            processing surface) above the manual sync rather than on the
+            Management Dashboard, which is for management metrics only. */}
+        {activeOp === 'collected' && (
+          <ManagementDashboardTrustRail isDarkMode={isDarkMode} />
+        )}
         {/* Scheduler status */}
         {schedulerStatus && (
           <div style={{
@@ -2351,6 +2423,12 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
               : 'unknown';
             const databaseRows = laneStatus?.rowCount != null ? laneStatus.rowCount.toLocaleString('en-GB') : '—';
             const topFindings = auditSnapshot?.findings.slice(0, 3) ?? [];
+            const schedulerTierEntries = schedulerStatus
+              ? Object.entries(schedulerStatus.tiers[reconciliationScope]) as Array<[string, SchedulerTierInfo]>
+              : [];
+            const recentSchedulerRuns = (schedulerStatus?.recentRuns ?? [])
+              .filter((run) => run.entity === reconciliationScope)
+              .slice(0, 6);
             const statusText = reportingAuditRunning
               ? 'Checking now...'
               : !auditSnapshot
@@ -2446,6 +2524,116 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
                 <div style={{ fontSize: 9, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
                   Table has {databaseRows} rows. Latest saved date: {latestDatabasePoint}.
                 </div>
+
+                {schedulerStatus && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        Recent sync activity
+                      </span>
+                      <span style={{ fontSize: 9, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
+                        Persisted across restarts
+                      </span>
+                    </div>
+
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+                      gap: 8,
+                    }}>
+                      {schedulerTierEntries.map(([tierKey, tierInfo]) => {
+                        const lastRun = tierInfo.lastRun;
+                        const tierLabel = tierKey === 'monthly'
+                          ? 'Monthly'
+                          : tierKey.charAt(0).toUpperCase() + tierKey.slice(1);
+                        const tone = schedulerStatusColour(lastRun?.status ?? null);
+                        return (
+                          <div
+                            key={tierKey}
+                            style={{
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 4,
+                              padding: '8px 10px',
+                              border: `1px solid ${reportingPanelBorder(isDarkMode, 'base')}`,
+                              background: reportingPanelBackground(isDarkMode, 'elevated'),
+                              borderLeft: `3px solid ${tone}`,
+                            }}
+                          >
+                            <span style={{ fontSize: 10, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text }}>
+                              {tierLabel}
+                            </span>
+                            <span style={{ fontSize: 9, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
+                              {tierInfo.schedule}
+                            </span>
+                            <span style={{ fontSize: 9, color: tone, fontWeight: 700, textTransform: 'uppercase' }}>
+                              {lastRun ? `${lastRun.status} · ${formatSchedulerAgo(lastRun.ts)}` : 'No persisted run yet'}
+                            </span>
+                            {lastRun?.message && (
+                              <span style={{ fontSize: 9, color: isDarkMode ? '#d1d5db' : '#374151' }}>
+                                {humaniseMessage(lastRun.message)}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {recentSchedulerRuns.length > 0 ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {recentSchedulerRuns.map((run) => {
+                          const tone = schedulerStatusColour(run.status);
+                          const detailText = run.resultLabel || humaniseMessage(run.message || '') || 'Result pending';
+                          return (
+                            <div
+                              key={run.id}
+                              style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: 4,
+                                padding: '8px 10px',
+                                border: `1px solid ${reportingPanelBorder(isDarkMode, 'base')}`,
+                                background: isDarkMode ? 'rgba(2,6,23,0.4)' : 'rgba(255,255,255,0.9)',
+                                borderRadius: 0,
+                              }}
+                            >
+                              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: 10, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text }}>
+                                  {run.modeLabel} · {run.windowLabel}
+                                </span>
+                                <span style={{ fontSize: 9, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
+                                  {formatSchedulerAgo(run.ts)}
+                                </span>
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: 9, fontWeight: 700, color: tone, textTransform: 'uppercase' }}>
+                                  {run.status}
+                                </span>
+                                <span style={{ fontSize: 9, color: isDarkMode ? '#d1d5db' : '#374151' }}>
+                                  {detailText}
+                                </span>
+                                {run.durationMs != null && (
+                                  <span style={{ fontSize: 9, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
+                                    {formatSchedulerDuration(run.durationMs)}
+                                  </span>
+                                )}
+                                {run.invokedBy && (
+                                  <span style={{ fontSize: 9, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
+                                    {run.invokedBy}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 9, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
+                        No persisted sync activity for this lane yet.
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {auditSnapshot ? (
                   topFindings.length > 0 ? (

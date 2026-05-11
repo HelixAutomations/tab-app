@@ -81,7 +81,7 @@ function formForms(items: ProcessStreamItem[]): UnifiedEvent[] {
     return {
       id: `forms:${item.id}`,
       source: 'forms',
-      sourceLabel: `${SOURCE_LABEL.forms} · ${item.lane}`,
+      sourceLabel: `${SOURCE_LABEL.forms} - ${item.lane}`,
       title: item.processTitle,
       detail: item.lastEvent || meta.label,
       status,
@@ -94,7 +94,7 @@ function fromActivity(items: ActivityFeedItem[]): UnifiedEvent[] {
   return items.map((item) => ({
     id: `activity:${item.id}`,
     source: 'activity',
-    sourceLabel: `${SOURCE_LABEL.activity} · ${item.sourceLabel}`,
+    sourceLabel: `${SOURCE_LABEL.activity} - ${item.sourceLabel}`,
     title: item.title,
     detail: item.summary,
     status: item.status === 'success' || item.status === 'error' || item.status === 'active' || item.status === 'info'

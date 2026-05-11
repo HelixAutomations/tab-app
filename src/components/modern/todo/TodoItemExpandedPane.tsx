@@ -22,8 +22,11 @@ const resolveAccent = (exp: TodoExpansion, isDark: boolean): string => {
   if (exp.aow) return resolveAowColor(exp.aow, isDark);
   if (exp.kind === 'matter') return colours.green;
   if (exp.kind === 'enquiry') return isDark ? colours.accent : colours.blue;
+  if (exp.kind === 'list') return isDark ? colours.accent : colours.blue;
   return isDark ? colours.accent : colours.blue;
 };
+
+const MAX_LIST_ROWS = 6;
 
 export const TodoItemExpandedPane: React.FC<TodoItemExpandedPaneProps> = ({
   expansion,
@@ -43,6 +46,8 @@ export const TodoItemExpandedPane: React.FC<TodoItemExpandedPaneProps> = ({
 
   const fields = (expansion.fields ?? []).slice(0, 4);
   const actions = (expansion.actions ?? []).slice(0, 3);
+  const listRows = (expansion.list ?? []).slice(0, MAX_LIST_ROWS);
+  const hiddenRowCount = Math.max((expansion.list ?? []).length - MAX_LIST_ROWS, 0);
 
   return (
     <div
@@ -143,6 +148,141 @@ export const TodoItemExpandedPane: React.FC<TodoItemExpandedPaneProps> = ({
                 </span>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Inline entity list (kind === 'list'). Renders a small clickable
+            queue inside the expansion so users can triage from Home without
+            navigating away. */}
+        {listRows.length > 0 && (
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              border: `1px solid ${divider}`,
+              background: isDarkMode
+                ? withAlpha(colours.websiteBlue, 0.35)
+                : withAlpha('#ffffff', 0.6),
+            }}
+          >
+            {listRows.map((row, idx) => {
+              const rowAccent = row.aow ? resolveAowColor(row.aow, isDarkMode) : accent;
+              return (
+                <button
+                  key={row.id || `${row.primary}-${idx}`}
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    row.onClick();
+                    onAction?.(`open:${row.id || row.primary}`);
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    padding: '6px 10px',
+                    borderTop: idx === 0 ? 'none' : `1px solid ${divider}`,
+                    background: 'transparent',
+                    border: 'none',
+                    borderRadius: 0,
+                    cursor: 'pointer',
+                    width: '100%',
+                    textAlign: 'left',
+                    fontFamily: 'var(--font-primary)',
+                    transition: 'background 0.12s ease',
+                  }}
+                  onMouseEnter={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.background = withAlpha(
+                      rowAccent,
+                      isDarkMode ? 0.16 : 0.08,
+                    );
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
+                  }}
+                >
+                  <span
+                    aria-hidden
+                    style={{
+                      width: 6,
+                      height: 6,
+                      borderRadius: '50%',
+                      background: rowAccent,
+                      flex: '0 0 auto',
+                    }}
+                  />
+                  <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                    <span
+                      style={{
+                        fontSize: 11.5,
+                        fontWeight: 600,
+                        color: text,
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                      title={row.primary}
+                    >
+                      {row.primary}
+                    </span>
+                    {row.secondary && (
+                      <span
+                        style={{
+                          fontSize: 10,
+                          color: helpText,
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          letterSpacing: 0.15,
+                        }}
+                        title={row.secondary}
+                      >
+                        {row.secondary}
+                      </span>
+                    )}
+                  </span>
+                  {row.ownerInitials && (
+                    <span
+                      style={{
+                        fontSize: 9.5,
+                        fontWeight: 700,
+                        color: helpText,
+                        padding: '1px 5px',
+                        border: `1px solid ${divider}`,
+                        letterSpacing: 0.4,
+                      }}
+                    >
+                      {row.ownerInitials}
+                    </span>
+                  )}
+                  {row.badge && (
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 600,
+                        color: rowAccent,
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {row.badge}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+            {hiddenRowCount > 0 && (
+              <div
+                style={{
+                  fontSize: 10,
+                  color: helpText,
+                  padding: '5px 10px',
+                  borderTop: `1px solid ${divider}`,
+                  letterSpacing: 0.2,
+                }}
+              >
+                +{hiddenRowCount} more
+              </div>
+            )}
           </div>
         )}
 

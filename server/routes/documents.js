@@ -161,6 +161,86 @@ async function listBlobsForInstruction(instructionRef) {
 }
 
 /**
+ * GET /pending-transfers
+ *
+ * Returns instructions where (a) a matter has been opened (MatterId IS NOT NULL)
+ * and (b) one or more rows in dbo.Documents have not yet been transferred to
+ * NetDocuments (TransferredToNdAt IS NULL).
+ *
+ * The response is a flat list — Home renders one row per instruction in the
+ * "Transfer Documents" card and lets the user pick which one to open. Scoping
+ * by user (POC / HelixContact match) is done client-side, matching the rest
+ * of the Home metrics gating.
+ *
+ * Cached for 60s in-memory because this is read on every Home render.
+ */
+let _pendingTransfersCache = { data: null, expires: 0 };
+const PENDING_TRANSFERS_TTL_MS = 60_000;
+
+router.get('/pending-transfers', async (_req, res) => {
+    try {
+        const now = Date.now();
+        let rows = _pendingTransfersCache.data;
+        const usedCache = rows && _pendingTransfersCache.expires > now;
+        if (!rows || _pendingTransfersCache.expires <= now) {
+            const connectionString = getInstructionsConnectionString();
+            rows = await withRequest(connectionString, async (request) => {
+                const { recordset } = await request.query(`
+                    SELECT
+                        i.InstructionRef     AS instructionRef,
+                        i.MatterId           AS matterId,
+                        i.ProspectId         AS prospectId,
+                        i.HelixContact       AS helixContact,
+                        i.FirstName          AS firstName,
+                        i.LastName           AS lastName,
+                        i.CompanyName        AS companyName,
+                        COUNT(d.DocumentId)  AS pendingCount
+                    FROM Instructions i
+                    INNER JOIN Documents d
+                        ON d.InstructionRef = i.InstructionRef
+                    WHERE i.MatterId IS NOT NULL
+                      AND (
+                            NOT EXISTS (
+                                SELECT 1 FROM sys.columns
+                                WHERE object_id = OBJECT_ID('dbo.Documents')
+                                  AND name = 'TransferredToNdAt'
+                            )
+                            OR d.TransferredToNdAt IS NULL
+                          )
+                    GROUP BY i.InstructionRef, i.MatterId, i.ProspectId,
+                             i.HelixContact, i.FirstName, i.LastName, i.CompanyName
+                    HAVING COUNT(d.DocumentId) > 0
+                    ORDER BY i.InstructionRef DESC
+                `);
+                return Array.isArray(recordset) ? recordset : [];
+            });
+            _pendingTransfersCache = { data: rows, expires: now + PENDING_TRANSFERS_TTL_MS };
+        }
+
+        return res.json({
+            pendingTransfers: rows,
+            total: rows.length,
+            totalDocuments: rows.reduce((sum, r) => sum + (r.pendingCount || 0), 0),
+            cached: usedCache,
+        });
+    } catch (err) {
+        console.error('documents/pending-transfers failed', {
+            name: err?.name,
+            message: err?.message,
+        });
+        trackException(err, { operation: 'Documents.PendingTransfers' });
+
+        // Don't break Home if the migration hasn't run yet or the join blows up.
+        return res.status(200).json({
+            pendingTransfers: [],
+            total: 0,
+            totalDocuments: 0,
+            unavailable: true,
+        });
+    }
+});
+
+/**
  * Get documents for a specific instruction
  * Merges SQL Documents table records with blob storage scan to show all files.
  */

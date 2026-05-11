@@ -13,7 +13,7 @@ import type { IDropdownOption } from '@fluentui/react/lib/Dropdown';
 import { Icon } from '@fluentui/react/lib/Icon';
 import { colours } from '../app/styles/colours';
 import { useTheme } from '../app/functionality/ThemeContext';
-import { getProxyBaseUrl } from '../utils/getProxyBaseUrl';
+import { getApiBase } from '../utils/getApiUrl';
 import { UserData } from '../app/functionality/types';
 import TechTicketsLedger from './shared/TechTicketsLedger';
 import {
@@ -24,8 +24,6 @@ import {
   getFormContentStyle,
   getFormSectionStyle,
   getFormSectionHeaderStyle,
-  getInfoBoxStyle,
-  getInfoBoxTextStyle,
   getInputStyles,
   getDropdownStyles,
   getFormPrimaryButtonStyles,
@@ -37,6 +35,7 @@ import {
 } from './shared/formStyles';
 import { useFormReadinessPulse } from './shared/useFormReadinessPulse';
 import { FormReadinessCue } from './shared/FormReadinessCue';
+import FormsStreamLanded from './shared/FormsStreamLanded';
 
 interface TechIdeaFormProps {
   userData?: UserData[];
@@ -79,6 +78,8 @@ const TechIdeaFormContent: React.FC<TechIdeaFormProps> = ({
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [streamSubmissionId, setStreamSubmissionId] = useState<string | null>(null);
+  const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [ledgerRefreshKey, setLedgerRefreshKey] = useState(0);
 
   const handleFieldChange = useCallback((field: keyof FormData, value: string) => {
@@ -100,7 +101,7 @@ const TechIdeaFormContent: React.FC<TechIdeaFormProps> = ({
     setSubmitMessage(null);
 
     try {
-      const baseUrl = getProxyBaseUrl();
+      const baseUrl = getApiBase();
       const response = await fetch(`${baseUrl}/api/tech-tickets/idea`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -113,8 +114,14 @@ const TechIdeaFormContent: React.FC<TechIdeaFormProps> = ({
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
+        setStreamSubmissionId(errorData?.submissionId ?? null);
+        setStreamUrl(null);
         throw new Error(errorData.error || 'Failed to submit tech idea');
       }
+
+      const data = await response.json().catch(() => ({}));
+      setStreamSubmissionId(data?.submissionId ?? null);
+      setStreamUrl(data?.streamUrl ?? null);
 
       setSubmitMessage({ type: 'success', text: 'Tech idea submitted successfully. The Tech team has been notified.' });
       onSubmitSuccess?.('Tech idea submitted successfully.');
@@ -175,15 +182,13 @@ const TechIdeaFormContent: React.FC<TechIdeaFormProps> = ({
             </MessageBar>
           )}
 
-          {/* Info Box */}
-          <div style={getInfoBoxStyle(isDarkMode, 'neutral')}>
-            <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
-              <Icon iconName="Info" style={{ color: accentColor, flexShrink: 0 }} />
-              <Text style={getInfoBoxTextStyle(isDarkMode)}>
-                Saves this submission and notifies the Tech team. If Asana is configured, it will also create an Asana task for tracking.
-              </Text>
-            </Stack>
-          </div>
+          {streamSubmissionId && submitMessage && (
+            <FormsStreamLanded
+              submissionId={streamSubmissionId}
+              streamUrl={streamUrl}
+              isDarkMode={isDarkMode}
+            />
+          )}
 
           {/* Idea Details Section */}
           <div style={getFormSectionStyle(isDarkMode, accentColor)}>

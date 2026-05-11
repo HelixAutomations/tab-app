@@ -1,0 +1,17 @@
+﻿1) before: grants=19 history=4
+2) created grantId=C9B062B7-39C5-4278-8764-438FD99C67F0 expiresAt=2026-05-04T20:52:03.259Z
+3) pre-sweep present=True
+4) sweep ok=True expired=1 ms=178
+5) post-sweep present=False (expect False)
+6) history rows for this grant: 2
+
+Action  ActorInitials
+------  -------------
+expired system       
+created LZ           
+
+
+
+7) AC /history Status=403
+8) AC /sweep-now Status=403
+9) final grants=19 (started 19)

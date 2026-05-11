@@ -5,7 +5,7 @@
  * Handles POC/claim, pitch, instruction, EID, payment, risk, matter chips.
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Icon } from '@fluentui/react/lib/Icon';
 import { format } from 'date-fns';
 import { colours } from '../../../app/styles/colours';
@@ -78,6 +78,7 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
     getScenarioColor,
   } = handlers;
   const { claimerMap, isUnclaimedPoc, combineDateAndTime } = dataDeps;
+  const [showReassignChevron, setShowReassignChevron] = useState(false);
 
   const isV2Enquiry = (item as any).__sourceType === 'new' || (item as any).source === 'instructions';
   const teamsData = enrichmentData?.teamsData as any;
@@ -132,10 +133,6 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
   const showLegacyPlaceholder = isDefinitelyLegacy;
   const enrichmentWasProcessed = enrichmentData && enrichmentData.enquiryId;
   const showLoadingState = isV2Enquiry && !enrichmentWasProcessed && !isDefinitelyLegacy && !teamsTime && !hasImmediatePipelineState;
-  const resolveAnimationTimerRef = useRef<number | null>(null);
-  const previousResolvedFlagsRef = useRef<boolean[] | null>(null);
-  const [resolvedChipIndices, setResolvedChipIndices] = useState<number[]>([]);
-
   // Timeout: after 15s of loading, show muted dashes instead of infinite skeleton
   const [loadingTimedOut, setLoadingTimedOut] = useState(false);
   useEffect(() => {
@@ -163,45 +160,6 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
   const hasResolvedRisk = Boolean(inlineWorkbenchItem?.risk);
   const hasResolvedMatter = Boolean(workbenchInstruction?.MatterId ?? workbenchInstruction?.matterId) || workbenchMatters.length > 0;
 
-  useEffect(() => {
-    const resolvedFlags = [
-      showTeamsStage,
-      showPitch,
-      hasResolvedWorkbench,
-      hasResolvedEid,
-      hasResolvedPayment,
-      hasResolvedRisk,
-      hasResolvedMatter,
-    ];
-
-    const previousFlags = previousResolvedFlagsRef.current;
-    if (previousFlags) {
-      const newlyResolved = resolvedFlags
-        .map((flag, index) => (flag && !previousFlags[index] ? index : -1))
-        .filter((index) => index >= 0);
-
-      if (newlyResolved.length > 0) {
-        setResolvedChipIndices(newlyResolved);
-        if (resolveAnimationTimerRef.current !== null) {
-          window.clearTimeout(resolveAnimationTimerRef.current);
-        }
-        resolveAnimationTimerRef.current = window.setTimeout(() => {
-          setResolvedChipIndices([]);
-          resolveAnimationTimerRef.current = null;
-        }, 720);
-      }
-    }
-
-    previousResolvedFlagsRef.current = resolvedFlags;
-
-    return () => {
-      if (resolveAnimationTimerRef.current !== null) {
-        window.clearTimeout(resolveAnimationTimerRef.current);
-        resolveAnimationTimerRef.current = null;
-      }
-    };
-  }, [showTeamsStage, showPitch, hasResolvedWorkbench, hasResolvedEid, hasResolvedPayment, hasResolvedRisk, hasResolvedMatter]);
-
   // Carousel state for this row
   const pipelineOffset = getPipelineScrollOffset(item.ID);
   const visibleEnd = pipelineOffset + visiblePipelineChipCount;
@@ -211,18 +169,12 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
 
   const gridCols = `repeat(${pipelineNeedsCarousel ? visiblePipelineChipCount : 7}, minmax(${PIPELINE_CHIP_MIN_WIDTH_PX}px, 1fr))`;
 
-  const getCascadeStyle = (chipIndex: number): React.CSSProperties => ({
-    animation: resolvedChipIndices.includes(chipIndex)
-      ? `pipeline-chip-resolve 360ms cubic-bezier(0.16, 1, 0.3, 1) ${Math.min(chipIndex, 6) * 24}ms both`
-      : 'none',
-  });
-
   const enquiryTeamsLink = (enrichmentData?.teamsData as any)?.teamsLink as string | undefined;
   const inactivePipelineColor = isDarkMode ? `${colours.subtleGrey}66` : `${colours.greyText}59`;
   const mutedTextColor = isDarkMode ? `${colours.subtleGrey}b3` : `${colours.greyText}99`;
   const navBorder = isDarkMode ? 'rgba(75, 85, 99, 0.55)' : 'rgba(160, 160, 160, 0.28)';
   const navIdleBackground = isDarkMode ? 'rgba(8, 28, 48, 0.72)' : 'rgba(244, 244, 246, 0.9)';
-  const navActiveBackground = isDarkMode ? 'rgba(135, 243, 243, 0.14)' : 'rgba(54, 144, 206, 0.1)';
+  const navActiveBackground = isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(54, 144, 206, 0.1)';
   const navAccent = isDarkMode ? colours.accent : colours.highlight;
   const pipelineGridPaddingRight = pipelineNeedsCarousel ? 32 : 0;
 
@@ -268,8 +220,7 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
                   justifyContent: 'center',
                   width: '100%',
                   height: 22,
-                  animation: loadingTimedOut ? 'none' : `pipeline-pulse 1.5s ease-in-out infinite ${i * 0.1}s`,
-                  opacity: loadingTimedOut ? 0.25 : undefined,
+                  opacity: loadingTimedOut ? 0.25 : 0.55,
                 }}
               >
                 {loadingTimedOut ? (
@@ -316,12 +267,6 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
             <Icon iconName="ChevronRight" styles={{ root: { fontSize: 12, color: 'inherit' } }} />
           </button>
         )}
-        <style>{`
-          @keyframes pipeline-pulse {
-            0%, 100% { opacity: 0.3; }
-            50% { opacity: 0.7; }
-          }
-        `}</style>
       </div>
     );
   }
@@ -512,7 +457,7 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
       >
         {/* POC — chip index 0 */}
         {isChipVisible(0) && (
-          <div style={{ ...getCascadeStyle(0), display: 'flex', justifyContent: 'center', justifySelf: 'center', width: 'fit-content' }}>
+          <div style={{ display: 'flex', justifyContent: showClaimer ? 'flex-start' : 'center', justifySelf: showClaimer ? 'stretch' : 'center', width: showClaimer ? '100%' : 'fit-content' }}>
             {(() => {
               const isCurrentUser = currentUserEmail && pocLower === currentUserEmail.toLowerCase();
               const initialsColor = showClaimer
@@ -587,9 +532,23 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
                         e.stopPropagation();
                         handleReassignClick(String(item.ID), e as any);
                       }}
+                      onKeyDown={(e) => {
+                        if (e.key !== 'Enter' && e.key !== ' ') return;
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleReassignClick(String(item.ID), e as any);
+                      }}
+                      onMouseEnter={() => setShowReassignChevron(true)}
+                      onMouseLeave={() => setShowReassignChevron(false)}
+                      onFocus={() => setShowReassignChevron(true)}
+                      onBlur={() => setShowReassignChevron(false)}
                       style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'flex-start',
+                        gap: 4,
                         minWidth: 18,
-                        textAlign: 'center',
+                        textAlign: 'left',
                         fontSize: 10,
                         fontWeight: 700,
                         color: initialsColor,
@@ -599,8 +558,22 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
                         cursor: 'pointer',
                       }}
                       title="Reassign"
+                      aria-label={`Reassign ${contactName} from ${pocDisplayName}`}
                     >
                       {claimerLabel}
+                      <Icon
+                        iconName="ChevronDownSmall"
+                        styles={{
+                          root: {
+                            fontSize: 8,
+                            color: isDarkMode ? `${colours.subtleGrey}80` : `${colours.greyText}80`,
+                            opacity: showReassignChevron ? 0.72 : 0,
+                            transform: showReassignChevron ? 'translateX(0)' : 'translateX(-2px)',
+                            transition: 'opacity 120ms ease, transform 120ms ease',
+                            pointerEvents: 'none',
+                          },
+                        }}
+                      />
                     </span>
                     {enquiryTeamsLink && (
                       <span
@@ -626,7 +599,7 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
 
         {/* Pitch — chip index 1 */}
         {isChipVisible(1) && (
-          <div data-chip-index="1" className={isPitchNextAction ? 'next-action-subtle-pulse' : ''} style={getCascadeStyle(1)}>
+          <div data-chip-index="1" className={isPitchNextAction ? 'next-action-subtle-pulse' : ''}>
             {showPitch ? (
               renderMiniChip({
                 shortLabel: pitchChipLabel,
@@ -714,7 +687,7 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
         {/* Post-pitch stages — chip indices 2–6 */}
         {/* Instruction — chip 2 */}
         {(pipelineNeedsCarousel ? isChipVisible(2) : (shouldShowPostPitch || isChipVisible(2))) && (
-          <div data-chip-index="2" style={getCascadeStyle(2)}>
+          <div data-chip-index="2">
             {renderMiniChip({
               shortLabel: hasInstruction ? instructionChipLabel : (isShellEntry && instructionRef ? 'Opened' : '--'),
               fullLabel: 'Instruction',
@@ -744,7 +717,7 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
 
         {/* EID — chip 3 */}
         {(pipelineNeedsCarousel ? isChipVisible(3) : (shouldShowPostPitch || isChipVisible(3))) && (
-          <div data-chip-index="3" style={getCascadeStyle(3)}>
+          <div data-chip-index="3">
             {renderMiniChip({
               shortLabel: hasEid ? eidLabel : 'ID',
               fullLabel: hasEid ? eidLabel : 'ID Check',
@@ -767,7 +740,7 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
 
         {/* Payment — chip 4 */}
         {(pipelineNeedsCarousel ? isChipVisible(4) : (shouldShowPostPitch || isChipVisible(4))) && (
-          <div data-chip-index="4" style={getCascadeStyle(4)}>
+          <div data-chip-index="4">
             {renderMiniChip({
               shortLabel: paymentLabel,
               fullLabel: hasConfirmedPayment ? 'Paid' : hasPayment ? (isBankPayment ? 'Pending' : 'Payment') : 'Payment',
@@ -791,7 +764,7 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
 
         {/* Risk — chip 5 */}
         {(pipelineNeedsCarousel ? isChipVisible(5) : (shouldShowPostPitch || isChipVisible(5))) && (
-          <div data-chip-index="5" style={getCascadeStyle(5)}>
+          <div data-chip-index="5">
             {renderMiniChip({
               shortLabel: hasRisk ? riskLabel : 'Risk',
               fullLabel: 'Risk',
@@ -814,7 +787,7 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
 
         {/* Matter — chip 6 */}
         {(pipelineNeedsCarousel ? isChipVisible(6) : (shouldShowPostPitch || isChipVisible(6))) && (
-          <div data-chip-index="6" style={getCascadeStyle(6)}>
+          <div data-chip-index="6">
             {renderMiniChip({
               shortLabel: hasMatter && mainMatterRef ? mainMatterRef : 'Matter',
               fullLabel: 'Matter',

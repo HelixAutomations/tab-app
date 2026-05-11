@@ -25,7 +25,7 @@ interface CclReviewQueueStripProps {
  * Each dot is one decision in the queue. Clicking jumps to that field.
  *
  * Colour semantics (brand tokens only):
- *  - current → `colours.accent` (teal, dark-mode highlight)
+ *  - current → `colours.accent` (Helix highlight)
  *  - reviewed → `colours.green`
  *  - flagged (PT ≤ 7) → `colours.orange`
  *  - unresolved (placeholder / unknown) → `colours.cta`
@@ -127,7 +127,7 @@ export default function CclReviewQueueStrip({
                                     borderRadius: 'inherit',
                                     background: 'currentColor',
                                     opacity: isCurrent ? 1 : isCrossHovered ? 1 : item.reviewed ? 0.9 : 0.55,
-                                    boxShadow: isCrossHovered ? '0 0 0 2px rgba(135, 243, 243, 0.55)' : undefined,
+                                    boxShadow: isCrossHovered ? '0 0 0 2px rgba(54, 144, 206, 0.55)' : undefined,
                                 }}
                             />
                         </button>

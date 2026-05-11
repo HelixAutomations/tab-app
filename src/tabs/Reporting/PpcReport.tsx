@@ -1,19 +1,17 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
-import { DatePicker } from '@fluentui/react/lib/DatePicker';
-import { DayOfWeek } from '@fluentui/react/lib/Calendar';
-import type { IDatePickerStyles } from '@fluentui/react/lib/DatePicker';
-import type { ITooltipProps } from '@fluentui/react/lib/Tooltip';
-import type { IButtonStyles } from '@fluentui/react/lib/Button';
-import { DefaultButton, PrimaryButton } from '@fluentui/react/lib/Button';
-import { Spinner, SpinnerSize } from '@fluentui/react/lib/Spinner';
-import { Stack } from '@fluentui/react/lib/Stack';
 import { Icon } from '@fluentui/react/lib/Icon';
-import { TooltipHost } from '@fluentui/react/lib/Tooltip';
-import { DirectionalHint } from '@fluentui/react/lib/Callout';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';
 import { debugLog, debugWarn } from '../../utils/debug';
+import ReportShell from './components/ReportShell';
+import type { UseReportRangeReturn } from './hooks/useReportRange';
+import type {
+  PpcIncomeBreakdown,
+  PpcIncomeMetrics,
+  PpcIncomePayment,
+  PpcMatchKind,
+} from './types/ppc';
 import './ManagementDashboard.css';
 
 const surface = (isDark: boolean, overrides: CSSProperties = {}): CSSProperties => ({
@@ -29,59 +27,36 @@ const surface = (isDark: boolean, overrides: CSSProperties = {}): CSSProperties 
 // Calling it again here triggered "Icon already registered" warnings on every
 // PpcReport mount.
 
-export interface PpcIncomePayment {
-  paymentDate: string;
-  amount: number;
-  kind?: string;
-  description?: string;
-}
-
-export interface PpcIncomeBreakdown {
-  matterId?: string;
-  displayNumber?: string;
-  clientName?: string;
-  source?: string;
-  openDate?: string;
-  totalCollected: number;
-  collectedWithin7Days: number;
-  collectedWithin30Days: number;
-  payments: PpcIncomePayment[];
-  enquiryId?: string;
-  enquiryDate?: string;
-  enquirySource?: string;
-  enquiryMoc?: string;
-}
-
-export interface PpcIncomeMetrics {
-  generatedAt: string;
-  summary: {
-    totalEnquiries: number;
-    totalMatters: number;
-    mattersWithRevenue: number;
-    totalRevenue: number;
-    revenue7d: number;
-    revenue30d: number;
-  };
-  breakdown: PpcIncomeBreakdown[];
-  unmatchedPayments?: Array<{
-    matterId?: string;
-    paymentDate?: string;
-    amount: number;
-    kind?: string;
-    description?: string;
-  }>;
-  debug?: {
-    unmatchedCount?: number;
-    matchedPaymentCount?: number;
-    candidateMatterCount?: number;
-  };
-  notes?: string[];
-}
-
 type AugmentedIncomeRow = PpcIncomeBreakdown & {
   totalInRange?: number;
   paymentsInRange?: PpcIncomePayment[];
 };
+
+interface PpcWeeklyPerformance {
+  weekStart: string;
+  weekEnd: string;
+  impressions: number;
+  clicks: number;
+  spend: number;
+  conversions: number;
+  enquiries: number;
+  qualifiedEnquiries: number;
+  instructions: number;
+  verifiedInstructions: number;
+  sourceOnlyInstructions: number;
+  revenue30d: number;
+  revenueAll: number;
+  verifiedRevenue30d: number;
+  sourceOnlyRevenue30d: number;
+  verifiedRevenueAll: number;
+  sourceOnlyRevenueAll: number;
+  cpl: number | null;
+  cpi: number | null;
+  payback30d: number | null;
+  paybackAll: number | null;
+  attributionPct: number | null;
+  matters: AugmentedIncomeRow[];
+}
 
 interface GoogleAdsRow {
   date: string;
@@ -115,16 +90,8 @@ interface GoogleAdsApiResponse {
   source?: string;
 }
 
-interface MetaEnquiry {
-  id?: string;
-  date: string;
-  source?: string;
-  cost?: number;
-  enquiries?: number;
-  clientName?: string;
-  poc?: string;
-  status?: string;
-}
+// Meta enquiry overlay removed 2026-04-30 — Meta surface gated off across Reports.
+// See docs/notes/GOOGLE_ADS_REPORTS_PURPOSEFUL_CLARITY_SOURCING_AND_STORED_METRIC_TABLE.md.
 
 interface PpcReportProps {
   triggerRefresh?: () => Promise<void>;
@@ -153,174 +120,6 @@ const RANGE_OPTIONS: RangeOption[] = [
   { key: 'yearToDate', label: 'Year To Date' },
   { key: 'year', label: 'Current Year' },
 ];
-
-const getDatePickerStyles = (isDarkMode: boolean): Partial<IDatePickerStyles> => {
-  const baseBorder = isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(13, 47, 96, 0.18)';
-  const hoverBorder = isDarkMode ? 'rgba(135, 206, 255, 0.5)' : 'rgba(54, 144, 206, 0.4)';
-  const focusBorder = isDarkMode ? '#87ceeb' : colours.highlight;
-  const backgroundColour = isDarkMode ? 'rgba(15, 23, 42, 0.9)' : 'rgba(255, 255, 255, 0.95)';
-  const hoverBackground = isDarkMode ? 'rgba(15, 23, 42, 0.95)' : 'rgba(248, 250, 252, 1)';
-  const focusBackground = isDarkMode ? 'rgba(15, 23, 42, 1)' : 'rgba(255, 255, 255, 1)';
-
-  return {
-    root: { 
-      maxWidth: 220,
-      '.ms-DatePicker': {
-        fontFamily: 'Raleway, sans-serif !important',
-      }
-    },
-    textField: {
-      root: {
-        fontFamily: 'Raleway, sans-serif !important',
-        width: '100% !important',
-      },
-      fieldGroup: {
-        height: '36px !important',
-        borderRadius: '8px !important',
-        border: `1px solid ${baseBorder} !important`,
-        background: `${backgroundColour} !important`,
-        padding: '0 14px !important',
-        boxShadow: isDarkMode 
-          ? '0 2px 4px rgba(0, 0, 0, 0.2) !important' 
-          : '0 1px 3px rgba(15, 23, 42, 0.08) !important',
-        transition: 'all 0.2s ease !important',
-        selectors: {
-          ':hover': {
-            border: `1px solid ${hoverBorder} !important`,
-            background: `${hoverBackground} !important`,
-            boxShadow: isDarkMode 
-              ? '0 4px 8px rgba(0, 0, 0, 0.25) !important' 
-              : '0 2px 6px rgba(15, 23, 42, 0.12) !important',
-            transform: 'translateY(-1px) !important',
-          },
-          ':focus-within': {
-            border: `1px solid ${focusBorder} !important`,
-            background: `${focusBackground} !important`,
-            boxShadow: isDarkMode 
-              ? `0 0 0 3px rgba(135, 206, 235, 0.1), 0 4px 12px rgba(0, 0, 0, 0.25) !important`
-              : `0 0 0 3px rgba(54, 144, 206, 0.1), 0 2px 8px rgba(15, 23, 42, 0.15) !important`,
-            transform: 'translateY(-1px) !important',
-          }
-        }
-      },
-      field: {
-        fontSize: '14px !important',
-        color: `${isDarkMode ? colours.dark.text : colours.light.text} !important`,
-        fontFamily: 'Raleway, sans-serif !important',
-        fontWeight: '500 !important',
-        background: 'transparent !important',
-        lineHeight: '20px !important',
-        border: 'none !important',
-        outline: 'none !important',
-      },
-    },
-    icon: {
-      color: `${isDarkMode ? colours.highlight : colours.helixBlue} !important`,
-      fontSize: '16px !important',
-      fontWeight: 'bold !important',
-    },
-    callout: {
-      fontSize: '14px !important',
-      borderRadius: '12px !important',
-      border: `1px solid ${baseBorder} !important`,
-      boxShadow: isDarkMode 
-        ? '0 8px 24px rgba(0, 0, 0, 0.4) !important' 
-        : '0 6px 20px rgba(15, 23, 42, 0.15) !important',
-    },
-    wrapper: { 
-      borderRadius: '12px !important',
-    },
-  };
-};
-
-const getRangeButtonStyles = (isDarkMode: boolean, active: boolean, disabled: boolean = false): IButtonStyles => {
-  const activeBackground = colours.highlight;
-  const inactiveBackground = isDarkMode ? 'rgba(148, 163, 184, 0.16)' : 'transparent';
-
-  const resolvedBackground = disabled
-    ? (isDarkMode ? 'rgba(15, 23, 42, 0.8)' : 'transparent')
-    : active ? activeBackground : inactiveBackground;
-
-  const resolvedBorder = active
-    ? `1px solid ${isDarkMode ? 'rgba(135, 176, 255, 0.5)' : 'rgba(13, 47, 96, 0.32)'}`
-    : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(13, 47, 96, 0.16)'}`;
-
-  const resolvedColor = disabled
-    ? (isDarkMode ? '#E2E8F0' : colours.helixBlue)
-    : active
-      ? '#ffffff'
-      : (isDarkMode ? '#E2E8F0' : colours.helixBlue);
-
-  return {
-    root: {
-      display: 'inline-flex',
-      alignItems: 'center',
-      whiteSpace: 'nowrap' as const,
-      overflow: 'hidden',
-      textOverflow: 'ellipsis',
-      borderRadius: 999,
-      border: resolvedBorder,
-      padding: '0 12px',
-      minHeight: 32,
-      height: 32,
-      fontWeight: 600,
-      fontSize: 13,
-      color: resolvedColor,
-      background: resolvedBackground,
-      boxShadow: active && !disabled ? '0 2px 8px rgba(54, 144, 206, 0.25)' : 'none',
-      fontFamily: 'Raleway, sans-serif',
-      cursor: disabled ? 'default' : 'pointer',
-    },
-    rootHovered: {
-      background: disabled
-        ? resolvedBackground
-        : active
-          ? '#2f7cb3'
-          : (isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(54, 144, 206, 0.12)'),
-    },
-    rootPressed: {
-      background: disabled
-        ? resolvedBackground
-        : active
-          ? '#266795'
-          : (isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(54, 144, 206, 0.16)'),
-    },
-  };
-};
-
-const summaryChipStyle = (isDarkMode: boolean): CSSProperties => ({
-  display: 'flex',
-  flexDirection: 'column',
-  justifyContent: 'center',
-  alignItems: 'center',
-  padding: '12px 16px',
-  borderRadius: 0,
-  background: isDarkMode ? colours.darkBlue : '#ffffff',
-  border: `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}66` : 'rgba(6, 23, 51, 0.06)'}`,
-  boxShadow: isDarkMode ? 'none' : '0 2px 4px rgba(0, 0, 0, 0.04)',
-  textAlign: 'center' as const,
-  rowGap: 6,
-  width: '100%',
-});
-
-const subtleActionButtonStyles = (isDarkMode: boolean): IButtonStyles => ({
-  root: {
-    height: 28,
-    borderRadius: 14,
-    fontSize: 12,
-    padding: '0 10px',
-    background: 'transparent',
-    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.18)'}`,
-    color: isDarkMode ? '#E2E8F0' : colours.helixBlue,
-    minWidth: 'unset',
-  },
-  rootHovered: {
-    background: isDarkMode ? 'rgba(148, 163, 184, 0.10)' : 'rgba(148, 163, 184, 0.08)',
-  },
-  rootPressed: {
-    background: isDarkMode ? 'rgba(148, 163, 184, 0.16)' : 'rgba(148, 163, 184, 0.12)',
-  },
-});
 
 const computeRange = (range: RangeKey): { start: Date; end: Date } => {
   const now = new Date();
@@ -412,7 +211,7 @@ const computeRange = (range: RangeKey): { start: Date; end: Date } => {
     }
     case 'custom':
       // For custom ranges, return current date as both start and end
-      // The actual dates will be controlled by the DatePicker components
+      // The actual dates are controlled by the shared ReportShell toolbar.
       return { start: new Date(now), end: new Date(now) };
     case 'all':
     default:
@@ -433,18 +232,101 @@ const formatCurrency = (amount: number): string => {
   return `£${(amount / 1000000).toFixed(2)}m`;
 };
 
-const formatNumber = (num: number): string => {
-  if (num < 1000) return Math.round(num).toString();
-  if (num < 1000000) return `${Math.round(num / 1000)}k`;
-  return `${(num / 1000000).toFixed(1)}m`;
-};
-
 const formatFullNumber = (num: number): string => {
   return num.toLocaleString('en-US');
 };
 
 const formatPercentage = (num: number): string => {
   return `${num.toFixed(1)}%`;
+};
+
+const formatCurrencyPrecise = (amount: number): string => (
+  new Intl.NumberFormat('en-GB', {
+    style: 'currency',
+    currency: 'GBP',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount || 0)
+);
+
+const formatMultiple = (value: number | null | undefined): string => (
+  typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(1)}x` : '—'
+);
+
+const parseDateLoose = (value?: string | null): Date | null => {
+  if (!value) {
+    return null;
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+  return parsed;
+};
+
+const toDayKey = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const isVerifiedPpcMatter = (record: AugmentedIncomeRow): boolean => (
+  record.matchKind === 'direct' || record.matchKind === 'email'
+);
+
+const getMatchLabel = (matchKind?: PpcMatchKind): string => {
+  switch (matchKind) {
+    case 'direct':
+      return 'Direct';
+    case 'email':
+      return 'Email';
+    case 'source_only':
+      return 'Source only';
+    default:
+      return 'Unknown';
+  }
+};
+
+const getWeekStart = (value: Date): Date => {
+  const start = new Date(value);
+  const diff = (start.getDay() + 6) % 7;
+  start.setDate(start.getDate() - diff);
+  start.setHours(0, 0, 0, 0);
+  return start;
+};
+
+const getWeekEnd = (value: Date): Date => {
+  const end = new Date(value);
+  end.setDate(end.getDate() + 6);
+  end.setHours(23, 59, 59, 999);
+  return end;
+};
+
+const formatWeekWindow = (weekStartKey: string, weekEndKey?: string): string => {
+  const start = parseDateLoose(weekStartKey);
+  const end = parseDateLoose(weekEndKey || weekStartKey);
+  if (!start || !end) {
+    return 'Unknown week';
+  }
+  const sameMonth = start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear();
+  const startLabel = start.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+  const endLabel = end.toLocaleDateString('en-GB', sameMonth
+    ? { day: '2-digit', month: 'short' }
+    : { day: '2-digit', month: 'short' });
+  return `${startLabel} → ${endLabel}`;
+};
+
+const median = (values: number[]): number | null => {
+  if (values.length === 0) {
+    return null;
+  }
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 0) {
+    return (sorted[middle - 1] + sorted[middle]) / 2;
+  }
+  return sorted[middle];
 };
 
 const formatRelativeTime = (timestamp?: number): string => {
@@ -484,64 +366,12 @@ const formatRelativeTime = (timestamp?: number): string => {
   return 'just now';
 };
 
-const formatDateForPicker = (date?: Date | null): string => {
-  if (!date) {
-    return '';
-  }
-  return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-};
-
-const parseDatePickerInput = (value?: string | null): Date | null => (
-  value ? new Date(value) : null
-);
-
 const formatDateTag = (date: Date | null): string => {
   if (!date) {
     return 'n/a';
   }
   return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
 };
-
-const clearFilterButtonStyle = (isDarkMode: boolean): IButtonStyles => ({
-  root: {
-    height: 36,
-    borderRadius: 18,
-    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(54, 144, 206, 0.3)'}`,
-    background: isDarkMode ? 'rgba(15, 23, 42, 0.8)' : 'rgba(255, 255, 255, 0.95)',
-    color: isDarkMode ? '#E2E8F0' : colours.helixBlue,
-    fontFamily: 'Raleway, sans-serif',
-    fontWeight: 600,
-    fontSize: 13,
-    padding: '0 16px',
-    minWidth: 'unset',
-  },
-  rootHovered: {
-    background: isDarkMode ? 'rgba(30, 41, 59, 0.9)' : 'rgba(248, 250, 252, 1)',
-    borderColor: isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(54, 144, 206, 0.4)',
-  },
-  rootPressed: {
-    background: isDarkMode ? 'rgba(51, 65, 85, 0.9)' : 'rgba(241, 245, 249, 1)',
-  },
-});
-
-const dateStampButtonStyle = (isDarkMode: boolean): CSSProperties => ({
-  display: 'flex',
-  flexDirection: 'column',
-  alignItems: 'flex-start',
-  justifyContent: 'center',
-  padding: '6px 12px',
-  borderRadius: 10,
-  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.28)' : 'rgba(13, 47, 96, 0.14)'}`,
-  background: isDarkMode ? 'rgba(15, 23, 42, 0.8)' : 'rgba(255, 255, 255, 0.95)',
-  color: isDarkMode ? '#e2e8f0' : '#0d2f60',
-  minWidth: 132,
-  gap: 2,
-  cursor: 'pointer',
-  transition: 'all 0.2s ease',
-  fontFamily: 'Raleway, sans-serif',
-  whiteSpace: 'nowrap',
-  lineHeight: 1.3,
-});
 
 const PpcReport: React.FC<PpcReportProps> = ({
   triggerRefresh,
@@ -555,11 +385,7 @@ const PpcReport: React.FC<PpcReportProps> = ({
   const [rangeKey, setRangeKey] = useState<RangeKey>('all');
   const [startDate, setStartDate] = useState<Date | undefined>(undefined);
   const [endDate, setEndDate] = useState<Date | undefined>(undefined);
-  const [showPreview, setShowPreview] = useState(false);
-  const [showDaily, setShowDaily] = useState(false);
-  const [showIncomePreview, setShowIncomePreview] = useState(false);
-  const [expandedDays, setExpandedDays] = useState<Set<string>>(new Set());
-  const [expandedMatters, setExpandedMatters] = useState<Set<string>>(new Set());
+  const [expandedWeeks, setExpandedWeeks] = useState<Set<string>>(new Set());
   const lastSyncLabel = useMemo(() => formatRelativeTime(lastRefreshTimestamp), [lastRefreshTimestamp]);
 
   useEffect(() => {
@@ -615,53 +441,7 @@ const PpcReport: React.FC<PpcReportProps> = ({
     return transformed;
   }, [cachedGoogleAdsData]);
 
-  // Meta enquiry data state
-  const [metaEnquiries, setMetaEnquiries] = useState<MetaEnquiry[]>([]);
-  const [isLoadingMeta, setIsLoadingMeta] = useState(false);
-
-  // Fetch Meta enquiry data
-  useEffect(() => {
-    const fetchMetaEnquiries = async () => {
-      setIsLoadingMeta(true);
-      try {
-        const response = await fetch('/api/reporting-stream?dataset=metaMetrics');
-        if (response.ok) {
-          const data = await response.json();
-          if (data && Array.isArray(data)) {
-            // Transform Meta data to enquiry format grouped by date
-            const enquiriesMap = new Map<string, MetaEnquiry>();
-            data.forEach((item: any) => {
-              if (item.date && item.metaAds && item.metaAds.enquiries > 0) {
-                const existingEnquiry = enquiriesMap.get(item.date);
-                const enquiries = item.metaAds.enquiries || 0;
-                const cost = item.metaAds.spend || 0;
-                
-                if (existingEnquiry) {
-                  existingEnquiry.enquiries = (existingEnquiry.enquiries || 0) + enquiries;
-                  existingEnquiry.cost = (existingEnquiry.cost || 0) + cost;
-                } else {
-                  enquiriesMap.set(item.date, {
-                    date: item.date,
-                    source: 'Meta Ads',
-                    enquiries,
-                    cost,
-                    status: 'generated'
-                  });
-                }
-              }
-            });
-            setMetaEnquiries(Array.from(enquiriesMap.values()));
-          }
-        }
-      } catch (error) {
-        console.error('Failed to fetch Meta enquiries:', error);
-      } finally {
-        setIsLoadingMeta(false);
-      }
-    };
-
-    fetchMetaEnquiries();
-  }, []);
+  // Meta enquiry overlay removed 2026-04-30 — Meta surface gated off across Reports.
 
   const activeStart = useMemo(() => startDate ?? rangeStart, [startDate, rangeStart]);
   const activeEnd = useMemo(() => endDate ?? rangeEnd, [endDate, rangeEnd]);
@@ -704,37 +484,6 @@ const PpcReport: React.FC<PpcReportProps> = ({
     }
   };
 
-  const initialiseCustomDates = () => {
-    const today = new Date();
-    const fallbackStart = (!activeStart || rangeKey === 'all' || activeStart.getFullYear() < 1980)
-      ? (() => {
-          const start = new Date(today);
-          start.setDate(today.getDate() - 6);
-          start.setHours(0, 0, 0, 0);
-          return start;
-        })()
-      : new Date(activeStart);
-
-    const fallbackEnd = (!activeEnd || rangeKey === 'all')
-      ? (() => {
-          const end = new Date(today);
-          end.setHours(23, 59, 59, 999);
-          return end;
-        })()
-      : new Date(activeEnd);
-
-    setStartDate(fallbackStart);
-    setEndDate(fallbackEnd);
-  };
-
-  const handleActivateCustomRange = () => {
-    if (rangeKey === 'custom') {
-      return;
-    }
-    initialiseCustomDates();
-    setRangeKey('custom');
-  };
-
   // Handle custom date selection
   const handleCustomDateChange = (start?: Date, end?: Date) => {
     if (start && end && start <= end) {
@@ -752,11 +501,11 @@ const PpcReport: React.FC<PpcReportProps> = ({
   };
 
   // Refresh functionality
-  const [refreshIndicatorKey, setRefreshIndicatorKey] = useState(0);
-  
   const refresh = () => {
-    setRefreshIndicatorKey(prev => prev + 1);
-    // Trigger data refresh logic here if needed
+    if (!triggerRefresh) {
+      return;
+    }
+    void triggerRefresh();
   };
 
   // Filter cached data based on current date range
@@ -852,52 +601,6 @@ const PpcReport: React.FC<PpcReportProps> = ({
     return result;
   }, [googleAdsData]);
 
-  const performanceMetrics = useMemo(() => ([
-    {
-      key: 'impressions',
-      label: 'Impressions',
-      value: formatNumber(summaryMetrics.totalImpressions),
-      subLabel: `${formatNumber(summaryMetrics.averageImpressionsPerDay)}/day`,
-    },
-    {
-      key: 'clicks',
-      label: 'Clicks',
-      value: formatNumber(summaryMetrics.totalClicks),
-      subLabel: `${formatNumber(summaryMetrics.averageClicksPerDay)}/day`,
-    },
-    {
-      key: 'cost',
-      label: 'Cost',
-      value: formatCurrency(summaryMetrics.totalCost),
-      valueColor: colours.red,
-      subLabel: `${formatCurrency(summaryMetrics.averageCostPerDay)}/day`,
-    },
-    {
-      key: 'conversions',
-      label: 'Conversions',
-      value: formatNumber(summaryMetrics.totalConversions),
-      subLabel: `${formatPercentage(summaryMetrics.conversionRate)} rate`,
-    },
-    {
-      key: 'ctr',
-      label: 'CTR',
-      value: formatPercentage(summaryMetrics.averageCtr),
-      subLabel: 'avg',
-    },
-    {
-      key: 'cpc',
-      label: 'CPC',
-      value: formatCurrency(summaryMetrics.averageCpc),
-      subLabel: 'avg',
-    },
-    {
-      key: 'cpa',
-      label: 'CPA',
-      value: formatCurrency(summaryMetrics.averageCpa),
-      subLabel: 'avg',
-    },
-  ]), [summaryMetrics]);
-
   const incomeRangeSummary = useMemo(() => {
     if (!ppcIncomeMetrics) {
       return null;
@@ -964,95 +667,391 @@ const PpcReport: React.FC<PpcReportProps> = ({
     return [];
   }, [incomeRangeSummary, ppcIncomeMetrics]);
 
-  const topIncomeRows = useMemo(() => {
-    return [...effectiveIncomeBreakdown]
-      .sort((a, b) => {
-        const aTotal = typeof a.totalInRange === 'number' ? a.totalInRange : a.totalCollected;
-        const bTotal = typeof b.totalInRange === 'number' ? b.totalInRange : b.totalCollected;
-        return bTotal - aTotal;
-      })
-      .slice(0, 5);
-  }, [effectiveIncomeBreakdown]);
-
-  const allTimeTooltipContent = useMemo(() => {
-    if (!ppcIncomeMetrics) {
-      return null;
-    }
-    const { summary } = ppcIncomeMetrics;
-    return (
-      <div
-        style={{
-          padding: '10px 12px',
-          borderRadius: 8,
-          background: isDarkMode ? 'rgba(15, 23, 42, 0.9)' : '#ffffff',
-          boxShadow: isDarkMode
-            ? '0 6px 18px rgba(0, 0, 0, 0.35)'
-            : '0 8px 24px rgba(15, 23, 42, 0.12)',
-          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.28)' : 'rgba(148, 163, 184, 0.18)'}`,
-          maxWidth: 260,
-          fontSize: 11.5,
-          color: isDarkMode ? '#E2E8F0' : colours.helixBlue,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 6,
-        }}
-      >
-        <span style={{ fontWeight: 600 }}>
-          All-time • {summary.mattersWithRevenue}/{summary.totalMatters} matters with revenue
-        </span>
-        <span>
-          All-time {formatCurrency(summary.totalRevenue)} • ≤7d {formatCurrency(summary.revenue7d)} • ≤30d {formatCurrency(summary.revenue30d)}
-        </span>
-      </div>
-    );
-  }, [ppcIncomeMetrics, isDarkMode]);
-
-  const allTimeTooltipProps = useMemo<ITooltipProps | undefined>(() => {
-    if (!allTimeTooltipContent) {
-      return undefined;
-    }
-    return {
-      directionalHint: DirectionalHint.bottomCenter,
-      onRenderContent: () => allTimeTooltipContent,
-      calloutProps: {
-        isBeakVisible: false,
-        gapSpace: 8,
-        setInitialFocus: false,
-      },
-    };
-  }, [allTimeTooltipContent]);
-
   const selectedRangeRevenue = incomeRangeSummary?.totalRevenue ?? ppcIncomeMetrics?.summary.totalRevenue ?? 0;
   const selectedMattersWithRevenue = incomeRangeSummary?.mattersWithRevenue ?? ppcIncomeMetrics?.summary.mattersWithRevenue ?? 0;
   const totalMattersTracked = ppcIncomeMetrics?.summary.totalMatters ?? 0;
-  const totalIncomeAllTime = ppcIncomeMetrics?.summary.totalRevenue ?? 0;
-  const incomeWithin7Days = ppcIncomeMetrics?.summary.revenue7d ?? 0;
-  const incomeWithin30Days = ppcIncomeMetrics?.summary.revenue30d ?? 0;
-  
-  // Use consistent metrics for ROAS calculation - both revenue and spend from same period
-  const relevantSpend = rangeKey === 'all' ? allTimeMetrics.totalCost : summaryMetrics.totalCost;
-  const roasActual = relevantSpend > 0 ? selectedRangeRevenue / relevantSpend : 0;
   
   const unmatchedCount = ppcIncomeMetrics?.debug?.unmatchedCount ?? ppcIncomeMetrics?.unmatchedPayments?.length ?? 0;
+  const selectedSpend = rangeKey === 'all' ? allTimeMetrics.totalCost : summaryMetrics.totalCost;
+  const selectedClicks = rangeKey === 'all' ? allTimeMetrics.totalClicks : summaryMetrics.totalClicks;
+  const selectedAdsConversions = rangeKey === 'all' ? allTimeMetrics.totalConversions : summaryMetrics.totalConversions;
+  const netReturn = selectedRangeRevenue - selectedSpend;
+  const roiPct = selectedSpend > 0 ? ((selectedRangeRevenue - selectedSpend) / selectedSpend) * 100 : null;
+  const paybackMultiple = selectedSpend > 0 ? selectedRangeRevenue / selectedSpend : null;
 
   const isCustomRange = rangeKey === 'custom';
-  const activePresetKey = rangeKey !== 'custom' ? rangeKey : null;
   const formattedFromLabel = formatDateTag(rangeStart);
   const formattedToLabel = formatDateTag(rangeEnd);
   const rangeSummaryLabel = rangeKey === 'all' ? 'All time' : `${formattedFromLabel} → ${formattedToLabel}`;
 
-  const dashboardThemeClass = isDarkMode ? 'dark-theme' : 'light-theme';
+  const reportQuickRanges = useMemo<UseReportRangeReturn['quickRanges']>(() => ([
+    { key: 'all' as RangeKey, label: 'All', get: () => null },
+    ...RANGE_OPTIONS.map(({ key, label }) => ({
+      key,
+      label,
+      get: () => computeRange(key),
+    })),
+  ]), []);
+
+  const setReportCustomDate = useCallback<UseReportRangeReturn['setCustomDate']>((side, date) => {
+    const nextStart = side === 'start' ? date ?? undefined : startDate;
+    const nextEnd = side === 'end' ? date ?? undefined : endDate;
+    if (side === 'start') {
+      setStartDate(nextStart);
+    } else {
+      setEndDate(nextEnd);
+    }
+    if (nextStart && nextEnd && nextStart <= nextEnd) {
+      handleCustomDateChange(nextStart, nextEnd);
+    } else {
+      setRangeKey('custom');
+    }
+  }, [endDate, startDate]);
+
+  const reportRangeAdapter = useMemo<UseReportRangeReturn>(() => ({
+    rangeKey,
+    setRangeKey,
+    customDateRange: {
+      start: startDate ?? null,
+      end: endDate ?? null,
+    },
+    setCustomDate: setReportCustomDate,
+    range: rangeKey === 'all' ? null : { start: rangeStart, end: rangeEnd },
+    fromLabel: rangeKey === 'all' ? 'All time' : formattedFromLabel,
+    toLabel: rangeKey === 'all' ? 'Now' : formattedToLabel,
+    showCustomPickers: isCustomRange,
+    handleRangeSelect,
+    quickRanges: reportQuickRanges,
+    isActive: (key) => rangeKey === key,
+  }), [endDate, formattedFromLabel, formattedToLabel, isCustomRange, rangeEnd, rangeKey, rangeStart, reportQuickRanges, setReportCustomDate, startDate]);
+
+  const ppcWeeklyPerformance = useMemo<PpcWeeklyPerformance[]>(() => {
+    const weeklyMap = new Map<string, {
+      weekStart: string;
+      weekEnd: string;
+      impressions: number;
+      clicks: number;
+      spend: number;
+      conversions: number;
+      enquiries: number;
+      qualifiedEnquiries: number;
+      instructions: number;
+      verifiedInstructions: number;
+      sourceOnlyInstructions: number;
+      revenue30d: number;
+      revenueAll: number;
+      verifiedRevenue30d: number;
+      sourceOnlyRevenue30d: number;
+      verifiedRevenueAll: number;
+      sourceOnlyRevenueAll: number;
+      matters: AugmentedIncomeRow[];
+    }>();
+
+    const ensureWeekBucket = (value?: string | null) => {
+      const parsed = parseDateLoose(value);
+      if (!parsed) {
+        return null;
+      }
+      const weekStart = getWeekStart(parsed);
+      const weekEnd = getWeekEnd(weekStart);
+      const weekKey = toDayKey(weekStart);
+      let bucket = weeklyMap.get(weekKey);
+      if (!bucket) {
+        bucket = {
+          weekStart: weekKey,
+          weekEnd: toDayKey(weekEnd),
+          impressions: 0,
+          clicks: 0,
+          spend: 0,
+          conversions: 0,
+          enquiries: 0,
+          qualifiedEnquiries: 0,
+          instructions: 0,
+          verifiedInstructions: 0,
+          sourceOnlyInstructions: 0,
+          revenue30d: 0,
+          revenueAll: 0,
+          verifiedRevenue30d: 0,
+          sourceOnlyRevenue30d: 0,
+          verifiedRevenueAll: 0,
+          sourceOnlyRevenueAll: 0,
+          matters: [],
+        };
+        weeklyMap.set(weekKey, bucket);
+      }
+      return bucket;
+    };
+
+    googleAdsData.forEach((row) => {
+      const bucket = ensureWeekBucket(row.date);
+      if (!bucket) {
+        return;
+      }
+      bucket.impressions += row.impressions || 0;
+      bucket.clicks += row.clicks || 0;
+      bucket.spend += row.cost || 0;
+      bucket.conversions += row.conversions || 0;
+    });
+
+    (ppcIncomeMetrics?.enquirySnapshots || []).forEach((snapshot) => {
+      const bucket = ensureWeekBucket(snapshot.enquiryDate);
+      if (!bucket) {
+        return;
+      }
+      bucket.enquiries += 1;
+      if (snapshot.linkedToMatter) {
+        bucket.qualifiedEnquiries += 1;
+      }
+    });
+
+    effectiveIncomeBreakdown.forEach((record) => {
+      const bucket = ensureWeekBucket(record.enquiryDate || record.openDate);
+      if (!bucket) {
+        return;
+      }
+      const revenue30d = record.collectedWithin30Days || 0;
+      const revenueAll = typeof record.totalInRange === 'number' ? record.totalInRange : record.totalCollected;
+      const verified = isVerifiedPpcMatter(record);
+
+      bucket.instructions += 1;
+      if (verified) {
+        bucket.verifiedInstructions += 1;
+        bucket.verifiedRevenue30d += revenue30d;
+        bucket.verifiedRevenueAll += revenueAll;
+      } else {
+        bucket.sourceOnlyInstructions += 1;
+        bucket.sourceOnlyRevenue30d += revenue30d;
+        bucket.sourceOnlyRevenueAll += revenueAll;
+      }
+      bucket.revenue30d += revenue30d;
+      bucket.revenueAll += revenueAll;
+      bucket.matters.push(record);
+    });
+
+    const sorted = Array.from(weeklyMap.values())
+      .sort((a, b) => a.weekStart.localeCompare(b.weekStart))
+      .map((bucket) => ({
+        ...bucket,
+        cpl: bucket.qualifiedEnquiries > 0 ? bucket.spend / bucket.qualifiedEnquiries : null,
+        cpi: bucket.verifiedInstructions > 0 ? bucket.spend / bucket.verifiedInstructions : null,
+        payback30d: bucket.spend > 0 ? bucket.revenue30d / bucket.spend : null,
+        paybackAll: bucket.spend > 0 ? bucket.revenueAll / bucket.spend : null,
+        attributionPct: bucket.enquiries > 0 ? (bucket.qualifiedEnquiries / bucket.enquiries) * 100 : null,
+        matters: [...bucket.matters].sort((a, b) => {
+          const aRevenue = typeof a.totalInRange === 'number' ? a.totalInRange : a.totalCollected;
+          const bRevenue = typeof b.totalInRange === 'number' ? b.totalInRange : b.totalCollected;
+          return bRevenue - aRevenue;
+        }),
+      }));
+
+    if (rangeKey === 'all') {
+      return sorted;
+    }
+
+    const rangeStartBoundary = new Date(activeStart.getTime());
+    rangeStartBoundary.setHours(0, 0, 0, 0);
+    const rangeEndBoundary = new Date(activeEnd.getTime());
+    rangeEndBoundary.setHours(23, 59, 59, 999);
+
+    return sorted.filter((week) => {
+      const weekStart = parseDateLoose(week.weekStart);
+      const weekEnd = parseDateLoose(week.weekEnd);
+      if (!weekStart || !weekEnd) {
+        return false;
+      }
+      return weekEnd >= rangeStartBoundary && weekStart <= rangeEndBoundary;
+    });
+  }, [googleAdsData, ppcIncomeMetrics?.enquirySnapshots, effectiveIncomeBreakdown, rangeKey, activeStart, activeEnd]);
+
+  const funnelSummary = useMemo(() => (
+    ppcWeeklyPerformance.reduce((acc, week) => ({
+      spend: acc.spend + week.spend,
+      clicks: acc.clicks + week.clicks,
+      impressions: acc.impressions + week.impressions,
+      enquiries: acc.enquiries + week.enquiries,
+      qualifiedEnquiries: acc.qualifiedEnquiries + week.qualifiedEnquiries,
+      instructions: acc.instructions + week.instructions,
+      verifiedInstructions: acc.verifiedInstructions + week.verifiedInstructions,
+      sourceOnlyInstructions: acc.sourceOnlyInstructions + week.sourceOnlyInstructions,
+      revenue30d: acc.revenue30d + week.revenue30d,
+      revenueAll: acc.revenueAll + week.revenueAll,
+      verifiedRevenue30d: acc.verifiedRevenue30d + week.verifiedRevenue30d,
+      sourceOnlyRevenue30d: acc.sourceOnlyRevenue30d + week.sourceOnlyRevenue30d,
+      verifiedRevenueAll: acc.verifiedRevenueAll + week.verifiedRevenueAll,
+      sourceOnlyRevenueAll: acc.sourceOnlyRevenueAll + week.sourceOnlyRevenueAll,
+    }), {
+      spend: 0,
+      clicks: 0,
+      impressions: 0,
+      enquiries: 0,
+      qualifiedEnquiries: 0,
+      instructions: 0,
+      verifiedInstructions: 0,
+      sourceOnlyInstructions: 0,
+      revenue30d: 0,
+      revenueAll: 0,
+      verifiedRevenue30d: 0,
+      sourceOnlyRevenue30d: 0,
+      verifiedRevenueAll: 0,
+      sourceOnlyRevenueAll: 0,
+    })
+  ), [ppcWeeklyPerformance]);
+
+  const closedWeekKey = useMemo(() => toDayKey(getWeekStart(new Date())), []);
+
+  const drilldownWeeks = useMemo(() => (
+    [...ppcWeeklyPerformance].sort((a, b) => b.weekStart.localeCompare(a.weekStart)).slice(0, 13)
+  ), [ppcWeeklyPerformance]);
+
+  const verdictModel = useMemo(() => {
+    const completedWeeks = ppcWeeklyPerformance.filter((week) => week.weekStart < closedWeekKey && (week.spend > 0 || week.enquiries > 0 || week.verifiedInstructions > 0 || week.sourceOnlyInstructions > 0));
+    const focusWeek = completedWeeks[completedWeeks.length - 1] ?? ppcWeeklyPerformance[ppcWeeklyPerformance.length - 1] ?? null;
+    if (!focusWeek) {
+      return {
+        tone: 'neutral' as const,
+        label: 'Awaiting signal',
+        headline: 'No PPC cohort data yet',
+        summary: 'Open the report after the first Google Ads sync and PPC-linked enquiry cohort arrives.',
+        focusWeek: null,
+        baselineCpi: null as number | null,
+        deltaPct: null as number | null,
+      };
+    }
+
+    const previousWeeks = completedWeeks
+      .filter((week) => week.weekStart !== focusWeek.weekStart && typeof week.cpi === 'number' && week.spend > 0)
+      .slice(-4);
+    const baselineCpi = median(previousWeeks.map((week) => week.cpi as number));
+    const deltaPct = baselineCpi && focusWeek.cpi != null
+      ? ((focusWeek.cpi - baselineCpi) / baselineCpi) * 100
+      : null;
+
+    if (focusWeek.verifiedInstructions === 0 || focusWeek.cpi == null) {
+      return {
+        tone: 'neutral' as const,
+        label: 'No verified CPI',
+        headline: '—',
+        summary: `${formatWeekWindow(focusWeek.weekStart, focusWeek.weekEnd)} has ${focusWeek.enquiries} PPC enquiries, ${focusWeek.verifiedInstructions} verified instructions and ${focusWeek.sourceOnlyInstructions} source-only matter${focusWeek.sourceOnlyInstructions === 1 ? '' : 's'}. CPI is withheld until a matter is tied back to a PPC enquiry.`,
+        focusWeek,
+        baselineCpi,
+        deltaPct,
+      };
+    }
+
+    if (baselineCpi == null) {
+      return {
+        tone: 'neutral' as const,
+        label: 'Building baseline',
+        headline: formatCurrencyPrecise(focusWeek.cpi),
+        summary: `${formatWeekWindow(focusWeek.weekStart, focusWeek.weekEnd)} has ${focusWeek.verifiedInstructions} verified instruction${focusWeek.verifiedInstructions === 1 ? '' : 's'}. More verified weeks are needed before comparing CPI movement.`,
+        focusWeek,
+        baselineCpi,
+        deltaPct,
+      };
+    }
+
+    const deltaPctValue = deltaPct ?? 0;
+    if (deltaPctValue <= -15) {
+      return {
+        tone: 'good' as const,
+        label: 'Efficient',
+        headline: formatCurrencyPrecise(focusWeek.cpi),
+        summary: `${formatWeekWindow(focusWeek.weekStart, focusWeek.weekEnd)} is ${Math.abs(deltaPctValue).toFixed(0)}% below the 4-week verified CPI median.`,
+        focusWeek,
+        baselineCpi,
+        deltaPct,
+      };
+    }
+
+    if (deltaPctValue < 15) {
+      return {
+        tone: 'warn' as const,
+        label: 'Stable',
+        headline: formatCurrencyPrecise(focusWeek.cpi),
+        summary: `${formatWeekWindow(focusWeek.weekStart, focusWeek.weekEnd)} is within ${Math.abs(deltaPctValue).toFixed(0)}% of the 4-week verified CPI median.`,
+        focusWeek,
+        baselineCpi,
+        deltaPct,
+      };
+    }
+
+    return {
+      tone: 'bad' as const,
+      label: 'Review',
+      headline: formatCurrencyPrecise(focusWeek.cpi),
+      summary: `${formatWeekWindow(focusWeek.weekStart, focusWeek.weekEnd)} is ${Math.abs(deltaPctValue).toFixed(0)}% above the 4-week verified CPI median.`,
+      focusWeek,
+      baselineCpi,
+      deltaPct,
+    };
+  }, [ppcWeeklyPerformance, closedWeekKey]);
+
+  const attributionConfidence = useMemo(() => {
+    const ratio = funnelSummary.enquiries > 0 ? (funnelSummary.qualifiedEnquiries / funnelSummary.enquiries) * 100 : null;
+    if (ratio == null) {
+      return {
+        tone: 'neutral' as const,
+        label: 'Attribution pending',
+        summary: 'No PPC enquiries in view.',
+        ratio,
+      };
+    }
+    if (ratio >= 80) {
+      return {
+        tone: 'good' as const,
+        label: 'Attribution holding',
+        summary: `${ratio.toFixed(0)}% of PPC enquiries link back to a matter.`,
+        ratio,
+      };
+    }
+    if (ratio >= 55) {
+      return {
+        tone: 'warn' as const,
+        label: 'Attribution partial',
+        summary: `${ratio.toFixed(0)}% of PPC enquiries link back to a matter.`,
+        ratio,
+      };
+    }
+    return {
+      tone: 'bad' as const,
+      label: 'Attribution weak',
+      summary: `${ratio.toFixed(0)}% of PPC enquiries link back to a matter.`,
+      ratio,
+    };
+  }, [funnelSummary]);
+
+  const verdictAccent = verdictModel.tone === 'good'
+    ? colours.green
+    : verdictModel.tone === 'warn'
+      ? colours.orange
+      : verdictModel.tone === 'bad'
+        ? colours.cta
+        : (isDarkMode ? colours.accent : colours.highlight);
+
+  const attributionAccent = attributionConfidence.tone === 'good'
+    ? colours.green
+    : attributionConfidence.tone === 'warn'
+      ? colours.orange
+      : attributionConfidence.tone === 'bad'
+        ? colours.cta
+        : (isDarkMode ? colours.accent : colours.highlight);
 
   return (
-    <div style={{ 
-      padding: 0, 
-      background: 'transparent',
-      minHeight: '100vh',
-      display: 'flex',
-      flexDirection: 'column' as const,
-      gap: 8,
-      fontFamily: 'Raleway, sans-serif',
-    }}>
+    <ReportShell
+      range={reportRangeAdapter}
+      isFetching={isFetching}
+      lastRefreshTimestamp={lastRefreshTimestamp}
+      onRefresh={refresh}
+    >
+      <div data-helix-region="reports/ppc" style={{
+        padding: 0,
+        background: 'transparent',
+        minHeight: '100vh',
+        display: 'flex',
+        flexDirection: 'column' as const,
+        gap: 8,
+        fontFamily: 'Raleway, sans-serif',
+      }}>
       <div style={{
         ...surface(isDarkMode),
         marginBottom: 0,
@@ -1068,7 +1067,7 @@ const PpcReport: React.FC<PpcReportProps> = ({
             PPC Report
           </span>
           <span style={{ fontSize: 13, opacity: 0.85 }}>
-            Paid acquisition spend, conversion, and income performance
+            Google Ads spend, PPC enquiries, verified instructions and recovered fees.
           </span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -1097,846 +1096,290 @@ const PpcReport: React.FC<PpcReportProps> = ({
         </div>
       </div>
 
-      {/* Data Source System Stamp + Params - positioned above date ranges */}
-      <div style={{ marginBottom: 20 }}>
-        <div style={{
-          padding: 8,
-          borderRadius: 8,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-          maxWidth: '100%',
-          background: isDarkMode
-            ? 'rgba(15,23,42,0.4)'
-            : 'rgba(248,250,252,0.6)',
-          border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.15)' : 'rgba(148,163,184,0.12)'}`,
-          fontSize: 11,
-          opacity: 0.8
-        }}>
-          <div style={{
-            flex: '0 0 auto', width: 18, height: 18, borderRadius: 4, overflow: 'hidden',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: isDarkMode ? 'rgba(2,6,23,0.4)' : 'rgba(241,245,249,0.6)'
+      <div data-helix-region="reports/ppc/roi" style={{ ...surface(isDarkMode, { padding: '16px 18px', marginBottom: 20 }) }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: isDarkMode ? colours.accent : colours.highlight }}>ROI snapshot</div>
+            <div style={{ fontSize: 13, color: isDarkMode ? '#d1d5db' : '#374151' }}>Spend in, paid-search enquiries through, recovered fees out.</div>
+          </div>
+          <div style={{ fontSize: 11, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+            Spend = Google Ads API • revenue = recovered fees • verified CPI excludes source-only matters
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
+          {[
+            {
+              label: 'Spend',
+              value: formatCurrency(selectedSpend),
+              sub: `${formatFullNumber(selectedClicks)} clicks • ${formatFullNumber(selectedAdsConversions)} ads conversions`,
+              accent: colours.cta,
+            },
+            {
+              label: 'PPC enquiries',
+              value: formatFullNumber(funnelSummary.enquiries),
+              sub: funnelSummary.enquiries > 0 ? `${formatCurrencyPrecise(selectedSpend / funnelSummary.enquiries)} per enquiry` : 'No paid-search enquiries linked yet',
+              accent: isDarkMode ? colours.accent : colours.highlight,
+            },
+            {
+              label: 'Matter-linked',
+              value: formatFullNumber(funnelSummary.qualifiedEnquiries),
+              sub: funnelSummary.enquiries > 0 ? `${formatPercentage((funnelSummary.qualifiedEnquiries / funnelSummary.enquiries) * 100)} of PPC enquiries` : 'Attribution pending',
+              accent: colours.orange,
+            },
+            {
+              label: 'Verified instructions',
+              value: formatFullNumber(funnelSummary.verifiedInstructions),
+              sub: funnelSummary.verifiedInstructions > 0 ? `${formatCurrencyPrecise(selectedSpend / funnelSummary.verifiedInstructions)} verified CPI` : 'No verified CPI yet',
+              accent: colours.green,
+            },
+            {
+              label: 'Revenue',
+              value: ppcIncomeMetrics ? formatCurrency(selectedRangeRevenue) : '—',
+              sub: ppcIncomeMetrics ? `${selectedMattersWithRevenue}/${totalMattersTracked} matters with recovered fees` : 'Revenue mapping pending',
+              accent: colours.green,
+            },
+            {
+              label: 'Net return',
+              value: ppcIncomeMetrics ? formatCurrency(netReturn) : '—',
+              sub: ppcIncomeMetrics ? `${formatMultiple(paybackMultiple)} payback multiple` : 'Awaiting revenue mapping',
+              accent: netReturn >= 0 ? colours.green : colours.orange,
+            },
+            {
+              label: 'ROI',
+              value: ppcIncomeMetrics && roiPct != null ? `${roiPct >= 0 ? '+' : ''}${roiPct.toFixed(0)}%` : '—',
+              sub: ppcIncomeMetrics ? verdictModel.label : 'Awaiting cohort data',
+              accent: roiPct != null && roiPct >= 0 ? colours.green : colours.orange,
+            },
+            {
+              label: 'Source-only',
+              value: formatFullNumber(funnelSummary.sourceOnlyInstructions),
+              sub: 'Shown below, excluded from verified CPI',
+              accent: colours.orange,
+            },
+          ].map((metric) => (
+            <div key={metric.label} style={{
+              position: 'relative',
+              padding: '14px 14px 16px',
+              borderRadius: 0,
+              background: isDarkMode ? 'rgba(15, 23, 42, 0.72)' : 'rgba(248, 250, 252, 0.92)',
+              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.16)' : 'rgba(13, 47, 96, 0.08)'}`,
+              overflow: 'hidden',
+            }}>
+              <div style={{ position: 'absolute', inset: '0 auto auto 0', width: '100%', height: 2, background: metric.accent, opacity: 0.9 }} />
+              <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: metric.accent, marginBottom: 8 }}>
+                {metric.label}
+              </div>
+              <div style={{ fontSize: 24, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text, marginBottom: 4 }}>
+                {metric.value}
+              </div>
+              <div style={{ fontSize: 11, color: isDarkMode ? '#d1d5db' : '#374151', lineHeight: 1.45 }}>
+                {metric.sub}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
+          <span style={{
+            padding: '6px 10px',
+            borderRadius: 0,
+            background: isDarkMode ? `${verdictAccent}14` : `${verdictAccent}10`,
+            border: `1px solid ${isDarkMode ? `${verdictAccent}44` : `${verdictAccent}24`}`,
+            color: verdictAccent,
+            fontSize: 11,
+            fontWeight: 700,
           }}>
-            <img src={require('../../assets/grey helix mark.png')} alt="Helix" style={{ width: 14, height: 14, objectFit: 'contain', opacity: 0.7 }} />
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', minWidth: 0 }}>
-            <div style={{
-              width: 6, height: 6, borderRadius: '50%',
-              background: colours.green,
-              boxShadow: '0 0 6px rgba(32, 178, 108, 0.4)'
-            }} />
-            <span style={{ fontWeight: 600, opacity: 0.9 }}>Google Ads</span>
-            <span style={{ opacity: 0.6 }}>•</span>
-            <span style={{ opacity: 0.7 }}>774-810-8809</span>
-            <span style={{ opacity: 0.6 }}>•</span>
-            <span style={{ opacity: 0.7 }}>googleapis/adwords</span>
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }} />
-          <div style={{
-            display: 'flex', alignItems: 'center',
-            fontSize: 11, opacity: 0.75
+            Verified CPI {verdictModel.headline}
+          </span>
+          <span style={{
+            padding: '6px 10px',
+            borderRadius: 0,
+            background: isDarkMode ? 'rgba(15, 23, 42, 0.8)' : 'rgba(248, 250, 252, 0.92)',
+            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.22)' : 'rgba(13, 47, 96, 0.12)'}`,
+            fontSize: 11,
+            color: isDarkMode ? '#d1d5db' : '#374151',
           }}>
-            <span style={{ opacity: 0.8 }}>sync {lastSyncLabel}</span>
-          </div>
+            {verdictModel.baselineCpi != null ? `4-week median ${formatCurrencyPrecise(verdictModel.baselineCpi)}` : 'Need more closed weeks for a CPI baseline'}
+          </span>
+          <span style={{
+            padding: '6px 10px',
+            borderRadius: 0,
+            background: isDarkMode ? `${attributionAccent}14` : `${attributionAccent}10`,
+            border: `1px solid ${isDarkMode ? `${attributionAccent}44` : `${attributionAccent}24`}`,
+            color: attributionAccent,
+            fontSize: 11,
+            fontWeight: 700,
+          }}>
+            Attribution {attributionConfidence.ratio != null ? formatPercentage(attributionConfidence.ratio) : '—'}
+          </span>
+          <span style={{
+            padding: '6px 10px',
+            borderRadius: 0,
+            background: isDarkMode ? 'rgba(15, 23, 42, 0.8)' : 'rgba(248, 250, 252, 0.92)',
+            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.22)' : 'rgba(13, 47, 96, 0.12)'}`,
+            fontSize: 11,
+            color: isDarkMode ? '#d1d5db' : '#374151',
+          }}>
+            {unmatchedCount} unmatched payment{unmatchedCount === 1 ? '' : 's'}
+          </span>
         </div>
       </div>
 
-  <div className="filter-toolbar" style={{ marginBottom: 28 }}>
-        <div className="filter-toolbar__top">
-          <div className="filter-toolbar__date-inputs">
-            {isCustomRange ? (
-              <div className="date-pickers">
-                <DatePicker
-                  label="From"
-                  styles={getDatePickerStyles(isDarkMode)}
-                  value={startDate}
-                  onSelectDate={(date) => handleCustomDateChange(date ?? undefined, endDate)}
-                  allowTextInput
-                  firstDayOfWeek={DayOfWeek.Monday}
-                  formatDate={(date) => date?.toLocaleDateString('en-GB') || ''}
-                />
-                <DatePicker
-                  label="To"
-                  styles={getDatePickerStyles(isDarkMode)}
-                  value={endDate}
-                  onSelectDate={(date) => handleCustomDateChange(startDate, date ?? undefined)}
-                  allowTextInput
-                  firstDayOfWeek={DayOfWeek.Monday}
-                  formatDate={(date) => date?.toLocaleDateString('en-GB') || ''}
-                />
-              </div>
-            ) : (
-              <div className="date-stamp-group">
-                {rangeKey === 'all' ? (
+      <div data-helix-region="reports/ppc/drilldown" style={{ ...surface(isDarkMode, { padding: '16px 18px', marginBottom: 24 }) }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: isDarkMode ? colours.accent : colours.highlight }}>Weekly drilldown</div>
+            <div style={{ fontSize: 13, color: isDarkMode ? '#d1d5db' : '#374151' }}>Weekly cohorts with match quality, CPI basis and recovered fees.</div>
+          </div>
+          <div style={{ fontSize: 11, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+            Showing {drilldownWeeks.length} week{drilldownWeeks.length === 1 ? '' : 's'}
+          </div>
+        </div>
+
+        {drilldownWeeks.length > 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {drilldownWeeks.map((week) => {
+              const isExpanded = expandedWeeks.has(week.weekStart);
+              return (
+                <div key={week.weekStart} style={{
+                  borderRadius: 0,
+                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.16)' : 'rgba(13, 47, 96, 0.08)'}`,
+                  background: isDarkMode ? 'rgba(15, 23, 42, 0.68)' : 'rgba(248, 250, 252, 0.9)',
+                  overflow: 'hidden',
+                }}>
                   <button
                     type="button"
-                    className="date-stamp-button"
-                    style={dateStampButtonStyle(isDarkMode)}
-                    onClick={handleActivateCustomRange}
-                    title="Click to customise the date range"
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = isDarkMode ? 'rgba(30, 41, 59, 0.86)' : 'rgba(248, 250, 252, 1)';
-                      e.currentTarget.style.transform = 'translateY(-1px)';
+                    onClick={() => {
+                      const next = new Set(expandedWeeks);
+                      if (next.has(week.weekStart)) {
+                        next.delete(week.weekStart);
+                      } else {
+                        next.add(week.weekStart);
+                      }
+                      setExpandedWeeks(next);
                     }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = isDarkMode ? 'rgba(15, 23, 42, 0.8)' : 'rgba(255, 255, 255, 0.95)';
-                      e.currentTarget.style.transform = 'translateY(0)';
+                    style={{
+                      width: '100%',
+                      padding: '12px 14px',
+                      background: 'transparent',
+                      border: 'none',
+                      cursor: 'pointer',
+                      textAlign: 'left',
                     }}
                   >
-                    <span style={{ fontSize: 11, opacity: 0.7, fontWeight: 600 }}>Range</span>
-                    <span style={{ fontSize: 16, fontWeight: 700 }}>All Time</span>
-                  </button>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      className="date-stamp-button"
-                      style={dateStampButtonStyle(isDarkMode)}
-                      onClick={handleActivateCustomRange}
-                      title="Click to customise the start date"
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = isDarkMode ? 'rgba(30, 41, 59, 0.86)' : 'rgba(248, 250, 252, 1)';
-                        e.currentTarget.style.transform = 'translateY(-1px)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = isDarkMode ? 'rgba(15, 23, 42, 0.8)' : 'rgba(255, 255, 255, 0.95)';
-                        e.currentTarget.style.transform = 'translateY(0)';
-                      }}
-                    >
-                      <span style={{ fontSize: 11, opacity: 0.7, fontWeight: 600 }}>From</span>
-                      <span style={{ fontSize: 16, fontWeight: 700 }}>{formattedFromLabel}</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="date-stamp-button"
-                      style={dateStampButtonStyle(isDarkMode)}
-                      onClick={handleActivateCustomRange}
-                      title="Click to customise the end date"
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = isDarkMode ? 'rgba(30, 41, 59, 0.86)' : 'rgba(248, 250, 252, 1)';
-                        e.currentTarget.style.transform = 'translateY(-1px)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = isDarkMode ? 'rgba(15, 23, 42, 0.8)' : 'rgba(255, 255, 255, 0.95)';
-                        e.currentTarget.style.transform = 'translateY(0)';
-                      }}
-                    >
-                      <span style={{ fontSize: 11, opacity: 0.7, fontWeight: 600 }}>To</span>
-                      <span style={{ fontSize: 16, fontWeight: 700 }}>{formattedToLabel}</span>
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-
-          <div className="filter-toolbar__actions">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <DefaultButton
-                text={isFetching ? 'Refreshing…' : 'Refresh data'}
-                iconProps={{ iconName: 'Refresh' }}
-                onClick={refresh}
-                disabled={isFetching}
-                styles={subtleActionButtonStyles(isDarkMode)}
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="filter-toolbar__middle">
-          <div className="filter-toolbar__presets">
-            <div className="filter-preset-group">
-              {RANGE_OPTIONS.slice(0, 2).map(({ key, label }) => (
-                <DefaultButton
-                  key={key}
-                  text={label}
-                  onClick={() => handleRangeSelect(key)}
-                  styles={getRangeButtonStyles(isDarkMode, activePresetKey === key, false)}
-                />
-              ))}
-              <div className="preset-separator">|</div>
-              {RANGE_OPTIONS.slice(2, 4).map(({ key, label }) => (
-                <DefaultButton
-                  key={key}
-                  text={label}
-                  onClick={() => handleRangeSelect(key)}
-                  styles={getRangeButtonStyles(isDarkMode, activePresetKey === key, false)}
-                />
-              ))}
-              <div className="preset-separator">|</div>
-              {RANGE_OPTIONS.slice(4, 6).map(({ key, label }) => (
-                <DefaultButton
-                  key={key}
-                  text={label}
-                  onClick={() => handleRangeSelect(key)}
-                  styles={getRangeButtonStyles(isDarkMode, activePresetKey === key, false)}
-                />
-              ))}
-              <div className="preset-separator">|</div>
-              {RANGE_OPTIONS.slice(6, 8).map(({ key, label }) => (
-                <DefaultButton
-                  key={key}
-                  text={label}
-                  onClick={() => handleRangeSelect(key)}
-                  styles={getRangeButtonStyles(isDarkMode, activePresetKey === key, false)}
-                />
-              ))}
-              <div className="preset-separator">|</div>
-              {RANGE_OPTIONS.slice(8, 10).map(({ key, label }) => (
-                <DefaultButton
-                  key={key}
-                  text={label}
-                  onClick={() => handleRangeSelect(key)}
-                  styles={getRangeButtonStyles(isDarkMode, activePresetKey === key, false)}
-                />
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-
-  {/* Key KPI Cards - Spend and Income */}
-      <div style={{ 
-        display: 'grid', 
-        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
-        gap: 20, 
-        marginBottom: 24 
-      }}>
-        <div style={summaryChipStyle(isDarkMode)}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, opacity: 0.8 }}>
-            <span style={{ fontSize: 14, fontWeight: 600 }}>Ad Spend</span>
-          </div>
-          <span style={{ fontSize: 32, fontWeight: 700, color: colours.red }}>
-            {formatCurrency(rangeKey === 'all' ? allTimeMetrics.totalCost : summaryMetrics.totalCost)}
-          </span>
-          <span style={{ fontSize: 12, opacity: 0.6 }}>
-            {rangeKey === 'all' 
-              ? `${formatCurrency(allTimeMetrics.averageCostPerDay)}/day avg across ${allTimeMetrics.workingDays} working ${allTimeMetrics.workingDays === 1 ? 'day' : 'days'} (all-time)`
-              : `${formatCurrency(summaryMetrics.averageCostPerDay)}/day avg across ${summaryMetrics.workingDays} working ${summaryMetrics.workingDays === 1 ? 'day' : 'days'}`
-            }
-          </span>
-        </div>
-
-
-
-
-        <div style={summaryChipStyle(isDarkMode)}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, opacity: 0.8 }}>
-            <Icon iconName="TrendingUp" style={{ fontSize: 16 }} />
-            <span style={{ fontSize: 14, fontWeight: 600 }}>Income</span>
-          </div>
-          {ppcIncomeMetrics === null ? (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 80 }}>
-              <Spinner size={SpinnerSize.medium} label="Loading income data..." labelPosition="bottom" />
-            </div>
-          ) : ppcIncomeMetrics ? (
-            <>
-              <span style={{ fontSize: 32, fontWeight: 700, color: colours.highlight }}>
-                {formatCurrency(selectedRangeRevenue)}
-              </span>
-              <span style={{ fontSize: 12, opacity: 0.65 }}>
-                {rangeKey === 'all' ? 'All-time' : 'Selected range'} • {selectedMattersWithRevenue}/{totalMattersTracked} matters with revenue
-              </span>
-            </>
-          ) : (
-            <>
-              <span style={{ fontSize: 24, fontWeight: 400, color: isDarkMode ? '#94a3b8' : '#64748b' }}>
-                No Data
-              </span>
-              <span style={{ fontSize: 12, opacity: 0.6 }}>
-                Revenue tracking unavailable
-              </span>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* Compact Metrics Banner */}
-      <div style={{
-        background: isDarkMode
-          ? 'rgba(15, 23, 42, 0.4)'
-          : 'rgba(248, 250, 252, 0.6)',
-        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)'}`,
-        borderRadius: 8,
-        padding: '14px 18px',
-        marginBottom: 32
-      }}>
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: '110px 90px 95px 95px',
-            columnGap: 24,
-            rowGap: 16,
-          }}
-        >
-          {performanceMetrics.map((metric, index) => {
-            const isEndOfRow = (index % 4) === 3;
-            const showDivider = !isEndOfRow && (index < performanceMetrics.length - 1);
-            return (
-              <div
-                key={metric.key}
-                style={{
-                  position: 'relative',
-                  paddingRight: showDivider ? 12 : 0,
-                }}
-              >
-                <div style={{ opacity: 0.6, fontSize: 9, marginBottom: 3, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                  {metric.label}
-                </div>
-                <div style={{ fontWeight: 700, fontSize: 15, color: metric.valueColor }}>
-                  {metric.value}
-                </div>
-                <div style={{ opacity: 0.5, fontSize: 9 }}>
-                  {metric.subLabel}
-                </div>
-                {showDivider && (
-                  <div
-                    style={{
-                      position: 'absolute',
-                      right: -12,
-                      top: 0,
-                      width: 1,
-                      height: 36,
-                      background: isDarkMode ? 'rgba(148,163,184,0.2)' : 'rgba(148,163,184,0.15)',
-                    }}
-                  />
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Daily Performance Table (collapsible card) */}
-      <div style={{ ...surface(isDarkMode, { padding: 20 }), marginBottom: 32 }}>
-        <div
-          role="button"
-          aria-expanded={showDaily}
-          onClick={() => setShowDaily(v => !v)}
-          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setShowDaily(v => !v); } }}
-          tabIndex={0}
-          style={{ 
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            margin: showDaily ? '0 0 16px 0' : '0 0 0 0', cursor: 'pointer', minHeight: 32,
-            transition: 'margin 0.2s ease'
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <Icon iconName="BarChartVertical" style={{ fontSize: 16, color: colours.highlight }} />
-            <span style={{ fontSize: 16, fontWeight: 600, color: isDarkMode ? '#E2E8F0' : colours.helixBlue }}>
-              Daily Performance Breakdown
-            </span>
-            <span style={{ 
-              fontSize: 11, opacity: showDaily ? 0 : 0.65, fontWeight: 500,
-              transition: 'opacity 0.3s ease',
-              overflow: 'hidden',
-              maxWidth: showDaily ? '0px' : '300px',
-              whiteSpace: 'nowrap'
-            }}>
-              {(() => {
-                if (filteredGoogleAdsData.length === 0) return 'No data';
-                
-                // Filter to working days (days with cost > 0)
-                const workingDays = filteredGoogleAdsData.filter(r => (r.cost || 0) > 0);
-                const workingDayCount = workingDays.length;
-                
-                if (workingDayCount === 0) return `${filteredGoogleAdsData.length} days • No spend`;
-                
-                const totalCost = workingDays.reduce((sum, r) => sum + (r.cost || 0), 0);
-                const avgDailySpend = totalCost / workingDayCount;
-                
-                return `${workingDayCount} working days • ${formatCurrency(avgDailySpend)} avg daily spend`;
-              })()}
-            </span>
-          </div>
-          <Icon iconName={showDaily ? 'ChevronUp' : 'ChevronRight'} style={{ fontSize: 16, opacity: 0.85 }} />
-        </div>
-
-        {showDaily && (() => {
-          // Build a map of daily income from effective breakdown
-          const dailyIncomeMap = new Map<string, number>();
-          if (effectiveIncomeBreakdown && effectiveIncomeBreakdown.length > 0) {
-            effectiveIncomeBreakdown.forEach((item) => {
-              const paymentsToAggregate = Array.isArray(item.paymentsInRange) && item.paymentsInRange.length > 0
-                ? item.paymentsInRange
-                : item.payments;
-              
-              paymentsToAggregate.forEach((payment) => {
-                if (payment.paymentDate && payment.amount) {
-                  const paymentDate = new Date(payment.paymentDate);
-                  if (!Number.isNaN(paymentDate.getTime())) {
-                    const dateKey = paymentDate.toISOString().split('T')[0];
-                    const current = dailyIncomeMap.get(dateKey) || 0;
-                    dailyIncomeMap.set(dateKey, current + payment.amount);
-                  }
-                }
-              });
-            });
-          }
-
-          // Create day groups combining Google Ads data and Meta enquiries
-          const dayGroupsMap = new Map<string, { 
-            date: string; 
-            googleAds?: GoogleAdsRow; 
-            metaEnquiries: MetaEnquiry[]; 
-          }>();
-
-          // Add Google Ads data
-          filteredGoogleAdsData.forEach(row => {
-            dayGroupsMap.set(row.date, { 
-              date: row.date, 
-              googleAds: row, 
-              metaEnquiries: [] 
-            });
-          });
-
-          // Add Meta enquiries to corresponding dates
-          metaEnquiries.forEach(enquiry => {
-            const existing = dayGroupsMap.get(enquiry.date);
-            if (existing) {
-              existing.metaEnquiries.push(enquiry);
-            } else {
-              dayGroupsMap.set(enquiry.date, { 
-                date: enquiry.date, 
-                metaEnquiries: [enquiry] 
-              });
-            }
-          });
-
-          // Convert to sorted array (newest first)
-          const dayGroups = Array.from(dayGroupsMap.values())
-            .sort((a, b) => b.date.localeCompare(a.date))
-            .slice(0, 50); // Limit to 50 days for performance
-
-          return dayGroups.length > 0 ? (
-            <div style={{ paddingTop: 20 }}>
-              {dayGroups.map((dayGroup, index) => {
-                const row = dayGroup.googleAds;
-                const metaEnquiryCount = dayGroup.metaEnquiries.reduce((sum, e) => sum + (e.enquiries || 0), 0);
-                const dayIncome = dailyIncomeMap.get(dayGroup.date) || 0;
-                const formattedDate = new Date(dayGroup.date).toLocaleDateString('en-GB', { 
-                  day: '2-digit', 
-                  month: 'short',
-                  year: 'numeric'
-                });
-                const weekday = new Date(dayGroup.date).toLocaleDateString('en-GB', { weekday: 'short' });
-
-                return (
-                  <div key={dayGroup.date} style={{ 
-                    ...surface(isDarkMode),
-                    marginBottom: 16,
-                    padding: 0,
-                    overflow: 'hidden'
-                  }}>
-                    {/* Day Header */}
-                    <div style={{ 
-                      padding: '12px 16px',
-                      background: isDarkMode ? 'rgba(148,163,184,0.08)' : 'rgba(13,47,96,0.03)',
-                      borderBottom: isDarkMode ? '1px solid rgba(148,163,184,0.12)' : '1px solid rgba(13,47,96,0.06)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between'
-                    }}>
-                      <div style={{ 
-                        fontWeight: 600,
-                        fontSize: 13,
-                        color: isDarkMode ? '#E2E8F0' : colours.helixBlue,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8
-                      }}>
-                        <Icon iconName="Calendar" style={{ fontSize: 12, opacity: 0.7 }} />
-                        <span>{formattedDate}</span>
-                        <span style={{ opacity: 0.6, fontSize: 11 }}>({weekday})</span>
+                    <div style={{ overflowX: 'auto' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(136px, 1.3fr) repeat(7, minmax(76px, 1fr)) 22px', gap: 12, alignItems: 'center', minWidth: 880 }}>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text }}>{formatWeekWindow(week.weekStart, week.weekEnd)}</div>
+                        <div style={{ fontSize: 10, color: isDarkMode ? '#d1d5db' : '#374151', opacity: 0.8 }}>
+                          {week.verifiedInstructions} verified • {week.sourceOnlyInstructions} source-only
+                        </div>
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        {dayIncome > 0 && (
-                          <div style={{
-                            background: isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(54, 144, 206, 0.12)',
-                            border: `1.5px solid ${isDarkMode ? colours.green : colours.highlight}`,
-                            color: isDarkMode ? colours.green : colours.highlight,
-                            padding: '4px 12px',
-                            borderRadius: 14,
-                            fontSize: 11,
-                            fontWeight: 700,
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 5,
-                            boxShadow: isDarkMode 
-                              ? '0 2px 6px rgba(32, 178, 108, 0.2)' 
-                              : '0 2px 6px rgba(54, 144, 206, 0.15)'
-                          }}>
-                            <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: 0.3, opacity: 0.9 }}>INCOME</span>
-                            <span style={{ fontSize: 12, fontWeight: 700 }}>{formatCurrency(dayIncome)}</span>
-                          </div>
-                        )}
-                        {metaEnquiryCount > 0 && (
-                          <div style={{
-                            background: isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)',
-                            color: isDarkMode ? '#E2E8F0' : colours.helixBlue,
-                            padding: '2px 8px',
-                            borderRadius: 12,
-                            fontSize: 10,
-                            fontWeight: 600
-                          }}>
-                            {metaEnquiryCount} Meta {metaEnquiryCount === 1 ? 'Enquiry' : 'Enquiries'}
-                          </div>
-                        )}
+                      <div style={{ fontSize: 12 }}>
+                        <div style={{ opacity: 0.6, fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Spend</div>
+                        <div style={{ fontWeight: 700, color: colours.cta }}>{formatCurrencyPrecise(week.spend)}</div>
                       </div>
+                      <div style={{ fontSize: 12 }}>
+                        <div style={{ opacity: 0.6, fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Enquiries</div>
+                        <div style={{ fontWeight: 700 }}>{formatFullNumber(week.enquiries)}</div>
+                      </div>
+                      <div style={{ fontSize: 12 }}>
+                        <div style={{ opacity: 0.6, fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Matter-linked</div>
+                        <div style={{ fontWeight: 700 }}>{formatFullNumber(week.qualifiedEnquiries)}</div>
+                      </div>
+                      <div style={{ fontSize: 12 }}>
+                        <div style={{ opacity: 0.6, fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Verified</div>
+                        <div style={{ fontWeight: 700 }}>{formatFullNumber(week.verifiedInstructions)}</div>
+                      </div>
+                      <div style={{ fontSize: 12 }}>
+                        <div style={{ opacity: 0.6, fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Source-only</div>
+                        <div style={{ fontWeight: 700, color: week.sourceOnlyInstructions > 0 ? colours.orange : undefined }}>{formatFullNumber(week.sourceOnlyInstructions)}</div>
+                      </div>
+                      <div style={{ fontSize: 12 }}>
+                        <div style={{ opacity: 0.6, fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Revenue 30d</div>
+                        <div style={{ fontWeight: 700, color: colours.green }}>{formatCurrencyPrecise(week.revenue30d)}</div>
+                      </div>
+                      <div style={{ fontSize: 12 }}>
+                        <div style={{ opacity: 0.6, fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Verified CPI</div>
+                        <div style={{ fontWeight: 700 }}>{week.cpi != null ? formatCurrencyPrecise(week.cpi) : '—'}</div>
+                      </div>
+                      <Icon iconName={isExpanded ? 'ChevronUp' : 'ChevronDown'} style={{ fontSize: 14, opacity: 0.65 }} />
                     </div>
+                    </div>
+                  </button>
 
-                    {/* Content */}
-                    <div style={{ padding: '12px 16px' }}>
-                      {row ? (
-                        <>
-                          {(() => {
-                            const dayMetrics = [
-                              {
-                                key: 'impressions',
-                                label: 'Impressions',
-                                value: formatFullNumber(row.impressions || 0),
-                              },
-                              {
-                                key: 'clicks',
-                                label: 'Clicks',
-                                value: formatFullNumber(row.clicks || 0),
-                              },
-                              {
-                                key: 'cost',
-                                label: 'Cost',
-                                value: formatCurrency(row.cost || 0),
-                                valueColor: colours.red,
-                              },
-                              {
-                                key: 'conversions',
-                                label: 'Conversions',
-                                value: formatFullNumber(Math.round(row.conversions || 0)),
-                              },
-                              {
-                                key: 'ctr',
-                                label: 'CTR',
-                                value: formatPercentage(row.ctr || 0),
-                              },
-                              {
-                                key: 'cpc',
-                                label: 'CPC',
-                                value: formatCurrency(row.cpc || 0),
-                              },
-                              {
-                                key: 'cpa',
-                                label: 'CPA',
-                                value: row.cpa && row.cpa > 0 ? formatCurrency(row.cpa) : '—',
-                              },
-                            ];
-
+                  {isExpanded && (
+                    <div style={{ padding: '0 14px 14px', borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.14)' : 'rgba(13, 47, 96, 0.08)'}` }}>
+                      {week.matters.length > 0 ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
+                          {week.matters.map((matter, index) => {
+                            const matterRevenue = typeof matter.totalInRange === 'number' ? matter.totalInRange : matter.totalCollected;
+                            const matchLabel = getMatchLabel(matter.matchKind);
+                            const matchAccent = isVerifiedPpcMatter(matter)
+                              ? colours.green
+                              : matter.matchKind === 'source_only'
+                                ? colours.orange
+                                : (isDarkMode ? colours.subtleGrey : colours.greyText);
                             return (
-                              <div
-                                style={{
-                                  display: 'grid',
-                                  gridTemplateColumns: '110px 90px 95px 95px',
-                                  columnGap: 24,
-                                  rowGap: 12,
-                                  fontSize: 12,
-                                  marginBottom: expandedDays.has(dayGroup.date) ? 16 : 0,
-                                }}
-                              >
-                                {dayMetrics.map((metric, metricIndex) => {
-                                  const isEndOfRow = (metricIndex % 4) === 3;
-                                  const showDivider = !isEndOfRow && (metricIndex < dayMetrics.length - 1);
-                                  return (
-                                    <div
-                                      key={metric.key}
-                                      style={{
-                                        position: 'relative',
-                                        paddingRight: showDivider ? 12 : 0,
-                                        display: 'flex',
-                                        flexDirection: 'column',
-                                        gap: 2,
-                                      }}
-                                    >
-                                      <div style={{ opacity: 0.7, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.4 }}>
-                                        {metric.label}
-                                      </div>
-                                      <div style={{ fontWeight: 600, color: metric.valueColor }}>
-                                        {metric.value}
-                                      </div>
-                                      {showDivider && (
-                                        <div
-                                          style={{
-                                            position: 'absolute',
-                                            right: -12,
-                                            top: 0,
-                                            width: 1,
-                                            height: 32,
-                                            background: isDarkMode ? 'rgba(148,163,184,0.2)' : 'rgba(148,163,184,0.15)',
-                                          }}
-                                        />
-                                      )}
-                                    </div>
-                                  );
-                                })}
+                              <div key={`${week.weekStart}-${matter.matterId || matter.displayNumber || index}`} style={{
+                                padding: '10px 12px',
+                                borderRadius: 0,
+                                background: isDarkMode ? 'rgba(2, 6, 23, 0.42)' : 'rgba(255, 255, 255, 0.72)',
+                                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(13, 47, 96, 0.06)'}`,
+                                display: 'grid',
+                                gridTemplateColumns: 'minmax(180px, 1.5fr) repeat(4, minmax(70px, 1fr))',
+                                gap: 10,
+                                alignItems: 'center',
+                                overflowX: 'auto',
+                              }}>
+                                <div>
+                                  <div style={{ fontWeight: 700, fontSize: 12, color: isDarkMode ? colours.dark.text : colours.light.text }}>{matter.displayNumber || matter.matterId || 'Matter'}</div>
+                                  <div style={{ fontSize: 11, color: isDarkMode ? '#d1d5db' : '#374151', opacity: 0.82 }}>{matter.clientName || 'Unknown client'}</div>
+                                  <div style={{ display: 'inline-flex', marginTop: 6, padding: '3px 7px', borderRadius: 999, border: `1px solid ${matchAccent}55`, color: matchAccent, fontSize: 10, fontWeight: 700 }}>
+                                    {matchLabel}
+                                  </div>
+                                </div>
+                                <div style={{ fontSize: 11 }}>
+                                  <div style={{ opacity: 0.58, fontSize: 9, textTransform: 'uppercase' }}>Enquiry</div>
+                                  <div style={{ fontWeight: 600 }}>{matter.enquiryDate ? formatDateTag(new Date(matter.enquiryDate)) : '—'}</div>
+                                </div>
+                                <div style={{ fontSize: 11 }}>
+                                  <div style={{ opacity: 0.58, fontSize: 9, textTransform: 'uppercase' }}>Open</div>
+                                  <div style={{ fontWeight: 600 }}>{matter.openDate ? formatDateTag(new Date(matter.openDate)) : '—'}</div>
+                                </div>
+                                <div style={{ fontSize: 11 }}>
+                                  <div style={{ opacity: 0.58, fontSize: 9, textTransform: 'uppercase' }}>Revenue 30d</div>
+                                  <div style={{ fontWeight: 700, color: colours.green }}>{formatCurrencyPrecise(matter.collectedWithin30Days)}</div>
+                                </div>
+                                <div style={{ fontSize: 11 }}>
+                                  <div style={{ opacity: 0.58, fontSize: 9, textTransform: 'uppercase' }}>Revenue all</div>
+                                  <div style={{ fontWeight: 700 }}>{formatCurrencyPrecise(matterRevenue)}</div>
+                                </div>
                               </div>
                             );
-                          })()}
-
-                          {/* Expandable income breakdown */}
-                          {dayIncome > 0 && (
-                            <>
-                              <div style={{
-                                marginTop: 12,
-                                paddingTop: 12,
-                                borderTop: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.12)' : 'rgba(13,47,96,0.06)'}`,
-                              }}>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const newExpanded = new Set(expandedDays);
-                                    if (newExpanded.has(dayGroup.date)) {
-                                      newExpanded.delete(dayGroup.date);
-                                    } else {
-                                      newExpanded.add(dayGroup.date);
-                                    }
-                                    setExpandedDays(newExpanded);
-                                  }}
-                                  style={{
-                                    width: '100%',
-                                    padding: '10px 14px',
-                                    borderRadius: 8,
-                                    background: isDarkMode ? 'rgba(32, 178, 108, 0.08)' : 'rgba(54, 144, 206, 0.06)',
-                                    border: `1.5px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.25)' : 'rgba(54, 144, 206, 0.25)'}`,
-                                    color: isDarkMode ? colours.green : colours.highlight,
-                                    fontSize: 12,
-                                    fontWeight: 700,
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                    transition: 'all 0.2s ease',
-                                  }}
-                                  onMouseEnter={(e) => {
-                                    e.currentTarget.style.background = isDarkMode ? 'rgba(32, 178, 108, 0.14)' : 'rgba(54, 144, 206, 0.12)';
-                                    e.currentTarget.style.borderColor = isDarkMode ? 'rgba(32, 178, 108, 0.35)' : 'rgba(54, 144, 206, 0.35)';
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    e.currentTarget.style.background = isDarkMode ? 'rgba(32, 178, 108, 0.08)' : 'rgba(54, 144, 206, 0.06)';
-                                    e.currentTarget.style.borderColor = isDarkMode ? 'rgba(32, 178, 108, 0.25)' : 'rgba(54, 144, 206, 0.25)';
-                                  }}
-                                >
-                                  <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                    <Icon iconName="BulletedList" style={{ fontSize: 14 }} />
-                                    <span>Income Breakdown</span>
-                                    <span style={{ 
-                                      fontSize: 10, 
-                                      fontWeight: 600, 
-                                      opacity: 0.8,
-                                      padding: '2px 6px',
-                                      borderRadius: 4,
-                                      background: isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(54, 144, 206, 0.15)',
-                                    }}>
-                                      {(() => {
-                                        const dayMatters = effectiveIncomeBreakdown.filter((item) => {
-                                          const paymentsToCheck = Array.isArray(item.paymentsInRange) && item.paymentsInRange.length > 0
-                                            ? item.paymentsInRange
-                                            : item.payments;
-                                          return paymentsToCheck.some((payment) => {
-                                            if (!payment.paymentDate) return false;
-                                            const paymentDate = new Date(payment.paymentDate);
-                                            if (Number.isNaN(paymentDate.getTime())) return false;
-                                            const paymentDateKey = paymentDate.toISOString().split('T')[0];
-                                            return paymentDateKey === dayGroup.date;
-                                          });
-                                        });
-                                        return `${dayMatters.length} ${dayMatters.length === 1 ? 'matter' : 'matters'}`;
-                                      })()}
-                                    </span>
-                                  </span>
-                                  <Icon iconName={expandedDays.has(dayGroup.date) ? 'ChevronUp' : 'ChevronDown'} style={{ fontSize: 14 }} />
-                                </button>
-                              </div>
-
-                              {expandedDays.has(dayGroup.date) && (() => {
-                                // Filter matters with payments on this day
-                                const dayMatters = effectiveIncomeBreakdown
-                                  .map((item) => {
-                                    const paymentsToCheck = Array.isArray(item.paymentsInRange) && item.paymentsInRange.length > 0
-                                      ? item.paymentsInRange
-                                      : item.payments;
-                                    const dayPayments = paymentsToCheck.filter((payment) => {
-                                      if (!payment.paymentDate) return false;
-                                      const paymentDate = new Date(payment.paymentDate);
-                                      if (Number.isNaN(paymentDate.getTime())) return false;
-                                      const paymentDateKey = paymentDate.toISOString().split('T')[0];
-                                      return paymentDateKey === dayGroup.date;
-                                    });
-                                    if (dayPayments.length === 0) return null;
-                                    const dayTotal = dayPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
-                                    return {
-                                      ...item,
-                                      dayPayments,
-                                      dayTotal,
-                                    };
-                                  })
-                                  .filter(Boolean)
-                                  .sort((a, b) => (b?.dayTotal || 0) - (a?.dayTotal || 0));
-
-                                return (
-                                  <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                    {dayMatters.map((matter, idx) => {
-                                      if (!matter) return null;
-                                      const matterKey = `${dayGroup.date}-${matter.matterId || matter.displayNumber || matter.clientName || matter.enquiryId || `matter-${idx}`}`;
-                                      const isExpanded = expandedMatters.has(matterKey);
-                                      
-                                      return (
-                                        <div
-                                          key={matterKey}
-                                          style={{
-                                            borderRadius: 6,
-                                            background: isDarkMode ? 'rgba(15,23,42,0.5)' : 'rgba(255,255,255,0.9)',
-                                            border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.22)' : 'rgba(148,163,184,0.18)'}`,
-                                            overflow: 'hidden',
-                                          }}
-                                        >
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              const newExpanded = new Set(expandedMatters);
-                                              if (newExpanded.has(matterKey)) {
-                                                newExpanded.delete(matterKey);
-                                              } else {
-                                                newExpanded.add(matterKey);
-                                              }
-                                              setExpandedMatters(newExpanded);
-                                            }}
-                                            style={{
-                                              width: '100%',
-                                              padding: '10px 12px',
-                                              background: 'transparent',
-                                              border: 'none',
-                                              cursor: 'pointer',
-                                              display: 'flex',
-                                              justifyContent: 'space-between',
-                                              alignItems: 'center',
-                                              gap: 12,
-                                              textAlign: 'left',
-                                              transition: 'background 0.15s ease',
-                                            }}
-                                            onMouseEnter={(e) => {
-                                              e.currentTarget.style.background = isDarkMode ? 'rgba(148,163,184,0.04)' : 'rgba(148,163,184,0.03)';
-                                            }}
-                                            onMouseLeave={(e) => {
-                                              e.currentTarget.style.background = 'transparent';
-                                            }}
-                                          >
-                                            <div style={{ flex: 1, minWidth: 0 }}>
-                                              <div style={{ fontWeight: 600, fontSize: 13 }}>
-                                                {matter.displayNumber || matter.matterId || 'Matter'}
-                                              </div>
-                                              {matter.clientName && (
-                                                <div style={{ opacity: 0.6, marginTop: 2, fontSize: 11, fontWeight: 500 }}>
-                                                  {matter.clientName}
-                                                </div>
-                                              )}
-                                            </div>
-                                            <div style={{ 
-                                              display: 'flex', 
-                                              alignItems: 'center', 
-                                              gap: 10,
-                                              flexShrink: 0,
-                                            }}>
-                                              <div style={{ fontWeight: 700, color: isDarkMode ? colours.green : colours.highlight, fontSize: 14 }}>
-                                                {formatCurrency(matter.dayTotal)}
-                                              </div>
-                                              {matter.dayPayments.length > 1 && (
-                                                <>
-                                                  <div style={{ 
-                                                    fontSize: 10, 
-                                                    fontWeight: 600, 
-                                                    opacity: 0.6,
-                                                    padding: '2px 5px',
-                                                    borderRadius: 3,
-                                                    background: isDarkMode ? 'rgba(148,163,184,0.12)' : 'rgba(148,163,184,0.08)',
-                                                  }}>
-                                                    {matter.dayPayments.length}
-                                                  </div>
-                                                  <Icon 
-                                                    iconName={isExpanded ? 'ChevronUp' : 'ChevronDown'} 
-                                                    style={{ fontSize: 12, opacity: 0.5 }} 
-                                                  />
-                                                </>
-                                              )}
-                                            </div>
-                                          </button>
-                                          
-                                          {isExpanded && matter.dayPayments.length > 0 && (
-                                            <div style={{ 
-                                              padding: '0 12px 10px 12px',
-                                              borderTop: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.1)' : 'rgba(148,163,184,0.08)'}`,
-                                            }}>
-                                              <div style={{ 
-                                                display: 'flex',
-                                                flexDirection: 'column',
-                                                gap: 6,
-                                                marginTop: 8,
-                                              }}>
-                                                {matter.dayPayments.map((payment, pidx) => (
-                                                  <div key={pidx} style={{ 
-                                                    fontSize: 11, 
-                                                    display: 'flex',
-                                                    justifyContent: 'space-between',
-                                                    alignItems: 'flex-start',
-                                                    gap: 12,
-                                                    paddingLeft: 8,
-                                                  }}>
-                                                    <div style={{ opacity: 0.7, flex: 1 }}>
-                                                      {payment.description || 'Payment'}
-                                                    </div>
-                                                    <div style={{ fontWeight: 600, opacity: 0.85, whiteSpace: 'nowrap' }}>
-                                                      {formatCurrency(payment.amount)}
-                                                    </div>
-                                                  </div>
-                                                ))}
-                                              </div>
-                                            </div>
-                                          )}
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                );
-                              })()}
-                            </>
-                          )}
-                        </>
+                          })}
+                        </div>
                       ) : (
-                        <div style={{ 
-                          opacity: 0.6, 
-                          fontSize: 11, 
-                          fontStyle: 'italic',
-                          textAlign: 'center',
-                          padding: 8
-                        }}>
-                          No Google Ads data for this day
+                        <div style={{ marginTop: 12, fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151', opacity: 0.8 }}>
+                          No matter cohort entries for this week yet.
                         </div>
                       )}
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div style={{ 
-              textAlign: 'center', 
-              padding: 40, 
-              opacity: 0.6,
-              fontSize: 14
-            }}>
-              No data available for the selected date range
-            </div>
-          );
-        })()}
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div style={{ padding: '16px 4px 6px', fontSize: 13, color: isDarkMode ? '#d1d5db' : '#374151', opacity: 0.82 }}>
+            No weekly PPC cohort data in the selected range yet. If you are on localhost, that usually means Google Ads config is absent in this shell.
+          </div>
+        )}
       </div>
-    </div>
+
+      </div>
+    </ReportShell>
   );
 };
 

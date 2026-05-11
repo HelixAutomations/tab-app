@@ -7,6 +7,8 @@ const { withRequest } = require('./db');
 const ASANA_BASE_URL = 'https://app.asana.com/api/1.0';
 const ASANA_WORKSPACE_ID = process.env.ASANA_WORKSPACE_ID || '1203336123398249';
 const ASANA_ACCOUNTS_PROJECT_ID = '1203336124217593';
+// Tech & Automations project (also used by techTickets.js as the ticket destination).
+const ASANA_TECH_AUTOMATIONS_PROJECT_ID = process.env.ASANA_TECH_AUTOMATIONS_PROJECT_ID || '1204962032378888';
 
 async function getAsanaCredentials({ email, initials, entraId }) {
   const hasEmail = typeof email === 'string' && email.trim().length > 0;
@@ -91,6 +93,7 @@ module.exports = {
   ASANA_BASE_URL,
   ASANA_WORKSPACE_ID,
   ASANA_ACCOUNTS_PROJECT_ID,
+  ASANA_TECH_AUTOMATIONS_PROJECT_ID,
   getAsanaCredentials,
   getAsanaAccessToken,
   resolveAsanaAccessToken,

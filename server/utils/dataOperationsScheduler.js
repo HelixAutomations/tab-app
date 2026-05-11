@@ -1,4 +1,4 @@
-const { syncCollectedTime, syncWip, logProgress } = require('../routes/dataOperations');
+const { syncCollectedTime, syncWip, logOperation, logProgress, refreshReconciliationSnapshot } = require('../routes/dataOperations');
 const { createLogger } = require('./logger');
 const { trackEvent, trackException, trackMetric } = require('./appInsights');
 const { acquire, getState: getMutexState } = require('./syncMutex');
@@ -9,13 +9,15 @@ const { notify } = require('./hubNotifier');
 const schedulerLogger = createLogger('DataOpsScheduler');
 
 // ── Constants ────────────────────────────────────────────────────────
-const WIP_HOT_DAYS_BACK = 7;
-const WIP_WARM_DAYS_BACK = 21;
-const WIP_COLD_DAYS_BACK = 56;
+// Current month is re-cleared from Clio hourly for both Collected and WIP.
+// Previous month is sealed on a bounded cadence only: 3 runs on the 1st,
+// one overnight run on days 2-14, one extra overnight run on day 21, and one late run on the last day of the
+// current month. No tiers, no drift detection — re-fetching IS reconciliation.
+// The previous Hot/Warm/Cold cadence was retired 2026-05-01 because it left
+// gaps the trust gate could not close.
 
-const SYNC_TIMEOUT_MS = 10 * 60 * 1000;        // 10 min — Cold syncs can take up to 8 min
+const SYNC_TIMEOUT_MS = 10 * 60 * 1000;        // 10 min — full-month sync runs ~30s in practice
 const BOOT_CATCHUP_DELAY_MS = 30 * 1000;        // 30s after start — let connections warm up
-const BOOT_CATCHUP_REDIS_TTL = 65 * 60;         // 65 min — slightly longer than Hot interval
 
 const BASE_TICK_MS = 30 * 1000;                 // 30s — normal cadence
 const BACKOFF_TICK_MS = 60 * 1000;              // 60s — idle cadence
@@ -52,14 +54,142 @@ function formatSlotKey(date) {
   return `${yyyy}-${mm}-${dd} ${hh}:${min}`;
 }
 
+function getLatestHourlySlotKey(now, targetMinute) {
+  const slot = new Date(now);
+  if (now.getMinutes() >= targetMinute) {
+    slot.setHours(slot.getHours(), targetMinute, 0, 0);
+  } else {
+    slot.setHours(slot.getHours() - 1, targetMinute, 0, 0);
+  }
+  return formatSlotKey(slot);
+}
+
+function isLastDayOfMonth(date) {
+  return date.getDate() === new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+}
+
+function isPreviousMonthSealSlot(now, targetMinute) {
+  if (now.getMinutes() !== targetMinute) return false;
+  const day = now.getDate();
+  const hour = now.getHours();
+  if (day === 1 && [3, 12, 23].includes(hour)) return true;
+  if (day >= 2 && day <= 14 && hour === 2) return true;
+  if (day === 21 && hour === 2) return true;
+  return isLastDayOfMonth(now) && hour === 23;
+}
+
+function getLatestPreviousMonthSealSlotKey(now, targetMinute) {
+  const candidates = [];
+  const addCandidate = (day, hour) => {
+    const candidate = new Date(now.getFullYear(), now.getMonth(), day, hour, targetMinute, 0, 0);
+    if (candidate <= now) candidates.push(candidate);
+  };
+
+  const day = now.getDate();
+  if (day <= 14 || day === 21) {
+    [3, 12, 23].forEach((hour) => addCandidate(1, hour));
+    const lastDailySealDay = Math.min(day, 14);
+    for (let sealDay = 2; sealDay <= lastDailySealDay; sealDay += 1) {
+      addCandidate(sealDay, 2);
+    }
+    if (day === 21) addCandidate(21, 2);
+  }
+
+  if (isLastDayOfMonth(now)) {
+    addCandidate(now.getDate(), 23);
+  }
+
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => b.getTime() - a.getTime());
+  return formatSlotKey(candidates[0]);
+}
+
+function formatUpcomingJobTime(now, minute) {
+  const slot = new Date(now);
+  slot.setMinutes(minute, 0, 0);
+  return slot.toLocaleTimeString('en-GB', {
+    timeZone: 'Europe/London',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+}
+
+function getUpcomingSyncJobsForHour(now) {
+  const jobs = [
+    `${formatUpcomingJobTime(now, 5)} Collected current month`,
+    `${formatUpcomingJobTime(now, 20)} WIP current month`,
+  ];
+
+  const collectedSealProbe = new Date(now);
+  collectedSealProbe.setMinutes(33, 0, 0);
+  if (isPreviousMonthSealSlot(collectedSealProbe, 33)) {
+    jobs.push(`${formatUpcomingJobTime(now, 33)} Collected previous-month seal`);
+  }
+
+  const wipSealProbe = new Date(now);
+  wipSealProbe.setMinutes(50, 0, 0);
+  if (isPreviousMonthSealSlot(wipSealProbe, 50)) {
+    jobs.push(`${formatUpcomingJobTime(now, 50)} WIP previous-month seal`);
+  }
+
+  return jobs;
+}
+
+async function maybeNotifyUpcomingSyncs(now) {
+  if (now.getMinutes() !== 0) return false;
+  const slot = new Date(now);
+  slot.setMinutes(0, 0, 0);
+  const slotKey = formatSlotKey(slot);
+  if (await isDedupHit('sync:upcoming', slotKey, 'syncUpcomingLastSlot')) return false;
+  await recordDedup('sync:upcoming', slotKey, 'syncUpcomingLastSlot', DEDUP_TTL.hourly);
+
+  const jobs = getUpcomingSyncJobsForHour(now);
+  notify('sync.upcoming', {
+    entity: 'DataOps',
+    tier: slotKey,
+    slotKey,
+    window: slot.toLocaleTimeString('en-GB', {
+      timeZone: 'Europe/London',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }),
+    jobs: jobs.join('\n'),
+    triggeredBy: 'scheduler',
+  });
+  trackEvent('Scheduler.SyncUpcoming.Notified', { slotKey, jobs: jobs.join(' | ') });
+  return true;
+}
+
 // ── Scheduler state — exposed via getSchedulerState() for ops-pulse ──
 const _tierState = {
-  collected: { hot: null, warm: null, cold: null, monthly: null },
-  wip:       { hot: null, warm: null, cold: null },
+  collected: { currentHourly: null, previousSeal: null },
+  wip:       { currentHourly: null, previousSeal: null },
 };
 
 function recordTier(op, tier, status, slotKey, extra) {
   _tierState[op][tier] = { status, slotKey, ts: Date.now(), ...extra };
+}
+
+function getTierOperationName(entity, tier) {
+  if (entity === 'CollectedTime') {
+    if (tier === 'previousSeal') return 'syncCollectedTimePreviousSeal';
+    return 'syncCollectedTimeCurrentHourly';
+  }
+  if (tier === 'previousSeal') return 'syncWipPreviousSeal';
+  return 'syncWipCurrentHourly';
+}
+
+function logTierLifecycle(entity, tier, status, slotKey, triggeredBy, extra = {}) {
+  logOperation({
+    operation: getTierOperationName(entity, tier),
+    status,
+    triggeredBy,
+    message: extra.message || `${entity} ${tier} ${status} (${slotKey})`,
+    durationMs: extra.durationMs,
+    invokedBy: extra.invokedBy || null,
+  });
 }
 
 // ── Adaptive tick interval (matches eventPoller pattern) ─────────────
@@ -76,15 +206,18 @@ function rebuildTickInterval(newMs) {
 
 // ── Redis-backed dedup (in-memory fallback if Redis unavailable) ─────
 const _memDedup = {
-  hotLastSlot: null, warmLastSlot: null, coldLastDate: null, monthlyLastDate: null,
-  wipHotLastSlot: null, wipWarmLastSlot: null, wipColdLastDate: null,
+  collectedCurrentHourlyLastSlot: null,
+  wipCurrentHourlyLastSlot: null,
+  collectedPreviousSealLastSlot: null,
+  wipPreviousSealLastSlot: null,
+  syncUpcomingLastSlot: null,
 };
 
 /** Check if a tier already fired for the given slot. Redis first, memory fallback. */
 async function isDedupHit(dedupKey, slotKey, memField) {
   try {
     const cached = await getCache(`dataops:dedup:${dedupKey}`);
-    if (cached?.data === slotKey) return true;
+    if (cached?.data != null) return cached.data === slotKey;
   } catch { /* Redis down — fall through to memory */ }
   return _memDedup[memField] === slotKey;
 }
@@ -99,43 +232,50 @@ async function recordDedup(dedupKey, slotKey, memField, ttlSeconds) {
 
 // Dedup TTLs (interval + 5 min buffer)
 const DEDUP_TTL = {
-  hot:     65 * 60,       // 65 min
-  warm:    6 * 60 * 60 + 5 * 60,  // 6h 5min
-  cold:    24 * 60 * 60 + 5 * 60, // 24h 5min
-  monthly: 31 * 24 * 60 * 60,     // 31 days
+  hourly:  65 * 60,                // 65 min — slightly longer than the 60-min cadence
+  previousSeal: 22 * 24 * 60 * 60,  // 22 days — covers day-21 confidence seal
 };
 
 /**
- * Overlapping-window scheduler for collected time AND WIP.
+ * Hourly full-month re-clear scheduler.
  *
- * Tier       | Collected          | WIP
- * -----------|--------------------|-----------------------
- * Hot        | Every 60 min at :03| Every 60 min at :20
- * Warm       | Every 6h at :08    | Every 6h at :25
- * Cold       | Nightly at 23:03   | Nightly at 23:20
- * Monthly    | 2nd of month 02:03 | —
+ * Cadence:
+ *   :00 every hour → DM heads-up with the jobs about to run
+ *   :05 every hour → Collected sync, full current month (1st → today)
+ *   :20 every hour → WIP sync, full current month (offset to avoid Clio rate-limit clash)
+ *   Previous month seal → Collected at :33, WIP at :50 on:
+ *     - day 1 at 03:xx, 12:xx, 23:xx
+ *     - days 2-14 at 02:xx
+ *     - day 21 at 02:xx
+ *     - the last day of the current month at 23:xx
  *
- * Warm is staggered 5 min after Hot to let Hot finish first.
- * All tiers acquire the global sync mutex — only ONE sync runs at a time.
- * ~29 API calls/day per operation (24 hot + 4 warm + 1 cold) + 1 monthly.
+ * After every successful sync the reconciliation snapshot is rebuilt for the
+ * matching scope, so the trust gate sees post-sync parity within seconds.
  *
- * Hardened features (Apr 2026):
- * - Boot catch-up: Hot syncs fire 30s after server start (Redis-deduped)
+ * All syncs acquire the global sync mutex — only ONE sync runs at a time.
+ * Steady state after day 14 is 2 hourly runs, with one extra day-21 seal.
+ * Previous-month work is bounded to the seal window and month-end guard.
+ *
+ * Hardened features (Apr 2026, refined May 2026):
+ * - Boot catch-up: hourly sync fires 30s after server start if last persisted
+ *   slot is >70 min old (Redis-deduped). On a fresh boot this means the gate
+ *   is trusted within ~1 minute of startup.
  * - Operation timeout: 10 min limit prevents stuck Clio polls from blocking queue
  * - Graceful shutdown: stopScheduler() drains before exit
  * - Adaptive polling: backs off to 60s when idle, snaps back near tier windows
  * - Redis dedup: survives restarts (in-memory fallback if Redis down)
- * - Duration metrics: trackMetric for all tier completions
+ * - Duration metrics: trackMetric for all completions
+ * - Post-sync reconciliation: refreshReconciliationSnapshot fires after success
  */
 function startDataOperationsScheduler() {
   _shuttingDown = false;
   _idleStreak = 0;
   _currentTickMs = BASE_TICK_MS;
 
-  schedulerLogger.info('Data operations scheduler started — Hot/Warm/Cold tiers + sync mutex (Europe/London)');
-  devStatus('Data scheduler', true, 'started — Hot/Warm/Cold tiers (Europe/London)');
+  schedulerLogger.info('Data operations scheduler started — hourly full-month re-clear (Europe/London)');
+  devStatus('Data scheduler', true, 'started — hourly full-month re-clear (Europe/London)');
   trackEvent('Scheduler.Started', {
-    tiers: 'Hot/Warm/Cold',
+    cadence: 'heads-up :00, current collected :05 hourly, current wip :20 hourly, previous seal :33/:50 on day1/day2-14/day21/last-day',
     operations: 'CollectedTime,Wip',
     mutex: true,
     bootCatchUpDelay: String(BOOT_CATCHUP_DELAY_MS),
@@ -148,7 +288,7 @@ function startDataOperationsScheduler() {
   if (typeof _tickTimer.unref === 'function') _tickTimer.unref();
 
   if (isBootCatchUpEnabled()) {
-    // ── Boot catch-up: fire Hot syncs after warmup delay ──
+    // ── Boot catch-up: fire hourly syncs after warmup delay if overdue ──
     setTimeout(() => runBootCatchUp(), BOOT_CATCHUP_DELAY_MS);
   } else {
     schedulerLogger.info('Boot catch-up disabled via DATAOPS_BOOT_CATCHUP');
@@ -174,8 +314,12 @@ function stopScheduler() {
   trackEvent('Scheduler.Stopped');
 }
 
-/** Wrap a sync op with the global mutex + timeout + telemetry + duration metric */
-async function runWithMutex(opName, tier, entity, slotKey, fn) {
+/** Wrap a sync op with the global mutex + timeout + telemetry + duration metric.
+ *  When reconcileScope is provided, the parity snapshot is refreshed after the
+ *  sync succeeds so the trust gate sees post-sync truth within seconds.
+ *  A snapshot-refresh failure is soft-logged and never masks the underlying
+ *  sync result. */
+async function runWithMutex(opName, tier, entity, slotKey, fn, triggeredBy = 'scheduler', reconcileScope = null) {
   if (_shuttingDown) return;
 
   const opKey = entity === 'CollectedTime' ? 'collected' : 'wip';
@@ -186,12 +330,15 @@ async function runWithMutex(opName, tier, entity, slotKey, fn) {
   if (_shuttingDown) { release(); return; }
 
   recordTier(opKey, tier, 'running', slotKey);
+  logTierLifecycle(entity, tier, 'started', slotKey, triggeredBy, {
+    message: `${entity} ${tier} running (${slotKey})`,
+  });
   devStatus('Data scheduler', true, `${entity} ${tier} running (${slotKey})`);
   const startMs = Date.now();
 
   try {
     // Race fn() against timeout to prevent indefinite mutex hold
-    await Promise.race([
+    const syncResult = await Promise.race([
       fn(),
       new Promise((_, reject) =>
         setTimeout(() => reject(new Error(`Timeout after ${SYNC_TIMEOUT_MS / 1000}s`)), SYNC_TIMEOUT_MS)
@@ -203,8 +350,46 @@ async function runWithMutex(opName, tier, entity, slotKey, fn) {
     trackEvent(`Scheduler.${entity}.${tierLabel}.Completed`, { slotKey, durationMs: String(durationMs) });
     trackMetric(`Scheduler.${entity}.${tierLabel}.Duration`, durationMs, { slotKey });
     recordTier(opKey, tier, 'completed', slotKey, { durationMs });
+    logTierLifecycle(entity, tier, 'completed', slotKey, triggeredBy, {
+      durationMs,
+      message: `${entity} ${tier} completed (${slotKey})`,
+    });
     devStatus('Data scheduler', true, `${entity} ${tier} done (${(durationMs / 1000).toFixed(1)}s)`);
-    notify('sync.completed', { entity, tier, durationMs: String(durationMs), triggeredBy: 'scheduler' });
+    notify('sync.completed', {
+      entity,
+      tier,
+      slotKey,
+      durationMs: String(durationMs),
+      deletedRows: syncResult?.deletedRows,
+      insertedRows: syncResult?.insertedRows,
+      noData: syncResult?.noData === true ? 'true' : '',
+      preserved: syncResult?.preserved === true ? 'true' : '',
+      triggeredBy,
+    });
+
+    // Post-sync reconciliation refresh — this is what makes the trust gate
+    // continuously truthful. Soft-fail: a snapshot rebuild failure does not
+    // invalidate the successful sync.
+    if (reconcileScope && typeof refreshReconciliationSnapshot === 'function') {
+      const snapStart = Date.now();
+      try {
+        await refreshReconciliationSnapshot(reconcileScope);
+        const snapDurationMs = Date.now() - snapStart;
+        trackEvent('Scheduler.Parity.Completed', {
+          scope: reconcileScope, entity, tier, slotKey, durationMs: String(snapDurationMs),
+        });
+        trackMetric('Scheduler.Parity.Duration', snapDurationMs, { scope: reconcileScope });
+      } catch (snapErr) {
+        const snapDurationMs = Date.now() - snapStart;
+        trackException(snapErr instanceof Error ? snapErr : new Error(String(snapErr?.message || snapErr)), {
+          phase: 'refreshReconciliationSnapshot', scope: reconcileScope, entity, tier, slotKey,
+        });
+        trackEvent('Scheduler.Parity.Failed', {
+          scope: reconcileScope, entity, tier, slotKey,
+          error: snapErr?.message || String(snapErr), durationMs: String(snapDurationMs),
+        });
+      }
+    }
   } catch (error) {
     const durationMs = Date.now() - startMs;
     const isTimeout = error?.message?.startsWith('Timeout after');
@@ -218,6 +403,12 @@ async function runWithMutex(opName, tier, entity, slotKey, fn) {
       slotKey, error: error?.message || String(error), durationMs: String(durationMs),
     });
     recordTier(opKey, tier, status, slotKey, { error: error?.message, durationMs });
+    logTierLifecycle(entity, tier, status, slotKey, triggeredBy, {
+      durationMs,
+      message: error?.message
+        ? `${entity} ${tier} ${status} (${slotKey}) — ${error.message}`
+        : `${entity} ${tier} ${status} (${slotKey})`,
+    });
     devStatus('Data scheduler', false, `${entity} ${tier} ${status} (${(durationMs / 1000).toFixed(1)}s)`);
   } finally {
     release();
@@ -225,44 +416,116 @@ async function runWithMutex(opName, tier, entity, slotKey, fn) {
 }
 
 /**
- * Boot catch-up: run Hot syncs for both collected + WIP immediately after
- * server start. Redis key prevents re-firing if a sync completed recently
- * (e.g. server restarted 10 min after last Hot sync).
+ * Boot catch-up: on server start, fire current hourly syncs immediately if
+ * the latest slot was missed, and fire previous-month seal syncs only when
+ * the latest seal slot is inside the intended seal window.
+ *
+ * Keeps the gate trustworthy across restarts without waiting for the next
+ * wall-clock slot, while avoiding previous-month work after the seal window.
  */
 async function runBootCatchUp() {
   if (_shuttingDown) return;
 
-  const slotKey = formatSlotKey(getLondonNow());
+  const now = getLondonNow();
+  const slotKey = formatSlotKey(now);
   schedulerLogger.info(`Boot catch-up check (${slotKey})`);
 
-  // Collected Hot
-  const collectedRecent = await isDedupHit('collected:hot', null, '__skip__');
-  if (!collectedRecent) {
-    schedulerLogger.info('Boot catch-up: firing Collected Hot sync');
-    devStatus('Data scheduler', true, 'boot catch-up: Collected Hot');
-    trackEvent('Scheduler.BootCatchUp.CollectedHot.Started', { slotKey });
-    await recordDedup('collected:hot', slotKey, 'hotLastSlot', DEDUP_TTL.hot);
-    runWithMutex('bootCatchUpCollectedHot', 'hot', 'CollectedTime', `boot:${slotKey}`, () =>
-      syncCollectedTime({ daysBack: 1, triggeredBy: 'scheduler-boot' })
+  const monthStart = formatDateKey(new Date(now.getFullYear(), now.getMonth(), 1));
+  const monthEnd = formatDateKey(now);
+  const previousMonthStart = formatDateKey(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+  const previousMonthEnd = formatDateKey(new Date(now.getFullYear(), now.getMonth(), 0));
+
+  const dueSlots = {
+    collectedCurrentHourly: getLatestHourlySlotKey(now, 5),
+    wipCurrentHourly: getLatestHourlySlotKey(now, 20),
+    collectedPreviousSeal: getLatestPreviousMonthSealSlotKey(now, 33),
+    wipPreviousSeal: getLatestPreviousMonthSealSlotKey(now, 50),
+  };
+
+  // ── Collected current month ──
+  const collectedCurrentDue = !(await isDedupHit('collected:current-hourly', dueSlots.collectedCurrentHourly, 'collectedCurrentHourlyLastSlot'));
+  if (collectedCurrentDue) {
+    schedulerLogger.info(`Boot catch-up: firing Collected current hourly (${dueSlots.collectedCurrentHourly})`);
+    devStatus('Data scheduler', true, `boot catch-up: Collected current hourly`);
+    trackEvent('Scheduler.BootCatchUp.CollectedCurrentHourly.Started', { slotKey: dueSlots.collectedCurrentHourly });
+    logProgress('syncCollectedTimeCurrentHourly',
+      `Boot catch-up Collected current month due (${dueSlots.collectedCurrentHourly}) — ${monthStart} → ${monthEnd}`,
+      { triggeredBy: 'scheduler-boot' }
+    );
+    await recordDedup('collected:current-hourly', dueSlots.collectedCurrentHourly, 'collectedCurrentHourlyLastSlot', DEDUP_TTL.hourly);
+    runWithMutex(
+      'bootCatchUpCollectedCurrentHourly', 'currentHourly', 'CollectedTime',
+      `boot:${dueSlots.collectedCurrentHourly}`,
+      () => syncCollectedTime({ startDate: monthStart, endDate: monthEnd, triggeredBy: 'scheduler-boot' }),
+      'scheduler-boot', 'collected'
     );
   } else {
-    schedulerLogger.info('Boot catch-up: Collected Hot skipped (recent sync exists in Redis)');
-    trackEvent('Scheduler.BootCatchUp.CollectedHot.Skipped', { slotKey });
+    trackEvent('Scheduler.BootCatchUp.CollectedCurrentHourly.Skipped', { slotKey: dueSlots.collectedCurrentHourly });
   }
 
-  // WIP Hot
-  const wipRecent = await isDedupHit('wip:hot', null, '__skip__');
-  if (!wipRecent) {
-    schedulerLogger.info('Boot catch-up: firing WIP Hot sync');
-    devStatus('Data scheduler', true, 'boot catch-up: WIP Hot');
-    trackEvent('Scheduler.BootCatchUp.WipHot.Started', { slotKey });
-    await recordDedup('wip:hot', slotKey, 'wipHotLastSlot', DEDUP_TTL.hot);
-    runWithMutex('bootCatchUpWipHot', 'hot', 'Wip', `boot:${slotKey}`, () =>
-      syncWip({ daysBack: WIP_HOT_DAYS_BACK, triggeredBy: 'scheduler-boot' })
+  // ── WIP current month ──
+  const wipCurrentDue = !(await isDedupHit('wip:current-hourly', dueSlots.wipCurrentHourly, 'wipCurrentHourlyLastSlot'));
+  if (wipCurrentDue) {
+    schedulerLogger.info(`Boot catch-up: firing WIP current hourly (${dueSlots.wipCurrentHourly})`);
+    devStatus('Data scheduler', true, `boot catch-up: WIP current hourly`);
+    trackEvent('Scheduler.BootCatchUp.WipCurrentHourly.Started', { slotKey: dueSlots.wipCurrentHourly });
+    logProgress('syncWipCurrentHourly',
+      `Boot catch-up WIP current month due (${dueSlots.wipCurrentHourly}) — ${monthStart} → ${monthEnd}`,
+      { triggeredBy: 'scheduler-boot' }
+    );
+    await recordDedup('wip:current-hourly', dueSlots.wipCurrentHourly, 'wipCurrentHourlyLastSlot', DEDUP_TTL.hourly);
+    runWithMutex(
+      'bootCatchUpWipCurrentHourly', 'currentHourly', 'Wip',
+      `boot:${dueSlots.wipCurrentHourly}`,
+      () => syncWip({ startDate: monthStart, endDate: monthEnd, triggeredBy: 'scheduler-boot' }),
+      'scheduler-boot', 'wip'
     );
   } else {
-    schedulerLogger.info('Boot catch-up: WIP Hot skipped (recent sync exists in Redis)');
-    trackEvent('Scheduler.BootCatchUp.WipHot.Skipped', { slotKey });
+    trackEvent('Scheduler.BootCatchUp.WipCurrentHourly.Skipped', { slotKey: dueSlots.wipCurrentHourly });
+  }
+
+  // ── Collected previous month seal ──
+  const collectedPreviousDue = dueSlots.collectedPreviousSeal
+    && !(await isDedupHit('collected:previous-seal', dueSlots.collectedPreviousSeal, 'collectedPreviousSealLastSlot'));
+  if (collectedPreviousDue) {
+    schedulerLogger.info(`Boot catch-up: firing Collected previous seal (${dueSlots.collectedPreviousSeal})`);
+    devStatus('Data scheduler', true, `boot catch-up: Collected previous seal`);
+    trackEvent('Scheduler.BootCatchUp.CollectedPreviousSeal.Started', { slotKey: dueSlots.collectedPreviousSeal });
+    logProgress('syncCollectedTimePreviousSeal',
+      `Boot catch-up Collected previous-month seal due (${dueSlots.collectedPreviousSeal}) — ${previousMonthStart} → ${previousMonthEnd}`,
+      { triggeredBy: 'scheduler-boot' }
+    );
+    await recordDedup('collected:previous-seal', dueSlots.collectedPreviousSeal, 'collectedPreviousSealLastSlot', DEDUP_TTL.previousSeal);
+    runWithMutex(
+      'bootCatchUpCollectedPreviousSeal', 'previousSeal', 'CollectedTime',
+      `boot:${dueSlots.collectedPreviousSeal}`,
+      () => syncCollectedTime({ startDate: previousMonthStart, endDate: previousMonthEnd, triggeredBy: 'scheduler-boot' }),
+      'scheduler-boot', 'collected'
+    );
+  } else {
+    trackEvent('Scheduler.BootCatchUp.CollectedPreviousSeal.Skipped', { slotKey: dueSlots.collectedPreviousSeal || 'none-due' });
+  }
+
+  // ── WIP previous month seal ──
+  const wipPreviousDue = dueSlots.wipPreviousSeal
+    && !(await isDedupHit('wip:previous-seal', dueSlots.wipPreviousSeal, 'wipPreviousSealLastSlot'));
+  if (wipPreviousDue) {
+    schedulerLogger.info(`Boot catch-up: firing WIP previous seal (${dueSlots.wipPreviousSeal})`);
+    devStatus('Data scheduler', true, `boot catch-up: WIP previous seal`);
+    trackEvent('Scheduler.BootCatchUp.WipPreviousSeal.Started', { slotKey: dueSlots.wipPreviousSeal });
+    logProgress('syncWipPreviousSeal',
+      `Boot catch-up WIP previous-month seal due (${dueSlots.wipPreviousSeal}) — ${previousMonthStart} → ${previousMonthEnd}`,
+      { triggeredBy: 'scheduler-boot' }
+    );
+    await recordDedup('wip:previous-seal', dueSlots.wipPreviousSeal, 'wipPreviousSealLastSlot', DEDUP_TTL.previousSeal);
+    runWithMutex(
+      'bootCatchUpWipPreviousSeal', 'previousSeal', 'Wip',
+      `boot:${dueSlots.wipPreviousSeal}`,
+      () => syncWip({ startDate: previousMonthStart, endDate: previousMonthEnd, triggeredBy: 'scheduler-boot' }),
+      'scheduler-boot', 'wip'
+    );
+  } else {
+    trackEvent('Scheduler.BootCatchUp.WipPreviousSeal.Skipped', { slotKey: dueSlots.wipPreviousSeal || 'none-due' });
   }
 }
 
@@ -272,111 +535,92 @@ async function schedulerTick() {
 
   const now = getLondonNow();
   const minute = now.getMinutes();
-  const hour = now.getHours();
   let firedThisTick = false;
 
-  // ═══════════════════════════════════════════════
-  // COLLECTED TIME
-  // ═══════════════════════════════════════════════
+  const monthStart = formatDateKey(new Date(now.getFullYear(), now.getMonth(), 1));
+  const monthEnd = formatDateKey(now);
+  const previousMonthStart = formatDateKey(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+  const previousMonthEnd = formatDateKey(new Date(now.getFullYear(), now.getMonth(), 0));
 
-  // ─── HOT: every 60 min at :03 — today + yesterday ───
-  if (minute === 3) {
+  const sentUpcomingNotice = await maybeNotifyUpcomingSyncs(now);
+  if (sentUpcomingNotice) firedThisTick = true;
+
+  // ═══════════════════════════════════════════════
+  // COLLECTED — current month full re-clear at :05
+  // ═══════════════════════════════════════════════
+  if (minute === 5) {
     const slotKey = formatSlotKey(now);
-    if (!(await isDedupHit('collected:hot', slotKey, 'hotLastSlot'))) {
-      await recordDedup('collected:hot', slotKey, 'hotLastSlot', DEDUP_TTL.hot);
+    if (!(await isDedupHit('collected:current-hourly', slotKey, 'collectedCurrentHourlyLastSlot'))) {
+      await recordDedup('collected:current-hourly', slotKey, 'collectedCurrentHourlyLastSlot', DEDUP_TTL.hourly);
       firedThisTick = true;
-      logProgress('syncCollectedTimeHot', `Hot sync triggered (${slotKey}) — today+yesterday`, { triggeredBy: 'scheduler' });
-      runWithMutex('syncCollectedTimeHot', 'hot', 'CollectedTime', slotKey, () =>
-        syncCollectedTime({ daysBack: 1, triggeredBy: 'scheduler' })
+      logProgress('syncCollectedTimeCurrentHourly',
+        `Hourly Collected current month sync (${slotKey}) — ${monthStart} → ${monthEnd}`,
+        { triggeredBy: 'scheduler' }
       );
-    }
-  }
-
-  // ─── WARM: every 6h at :08 (00:08, 06:08, 12:08, 18:08) — rolling 3 days ───
-  if (hour % 6 === 0 && minute === 8) {
-    const slotKey = formatSlotKey(now);
-    if (!(await isDedupHit('collected:warm', slotKey, 'warmLastSlot'))) {
-      await recordDedup('collected:warm', slotKey, 'warmLastSlot', DEDUP_TTL.warm);
-      firedThisTick = true;
-      logProgress('syncCollectedTimeWarm', `Warm sync triggered (${slotKey}) — rolling 3 days`, { triggeredBy: 'scheduler' });
-      runWithMutex('syncCollectedTimeWarm', 'warm', 'CollectedTime', slotKey, () =>
-        syncCollectedTime({ daysBack: 3, triggeredBy: 'scheduler' })
-      );
-    }
-  }
-
-  // ─── COLD: nightly at 23:03 — full current month (1st → today) ───
-  if (hour === 23 && minute === 3) {
-    const dateKey = formatDateKey(now);
-    if (!(await isDedupHit('collected:cold', dateKey, 'coldLastDate'))) {
-      await recordDedup('collected:cold', dateKey, 'coldLastDate', DEDUP_TTL.cold);
-      firedThisTick = true;
-      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      const startDate = formatDateKey(monthStart);
-      const endDate = formatDateKey(now);
-      logProgress('syncCollectedTimeCold', `Cold sync triggered (${dateKey} 23:03) — full month ${startDate} → ${endDate}`, { triggeredBy: 'scheduler' });
-      runWithMutex('syncCollectedTimeCold', 'cold', 'CollectedTime', dateKey, () =>
-        syncCollectedTime({ startDate, endDate, triggeredBy: 'scheduler' })
-      );
-    }
-  }
-
-  // ─── MONTHLY: 2nd of month at 02:03 — full previous month ───
-  if (now.getDate() === 2 && hour === 2 && minute === 3) {
-    const dateKey = formatDateKey(now);
-    if (!(await isDedupHit('collected:monthly', dateKey, 'monthlyLastDate'))) {
-      await recordDedup('collected:monthly', dateKey, 'monthlyLastDate', DEDUP_TTL.monthly);
-      firedThisTick = true;
-      const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      const prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
-      const startDate = formatDateKey(prevMonthStart);
-      const endDate = formatDateKey(prevMonthEnd);
-      logProgress('syncCollectedTimeMonthly', `Monthly sweep triggered (${dateKey} 02:03) — previous month ${startDate} → ${endDate}`, { triggeredBy: 'scheduler' });
-      runWithMutex('syncCollectedTimeMonthly', 'monthly', 'CollectedTime', dateKey, () =>
-        syncCollectedTime({ startDate, endDate, triggeredBy: 'scheduler' })
+      runWithMutex(
+        'syncCollectedTimeCurrentHourly', 'currentHourly', 'CollectedTime', slotKey,
+        () => syncCollectedTime({ startDate: monthStart, endDate: monthEnd, triggeredBy: 'scheduler' }),
+        'scheduler', 'collected'
       );
     }
   }
 
   // ═══════════════════════════════════════════════
-  // WIP — offset from collected
+  // WIP — current month full re-clear at :20 (offset to avoid Clio rate clash)
   // ═══════════════════════════════════════════════
-
-  // ─── HOT: every 60 min at :20 — rolling recent history ───
   if (minute === 20) {
     const slotKey = formatSlotKey(now);
-    if (!(await isDedupHit('wip:hot', slotKey, 'wipHotLastSlot'))) {
-      await recordDedup('wip:hot', slotKey, 'wipHotLastSlot', DEDUP_TTL.hot);
+    if (!(await isDedupHit('wip:current-hourly', slotKey, 'wipCurrentHourlyLastSlot'))) {
+      await recordDedup('wip:current-hourly', slotKey, 'wipCurrentHourlyLastSlot', DEDUP_TTL.hourly);
       firedThisTick = true;
-      logProgress('syncWipHot', `WIP hot sync triggered (${slotKey}) — rolling ${WIP_HOT_DAYS_BACK} days`, { triggeredBy: 'scheduler' });
-      runWithMutex('syncWipHot', 'hot', 'Wip', slotKey, () =>
-        syncWip({ daysBack: WIP_HOT_DAYS_BACK, triggeredBy: 'scheduler' })
+      logProgress('syncWipCurrentHourly',
+        `Hourly WIP current month sync (${slotKey}) — ${monthStart} → ${monthEnd}`,
+        { triggeredBy: 'scheduler' }
+      );
+      runWithMutex(
+        'syncWipCurrentHourly', 'currentHourly', 'Wip', slotKey,
+        () => syncWip({ startDate: monthStart, endDate: monthEnd, triggeredBy: 'scheduler' }),
+        'scheduler', 'wip'
       );
     }
   }
 
-  // ─── WARM: every 6h at :25 (00:25, 06:25, 12:25, 18:25) — rolling medium history ───
-  if (hour % 6 === 0 && minute === 25) {
+  // ═══════════════════════════════════════════════
+  // COLLECTED — previous month seal slots at :33
+  // ═══════════════════════════════════════════════
+  if (isPreviousMonthSealSlot(now, 33)) {
     const slotKey = formatSlotKey(now);
-    if (!(await isDedupHit('wip:warm', slotKey, 'wipWarmLastSlot'))) {
-      await recordDedup('wip:warm', slotKey, 'wipWarmLastSlot', DEDUP_TTL.warm);
+    if (!(await isDedupHit('collected:previous-seal', slotKey, 'collectedPreviousSealLastSlot'))) {
+      await recordDedup('collected:previous-seal', slotKey, 'collectedPreviousSealLastSlot', DEDUP_TTL.previousSeal);
       firedThisTick = true;
-      logProgress('syncWipWarm', `WIP warm sync triggered (${slotKey}) — rolling ${WIP_WARM_DAYS_BACK} days`, { triggeredBy: 'scheduler' });
-      runWithMutex('syncWipWarm', 'warm', 'Wip', slotKey, () =>
-        syncWip({ daysBack: WIP_WARM_DAYS_BACK, triggeredBy: 'scheduler' })
+      logProgress('syncCollectedTimePreviousSeal',
+        `Collected previous-month seal (${slotKey}) — ${previousMonthStart} → ${previousMonthEnd}`,
+        { triggeredBy: 'scheduler' }
+      );
+      runWithMutex(
+        'syncCollectedTimePreviousSeal', 'previousSeal', 'CollectedTime', slotKey,
+        () => syncCollectedTime({ startDate: previousMonthStart, endDate: previousMonthEnd, triggeredBy: 'scheduler' }),
+        'scheduler', 'collected'
       );
     }
   }
 
-  // ─── COLD: nightly at 23:20 — rolling deeper history ───
-  if (hour === 23 && minute === 20) {
-    const dateKey = formatDateKey(now);
-    if (!(await isDedupHit('wip:cold', dateKey, 'wipColdLastDate'))) {
-      await recordDedup('wip:cold', dateKey, 'wipColdLastDate', DEDUP_TTL.cold);
+  // ═══════════════════════════════════════════════
+  // WIP — previous month seal slots at :50
+  // ═══════════════════════════════════════════════
+  if (isPreviousMonthSealSlot(now, 50)) {
+    const slotKey = formatSlotKey(now);
+    if (!(await isDedupHit('wip:previous-seal', slotKey, 'wipPreviousSealLastSlot'))) {
+      await recordDedup('wip:previous-seal', slotKey, 'wipPreviousSealLastSlot', DEDUP_TTL.previousSeal);
       firedThisTick = true;
-      logProgress('syncWipCold', `WIP cold sync triggered (${dateKey} 23:20) — rolling ${WIP_COLD_DAYS_BACK} days`, { triggeredBy: 'scheduler' });
-      runWithMutex('syncWipCold', 'cold', 'Wip', dateKey, () =>
-        syncWip({ daysBack: WIP_COLD_DAYS_BACK, triggeredBy: 'scheduler' })
+      logProgress('syncWipPreviousSeal',
+        `WIP previous-month seal (${slotKey}) — ${previousMonthStart} → ${previousMonthEnd}`,
+        { triggeredBy: 'scheduler' }
+      );
+      runWithMutex(
+        'syncWipPreviousSeal', 'previousSeal', 'Wip', slotKey,
+        () => syncWip({ startDate: previousMonthStart, endDate: previousMonthEnd, triggeredBy: 'scheduler' }),
+        'scheduler', 'wip'
       );
     }
   }
@@ -421,12 +665,10 @@ function getSchedulerState() {
     tiers: _tierState,
     mutex: getMutexState(),
     nextFires: {
-      collectedHot:  { minsUntil: minsUntil(3), schedule: ':03 (1h)' },
-      collectedWarm: { minsUntil: minsUntil(8, 6), schedule: ':08 (6h)' },
-      collectedCold: { minsUntil: hour < 23 ? (23 - hour) * 60 + (3 - minute) : (3 - minute > 0 ? 3 - minute : 60), schedule: '23:03' },
-      wipHot:        { minsUntil: minsUntil(20), schedule: ':20 (1h)' },
-      wipWarm:       { minsUntil: minsUntil(25, 6), schedule: ':25 (6h)' },
-      wipCold:       { minsUntil: hour < 23 ? (23 - hour) * 60 + (20 - minute) : (20 - minute > 0 ? 20 - minute : 60), schedule: '23:20' },
+      collectedCurrentHourly:  { minsUntil: minsUntil(5),  schedule: ':05 current month' },
+      wipCurrentHourly:        { minsUntil: minsUntil(20), schedule: ':20 current month' },
+      collectedPreviousSeal:   { minsUntil: null, schedule: 'day 1 at 03:33/12:33/23:33, days 2-14 at 02:33, day 21 at 02:33, last day at 23:33' },
+      wipPreviousSeal:         { minsUntil: null, schedule: 'day 1 at 03:50/12:50/23:50, days 2-14 at 02:50, day 21 at 02:50, last day at 23:50' },
     },
   };
 }

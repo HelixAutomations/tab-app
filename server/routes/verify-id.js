@@ -13,6 +13,12 @@ const { deleteCachePattern, CACHE_CONFIG } = require('../utils/redisClient');
 const { getTeamData } = require('../utils/teamData');
 const { sql, getPool } = require('../utils/db');
 const {
+  recordSubmission,
+  recordStep,
+  markComplete,
+  markFailed,
+} = require('../utils/formSubmissionLog');
+const {
   createEnvBasedQueryRunner,
   DEFAULT_SQL_RETRIES,
   isTransientSqlError
@@ -1123,6 +1129,20 @@ router.post('/adhoc', async (req, res) => {
     linkedInstruction: instructionRef || '',
   });
 
+  // Forms-stream-persistence: every adhoc check now joins the unified rail.
+  let submissionId = null;
+  try {
+    submissionId = await recordSubmission({
+      formKey: 'verification',
+      submittedBy: String(triggeredBy || 'UNK').slice(0, 10),
+      lane: 'Verification',
+      payload: body,
+      summary: `EID: ${firstName} ${lastName}${instructionRef ? ` (${instructionRef})` : ''}`.slice(0, 400),
+    });
+  } catch (logErr) {
+    trackException(logErr, { phase: 'verifyAdhoc.recordSubmission' });
+  }
+
   try {
     const payload = buildTillerPayload({
       title, gender, firstName, lastName,
@@ -1139,6 +1159,11 @@ router.post('/adhoc', async (req, res) => {
     ];
 
     const tillerResponse = await submitRawVerification(payload);
+    await recordStep(submissionId, {
+      name: 'tiller.submit',
+      status: 'success',
+      output: { correlationId: tillerResponse?.correlationId || tillerResponse?.checkId || tillerResponse?.id || null },
+    });
     const durationMs = Date.now() - started;
     const correlationId = tillerResponse?.correlationId || tillerResponse?.checkId || tillerResponse?.id || null;
 
@@ -1147,6 +1172,11 @@ router.post('/adhoc', async (req, res) => {
     if (instructionRef) {
       try {
         persisted = await insertIDVerification(instructionRef, email, tillerResponse, null);
+        await recordStep(submissionId, {
+          name: 'idVerifications.insert',
+          status: 'success',
+          output: { instructionRef, overall: persisted?.overall || null },
+        });
         try {
           await Promise.all([
             deleteCachePattern(`${CACHE_CONFIG.PREFIXES.UNIFIED}:*`),
@@ -1157,6 +1187,11 @@ router.post('/adhoc', async (req, res) => {
         }
       } catch (persistErr) {
         trackException(persistErr, { operation: 'adhoc', phase: 'insertIDVerification', entity: 'IDVerifications', instructionRef });
+        await recordStep(submissionId, {
+          name: 'idVerifications.insert',
+          status: 'failed',
+          error: persistErr?.message || String(persistErr),
+        });
         console.error('[verify-id adhoc] Failed to insert IDVerifications row:', persistErr.message);
       }
     }
@@ -1169,8 +1204,14 @@ router.post('/adhoc', async (req, res) => {
     });
     trackMetric('Verify.Adhoc.Duration', durationMs, { operation: 'adhoc', linked: instructionRef ? 'true' : 'false' });
 
+    await markComplete(submissionId, {
+      lastEvent: persisted ? 'EID check complete and persisted' : 'EID check complete',
+    });
+
     return res.status(200).json({
       success: true,
+      submissionId,
+      streamUrl: submissionId ? `forms?focusSubmission=${submissionId}` : null,
       externalReferenceId: ref,
       correlationId,
       instructionRef: instructionRef || null,
@@ -1181,10 +1222,12 @@ router.post('/adhoc', async (req, res) => {
   } catch (error) {
     trackException(error, { operation: 'adhoc', phase: 'tillerSubmit', entity: 'AdhocVerification' });
     trackEvent('Verify.Adhoc.Failed', { operation: 'adhoc', triggeredBy, ref, error: error.message, linkedInstruction: instructionRef || '' });
+    await markFailed(submissionId, { lastEvent: 'tiller.submit:failed', error });
     const validationErrors = error?.response?.data?.ValidationErrors;
     return res.status(error?.response?.status || 500).json({
       error: 'Ad-hoc verification failed',
       details: error.message,
+      submissionId,
       ...(validationErrors ? { validationErrors } : {}),
     });
   }

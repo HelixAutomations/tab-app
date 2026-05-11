@@ -1080,7 +1080,7 @@ const AppWithContext: React.FC = () => {
   }, [userData]);
 
   // Refresh enquiries function - can be called after claiming an enquiry
-  const refreshEnquiries = async () => {
+  const refreshEnquiries = React.useCallback(async () => {
     if (!userData || !userData[0]) return;
 
     if (refreshEnquiriesInFlightRef.current) {
@@ -1130,7 +1130,7 @@ const AppWithContext: React.FC = () => {
         setEnquiriesLiveRefreshInFlight(false);
         if (refreshEnquiriesQueuedRef.current) {
           refreshEnquiriesQueuedRef.current = false;
-          void refreshEnquiries();
+          void refreshEnquiriesRef.current();
         }
       }
     };
@@ -1138,7 +1138,7 @@ const AppWithContext: React.FC = () => {
     const refreshPromise = runRefresh();
     refreshEnquiriesInFlightRef.current = refreshPromise;
     return refreshPromise;
-  };
+  }, [originalAdminUser, teamData, userData]);
 
     const scheduleBootEnquiriesLiveRefresh = (options: {
       stage: 'teams' | 'gate' | 'local';
@@ -1162,6 +1162,12 @@ const AppWithContext: React.FC = () => {
           fetchAll: options.fetchAll,
         });
 
+        // S1/A4 (2026-04-27): drop bypassCache=true on the deferred boot live
+        // refresh. The SSE stream `/api/enquiries-unified/stream` is already
+        // open by the time this runs and delivers deltas in real time, so the
+        // server's TTL cache is acceptable for this pass. Saves ~500ms–1s of
+        // SQL on every Home boot. Manual user-initiated refresh paths still
+        // pass bypassCache=true (see refreshEnquiries / switchUser).
         void fetchEnquiries(
           options.email,
           options.dateFrom,
@@ -1169,7 +1175,7 @@ const AppWithContext: React.FC = () => {
           options.userAow,
           options.initials,
           options.fetchAll,
-          true,
+          false,
         )
           .then((res) => {
             const durationMs = Math.round(performance.now() - startedAt);
@@ -1352,6 +1358,15 @@ const AppWithContext: React.FC = () => {
         clearClientEnquiriesCaches();
         // Reconcile immediately against the live server response so any missed linked-ID
         // row is overwritten without waiting for the normal delayed refresh.
+        scheduleBackgroundReconciliation(400);
+        return;
+      }
+
+      if (changeType === 'invalidate') {
+        // Server-side cache was busted out-of-band (e.g. dev reseed, webhook).
+        // Drop client caches so the next read goes to the server, and pull a
+        // fresh snapshot quickly without waiting for the 10s fallback.
+        clearClientEnquiriesCaches();
         scheduleBackgroundReconciliation(400);
         return;
       }
@@ -1984,25 +1999,8 @@ const AppWithContext: React.FC = () => {
           const objectId = ctx.user?.id || "";
           setEnquiriesUsingSnapshot(false);
 
-          const teamsApiReadyStart = performance.now();
-          trackBootStage('teams', 'api-ready', 'started', { entry: 'teams' });
-          const teamsApiReady = await waitForLocalApiReady();
-          if (!teamsApiReady) {
-            trackBootStage('teams', 'api-ready', 'failed', { entry: 'teams' }, {
-              duration: Math.round(performance.now() - teamsApiReadyStart),
-              error: 'local-api-readiness-timeout',
-            });
-            setError('Local API did not start in time. Please wait a moment and refresh.');
-            setLoading(false);
-            return;
-          }
-          trackBootStage('teams', 'api-ready', 'completed', { entry: 'teams' }, {
-            duration: Math.round(performance.now() - teamsApiReadyStart),
-          });
-
-          // ── Snapshot-first paint ─────────────────────────────────────
-          // Restore cached boot data so components mount with data instead
-          // of empty arrays.  Live fetches below will overwrite silently.
+          // Restore the last shell snapshot before waiting on the local API so
+          // stale-first paint still works when the backend is slow to wake up.
           const shellSnapshot = readShellBootSnapshot(objectId);
           const restoredShellSnapshot = Boolean(shellSnapshot);
           if (shellSnapshot) {
@@ -2010,7 +2008,8 @@ const AppWithContext: React.FC = () => {
             if (shellSnapshot.enquiries?.length) setEnquiries(shellSnapshot.enquiries);
             if (shellSnapshot.teamData) setTeamData(shellSnapshot.teamData);
             setEnquiriesUsingSnapshot(Boolean(shellSnapshot.enquiries?.length));
-            console.info('[Boot:Teams] Shell snapshot restored — stale-first paint');
+            setLoading(false);
+            console.info('[Boot:Teams] Shell snapshot restored before local API readiness wait');
             trackBootStage('teams', 'snapshot', 'restored', {
               entry: 'teams',
               hasUserData: Boolean(shellSnapshot.userData?.length),
@@ -2019,7 +2018,27 @@ const AppWithContext: React.FC = () => {
             });
           }
 
-          setLoading(false);
+          const teamsApiReadyStart = performance.now();
+          trackBootStage('teams', 'api-ready', 'started', { entry: 'teams' });
+          const teamsApiReady = await waitForLocalApiReady();
+          if (!teamsApiReady) {
+            trackBootStage('teams', 'api-ready', 'failed', { entry: 'teams' }, {
+              duration: Math.round(performance.now() - teamsApiReadyStart),
+              error: 'local-api-readiness-timeout',
+            });
+            setError(restoredShellSnapshot
+              ? 'Local API did not start in time. Showing recent cached data while the backend wakes up.'
+              : 'Local API did not start in time. Please wait a moment and refresh.');
+            setLoading(false);
+            return;
+          }
+          trackBootStage('teams', 'api-ready', 'completed', { entry: 'teams' }, {
+            duration: Math.round(performance.now() - teamsApiReadyStart),
+          });
+
+          if (!restoredShellSnapshot) {
+            setLoading(false);
+          }
           if (!objectId) {
             setError("Missing Teams context objectId.");
             return;
@@ -2272,6 +2291,23 @@ const AppWithContext: React.FC = () => {
               }];
               setUserData(initialUserData as UserData[]);
 
+              // Restore the local shell snapshot before waiting on /api/health
+              // so cached shell data can paint even while the backend wakes up.
+              const localSnapshot = readShellBootSnapshot('local');
+              const restoredLocalSnapshot = Boolean(localSnapshot);
+              if (localSnapshot) {
+                if (localSnapshot.enquiries?.length) setEnquiries(localSnapshot.enquiries);
+                if (localSnapshot.teamData) setTeamData(localSnapshot.teamData);
+                setEnquiriesUsingSnapshot(Boolean(localSnapshot.enquiries?.length));
+                setLoading(false);
+                console.info('[Boot:Local] Shell snapshot restored before local API readiness wait');
+                trackBootStage('local', 'snapshot', 'restored', {
+                  entry: 'local-dev',
+                  hasEnquiries: Boolean(localSnapshot.enquiries?.length),
+                  hasTeamData: Boolean(localSnapshot.teamData),
+                });
+              }
+
               const apiReadyStart = performance.now();
               trackBootStage('local', 'api-ready', 'started', { entry: 'local-dev' });
               const apiReady = await waitForLocalApiReady();
@@ -2280,7 +2316,9 @@ const AppWithContext: React.FC = () => {
                   duration: Math.round(performance.now() - apiReadyStart),
                   error: 'local-api-readiness-timeout',
                 });
-                setError('Local API did not start in time. Please wait a moment and refresh.');
+                setError(restoredLocalSnapshot
+                  ? 'Local API did not start in time. Showing recent cached data while the backend wakes up.'
+                  : 'Local API did not start in time. Please wait a moment and refresh.');
                 setLoading(false);
                 return;
               }
@@ -2288,21 +2326,7 @@ const AppWithContext: React.FC = () => {
                 duration: Math.round(performance.now() - apiReadyStart),
               });
 
-              // ── Snapshot-first paint (local dev) ────────────────────────
-              const localSnapshot = readShellBootSnapshot('local');
-              if (localSnapshot) {
-                if (localSnapshot.enquiries?.length) setEnquiries(localSnapshot.enquiries);
-                if (localSnapshot.teamData) setTeamData(localSnapshot.teamData);
-                setEnquiriesUsingSnapshot(Boolean(localSnapshot.enquiries?.length));
-                setLoading(false);
-                console.info('[Boot:Local] Shell snapshot restored — stale-first paint');
-                trackBootStage('local', 'snapshot', 'restored', {
-                  entry: 'local-dev',
-                  hasEnquiries: Boolean(localSnapshot.enquiries?.length),
-                  hasTeamData: Boolean(localSnapshot.teamData),
-                });
-              }
-              if (!localSnapshot) {
+              if (!restoredLocalSnapshot) {
                 setLoading(false);
               }
 
@@ -2394,6 +2418,10 @@ const AppWithContext: React.FC = () => {
                   });
 
                   try {
+                    // Home boot Phase 2A.3 (2026-04-27): use server TTL cache on the
+                    // local-dev primary boot. The local snapshot already paints instantly
+                    // and the enquiries-unified SSE delivers deltas after, so bypassing
+                    // cache here only forced a 300–500ms cold SQL hit on every refresh.
                     const res = await fetchEnquiries(
                       enquiriesEmail,
                       dateFrom,
@@ -2401,7 +2429,7 @@ const AppWithContext: React.FC = () => {
                       "",
                       userInitials,
                       fetchAll,
-                      true,
+                      false,
                     );
                     const enquiriesMs = Math.round(performance.now() - t0);
                     console.info(`[Boot] Enquiries: ${enquiriesMs}ms (${res.length} rows)`);
@@ -2564,7 +2592,7 @@ const AppWithContext: React.FC = () => {
         isLoading={loading}
         error={error}
         teamData={teamData}
-        isLocalDev={useLocalData}
+        isLocalDev={isLocalDevEnv}
         onAreaChange={updateLocalUserData}
         onUserChange={switchUser}
         onReturnToAdmin={returnToAdmin}

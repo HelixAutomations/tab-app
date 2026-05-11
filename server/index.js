@@ -163,6 +163,16 @@ async function warmupConnections() {
             .catch(() => { _connStatus.instructionsSql = false; setServerStatus('instructionsSql', false); devStatus('Instructions SQL', false, 'pool failed'); });
     }
 
+    // Phase Access.1 — pre-warm the AccessGrants resolver cache so the very
+    // first authed request gets the data-driven tier resolution rather than
+    // falling through to the constant-based heuristic.
+    try {
+        const access = require('./utils/access');
+        access.warm()
+            .then(() => devStatus('Access grants', true, `cached (${access.getCacheStatus().source})`))
+            .catch((err) => devStatus('Access grants', false, `warm failed — ${err?.message || err}`));
+    } catch { /* resolver not present yet */ }
+
     // Pre-warm Clio API credentials from Key Vault
     // Eliminates ~3.7s cold-start penalty on first /api/home-wip call
     try {
@@ -192,12 +202,23 @@ async function warmupConnections() {
         const port = process.env.PORT || 8080;
         trackEvent('Server.Boot.Warmup.Tier1.Started', { port });
 
+        const buildWarmupRequestOptions = (ep, headers) => {
+            const options = { path: ep.path, method: ep.method, headers };
+            if (typeof port === 'string' && port.startsWith('\\\\.\\pipe\\')) {
+                options.socketPath = port;
+            } else {
+                options.hostname = '127.0.0.1';
+                options.port = port;
+            }
+            return options;
+        };
+
         const warmup = (ep) => {
             const body = ep.body ? JSON.stringify(ep.body) : '';
             const headers = { 'Content-Type': 'application/json' };
             if (body) headers['Content-Length'] = Buffer.byteLength(body);
             const startedAt = Date.now();
-            const req = http.request({ hostname: '127.0.0.1', port, path: ep.path, method: ep.method, headers }, (res) => {
+            const req = http.request(buildWarmupRequestOptions(ep, headers), (res) => {
                 res.resume();
                 devStatus(`Warmup ${ep.label || ep.path}`, res.statusCode < 400, `${res.statusCode}`);
                 const durationMs = Date.now() - startedAt;
@@ -310,6 +331,31 @@ const _hydrationReady = (async () => {
     }
 })();
 _bootMark('routes:require:start');
+if (_bootTimingEnabled && !global.__helixBootRequirePatched) {
+    const Module = require('module');
+    const originalLoad = Module._load;
+    const bootParentFile = __filename;
+
+    global.__helixBootRequirePatched = true;
+    Module._load = function helixBootTimedLoad(request, parent, isMain) {
+        const isTopLevelBootRequire =
+            parent?.filename === bootParentFile
+            && typeof request === 'string'
+            && (request.startsWith('./routes/') || request.startsWith('./middleware/'));
+
+        if (!isTopLevelBootRequire) {
+            return originalLoad.apply(this, arguments);
+        }
+
+        const startedAt = Date.now();
+        console.log(`[boot-timing] require:start ${request}`);
+        try {
+            return originalLoad.apply(this, arguments);
+        } finally {
+            console.log(`[boot-timing] require:done ${request} +${Date.now() - startedAt}ms`);
+        }
+    };
+}
 const keysRouter = require('./routes/keys');
 const refreshRouter = require('./routes/refresh');
 const matterRequestsRouter = require('./routes/matterRequests');
@@ -342,6 +388,7 @@ const updateInstructionStatusRouter = require('./routes/updateInstructionStatus'
 const documentsRouter = require('./routes/documents');
 const demoDocumentsRouter = require('./routes/demo-documents');
 const prospectDocumentsRouter = require('./routes/prospect-documents');
+const docRequestDealsRouter = require('./routes/doc-request-deals');
 const docWorkspaceRouter = require('./routes/doc-workspace');
 const enquiriesUnifiedRouter = require('./routes/enquiries-unified');
 const mattersUnifiedRouter = require('./routes/mattersUnified');
@@ -358,6 +405,7 @@ const stripeWebhookRouter = require('./routes/stripeWebhook');
 const clioWebhookRouter = require('./routes/clio-webhook');
 const opsRouter = require('./routes/ops');
 const sendEmailRouter = require('./routes/sendEmail');
+const demoCheatSheetRouter = require('./routes/demoCheatSheet');
 const createDraftRouter = require('./routes/createDraft');
 const forwardEmailRouter = require('./routes/forwardEmail');
 const searchInboxRouter = require('./routes/searchInbox');
@@ -393,10 +441,12 @@ const responseMetricsRouter = require('./routes/responseMetrics');
 const rateChangesRouter = require('./routes/rate-changes');
 const cclDateRouter = require('./routes/ccl-date');
 const cclOpsRouter = require('./routes/ccl-ops');
+const cclDryRunRouter = require('./routes/ccl-dry-run');
 const expertsRouter = require('./routes/experts');
 const counselRouter = require('./routes/counsel');
 const syncInstructionClientRouter = require('./routes/sync-instruction-client');
 const techTicketsRouter = require('./routes/techTickets');
+const signalsRouter = require('./routes/signals');
 const logsStreamRouter = require('./routes/logs-stream');
 const telemetryRouter = require('./routes/telemetry');
 const todoRouter = require('./routes/todo');
@@ -405,6 +455,8 @@ const financialTaskRouter = require('./routes/financialTask');
 const activityFeedRouter = require('./routes/activity-feed');
 const releaseNotesRouter = require('./routes/release-notes');
 const stashBriefsRouter = require('./routes/stash-briefs');
+const devConsoleRouter = require('./routes/dev-console');
+const devRoadmapRouter = require('./routes/dev-roadmap');
 const opsQueueRouter = require('./routes/opsQueue');
 const processHubRouter = require('./routes/processHub');
 const { router: dataOperationsRouter } = require('./routes/dataOperations');
@@ -415,11 +467,50 @@ const teamsBotRouter = require('./routes/teamsBot');
 const teamsNotifyRouter = require('./routes/teamsNotify');
 const activityCardLabRouter = require('./routes/activity-card-lab');
 const { router: opsPulseRouter } = require('./routes/ops-pulse');
+const opsChecksRouter = require('./routes/ops-checks');
+const operatorActionsRouter = require('./routes/operator-actions');
+const accessRouter = require('./routes/access');
 const { userContextMiddleware } = require('./middleware/userContext');
 const errorHandler = require('./middleware/errorHandler');
 _bootMark('routes:require:done');
 
+const isProd = process.env.NODE_ENV === 'production';
 const app = express();
+if (isProd) {
+    // App Service sits behind a reverse proxy; trust the forwarded client hop.
+    app.set('trust proxy', 1);
+}
+
+function _rateLimitQueryValue(value) {
+    if (Array.isArray(value)) return String(value[0] || '');
+    if (value == null) return '';
+    return String(value);
+}
+
+const rateLimit = require('express-rate-limit');
+const { ipKeyGenerator } = rateLimit;
+
+function _rateLimitKey(req) {
+    const entraId = _rateLimitQueryValue(req.query?.entraId).trim().toLowerCase();
+    if (entraId) return `entra:${entraId}`;
+
+    const email = _rateLimitQueryValue(req.query?.email).trim().toLowerCase();
+    if (email) return `email:${email}`;
+
+    const initials = _rateLimitQueryValue(req.query?.initials).trim().toUpperCase();
+    if (initials) return `initials:${initials}`;
+
+    return `ip:${ipKeyGenerator(req.ip || 'unknown')}`;
+}
+
+function _shouldSkipGlobalRateLimit(req) {
+    const originalUrl = String(req.originalUrl || '');
+    return req.path.includes('/stream')
+        || req.path === '/health'
+        || originalUrl.startsWith('/api/health')
+        || originalUrl.startsWith('/api/telemetry');
+}
+
 // Enable gzip compression if available, but skip SSE endpoints.
 // SSE prefix list lives in server/utils/sseEndpoints.js and is shared with requireUser.
 const { isSsePath } = require('./utils/sseEndpoints');
@@ -435,7 +526,36 @@ if (compression) {
     });
 }
 const PORT = process.env.PORT || 8080;
-const isProd = process.env.NODE_ENV === 'production';
+
+// ── Doubled-prefix guard: surface `/api/api/*` regressions loudly ──
+// Class of bug: a client builds `${proxyBase}/api/foo` where `proxyBase` already
+// ends in `/api`, producing `/api/api/foo`. Historically these returned a silent
+// 404. We now log + telemeter + return a structured error so future regressions
+// are visible in App Insights instead of dying in the network tab.
+app.use('/api/api', (req, res) => {
+    const correctedPath = `/api${req.url}`;
+    console.warn(`[doubled-api-guard] ${req.method} /api/api${req.url} → likely meant ${correctedPath}`);
+    const hitMeta = {
+        method: req.method,
+        originalPath: `/api/api${req.url}`,
+        suggestedPath: correctedPath,
+        referer: req.headers['referer'] || '',
+        userAgent: req.headers['user-agent'] || '',
+    };
+    try {
+        trackEvent('Server.DoubledApiPrefix.Hit', hitMeta);
+    } catch { /* telemetry best-effort */ }
+    // Surface to the Activity tab alerts strip in real-time (dev group only).
+    try {
+        const { pushDoubledApi } = require('./routes/ops-pulse');
+        if (typeof pushDoubledApi === 'function') pushDoubledApi(hitMeta);
+    } catch { /* ops-pulse not loaded yet — ignore */ }
+    res.status(404).json({
+        error: 'doubled_api_prefix',
+        message: 'The path starts with /api/api/ — the client likely concatenated a base URL that already includes /api. See server/index.js doubled-api-guard.',
+        suggestedPath: correctedPath,
+    });
+});
 
 // ── Hydration gate: 503 on /api/* until Key Vault secrets are ready ──
 // Lets the process listen immediately (Azure health probes see it alive)
@@ -453,22 +573,42 @@ app.use(helmet({
     // CSP in report-only — logs violations without breaking functionality.
     // Teams embeds and inline scripts need 'unsafe-inline'; tighten later.
     contentSecurityPolicy: false,
+    // Teams hosts the tab cross-origin. Helmet defaults X-Frame-Options to
+    // SAMEORIGIN, which lets Teams fetch / but blocks the iframe from running.
+    xFrameOptions: false,
     // HSTS is handled by IIS/Azure Front Door in production; avoid double-setting.
     strictTransportSecurity: isProd ? { maxAge: 31536000, includeSubDomains: true } : false,
 }));
 
+const allowedFrameAncestors = [
+    "'self'",
+    'https://teams.microsoft.com',
+    'https://*.teams.microsoft.com',
+    'https://teams.office.com',
+    'https://*.teams.office.com',
+    'https://teams.live.com',
+    'https://*.teams.live.com',
+    'https://*.skype.com',
+    'https://*.cloud.microsoft',
+].join(' ');
+
+app.use((req, res, next) => {
+    res.setHeader('Content-Security-Policy', `frame-ancestors ${allowedFrameAncestors};`);
+    next();
+});
+
 // ── Rate limiting ──
-const rateLimit = require('express-rate-limit');
 if (isProd) {
     const globalLimiter = rateLimit({
         windowMs: 15 * 60 * 1000,       // 15 minutes
         max: 300,                        // 300 requests per window
         standardHeaders: true,
         legacyHeaders: false,
-        // Skip SSE endpoints — they hold long-lived connections
-        skip: (req) => req.path.includes('/stream') || req.path === '/api/health',
+        keyGenerator: _rateLimitKey,
+        // Skip SSE endpoints and best-effort client telemetry.
+        skip: _shouldSkipGlobalRateLimit,
         handler: (req, res) => {
-            trackEvent('Security.RateLimit.Exceeded', { ip: req.ip, path: req.path });
+            trackEvent('Security.RateLimit.Exceeded', { ip: req.ip, path: req.path, key: _rateLimitKey(req) });
             res.status(429).json({ error: 'rate_limited', message: 'Too many requests — try again later.' });
         },
     });
@@ -482,8 +622,9 @@ if (isProd) {
         max: 20,                         // 20 AI calls per 5 min
         standardHeaders: true,
         legacyHeaders: false,
+        keyGenerator: _rateLimitKey,
         handler: (req, res) => {
-            trackEvent('Security.RateLimit.AI.Exceeded', { ip: req.ip, path: req.path, user: req.user?.initials });
+            trackEvent('Security.RateLimit.AI.Exceeded', { ip: req.ip, path: req.path, user: req.user?.initials, key: _rateLimitKey(req) });
             res.status(429).json({ error: 'rate_limited', message: 'AI rate limit reached — try again in a few minutes.' });
         },
     });
@@ -511,6 +652,8 @@ const allowedOrigins = isProd
     ? (process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean) : [])
     : ['http://localhost:3000', 'http://127.0.0.1:3000'];
 
+const isLocalDevOrigin = (origin) => /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(String(origin || ''));
+
 const isSameOriginRequest = (req, origin) => {
     if (!origin) return true;
     const forwardedHost = req.headers['x-forwarded-host'];
@@ -525,7 +668,7 @@ const isSameOriginRequest = (req, origin) => {
 
 app.use(cors((req, callback) => {
     const origin = req.header('Origin');
-    const allow = !origin || allowedOrigins.includes(origin) || isSameOriginRequest(req, origin);
+    const allow = !origin || allowedOrigins.includes(origin) || isSameOriginRequest(req, origin) || (!isProd && isLocalDevOrigin(origin));
 
     // If Origin is missing, let the request through without forcing CORS headers.
     // If Origin is present and allowed, reflect it (required when credentials are used).
@@ -535,7 +678,7 @@ app.use(cors((req, callback) => {
         methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
         // EventSource reconnects may include Last-Event-ID; some environments add Cache-Control.
         // x-user-initials is sent by CallsAndNotes save-note; x-user-* is a general pattern.
-        allowedHeaders: ['Content-Type', 'Authorization', 'Cache-Control', 'Last-Event-ID', 'x-user-initials'],
+        allowedHeaders: ['Content-Type', 'Authorization', 'Cache-Control', 'Last-Event-ID', 'x-user-initials', 'x-user-email', 'x-helix-initials', 'x-helix-entra-id'],
     };
 
     return callback(null, corsOptions);
@@ -601,6 +744,7 @@ app.use('/api/ai', commsFrameworkRouter);
 app.use('/api/forms-ai', formsAiRouter);
 app.use('/api/ccl-admin', cclAdminRouter);
 app.use('/api/ccl-ops', cclOpsRouter);
+app.use('/api/ccl-dry-run', cclDryRunRouter);
 app.use('/api/enquiries-unified', enquiriesUnifiedRouter);
 app.use('/api/home-wip', homeWipRouter);
 app.use('/api/home-enquiries', homeEnquiriesRouter);
@@ -614,6 +758,7 @@ app.use('/api/matters-unified', mattersUnifiedRouter);
 app.use('/api/ops', opsRouter);
 // Email route (server-based). Expose under both /api and / to match existing callers.
 app.use('/api', sendEmailRouter);
+app.use('/api', demoCheatSheetRouter);
 app.use('/api', createDraftRouter);
 app.use('/', sendEmailRouter);
 // Forward email route for timeline email forwarding functionality
@@ -637,6 +782,7 @@ app.use('/api/update-instruction-status', updateInstructionStatusRouter);
 app.use('/api/documents', documentsRouter);
 app.use('/api/demo-documents', demoDocumentsRouter);
 app.use('/api/prospect-documents', prospectDocumentsRouter);
+app.use('/api/doc-request-deals', docRequestDealsRouter);
 app.use('/api/doc-workspace', docWorkspaceRouter);
 app.use('/api/verify-id', verifyIdRouter);
 app.use('/api/test-db', testDbRouter);
@@ -648,6 +794,9 @@ app.use('/api/file-map', fileMapRouter);
 app.use('/api/payment-link', paymentLinkRouter);
 app.use('/api/reporting', reportingRouter);
 app.use('/api/reporting-stream', reportingStreamRouter);
+// Management Dashboard trust gate (Phase A — read-only readiness payload)
+// See docs/notes/MANAGEMENT_DASHBOARD_TRUST_GATE.md
+app.use('/api/reporting', require('./routes/reportingReadiness'));
 app.use('/api/home-metrics', homeMetricsStreamRouter);
 app.use('/api/compliance', complianceRouter);
 app.use('/api/marketing-metrics', marketingMetricsRouter);
@@ -661,11 +810,21 @@ app.use('/api/logs', logsStreamRouter);
 app.use('/api/activity-feed', activityFeedRouter);
 app.use('/api/release-notes', releaseNotesRouter);
 app.use('/api', stashBriefsRouter);
+app.use('/api/dev-console/roadmap', devRoadmapRouter);
+app.use('/api/dev-console', devConsoleRouter);
 app.use('/api/ops-queue', opsQueueRouter);
 app.use('/api/messages', teamsBotRouter);
 app.use('/api/teams-notify', teamsNotifyRouter);
 app.use('/api/activity-card-lab', activityCardLabRouter);
 app.use('/api/ops-pulse', opsPulseRouter);
+app.use('/api/ops-checks', opsChecksRouter);
+
+// In-app operator actions (B1) — first-class, audited replacements for
+// LZ-only tools/*.mjs one-offs. Phase A: dev-owner only, person lookup pilot.
+app.use('/api/operator-actions', operatorActionsRouter);
+
+// Access controls (Phase Access.2) — data-driven RBAC read/write surface.
+app.use('/api/access', accessRouter);
 
 // Rate change notification tracking (for Jan 2026 hourly rate increase)
 app.use('/api/rate-changes', rateChangesRouter);
@@ -679,6 +838,11 @@ app.use('/api/counsel', counselRouter);
 
 // Tech tickets (Asana integration for ideas and problem reports)
 app.use('/api/tech-tickets', techTicketsRouter);
+
+// Unified intake ledger for the Suggestions Inbox in My Helix. Additive
+// mirror over tech_problems / tech_ideas / roadmap / stash + agent
+// footers. See docs/notes/AGENT_SUGGESTIONS_INBOX_IN_MY_HELIX.md.
+app.use('/api/signals', signalsRouter);
 
 // Telemetry endpoint for pitch builder and client-side event tracking
 app.use('/api/telemetry', telemetryRouter);
@@ -728,6 +892,7 @@ app.use('/api/health', healthRouter);
 // Production safety: this route is never mounted outside dev.
 if (process.env.NODE_ENV !== 'production') {
     app.use('/api/dev/health', require('./routes/devHealth'));
+    app.use('/api/dev', require('./routes/dev-rehearsal'));
 }
 
 // Metrics routes (migrated from Azure Functions to fix cold start issues)
@@ -850,6 +1015,14 @@ app.listen(PORT, () => {
             startDataOperationsScheduler();
             startEventPoller();
             setServerStatus('eventPoller', true);
+            // Phase Access.4 — daily-ish expiry sweep. Same gate as scheduler.
+            try {
+                const access = require('./utils/access');
+                if (typeof access.startExpirySweep === 'function') {
+                    access.startExpirySweep();
+                    trackEvent('Access.ExpirySweep.Scheduled', { intervalHours: '6' });
+                }
+            } catch { /* non-fatal */ }
         }
     });
 });

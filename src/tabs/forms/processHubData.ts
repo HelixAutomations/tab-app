@@ -97,18 +97,21 @@ const overrides: Record<string, Partial<ProcessDefinition>> = {
   },
   'New Complaint': {
     context: ['Compliance', 'Incident'],
+    healthCheckId: 'complaint',
     keywords: ['complaint', 'incident', 'escalation', 'formal'],
     lane: 'Escalate',
     statusHint: 'Complaint intake now starts in Forms, then moves into the compliance workspace for controlled updates.',
   },
   'New Learning Activity': {
     context: ['L&D', 'CPD'],
+    healthCheckId: 'learning-dev-activity',
     keywords: ['cpd', 'learning', 'training', 'course', 'development', 'activity'],
     lane: 'Log',
     statusHint: 'CPD activities are logged here and tracked against your annual plan in Resources → Learning & Development.',
   },
   'New Undertaking': {
     context: ['Compliance', 'Matter'],
+    healthCheckId: 'undertaking',
     keywords: ['undertaking', 'obligation', 'promise', 'due date'],
     lane: 'Request',
     statusHint: 'Undertakings now start in Forms and then return to Compliance for due-date and discharge tracking.',
@@ -138,25 +141,26 @@ const overrides: Record<string, Partial<ProcessDefinition>> = {
   },
   'Recommend Counsel': {
     context: ['Recommendation', 'Matter'],
-    healthCheckId: 'counsel',
+    healthCheckId: 'counsel-recommendation',
     keywords: ['recommend', 'counsel', 'specialism'],
     lane: 'Request',
   },
   'Recommend Expert': {
     context: ['Recommendation', 'Matter'],
-    healthCheckId: 'experts',
+    healthCheckId: 'expert-recommendation',
     keywords: ['recommend', 'expert', 'specialism'],
     lane: 'Request',
   },
   'Report Technical Problem': {
     context: ['Tech', 'Operations'],
-    healthCheckId: 'tech-tickets',
+    healthCheckId: 'tech-problem',
     keywords: ['bug', 'incident', 'error', 'problem'],
     lane: 'Escalate',
     statusHint: 'Already close to a proper tracked submission via the tech ticket ledger.',
   },
   'Supplier Payment/Helix Expense': {
     context: ['Finance', 'Supplier'],
+    healthCheckId: 'financial-task',
     keywords: ['supplier', 'expense', 'invoice', 'payment'],
     lane: 'Request',
   },
@@ -167,7 +171,7 @@ const overrides: Record<string, Partial<ProcessDefinition>> = {
   },
   'Tech Development Idea': {
     context: ['Tech', 'Improvement'],
-    healthCheckId: 'tech-tickets',
+    healthCheckId: 'tech-idea',
     keywords: ['idea', 'feature', 'improvement', 'platform'],
     lane: 'Escalate',
     statusHint: 'Already has a server-side ledger; this should become an early process-hub adapter.',
@@ -195,6 +199,12 @@ const overrides: Record<string, Partial<ProcessDefinition>> = {
     keywords: ['verification', 'id', 'tiller', 'pep', 'sanctions', 'address', 'check', 'adhoc'],
     lane: 'Find',
     statusHint: 'Ad-hoc Tiller check. Results are not persisted against any instruction.',
+  },
+  'Write off/ Credit Note Request or Void invoice': {
+    context: ['Finance', 'Invoice'],
+    healthCheckId: 'financial-task',
+    keywords: ['write off', 'credit note', 'void invoice', 'finance'],
+    lane: 'Request',
   },
 };
 

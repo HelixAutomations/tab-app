@@ -8,7 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ActivityLens } from '../parts/ActivityHero';
 
 const STORAGE_KEY = 'helix:activity:layout:v1';
-const VALID_LENSES: ActivityLens[] = ['all', 'forms', 'matters', 'sync', 'errors', 'trace', 'briefs'];
+const VALID_LENSES: ActivityLens[] = ['all', 'forms', 'matters', 'sync', 'checks', 'errors', 'trace', 'briefs', 'forge'];
 
 export type LayerKey = 'presence' | 'sessions' | 'apiHeat' | 'scheduler' | 'alerts';
 export type ToolsTab = 'releaseNotes' | 'apiHeat' | 'cardLab' | 'bootTrace';

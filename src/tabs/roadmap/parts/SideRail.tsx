@@ -35,7 +35,7 @@ function tabLabel(key: string): string {
     matters: 'Matters',
     instructions: 'Instructions',
     reporting: 'Reporting',
-    roadmap: 'Activity',
+    roadmap: 'System',
     blueprints: 'Blueprints',
     resources: 'Resources',
     forms: 'Forms',
@@ -290,7 +290,7 @@ const SideRail: React.FC<SideRailProps> = ({
         title="Sessions"
         badge={
           sessions
-            ? { text: `${sessions.totalConnections} · ${sessions.uniqueUsers}`, tone: colours.green }
+            ? { text: `${sessions.totalConnections} - ${sessions.uniqueUsers}`, tone: colours.green }
             : undefined
         }
         isDarkMode={isDarkMode}

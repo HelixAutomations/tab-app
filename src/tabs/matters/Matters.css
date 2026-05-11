@@ -1,0 +1,12 @@
+/* Matters rides the shared .app-scroll-region in both list and detail modes.
+   Hide the scrollbar chrome there so the navigator-hosted filters stay flush
+   while wheel, trackpad, touch, and keyboard scrolling still work. */
+.app-scroll-region.matters-scroll-region {
+  scrollbar-width: none;
+}
+
+.app-scroll-region.matters-scroll-region::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}

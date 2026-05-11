@@ -479,12 +479,12 @@ export const getFormAccentOutlineButtonStyles = (isDarkMode: boolean, width?: st
     padding: '0 20px',
   },
   rootHovered: {
-    backgroundColor: isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.08)',
+    backgroundColor: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.08)',
     borderColor: isDarkMode ? colours.accent : colours.highlight,
     color: isDarkMode ? colours.accent : colours.highlight,
   },
   rootPressed: {
-    backgroundColor: isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(54, 144, 206, 0.12)',
+    backgroundColor: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.12)',
     borderColor: isDarkMode ? colours.accent : colours.highlight,
     color: isDarkMode ? colours.accent : colours.highlight,
   },

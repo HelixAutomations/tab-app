@@ -353,7 +353,7 @@ Admin:        lz-helix-law-com (Lukasz Zemanek)
 3. ~~Run token exchange~~ ✅ (UK1 region, 200 OK)
 4. ~~Discover account ID~~ ✅ (`helixlaw`)
 5. ~~Test recording access~~ ✅ (19 recordings, transcripts working)
-6. Build `server/routes/dubber.js` following Clio pattern
+6. ~~Build Hub route~~ ✅ Shipped as `server/routes/dubberCalls.js`, mounted from `server/index.js` under `/api`, with primary endpoint `GET /api/dubberCalls`
 7. Build Hub UI panel (dev preview gated)
 8. Configure webhooks for real-time recording notifications
 9. Map Dubber users → Helix team members (by name or external_identifier)

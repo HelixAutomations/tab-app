@@ -28,11 +28,15 @@ const {
   fetchAll,
   KNOWN_KINDS,
 } = require('../utils/hubTodoLog');
-const { deleteCachePattern } = require('../utils/redisClient');
+const { deleteCachePattern, getCache, setCache, generateCacheKey } = require('../utils/redisClient');
 const { trackEvent, trackException } = require('../utils/appInsights');
 const { createEnvBasedQueryRunner } = require('../utils/sqlHelpers');
+const { attachTodoStream } = require('../utils/todoStream');
 
 const router = express.Router();
+
+// SSE channel: GET /api/todo/stream — Home rail consumes via useRealtimeChannel.
+attachTodoStream(router);
 
 // Lazy — only spun up the first time we hit a card that needs enrichment.
 let runInstructionsQuery = null;
@@ -124,6 +128,9 @@ function isDevOwner(req) {
 async function invalidateHomeJourneyCache() {
   try {
     await deleteCachePattern('home-journey:*');
+    // Phase 2B.3 (2026-04-27): also drop the dev-owner /todo?scope=all cache
+    // so a card create/reconcile is reflected on the next Home hydrate.
+    await deleteCachePattern('todo:all:*');
   } catch (err) {
     trackException(err, { phase: 'todo.invalidateHomeJourneyCache' });
   }
@@ -230,12 +237,25 @@ router.get('/', async (req, res) => {
         });
         return res.status(403).json({ ok: false, error: 'forbidden' });
       }
+      // Phase 2B.3 (2026-04-27): Home boot wave was hitting this for ~1.1s on
+      // every refresh. Underlying registry only changes on create/reconcile,
+      // both of which now also blow `todo:all:*`. 60s TTL keeps it snappy
+      // without hiding genuine activity.
+      const cacheKey = generateCacheKey('todo', 'all', includeCompleted ? 'with-completed' : 'open-only');
+      try {
+        const cached = await getCache(cacheKey);
+        if (cached && cached.data && Array.isArray(cached.data.cards)) {
+          return res.json({ ok: true, scope: 'all', cards: cached.data.cards });
+        }
+      } catch (_) { /* non-fatal */ }
+
       const cards = await fetchAll({ includeCompleted });
       await enrichReviewCclCards(cards);
       trackEvent('Todo.Registry.AllScopeRead', {
         rowCount: String(cards.length),
         includeCompleted: String(includeCompleted),
       });
+      try { await setCache(cacheKey, { cards }, 60); } catch (_) { /* non-fatal */ }
       return res.json({ ok: true, scope: 'all', cards });
     }
 

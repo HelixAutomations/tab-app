@@ -12,6 +12,7 @@
  */
 
 const express = require('express');
+const crypto = require('crypto');
 const { withRequest, sql } = require('../utils/db');
 const { getRedisClient, generateCacheKey, setCache, getCache } = require('../utils/redisClient');
 const { loggers } = require('../utils/logger');
@@ -1116,6 +1117,28 @@ router.post('/pitch-lookup', express.json(), async (req, res) => {
     return res.json({ byProspectId: {}, byEmail: {} });
   }
 
+  // Phase 2B.2 (2026-04-27): cache pitch-lookup output keyed on the input set.
+  // Home boots send the same ~3700 prospect IDs + 1700 emails on every page load
+  // and the underlying Deals data only updates on pitch creation (minutes, not
+  // seconds). 5-min TTL keeps refreshes snappy without staleness for the UI.
+  const sortedPids = [...prospectIds].sort();
+  const sortedEmails = [...emails].sort();
+  const fingerprint = crypto
+    .createHash('sha1')
+    .update(`pids:${sortedPids.join(',')}|emails:${sortedEmails.join(',')}`)
+    .digest('hex');
+  const cacheKey = generateCacheKey('home', 'pitch-lookup', fingerprint);
+
+  try {
+    const cached = await getCache(cacheKey);
+    if (cached && cached.data && cached.data.byProspectId && cached.data.byEmail) {
+      annotate(res, { source: 'redis', note: `pitch-lookup pids=${prospectIds.length} emails=${emails.length} cached` });
+      return res.json(cached.data);
+    }
+  } catch (cacheErr) {
+    log.warn('[home-enquiries] pitch-lookup cache read failed:', cacheErr.message);
+  }
+
   try {
     // Build pseudo-records that queryLatestPitchDetails expects
     const pseudoRecords = [
@@ -1126,8 +1149,11 @@ router.post('/pitch-lookup', express.json(), async (req, res) => {
     const byProspectId = Object.fromEntries(lookup.byProspectId);
     const byEmail = Object.fromEntries(lookup.byEmail);
 
+    const payload = { byProspectId, byEmail };
+    try { await setCache(cacheKey, payload, 300); } catch (_) { /* non-fatal */ }
+
     annotate(res, { source: 'live', note: `pitch-lookup pids=${prospectIds.length} emails=${emails.length}` });
-    return res.json({ byProspectId, byEmail });
+    return res.json(payload);
   } catch (err) {
     log.warn('[home-enquiries] Pitch lookup failed:', err.message);
     return res.json({ byProspectId: {}, byEmail: {} });

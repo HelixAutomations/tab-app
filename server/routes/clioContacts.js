@@ -3,6 +3,7 @@ const { getSecret } = require('../utils/getSecret');
 const { PRACTICE_AREAS } = require('../utils/clioConstants');
 const { loggers } = require('../utils/logger');
 const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
+const { shouldDryRunClio, syntheticClioContactResult } = require('../utils/rehearsalGuard');
 
 const router = express.Router();
 const log = loggers.clio.child('Contacts');
@@ -14,6 +15,24 @@ router.post('/', async (req, res) => {
     if (!formData || !initials) {
         trackEvent('MatterOpening.ClioContact.ValidationFailed', { instructionRef, reason: 'Missing formData or initials' });
         return res.status(400).json({ error: 'Missing data' });
+    }
+
+    // Phase C1 — short-circuit Clio writes for rehearsal/demo refs when the
+    // CLIO_DRY_RUN_FOR_REHEARSAL_REFS flag is on. Returns a synthetic contact
+    // payload so downstream steps (matter creation) still succeed end-to-end.
+    if (shouldDryRunClio(instructionRef)) {
+        const clientType = formData?.matter_details?.client_type || 'Person';
+        const clientCount = Array.isArray(formData?.client_information) ? formData.client_information.length : 1;
+        const results = syntheticClioContactResult({ instructionRef, clientType, count: clientCount });
+        trackEvent('Demo.Clio.WriteSkipped', {
+            instructionRef,
+            initials,
+            route: '/api/clio-contacts',
+            seed: 'rehearsal',
+            clientType,
+            contactCount: String(results.length),
+        });
+        return res.json({ ok: true, results, dryRun: true });
     }
 
     trackEvent('MatterOpening.ClioContact.Started', { instructionRef, initials, clientType: formData?.matter_details?.client_type || '' });

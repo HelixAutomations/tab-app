@@ -1,1 +1,4 @@
 *.gitignore text eol=lf
+docs/notes/INDEX.md linguist-generated=true
+.github/instructions/REALTIME_CONTEXT.md linguist-generated=true
+src/utils/pdfAssets.ts linguist-generated=true

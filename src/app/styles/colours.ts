@@ -26,7 +26,7 @@ export const colours = {
   helixBlue: '#0D2F60',
   blue: '#3690CE',
   highlight: '#3690CE',   // Alias for blue — both are valid
-  accent: '#87F3F3',      // Teal accent — sparingly at anchor points only
+  accent: '#3690CE',      // Alias for highlight — the previous teal read off-brand on navy
   cta: '#D65541',
   grey: '#F4F4F6',
 

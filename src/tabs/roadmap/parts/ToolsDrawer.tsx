@@ -1,6 +1,10 @@
-// src/tabs/roadmap/parts/ToolsDrawer.tsx — single drawer absorbing Release Notes, API Heat detail,
-// Card Lab, and Boot Trace (formerly HomeBootMonitor). Sub-tabs let the user switch between them
-// without losing other state.
+// src/tabs/roadmap/parts/ToolsDrawer.tsx — operator-tools drawer.
+// Holds API Heat detail, Card Lab, and Boot Trace (formerly HomeBootMonitor).
+// Release Notes used to live here too but were promoted to a top-level
+// section in Roadmap.tsx — the drawer is now operator-only and the union
+// retains 'releaseNotes' purely so persisted user state from before the
+// split doesn't break (ToolsDrawer falls back to the first available tab
+// when the persisted choice is unavailable).
 
 import React from 'react';
 import { colours } from '../../../app/styles/colours';
@@ -15,11 +19,9 @@ interface TabSpec {
 
 interface ToolsDrawerProps {
   isDarkMode: boolean;
-  hasReleaseNotes: boolean;
   showLiveMonitor: boolean;
   isLocalDev: boolean;
   showBootMonitor: boolean;
-  releaseNotesContent: React.ReactNode;
   apiHeatContent: React.ReactNode;
   cardLabContent: React.ReactNode;
   bootTraceContent: React.ReactNode;
@@ -27,11 +29,9 @@ interface ToolsDrawerProps {
 
 const ToolsDrawer: React.FC<ToolsDrawerProps> = ({
   isDarkMode,
-  hasReleaseNotes,
   showLiveMonitor,
   isLocalDev,
   showBootMonitor,
-  releaseNotesContent,
   apiHeatContent,
   cardLabContent,
   bootTraceContent,
@@ -43,7 +43,6 @@ const ToolsDrawer: React.FC<ToolsDrawerProps> = ({
   const surface = isDarkMode ? 'rgba(255,255,255,0.03)' : colours.light.sectionBackground;
 
   const tabs: TabSpec[] = [
-    { key: 'releaseNotes', label: 'Changelog', available: hasReleaseNotes },
     { key: 'apiHeat', label: 'API Heat (detail)', available: showLiveMonitor },
     { key: 'cardLab', label: 'Card Lab', available: isLocalDev },
     { key: 'bootTrace', label: 'Boot Trace', available: showBootMonitor },
@@ -57,8 +56,6 @@ const ToolsDrawer: React.FC<ToolsDrawerProps> = ({
 
   const renderActive = () => {
     switch (activeTab) {
-      case 'releaseNotes':
-        return releaseNotesContent;
       case 'apiHeat':
         return apiHeatContent;
       case 'cardLab':
@@ -125,7 +122,7 @@ const ToolsDrawer: React.FC<ToolsDrawerProps> = ({
               fontFamily: 'Raleway, sans-serif',
             }}
           >
-            Tools
+            Operator tools
           </span>
           <span style={{ fontSize: 10, color: muted, fontWeight: 600 }}>
             {visibleTabs.length} available

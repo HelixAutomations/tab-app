@@ -110,8 +110,8 @@ const ErrorStreamSection: React.FC<Props> = ({ errors, isDarkMode, highlightedTs
                 </div>
                 <div style={{ fontSize: 10, color: colours.subtleGrey, marginTop: 2, fontFamily: 'monospace' }}>
                   {err.path || '—'}
-                  {err.user && <span> · {err.user}</span>}
-                  <span> · {timeAgo(err.ts)}</span>
+                  {err.user && <span> - {err.user}</span>}
+                  <span> - {timeAgo(err.ts)}</span>
                 </div>
               </div>
             </div>

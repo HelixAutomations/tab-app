@@ -358,7 +358,7 @@ const EnquiryCalls: React.FC<EnquiryCallsProps> = ({ enquiry }) => {
                     {emotions.map(e => (
                       <span key={e.label} style={{
                         fontSize: '10px', fontWeight: 600, padding: '2px 8px', borderRadius: '999px',
-                        background: isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(54, 144, 206, 0.08)',
+                        background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.08)',
                         color: isDarkMode ? colours.accent : colours.blue,
                         textTransform: 'capitalize',
                       }}>

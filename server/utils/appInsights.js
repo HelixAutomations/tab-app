@@ -22,6 +22,27 @@
 
 let client = null;
 
+// ─── Helix Rehearsal Record tagging ──────────────────────────────────────────
+// Any telemetry whose properties reference a rehearsal instruction ref is
+// auto-tagged `seed: 'rehearsal'` so production dashboards can filter rehearsal
+// noise out of real-client KPIs. See:
+//   docs/notes/HELIX_REHEARSAL_RECORD_LUKE_TEST_AS_FIRM_SEED.md
+const REHEARSAL_REFS = new Set([
+  'HLX-27367-94842',       // Helix Demo (individual, passcode 94842) — primary rehearsal record
+  'HLX-27367-11112011',    // Helix Law Limited (company variant)
+]);
+
+function applyRehearsalTag(props) {
+  if (!props) return props;
+  for (const v of Object.values(props)) {
+    if (typeof v === 'string' && REHEARSAL_REFS.has(v)) {
+      props.seed = 'rehearsal';
+      return props;
+    }
+  }
+  return props;
+}
+
 function init() {
   const connStr = process.env.APPLICATIONINSIGHTS_CONNECTION_STRING;
   if (!connStr) {
@@ -67,6 +88,7 @@ function trackEvent(name, properties = {}, measurements = {}) {
   for (const [k, v] of Object.entries(properties)) {
     safeProps[k] = v == null ? '' : String(v);
   }
+  applyRehearsalTag(safeProps);
   client.trackEvent({ name, properties: safeProps, measurements });
 }
 
@@ -82,6 +104,7 @@ function trackException(error, properties = {}) {
   for (const [k, v] of Object.entries(safeProps)) {
     safeProps[k] = v == null ? '' : String(v);
   }
+  applyRehearsalTag(safeProps);
   client.trackException({ exception: error, properties: safeProps });
 }
 
@@ -98,6 +121,7 @@ function trackMetric(name, value, properties = {}) {
   for (const [k, v] of Object.entries(properties)) {
     safeProps[k] = v == null ? '' : String(v);
   }
+  applyRehearsalTag(safeProps);
   client.trackMetric({ name, value, properties: safeProps });
 }
 

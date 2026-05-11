@@ -25,7 +25,7 @@ const overlayBoxStyle = (rect: DOMRect): React.CSSProperties => ({
   left: rect.left,
   width: rect.width,
   height: rect.height,
-  border: '1px dashed rgba(135, 243, 243, 0.85)', // colours.accent
+  border: '1px dashed rgba(54, 144, 206, 0.85)', // colours.accent
   background: 'rgba(54, 144, 206, 0.04)', // colours.highlight at very low opacity
   pointerEvents: 'none',
   zIndex: 2147483646,
@@ -37,7 +37,7 @@ const labelStyle: React.CSSProperties = {
   top: 0,
   left: 0,
   background: '#061733', // colours.darkBlue
-  color: '#87F3F3', // colours.accent
+  color: '#3690CE', // colours.accent
   font: '11px/1.4 "Raleway", sans-serif',
   padding: '2px 6px',
   borderRadius: 0,
@@ -50,7 +50,7 @@ const hintStyle: React.CSSProperties = {
   bottom: 8,
   right: 8,
   background: '#061733',
-  color: '#87F3F3',
+  color: '#3690CE',
   font: '11px/1.4 "Raleway", sans-serif',
   padding: '4px 8px',
   borderRadius: 0,

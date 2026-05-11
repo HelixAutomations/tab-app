@@ -11,9 +11,11 @@ export function usePipelineContactData(
   const [contactMap, setContactMap] = useState<Map<string, ContactVisibilityEntry>>(new Map());
   const fetchedIdsRef = useRef<Set<string>>(new Set());
   const inflightRef = useRef(false);
+  const visibleIdsKey = [...visibleIds].filter(Boolean).sort().join('|');
 
   useEffect(() => {
-    const idsToFetch = [...visibleIds].filter(
+    const currentVisibleIds = visibleIdsKey ? visibleIdsKey.split('|') : [];
+    const idsToFetch = currentVisibleIds.filter(
       (id) => id && !fetchedIdsRef.current.has(id),
     );
     if (idsToFetch.length === 0 || inflightRef.current) return;
@@ -25,15 +27,28 @@ export function usePipelineContactData(
         if (batch.size === 0) return;
         setContactMap((prev) => {
           const next = new Map(prev);
-          batch.forEach((entry, key) => next.set(key, entry));
-          return next;
+          let changed = false;
+          batch.forEach((entry, key) => {
+            const previous = prev.get(key);
+            const sameEntry = previous
+              && previous.responseBucket === entry.responseBucket
+              && previous.feeEarnerContactBucket === entry.feeEarnerContactBucket
+              && previous.formalPitchBucket === entry.formalPitchBucket
+              && previous.firstResponse === entry.firstResponse
+              && previous.feeEarnerContact === entry.feeEarnerContact
+              && previous.formalPitch === entry.formalPitch;
+            if (sameEntry) return;
+            next.set(key, entry);
+            changed = true;
+          });
+          return changed ? next : prev;
         });
       })
       .finally(() => {
         idsToFetch.forEach((id) => fetchedIdsRef.current.add(id));
         inflightRef.current = false;
       });
-  }, [visibleIds]);
+  }, [visibleIdsKey]);
 
   return contactMap;
 }

@@ -59,6 +59,10 @@ export const buildEnquiryIdentityKey = (record: Partial<Enquiry> | any): string 
   return [id, date, poc, first, last, notesSnippet].join('|');
 };
 
+// NOTE: This synthetic enquiry is the *base* used by demo-mode enquiries
+// `DEMO-ENQ-0002` and `DEMO-ENQ-0003` (which override their own First/Last/
+// scenario fields). It is NOT injected on its own — the canonical demo
+// prospect is the real rehearsal record (HLX-27367-94842 / Helix Demo).
 export const DEV_PREVIEW_TEST_ENQUIRY: Enquiry = {
   ID: 'DEMO-ENQ-0001',
   Date_Created: '2026-01-01',

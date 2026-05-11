@@ -37,28 +37,31 @@
 
       /* System preference fallback — used when no explicit theme class is set. */
       @media (prefers-color-scheme: dark) {
-        body:not(.theme-light):not(.theme-contrast) {
+        html:not(.theme-light):not(.theme-contrast):not(.theme-dark),
+        body:not(.theme-light):not(.theme-contrast):not(.theme-dark) {
           --loading-background: #020617;
           --loading-mark: #f3f4f6;
           --loading-text: #f3f4f6;
           --loading-subtext: rgba(243, 244, 246, 0.62);
           --loading-dot: rgba(243, 244, 246, 0.16);
-          --loading-dot-active: #87F3F3;
-          --loading-sweep: rgba(135, 243, 243, 0.6);
+          --loading-dot-active: #3690CE;
+          --loading-sweep: rgba(54, 144, 206, 0.6);
         }
       }
 
       /* Explicit theme classes override the system fallback. */
+      html.theme-dark,
       body.theme-dark {
         --loading-background: #020617;
         --loading-mark: #f3f4f6;
         --loading-text: #f3f4f6;
         --loading-subtext: rgba(243, 244, 246, 0.62);
         --loading-dot: rgba(243, 244, 246, 0.16);
-        --loading-dot-active: #87F3F3;
-        --loading-sweep: rgba(135, 243, 243, 0.6);
+        --loading-dot-active: #3690CE;
+        --loading-sweep: rgba(54, 144, 206, 0.6);
       }
 
+      html.theme-light,
       body.theme-light {
         --loading-background: #ffffff;
         --loading-mark: #061733;
@@ -69,6 +72,7 @@
         --loading-sweep: rgba(54, 144, 206, 0.55);
       }
 
+      html.theme-contrast,
       body.theme-contrast {
         --loading-background: #000000;
         --loading-mark: #ffffff;
@@ -280,33 +284,75 @@
     </style>
     <script>
       (function detectTheme() {
-        function run() {
+        function normalizeTheme(value) {
+          var theme = (value || '').toLowerCase();
+          if (theme === 'dark' || theme === 'contrast') return theme;
+          if (theme === 'default' || theme === 'light') return 'light';
+          return '';
+        }
+
+        function applyTheme(theme) {
+          var root = document.documentElement;
+          var body = document.body;
+          var classes = ['theme-dark', 'theme-light', 'theme-contrast'];
+          var nextClass = theme === 'contrast'
+            ? 'theme-contrast'
+            : theme === 'dark'
+              ? 'theme-dark'
+              : 'theme-light';
+          var background = theme === 'contrast'
+            ? '#000000'
+            : theme === 'dark'
+              ? '#020617'
+              : '#ffffff';
+
+          classes.forEach(function (cls) {
+            root.classList.remove(cls);
+            if (body) body.classList.remove(cls);
+          });
+
+          root.classList.add(nextClass);
+          root.style.backgroundColor = background;
+
+          if (body) {
+            body.classList.add(nextClass);
+            body.style.backgroundColor = background;
+            body.dataset.theme = theme === 'contrast' ? 'contrast' : (theme === 'dark' ? 'dark' : 'light');
+          }
+        }
+
+        function resolveTheme() {
           try {
-            if (!document.body) {
-              return;
-            }
             var params = new URLSearchParams(window.location.search);
-            var themeParam = (params.get('theme') || '').toLowerCase();
-            if (themeParam === 'dark' || themeParam === 'contrast') {
-              document.body.classList.add('theme-dark');
-            } else if (themeParam === 'default' || themeParam === 'light') {
-              document.body.classList.add('theme-light');
-            }
-            var hostTheme = document.body.dataset ? (document.body.dataset.theme || '').toLowerCase() : '';
-            if (hostTheme === 'dark' || hostTheme === 'contrast') {
-              document.body.classList.add('theme-dark');
-            } else if (hostTheme === 'default' || hostTheme === 'light') {
-              document.body.classList.add('theme-light');
+            var queryTheme = normalizeTheme(params.get('theme'));
+            if (queryTheme) return queryTheme;
+
+            var savedTheme = normalizeTheme(window.localStorage.getItem('helix_theme'));
+            if (savedTheme) return savedTheme;
+
+            var rootTheme = normalizeTheme(document.documentElement.dataset ? document.documentElement.dataset.theme : '');
+            if (rootTheme) return rootTheme;
+
+            var bodyTheme = normalizeTheme(document.body && document.body.dataset ? document.body.dataset.theme : '');
+            if (bodyTheme) return bodyTheme;
+
+            if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+              return 'dark';
             }
           } catch (err) {
             /* swallow theme detection errors silently */
           }
+
+          return 'light';
         }
 
+        function run() {
+          applyTheme(resolveTheme());
+        }
+
+        run();
         if (document.readyState === 'loading') {
           document.addEventListener('DOMContentLoaded', run, { once: true });
-        } else {
-          run();
         }
       })();
 

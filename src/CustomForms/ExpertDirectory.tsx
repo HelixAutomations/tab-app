@@ -15,7 +15,7 @@ import type { IDropdownOption } from '@fluentui/react/lib/Dropdown';
 import { Spinner, SpinnerSize } from '@fluentui/react/lib/Spinner';
 import { SearchBox } from '@fluentui/react/lib/SearchBox';
 import { Link } from '@fluentui/react/lib/Link';
-import { getProxyBaseUrl } from '../utils/getProxyBaseUrl';
+import { getApiBase } from '../utils/getApiUrl';
 import { UserData } from '../app/functionality/types';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { practiceAreasByArea } from '../tabs/instructions/MatterOpening/config';
@@ -99,7 +99,7 @@ const ExpertDirectoryContent: React.FC<ExpertDirectoryProps> = ({ onBack }) => {
     setError(null);
 
     try {
-      const baseUrl = getProxyBaseUrl();
+      const baseUrl = getApiBase();
       const response = await fetch(`${baseUrl}/api/experts`);
 
       if (!response.ok) {
@@ -137,7 +137,7 @@ const ExpertDirectoryContent: React.FC<ExpertDirectoryProps> = ({ onBack }) => {
 
   const handleExportCsv = useCallback(async () => {
     try {
-      const baseUrl = getProxyBaseUrl();
+      const baseUrl = getApiBase();
       const response = await fetch(`${baseUrl}/api/experts/export/csv`);
       
       if (!response.ok) throw new Error('Failed to export');

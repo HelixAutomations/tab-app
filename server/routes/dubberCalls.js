@@ -13,6 +13,12 @@ const { getSecret } = require('../utils/getSecret');
 const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
 const { deleteCachePattern } = require('../utils/redisClient');
 const {
+  recordSubmission,
+  recordStep,
+  markComplete,
+  markFailed,
+} = require('../utils/formSubmissionLog');
+const {
   Document, Packer, Paragraph, TextRun, AlignmentType, BorderStyle, HeadingLevel,
 } = require('docx');
 
@@ -104,6 +110,133 @@ function getAttendanceBlobClient() {
   const { getCredential } = require('../utils/getSecret');
   _blobClient = new BlobServiceClient(`https://${STORAGE_ACCOUNT_NAME}.blob.core.windows.net`, getCredential());
   return _blobClient;
+}
+
+function getBlobErrorStatusCode(err) {
+  const statusCode = err?.statusCode || err?.details?.statusCode || err?.response?.status;
+  const num = Number(statusCode);
+  return Number.isFinite(num) ? num : null;
+}
+
+function isBlobAuthorizationError(err) {
+  const statusCode = getBlobErrorStatusCode(err);
+  const code = String(err?.code || err?.details?.errorCode || '').toLowerCase();
+  const message = String(err?.message || '').toLowerCase();
+  return statusCode === 401
+    || statusCode === 403
+    || code.includes('author')
+    || code.includes('permission')
+    || message.includes('not authorized')
+    || message.includes('not authorised')
+    || message.includes('authorization')
+    || message.includes('permission');
+}
+
+function isBlobContainerMissingError(err) {
+  const statusCode = getBlobErrorStatusCode(err);
+  const code = String(err?.code || err?.details?.errorCode || '').toLowerCase();
+  const message = String(err?.message || '').toLowerCase();
+  return statusCode === 404
+    || code.includes('containernotfound')
+    || message.includes('container does not exist')
+    || message.includes('the specified container does not exist');
+}
+
+function resolveSavedByInitials(req, fallback = 'SYS') {
+  return String(
+    req?.user?.initials
+    || req?.headers?.['x-user-initials']
+    || req?.headers?.['x-helix-initials']
+    || '',
+  ).trim().toUpperCase() || fallback;
+}
+
+async function persistAttendanceNoteBackup({ recordingId, note, matterRef = null, savedBy }) {
+  const client = getAttendanceBlobClient();
+  const containerClient = client.getContainerClient(ATTENDANCE_BLOB_CONTAINER);
+
+  const datePrefix = (note.date || new Date().toISOString().slice(0, 10)).replace(/-/g, '');
+  const blobName = `${datePrefix}/${recordingId}.json`;
+  const payload = {
+    recordingId,
+    matterRef,
+    savedAt: new Date().toISOString(),
+    savedBy,
+    note,
+  };
+  const content = JSON.stringify(payload, null, 2);
+
+  let blobUrl = null;
+  let persistedBlobName = null;
+
+  const uploadBlob = async () => {
+    const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+    await blockBlobClient.upload(content, Buffer.byteLength(content), {
+      blobHTTPHeaders: { blobContentType: 'application/json' },
+    });
+    blobUrl = blockBlobClient.url;
+    persistedBlobName = blobName;
+  };
+
+  try {
+    await uploadBlob();
+  } catch (blobErr) {
+    if (!isBlobContainerMissingError(blobErr)) {
+      throw blobErr;
+    }
+
+    await containerClient.createIfNotExists();
+    await uploadBlob();
+  }
+
+  const callDate = note.date || null;
+  const callDuration = note.duration ? Math.ceil(note.duration * 60) : null;
+  const partiesFrom = note.parties?.from || null;
+  const partiesTo = note.parties?.to || null;
+  const summary = (note.summary || '').slice(0, 500) || null;
+  const topicsJson = note.topics && note.topics.length > 0 ? JSON.stringify(note.topics) : null;
+  const actionItemsJson = note.actionItems && note.actionItems.length > 0 ? JSON.stringify(note.actionItems) : null;
+
+  const pool = await instrPool();
+  await pool.request()
+    .input('recording_id', sql.NVarChar, recordingId)
+    .input('matter_ref', sql.NVarChar, matterRef)
+    .input('instruction_ref', sql.NVarChar, null)
+    .input('saved_by', sql.NVarChar, savedBy)
+    .input('call_date', sql.Date, callDate)
+    .input('call_duration_seconds', sql.Int, callDuration)
+    .input('parties_from', sql.NVarChar, partiesFrom)
+    .input('parties_to', sql.NVarChar, partiesTo)
+    .input('summary', sql.NVarChar, summary)
+    .input('topics_json', sql.NVarChar, topicsJson)
+    .input('action_items_json', sql.NVarChar, actionItemsJson)
+    .input('blob_name', sql.NVarChar, persistedBlobName)
+    .query(`
+      MERGE dbo.dubber_attendance_notes AS target
+      USING (SELECT @recording_id AS recording_id) AS source
+      ON target.recording_id = source.recording_id
+      WHEN MATCHED THEN UPDATE SET
+        matter_ref = @matter_ref,
+        instruction_ref = @instruction_ref,
+        saved_by = @saved_by,
+        saved_at = SYSDATETIMEOFFSET(),
+        call_date = @call_date,
+        call_duration_seconds = @call_duration_seconds,
+        parties_from = @parties_from,
+        parties_to = @parties_to,
+        summary = @summary,
+        topics_json = @topics_json,
+        action_items_json = @action_items_json,
+        blob_name = COALESCE(@blob_name, target.blob_name)
+      WHEN NOT MATCHED THEN INSERT
+        (recording_id, matter_ref, instruction_ref, saved_by, call_date, call_duration_seconds,
+         parties_from, parties_to, summary, topics_json, action_items_json, blob_name)
+      VALUES
+        (@recording_id, @matter_ref, @instruction_ref, @saved_by, @call_date, @call_duration_seconds,
+         @parties_from, @parties_to, @summary, @topics_json, @action_items_json, @blob_name);
+    `);
+
+  return { blobUrl, blobName: persistedBlobName };
 }
 
 // ── NetDocuments helpers (local to this router) ────────────────────────────
@@ -286,6 +419,727 @@ function corePool() {
   return getPool(connStr);
 }
 
+// ── Durable source-of-truth table for call attendance notes ────────────────
+// Completion semantics are deliberately concrete:
+//   • matter   = SQL row + ops queue row + ND document + Clio communication + Clio activity
+//   • prospect = SQL row + ActiveCampaign contact note
+// There is no "partial" terminal state. A safely persisted row is either still
+// processing, complete, or failed/needs retry for a named required destination.
+const CALL_NOTE_FORM_KEY = 'call-attendance-note';
+const CALL_NOTE_LANE = 'Log';
+const CALL_NOTE_TARGETS = new Set(['matter', 'prospect', 'internal', 'unknown']);
+
+let ensureCallAttendanceNoteSubmissionsPromise = null;
+
+function truncate(value, max) {
+  if (value == null) return null;
+  const str = String(value);
+  return str.length > max ? str.slice(0, max) : str;
+}
+
+function normalizeEmail(value) {
+  const email = String(value || '').trim().toLowerCase();
+  return email && email.includes('@') ? email : null;
+}
+
+function safeJson(value, fallback = {}) {
+  try {
+    return JSON.stringify(value ?? fallback);
+  } catch (err) {
+    return JSON.stringify({ serializationError: err?.message || 'Unable to serialize payload' });
+  }
+}
+
+function parseJsonArray(value) {
+  try {
+    const parsed = value ? JSON.parse(value) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseJsonObject(value) {
+  try {
+    const parsed = value ? JSON.parse(value) : null;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function escapeRegExp(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function cleanEvidenceText(value) {
+  return String(value || '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function attendeeIdentityTerms(attendee) {
+  const terms = new Set();
+  const name = cleanEvidenceText(attendee?.name);
+  const initials = cleanEvidenceText(attendee?.initials);
+  const email = cleanEvidenceText(attendee?.email);
+  if (name) {
+    terms.add(name);
+    const [firstName, ...rest] = name.split(/\s+/).filter(Boolean);
+    if (firstName && firstName.length >= 3) terms.add(firstName);
+    const lastName = rest[rest.length - 1];
+    if (lastName && lastName.length >= 3) terms.add(lastName);
+  }
+  if (initials) terms.add(initials);
+  if (email) terms.add(email);
+  return [...terms].filter(Boolean);
+}
+
+function textContainsTerm(text, term) {
+  if (!text || !term) return false;
+  const safe = escapeRegExp(term);
+  return new RegExp(`(^|[^a-z0-9])${safe}([^a-z0-9]|$)`, 'i').test(text);
+}
+
+function hasPresenceSignal(text) {
+  const normalized = cleanEvidenceText(text);
+  return /\b(speaker|spoke|said|asked|answered|introduced|joined|attended|present|in attendance|on the call|on call|sat in|sitting in|sitting on|listening in|listening on|observing|observer|with us|with me|also here|also on|contributed|advised|explained|confirmed|responded)\b/i.test(normalized);
+}
+
+function hasExplicitPresenceSignal(text) {
+  const normalized = cleanEvidenceText(text);
+  return /\b(introduced|joined|attended|present|in attendance|on the call|on call|sat in|sitting in|sitting on|listening in|listening on|observing|observer|with us|with me|also here|also on)\b/i.test(normalized);
+}
+
+function hasMentionOnlySignal(text) {
+  const normalized = cleanEvidenceText(text);
+  return /\b(mentioned|referred to|ask later|speak to later|check with|loop in|copy in|send to|feedback from|involved in the matter|involved in the case|involved in the enquiry|will ask|will speak|will check|will review|to review|to provide|future call)\b/i.test(normalized);
+}
+
+function sentenceIdentifiesAttendee(sentence, terms) {
+  const speaker = cleanEvidenceText(sentence?.speaker);
+  if (!speaker) return false;
+  return terms.some((term) => textContainsTerm(speaker, term) || textContainsTerm(term, speaker));
+}
+
+function sentenceMentionsAttendee(sentence, terms) {
+  const text = cleanEvidenceText(`${sentence?.speaker || ''}: ${sentence?.content || ''}`);
+  return terms.some((term) => textContainsTerm(text, term));
+}
+
+function hasStrongInternalAttendeeEvidence(attendee, sentences) {
+  const terms = attendeeIdentityTerms(attendee);
+  if (terms.length === 0) return false;
+  if ((sentences || []).some((sentence) => sentenceIdentifiesAttendee(sentence, terms))) return true;
+
+  const evidence = cleanEvidenceText(attendee?.evidence || attendee?.reason || attendee?.basis);
+  if (evidence && terms.some((term) => textContainsTerm(evidence, term)) && hasPresenceSignal(evidence)) return true;
+
+  const matchingLines = (sentences || [])
+    .filter((sentence) => sentenceMentionsAttendee(sentence, terms))
+    .map((sentence) => `${sentence?.speaker || ''}: ${sentence?.content || ''}`);
+
+  return matchingLines.some((line) => hasExplicitPresenceSignal(line) && !hasMentionOnlySignal(line));
+}
+
+function dedupeAttendanceNoteAttendees(attendees) {
+  const seen = new Set();
+  const compact = [];
+  for (const attendee of attendees) {
+    const key = `${attendee.kind}:${attendee.initials || attendee.email || cleanEvidenceText(attendee.name)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    compact.push(attendee);
+  }
+  return compact;
+}
+
+function normalizeTargetType(targetType, fallback = 'unknown') {
+  const normalized = String(targetType || fallback || 'unknown').trim().toLowerCase();
+  return CALL_NOTE_TARGETS.has(normalized) ? normalized : fallback;
+}
+
+function requiredStepsForTarget(targetType) {
+  const target = normalizeTargetType(targetType);
+  if (target === 'matter') {
+    return [
+      'attendance_note.sql.save',
+      'ops.queue.record',
+      'netdocuments.upload',
+      'clio.communication.create',
+      'clio.activity.create',
+    ];
+  }
+  if (target === 'prospect') {
+    return [
+      'attendance_note.sql.save',
+      'activecampaign.note.create',
+    ];
+  }
+  return ['attendance_note.sql.save'];
+}
+
+function getHeader(req, names) {
+  for (const name of names) {
+    const value = req?.headers?.[name.toLowerCase()];
+    if (Array.isArray(value) && value[0]) return String(value[0]).trim();
+    if (value) return String(value).trim();
+  }
+  return '';
+}
+
+function getRequestAuditContext(req, fallbackInitials = 'SYS') {
+  const body = req?.body || {};
+  const query = req?.query || {};
+  const initials = String(
+    req?.user?.initials
+    || req?.user?.Initials
+    || body.userInitials
+    || body.submittedByInitials
+    || query.initials
+    || getHeader(req, ['x-user-initials', 'x-helix-initials'])
+    || fallbackInitials
+    || 'SYS',
+  ).trim().toUpperCase() || 'SYS';
+
+  const email = String(
+    req?.user?.email
+    || req?.user?.Email
+    || body.userEmail
+    || body.submittedByEmail
+    || query.email
+    || getHeader(req, ['x-user-email'])
+    || '',
+  ).trim().toLowerCase();
+
+  const entraId = String(
+    req?.user?.entraId
+    || req?.user?.EntraID
+    || body.entraId
+    || body.submittedByEntraId
+    || query.entraId
+    || getHeader(req, ['x-helix-entra-id'])
+    || '',
+  ).trim();
+
+  const displayName = String(
+    req?.user?.name
+    || req?.user?.fullName
+    || body.userFullName
+    || body.submittedByName
+    || '',
+  ).trim();
+
+  return { initials, email, entraId, displayName };
+}
+
+function resolveCallDurationSeconds(note, callMetadata) {
+  const explicit = Number(callMetadata?.durationSec ?? callMetadata?.durationSeconds);
+  if (Number.isFinite(explicit) && explicit >= 0) return Math.round(explicit);
+  const noteDurationMinutes = Number(note?.duration);
+  if (Number.isFinite(noteDurationMinutes) && noteDurationMinutes >= 0) {
+    return Math.ceil(noteDurationMinutes * 60);
+  }
+  return null;
+}
+
+function buildCallNotePayloadSnapshot({ recordingId, targetType, body, note }) {
+  return {
+    recordingId,
+    targetType,
+    submittedAt: new Date().toISOString(),
+    requestBody: body || {},
+    note: note || null,
+  };
+}
+
+async function ensureCallAttendanceNoteSubmissionsTable() {
+  if (!ensureCallAttendanceNoteSubmissionsPromise) {
+    ensureCallAttendanceNoteSubmissionsPromise = (async () => {
+      const pool = await instrPool();
+      await pool.request().query(`
+        IF NOT EXISTS (
+          SELECT 1 FROM sys.tables WHERE name = 'call_attendance_note_submissions' AND schema_id = SCHEMA_ID('dbo')
+        )
+        BEGIN
+          CREATE TABLE dbo.call_attendance_note_submissions (
+            id                              UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
+            recording_id                    NVARCHAR(100)    NOT NULL,
+            target_type                     NVARCHAR(20)     NOT NULL,
+            form_submission_id              UNIQUEIDENTIFIER NULL,
+            matter_ref                      NVARCHAR(100)    NULL,
+            matter_id                       NVARCHAR(100)    NULL,
+            clio_matter_id                  NVARCHAR(100)    NULL,
+            clio_user_id                    NVARCHAR(100)    NULL,
+            enquiry_id                      INT              NULL,
+            passcode                        NVARCHAR(100)    NULL,
+            contact_name                    NVARCHAR(300)    NULL,
+            ac_contact_id                   NVARCHAR(100)    NULL,
+            ac_note_id                      NVARCHAR(100)    NULL,
+            submitted_by_initials           NVARCHAR(16)     NOT NULL,
+            submitted_by_email              NVARCHAR(320)    NULL,
+            submitted_by_entra_id           NVARCHAR(100)    NULL,
+            submitted_by_name               NVARCHAR(200)    NULL,
+            submitted_at                    DATETIMEOFFSET(3) NOT NULL DEFAULT SYSDATETIMEOFFSET(),
+            updated_at                      DATETIMEOFFSET(3) NOT NULL DEFAULT SYSDATETIMEOFFSET(),
+            call_date                       DATE             NULL,
+            call_started_at                 NVARCHAR(64)     NULL,
+            call_duration_seconds           INT              NULL,
+            parties_from                    NVARCHAR(300)    NULL,
+            parties_to                      NVARCHAR(300)    NULL,
+            summary                         NVARCHAR(500)    NULL,
+            attendance_note_text            NVARCHAR(MAX)    NULL,
+            note_json                       NVARCHAR(MAX)    NOT NULL,
+            payload_json                    NVARCHAR(MAX)    NOT NULL,
+            required_steps_json             NVARCHAR(MAX)    NULL,
+            processing_steps_json           NVARCHAR(MAX)    NULL,
+            processing_status               NVARCHAR(32)     NOT NULL DEFAULT 'processing',
+            last_event                      NVARCHAR(200)    NULL,
+            last_error                      NVARCHAR(1000)   NULL,
+            last_event_at                   DATETIMEOFFSET(3) NULL,
+            blob_name                       NVARCHAR(300)    NULL,
+            blob_url                        NVARCHAR(1000)   NULL,
+            doc_file_name                   NVARCHAR(300)    NULL,
+            nd_workspace_id                 NVARCHAR(100)    NULL,
+            nd_folder_id                    NVARCHAR(100)    NULL,
+            nd_doc_id                       NVARCHAR(100)    NULL,
+            nd_uploaded_at                  DATETIMEOFFSET(3) NULL,
+            clio_communication_id           NVARCHAR(100)    NULL,
+            clio_activity_id                NVARCHAR(100)    NULL,
+            clio_activity_quantity_seconds  INT              NULL,
+            clio_recorded_at                DATETIMEOFFSET(3) NULL,
+            ac_synced                       BIT              NOT NULL DEFAULT 0,
+            ac_error                        NVARCHAR(1000)   NULL,
+            ac_recorded_at                  DATETIMEOFFSET(3) NULL,
+            completed_at                    DATETIMEOFFSET(3) NULL,
+            CONSTRAINT PK_call_attendance_note_submissions PRIMARY KEY (id),
+            CONSTRAINT UQ_call_attendance_note_submissions_recording UNIQUE (recording_id)
+          );
+        END;
+
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID('dbo.call_attendance_note_submissions') AND name = 'IX_call_attendance_note_submissions_target_status')
+          CREATE INDEX IX_call_attendance_note_submissions_target_status
+            ON dbo.call_attendance_note_submissions (target_type, processing_status, submitted_at DESC);
+
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID('dbo.call_attendance_note_submissions') AND name = 'IX_call_attendance_note_submissions_owner')
+          CREATE INDEX IX_call_attendance_note_submissions_owner
+            ON dbo.call_attendance_note_submissions (submitted_by_initials, submitted_at DESC);
+
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID('dbo.call_attendance_note_submissions') AND name = 'IX_call_attendance_note_submissions_matter')
+          CREATE INDEX IX_call_attendance_note_submissions_matter
+            ON dbo.call_attendance_note_submissions (matter_ref, submitted_at DESC)
+            WHERE matter_ref IS NOT NULL;
+
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID('dbo.call_attendance_note_submissions') AND name = 'IX_call_attendance_note_submissions_enquiry')
+          CREATE INDEX IX_call_attendance_note_submissions_enquiry
+            ON dbo.call_attendance_note_submissions (enquiry_id, submitted_at DESC)
+            WHERE enquiry_id IS NOT NULL;
+      `);
+    })().catch((err) => {
+      ensureCallAttendanceNoteSubmissionsPromise = null;
+      throw err;
+    });
+  }
+
+  return ensureCallAttendanceNoteSubmissionsPromise;
+}
+
+async function getCallAttendanceSubmission(recordingId) {
+  await ensureCallAttendanceNoteSubmissionsTable();
+  const pool = await instrPool();
+  const result = await pool.request()
+    .input('recording_id', sql.NVarChar, recordingId)
+    .query(`
+      SELECT TOP 1 *
+      FROM dbo.call_attendance_note_submissions
+      WHERE recording_id = @recording_id
+      ORDER BY submitted_at DESC
+    `);
+  return result.recordset?.[0] || null;
+}
+
+async function upsertCallAttendanceNoteSubmission({
+  recordingId,
+  targetType,
+  note,
+  body,
+  audit,
+  matterRef = null,
+  matterId = null,
+  clioMatterId = null,
+  enquiryId = null,
+  passcode = null,
+  contactName = null,
+  acContactId = null,
+  formSubmissionId = null,
+  processingStatus = 'processing',
+}) {
+  await ensureCallAttendanceNoteSubmissionsTable();
+  const target = normalizeTargetType(targetType);
+  const callMetadata = body?.callMetadata || body?.call || {};
+  const payloadJson = safeJson(buildCallNotePayloadSnapshot({ recordingId, targetType: target, body, note }));
+  const noteJson = safeJson(note || {});
+  const pool = await instrPool();
+  const result = await pool.request()
+    .input('recording_id', sql.NVarChar, recordingId)
+    .input('target_type', sql.NVarChar, target)
+    .input('form_submission_id', sql.UniqueIdentifier, formSubmissionId || null)
+    .input('matter_ref', sql.NVarChar, truncate(matterRef, 100))
+    .input('matter_id', sql.NVarChar, truncate(matterId, 100))
+    .input('clio_matter_id', sql.NVarChar, truncate(clioMatterId, 100))
+    .input('enquiry_id', sql.Int, Number.isFinite(Number(enquiryId)) ? Number(enquiryId) : null)
+    .input('passcode', sql.NVarChar, truncate(passcode, 100))
+    .input('contact_name', sql.NVarChar, truncate(contactName, 300))
+    .input('ac_contact_id', sql.NVarChar, truncate(acContactId, 100))
+    .input('submitted_by_initials', sql.NVarChar, truncate(audit?.initials || 'SYS', 16))
+    .input('submitted_by_email', sql.NVarChar, truncate(audit?.email, 320))
+    .input('submitted_by_entra_id', sql.NVarChar, truncate(audit?.entraId, 100))
+    .input('submitted_by_name', sql.NVarChar, truncate(audit?.displayName, 200))
+    .input('call_date', sql.Date, note?.date || null)
+    .input('call_started_at', sql.NVarChar, truncate(callMetadata?.callStartedAt || callMetadata?.startedAt || body?.callStartedAt || null, 64))
+    .input('call_duration_seconds', sql.Int, resolveCallDurationSeconds(note, callMetadata))
+    .input('parties_from', sql.NVarChar, truncate(note?.parties?.from, 300))
+    .input('parties_to', sql.NVarChar, truncate(note?.parties?.to, 300))
+    .input('summary', sql.NVarChar, truncate(note?.summary, 500))
+    .input('attendance_note_text', sql.NVarChar(sql.MAX), note?.attendanceNote || null)
+    .input('note_json', sql.NVarChar(sql.MAX), noteJson)
+    .input('payload_json', sql.NVarChar(sql.MAX), payloadJson)
+    .input('required_steps_json', sql.NVarChar(sql.MAX), safeJson(requiredStepsForTarget(target), []))
+    .input('processing_status', sql.NVarChar, processingStatus)
+    .query(`
+      DECLARE @ids TABLE (id UNIQUEIDENTIFIER);
+
+      MERGE dbo.call_attendance_note_submissions AS target
+      USING (SELECT @recording_id AS recording_id) AS source
+      ON target.recording_id = source.recording_id
+      WHEN MATCHED THEN UPDATE SET
+        target_type = @target_type,
+        form_submission_id = COALESCE(@form_submission_id, target.form_submission_id),
+        matter_ref = @matter_ref,
+        matter_id = COALESCE(@matter_id, target.matter_id),
+        clio_matter_id = COALESCE(@clio_matter_id, target.clio_matter_id),
+        enquiry_id = COALESCE(@enquiry_id, target.enquiry_id),
+        passcode = COALESCE(@passcode, target.passcode),
+        contact_name = COALESCE(@contact_name, target.contact_name),
+        ac_contact_id = COALESCE(@ac_contact_id, target.ac_contact_id),
+        submitted_by_initials = @submitted_by_initials,
+        submitted_by_email = @submitted_by_email,
+        submitted_by_entra_id = @submitted_by_entra_id,
+        submitted_by_name = @submitted_by_name,
+        updated_at = SYSDATETIMEOFFSET(),
+        call_date = @call_date,
+        call_started_at = @call_started_at,
+        call_duration_seconds = @call_duration_seconds,
+        parties_from = @parties_from,
+        parties_to = @parties_to,
+        summary = @summary,
+        attendance_note_text = @attendance_note_text,
+        note_json = @note_json,
+        payload_json = @payload_json,
+        required_steps_json = @required_steps_json,
+        processing_status = CASE WHEN target.processing_status = 'complete' THEN target.processing_status ELSE @processing_status END,
+        last_event = 'attendance_note.sql.save',
+        last_error = NULL,
+        last_event_at = SYSDATETIMEOFFSET()
+      WHEN NOT MATCHED THEN INSERT
+        (recording_id, target_type, form_submission_id, matter_ref, matter_id, clio_matter_id,
+         enquiry_id, passcode, contact_name, ac_contact_id, submitted_by_initials, submitted_by_email,
+         submitted_by_entra_id, submitted_by_name, call_date, call_started_at, call_duration_seconds,
+         parties_from, parties_to, summary, attendance_note_text, note_json, payload_json,
+         required_steps_json, processing_steps_json, processing_status, last_event, last_event_at)
+      VALUES
+        (@recording_id, @target_type, @form_submission_id, @matter_ref, @matter_id, @clio_matter_id,
+         @enquiry_id, @passcode, @contact_name, @ac_contact_id, @submitted_by_initials, @submitted_by_email,
+         @submitted_by_entra_id, @submitted_by_name, @call_date, @call_started_at, @call_duration_seconds,
+         @parties_from, @parties_to, @summary, @attendance_note_text, @note_json, @payload_json,
+         @required_steps_json, '[]', @processing_status, 'attendance_note.sql.save', SYSDATETIMEOFFSET())
+      OUTPUT INSERTED.id INTO @ids;
+
+      SELECT TOP 1 id FROM @ids;
+    `);
+
+  return result.recordset?.[0]?.id || null;
+}
+
+async function updateCallAttendanceFormSubmission(recordingId, formSubmissionId) {
+  if (!formSubmissionId) return;
+  await ensureCallAttendanceNoteSubmissionsTable();
+  const pool = await instrPool();
+  await pool.request()
+    .input('recording_id', sql.NVarChar, recordingId)
+    .input('form_submission_id', sql.UniqueIdentifier, formSubmissionId)
+    .query(`
+      UPDATE dbo.call_attendance_note_submissions
+      SET form_submission_id = @form_submission_id,
+          updated_at = SYSDATETIMEOFFSET(),
+          last_event = 'ops.queue.record',
+          last_event_at = SYSDATETIMEOFFSET()
+      WHERE recording_id = @recording_id;
+    `);
+}
+
+async function recordCallAttendanceStep(recordingId, targetType, { name, status, error = null, output = null, mirrorToOps = true }) {
+  await ensureCallAttendanceNoteSubmissionsTable();
+  const target = normalizeTargetType(targetType);
+  const pool = await instrPool();
+  const current = await pool.request()
+    .input('recording_id', sql.NVarChar, recordingId)
+    .query(`
+      SELECT TOP 1 id, form_submission_id, processing_steps_json
+      FROM dbo.call_attendance_note_submissions
+      WHERE recording_id = @recording_id
+    `);
+  const row = current.recordset?.[0];
+  if (!row) return null;
+
+  const steps = parseJsonArray(row.processing_steps_json);
+  steps.push({
+    name,
+    status,
+    at: new Date().toISOString(),
+    ...(error ? { error: truncate(error instanceof Error ? error.message : error, 1000) } : {}),
+    ...(output ? { output } : {}),
+  });
+
+  await pool.request()
+    .input('recording_id', sql.NVarChar, recordingId)
+    .input('steps_json', sql.NVarChar(sql.MAX), safeJson(steps, []))
+    .input('last_event', sql.NVarChar, truncate(`${name}:${status}`, 200))
+    .input('last_error', sql.NVarChar, status === 'failed' ? truncate(error instanceof Error ? error.message : error, 1000) : null)
+    .query(`
+      UPDATE dbo.call_attendance_note_submissions
+      SET processing_steps_json = @steps_json,
+          updated_at = SYSDATETIMEOFFSET(),
+          last_event = @last_event,
+          last_error = @last_error,
+          last_event_at = SYSDATETIMEOFFSET()
+      WHERE recording_id = @recording_id;
+    `);
+
+  if (mirrorToOps && row.form_submission_id) {
+    await recordStep(row.form_submission_id, {
+      name,
+      status,
+      error: status === 'failed' ? (error instanceof Error ? error.message : String(error || 'failed')) : null,
+      output,
+    });
+  }
+
+  await refreshCallAttendanceCompletion(recordingId, target);
+  return row.id;
+}
+
+async function safeRecordCallAttendanceStep(recordingId, targetType, step, context = {}) {
+  try {
+    return await recordCallAttendanceStep(recordingId, targetType, step);
+  } catch (err) {
+    console.warn(`[dubber] failed to record call-note step ${step?.name || 'unknown'}:`, err.message);
+    trackException(err, {
+      operation: 'Dubber.AttendanceNote.StepAudit',
+      recordingId: String(recordingId || ''),
+      step: String(step?.name || ''),
+      ...context,
+    });
+    return null;
+  }
+}
+
+async function refreshCallAttendanceCompletion(recordingId, targetType) {
+  const target = normalizeTargetType(targetType);
+  const row = await getCallAttendanceSubmission(recordingId);
+  if (!row) return null;
+
+  const required = requiredStepsForTarget(row.target_type || target);
+  const steps = parseJsonArray(row.processing_steps_json);
+  const latestStepByName = new Map();
+  for (const step of steps) {
+    if (step?.name) latestStepByName.set(step.name, step);
+  }
+  const failedRequiredStep = required
+    .map((name) => latestStepByName.get(name))
+    .find((step) => step && step.status === 'failed');
+
+  let isComplete = false;
+  if ((row.target_type || target) === 'matter') {
+    isComplete = Boolean(row.form_submission_id && row.nd_doc_id && row.clio_communication_id && row.clio_activity_id);
+  } else if ((row.target_type || target) === 'prospect') {
+    isComplete = Boolean(row.ac_synced);
+  } else {
+    isComplete = true;
+  }
+
+  const nextStatus = isComplete ? 'complete' : failedRequiredStep ? 'failed' : 'processing';
+  const lastEvent = isComplete
+    ? 'complete'
+    : failedRequiredStep
+      ? `${failedRequiredStep.name}:failed`
+      : row.last_event || 'processing';
+  const lastError = failedRequiredStep?.error || null;
+
+  const pool = await instrPool();
+  await pool.request()
+    .input('recording_id', sql.NVarChar, recordingId)
+    .input('processing_status', sql.NVarChar, nextStatus)
+    .input('last_event', sql.NVarChar, truncate(lastEvent, 200))
+    .input('last_error', sql.NVarChar, truncate(lastError, 1000))
+    .query(`
+      UPDATE dbo.call_attendance_note_submissions
+      SET processing_status = @processing_status,
+          updated_at = SYSDATETIMEOFFSET(),
+          last_event = @last_event,
+          last_error = @last_error,
+          last_event_at = SYSDATETIMEOFFSET(),
+          completed_at = CASE WHEN @processing_status = 'complete' THEN COALESCE(completed_at, SYSDATETIMEOFFSET()) ELSE completed_at END
+      WHERE recording_id = @recording_id;
+    `);
+
+  if (row.form_submission_id) {
+    if (nextStatus === 'complete') {
+      await markComplete(row.form_submission_id, { lastEvent: 'call-attendance-note complete' });
+    } else if (nextStatus === 'failed') {
+      await markFailed(row.form_submission_id, { lastEvent, error: lastError || 'Required call-note destination failed' });
+    }
+  }
+
+  return { status: nextStatus, complete: isComplete, failedRequiredStep };
+}
+
+async function updateCallAttendanceBlob(recordingId, { blobName = null, blobUrl = null }) {
+  await ensureCallAttendanceNoteSubmissionsTable();
+  const pool = await instrPool();
+  await pool.request()
+    .input('recording_id', sql.NVarChar, recordingId)
+    .input('blob_name', sql.NVarChar, truncate(blobName, 300))
+    .input('blob_url', sql.NVarChar, truncate(blobUrl, 1000))
+    .query(`
+      UPDATE dbo.call_attendance_note_submissions
+      SET blob_name = COALESCE(@blob_name, blob_name),
+          blob_url = COALESCE(@blob_url, blob_url),
+          updated_at = SYSDATETIMEOFFSET()
+      WHERE recording_id = @recording_id;
+    `);
+}
+
+async function updateCallAttendanceNdResult(recordingId, { fileName, ndDocId, workspaceId, folderId, matterRef }) {
+  await ensureCallAttendanceNoteSubmissionsTable();
+  const pool = await instrPool();
+  await pool.request()
+    .input('recording_id', sql.NVarChar, recordingId)
+    .input('doc_file_name', sql.NVarChar, truncate(fileName, 300))
+    .input('nd_doc_id', sql.NVarChar, truncate(ndDocId, 100))
+    .input('nd_workspace_id', sql.NVarChar, truncate(workspaceId, 100))
+    .input('nd_folder_id', sql.NVarChar, truncate(folderId, 100))
+    .input('matter_ref', sql.NVarChar, truncate(matterRef, 100))
+    .query(`
+      UPDATE dbo.call_attendance_note_submissions
+      SET doc_file_name = @doc_file_name,
+          nd_doc_id = @nd_doc_id,
+          nd_workspace_id = @nd_workspace_id,
+          nd_folder_id = @nd_folder_id,
+          matter_ref = COALESCE(@matter_ref, matter_ref),
+          nd_uploaded_at = SYSDATETIMEOFFSET(),
+          updated_at = SYSDATETIMEOFFSET()
+      WHERE recording_id = @recording_id;
+    `);
+}
+
+async function updateCallAttendanceClioResult(recordingId, {
+  clioMatterId,
+  clioUserId,
+  communicationId,
+  activityId,
+  quantitySeconds,
+}) {
+  await ensureCallAttendanceNoteSubmissionsTable();
+  const pool = await instrPool();
+  await pool.request()
+    .input('recording_id', sql.NVarChar, recordingId)
+    .input('clio_matter_id', sql.NVarChar, truncate(clioMatterId, 100))
+    .input('clio_user_id', sql.NVarChar, truncate(clioUserId, 100))
+    .input('communication_id', sql.NVarChar, truncate(communicationId, 100))
+    .input('activity_id', sql.NVarChar, truncate(activityId, 100))
+    .input('quantity_seconds', sql.Int, Number.isFinite(Number(quantitySeconds)) ? Number(quantitySeconds) : null)
+    .query(`
+      UPDATE dbo.call_attendance_note_submissions
+      SET clio_matter_id = COALESCE(@clio_matter_id, clio_matter_id),
+          clio_user_id = COALESCE(@clio_user_id, clio_user_id),
+          clio_communication_id = COALESCE(@communication_id, clio_communication_id),
+          clio_activity_id = COALESCE(@activity_id, clio_activity_id),
+          clio_activity_quantity_seconds = COALESCE(@quantity_seconds, clio_activity_quantity_seconds),
+          clio_recorded_at = SYSDATETIMEOFFSET(),
+          updated_at = SYSDATETIMEOFFSET()
+      WHERE recording_id = @recording_id;
+    `);
+}
+
+async function updateCallAttendanceAcResult(recordingId, { acContactId, acNoteId = null, synced, error = null }) {
+  await ensureCallAttendanceNoteSubmissionsTable();
+  const pool = await instrPool();
+  await pool.request()
+    .input('recording_id', sql.NVarChar, recordingId)
+    .input('ac_contact_id', sql.NVarChar, truncate(acContactId, 100))
+    .input('ac_note_id', sql.NVarChar, truncate(acNoteId, 100))
+    .input('ac_synced', sql.Bit, Boolean(synced))
+    .input('ac_error', sql.NVarChar, truncate(error, 1000))
+    .query(`
+      UPDATE dbo.call_attendance_note_submissions
+      SET ac_contact_id = COALESCE(@ac_contact_id, ac_contact_id),
+          ac_note_id = COALESCE(@ac_note_id, ac_note_id),
+          ac_synced = @ac_synced,
+          ac_error = @ac_error,
+          ac_recorded_at = CASE WHEN @ac_synced = 1 THEN SYSDATETIMEOFFSET() ELSE ac_recorded_at END,
+          updated_at = SYSDATETIMEOFFSET()
+      WHERE recording_id = @recording_id;
+    `);
+}
+
+async function upsertLegacyAttendanceNoteIndex({ recordingId, note, matterRef = null, savedBy, blobName = null }) {
+  const pool = await instrPool();
+  const callDate = note?.date || null;
+  const callDuration = resolveCallDurationSeconds(note, null);
+  const partiesFrom = note?.parties?.from || null;
+  const partiesTo = note?.parties?.to || null;
+  const summary = (note?.summary || '').slice(0, 500) || null;
+  const topicsJson = note?.topics && note.topics.length > 0 ? JSON.stringify(note.topics) : null;
+  const actionItemsJson = note?.actionItems && note.actionItems.length > 0 ? JSON.stringify(note.actionItems) : null;
+  const legacyBlobName = blobName || `sql-only/${recordingId}.json`;
+
+  await pool.request()
+    .input('recording_id', sql.NVarChar, recordingId)
+    .input('matter_ref', sql.NVarChar, matterRef)
+    .input('instruction_ref', sql.NVarChar, null)
+    .input('saved_by', sql.NVarChar, savedBy)
+    .input('call_date', sql.Date, callDate)
+    .input('call_duration_seconds', sql.Int, callDuration)
+    .input('parties_from', sql.NVarChar, partiesFrom)
+    .input('parties_to', sql.NVarChar, partiesTo)
+    .input('summary', sql.NVarChar, summary)
+    .input('topics_json', sql.NVarChar, topicsJson)
+    .input('action_items_json', sql.NVarChar, actionItemsJson)
+    .input('blob_name', sql.NVarChar, legacyBlobName)
+    .query(`
+      MERGE dbo.dubber_attendance_notes AS target
+      USING (SELECT @recording_id AS recording_id) AS source
+      ON target.recording_id = source.recording_id
+      WHEN MATCHED THEN UPDATE SET
+        matter_ref = @matter_ref,
+        saved_by = @saved_by,
+        saved_at = SYSDATETIMEOFFSET(),
+        call_date = @call_date,
+        call_duration_seconds = @call_duration_seconds,
+        parties_from = @parties_from,
+        parties_to = @parties_to,
+        summary = @summary,
+        topics_json = @topics_json,
+        action_items_json = @action_items_json,
+        blob_name = COALESCE(@blob_name, target.blob_name)
+      WHEN NOT MATCHED THEN INSERT
+        (recording_id, matter_ref, instruction_ref, saved_by, call_date, call_duration_seconds,
+         parties_from, parties_to, summary, topics_json, action_items_json, blob_name)
+      VALUES
+        (@recording_id, @matter_ref, @instruction_ref, @saved_by, @call_date, @call_duration_seconds,
+         @parties_from, @parties_to, @summary, @topics_json, @action_items_json, @blob_name);
+    `);
+}
+
 async function resolveMatterDisplayNumberById(matterId) {
   if (!matterId) return null;
   try {
@@ -321,6 +1175,151 @@ async function resolveClioMatterIdFromDisplayNumber(displayNumber) {
     return id != null ? String(id) : null;
   } catch (err) {
     console.warn('[dubber] matter id lookup failed:', err.message);
+    return null;
+  }
+}
+
+  const CLIO_ATTENDANCE_ACTIVITY_DESCRIPTION_NAMES = [
+    'Telephone Attendance Note',
+    'Telephone Attendance Note - Other or Third Party',
+    'Telephone Attendance Note - Client',
+    'Telephone Attendance Note - Opponent',
+    'Telephone Attendance Note - Counsel',
+    'Telephone Attendance Note - Court',
+    'Telephone attendance - other',
+    'Telephone attendance - opponent',
+    'Telephone call - client',
+  ];
+  const CLIO_ATTENDANCE_ACTIVITY_DESCRIPTION_TERM_SETS = [
+    ['telephone', 'attendance', 'note'],
+    ['telephone', 'attendance'],
+    ['telephone', 'call'],
+  ];
+const CLIO_ATTENDANCE_COMMUNICATION_TYPE = 'PhoneCommunication';
+const CLIO_ACTIVITY_UNITS = 'seconds';
+let cachedAttendanceActivityDescriptionId = null;
+
+function toClioReferenceId(value) {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) ? numericValue : value;
+}
+
+function buildClioReceivedAt(date) {
+  return `${date}T00:00:00Z`;
+}
+
+function buildClioReceivedAtFromCall(date, callStartedAt) {
+  const parsedCallStartedAt = String(callStartedAt || '').trim();
+  if (parsedCallStartedAt) {
+    const timestamp = Date.parse(parsedCallStartedAt);
+    if (Number.isFinite(timestamp)) {
+      return new Date(timestamp).toISOString();
+    }
+  }
+  return buildClioReceivedAt(date);
+}
+
+function extractClioErrorMessage(rawBody, status) {
+  const fallback = rawBody ? String(rawBody).slice(0, 500) : `Clio responded ${status}`;
+  if (!rawBody) return fallback;
+
+  try {
+    const parsed = JSON.parse(rawBody);
+    const message = parsed?.error?.message
+      || parsed?.message
+      || parsed?.error
+      || (Array.isArray(parsed?.errors)
+        ? parsed.errors
+          .map((entry) => entry?.message || entry?.error || entry)
+          .filter(Boolean)
+          .join('; ')
+        : '');
+    if (message) return String(message).slice(0, 500);
+  } catch {
+    // Fall through to plain-text cleanup.
+  }
+
+  return String(rawBody)
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 500) || fallback;
+}
+
+function buildClioWriteError(status, rawBody, rejectedCode) {
+  const retryAfterSeconds = null;
+  const is429 = status === 429;
+  const is5xx = status >= 500;
+  return {
+    code: is429 ? 'CLIO_RATE_LIMITED' : is5xx ? 'CLIO_SERVER_ERROR' : rejectedCode,
+    message: extractClioErrorMessage(rawBody, status),
+    retriable: is429 || is5xx,
+    retryAfterSeconds,
+    status,
+  };
+}
+
+async function resolveAttendanceActivityDescriptionId(accessToken) {
+  if (cachedAttendanceActivityDescriptionId) return cachedAttendanceActivityDescriptionId;
+
+  const configuredId = String(process.env.CLIO_ATTENDANCE_ACTIVITY_DESCRIPTION_ID || '').trim();
+  if (configuredId) {
+    cachedAttendanceActivityDescriptionId = configuredId;
+    return cachedAttendanceActivityDescriptionId;
+  }
+
+  try {
+    const configuredName = String(process.env.CLIO_ATTENDANCE_ACTIVITY_DESCRIPTION_NAME || '').trim();
+    const preferredNames = configuredName
+      ? [configuredName, ...CLIO_ATTENDANCE_ACTIVITY_DESCRIPTION_NAMES]
+      : CLIO_ATTENDANCE_ACTIVITY_DESCRIPTION_NAMES;
+    const normalise = (value) => String(value || '').trim().toLowerCase();
+    let nextUrl = new URL(`${CLIO_API_BASE}/activity_descriptions.json`);
+    nextUrl.searchParams.set('fields', 'id,name');
+    nextUrl.searchParams.set('limit', '200');
+    let fuzzyMatchId = null;
+
+    while (nextUrl) {
+      const response = await fetch(nextUrl.toString(), {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        return fuzzyMatchId;
+      }
+
+      const json = await response.json().catch(() => ({}));
+      const items = Array.isArray(json?.data) ? json.data : [];
+
+      for (const preferredName of preferredNames) {
+        const exact = items.find((item) => normalise(item?.name) === normalise(preferredName));
+        if (exact?.id) {
+          cachedAttendanceActivityDescriptionId = String(exact.id);
+          return cachedAttendanceActivityDescriptionId;
+        }
+      }
+
+      if (!fuzzyMatchId) {
+        const fuzzy = items.find((item) => {
+          const name = normalise(item?.name);
+          return CLIO_ATTENDANCE_ACTIVITY_DESCRIPTION_TERM_SETS.some((terms) => terms.every((term) => name.includes(term)));
+        });
+        if (fuzzy?.id) {
+          fuzzyMatchId = String(fuzzy.id);
+        }
+      }
+
+      nextUrl = json?.meta?.paging?.next ? new URL(json.meta.paging.next) : null;
+    }
+
+    if (!fuzzyMatchId) return null;
+
+    cachedAttendanceActivityDescriptionId = fuzzyMatchId;
+    return cachedAttendanceActivityDescriptionId;
+  } catch {
     return null;
   }
 }
@@ -965,6 +1964,7 @@ router.post('/dubberCalls/:recordingId/attendance-note', async (req, res) => {
   try {
     const recordingId = String(req.params.recordingId || '').trim();
     if (!recordingId) return res.status(400).json({ error: 'Missing recordingId' });
+    trackEvent('Dubber.AttendanceNote.Generate.Started', { reqId, recordingId, triggeredBy: 'home-call-centre' });
 
     const pool = await instrPool();
 
@@ -1021,8 +2021,21 @@ Return JSON with this structure:
   "summary": "2-4 sentence overview of the call",
   "topics": ["topic1", "topic2"],
   "actionItems": ["action1", "action2"],
+  "attendees": [
+    { "name": "Person name", "kind": "internal", "role": "supporting", "initials": "AB", "source": "transcript", "evidence": "Short quote or speaker label proving they were present" },
+    { "name": "External person", "kind": "external", "role": "external", "source": "transcript", "evidence": "Short quote or speaker label proving they were present" }
+  ],
   "attendanceNote": "Full formatted attendance note text suitable for a legal file. Use professional legal language. Include key points discussed, advice given, instructions received, and next steps. Format with clear paragraphs."
-}`;
+}
+
+Attendee rules:
+- Include attendees only where the transcript or call metadata identifies them as actually present on the call. Do not guess names.
+- Treat the call metadata team member as the primary Helix attendee by default. Only mark another Helix person as primary if the transcript explicitly shows that person led the call.
+- Do not treat a person as an attendee merely because they are mentioned, will be asked later, owns the underlying enquiry/matter, is copied in, or may give feedback later.
+- Only include secondary Helix attendees when there is a clear presence signal: they have a speaker turn, they are introduced as being on the call, they are described as sitting in/listening in/observing, or they directly contribute advice during the call. There can be multiple secondary attendees, but each needs its own presence evidence.
+- Use role "primary" for the person mainly responsible for the call, "supporting" for other internal contributors, and "learning" only where someone is clearly sitting in or observing for learning/support.
+- Use kind "internal" for Helix people and include initials where the transcript or metadata gives them. Use kind "external" and role "external" for clients, prospects, opponents, or other non-Helix participants.
+- Use source "transcript" for transcript-derived attendees. Every transcript-derived attendee must include an "evidence" value with the exact speaker label or short quote proving attendance.`;
 
     const userPrompt = `Call details:
 - Date: ${callDate}
@@ -1042,7 +2055,14 @@ ${transcriptText}`;
       const durationMs = Date.now() - started;
       console.error(`[dubber ${reqId}] AI call failed:`, aiErr?.message || aiErr);
       trackException(aiErr instanceof Error ? aiErr : new Error(String(aiErr)), { operation: 'Dubber.AttendanceNote.AI', reqId, recordingId, durationMs: String(durationMs) });
-      return res.status(502).json({ error: 'AI service unavailable', code: 'AI_UNAVAILABLE' });
+      const body = { error: 'AI service unavailable', code: 'AI_UNAVAILABLE' };
+      // In dev, attach the SDK detail so the operator can see *why* the model
+      // refused (missing deployment, content filter, gateway 5xx) without
+      // having to tail the server log.
+      if (process.env.NODE_ENV !== 'production' && aiErr?.detail) {
+        body.detail = aiErr.detail;
+      }
+      return res.status(502).json(body);
     }
 
     if (aiResult?._parseError) {
@@ -1055,6 +2075,84 @@ ${transcriptText}`;
     trackEvent('Dubber.AttendanceNote.Generated', { reqId, recordingId, durationMs: String(durationMs), sentenceCount: String(sentences.length) });
     trackMetric('Dubber.AttendanceNote.Duration', durationMs, { recordingId });
 
+    const aiAttendees = Array.isArray(aiResult.attendees)
+      ? aiResult.attendees
+        .map((entry, index) => {
+          const name = String(entry?.name || '').trim();
+          if (!name) return null;
+          const kind = entry?.kind === 'internal' ? 'internal' : 'external';
+          const requestedRole = String(entry?.role || '').trim().toLowerCase();
+          const role = kind === 'external'
+            ? 'external'
+            : ['primary', 'supporting', 'learning'].includes(requestedRole)
+              ? requestedRole
+              : 'supporting';
+          const initials = kind === 'internal' ? String(entry?.initials || '').trim().toUpperCase() || null : null;
+          const keySource = initials || name.toLowerCase().replace(/\s+/g, '-').slice(0, 80) || String(index);
+          return {
+            id: `${kind}:${keySource}`,
+            kind,
+            role,
+            name,
+            initials,
+            email: entry?.email ? String(entry.email).trim() : null,
+            source: 'transcript',
+            confidence: Number.isFinite(Number(entry?.confidence)) ? Number(entry.confidence) : null,
+            evidence: entry?.evidence ? String(entry.evidence).trim().slice(0, 240) : null,
+          };
+        })
+        .filter(Boolean)
+      : [];
+
+    const metadataPrimaryInitials = String(recording.matched_team_initials || '').trim().toUpperCase();
+    let attendees = aiAttendees.filter((attendee) => {
+      if (attendee.kind !== 'internal') return true;
+      if (metadataPrimaryInitials && String(attendee.initials || '').toUpperCase() === metadataPrimaryInitials) return true;
+      if (Number.isFinite(Number(attendee.confidence)) && Number(attendee.confidence) < 0.65) return false;
+      return hasStrongInternalAttendeeEvidence(attendee, sentences);
+    });
+
+    if (metadataPrimaryInitials) {
+      const hasMetadataPrimary = attendees.some((attendee) => attendee.kind === 'internal' && String(attendee.initials || '').toUpperCase() === metadataPrimaryInitials);
+      attendees = attendees.map((attendee) => {
+        if (attendee.kind !== 'internal') return attendee;
+        if (String(attendee.initials || '').toUpperCase() === metadataPrimaryInitials) {
+          return { ...attendee, role: 'primary' };
+        }
+        return attendee.role === 'primary' ? { ...attendee, role: 'supporting' } : attendee;
+      });
+      if (!hasMetadataPrimary) {
+        attendees.unshift({
+          id: `internal:${metadataPrimaryInitials}`,
+          kind: 'internal',
+          role: 'primary',
+          name: metadataPrimaryInitials,
+          initials: metadataPrimaryInitials,
+          email: null,
+          source: 'transcript',
+          confidence: null,
+          evidence: 'Call owner from Dubber metadata',
+        });
+      }
+    } else {
+      const primaryIndex = attendees.findIndex((attendee) => attendee.kind === 'internal' && attendee.role === 'primary');
+      if (primaryIndex > -1) {
+        attendees = attendees.map((attendee, index) => (attendee.kind === 'internal' && attendee.role === 'primary' && index !== primaryIndex)
+          ? { ...attendee, role: 'supporting' }
+          : attendee);
+      }
+    }
+
+    attendees = dedupeAttendanceNoteAttendees(attendees);
+
+    trackEvent('Dubber.AttendanceNote.Generate.Completed', {
+      reqId,
+      recordingId,
+      durationMs: String(durationMs),
+      attendeeCount: String(attendees.length),
+      secondaryAttendeeCount: String(attendees.filter((attendee) => attendee.kind === 'internal' && attendee.role !== 'primary').length),
+    });
+
     return res.json({
       note: {
         summary: aiResult.summary || '',
@@ -1065,6 +2163,7 @@ ${transcriptText}`;
         date: callDate,
         parties: { from: fromParty, to: toParty },
         teamMember: recording.matched_team_initials || null,
+        attendees,
         systemPrompt,
         userPrompt,
       },
@@ -1072,6 +2171,7 @@ ${transcriptText}`;
   } catch (err) {
     console.error(`[dubber ${reqId}] attendance-note error:`, err?.message || err);
     trackException(err, { operation: 'Dubber.AttendanceNote.Generate', reqId });
+    trackEvent('Dubber.AttendanceNote.Generate.Failed', { reqId, error: err?.message || 'unknown', durationMs: String(Date.now() - started) });
     return res.status(500).json({ error: 'Failed to generate attendance note', code: 'DB_ERROR' });
   }
 });
@@ -1256,9 +2356,10 @@ router.get('/dubberCalls/:recordingId/matter-chain', async (req, res) => {
 
 // ── POST /api/dubberCalls/:recordingId/save-note ───────────────────────────
 /**
- * Save a generated attendance note to Azure Blob Storage.
+ * Save a generated attendance note for the Home journey, with blob backup
+ * when storage write access is available.
  * Body: { note: AttendanceNote, matterRef?: string }
- * Returns: { blobUrl, blobName }
+ * Returns: { blobUrl, blobName, degraded }
  */
 router.post('/dubberCalls/:recordingId/save-note', async (req, res) => {
   const reqId = randomUUID();
@@ -1270,85 +2371,226 @@ router.post('/dubberCalls/:recordingId/save-note', async (req, res) => {
     const { note, matterRef } = req.body || {};
     if (!note || !note.attendanceNote) return res.status(400).json({ error: 'Missing attendance note content' });
 
+    const audit = getRequestAuditContext(req, resolveSavedByInitials(req));
+    const savedBy = audit.initials;
+    const targetType = normalizeTargetType(
+      req.body?.targetType || req.body?.target || (matterRef ? 'matter' : 'unknown'),
+      matterRef ? 'matter' : 'unknown',
+    );
+
+    // 1) Source of truth first: the original note submission is durable even
+    // if every integration below is unavailable.
+    const noteSubmissionId = await upsertCallAttendanceNoteSubmission({
+      recordingId,
+      targetType,
+      note,
+      body: req.body || {},
+      audit,
+      matterRef: matterRef || null,
+      processingStatus: 'processing',
+    });
+    await recordCallAttendanceStep(recordingId, targetType, {
+      name: 'attendance_note.sql.save',
+      status: 'success',
+      output: { noteSubmissionId },
+      mirrorToOps: false,
+    });
+
+    // 2) Matter notes require an ops/process queue entry. Prospect completion
+    // is intentionally SQL + ActiveCampaign only and is handled by the prospect route.
+    let submissionId = null;
+    if (targetType === 'matter') {
+      try {
+        submissionId = await recordSubmission({
+          formKey: CALL_NOTE_FORM_KEY,
+          submittedBy: savedBy,
+          lane: CALL_NOTE_LANE,
+          payload: {
+            recordingId,
+            targetType,
+            noteSubmissionId,
+            ...req.body,
+          },
+          summary: `Call attendance note — ${matterRef || recordingId}`.slice(0, 400),
+        });
+
+        if (submissionId) {
+          await updateCallAttendanceFormSubmission(recordingId, submissionId);
+          await recordStep(submissionId, {
+            name: 'attendance_note.sql.save',
+            status: 'success',
+            output: { noteSubmissionId, recordingId },
+          });
+          await recordStep(submissionId, {
+            name: 'ops.queue.record',
+            status: 'success',
+            output: { submissionId },
+          });
+          await recordCallAttendanceStep(recordingId, targetType, {
+            name: 'ops.queue.record',
+            status: 'success',
+            output: { submissionId },
+            mirrorToOps: false,
+          });
+        } else {
+          await recordCallAttendanceStep(recordingId, targetType, {
+            name: 'ops.queue.record',
+            status: 'failed',
+            error: 'form_submissions record was not created',
+            mirrorToOps: false,
+          });
+        }
+      } catch (logErr) {
+        trackException(logErr, { phase: 'Dubber.AttendanceNote.OpsQueue', reqId, recordingId });
+        await recordCallAttendanceStep(recordingId, targetType, {
+          name: 'ops.queue.record',
+          status: 'failed',
+          error: logErr,
+          mirrorToOps: false,
+        });
+      }
+    }
+
     const client = getAttendanceBlobClient();
     const containerClient = client.getContainerClient(ATTENDANCE_BLOB_CONTAINER);
-    await containerClient.createIfNotExists();
 
     const datePrefix = (note.date || new Date().toISOString().slice(0, 10)).replace(/-/g, '');
     const blobName = `${datePrefix}/${recordingId}.json`;
-    const blockBlobClient = containerClient.getBlockBlobClient(blobName);
 
     const payload = {
       recordingId,
+      noteSubmissionId,
+      formSubmissionId: submissionId,
+      targetType,
       matterRef: matterRef || null,
       savedAt: new Date().toISOString(),
-      savedBy: req.headers['x-user-initials'] || null,
+      savedBy,
+      audit,
       note,
     };
     const content = JSON.stringify(payload, null, 2);
 
-    await blockBlobClient.upload(content, Buffer.byteLength(content), {
-      blobHTTPHeaders: { blobContentType: 'application/json' },
-    });
+    let blobUrl = null;
+    let persistedBlobName = null;
+    let blobSaveDegraded = false;
 
-    // ── Index in SQL for fast lookups ──
+    const uploadBlob = async () => {
+      const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+      await blockBlobClient.upload(content, Buffer.byteLength(content), {
+        blobHTTPHeaders: { blobContentType: 'application/json' },
+      });
+      blobUrl = blockBlobClient.url;
+      persistedBlobName = blobName;
+    };
+
     try {
-      const pool = await instrPool();
-      const savedBy = String(req.headers['x-user-initials'] || '').trim().toUpperCase() || 'SYS';
-      const callDate = note.date || null;
-      const callDuration = note.duration ? Math.ceil(note.duration * 60) : null;
-      const partiesFrom = note.parties?.from || null;
-      const partiesTo = note.parties?.to || null;
-      const summary = (note.summary || '').slice(0, 500) || null;
-      const topicsJson = note.topics && note.topics.length > 0 ? JSON.stringify(note.topics) : null;
-      const actionItemsJson = note.actionItems && note.actionItems.length > 0 ? JSON.stringify(note.actionItems) : null;
-
-      await pool.request()
-        .input('recording_id', sql.NVarChar, recordingId)
-        .input('matter_ref', sql.NVarChar, matterRef || null)
-        .input('instruction_ref', sql.NVarChar, null)
-        .input('saved_by', sql.NVarChar, savedBy)
-        .input('call_date', sql.Date, callDate)
-        .input('call_duration_seconds', sql.Int, callDuration)
-        .input('parties_from', sql.NVarChar, partiesFrom)
-        .input('parties_to', sql.NVarChar, partiesTo)
-        .input('summary', sql.NVarChar, summary)
-        .input('topics_json', sql.NVarChar, topicsJson)
-        .input('action_items_json', sql.NVarChar, actionItemsJson)
-        .input('blob_name', sql.NVarChar, blobName)
-        .query(`
-          MERGE dbo.dubber_attendance_notes AS target
-          USING (SELECT @recording_id AS recording_id) AS source
-          ON target.recording_id = source.recording_id
-          WHEN MATCHED THEN UPDATE SET
-            matter_ref = @matter_ref,
-            saved_by = @saved_by,
-            saved_at = SYSDATETIMEOFFSET(),
-            call_date = @call_date,
-            call_duration_seconds = @call_duration_seconds,
-            parties_from = @parties_from,
-            parties_to = @parties_to,
-            summary = @summary,
-            topics_json = @topics_json,
-            action_items_json = @action_items_json,
-            blob_name = @blob_name
-          WHEN NOT MATCHED THEN INSERT
-            (recording_id, matter_ref, instruction_ref, saved_by, call_date, call_duration_seconds,
-             parties_from, parties_to, summary, topics_json, action_items_json, blob_name)
-          VALUES
-            (@recording_id, @matter_ref, @instruction_ref, @saved_by, @call_date, @call_duration_seconds,
-             @parties_from, @parties_to, @summary, @topics_json, @action_items_json, @blob_name);
-        `);
-    } catch (sqlErr) {
-      // Non-fatal: blob save succeeded, SQL index is best-effort
-      console.warn(`[dubber ${reqId}] SQL index for attendance note failed:`, sqlErr.message);
+      await uploadBlob();
+      await updateCallAttendanceBlob(recordingId, { blobName: persistedBlobName, blobUrl });
+      await recordCallAttendanceStep(recordingId, targetType, {
+        name: 'azure.blob.write',
+        status: 'success',
+        output: { blobName: persistedBlobName },
+      });
+    } catch (blobErr) {
+      if (isBlobContainerMissingError(blobErr)) {
+        try {
+          await containerClient.createIfNotExists();
+          await uploadBlob();
+          await updateCallAttendanceBlob(recordingId, { blobName: persistedBlobName, blobUrl });
+          await recordCallAttendanceStep(recordingId, targetType, {
+            name: 'azure.blob.write',
+            status: 'success',
+            output: { blobName: persistedBlobName, containerCreated: true },
+          });
+        } catch (retryErr) {
+          if (!isBlobAuthorizationError(retryErr)) throw retryErr;
+          blobSaveDegraded = true;
+          console.warn(`[dubber ${reqId}] save-note blob upload skipped after container create failed:`, retryErr.message);
+          trackEvent('Dubber.AttendanceNote.Save.BlobSkipped', {
+            reqId,
+            recordingId,
+            reason: 'blob-authorisation',
+            statusCode: String(getBlobErrorStatusCode(retryErr) || ''),
+          });
+          await recordCallAttendanceStep(recordingId, targetType, {
+            name: 'azure.blob.write',
+            status: 'failed',
+            error: retryErr,
+          });
+        }
+      } else if (isBlobAuthorizationError(blobErr)) {
+        blobSaveDegraded = true;
+        console.warn(`[dubber ${reqId}] save-note blob upload skipped:`, blobErr.message);
+        trackEvent('Dubber.AttendanceNote.Save.BlobSkipped', {
+          reqId,
+          recordingId,
+          reason: 'blob-authorisation',
+          statusCode: String(getBlobErrorStatusCode(blobErr) || ''),
+        });
+        await recordCallAttendanceStep(recordingId, targetType, {
+          name: 'azure.blob.write',
+          status: 'failed',
+          error: blobErr,
+        });
+      } else {
+        throw blobErr;
+      }
     }
 
+    // ── Legacy index for existing Home Journey/list APIs (not the source of truth). ──
+    let sqlIndexed = false;
+    try {
+      await upsertLegacyAttendanceNoteIndex({
+        recordingId,
+        note,
+        matterRef: matterRef || null,
+        savedBy,
+        blobName: persistedBlobName,
+      });
+      sqlIndexed = true;
+      await recordCallAttendanceStep(recordingId, targetType, {
+        name: 'attendance_note.legacy_index.save',
+        status: 'success',
+        output: { table: 'dubber_attendance_notes' },
+      });
+    } catch (sqlErr) {
+      console.warn(`[dubber ${reqId}] legacy SQL index for attendance note failed:`, sqlErr.message);
+      trackException(sqlErr, { operation: 'Dubber.AttendanceNote.Save.LegacySqlIndex', reqId, recordingId });
+      await recordCallAttendanceStep(recordingId, targetType, {
+        name: 'attendance_note.legacy_index.save',
+        status: 'failed',
+        error: sqlErr,
+      });
+    }
+
+    const completion = await refreshCallAttendanceCompletion(recordingId, targetType);
+
     const durationMs = Date.now() - started;
-    trackEvent('Dubber.AttendanceNote.Saved', { reqId, recordingId, matterRef: matterRef || '', blobName, durationMs: String(durationMs) });
+    trackEvent('Dubber.AttendanceNote.Saved', {
+      reqId,
+      recordingId,
+      noteSubmissionId: String(noteSubmissionId || ''),
+      formSubmissionId: String(submissionId || ''),
+      targetType,
+      matterRef: matterRef || '',
+      blobName: persistedBlobName || '',
+      blobSaved: String(Boolean(persistedBlobName)),
+      sqlIndexed: String(sqlIndexed),
+      degraded: String(blobSaveDegraded),
+      durationMs: String(durationMs),
+    });
     try { await deleteCachePattern('home-journey:*'); } catch { /* non-fatal */ }
 
-    return res.json({ ok: true, blobUrl: blockBlobClient.url, blobName });
+    return res.json({
+      ok: true,
+      noteSubmissionId,
+      formSubmissionId: submissionId,
+      processingStatus: completion?.status || 'processing',
+      blobUrl,
+      blobName: persistedBlobName,
+      degraded: blobSaveDegraded,
+      warning: blobSaveDegraded ? 'Saved to journey without blob backup.' : null,
+    });
   } catch (err) {
     console.error(`[dubber ${reqId}] save-note error:`, err?.message || err);
     trackException(err, { operation: 'Dubber.AttendanceNote.Save', reqId });
@@ -1359,60 +2601,152 @@ router.post('/dubberCalls/:recordingId/save-note', async (req, res) => {
 // ── Prospect AC contact-id resolver (feature-flagged) ──────────────────────
 // Mirrors src/utils/resolveActiveCampaignContactId.ts precedence:
 //   enquiries.acid → Deals.ProspectId
-async function resolveProspectAcContactId(enquiryId) {
-  if (!enquiryId) return { acContactId: null, source: null };
+async function resolveProspectAcContactId(enquiryId, { includeDealProspectFallback = true } = {}) {
+  if (!enquiryId) return { acContactId: null, source: null, email: null };
+  let email = null;
   try {
     const pool = await instrPool();
     // Try new-space enquiries.acid first
     try {
       const acidResult = await pool.request()
         .input('id', sql.Int, Number(enquiryId))
-        .query('SELECT TOP 1 acid FROM dbo.enquiries WHERE id = @id');
-      const acid = acidResult?.recordset?.[0]?.acid;
+        .query('SELECT TOP 1 acid, email FROM dbo.enquiries WHERE id = @id');
+      const row = acidResult?.recordset?.[0];
+      email = normalizeEmail(row?.email) || email;
+      const acid = row?.acid;
       if (acid != null && String(acid).trim() && String(acid).trim() !== '0') {
-        return { acContactId: String(acid).trim(), source: 'acid' };
+        return { acContactId: String(acid).trim(), source: 'acid', email };
       }
     } catch (e) {
       // table/column might differ in this env — swallow and fall through
     }
-    // Fallback: Deals.ProspectId by enquiry id
-    try {
-      const dealResult = await pool.request()
-        .input('id', sql.NVarChar, String(enquiryId))
-        .query("SELECT TOP 1 ProspectId FROM dbo.Deals WHERE CAST(ProspectId AS NVARCHAR(50)) = @id ORDER BY DealId DESC");
-      const pid = dealResult?.recordset?.[0]?.ProspectId;
-      if (pid != null && String(pid).trim()) {
-        return { acContactId: String(pid).trim(), source: 'deal-prospect' };
+    if (includeDealProspectFallback) {
+      // Fallback: Deals.ProspectId by enquiry id. This is legacy-shaped and
+      // can be stale, so callers recovering from an AC contact-missing error
+      // should disable it and prefer explicit acid/email lookups.
+      try {
+        const dealResult = await pool.request()
+          .input('id', sql.NVarChar, String(enquiryId))
+          .query("SELECT TOP 1 ProspectId FROM dbo.Deals WHERE CAST(ProspectId AS NVARCHAR(50)) = @id ORDER BY DealId DESC");
+        const pid = dealResult?.recordset?.[0]?.ProspectId;
+        if (pid != null && String(pid).trim()) {
+          return { acContactId: String(pid).trim(), source: 'deal-prospect', email };
+        }
+      } catch (e) {
+        // non-fatal
       }
-    } catch (e) {
-      // non-fatal
     }
   } catch (e) {
     // pool unavailable — non-fatal
   }
-  return { acContactId: null, source: null };
+  return { acContactId: null, source: null, email };
 }
 
-// Fire-and-log AC contact note. Non-fatal. Returns { ok, error? }.
+function extractActiveCampaignNoteId(payload) {
+  return payload?.note?.id
+    || payload?.note?.ID
+    || payload?.data?.note?.id
+    || payload?.data?.id
+    || payload?.id
+    || null;
+}
+
+function extractActiveCampaignContactId(payload) {
+  const contacts = Array.isArray(payload?.contacts) ? payload.contacts : [];
+  const contact = contacts.find((item) => item?.id != null);
+  return contact?.id != null ? String(contact.id).trim() : null;
+}
+
+function isActiveCampaignContactMissingError(error) {
+  const message = String(error || '').toLowerCase();
+  return message.includes('contact_not_exist')
+    || message.includes('related_missing')
+    || message.includes('related contact does not exist')
+    || message.includes('contact does not exist');
+}
+
+async function getActiveCampaignConfig() {
+  const [apiToken, baseUrlSecret] = await Promise.all([
+    getSecret('ac-automations-apitoken').catch(() => null),
+    getSecret('ac-base-url').catch(() => null),
+  ]);
+  if (!apiToken) return { ok: false, error: 'no-token' };
+  return {
+    ok: true,
+    apiToken,
+    baseUrl: String(baseUrlSecret || 'https://helix-law54533.api-us1.com/api/3').replace(/\/$/, ''),
+  };
+}
+
+async function lookupActiveCampaignContactIdByEmail({ email, reqId }) {
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail) return { ok: false, error: 'missing-email' };
+  try {
+    const config = await getActiveCampaignConfig();
+    if (!config.ok) return { ok: false, error: config.error || 'no-token' };
+
+    const urlObj = new URL(`${config.baseUrl}/contacts`);
+    urlObj.searchParams.set('email', normalizedEmail);
+    const result = await new Promise((resolve) => {
+      const request = https.request({
+        hostname: urlObj.hostname,
+        path: urlObj.pathname + urlObj.search,
+        method: 'GET',
+        headers: {
+          'Api-Token': config.apiToken,
+          'Accept': 'application/json',
+        },
+      }, (r) => {
+        let d = ''; r.on('data', c => { d += c; });
+        r.on('end', () => {
+          const status = r.statusCode || 0;
+          let parsed = null;
+          if (d) {
+            try { parsed = JSON.parse(d); } catch { parsed = null; }
+          }
+          if (status >= 200 && status < 300) {
+            const acContactId = extractActiveCampaignContactId(parsed);
+            resolve(acContactId
+              ? { ok: true, acContactId }
+              : { ok: false, error: 'contact-not-found-by-email' });
+          } else {
+            resolve({ ok: false, error: `status ${status}: ${d.slice(0, 180)}` });
+          }
+        });
+      });
+      request.on('error', (e) => resolve({ ok: false, error: e?.message || 'network-error' }));
+      request.setTimeout(10000, () => { request.destroy(); resolve({ ok: false, error: 'timeout' }); });
+      request.end();
+    });
+
+    trackEvent(result.ok ? 'ActiveCampaign.Contact.LookupByEmail.Completed' : 'ActiveCampaign.Contact.LookupByEmail.Failed', {
+      reqId,
+      result: result.ok ? 'found' : 'not-found',
+      error: result.ok ? '' : String(result.error || '').slice(0, 180),
+    });
+    return result;
+  } catch (e) {
+    trackEvent('ActiveCampaign.Contact.LookupByEmail.Failed', { reqId, error: e?.message || 'exception' });
+    return { ok: false, error: e?.message || 'exception' };
+  }
+}
+
+// Post an AC contact note. Returns { ok, noteId?, error? }.
 async function postAcContactNote({ acContactId, noteBody, reqId }) {
   if (!acContactId || !noteBody) return { ok: false, error: 'missing-inputs' };
   const startedAc = Date.now();
   try {
-    const [apiToken, baseUrlSecret] = await Promise.all([
-      getSecret('ac-automations-apitoken').catch(() => null),
-      getSecret('ac-base-url').catch(() => null),
-    ]);
-    if (!apiToken) return { ok: false, error: 'no-token' };
-    const baseUrl = String(baseUrlSecret || 'https://helix-law54533.api-us1.com/api/3').replace(/\/$/, '');
+    const config = await getActiveCampaignConfig();
+    if (!config.ok) return { ok: false, error: config.error || 'no-token' };
     const body = JSON.stringify({ note: { note: String(noteBody).slice(0, 4000), relid: String(acContactId), reltype: 'Subscriber' } });
-    const urlObj = new URL(`${baseUrl}/notes`);
+    const urlObj = new URL(`${config.baseUrl}/notes`);
     const result = await new Promise((resolve) => {
       const request = https.request({
         hostname: urlObj.hostname,
         path: urlObj.pathname + urlObj.search,
         method: 'POST',
         headers: {
-          'Api-Token': apiToken,
+          'Api-Token': config.apiToken,
           'Content-Type': 'application/json',
           'Accept': 'application/json',
           'Content-Length': Buffer.byteLength(body),
@@ -1421,8 +2755,15 @@ async function postAcContactNote({ acContactId, noteBody, reqId }) {
         let d = ''; r.on('data', c => { d += c; });
         r.on('end', () => {
           const status = r.statusCode || 0;
-          if (status >= 200 && status < 300) resolve({ ok: true });
-          else resolve({ ok: false, error: `status ${status}: ${d.slice(0, 180)}` });
+          let parsed = null;
+          if (d) {
+            try { parsed = JSON.parse(d); } catch { parsed = null; }
+          }
+          if (status >= 200 && status < 300) {
+            resolve({ ok: true, noteId: extractActiveCampaignNoteId(parsed), raw: parsed });
+          } else {
+            resolve({ ok: false, error: `status ${status}: ${d.slice(0, 180)}` });
+          }
         });
       });
       request.on('error', (e) => resolve({ ok: false, error: e?.message || 'network-error' }));
@@ -1431,7 +2772,12 @@ async function postAcContactNote({ acContactId, noteBody, reqId }) {
     });
     const durationMs = Date.now() - startedAc;
     if (result.ok) {
-      trackEvent('ActiveCampaign.Note.Posted', { reqId, acContactId: String(acContactId), durationMs: String(durationMs) });
+      trackEvent('ActiveCampaign.Note.Posted', {
+        reqId,
+        acContactId: String(acContactId),
+        acNoteId: String(result.noteId || ''),
+        durationMs: String(durationMs),
+      });
     } else {
       trackEvent('ActiveCampaign.Note.Failed', { reqId, acContactId: String(acContactId), error: String(result.error || '').slice(0, 180) });
     }
@@ -1444,18 +2790,13 @@ async function postAcContactNote({ acContactId, noteBody, reqId }) {
 
 // ── POST /api/dubberCalls/:recordingId/save-prospect-note ──────────────────
 /**
- * File a telephone attendance note against a prospect's doc-workspace.
+ * Save a prospect telephone attendance note.
  *
- * Body: {
- *   note: AttendanceNote,
- *   enquiryId: number | string,
- *   passcode?: string,        // auto-resolved via resolveLatestWorkspace if missing
- *   contactName?: string,     // used for filename
- * }
- * Returns: { ok, blobName, sasUrl, acSynced?: boolean, acError?: string }
+ * Prospect completion contract is intentionally narrow: SQL source row +
+ * ActiveCampaign contact note. A prospect doc-workspace is no longer required
+ * and no NetDocuments/Clio leg is attempted here.
  *
- * The recordingId param may be a real Dubber recording id OR a synthetic
- * "manual-<uuid>" when the user files a standalone note without a call.
+ * Body: { note, enquiryId, passcode?, contactName?, acContactId?, prospectEmail? }
  */
 router.post('/dubberCalls/:recordingId/save-prospect-note', async (req, res) => {
   const reqId = randomUUID();
@@ -1464,7 +2805,14 @@ router.post('/dubberCalls/:recordingId/save-prospect-note', async (req, res) => 
     const recordingId = String(req.params.recordingId || '').trim();
     if (!recordingId) return res.status(400).json({ error: 'Missing recordingId' });
 
-    const { note, enquiryId: enquiryIdRaw, passcode: passcodeRaw, contactName: contactNameRaw } = req.body || {};
+    const {
+      note,
+      enquiryId: enquiryIdRaw,
+      passcode: passcodeRaw,
+      contactName: contactNameRaw,
+      acContactId: acContactIdRaw,
+      prospectEmail: prospectEmailRaw,
+    } = req.body || {};
     if (!note || !note.attendanceNote) return res.status(400).json({ error: 'Missing attendance note content' });
 
     const enquiryId = Number.parseInt(String(enquiryIdRaw ?? ''), 10);
@@ -1472,104 +2820,212 @@ router.post('/dubberCalls/:recordingId/save-prospect-note', async (req, res) => 
       return res.status(400).json({ error: 'Missing or invalid enquiryId' });
     }
 
-    // Load the shared helpers from doc-workspace.js.
-    const docWorkspace = require('./doc-workspace');
-    const internals = docWorkspace.internals;
-    if (!internals) {
-      return res.status(500).json({ error: 'doc-workspace internals unavailable' });
-    }
-    const { getBlobServiceClient: getDwBlobClient, resolveLatestWorkspace, generateBlobReadSasUrl, PROSPECT_CONTAINER } = internals;
+    const audit = getRequestAuditContext(req, 'HUB');
+    const savedBy = audit.initials;
+    const passcode = String(passcodeRaw || '').trim() || null;
+    const contactName = String(contactNameRaw || note.parties?.from || 'Prospect').trim() || 'Prospect';
+    let prospectEmail = normalizeEmail(prospectEmailRaw);
 
-    const svc = getDwBlobClient();
-    const containerClient = svc.getContainerClient(PROSPECT_CONTAINER);
-
-    // Resolve passcode if not supplied.
-    let passcode = String(passcodeRaw || '').trim();
-    if (!passcode) {
-      const workspace = await resolveLatestWorkspace(containerClient, enquiryId);
-      passcode = workspace?.passcode || '';
-    }
-    if (!passcode) {
-      return res.status(404).json({ error: 'No workspace found for this enquiry. Create a doc-request workspace first.' });
-    }
-
-    // Build docx.
-    const docxBuffer = await generateAttendanceNoteDocx(note);
-
-    // Filename: "Attendance Note - YYYYMMDD - {contactName}.docx"
-    const datePart = (note.date || new Date().toISOString().slice(0, 10)).replace(/-/g, '');
-    const safeContactName = String(contactNameRaw || note.parties?.from || 'Prospect')
-      .replace(/[^\w\-() ]/g, '_')
-      .replace(/\s+/g, '_')
-      .slice(0, 80);
-    const filename = `Attendance_Note-${datePart}-${safeContactName}.docx`;
-    const subfolder = 'Telephone Attendance Notes';
-
-    // Ensure keep marker (idempotent).
-    const keepBlobName = `enquiries/${enquiryId}/${passcode}/${subfolder}/.keep`;
-    try {
-      const keepBlob = containerClient.getBlockBlobClient(keepBlobName);
-      const exists = await keepBlob.exists();
-      if (!exists) {
-        await keepBlob.uploadData(Buffer.from(''), { blobHTTPHeaders: { blobContentType: 'text/plain' } });
+    let acContactId = String(acContactIdRaw || '').trim();
+    let acContactSource = acContactId ? 'request' : null;
+    if (!acContactId || !prospectEmail) {
+      const resolved = await resolveProspectAcContactId(enquiryId, { includeDealProspectFallback: false });
+      if (!acContactId) {
+        acContactId = resolved.acContactId || '';
+        acContactSource = resolved.source || null;
       }
-    } catch { /* non-fatal */ }
+      prospectEmail = prospectEmail || resolved.email || null;
+    }
 
-    const blobName = `enquiries/${enquiryId}/${passcode}/${subfolder}/${filename}`;
-    const blockBlobClient = containerClient.getBlockBlobClient(blobName);
-    await blockBlobClient.uploadData(docxBuffer, {
-      blobHTTPHeaders: { blobContentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
-      metadata: {
-        enquiryId: String(enquiryId),
-        passcode,
-        subfolder,
-        documentType: 'telephone-attendance-note',
-        uploadedBy: String(req.headers['x-user-initials'] || 'Hub'),
-        uploadedAt: new Date().toISOString(),
-        recordingId,
-        source: 'hub-call-centre',
-      },
+    const noteSubmissionId = await upsertCallAttendanceNoteSubmission({
+      recordingId,
+      targetType: 'prospect',
+      note,
+      body: req.body || {},
+      audit,
+      enquiryId,
+      passcode,
+      contactName,
+      acContactId: acContactId || null,
+      processingStatus: 'processing',
+    });
+    await recordCallAttendanceStep(recordingId, 'prospect', {
+      name: 'attendance_note.sql.save',
+      status: 'success',
+      output: { noteSubmissionId, enquiryId },
+      mirrorToOps: false,
     });
 
-    const sasUrl = await generateBlobReadSasUrl(PROSPECT_CONTAINER, blobName, filename, 60);
+    try {
+      await upsertLegacyAttendanceNoteIndex({ recordingId, note, matterRef: null, savedBy, blobName: null });
+      await recordCallAttendanceStep(recordingId, 'prospect', {
+        name: 'attendance_note.legacy_index.save',
+        status: 'success',
+        output: { table: 'dubber_attendance_notes' },
+        mirrorToOps: false,
+      });
+    } catch (legacyErr) {
+      console.warn(`[dubber ${reqId}] prospect legacy index failed:`, legacyErr.message);
+      await recordCallAttendanceStep(recordingId, 'prospect', {
+        name: 'attendance_note.legacy_index.save',
+        status: 'failed',
+        error: legacyErr,
+        mirrorToOps: false,
+      });
+    }
 
-    // Optional: AC contact note (feature-flagged).
-    let acSynced;
-    let acError;
-    if (String(process.env.ENABLE_AC_CONTACT_NOTES || '').toLowerCase() === 'true') {
-      const { acContactId } = await resolveProspectAcContactId(enquiryId);
-      if (acContactId) {
-        const noteBody = `${(note.summary || '').trim()}\n\n${(note.attendanceNote || '').trim()}`.trim();
-        const acResult = await postAcContactNote({ acContactId, noteBody, reqId });
-        acSynced = !!acResult.ok;
-        if (!acResult.ok) acError = String(acResult.error || '').slice(0, 180);
-      } else {
-        acSynced = false;
-        acError = 'no-contact-id';
+    let attemptedEmailLookup = false;
+    if (!acContactId && prospectEmail) {
+      attemptedEmailLookup = true;
+      const lookup = await lookupActiveCampaignContactIdByEmail({ email: prospectEmail, reqId });
+      if (lookup.ok && lookup.acContactId) {
+        acContactId = lookup.acContactId;
+        acContactSource = 'email';
       }
     }
+
+    if (!acContactId && !attemptedEmailLookup) {
+      const legacyResolved = await resolveProspectAcContactId(enquiryId, { includeDealProspectFallback: true });
+      if (legacyResolved.acContactId) {
+        acContactId = legacyResolved.acContactId;
+        acContactSource = legacyResolved.source || null;
+        prospectEmail = prospectEmail || legacyResolved.email || null;
+      }
+    }
+
+    if (!acContactId) {
+      const acError = 'no-contact-id';
+      await updateCallAttendanceAcResult(recordingId, { acContactId: null, synced: false, error: acError });
+      await recordCallAttendanceStep(recordingId, 'prospect', {
+        name: 'activecampaign.note.create',
+        status: 'failed',
+        error: acError,
+        output: { enquiryId },
+        mirrorToOps: false,
+      });
+      const completion = await refreshCallAttendanceCompletion(recordingId, 'prospect');
+      return res.status(207).json({
+        ok: false,
+        saved: true,
+        noteSubmissionId,
+        processingStatus: completion?.status || 'failed',
+        error: 'Saved in Hub, but no ActiveCampaign contact id could be resolved for this enquiry.',
+        acSynced: false,
+        acError,
+      });
+    }
+
+    const noteBody = [
+      `Telephone attendance note${note.date ? ` (${note.date})` : ''}`,
+      contactName ? `Prospect: ${contactName}` : null,
+      (note.summary || '').trim(),
+      (note.attendanceNote || '').trim(),
+      note.actionItems?.length ? `Action points:\n${note.actionItems.map((item) => `- ${item}`).join('\n')}` : null,
+    ].filter(Boolean).join('\n\n').trim();
+
+    let acResult = await postAcContactNote({ acContactId, noteBody, reqId });
+    if (!acResult.ok && isActiveCampaignContactMissingError(acResult.error)) {
+      const retryCandidates = [];
+      const addRetryCandidate = (candidateId, source) => {
+        const normalized = String(candidateId || '').trim();
+        if (!normalized || normalized === String(acContactId || '').trim()) return;
+        if (retryCandidates.some((candidate) => candidate.acContactId === normalized)) return;
+        retryCandidates.push({ acContactId: normalized, source });
+      };
+
+      const resolved = await resolveProspectAcContactId(enquiryId, { includeDealProspectFallback: false });
+      if (resolved.email && !prospectEmail) {
+        prospectEmail = resolved.email;
+      }
+      addRetryCandidate(resolved.acContactId, resolved.source || 'acid');
+
+      if (prospectEmail) {
+        const lookup = await lookupActiveCampaignContactIdByEmail({ email: prospectEmail, reqId });
+        if (lookup.ok && lookup.acContactId) {
+          addRetryCandidate(lookup.acContactId, 'email');
+        }
+      }
+
+      for (const candidate of retryCandidates) {
+        trackEvent('ActiveCampaign.Note.RetryContact', {
+          reqId,
+          previousAcContactId: String(acContactId || ''),
+          acContactId: String(candidate.acContactId),
+          source: candidate.source,
+        });
+        acContactId = candidate.acContactId;
+        acContactSource = candidate.source;
+        const retryResult = await postAcContactNote({ acContactId: candidate.acContactId, noteBody, reqId });
+        if (retryResult.ok) {
+          acResult = retryResult;
+          break;
+        }
+        acResult = retryResult;
+      }
+    }
+    if (!acResult.ok) {
+      const acError = String(acResult.error || 'ActiveCampaign note create failed').slice(0, 500);
+      await updateCallAttendanceAcResult(recordingId, { acContactId, synced: false, error: acError });
+      await recordCallAttendanceStep(recordingId, 'prospect', {
+        name: 'activecampaign.note.create',
+        status: 'failed',
+        error: acError,
+        output: { acContactId, acContactSource },
+        mirrorToOps: false,
+      });
+      const completion = await refreshCallAttendanceCompletion(recordingId, 'prospect');
+      trackEvent('Dubber.ProspectNote.Failed', { reqId, recordingId, enquiryId: String(enquiryId), acError });
+      return res.status(207).json({
+        ok: false,
+        saved: true,
+        noteSubmissionId,
+        processingStatus: completion?.status || 'failed',
+        error: 'Saved in Hub, but ActiveCampaign note creation failed.',
+        acSynced: false,
+        acError,
+        acContactId,
+      });
+    }
+
+    await updateCallAttendanceAcResult(recordingId, {
+      acContactId,
+      acNoteId: acResult.noteId || null,
+      synced: true,
+      error: null,
+    });
+    await recordCallAttendanceStep(recordingId, 'prospect', {
+      name: 'activecampaign.note.create',
+      status: 'success',
+      output: { acContactId, acContactSource, acNoteId: acResult.noteId || null },
+      mirrorToOps: false,
+    });
+    const completion = await refreshCallAttendanceCompletion(recordingId, 'prospect');
+
+    try { await deleteCachePattern('home-journey:*'); } catch { /* non-fatal */ }
 
     const durationMs = Date.now() - started;
     trackEvent('Dubber.ProspectNote.Saved', {
       reqId,
       recordingId,
+      noteSubmissionId: String(noteSubmissionId || ''),
       enquiryId: String(enquiryId),
-      passcode,
-      blobName,
+      acContactId,
+      acContactSource: acContactSource || '',
+      acNoteId: String(acResult.noteId || ''),
       durationMs: String(durationMs),
-      acSynced: acSynced == null ? '' : String(acSynced),
     });
     trackMetric('Dubber.ProspectNote.Duration', durationMs, { operation: 'save-prospect-note' });
 
     return res.json({
       ok: true,
-      blobName,
-      sasUrl,
-      filename,
-      subfolder,
-      acSynced,
-      acError,
-      expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      saved: true,
+      noteSubmissionId,
+      processingStatus: completion?.status || 'complete',
+      acSynced: true,
+      acContactId,
+      acContactSource,
+      acNoteId: acResult.noteId || null,
+      warning: acResult.noteId ? null : 'ActiveCampaign accepted the note but did not return a note id.',
     });
   } catch (err) {
     console.error(`[dubber ${reqId}] save-prospect-note error:`, err?.message || err);
@@ -1588,8 +3044,10 @@ router.post('/dubberCalls/:recordingId/save-prospect-note', async (req, res) => 
 router.post('/dubberCalls/:recordingId/upload-note-nd', async (req, res) => {
   const reqId = randomUUID();
   const started = Date.now();
+  let recordingIdForAudit = '';
   try {
     const recordingId = String(req.params.recordingId || '').trim();
+    recordingIdForAudit = recordingId;
     if (!recordingId) return res.status(400).json({ error: 'Missing recordingId' });
 
     const { note, matterRef } = req.body || {};
@@ -1826,6 +3284,30 @@ router.post('/dubberCalls/:recordingId/upload-note-nd', async (req, res) => {
       console.warn(`[dubber ${reqId}] SQL update for ND upload status failed:`, sqlErr.message);
     }
 
+    try {
+      await updateCallAttendanceNdResult(recordingId, {
+        fileName,
+        ndDocId,
+        workspaceId,
+        folderId: attendanceFolderId,
+        matterRef: refStr,
+      });
+      await recordCallAttendanceStep(recordingId, 'matter', {
+        name: 'netdocuments.upload',
+        status: 'success',
+        output: {
+          ndDocId,
+          fileName,
+          workspaceId,
+          folderId: attendanceFolderId,
+          matterRef: refStr,
+        },
+      });
+    } catch (auditErr) {
+      console.warn(`[dubber ${reqId}] call-note ND audit update failed:`, auditErr.message);
+      trackException(auditErr, { operation: 'Dubber.AttendanceNote.UploadND.Audit', reqId, recordingId });
+    }
+
     try { await deleteCachePattern('home-journey:*'); } catch { /* non-fatal */ }
 
     return res.json({
@@ -1841,6 +3323,17 @@ router.post('/dubberCalls/:recordingId/upload-note-nd', async (req, res) => {
   } catch (err) {
     console.error(`[dubber ${reqId}] upload-note-nd error:`, err?.message || err);
     trackException(err, { operation: 'Dubber.AttendanceNote.UploadND', reqId });
+    if (recordingIdForAudit) {
+      try {
+        await recordCallAttendanceStep(recordingIdForAudit, 'matter', {
+          name: 'netdocuments.upload',
+          status: 'failed',
+          error: err,
+        });
+      } catch (auditErr) {
+        console.warn(`[dubber ${reqId}] failed to record ND failure step:`, auditErr.message);
+      }
+    }
     return res.status(500).json({ error: 'Failed to upload attendance note to NetDocuments' });
   }
 });
@@ -1853,14 +3346,15 @@ router.post('/dubberCalls/:recordingId/upload-note-nd', async (req, res) => {
  *   {
  *     matterDisplayNumber: string,   // e.g. "00898-37693" — required unless clioMatterId provided
  *     clioMatterId?: string|number,  // if already resolved via matter-chain, skip the lookup
- *     chargeableMinutes: number,     // editable in UI; Clio stores hours to 2dp
+ *     chargeableMinutes: number,     // editable in UI; mirrored to Clio as seconds
  *     narrative: string,             // ≤ 500 chars; Clio's `note` field
  *     date: string,                  // YYYY-MM-DD (call date)
+ *     callStartedAt?: string,        // ISO timestamp of the actual call start
  *     userInitials: string           // fee earner's initials → Clio user id
  *   }
  *
  * Returns:
- *   200 { activityId, clioMatterId, clioUserId, quantityHours, durationMs }
+ *   200 { activityId, communicationId, clioMatterId, clioUserId, quantityHours, durationMs }
  *   4xx { code, message, retriable }
  *   5xx { code, message, retriable }
  *
@@ -1882,6 +3376,7 @@ router.post('/dubberCalls/:recordingId/clio-time-entry', async (req, res) => {
   const chargeableMinutesRaw = Number(body.chargeableMinutes);
   const narrative = String(body.narrative || '').trim();
   const date = String(body.date || '').trim();
+  const callStartedAt = String(body.callStartedAt || '').trim();
   const userInitials = String(body.userInitials || '').trim().toUpperCase();
 
   if (!recordingId) return res.status(400).json({ code: 'MISSING_RECORDING_ID', message: 'Missing recordingId', retriable: false });
@@ -1897,6 +3392,8 @@ router.post('/dubberCalls/:recordingId/clio-time-entry', async (req, res) => {
 
   // Clio's `note` is capped at 500 chars per field; truncate defensively.
   const note = narrative.length > 500 ? narrative.slice(0, 500) : narrative;
+  const communicationBody = narrative.length > 4000 ? narrative.slice(0, 4000) : narrative;
+  const quantitySeconds = Math.max(60, Math.round(chargeableMinutesRaw * 60));
   // Convert minutes → hours to 2dp (Clio's native precision).
   const quantityHours = Math.round((chargeableMinutesRaw / 60) * 100) / 100;
 
@@ -1916,6 +3413,12 @@ router.post('/dubberCalls/:recordingId/clio-time-entry', async (req, res) => {
       if (!clioMatterId) {
         const err = { code: 'MATTER_NOT_FOUND', message: `No Clio matter id for display number ${matterDisplayNumber}`, retriable: false };
         trackEvent('CallCentre.TimeEntry.Failed', { reqId, ...err });
+        await safeRecordCallAttendanceStep(recordingId, 'matter', {
+          name: 'clio.communication.create',
+          status: 'failed',
+          error: err.message,
+          output: { code: err.code, matterDisplayNumber },
+        }, { reqId });
         return res.status(404).json(err);
       }
     }
@@ -1930,6 +3433,12 @@ router.post('/dubberCalls/:recordingId/clio-time-entry', async (req, res) => {
     if (!clioUserId) {
       const err = { code: 'CLIO_USER_NOT_FOUND', message: `No Clio ID in [dbo].[team] for initials ${userInitials}`, retriable: false };
       trackEvent('CallCentre.TimeEntry.Failed', { reqId, ...err });
+      await safeRecordCallAttendanceStep(recordingId, 'matter', {
+        name: 'clio.communication.create',
+        status: 'failed',
+        error: err.message,
+        output: { code: err.code, userInitials },
+      }, { reqId });
       return res.status(404).json(err);
     }
 
@@ -1941,22 +3450,125 @@ router.post('/dubberCalls/:recordingId/clio-time-entry', async (req, res) => {
       const err = { code: 'CLIO_TOKEN_FAILED', message: tokenErr.message || 'Clio token refresh failed', retriable: true };
       trackException(tokenErr, { operation: 'CallCentre.TimeEntry.Token', reqId, userInitials });
       trackEvent('CallCentre.TimeEntry.Failed', { reqId, ...err });
+      await safeRecordCallAttendanceStep(recordingId, 'matter', {
+        name: 'clio.communication.create',
+        status: 'failed',
+        error: err.message,
+        output: { code: err.code, userInitials },
+      }, { reqId });
       return res.status(502).json(err);
     }
 
-    // 4. POST the activity.
-    const payload = {
+    const clioMatterRef = toClioReferenceId(clioMatterId);
+    const clioUserRef = toClioReferenceId(clioUserId);
+    const activityDescriptionId = await resolveAttendanceActivityDescriptionId(accessToken);
+
+    // 4. POST the communication first so the time entry can mirror the working Power Automate flow.
+    const communicationPayload = {
       data: {
-        type: 'TimeEntry',
+        body: communicationBody,
         date,
-        quantity_in_hours: quantityHours,
-        note,
-        matter: { id: Number(clioMatterId) || clioMatterId },
-        user: { id: Number(clioUserId) || clioUserId },
+        received_at: buildClioReceivedAtFromCall(date, callStartedAt),
+        subject: 'Telephone attendance note call',
+        matter: { id: clioMatterRef },
+        type: CLIO_ATTENDANCE_COMMUNICATION_TYPE,
       },
     };
 
-    const clioRes = await fetch(`${CLIO_API_BASE}/activities.json`, {
+    const communicationRes = await fetch(`${CLIO_API_BASE}/communications.json`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(communicationPayload),
+    });
+
+    if (!communicationRes.ok) {
+      const rawBody = await communicationRes.text().catch(() => '');
+      const err = buildClioWriteError(communicationRes.status, rawBody, 'CLIO_COMMUNICATION_REJECTED');
+      trackEvent('CallCentre.TimeEntry.Failed', {
+        reqId,
+        ...err,
+        phase: 'communication',
+        userInitials,
+        clioMatterId: String(clioMatterId),
+      });
+      await safeRecordCallAttendanceStep(recordingId, 'matter', {
+        name: 'clio.communication.create',
+        status: 'failed',
+        error: err.message,
+        output: { code: err.code, clioMatterId: String(clioMatterId), status: communicationRes.status },
+      }, { reqId });
+      return res.status(err.retriable ? (communicationRes.status === 429 ? 429 : 502) : 422).json(err);
+    }
+
+    const communicationJson = await communicationRes.json().catch(() => ({}));
+    const communicationId = communicationJson?.data?.id ? String(communicationJson.data.id) : '';
+    if (!communicationId) {
+      const err = {
+        code: 'CLIO_COMMUNICATION_REJECTED',
+        message: 'Clio communication create returned no id',
+        retriable: true,
+      };
+      trackEvent('CallCentre.TimeEntry.Failed', {
+        reqId,
+        ...err,
+        phase: 'communication',
+        userInitials,
+        clioMatterId: String(clioMatterId),
+      });
+      await safeRecordCallAttendanceStep(recordingId, 'matter', {
+        name: 'clio.communication.create',
+        status: 'failed',
+        error: err.message,
+        output: { code: err.code, clioMatterId: String(clioMatterId) },
+      }, { reqId });
+      return res.status(502).json(err);
+    }
+
+    try {
+      await updateCallAttendanceClioResult(recordingId, {
+        clioMatterId,
+        clioUserId,
+        communicationId,
+        activityId: null,
+        quantitySeconds,
+      });
+      await safeRecordCallAttendanceStep(recordingId, 'matter', {
+        name: 'clio.communication.create',
+        status: 'success',
+        output: { communicationId, clioMatterId: String(clioMatterId), clioUserId: String(clioUserId) },
+      }, { reqId });
+    } catch (auditErr) {
+      console.warn(`[dubber ${reqId}] call-note Clio communication audit update failed:`, auditErr.message);
+      trackException(auditErr, { operation: 'CallCentre.TimeEntry.CommunicationAudit', reqId, recordingId });
+    }
+
+    // 5. POST the linked activity using the same contract as the working Power Automate flow.
+    const payload = {
+      data: {
+        date,
+        type: 'TimeEntry',
+        no_charge: true,
+        non_billable: false,
+        matter: { id: clioMatterRef },
+        communication: { id: toClioReferenceId(communicationId) },
+        note,
+        quantity: quantitySeconds,
+        user: { id: clioUserRef },
+      },
+    };
+
+    if (activityDescriptionId) {
+      payload.data.activity_description = { id: toClioReferenceId(activityDescriptionId) };
+    }
+
+    const activityUrl = new URL(`${CLIO_API_BASE}/activities.json`);
+    activityUrl.searchParams.set('units', CLIO_ACTIVITY_UNITS);
+
+    const clioRes = await fetch(activityUrl.toString(), {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -1967,19 +3579,23 @@ router.post('/dubberCalls/:recordingId/clio-time-entry', async (req, res) => {
     });
 
     if (!clioRes.ok) {
-      const text = await clioRes.text().catch(() => '');
-      const retryAfterHeader = clioRes.headers.get('retry-after');
-      const is429 = clioRes.status === 429;
-      const is5xx = clioRes.status >= 500;
-      const err = {
-        code: is429 ? 'CLIO_RATE_LIMITED' : is5xx ? 'CLIO_SERVER_ERROR' : 'CLIO_WRITE_REJECTED',
-        message: text ? text.slice(0, 500) : `Clio responded ${clioRes.status}`,
-        retriable: is429 || is5xx,
-        retryAfterSeconds: retryAfterHeader ? Number(retryAfterHeader) || null : null,
-        status: clioRes.status,
-      };
-      trackEvent('CallCentre.TimeEntry.Failed', { reqId, ...err, userInitials, clioMatterId: String(clioMatterId) });
-      return res.status(is429 ? 429 : is5xx ? 502 : 422).json(err);
+      const rawBody = await clioRes.text().catch(() => '');
+      const err = buildClioWriteError(clioRes.status, rawBody, 'CLIO_WRITE_REJECTED');
+      trackEvent('CallCentre.TimeEntry.Failed', {
+        reqId,
+        ...err,
+        phase: 'activity',
+        userInitials,
+        clioMatterId: String(clioMatterId),
+        communicationId,
+      });
+      await safeRecordCallAttendanceStep(recordingId, 'matter', {
+        name: 'clio.activity.create',
+        status: 'failed',
+        error: err.message,
+        output: { code: err.code, clioMatterId: String(clioMatterId), communicationId, status: clioRes.status },
+      }, { reqId });
+      return res.status(err.retriable ? (clioRes.status === 429 ? 429 : 502) : 422).json(err);
     }
 
     const clioJson = await clioRes.json().catch(() => ({}));
@@ -1993,16 +3609,45 @@ router.post('/dubberCalls/:recordingId/clio-time-entry', async (req, res) => {
       matterDisplayNumber,
       clioMatterId: String(clioMatterId),
       clioUserId: String(clioUserId),
+      communicationId,
       activityId,
+      quantitySeconds,
       quantityHours,
       durationMs,
     });
     trackMetric('CallCentre.TimeEntry.Duration', durationMs, { operation: 'ClioTimeEntry' });
 
+    try {
+      await updateCallAttendanceClioResult(recordingId, {
+        clioMatterId,
+        clioUserId,
+        communicationId,
+        activityId,
+        quantitySeconds,
+      });
+      await safeRecordCallAttendanceStep(recordingId, 'matter', {
+        name: 'clio.activity.create',
+        status: 'success',
+        output: {
+          activityId,
+          communicationId,
+          clioMatterId: String(clioMatterId),
+          clioUserId: String(clioUserId),
+          quantitySeconds,
+          quantityHours,
+        },
+      }, { reqId });
+    } catch (auditErr) {
+      console.warn(`[dubber ${reqId}] call-note Clio activity audit update failed:`, auditErr.message);
+      trackException(auditErr, { operation: 'CallCentre.TimeEntry.ActivityAudit', reqId, recordingId });
+    }
+
     return res.json({
       activityId,
+      communicationId,
       clioMatterId: String(clioMatterId),
       clioUserId: String(clioUserId),
+      quantitySeconds,
       quantityHours,
       durationMs,
     });
@@ -2011,6 +3656,12 @@ router.post('/dubberCalls/:recordingId/clio-time-entry', async (req, res) => {
     trackException(err, { operation: 'CallCentre.TimeEntry', reqId, userInitials });
     const payload = { code: 'UNEXPECTED', message: err?.message || 'Unexpected error writing Clio time entry', retriable: true };
     trackEvent('CallCentre.TimeEntry.Failed', { reqId, ...payload });
+    await safeRecordCallAttendanceStep(recordingId, 'matter', {
+      name: 'clio.activity.create',
+      status: 'failed',
+      error: payload.message,
+      output: { code: payload.code },
+    }, { reqId });
     return res.status(500).json(payload);
   }
 });
@@ -2029,6 +3680,7 @@ router.get('/dubberCalls/noted-ids', async (req, res) => {
     const ids = raw.split(',').map(s => s.trim()).filter(Boolean).slice(0, 200);
     if (ids.length === 0) return res.json({ notedIds: [] });
 
+    await ensureCallAttendanceNoteSubmissionsTable();
     const pool = await instrPool();
     const request = pool.request();
     const params = [];
@@ -2039,8 +3691,14 @@ router.get('/dubberCalls/noted-ids', async (req, res) => {
     });
 
     const result = await request.query(`
-      SELECT recording_id FROM dbo.dubber_attendance_notes
-      WHERE recording_id IN (${params.join(',')})
+      SELECT DISTINCT recording_id
+      FROM (
+        SELECT recording_id FROM dbo.call_attendance_note_submissions
+        WHERE recording_id IN (${params.join(',')})
+        UNION ALL
+        SELECT recording_id FROM dbo.dubber_attendance_notes
+        WHERE recording_id IN (${params.join(',')})
+      ) noted
     `);
 
     return res.json({ notedIds: result.recordset.map(r => r.recording_id) });
@@ -2096,12 +3754,60 @@ router.get('/dubberCalls/attendance-notes', async (req, res) => {
 // ── GET /api/dubberCalls/:recordingId/saved-note ───────────────────────────
 /**
  * Retrieve a single saved attendance note by recording ID.
- * Returns the full note from blob storage + SQL metadata, or null.
+ * Returns the full note from the durable SQL source row first, falling back to
+ * the legacy blob-backed index for pre-migration records.
  */
 router.get('/dubberCalls/:recordingId/saved-note', async (req, res) => {
   try {
     const recordingId = String(req.params.recordingId || '').trim();
     if (!recordingId) return res.status(400).json({ error: 'Missing recordingId' });
+
+    try {
+      const sourceRow = await getCallAttendanceSubmission(recordingId);
+      if (sourceRow) {
+        const fullNote = parseJsonObject(sourceRow.note_json) || {
+          summary: sourceRow.summary || '',
+          topics: [],
+          actionItems: [],
+          attendanceNote: sourceRow.attendance_note_text || '',
+          duration: sourceRow.call_duration_seconds != null ? Math.ceil(Number(sourceRow.call_duration_seconds) / 60) : null,
+          date: sourceRow.call_date ? String(sourceRow.call_date).slice(0, 10) : null,
+          parties: { from: sourceRow.parties_from || '', to: sourceRow.parties_to || '' },
+        };
+        return res.json({
+          note: fullNote,
+          meta: {
+            id: sourceRow.id,
+            recording_id: sourceRow.recording_id,
+            target_type: sourceRow.target_type,
+            form_submission_id: sourceRow.form_submission_id,
+            matter_ref: sourceRow.matter_ref,
+            matter_id: sourceRow.matter_id,
+            enquiry_id: sourceRow.enquiry_id,
+            contact_name: sourceRow.contact_name,
+            saved_by: sourceRow.submitted_by_initials,
+            saved_at: sourceRow.submitted_at,
+            processing_status: sourceRow.processing_status,
+            last_event: sourceRow.last_event,
+            last_error: sourceRow.last_error,
+            uploaded_nd: Boolean(sourceRow.nd_doc_id),
+            nd_doc_id: sourceRow.nd_doc_id,
+            nd_file_name: sourceRow.doc_file_name,
+            nd_workspace_id: sourceRow.nd_workspace_id,
+            nd_folder_id: sourceRow.nd_folder_id,
+            clio_communication_id: sourceRow.clio_communication_id,
+            clio_activity_id: sourceRow.clio_activity_id,
+            ac_synced: Boolean(sourceRow.ac_synced),
+            ac_contact_id: sourceRow.ac_contact_id,
+            ac_note_id: sourceRow.ac_note_id,
+            steps: parseJsonArray(sourceRow.processing_steps_json),
+          },
+        });
+      }
+    } catch (sourceErr) {
+      console.warn(`[dubber] saved-note source-table lookup failed for ${recordingId}:`, sourceErr.message);
+      trackException(sourceErr, { operation: 'Dubber.SavedNote.SourceFetch', recordingId });
+    }
 
     const pool = await instrPool();
     const sqlResult = await pool.request()

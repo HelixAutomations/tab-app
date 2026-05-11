@@ -1,4 +1,25 @@
 -- ═══════════════════════════════════════════════════════════════════════════════
+-- ⚠️  DEPRECATED — DO NOT RUN  ⚠️
+--
+-- This script seeds a parallel `HLX-DEMO-*` / `HELIX01-01` demo identity that has
+-- now been superseded by the **Helix Rehearsal Record** (HLX-27367-94842 /
+-- HLX-27367-11112011 / Helix Demo). The whole platform now anchors demo state
+-- on that single seed so every surface (Home to-dos, Matters, Enquiries,
+-- OperationsQueue, CCL fallback) agrees.
+--
+-- Active seed:
+--   scripts/seed-rehearsal-record-sql.mjs --confirm
+--   scripts/seed-rehearsal-record-ac.mjs  (ActiveCampaign contact)
+--   POST /api/dev/reseed-rehearsal        (dev-only, called by Reset Demo chip)
+--
+-- Reference:
+--   docs/notes/HELIX_REHEARSAL_RECORD_LUKE_TEST_AS_FIRM_SEED.md (Phase B / B8)
+--
+-- Retained read-only for archaeology. Do not extend or run against any database.
+-- ═══════════════════════════════════════════════════════════════════════════════
+--
+-- ─── ORIGINAL HEADER (retained for context) ────────────────────────────────────
+-- ═══════════════════════════════════════════════════════════════════════════════
 -- Comprehensive demo pipeline seed
 -- Seeds ALL tables that the pipeline lookup and CCL AI fill touch.
 -- Matches the 3 demo cases visible when demo mode is enabled via the user bubble.

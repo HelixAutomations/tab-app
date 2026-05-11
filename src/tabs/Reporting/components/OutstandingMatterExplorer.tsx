@@ -128,10 +128,10 @@ const listButtonStyle = (isDarkMode: boolean, isSelected: boolean): CSSPropertie
   width: '100%',
   textAlign: 'left',
   border: `1px solid ${isSelected
-    ? (isDarkMode ? 'rgba(135, 243, 243, 0.35)' : 'rgba(54, 144, 206, 0.25)')
+    ? (isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.25)')
     : (isDarkMode ? 'rgba(75, 85, 99, 0.28)' : 'rgba(6, 23, 51, 0.08)')}`,
   background: isSelected
-    ? (isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.06)')
+    ? (isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)')
     : (isDarkMode ? 'rgba(8, 28, 48, 0.65)' : 'rgba(255, 255, 255, 0.8)'),
   color: isDarkMode ? colours.dark.text : colours.light.text,
   padding: '10px 12px',
@@ -168,7 +168,7 @@ const pillStyle = (isDarkMode: boolean, tone: 'neutral' | 'accent' | 'warning'):
   fontWeight: 700,
   padding: '4px 6px',
   border: `1px solid ${tone === 'accent'
-    ? (isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(54, 144, 206, 0.18)')
+    ? (isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.18)')
     : tone === 'warning'
       ? 'rgba(255, 140, 0, 0.25)'
       : (isDarkMode ? 'rgba(75, 85, 99, 0.28)' : 'rgba(6, 23, 51, 0.08)')}`,

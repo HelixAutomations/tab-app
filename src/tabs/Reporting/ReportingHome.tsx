@@ -16,7 +16,9 @@ import type { Enquiry, Matter, TeamData, UserData } from '../../app/functionalit
 import { endOfDay, format, startOfDay, subMonths } from 'date-fns';
 import ManagementDashboard, { WIP } from './ManagementDashboard';
 import AnnualLeaveReport, { AnnualLeaveRecord } from './AnnualLeaveReport';
-import MetaMetricsReport from './MetaMetricsReport';
+// Meta is intentionally off across the Reports tab — no tile, no nav entry, no
+// render block, no fetch. Re-import MetaMetricsReport here if it is ever
+// resurrected. The component file remains so type re-exports keep compiling.
 import SeoReport from './SeoReport';
 import PpcReport from './PpcReport';
 import MattersReport from './MattersReport';
@@ -24,18 +26,31 @@ import { debugLog, debugWarn } from '../../utils/debug';
 import { getNormalizedEnquirySource } from '../../utils/enquirySource';
 import HomePreview from './HomePreview';
 import EnquiriesReport, { MarketingMetrics } from './EnquiriesReport';
+// MetaMetricsReport import removed — Meta surface is fully gated off in the
+// Reports tab (see AVAILABLE_REPORTS, REPORT_NAV_TABS, and the activeView
+// switch). Re-add the import alongside re-adding the entry below if Meta is
+// ever resurrected as a real report.
 import LogMonitor from './LogMonitor';
 import CacheMonitor from './CacheMonitor';
 import AgedDebtsReport from './AgedDebtsReport';
 import DataCentre from './DataCentre';
 import SyncHistory from './SyncHistory';
 import ResponseTimeReport from './ResponseTimeReport';
+import ManagementAccessIndicator from './ManagementAccessIndicator';
+import ReportingPulseStrip from './ReportingPulseStrip';
+import type { ReadinessOverall } from './readiness.types';
+import {
+  useReportingReadiness,
+  getTrustCheckId,
+  deriveTrustState,
+  findTrustCheck,
+} from './reportTrust';
 import { useStreamingDatasets } from '../../hooks/useStreamingDatasets';
 import { fetchWithRetry, fetchJSON } from '../../utils/fetchUtils';
-import { canSeePrivateHubControls, isDevOwner } from '../../app/admin';
+import { canSeePrivateHubControls, isAdminUser } from '../../app/admin';
 import { useEffectivePermissions } from '../../app/effectivePermissions';
 import markWhite from '../../assets/markwhite.svg';
-import type { PpcIncomeMetrics } from './PpcReport';
+import type { PpcIncomeMetrics, PpcMatchKind } from './types/ppc';
 import { useToast } from '../../components/feedback/ToastProvider';
 import type { DealRecord, InstructionRecord, DubberCallRecord } from './dataSources';
 import { reportingPanelBackground, reportingPanelBorder } from './styles/reportingFoundation';
@@ -243,7 +258,7 @@ const buildEnquiriesCoverageEntries = (key: ReportRangeKey): ReportingRangeDatas
     { key: 'enquiries', label: 'Enquiries feed', range: rangeLabel },
     { key: 'deals', label: 'Pitches feed', range: rangeLabel },
     { key: 'instructions', label: 'Instructions feed', range: rangeLabel },
-    { key: 'metaAds', label: 'Meta Ads feed', range: rangeLabel },
+    // Meta Ads feed intentionally omitted — Meta is off across the Reports tab.
     { key: 'googleAnalytics', label: 'Google Analytics', range: rangeLabel },
     { key: 'googleAds', label: 'Google Ads', range: rangeLabel },
   ];
@@ -540,6 +555,30 @@ const isPpcSourceLabel = (value: unknown): boolean => {
   );
 };
 
+const hasPpcEnquirySignal = (enquiry: Enquiry): boolean => {
+  const sourceValue = (enquiry as any).Ultimate_Source
+    ?? (enquiry as any).source
+    ?? (enquiry as any).Source;
+  if (isPpcSourceLabel(sourceValue)) {
+    return true;
+  }
+
+  const gclid = normaliseKey((enquiry as any).GCLID ?? (enquiry as any).gclid);
+  if (gclid) {
+    return true;
+  }
+
+  const url = normaliseKey((enquiry as any).Referral_URL ?? (enquiry as any).referral_url ?? (enquiry as any).url);
+  if (!url) {
+    return false;
+  }
+
+  return (
+    url.includes('gclid=') ||
+    (url.includes('utm_source=google') && (url.includes('utm_medium=cpc') || url.includes('utm_medium=ppc')))
+  );
+};
+
 const extractMatterIdentifiers = (matter: Matter) => {
   const rawIds = [
     (matter as any).MatterID,
@@ -561,6 +600,43 @@ const extractMatterIdentifiers = (matter: Matter) => {
     variants,
     displayNumber: typeof displayValue === 'string' ? displayValue : String(displayValue ?? ''),
   };
+};
+
+const toNormalisedKeySet = (values: unknown[]): string[] => {
+  const seen = new Set<string>();
+  values.forEach((value) => {
+    const key = normaliseKey(value);
+    if (key) {
+      seen.add(key);
+    }
+  });
+  return Array.from(seen);
+};
+
+const extractInstructionAssociationKeys = (instruction: InstructionRecord | undefined): string[] => {
+  if (!instruction) {
+    return [];
+  }
+
+  return toNormalisedKeySet([
+    instruction.InstructionRef,
+    instruction.MatterId,
+    (instruction as any).MatterID,
+    instruction.ClientId,
+    (instruction as any).matter_ref,
+  ]);
+};
+
+const extractMatterAssociationKeys = (matter: Matter, identifiers?: ReturnType<typeof extractMatterIdentifiers>): string[] => {
+  const resolved = identifiers ?? extractMatterIdentifiers(matter);
+  return toNormalisedKeySet([
+    ...resolved.variants,
+    (matter as any).InstructionRef,
+    (matter as any).ClientID,
+    (matter as any).ClientId,
+    (matter as any).MatterRef,
+    (matter as any)['Matter Ref'],
+  ]);
 };
 
 interface RecoveredFee {
@@ -595,6 +671,18 @@ interface GoogleAdsData {
   ctr?: number;
   cpc?: number;
   cpa?: number;
+}
+
+interface GoogleAdsApiResponse {
+  success?: boolean;
+  data?: GoogleAdsData[];
+  dateRange?: {
+    start: string;
+    end: string;
+    daysIncluded?: number;
+  };
+  source?: string;
+  error?: string;
 }
 
 interface DatasetMap {
@@ -661,11 +749,12 @@ interface RefreshOptions {
 }
 
 const MATTERS_RANGE_DATASETS: DatasetKey[] = ['allMatters', 'wip', 'recoveredFees'];
-const ENQUIRIES_RANGE_DATASETS: DatasetKey[] = ['enquiries', 'deals', 'instructions', 'metaMetrics'];
+const ENQUIRIES_RANGE_DATASETS: DatasetKey[] = ['enquiries', 'deals', 'instructions'];
 const MATTERS_REPORT_REFRESH_DATASETS: DatasetKey[] = [...MATTERS_RANGE_DATASETS, 'deals', 'instructions'];
-const ENQUIRIES_REPORT_DATASETS: DatasetKey[] = ['enquiries', 'teamData', 'annualLeave', 'metaMetrics', 'deals', 'instructions'];
+const ENQUIRIES_REPORT_DATASETS: DatasetKey[] = ['enquiries', 'teamData', 'annualLeave', 'deals', 'instructions'];
 const ENQUIRY_LEDGER_REPORT_DATASETS: DatasetKey[] = ['enquiries', 'deals', 'instructions'];
-const META_REPORT_DATASETS: DatasetKey[] = ['metaMetrics', 'enquiries', 'deals', 'instructions'];
+// META_REPORT_DATASETS removed — Meta report tile is gated off across the
+// Reports tab. Re-add alongside the AVAILABLE_REPORTS entry if Meta returns.
 type DatasetStatusValue = 'idle' | 'loading' | 'ready' | 'error';
 
 interface DatasetMeta {
@@ -691,6 +780,13 @@ interface AvailableReport {
   description?: string;
   disabled?: boolean;
   development?: boolean;
+  // Tier (rollout ladder, see .github/copilot-instructions.md §User Tiers):
+  //   tier: 'prod'        → visible to every reports user (default for live reports).
+  //   tier: 'devPreview'  → visible only to dev-preview audience (LZ + AC) until promoted.
+  // Anything not yet trusted in production should be 'devPreview' so the Reports
+  // entry surface stays focused on what works and we don't pay the dataset cost
+  // (Meta ads / GA4 / Google Ads / calls) for users who can't open those tiles.
+  tier?: 'prod' | 'devPreview';
 }
 
 const AVAILABLE_REPORTS: AvailableReport[] = [
@@ -700,6 +796,7 @@ const AVAILABLE_REPORTS: AvailableReport[] = [
     status: 'Live today',
     action: 'dashboard',
     requiredDatasets: ['enquiries', 'allMatters', 'wip', 'recoveredFees', 'teamData', 'userData', 'annualLeave'],
+    tier: 'prod',
   },
   {
     key: 'enquiries',
@@ -708,6 +805,7 @@ const AVAILABLE_REPORTS: AvailableReport[] = [
     action: 'enquiries',
     requiredDatasets: ENQUIRIES_REPORT_DATASETS,
     development: true,
+    tier: 'devPreview',
   },
   {
     key: 'enquiryLedger',
@@ -716,6 +814,7 @@ const AVAILABLE_REPORTS: AvailableReport[] = [
     action: 'enquiryLedger',
     requiredDatasets: ENQUIRY_LEDGER_REPORT_DATASETS,
     development: true,
+    tier: 'devPreview',
   },
   {
     key: 'annualLeave',
@@ -724,6 +823,7 @@ const AVAILABLE_REPORTS: AvailableReport[] = [
     action: 'annualLeave',
     requiredDatasets: ['annualLeave', 'teamData'],
     disabled: true,
+    tier: 'devPreview',
   },
   {
     key: 'matters',
@@ -732,15 +832,10 @@ const AVAILABLE_REPORTS: AvailableReport[] = [
     action: 'matters',
     requiredDatasets: MATTERS_REPORT_REFRESH_DATASETS,
     disabled: true,
+    tier: 'devPreview',
   },
-  {
-    key: 'metaMetrics',
-    name: 'Meta ads',
-    status: 'In development',
-    action: 'metaMetrics',
-    requiredDatasets: META_REPORT_DATASETS,
-    development: true,
-  },
+  // Meta ads tile intentionally removed — Meta is off across the Reports tab.
+  // The Meta dataset, fetch path, and render block are also gated below.
   {
     key: 'seo',
     name: 'SEO report',
@@ -748,6 +843,7 @@ const AVAILABLE_REPORTS: AvailableReport[] = [
     action: 'seoReport',
     requiredDatasets: ['googleAnalytics', 'googleAds'],
     disabled: true,
+    tier: 'devPreview',
   },
   {
     key: 'ppc',
@@ -756,6 +852,7 @@ const AVAILABLE_REPORTS: AvailableReport[] = [
     action: 'ppcReport',
     requiredDatasets: ['googleAds', 'enquiries', 'allMatters', 'recoveredFees'],
     disabled: true,
+    tier: 'devPreview',
   },
   {
     key: 'calls',
@@ -764,9 +861,21 @@ const AVAILABLE_REPORTS: AvailableReport[] = [
     action: 'calls',
     requiredDatasets: ['dubberCalls', 'teamData'],
     development: true,
+    tier: 'devPreview',
   },
   // logMonitor is not a report â€” rendered separately as a utility strip below the reports grid
 ];
+
+// Datasets that are only consumed by dev-preview reports. We strip these from
+// the streaming pull and the visible "feeds ready" strip for non-dev users so
+// that a flaky third-party endpoint (Meta / GA4 / Google Ads / Dubber) cannot
+// stall the Reports entry surface for the rest of the firm.
+const DEV_PREVIEW_ONLY_DATASETS: ReadonlySet<DatasetKey> = new Set([
+  'metaMetrics',
+  'googleAnalytics',
+  'googleAds',
+  'dubberCalls',
+]);
 
 const REPORT_DATASET_REQUIREMENTS = AVAILABLE_REPORTS.reduce<Record<string, DatasetKey[]>>((acc, report) => {
   acc[report.key] = report.requiredDatasets;
@@ -1289,6 +1398,10 @@ interface ReportDependency {
   name: string;
   status: DatasetStatusValue;
   range: string;
+  /** Per-source trust verdict (passed/stale/failed/checking/repairing/unsupported). */
+  trust?: 'unsupported' | 'checking' | 'passed' | 'stale' | 'failed' | 'repairing';
+  /** Operator-facing reason copy for tooltips. */
+  trustReason?: string | null;
 }
 
 type ReportCard = AvailableReport & {
@@ -1461,9 +1574,9 @@ const REPORT_NAV_TABS: { key: typeof ACTIVE_VIEW_TYPE; label: string; draft?: bo
   // â”€â”€ Prod â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   { key: 'dashboard' as const, label: 'Dashboard' },
   { key: 'enquiries' as const, label: 'Enquiries' },
-  { key: 'enquiryLedger' as const, label: 'Ledger', draft: true },
+  { key: 'enquiryLedger' as const, label: 'Ledger' },
   { key: 'annualLeave' as const, label: 'Leave', draft: true },
-  { key: 'metaMetrics' as const, label: 'Meta', draft: true },
+  // 'metaMetrics' nav entry intentionally removed â€" Meta is off across the Reports tab.
   // â”€â”€ Draft (visually muted) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   { key: 'matters' as const, label: 'Matters', draft: true },
   { key: 'ppcReport' as const, label: 'PPC', draft: true },
@@ -1739,7 +1852,14 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
         throw new Error(`Google Ads fetch failed: ${response.status}`);
       }
 
-      return await response.json();
+      const payload = (await response.json()) as GoogleAdsApiResponse | GoogleAdsData[];
+      if (Array.isArray(payload)) {
+        return payload;
+      }
+      if (Array.isArray(payload?.data)) {
+        return payload.data;
+      }
+      return [];
     } catch (error) {
       console.error('Error fetching Google Ads data:', error);
       throw error;
@@ -1787,13 +1907,27 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
   const primaryUser = propUserData?.[0] ?? null;
   // Phase D rollout (dev-preview-and-view-as): Reports tab access goes through
   // the effective-permissions hook so the dev-owner "View as" override flips
-  // the modal visibility along with everything else. `isDevOwner` for the
-  // enquiry-ledger view stays RAW — that gate is rendering-only (it toggles
-  // a sub-view button) but the underlying data scope is still real-user-driven.
+  // the modal visibility along with everything else. The enquiry-ledger view
+  // is now prod-tier (visible to every reports user) per the 2026-04-30
+  // directive that locked the prod surface to Management Dashboard, Enquiries
+  // Report, and Enquiry Ledger.
   const effective = useEffectivePermissions(primaryUser);
+  // Enquiry ledger is now a prod-tier report alongside Management Dashboard
+  // and Enquiries Report (per directive 2026-04-30). It rides the same
+  // canAccessReports check as the rest of the Reports tab.
   const canViewEnquiryLedger = useMemo(
-    () => Boolean(primaryUser) && isDevOwner(primaryUser),
-    [primaryUser],
+    () => Boolean(primaryUser) && effective.canAccessReports,
+    [primaryUser, effective.canAccessReports],
+  );
+  // Dev-preview audience for not-yet-prod reports (Annual Leave Report, Matters,
+  // Meta Ads, SEO, PPC, Calls). When false we hide those tiles, drop their
+  // datasets from the cold-load streaming pull, and trim them from the visible
+  // "feeds ready" strip. This keeps the Reports entry surface focused on what
+  // works in production and prevents flaky third-party endpoints (Meta / GA4 /
+  // Google Ads / Dubber) from slowing or blocking everyone else.
+  const isReportsDevPreview = useMemo(
+    () => canSeePrivateHubControls(primaryUser) && !featureToggles?.viewAsProd,
+    [primaryUser, featureToggles?.viewAsProd],
   );
   const canAccessReportingOps = useMemo(
     () => Boolean(primaryUser) && effective.canAccessReports,
@@ -1956,6 +2090,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     const enquiries = datasetData.enquiries;
     const matters = datasetData.allMatters;
     const recovered = datasetData.recoveredFees;
+    const instructions = datasetData.instructions;
 
     if (!Array.isArray(enquiries) || !Array.isArray(matters) || !Array.isArray(recovered)) {
       return null;
@@ -1966,13 +2101,13 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
 
     const ppcEnquiries = enquiries.filter((enquiry) => {
       try {
-        return getNormalizedEnquirySource(enquiry).key === 'google_ads';
+        return getNormalizedEnquirySource(enquiry).key === 'google_ads' || hasPpcEnquirySignal(enquiry);
       } catch (err) {
         debugWarn('ReportingHome: Failed to normalise enquiry source for PPC detection', {
           enquiryId: enquiry.ID,
           error: err instanceof Error ? err.message : err,
         });
-        return false;
+        return hasPpcEnquirySignal(enquiry);
       }
     });
 
@@ -1993,24 +2128,78 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       pushToBucket(enquiriesByEmail, normaliseKey(enquiry.Email), enquiry);
     });
 
+    const instructionsIndex = new Map<string, InstructionRecord[]>();
+    const pushInstruction = (key: string, instruction: InstructionRecord) => {
+      if (!key) {
+        return;
+      }
+      const bucket = instructionsIndex.get(key) ?? [];
+      bucket.push(instruction);
+      instructionsIndex.set(key, bucket);
+    };
+
+    (Array.isArray(instructions) ? instructions : []).forEach((instruction) => {
+      extractInstructionAssociationKeys(instruction).forEach((key) => {
+        pushInstruction(key, instruction);
+      });
+    });
+
+    const getAssociatedInstructions = (matter: Matter, identifiers: ReturnType<typeof extractMatterIdentifiers>): InstructionRecord[] => {
+      const seen = new Set<string>();
+      const matches: InstructionRecord[] = [];
+
+      extractMatterAssociationKeys(matter, identifiers).forEach((key) => {
+        const bucket = instructionsIndex.get(key);
+        if (!bucket) {
+          return;
+        }
+        bucket.forEach((instruction) => {
+          const instructionKey = normaliseKey(
+            instruction.InstructionRef
+            || instruction.MatterId
+            || instruction.ClientId
+            || `${instruction.Email ?? ''}-${instruction.Stage ?? instruction.Status ?? ''}`
+          );
+          if (instructionKey && !seen.has(instructionKey)) {
+            seen.add(instructionKey);
+            matches.push(instruction);
+          }
+        });
+      });
+
+      return matches;
+    };
+
     const candidateMatters = matters
       .map((matter) => {
         const identifiers = extractMatterIdentifiers(matter);
         const displayKey = normaliseKey(identifiers.displayNumber);
         const matchesSource = isPpcSourceLabel((matter as any).Source || (matter as any).source);
         const hasLinkedEnquiry = displayKey && enquiriesByMatterRef.has(displayKey);
-        if (!matchesSource && !hasLinkedEnquiry) {
+        const associatedInstructions = getAssociatedInstructions(matter, identifiers);
+        const hasInstructionMatterRefMatch = associatedInstructions.some((instruction) => {
+          const candidateKeys = [instruction.MatterId, instruction.InstructionRef, (instruction as any).matter_ref];
+          return candidateKeys.some((key) => {
+            const normalised = normaliseKey(key);
+            return Boolean(normalised) && enquiriesByMatterRef.has(normalised);
+          });
+        });
+        const hasInstructionEmailMatch = associatedInstructions.some((instruction) => {
+          const emailKey = normaliseKey(instruction.Email);
+          return Boolean(emailKey) && enquiriesByEmail.has(emailKey);
+        });
+        if (!matchesSource && !hasLinkedEnquiry && !hasInstructionMatterRefMatch && !hasInstructionEmailMatch) {
           return null;
         }
-        return { matter, identifiers, displayKey };
+        return { matter, identifiers, displayKey, associatedInstructions };
       })
-      .filter((entry): entry is { matter: Matter; identifiers: ReturnType<typeof extractMatterIdentifiers>; displayKey: string } => Boolean(entry));
+      .filter((entry): entry is { matter: Matter; identifiers: ReturnType<typeof extractMatterIdentifiers>; displayKey: string; associatedInstructions: InstructionRecord[] } => Boolean(entry));
 
     if (candidateMatters.length === 0 && ppcEnquiries.length === 0) {
       return null;
     }
 
-    const idToMatter = new Map<string, { matter: Matter; identifiers: ReturnType<typeof extractMatterIdentifiers>; displayKey: string }>();
+    const idToMatter = new Map<string, { matter: Matter; identifiers: ReturnType<typeof extractMatterIdentifiers>; displayKey: string; associatedInstructions: InstructionRecord[] }>();
     candidateMatters.forEach((entry) => {
       entry.identifiers.variants.forEach((variant) => {
         if (variant) {
@@ -2019,19 +2208,37 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       });
     });
 
-    const selectLinkedEnquiry = (entry: { matter: Matter; identifiers: ReturnType<typeof extractMatterIdentifiers>; displayKey: string }): Enquiry | undefined => {
+    const selectLinkedEnquiry = (entry: { matter: Matter; identifiers: ReturnType<typeof extractMatterIdentifiers>; displayKey: string; associatedInstructions: InstructionRecord[] }): { enquiry?: Enquiry; matchKind: PpcMatchKind } => {
       if (entry.displayKey && enquiriesByMatterRef.has(entry.displayKey)) {
-        return enquiriesByMatterRef.get(entry.displayKey)?.[0];
+        return { enquiry: enquiriesByMatterRef.get(entry.displayKey)?.[0], matchKind: 'direct' };
       }
+
+      for (const instruction of entry.associatedInstructions) {
+        const directKeys = [instruction.MatterId, instruction.InstructionRef, (instruction as any).matter_ref];
+        for (const key of directKeys) {
+          const normalised = normaliseKey(key);
+          if (normalised && enquiriesByMatterRef.has(normalised)) {
+            return { enquiry: enquiriesByMatterRef.get(normalised)?.[0], matchKind: 'direct' };
+          }
+        }
+      }
+
+      for (const instruction of entry.associatedInstructions) {
+        const emailKey = normaliseKey(instruction.Email);
+        if (emailKey && enquiriesByEmail.has(emailKey)) {
+          return { enquiry: enquiriesByEmail.get(emailKey)?.[0], matchKind: 'email' };
+        }
+      }
+
       const emailCandidate = (entry.matter as any).ClientEmail
         || (entry.matter as any)['Client Email']
         || (entry.matter as any).client_email
         || (entry.matter as any).clientEmail;
       const emailKey = normaliseKey(emailCandidate);
       if (emailKey && enquiriesByEmail.has(emailKey)) {
-        return enquiriesByEmail.get(emailKey)?.[0];
+        return { enquiry: enquiriesByEmail.get(emailKey)?.[0], matchKind: 'email' };
       }
-      return undefined;
+      return { matchKind: isPpcSourceLabel((entry.matter as any).Source || (entry.matter as any).source) ? 'source_only' : 'unknown' };
     };
 
     const breakdownMap = new Map<string, PpcIncomeMetrics['breakdown'][number]>();
@@ -2057,7 +2264,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
         normaliseKey(fee.bill_id),
       ].filter(Boolean);
 
-      let matchedEntry: { matter: Matter; identifiers: ReturnType<typeof extractMatterIdentifiers>; displayKey: string } | undefined;
+      let matchedEntry: { matter: Matter; identifiers: ReturnType<typeof extractMatterIdentifiers>; displayKey: string; associatedInstructions: InstructionRecord[] } | undefined;
       let canonicalKey: string | undefined;
 
       for (const key of candidateKeys) {
@@ -2112,10 +2319,11 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
           collectedWithin7Days: 0,
           collectedWithin30Days: 0,
           payments: [],
-          enquiryId: linkedEnquiry?.ID,
-          enquiryDate: linkedEnquiry?.Touchpoint_Date,
-          enquirySource: linkedEnquiry?.Ultimate_Source,
-          enquiryMoc: linkedEnquiry?.Method_of_Contact,
+          enquiryId: linkedEnquiry.enquiry?.ID,
+          enquiryDate: linkedEnquiry.enquiry?.Touchpoint_Date,
+          enquirySource: linkedEnquiry.enquiry?.Ultimate_Source,
+          enquiryMoc: linkedEnquiry.enquiry?.Method_of_Contact,
+          matchKind: linkedEnquiry.matchKind,
         };
         breakdownMap.set(canonicalKey, breakdown);
       }
@@ -2157,14 +2365,36 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
         collectedWithin7Days: 0,
         collectedWithin30Days: 0,
         payments: [],
-        enquiryId: linkedEnquiry?.ID,
-        enquiryDate: linkedEnquiry?.Touchpoint_Date,
-        enquirySource: linkedEnquiry?.Ultimate_Source,
-        enquiryMoc: linkedEnquiry?.Method_of_Contact,
+        enquiryId: linkedEnquiry.enquiry?.ID,
+        enquiryDate: linkedEnquiry.enquiry?.Touchpoint_Date,
+        enquirySource: linkedEnquiry.enquiry?.Ultimate_Source,
+        enquiryMoc: linkedEnquiry.enquiry?.Method_of_Contact,
+        matchKind: linkedEnquiry.matchKind,
       });
     });
 
     const breakdownList = Array.from(breakdownMap.values()).sort((a, b) => b.totalCollected - a.totalCollected);
+    const breakdownByEnquiryId = new Map<string, PpcIncomeMetrics['breakdown'][number]>();
+    breakdownList.forEach((record) => {
+      if (record.enquiryId != null) {
+        breakdownByEnquiryId.set(String(record.enquiryId), record);
+      }
+    });
+
+    const enquirySnapshots = ppcEnquiries.map((enquiry) => {
+      const linkedBreakdown = enquiry.ID != null ? breakdownByEnquiryId.get(String(enquiry.ID)) : undefined;
+      return {
+        enquiryId: enquiry.ID,
+        enquiryDate: enquiry.Touchpoint_Date,
+        source: enquiry.Ultimate_Source,
+        methodOfContact: enquiry.Method_of_Contact,
+        linkedToMatter: Boolean(linkedBreakdown),
+        linkedMatterId: linkedBreakdown?.matterId,
+        linkedDisplayNumber: linkedBreakdown?.displayNumber,
+        clientName: linkedBreakdown?.clientName,
+        matchKind: linkedBreakdown?.matchKind,
+      };
+    });
 
     const summary = {
       totalEnquiries: ppcEnquiries.length,
@@ -2187,6 +2417,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       generatedAt: new Date().toISOString(),
       summary,
       breakdown: breakdownList,
+      enquirySnapshots,
       unmatchedPayments: unmatchedPreview,
       debug: {
         unmatchedCount: unmatchedTotal,
@@ -2342,10 +2573,14 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     debouncedSetDatasetStatus(pendingStatusUpdatesRef.current);
   }, [debouncedSetDatasetStatus]);
 
-  // Prepare list of datasets to stream (stable identity across re-renders)
+  // Prepare list of datasets to stream (stable identity across re-renders).
+  // For non-dev-preview users we drop datasets that only feed dev-preview
+  // reports so the cold load doesn't pay the third-party fan-out.
   const streamableDatasets = useMemo<StreamingDatasetKey[]>(
-    () => GLOBAL_STREAM_DATASETS,
-    []
+    () => isReportsDevPreview
+      ? GLOBAL_STREAM_DATASETS
+      : GLOBAL_STREAM_DATASETS.filter((key) => !DEV_PREVIEW_ONLY_DATASETS.has(key as DatasetKey)),
+    [isReportsDevPreview]
   );
 
 
@@ -2697,7 +2932,9 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     const isLocalNow = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
     const isViewingAsProd = Boolean(featureToggles?.viewAsProd);
     const initials = extractUserInitials(propUserData);
-    const PROD_TAB_KEYS = ['dashboard', 'enquiries'];
+    // Prod-tier nav tabs (visible to every reports user). Mirrors
+    // AVAILABLE_REPORTS entries marked tier: 'prod'.
+    const PROD_TAB_KEYS = ['dashboard'];
     const visibleTabs = REPORT_NAV_TABS.filter((tab) => {
       if (tab.key === 'enquiryLedger') {
         return canViewEnquiryLedger;
@@ -2779,6 +3016,45 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
   }, [propUserData]);
 
   // Marketing metrics fetching function
+  // Annual leave is excluded from the streaming pipeline (see GLOBAL_STREAM_DATASETS)
+  // and only fetched when the dashboard is opened or the user clicks a refresh
+  // button. Without this mount-time fetch its source dot stays idle (white)
+  // forever on Reporting Home, even though the endpoint is a fast cached
+  // ~50ms call. Fire once on mount, quietly — no toast, no isFetching flip,
+  // no error escalation. If it fails the dot just stays idle, same as today.
+  const annualLeaveBootstrappedRef = useRef(false);
+  useEffect(() => {
+    if (annualLeaveBootstrappedRef.current) return;
+    if (testMode || demoModeEnabled) return;
+    if (datasetStatus.annualLeave?.status === 'ready' || datasetStatus.annualLeave?.status === 'loading') return;
+    annualLeaveBootstrappedRef.current = true;
+    setDatasetStatus(prev => ({
+      ...prev,
+      annualLeave: { status: 'loading', updatedAt: prev.annualLeave?.updatedAt ?? null },
+    }));
+    void fetchAnnualLeaveDataset(false)
+      .then((result) => {
+        const now = Date.now();
+        setDatasetData(prev => ({
+          ...prev,
+          annualLeave: result.records,
+          ...(result.team.length > 0 && (!prev.teamData || prev.teamData.length === 0)
+            ? { teamData: result.team }
+            : {}),
+        }));
+        setDatasetStatus(prev => ({
+          ...prev,
+          annualLeave: { status: 'ready', updatedAt: now },
+        }));
+      })
+      .catch(() => {
+        setDatasetStatus(prev => ({
+          ...prev,
+          annualLeave: { status: 'error', updatedAt: prev.annualLeave?.updatedAt ?? null },
+        }));
+      });
+  }, [datasetStatus.annualLeave?.status, fetchAnnualLeaveDataset, testMode, demoModeEnabled]);
+
   const fetchMetaMetrics = useCallback(async (daysBack: number = DEFAULT_META_DAYS, bypassCache = false): Promise<MarketingMetrics[]> => {
     try {
       const safeDays = Math.max(Math.floor(daysBack), 7);
@@ -2876,7 +3152,10 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
 
       const shouldFetchAnnualLeave = forceRefresh || !cachedData.annualLeave || (nowTs - lastAL) > thirtyMinutes;
       const includeMarketingFeeds = scope === 'all';
-      const shouldFetchMeta = includeMarketingFeeds && (forceRefresh || !cachedData.metaMetrics || (nowTs - lastMeta) > thirtyMinutes);
+      // Meta is off across the Reports tab — force-skip the fetch regardless of
+      // cache freshness. Existing cachedData.metaMetrics (if any) is preserved
+      // but never refreshed.
+      const shouldFetchMeta = false;
       const shouldFetchGA = includeMarketingFeeds && (forceRefresh || !cachedData.googleAnalytics || (nowTs - lastGA) > thirtyMinutes);
       const shouldFetchGAds = includeMarketingFeeds && (forceRefresh || !cachedData.googleAds || (nowTs - lastGAds) > thirtyMinutes);
 
@@ -3401,6 +3680,30 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       }
     }
   }, [activeView, datasetStatus.googleAds?.status, fetchGoogleAdsData, showToast]);
+
+  const refreshPpcReport = useCallback(async () => {
+    if (isFetching || datasetStatus.googleAds?.status === 'loading') {
+      showToast({
+        message: 'PPC refresh already running. Spend and attribution inputs are still updating.',
+        type: 'info',
+        duration: 4000,
+      });
+      return;
+    }
+
+    setPpcGoogleAdsData(null);
+    setPpcGoogleAdsUpdatedAt(null);
+
+    await performStreamingRefresh(true, {
+      rangeOverrides: {
+        enquiriesRangeKey,
+        mattersRangeKey: mattersWipRangeKey,
+      },
+      streamTargets: ['enquiries', 'deals', 'instructions', 'allMatters', 'recoveredFees'],
+      statusTargets: ['enquiries', 'deals', 'instructions', 'allMatters', 'recoveredFees', 'googleAds'],
+      scope: 'all',
+    });
+  }, [datasetStatus.googleAds?.status, enquiriesRangeKey, isFetching, mattersWipRangeKey, performStreamingRefresh, showToast]);
 
   const refreshEnquiriesScoped = useCallback(async () => {
     setHasFetchedOnce(true);
@@ -4015,8 +4318,54 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     }
   }, [datasetStatus, setStatusesFor, startStreamingWithMemo, fetchAnnualLeaveDataset, fetchMetaMetrics, fetchGoogleAnalyticsData, fetchGoogleAdsData, showToast, metaDaysBack]);
 
+  // ─── Trust gate (Phase B — visible to all users) ───
+  // See docs/notes/MANAGEMENT_DASHBOARD_TRUST_GATE.md
+  // Rationale: the gate IS the resolution to the Clio-vs-Hub mismatch problem.
+  // Hiding it behind a dev preview defeats the purpose — users need to see, every
+  // time they open MD, whether the underlying data is trustworthy. Admins keep
+  // an override; everyone else is told to retry or open Data Hub if blocked.
+  const userInitialsForGate = useMemo(() => {
+    const raw = propUserData?.[0]?.Initials;
+    return typeof raw === 'string' ? raw.trim().toUpperCase() : '';
+  }, [propUserData]);
+  const trustGateEnabled = true;
+  const isAdminForGate = useMemo(() => {
+    const u = propUserData?.[0];
+    return u ? isAdminUser(u) : false;
+  }, [propUserData]);
+  // Shared readiness payload — feeds both the aggregate trust gate (via
+  // ManagementAccessIndicator's own poll) and the per-source trust dots on
+  // the report cards. The hook is module-scoped/cached so multiple consumers
+  // share a single 5-minute poller.
+  const { payload: trustReadinessPayload } = useReportingReadiness(true);
+  const [trustGateOverall, setTrustGateOverall] = useState<ReadinessOverall>('ready');
+  const [trustGateOverridden, setTrustGateOverridden] = useState(false);
+  const handleTrustGateChange = useCallback((overall: ReadinessOverall) => {
+    setTrustGateOverall(overall);
+  }, []);
+  const handleTrustGateOverride = useCallback(() => {
+    setTrustGateOverridden(true);
+    showToast({
+      type: 'warning',
+      title: 'Trust gate overridden',
+      message: 'Opening Management Dashboard with possibly stale data — recorded for audit.',
+    });
+  }, [showToast]);
+  const trustGateBlocksEntry = trustGateEnabled && !trustGateOverridden && trustGateOverall === 'blocked';
+
   // More conservative auto-refresh logic to prevent excessive refreshing
   const handleOpenDashboard = useCallback(() => {
+    // Trust gate (Phase B): block entry if dev preview user has unresolved blocking checks.
+    if (trustGateBlocksEntry) {
+      debugLog('Trust gate blocked — refusing to open Management Dashboard');
+      showToast({
+        type: 'error',
+        title: 'Reports access paused',
+        message: 'Use the indicator next to the Management Dashboard tile to refresh and retry.',
+      });
+      return;
+    }
+
     // Immediately show loading state for better UX
     setActiveView('dashboard');
     
@@ -4041,7 +4390,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     } else {
       debugLog('Dashboard using cached data (fresh enough)');
     }
-  }, [hasFetchedOnce, isFetching, isStreamingConnected, refreshDatasetsWithStreaming, testMode]);
+  }, [hasFetchedOnce, isFetching, isStreamingConnected, refreshDatasetsWithStreaming, testMode, trustGateBlocksEntry, showToast]);
 
   // Helper to navigate to reports in test mode without triggering refreshes
   const navigateToReport = useCallback((view: typeof activeView) => {
@@ -4079,7 +4428,10 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
 
   // Memoize expensive dataset summaries computation with better dependency tracking
   const datasetSummaries = useMemo(() => {
-    return DATASETS.map((dataset) => {
+    const visibleDatasets = isReportsDevPreview
+      ? DATASETS
+      : DATASETS.filter((dataset) => !DEV_PREVIEW_ONLY_DATASETS.has(dataset.key));
+    return visibleDatasets.map((dataset) => {
       // Check if this dataset is being streamed
       const streamingState = streamingDatasets[dataset.key];
       const useStreamingState = streamingState && (isStreamingConnected || streamingState.status !== 'idle');
@@ -4106,7 +4458,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
         cached,
       };
     });
-  }, [datasetData, datasetStatus, streamingDatasets, isStreamingConnected]);
+  }, [datasetData, datasetStatus, streamingDatasets, isStreamingConnected, isReportsDevPreview]);
 
   const datasetSummariesSorted = useMemo(() => {
     const sortable = [...datasetSummaries];
@@ -4425,6 +4777,18 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
   const renderAvailableReportCards = () => {
     const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
     const PROD_REPORT_KEYS = ['dashboard', 'enquiries'];
+    const decorateLocalPpcCard = (card: ReportCard) => {
+      if (!isLocal || card.key !== 'ppc') {
+        return card;
+      }
+      return {
+        ...card,
+        disabled: false,
+        development: true,
+        status: 'Local dev preview',
+      };
+    };
+    const isLocalPpcCard = (card: ReportCard) => isLocal && card.key === 'ppc';
 
     const rcProps = {
       isDarkMode,
@@ -4477,7 +4841,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
         return true;
       }
       return PROD_REPORT_KEYS.includes(card.key);
-    });
+    }).map(decorateLocalPpcCard);
 
     // Hero: dashboard stands alone
     const heroCard = visibleCards.find(card => card.key === 'dashboard');
@@ -4487,7 +4851,52 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     const disabledCards = visibleCards.filter(card => card.disabled);
 
     // Locally: keep unreleased draft cards visually muted, but allow explicitly-enabled draft tools through.
-    const isGreyedOut = (key: string) => isLocal && !PROD_REPORT_KEYS.includes(key) && key !== 'enquiryLedger';
+    const isGreyedOut = (key: string) => isLocal && !PROD_REPORT_KEYS.includes(key) && key !== 'enquiryLedger' && key !== 'ppc';
+    const getCardShellStyle = (card: ReportCard) => {
+      if (isLocalPpcCard(card)) {
+        return { position: 'relative' as const };
+      }
+      return isGreyedOut(card.key)
+        ? { opacity: 0.4, pointerEvents: 'none' as const, filter: 'grayscale(0.6)' }
+        : undefined;
+    };
+    const ppcDevBadge = (card: ReportCard) => isLocalPpcCard(card) ? (
+      <>
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            top: 10,
+            right: 10,
+            zIndex: 2,
+            padding: '3px 8px',
+            fontSize: 9,
+            fontWeight: 700,
+            letterSpacing: '0.08em',
+            textTransform: 'uppercase',
+            color: colours.orange,
+            background: isDarkMode ? `${colours.orange}14` : `${colours.orange}12`,
+            border: `1px solid ${isDarkMode ? `${colours.orange}55` : `${colours.orange}33`}`,
+            borderRadius: 0,
+            pointerEvents: 'none',
+          }}
+        >
+          Dev
+        </div>
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            inset: 10,
+            zIndex: 1,
+            border: `1.5px dotted ${colours.orange}`,
+            borderRadius: 0,
+            pointerEvents: 'none',
+            opacity: isDarkMode ? 0.85 : 0.75,
+          }}
+        />
+      </>
+    ) : null;
     
     return (
       <>
@@ -4498,7 +4907,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: 6,
+                gap: 10,
                 marginBottom: 10,
                 paddingLeft: 10,
                 borderLeft: `2px solid ${isDarkMode ? colours.subtleGrey : colours.greyText}`,
@@ -4520,6 +4929,16 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
                 background: colours.green,
                 display: 'inline-block',
               }} />
+              <span style={{ marginLeft: 'auto' }} id="management-trust-gate">
+                <ManagementAccessIndicator
+                  enabled={trustGateEnabled}
+                  isDarkMode={isDarkMode}
+                  onChange={handleTrustGateChange}
+                  initials={userInitialsForGate || null}
+                  isAdmin={isAdminForGate}
+                  onAdminOverride={handleTrustGateOverride}
+                />
+              </span>
             </div>
             <div style={{
               display: 'grid',
@@ -4608,7 +5027,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
               }}
             >
               {developmentCards.map((card, index) => (
-                <div key={card.key} style={isGreyedOut(card.key) ? { opacity: 0.4, pointerEvents: 'none', filter: 'grayscale(0.6)' } : undefined}>
+                <div key={card.key} style={getCardShellStyle(card)}>
+                  {ppcDevBadge(card)}
                   <ReportCard card={card} animationIndex={activeCards.length + index + 1} {...rcProps} />
                 </div>
               ))}
@@ -4649,7 +5069,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
               }}
             >
               {disabledCards.map((card, index) => (
-                <div key={card.key} style={isGreyedOut(card.key) ? { opacity: 0.4, pointerEvents: 'none', filter: 'grayscale(0.6)' } : undefined}>
+                <div key={card.key} style={getCardShellStyle(card)}>
+                  {ppcDevBadge(card)}
                   <ReportCard card={card} animationIndex={activeCards.length + index + 1} {...rcProps} />
                 </div>
               ))}
@@ -4907,15 +5328,28 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
   );
 
   const reportCards = useMemo<ReportCard[]>(() => {
-    return AVAILABLE_REPORTS.map((report) => {
+    const visibleReports = isReportsDevPreview
+      ? AVAILABLE_REPORTS
+      : AVAILABLE_REPORTS.filter((report) => report.tier !== 'devPreview');
+    return visibleReports.map((report) => {
         const dependencies = report.requiredDatasets.map<ReportDependency>((datasetKey) => {
         const dataset = DATASETS.find((definition) => definition.key === datasetKey);
         const status = datasetStatus[datasetKey]?.status ?? 'idle';
+        const trustCheckId = getTrustCheckId(report.key, datasetKey);
+        const trustCheck = findTrustCheck(trustReadinessPayload, trustCheckId);
+        const preflightTrust = Boolean(
+          trustCheck && (trustCheck.reason === 'no-snapshot' || trustCheck.reason === 'snapshot-missing-scope')
+        );
+        const trust = preflightTrust
+          ? 'unsupported'
+          : deriveTrustState(trustReadinessPayload, trustCheckId, status);
         return {
           key: datasetKey,
           name: dataset?.name ?? datasetKey,
           status,
             range: getDatasetDateRange(datasetKey, report.key),
+          trust,
+          trustReason: preflightTrust ? null : (trustCheck?.message ?? trustCheck?.reason ?? null),
         };
       });
 
@@ -4927,7 +5361,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
         totalDependencies: dependencies.length,
       };
     });
-  }, [datasetStatus, getDatasetDateRange, getButtonState]);
+  }, [datasetStatus, getDatasetDateRange, getButtonState, isReportsDevPreview, trustReadinessPayload]);
 
   const handleApplyPendingMattersRange = useCallback(() => {
     if (!sliderHasPendingChange || wipRangeIsRefreshing) {
@@ -5090,19 +5524,9 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
   }
 
   if (activeView === 'metaMetrics') {
-    return (
-      <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
-        <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
-          <MetaMetricsReport
-              metaMetrics={datasetData.metaMetrics}
-              enquiries={datasetData.enquiries}
-              triggerRefresh={refreshMetaMetricsOnly}
-              lastRefreshTimestamp={lastRefreshTimestamp ?? undefined}
-              isFetching={isFetching}
-            />
-        </div>
-      </div>
-    );
+    // Meta is off across the Reports tab. If anything tries to navigate to it
+    // (stale persisted view, deep link, etc.), silently fall back to overview.
+    return null;
   }
 
   if (activeView === 'seoReport') {
@@ -5126,6 +5550,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
         <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
           <PpcReport 
+              triggerRefresh={refreshPpcReport}
               cachedGoogleAdsData={(ppcGoogleAdsData ?? datasetData.googleAds ?? cachedData.googleAds) || []}
               ppcIncomeMetrics={ppcIncomeMetrics}
               isFetching={isFetching || ppcLoading}
@@ -5352,6 +5777,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
               </div>
             </div>
           </div>
+
+          <ReportingPulseStrip isDarkMode={isDarkMode} />
 
           {isRefreshRangeCalloutOpen && refreshRangeButtonRef.current && (
             <Callout

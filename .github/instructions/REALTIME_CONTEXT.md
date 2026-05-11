@@ -1,12 +1,14 @@
+<!-- AUTO-GENERATED - do not edit. Regenerate with `node tools/sync-context.mjs`. -->
+
 # Realtime Context
 
-Auto-generated: 2026-04-16T18:02:38.725Z
+Generated at: 2026-05-03T10:50:11.026Z
 
 ## Git State
 
 - **Branch**: main
-- **Uncommitted changes**: 28
-- **Last commit**: 7ef60e42 gitswitch backup
+- **Uncommitted changes**: 208
+- **Last commit**: d5bfddd3 ccl wrap, ux bugs, deploy prep
 
 ## Submodules
 
@@ -32,26 +34,26 @@ Auto-generated: 2026-04-16T18:02:38.725Z
 
 ## Recent Changes (last 5 commits)
 
+- .gitattributes
+- .github/agents/aiden.agent.md
 - .github/copilot-instructions.md
+- .github/instructions/ARCHITECTURE_DATA_FLOW.md
 - .github/instructions/CCL_ROADMAP.md
 - .github/instructions/REALTIME_CONTEXT.md
 - .github/instructions/ROADMAP.md
+- .github/instructions/STASHED_PROJECTS.md
+- .github/instructions/dev-experience.instructions.md
 - .github/instructions/server.instructions.md
 - .github/instructions/tabs.instructions.md
+- .github/instructions/wayfinding.instructions.md
 - .github/workflows/ci.yml
+- .gitignore
 - README.md
 - build-and-deploy-staging.ps1
 - build-and-deploy.ps1
+- config-overrides.js
 - craco.config.js
-- git
-- jest.server.config.js
-- logs/changelog.md
-- npm
-- package-lock.json
-- package.json
-- server.js
-- server/__tests__/middleware/errorHandler.test.js
-- server/__tests__/middleware/requireUser.test.js
+- docs/AZURE_OPERATIONS.md
 
 ---
 *Run `node tools/sync-context.mjs` to refresh (you will be asked each run whether to sync submodules)*

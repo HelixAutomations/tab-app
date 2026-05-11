@@ -2,8 +2,21 @@ $ErrorActionPreference = 'Stop'
 
 $zipPath   = Join-Path $PSScriptRoot 'build-staging.zip'
 $copyPath  = Join-Path $PSScriptRoot 'last-deploy-staging.zip'
-$cfgPath   = Join-Path $PSScriptRoot 'server\web.config'
 $deployDir = Join-Path $PSScriptRoot 'deploy-staging'
+
+function Test-StagingDeployFailure {
+    param(
+        [string[]]$OutputLines,
+        [int]$ExitCode
+    )
+
+    if ($ExitCode -ne 0) {
+        return $true
+    }
+
+    $joined = ($OutputLines -join "`n")
+    return $joined -match 'An error occurred during deployment' -or $joined -match 'Status Code:\s*500'
+}
 
 Write-Host "🚀 STAGING DEPLOYMENT - Building and deploying to staging slot"
 Write-Host "Removing existing zip artifacts"
@@ -37,7 +50,15 @@ Write-Host "Copying build output to deploy directory"
 Copy-Item -Path "$PSScriptRoot\build\*" -Destination "$deployDir" -Recurse -Force
 
 Write-Host "Installing server dependencies (production only)"
-npm ci --prefix server --only=prod
+if (Test-Path "server\node_modules") {
+    Write-Host "Removing existing server node_modules before clean install"
+    Remove-Item -LiteralPath "server\node_modules" -Recurse -Force
+}
+npm ci --prefix server --omit=dev --no-audit --fund=false --progress=false
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "ERROR: Server dependency install failed."
+    exit $LASTEXITCODE
+}
 
 Write-Host "Copying server dependencies to deploy directory"
 Copy-Item -Path "server\node_modules" -Destination "$deployDir\node_modules" -Recurse -Force
@@ -51,10 +72,32 @@ Copy-Item -Path "server\index.js" -Destination "$deployDir\server.js" -Force
 Copy-Item -Path "server\routes" -Destination "$deployDir\routes" -Recurse -Force
 Copy-Item -Path "server\middleware" -Destination "$deployDir\middleware" -Recurse -Force
 Copy-Item -Path "server\utils" -Destination "$deployDir\utils" -Recurse -Force
+Copy-Item -Path "server\operatorActions" -Destination "$deployDir\operatorActions" -Recurse -Force
 Copy-Item -Path "server\activity-card-lab" -Destination "$deployDir\activity-card-lab" -Recurse -Force
 Copy-Item -Path "server\web.config" -Destination "$deployDir\web.config" -Force
 if (Test-Path "server\prompts") {
     Copy-Item -Path "server\prompts" -Destination "$deployDir\prompts" -Recurse -Force
+}
+
+# Repo-tracked JSON state used by server routes (demo cheat sheet access + LZ overrides,
+# roadmap whiteboard, etc.). Routes read from <deployDir>\data, so ship the folder verbatim.
+if (Test-Path "data") {
+    Write-Host "Copying data directory (demo notes overrides, roadmap whiteboard, etc.)"
+    $deployDataDir = Join-Path $deployDir 'data'
+    New-Item -ItemType Directory -Path $deployDataDir -Force | Out-Null
+    Copy-Item -Path "data\*" -Destination $deployDataDir -Recurse -Force
+}
+
+$requiredDeployAssets = @(
+    'server.js',
+    'routes\dev-console.js',
+    'operatorActions\registry.js'
+)
+foreach ($asset in $requiredDeployAssets) {
+    if (-not (Test-Path (Join-Path $deployDir $asset))) {
+        Write-Host "ERROR: Deployment artifact missing required server asset: $asset"
+        exit 1
+    }
 }
 
 Write-Host "Creating IISNode log directory"
@@ -88,7 +131,39 @@ Write-Host "Copying deployment zip for inspection"
 Copy-Item -Path $zipPath -Destination $copyPath -Force
 
 Write-Host "🎯 Deploying to Azure staging slot"
-az webapp deploy --resource-group Main --name link-hub-v1 --slot staging --src-path $zipPath
+$hadNativeCommandPreference = Test-Path variable:PSNativeCommandUseErrorActionPreference
+if ($hadNativeCommandPreference) {
+    $previousNativeCommandPreference = $PSNativeCommandUseErrorActionPreference
+    $PSNativeCommandUseErrorActionPreference = $false
+}
+$previousErrorActionPreference = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+
+try {
+    # Use async handoff so Azure can finish extracting and starting the app
+    # without the CLI waiting long enough to hit a false timeout.
+    $rawDeployOutput = & az webapp deploy --resource-group Main --name link-hub-v1 --slot staging --src-path $zipPath --async true 2>&1
+    $deployExitCode = $LASTEXITCODE
+    $deployOutput = @($rawDeployOutput | ForEach-Object {
+        if ($_ -is [System.Management.Automation.ErrorRecord]) { $_.ToString() } else { [string]$_ }
+    })
+}
+finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+    if ($hadNativeCommandPreference) {
+        $PSNativeCommandUseErrorActionPreference = $previousNativeCommandPreference
+    }
+}
+
+$deployOutput | ForEach-Object { Write-Host $_ }
+
+if (Test-StagingDeployFailure -OutputLines $deployOutput -ExitCode $deployExitCode) {
+    Write-Host "ERROR: Azure staging deployment did not complete successfully."
+    Write-Host "       Keeping deployment artifacts for inspection:"
+    Write-Host "       - $copyPath"
+    Write-Host "       - $deployDir"
+    exit 1
+}
 
 
 Write-Host "Cleaning up"

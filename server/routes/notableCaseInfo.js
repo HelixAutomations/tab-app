@@ -115,7 +115,12 @@ router.post('/', async (req, res) => {
     });
     await markComplete(submissionId, { lastEvent: 'notable-case-info forwarded' });
 
-    return res.status(200).json(parsed || { success: true });
+    const baseResponse = parsed && typeof parsed === 'object' ? parsed : { success: true };
+    return res.status(200).json({
+      ...baseResponse,
+      submissionId,
+      streamUrl: submissionId ? `forms?focusSubmission=${submissionId}` : null,
+    });
   } catch (error) {
     console.error('[notable-case-info] forward error:', error);
     if (submissionId) {

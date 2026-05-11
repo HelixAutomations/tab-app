@@ -35,6 +35,18 @@ interface BatchStatusEntry {
     uploadedToClio?: boolean;
 }
 
+interface CclDraftLoadResponse {
+    ok?: boolean;
+    exists?: boolean;
+    json?: Record<string, unknown> | null;
+    loadInfo?: {
+        status?: string | null;
+        version?: number | null;
+        createdAt?: string | null;
+        finalizedAt?: string | null;
+    } | null;
+}
+
 function canonicalStage(entry?: BatchStatusEntry | null): CclStage {
     const raw = String(entry?.stage || entry?.status || '').trim().toLowerCase();
     switch (raw) {
@@ -57,6 +69,8 @@ interface Props {
     openedMatterId: string | null;
     matterOpenSucceeded: boolean;
     isDarkMode: boolean;
+    initialAutopilotStarted?: boolean;
+    initialAutopilotError?: string | null;
     /** Used only as a hint; real state still comes from polling. */
     initialCclUrl?: string;
     /** Optional fee-earner email for retry requests. */
@@ -70,10 +84,27 @@ type HandoffTone = 'working' | 'ready' | 'attention' | 'blocked' | 'idle';
 const POLL_INTERVAL_MS = 4000;
 const MAX_POLL_DURATION_MS = 90_000; // 90s — after which we surface "autopilot skipped"
 
+function buildEntryFromDraftLoad(payload: CclDraftLoadResponse | null): BatchStatusEntry | null {
+    if (!payload?.ok) return null;
+    const status = String(payload.loadInfo?.status || '').trim().toLowerCase();
+    const hasDraft = Boolean(payload.exists || payload.json || payload.loadInfo?.version);
+    if (!status && !hasDraft) return null;
+    const derivedStage = status || 'generated';
+    return {
+        status: derivedStage,
+        stage: derivedStage,
+        version: typeof payload.loadInfo?.version === 'number' ? payload.loadInfo.version : undefined,
+        generatedAt: payload.loadInfo?.createdAt || null,
+        finalizedAt: payload.loadInfo?.finalizedAt || null,
+    };
+}
+
 const MatterOpenedHandoff: React.FC<Props> = ({
     openedMatterId,
     matterOpenSucceeded,
     isDarkMode,
+    initialAutopilotStarted = true,
+    initialAutopilotError = null,
     initialCclUrl,
     feeEarnerEmail,
     onGoToMatter,
@@ -84,7 +115,14 @@ const MatterOpenedHandoff: React.FC<Props> = ({
     const [retrying, setRetrying] = useState(false);
     const [retryError, setRetryError] = useState<string | null>(null);
     const [timedOut, setTimedOut] = useState(false);
+    const [autopilotStarted, setAutopilotStarted] = useState(initialAutopilotStarted);
+    const [autopilotStartError, setAutopilotStartError] = useState<string | null>(initialAutopilotError);
     const startedAtRef = useRef<number>(Date.now());
+
+    useEffect(() => {
+        setAutopilotStarted(initialAutopilotStarted);
+        setAutopilotStartError(initialAutopilotError);
+    }, [initialAutopilotStarted, initialAutopilotError]);
 
     const fetchStatus = useCallback(async (matterId: string) => {
         try {
@@ -94,9 +132,18 @@ const MatterOpenedHandoff: React.FC<Props> = ({
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ matterIds: [matterId] }),
             });
-            if (!res.ok) return null;
-            const json = await res.json();
-            return (json?.results?.[matterId] as BatchStatusEntry) || null;
+            if (res.ok) {
+                const json = await res.json();
+                const next = (json?.results?.[matterId] as BatchStatusEntry) || null;
+                if (next) return next;
+            }
+
+            const fallbackRes = await fetch(`/api/ccl/${encodeURIComponent(matterId)}`, {
+                credentials: 'include',
+            });
+            if (!fallbackRes.ok) return null;
+            const fallbackJson = await fallbackRes.json() as CclDraftLoadResponse;
+            return buildEntryFromDraftLoad(fallbackJson);
         } catch {
             return null;
         }
@@ -104,7 +151,7 @@ const MatterOpenedHandoff: React.FC<Props> = ({
 
     // Poll loop — only runs when matter opened successfully
     useEffect(() => {
-        if (!matterOpenSucceeded || !openedMatterId) return;
+        if (!matterOpenSucceeded || !openedMatterId || !autopilotStarted) return;
         let cancelled = false;
         let timer: ReturnType<typeof setTimeout> | null = null;
         startedAtRef.current = Date.now();
@@ -132,7 +179,7 @@ const MatterOpenedHandoff: React.FC<Props> = ({
             cancelled = true;
             if (timer) clearTimeout(timer);
         };
-    }, [matterOpenSucceeded, openedMatterId, fetchStatus]);
+    }, [matterOpenSucceeded, openedMatterId, fetchStatus, autopilotStarted]);
 
     const handleRetryAutopilot = useCallback(async () => {
         if (!openedMatterId) return;
@@ -153,7 +200,10 @@ const MatterOpenedHandoff: React.FC<Props> = ({
                 const text = await res.text().catch(() => '');
                 throw new Error(text || `HTTP ${res.status}`);
             }
+            setAutopilotStarted(true);
+            setAutopilotStartError(null);
             setTimedOut(false);
+            setFetchedOnce(false);
             startedAtRef.current = Date.now();
             // Kick the poller back off by forcing a re-fetch
             const next = await fetchStatus(openedMatterId);
@@ -166,28 +216,37 @@ const MatterOpenedHandoff: React.FC<Props> = ({
         }
     }, [openedMatterId, feeEarnerEmail, fetchStatus]);
 
-    const handleOpenReviewRail = useCallback(() => {
-        if (!openedMatterId) return;
-        window.dispatchEvent(new CustomEvent('openHomeCclReview', {
-            detail: { matterId: openedMatterId, openInspector: true, autoRunAi: false },
-        }));
-        // The listener lives on OperationsDashboard (Home tab). Navigate there.
-        window.dispatchEvent(new CustomEvent('navigateToHome'));
-    }, [openedMatterId]);
-
     const stage = canonicalStage(entry);
     const needsAttention = !!entry?.needsAttention || (entry?.unresolvedCount ?? 0) > 0 || String(entry?.confidence || '').toLowerCase() === 'fallback';
 
+    const handleOpenReviewRail = useCallback(() => {
+        if (!openedMatterId) return;
+        // When the draft is already settled needing attention, skip the
+        // "Begin review" intro card and land directly on the field-fix view.
+        // The handoff card is itself the orientation — a second intro is noise.
+        const skipIntro = needsAttention || stage === 'reviewed' || stage === 'sent';
+        // The listener lives on OperationsDashboard (Home tab). Navigate there.
+        window.dispatchEvent(new CustomEvent('navigateToHome'));
+        window.setTimeout(() => {
+            window.dispatchEvent(new CustomEvent('openHomeCclReview', {
+                detail: { matterId: openedMatterId, openInspector: true, autoRunAi: false, skipIntro },
+            }));
+        }, 400);
+    }, [openedMatterId, needsAttention, stage]);
+
     const tone: HandoffTone = useMemo(() => {
         if (!matterOpenSucceeded) return 'blocked';
+        if (entry) {
+            if (needsAttention) return 'attention';
+            if (stage === 'reviewed' || stage === 'sent') return 'ready';
+            if (stage === 'generated' || stage === 'pressure-tested') return 'ready';
+            return 'working';
+        }
+        if (!autopilotStarted) return 'blocked';
         if (!fetchedOnce) return 'idle';
         if (timedOut && !entry) return 'blocked';
-        if (!entry) return 'working';
-        if (needsAttention) return 'attention';
-        if (stage === 'reviewed' || stage === 'sent') return 'ready';
-        if (stage === 'generated' || stage === 'pressure-tested') return 'ready';
         return 'working';
-    }, [matterOpenSucceeded, fetchedOnce, timedOut, entry, needsAttention, stage]);
+    }, [matterOpenSucceeded, fetchedOnce, timedOut, entry, needsAttention, stage, autopilotStarted]);
 
     if (!matterOpenSucceeded) return null;
 
@@ -219,7 +278,11 @@ const MatterOpenedHandoff: React.FC<Props> = ({
         : tone === 'attention'
             ? 'CCL draft needs attention'
             : tone === 'blocked'
-                ? (timedOut ? 'CCL autopilot did not respond' : 'CCL autopilot skipped')
+                ? (!autopilotStarted && !entry
+                    ? 'CCL autopilot needs retry'
+                    : timedOut
+                        ? 'CCL autopilot did not respond'
+                        : 'CCL autopilot skipped')
                 : fetchedOnce
                     ? 'CCL autopilot running…'
                     : 'Checking CCL autopilot…';
@@ -231,10 +294,14 @@ const MatterOpenedHandoff: React.FC<Props> = ({
                 ? `${entry.unresolvedCount} field${entry.unresolvedCount === 1 ? '' : 's'} need confirmation before this can be sent.`
                 : 'Low-confidence content was produced. Review before sending.')
             : tone === 'blocked'
-                ? (timedOut
-                    ? 'The autopilot did not produce a draft within 90 seconds. You can retry it here or open the matter and run it manually.'
-                    : 'The autopilot has not run yet for this matter. You can kick it off now or come back later.')
+                    ? (!autopilotStarted && !entry
+                        ? `The initial CCL autopilot request did not start${autopilotStartError ? ` (${autopilotStartError})` : ''}. Retry it here or open the matter and run it manually.`
+                        : timedOut
+                            ? 'The autopilot did not produce a draft within 90 seconds. You can retry it here or open the matter and run it manually.'
+                            : 'The autopilot has not run yet for this matter. You can kick it off now or come back later.')
                 : 'We\'re polling the service for live status. This usually completes within a minute.';
+
+        const reviewDisabled = !openedMatterId || (tone === 'blocked' && !entry);
 
     return (
         <div
@@ -270,8 +337,8 @@ const MatterOpenedHandoff: React.FC<Props> = ({
                     {openedMatterId && (
                         <div style={{ fontSize: 11, color: mutedText, marginTop: 6, fontFamily: 'monospace' }}>
                             Matter {openedMatterId}
-                            {entry?.version ? ` · draft v${entry.version}` : ''}
-                            {entry?.confidence ? ` · ${entry.confidence} confidence` : ''}
+                            {entry?.version ? ` · saved draft v${entry.version}` : ''}
+                            {entry?.confidence && entry.confidence !== 'none' ? ` · ${entry.confidence} confidence` : ''}
                             {entry?.uploadedToNd ? ' · NetDocs ok' : ''}
                         </div>
                     )}
@@ -291,7 +358,11 @@ const MatterOpenedHandoff: React.FC<Props> = ({
                 )}
             </div>
 
-            {/* Step strip — mirrors the OperationsDashboard pipeline vocabulary */}
+            {/* Step strip — only renders while the autopilot is live.
+              * Once the draft is settled (attention or ready), the strip is
+              * just decoration of past state, so we hide it and let the CTA
+              * be the focal point. */}
+            {(tone === 'working' || tone === 'idle') && (
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {stepDefs.map((step, i) => {
                     const stepIdx = stageOrder.indexOf(step.key);
@@ -327,6 +398,7 @@ const MatterOpenedHandoff: React.FC<Props> = ({
                     );
                 })}
             </div>
+            )}
 
             {retryError && (
                 <div style={{ fontSize: 11, color: blockedColor }}>
@@ -338,7 +410,7 @@ const MatterOpenedHandoff: React.FC<Props> = ({
                 <button
                     type="button"
                     onClick={handleOpenReviewRail}
-                    disabled={!openedMatterId || tone === 'blocked'}
+                    disabled={reviewDisabled}
                     style={{
                         display: 'flex', alignItems: 'center', gap: 6,
                         padding: '8px 14px', borderRadius: 6,
@@ -347,8 +419,8 @@ const MatterOpenedHandoff: React.FC<Props> = ({
                             : 'transparent',
                         color: tone === 'ready' ? '#fff' : headerColor,
                         border: tone === 'ready' ? 'none' : `1px solid ${headerColor}`,
-                        cursor: (!openedMatterId || tone === 'blocked') ? 'not-allowed' : 'pointer',
-                        opacity: (!openedMatterId || tone === 'blocked') ? 0.5 : 1,
+                        cursor: reviewDisabled ? 'not-allowed' : 'pointer',
+                        opacity: reviewDisabled ? 0.5 : 1,
                         fontSize: 12, fontWeight: 600, fontFamily: 'inherit',
                     }}
                 >

@@ -60,12 +60,12 @@ const baseClass = (isDark: boolean, variant: string, animationDelay: number) => 
       left: 0,
       right: 0,
       height: '2px',
-      background: 'linear-gradient(90deg, transparent 0%, rgba(54, 144, 206, 0.35) 30%, rgba(135, 243, 243, 0.18) 50%, rgba(54, 144, 206, 0.35) 70%, transparent 100%)',
+      background: 'linear-gradient(90deg, transparent 0%, rgba(54, 144, 206, 0.35) 30%, rgba(54, 144, 206, 0.18) 50%, rgba(54, 144, 206, 0.35) 70%, transparent 100%)',
     },
   } : {}),
   '&:hover': isDark
     ? {
-      borderColor: 'rgba(135, 243, 243, 0.18)',
+      borderColor: 'rgba(54, 144, 206, 0.18)',
       boxShadow: '0 4px 16px rgba(0,0,0,0.3), 0 0 0 1px rgba(135,243,243,0.08)',
     }
     : {

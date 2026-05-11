@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { createPortal } from 'react-dom';
 import { FiRefreshCw, FiInbox, FiCheckCircle, FiChevronDown, FiChevronUp, FiChevronRight, FiFolder, FiFilter, FiTrendingUp, FiMail, FiPhoneCall, FiClock, FiFileText, FiUser } from 'react-icons/fi';
 import { renderAreaOfWorkGlyph } from '../../components/filter/areaGlyphs';
@@ -50,6 +50,7 @@ import { buildConversionPocketChartSVG, buildCombinedConversionChartSVG } from '
 import { resolveBreakpoint, type ConversionBreakpoint } from './hooks/useContainerWidth';
 
 import CallsAndNotes from './CallsAndNotes';
+import type { AttendanceNoteTeamOption } from './AttendanceNoteBox';
 
 /* ── Types ── */
 
@@ -125,9 +126,13 @@ interface TeamMemberRecord {
   FullName?: string;
   First?: string;
   Last?: string;
+  Nickname?: string;
   Initials?: string;
   Email?: string;
+  'Entra ID'?: string;
+  'Clio ID'?: string;
   Role?: string;
+  AOW?: string;
   Rate?: string | number;
   status?: string;
 }
@@ -191,6 +196,9 @@ export interface ConversionComparisonMatterDetail {
   displayNumber: string;
   feeEarner?: string;
   feeEarnerInitials?: string;
+  responsibleLabel?: string;
+  originatingLabel?: string;
+  supervisingLabel?: string;
   occurredAt?: string;
 }
 export interface ConversionComparisonBucket {
@@ -218,12 +226,24 @@ export interface ConversionComparisonProspect {
   id: string;
   displayName: string;
   feeEarnerInitials?: string;
+  feeEarnerLabel?: string;
+  pocLabel?: string;
+  responsibleSolicitor?: string;
+  responsibleLabel?: string;
+  originatingSolicitor?: string;
+  originatingLabel?: string;
+  supervisingPartner?: string;
+  supervisingLabel?: string;
   aow: string;
   matterOpened?: boolean;
   /** Optional unredacted name shown inside the D3 stream preview modal only. */
   fullName?: string;
   /** Optional ISO timestamp for the D3 stream preview modal. */
   occurredAt?: string;
+  enquiryDate?: string;
+  claimDate?: string;
+  pitchDate?: string;
+  instructionDate?: string;
   /** 2026-04-20: matter display number (e.g. "HLX-00898-37693") — used as the
    *  trail label for matter bezels in place of a redacted surname, which
    *  doesn't work for company clients. */
@@ -538,6 +558,16 @@ export interface OperationsDashboardProps {
    * scope toggle so it sits in the header line rather than inside the body.
    */
   todoScopeSlot?: React.ReactNode;
+  /**
+   * Optional override for the right-column header label. Defaults to "To Do".
+   * Used by Home when the right card swaps content (e.g. L&D record view).
+   */
+  rightPanelLabel?: string;
+  /**
+   * Optional override for the right-column header icon. Defaults to a small
+   * FiCheckCircle. Pass any 10×10 icon node to keep the strip on-rhythm.
+   */
+  rightPanelIcon?: React.ReactNode;
 }
 
 function getAttentionSummary(reason?: string | null): string {
@@ -930,6 +960,8 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
   todoSlot = null,
   todoCount,
   todoScopeSlot = null,
+  rightPanelLabel,
+  rightPanelIcon,
 }) => {
   const { showToast, updateToast, hideToast } = useToast();
   const cclPipelineToasts = useCclPipelineToasts();
@@ -1054,7 +1086,25 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
   const currentUserTeamMember = React.useMemo(() => (
     findTeamMember(userEmail) || findTeamMember(userInitials)
   ), [findTeamMember, userEmail, userInitials]);
-
+  const callAttendanceTeamOptions = React.useMemo<AttendanceNoteTeamOption[]>(() => (
+    activeTeamMembers
+      .reduce<AttendanceNoteTeamOption[]>((options, member) => {
+        const name = getTeamMemberFullName(member);
+        const initials = String(member.Initials || '').trim();
+        const email = String(member.Email || '').trim();
+        const key = initials || email || name;
+        if (!key || !name) return options;
+        options.push({
+          key,
+          name,
+          initials: initials || null,
+          email: email || null,
+          role: member.Role || null,
+          rate: formatRateValue(member.Rate),
+        });
+        return options;
+      }, [])
+  ), [activeTeamMembers, formatRateValue, getTeamMemberFullName]);
   const period: PeriodKey = 'weekToDate';
   const activityDetailsPeriod = 'yearToDate';
   const showPrev = true;
@@ -1070,9 +1120,11 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
   const [selectedPitchScenariosByRecord, setSelectedPitchScenariosByRecord] = React.useState<Record<string, string>>({});
 
   // Responsive: auto-stack when container is narrow
+  const todoPairedWithConversion = Boolean(hidePipelineAndMatters && todoSlot);
   const dashRef = React.useRef<HTMLDivElement | null>(null);
   const conversionRailRef = React.useRef<HTMLDivElement | null>(null);
   const conversionCardRef = React.useRef<HTMLDivElement | null>(null);
+  const todoHeaderRef = React.useRef<HTMLDivElement | null>(null);
   const [dashboardWidthBand, setDashboardWidthBand] = React.useState<DashboardWidthBand>('md');
   // 2026-04-21: store the raw observed Conversion-card width and derive the
   // layout on every render. Previously we cached the resolved layout in
@@ -1087,6 +1139,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
   const conversionBreakpoint = conversionLayout.breakpoint;
   const [liveNowMs, setLiveNowMs] = React.useState(() => Date.now());
   const [conversionRailHeight, setConversionRailHeight] = React.useState<number | null>(null);
+  const [pairedTodoHeaderHeight, setPairedTodoHeaderHeight] = React.useState<number | null>(null);
   const measureDashboardLayout = React.useCallback(() => {
     const dashEl = dashRef.current;
     if (!dashEl) return;
@@ -1104,6 +1157,14 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
     }
 
     const nextIsNarrow = nextBand === 'xs' || nextBand === 'sm';
+    const todoHeaderEl = todoHeaderRef.current;
+    if (todoPairedWithConversion && !nextIsNarrow && todoHeaderEl) {
+      const nextTodoHeaderHeight = Math.ceil(todoHeaderEl.getBoundingClientRect().height);
+      setPairedTodoHeaderHeight((prev) => (prev === nextTodoHeaderHeight ? prev : nextTodoHeaderHeight));
+    } else {
+      setPairedTodoHeaderHeight((prev) => (prev === null ? prev : null));
+    }
+
     if (nextIsNarrow) {
       setConversionRailHeight((prev) => (prev === null ? prev : null));
       return;
@@ -1117,7 +1178,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
 
     const nextHeight = Math.ceil(railEl.getBoundingClientRect().height);
     setConversionRailHeight((prev) => (prev === nextHeight ? prev : nextHeight));
-  }, []);
+  }, [todoPairedWithConversion]);
   React.useLayoutEffect(() => {
     measureDashboardLayout();
   }, [measureDashboardLayout]);
@@ -1171,6 +1232,35 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
       }
     };
   }, [isActive, measureDashboardLayout]);
+  React.useEffect(() => {
+    if (!isActive || !todoPairedWithConversion) {
+      setPairedTodoHeaderHeight((prev) => (prev === null ? prev : null));
+      return;
+    }
+
+    const headerEl = todoHeaderRef.current;
+    if (!headerEl) return;
+
+    let animationFrameId: number | null = null;
+    const scheduleMeasure = () => {
+      if (animationFrameId !== null) return;
+      animationFrameId = window.requestAnimationFrame(() => {
+        animationFrameId = null;
+        measureDashboardLayout();
+      });
+    };
+
+    const observer = new ResizeObserver(scheduleMeasure);
+    observer.observe(headerEl);
+    scheduleMeasure();
+
+    return () => {
+      observer.disconnect();
+      if (animationFrameId !== null) {
+        window.cancelAnimationFrame(animationFrameId);
+      }
+    };
+  }, [isActive, measureDashboardLayout, todoPairedWithConversion]);
   React.useEffect(() => {
     if (!isActive) {
       return;
@@ -1301,6 +1391,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
   const [cclForcedIntroByMatter, setCclForcedIntroByMatter] = React.useState<Record<string, boolean>>({});
   const [cclApprovingMatter, setCclApprovingMatter] = React.useState<string | null>(null);
   const [cclApprovalStep, setCclApprovalStep] = React.useState<string>('');
+  const [cclApproveConfirmMatter, setCclApproveConfirmMatter] = React.useState<string | null>(null);
   const [cclJustApproved, setCclJustApproved] = React.useState<string | null>(null);
   const [cclUploadingMatter, setCclUploadingMatter] = React.useState<string | null>(null);
   const [cclUploadedMatter, setCclUploadedMatter] = React.useState<string | null>(null);
@@ -1544,7 +1635,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
   void cclStatusRefreshTick;
   const cclDraftCacheRef = React.useRef(cclDraftCache);
   cclDraftCacheRef.current = cclDraftCache;
-  const [homeReviewRequest, setHomeReviewRequest] = React.useState<{ requestedAt: number; matterId?: string; openInspector?: boolean; autoRunAi?: boolean } | null>(null);
+  const [homeReviewRequest, setHomeReviewRequest] = React.useState<{ requestedAt: number; matterId?: string; openInspector?: boolean; autoRunAi?: boolean; skipIntro?: boolean } | null>(null);
 
   const reviewTextareaRef = React.useRef<HTMLTextAreaElement | null>(null);
   const autoSizeReviewTextarea = React.useCallback((element: HTMLTextAreaElement | null) => {
@@ -1575,11 +1666,24 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
     });
   }, []);
 
-  const dismissCclLaunchToast = React.useCallback(() => {
-    if (!cclAiToastIdRef.current) return;
-    hideToast(cclAiToastIdRef.current);
-    cclAiToastIdRef.current = null;
-  }, [hideToast]);
+  const dismissCclLaunchToast = React.useCallback((matterId?: string | null) => {
+    // Legacy single-toast ref (older toast plumbing).
+    if (cclAiToastIdRef.current) {
+      hideToast(cclAiToastIdRef.current);
+      cclAiToastIdRef.current = null;
+    }
+    // The modern per-matter pipeline toast lives in useCclPipelineToasts and is
+    // keyed by matterId. Without this dismiss the "Preparing review · …
+    // Retrieving the latest draft and saved review context…" toast persists
+    // forever for matters where no further pipeline phase fires (e.g. opening
+    // an already-finalised CCL where the saved AI trace satisfies launchReady
+    // immediately and no auto-fill / pressure-test phase runs to mutate the
+    // toast).
+    const targetMatter = matterId ?? cclLetterModal;
+    if (targetMatter) {
+      try { cclPipelineToasts.dismiss(targetMatter); } catch { /* ignore */ }
+    }
+  }, [hideToast, cclPipelineToasts, cclLetterModal]);
 
   const clearCclTransientLaunchState = React.useCallback((matterId?: string | null) => {
     if (matterId) {
@@ -1599,7 +1703,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
     }
     setCclPipelineDetailModal(null);
     setCclPressureTestContext(null);
-    dismissCclLaunchToast();
+    dismissCclLaunchToast(matterId ?? null);
     cclSelectedFieldRef.current = null;
     cclScrollSpyPendingFieldRef.current = { key: null, count: 0 };
   }, [dismissCclLaunchToast]);
@@ -1724,6 +1828,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
     // the modal later (after some time has passed) once again surfaces the
     // "Start again" affordance.
     if (cclLetterModal) cclFreshRunInSessionRef.current.delete(cclLetterModal);
+    setCclApproveConfirmMatter((prev) => (prev === cclLetterModal ? null : prev));
     setCclLetterModal(null);
   }, [cclLetterModal, clearCclTransientLaunchState]);
 
@@ -1972,8 +2077,13 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
       const sp = fullName.indexOf(' ');
       const firstName = sp === -1 ? fullName : fullName.slice(0, sp);
       const lastName = sp === -1 ? '' : fullName.slice(sp + 1);
+      const acContactId = String(
+        (r as any).acContactId || (r as any).legacyEnquiryId || (source === 'legacy' ? id : '') || '',
+      ).trim() || null;
       out.push({
         id,
+        acid: acContactId,
+        acContactId,
         firstName,
         lastName,
         email: String((r as any).email || ''),
@@ -3085,14 +3195,14 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
     const hadWork = cclLaunchHadWorkRef.current.has(matterId);
     if (!hadWork) {
       setCclReviewRailPrimedByMatter((prev) => prev[matterId] ? prev : { ...prev, [matterId]: true });
-      dismissCclLaunchToast();
+      dismissCclLaunchToast(matterId);
       return;
     }
 
     if (cclReviewRailPrimedByMatter[matterId] || cclLaunchHandoffMatter === matterId) return;
 
     setCclLaunchHandoffMatter(matterId);
-    dismissCclLaunchToast();
+    dismissCclLaunchToast(matterId);
     cclLaunchCompletionToastShownRef.current.add(matterId);
   }, [cclAiFillingMatter, cclAiResultByMatter, cclAiTraceByMatter, cclAiTraceLoadingByMatter, cclDraftCache, cclDraftLoading, cclLaunchDevHold, cclLaunchHandoffMatter, cclLetterModal, cclPressureTestByMatter, cclPressureTestError, cclPressureTestRunning, cclReviewRailPrimedByMatter, dismissCclLaunchToast]);
 
@@ -3347,7 +3457,6 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
   }, [selectedConversionKey]);
   const useExperimentalConversion = enableConversionComparison && conversionRows.length > 0;
   const showExperimentalConversionSkeleton = enableConversionComparison && isResolvingConversionComparison;
-  const todoPairedWithConversion = Boolean(hidePipelineAndMatters && todoSlot);
   // The experimental conversion variant is materially shorter than the old
   // pipeline+matters stack, so only that version needs the lower floor. The
   // measured height match itself should still apply to the default paired view.
@@ -3371,6 +3480,9 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
     : compactPairedConversionRail
       ? 360
       : (useExperimentalConversion ? 440 : 520);
+  const pairedConversionHeaderHeight = todoPairedWithConversion && !isNarrow
+    ? (pairedTodoHeaderHeight ?? 38)
+    : undefined;
   // Measured height of the Conversion rail — ToDo cap (D5). Apply this to the
   // full paired Home layout, not just the experimental conversion variant, so
   // the two cards read as peers by default.
@@ -4178,12 +4290,13 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
 
   React.useEffect(() => {
     const handleOpenHomeCclReview = (event: Event) => {
-      const detail = (event as CustomEvent<{ matterId?: string; openInspector?: boolean; autoRunAi?: boolean }>).detail;
+      const detail = (event as CustomEvent<{ matterId?: string; openInspector?: boolean; autoRunAi?: boolean; skipIntro?: boolean }>).detail;
       setHomeReviewRequest({
         requestedAt: Date.now(),
         matterId: detail?.matterId,
         openInspector: detail?.openInspector,
         autoRunAi: detail?.autoRunAi,
+        skipIntro: detail?.skipIntro,
       });
     };
 
@@ -4223,10 +4336,14 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
         // the CCL is already drafted + pressure-tested. Land on the "Begin
         // review" summary landing rather than dropping straight onto the rail —
         // the user wants a beat to orient before stepping through decisions.
+        // Exception: when skipIntro is set (e.g. clicking Review on the
+        // post-matter-open handoff card, where the card itself is the
+        // orientation), drop directly into the rail.
+        const forceIntro = homeReviewRequest?.skipIntro ? false : true;
         if (isCompileOnlyCclStatus(cclMap[resolvedMatterId])) {
-          openCclWorkflowModal(resolvedMatterId, { forceIntro: true, compileOnly: true });
+          openCclWorkflowModal(resolvedMatterId, { forceIntro, compileOnly: true });
         } else {
-          openCclLetterModal(resolvedMatterId, { forceIntro: true });
+          openCclLetterModal(resolvedMatterId, { forceIntro });
         }
       }
     }
@@ -4263,6 +4380,24 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
     // resolving skeleton → live render transitions stay visually flush.
     const paired = hidePipelineAndMatters && Boolean(todoSlot);
     if (paired) {
+      const pairedChartWidth = 320;
+      const pairedChartViewBoxHeight = 150;
+      const pairedAxisY = 126;
+      const pairedCurrentLine = '16,82 50,62 84,72 118,48 152,60 186,38 220,46 254,30 304,40';
+      const pairedPreviousLine = '16,96 50,78 84,86 118,62 152,76 186,54 220,66 254,48 304,62';
+      const pairedBars = [
+        { x: 26, currentTop: 84, previousTop: 96 },
+        { x: 59, currentTop: 64, previousTop: 78 },
+        { x: 92, currentTop: 72, previousTop: 86 },
+        { x: 125, currentTop: 48, previousTop: 62 },
+        { x: 158, currentTop: 60, previousTop: 76 },
+        { x: 191, currentTop: 38, previousTop: 54 },
+        { x: 224, currentTop: 46, previousTop: 66 },
+        { x: 257, currentTop: 30, previousTop: 48 },
+        { x: 290, currentTop: 40, previousTop: 62 },
+      ];
+      const pairedTickWidths = [16, 12, 18, 12, 16, 14, 18, 12, 16];
+
       // 2026-04-27: paired skeleton now mirrors the current live contract:
       // period tabs → 3 KPI row → supporting trend block → two quiet trails.
       return (
@@ -4277,7 +4412,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
           }}
         >
           {/* Period tabs row — padding matches live (10px 12px) */}
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '10px 12px', borderBottom: `1px solid ${rowBorder}` }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '11px 12px', borderBottom: `1px solid ${rowBorder}` }}>
             {conversionTabs.map((key, index) => {
               const isSelected = key === selectedTab;
               const label = key === 'week-vs-last' ? 'Week' : key === 'month-vs-last' ? 'Month' : key === 'quarter-vs-last' ? 'Quarter' : 'Today';
@@ -4285,8 +4420,8 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                 <div
                   key={`conversion-skeleton-tab-paired-${key}`}
                   style={{
-                    width: label === 'Today' ? 56 : 64,
-                    height: 21,
+                    width: label === 'Today' ? 62 : 70,
+                    height: 28,
                     background: isSelected ? skeletonSoft : skeletonTint,
                     border: `1px solid ${isSelected ? skeletonStrong : skeletonTint}`,
                     animation: 'opsDashPulse 1.5s ease-in-out infinite',
@@ -4348,37 +4483,75 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
             <div
               style={{
                 width: '100%',
-                height: 58,
-                background: skeletonTint,
-                position: 'relative',
-                overflow: 'hidden',
-                animation: 'opsDashPulse 1.5s ease-in-out infinite',
+                border: `1px solid ${rowBorder}`,
+                background: `linear-gradient(180deg, ${skeletonTint} 0%, transparent 100%)`,
+                padding: '8px 10px 8px',
+                display: 'grid',
+                gap: 8,
               }}
             >
-              {[0.25, 0.5, 0.75].map((ratio) => (
-                <span
-                  key={`conversion-skeleton-grid-${ratio}`}
-                  style={{
-                    position: 'absolute',
-                    left: 8,
-                    right: 8,
-                    top: Math.round(58 * ratio),
-                    height: 1,
-                    background: skeletonSoft,
-                    opacity: 0.55,
-                  }}
-                />
-              ))}
-              <span style={{ position: 'absolute', left: 8, right: 8, bottom: 8, height: 1, background: skeletonStrong, opacity: 0.65 }} />
-              {[14, 34, 54, 74, 90].map((left, index) => (
-                <span key={`conversion-skeleton-stem-${left}`} style={{ position: 'absolute', left: `${left}%`, bottom: 8, width: 1, height: index % 2 === 0 ? 22 : 14, background: skeletonStrong, opacity: 0.36, transform: 'translateX(-50%)' }} />
-              ))}
-              {[16, 36, 56, 76, 92].map((left, index) => (
-                <span key={`conversion-skeleton-bar-${left}`} style={{ position: 'absolute', left: `${left}%`, bottom: 8, display: 'inline-flex', gap: 2, transform: 'translateX(-50%)' }}>
-                  <span style={{ width: 3, height: index % 2 === 0 ? 9 : 6, background: skeletonSoft, opacity: 0.7 }} />
-                  <span style={{ width: 3, height: index % 2 === 0 ? 12 : 8, background: skeletonStrong, opacity: 0.85 }} />
-                </span>
-              ))}
+              <svg
+                viewBox={`0 0 ${pairedChartWidth} ${pairedChartViewBoxHeight}`}
+                width="100%"
+                preserveAspectRatio="xMidYMid meet"
+                style={{ display: 'block', height: 'auto' }}
+                aria-hidden="true"
+              >
+                {[28, 58, 88, pairedAxisY].map((y, index) => (
+                  <line
+                    key={`conversion-skeleton-grid-${y}`}
+                    x1="10"
+                    y1={y}
+                    x2={pairedChartWidth - 10}
+                    y2={y}
+                    stroke={index === 3 ? skeletonStrong : skeletonTint}
+                    strokeWidth="1"
+                    strokeDasharray={index === 3 ? undefined : '3 4'}
+                  />
+                ))}
+                {pairedBars.map((bar, index) => (
+                  <g key={`conversion-skeleton-bars-${bar.x}`}>
+                    <rect
+                      x={bar.x - 8}
+                      y={bar.previousTop}
+                      width="5"
+                      height={pairedAxisY - bar.previousTop}
+                      fill={skeletonSoft}
+                      opacity="0.78"
+                    />
+                    <rect
+                      x={bar.x + 1}
+                      y={bar.currentTop}
+                      width="5"
+                      height={pairedAxisY - bar.currentTop}
+                      fill={skeletonStrong}
+                      opacity="0.92"
+                      style={{ animation: 'opsDashPulse 1.5s ease-in-out infinite', animationDelay: `${index * 0.05}s` }}
+                    />
+                  </g>
+                ))}
+                <polyline points={pairedPreviousLine} fill="none" stroke={skeletonSoft} strokeWidth="1.6" strokeDasharray="4 4" strokeLinecap="round" strokeLinejoin="round" />
+                <polyline points={pairedCurrentLine} fill="none" stroke={skeletonStrong} strokeWidth="1.95" strokeLinecap="round" strokeLinejoin="round" />
+                {pairedCurrentLine.split(' ').map((point, index) => {
+                  const [cx, cy] = point.split(',');
+                  return (
+                    <circle
+                      key={`conversion-skeleton-point-${point}`}
+                      cx={cx}
+                      cy={cy}
+                      r={index === pairedBars.length - 1 ? '2.4' : '1.8'}
+                      fill={skeletonStrong}
+                    />
+                  );
+                })}
+              </svg>
+              <div style={{ display: 'grid', gridTemplateColumns: `repeat(${pairedTickWidths.length}, minmax(0, 1fr))`, gap: 4 }}>
+                {pairedTickWidths.map((width, index) => (
+                  <div key={`conversion-skeleton-tick-${width}-${index}`} style={{ display: 'grid', justifyItems: 'center' }}>
+                    {skeletonBlock(width, 7, { background: skeletonTint })}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -4421,15 +4594,38 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
     // ── Legacy layout: hero KPI + full chart + AoW mix footer ──
     const chartTicks = selectedTab === 'today'
       ? ['8', '9', '10', '11', '12', '1', '2', '3', '4', '5', '6']
-      : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
-    const chartWidth = 240;
-    const chartHeight = isNarrow ? 96 : 144;
-    const currentLine = selectedTab === 'today'
-      ? '10,70 32,62 54,66 76,54 98,50 120,44 142,52 164,42 186,38 208,46 230,40'
-      : '12,82 66,62 120,56 174,46 228,34';
-    const previousLine = selectedTab === 'today'
-      ? '10,78 32,74 54,70 76,68 98,60 120,58 142,62 164,54 186,50 208,56 230,52'
-      : '12,88 66,78 120,70 174,66 228,58';
+      : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun', 'Mon'];
+    const chartWidth = isNarrow ? 360 : 520;
+    const chartPlotHeight = isNarrow ? 220 : 280;
+    const chartShellHeight = chartPlotHeight + 22;
+    const chartPadTop = 18;
+    const chartPadBottom = 18;
+    const chartValueHeight = chartPlotHeight - chartPadTop - chartPadBottom;
+    const currentValues = selectedTab === 'today'
+      ? [0.55, 0.6, 0.58, 0.68, 0.72, 0.77, 0.7, 0.79, 0.83, 0.75, 0.8]
+      : [0.52, 0.66, 0.58, 0.74, 0.70, 0.86, 0.78, 0.90];
+    const previousValues = selectedTab === 'today'
+      ? [0.45, 0.48, 0.5, 0.52, 0.6, 0.62, 0.58, 0.66, 0.7, 0.62, 0.65]
+      : [0.48, 0.55, 0.50, 0.62, 0.58, 0.68, 0.64, 0.72];
+    const currentBarValues = selectedTab === 'today'
+      ? [0.18, 0.34, 0.26, 0.42, 0.38, 0.50, 0.44, 0.56, 0.62, 0.48, 0.58]
+      : [0.20, 0.36, 0.30, 0.48, 0.40, 0.58, 0.52, 0.64];
+    const previousBarValues = selectedTab === 'today'
+      ? [0.14, 0.28, 0.22, 0.32, 0.34, 0.40, 0.36, 0.46, 0.50, 0.42, 0.48]
+      : [0.16, 0.28, 0.26, 0.36, 0.34, 0.44, 0.42, 0.50];
+    const chartBarWidth = selectedTab === 'today' ? 5 : 7;
+    const chartBarGap = selectedTab === 'today' ? 3 : 4;
+    const chartXForIndex = (index: number, total: number) => {
+      if (total <= 1) return chartWidth / 2;
+      return 12 + ((chartWidth - 24) / (total - 1)) * index;
+    };
+    const chartYForValue = (value: number) => chartPlotHeight - chartPadBottom - value * chartValueHeight;
+    const buildSkeletonLine = (values: number[]) => values
+      .map((value, index) => `${chartXForIndex(index, values.length).toFixed(0)},${chartYForValue(value).toFixed(0)}`)
+      .join(' ');
+    const currentLine = buildSkeletonLine(currentValues);
+    const previousLine = buildSkeletonLine(previousValues);
+    const chartGridLines = [0.25, 0.5, 0.75].map(chartYForValue);
 
     return (
       <div
@@ -4442,7 +4638,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
           minHeight: primaryRailMinHeight,
         }}
       >
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '10px 12px', borderBottom: `1px solid ${rowBorder}` }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '11px 12px', borderBottom: `1px solid ${rowBorder}` }}>
           {conversionTabs.map((key, index) => {
             const isSelected = key === selectedTab;
             const label = key === 'week-vs-last'
@@ -4456,8 +4652,8 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
               <div
                 key={`conversion-skeleton-tab-${key}`}
                 style={{
-                  width: label === 'Today' ? 56 : 64,
-                  height: 21,
+                  width: label === 'Today' ? 62 : 70,
+                  height: 28,
                   background: isSelected ? skeletonSoft : skeletonTint,
                   border: `1px solid ${isSelected ? skeletonStrong : skeletonTint}`,
                   animation: 'opsDashPulse 1.5s ease-in-out infinite',
@@ -4515,21 +4711,61 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
             </div>
             <div
               style={{
-                height: chartHeight,
+                minHeight: chartShellHeight,
                 border: `1px solid ${rowBorder}`,
                 background: `linear-gradient(180deg, ${skeletonTint} 0%, transparent 100%)`,
                 padding: '10px 12px 12px',
                 display: 'grid',
+                gridTemplateRows: 'auto auto',
                 gap: 8,
               }}
             >
-              <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} width="100%" height="100%" preserveAspectRatio="none" aria-hidden="true">
-                <line x1="10" y1={chartHeight - 12} x2={chartWidth - 10} y2={chartHeight - 12} stroke={skeletonTint} strokeWidth="1" />
-                {[24, 48, 72].map((y) => (
-                  <line key={y} x1="10" y1={y} x2={chartWidth - 10} y2={y} stroke={skeletonTint} strokeWidth="1" />
+              <svg
+                viewBox={`0 0 ${chartWidth} ${chartPlotHeight}`}
+                width="100%"
+                preserveAspectRatio="xMidYMid meet"
+                style={{ display: 'block', height: 'auto' }}
+                aria-hidden="true"
+              >
+                <line x1="10" y1={chartPlotHeight - chartPadBottom} x2={chartWidth - 10} y2={chartPlotHeight - chartPadBottom} stroke={skeletonTint} strokeWidth="1" />
+                {chartGridLines.map((gridLineY) => (
+                  <line key={gridLineY} x1="10" y1={gridLineY} x2={chartWidth - 10} y2={gridLineY} stroke={skeletonTint} strokeWidth="1" />
                 ))}
+                {currentBarValues.map((value, index) => {
+                  const cx = chartXForIndex(index, currentBarValues.length);
+                  const currentTop = chartYForValue(value);
+                  const previousTop = chartYForValue(previousBarValues[index] ?? 0);
+                  const baselineY = chartPlotHeight - chartPadBottom;
+                  return (
+                    <g key={`conversion-skeleton-bar-${index}`}>
+                      <rect
+                        x={cx - chartBarWidth - chartBarGap / 2}
+                        y={previousTop}
+                        width={chartBarWidth}
+                        height={Math.max(0, baselineY - previousTop)}
+                        fill={skeletonSoft}
+                        opacity="0.72"
+                      />
+                      <rect
+                        x={cx + chartBarGap / 2}
+                        y={currentTop}
+                        width={chartBarWidth}
+                        height={Math.max(0, baselineY - currentTop)}
+                        fill={skeletonStrong}
+                        opacity="0.9"
+                        style={{ animation: 'opsDashPulse 1.5s ease-in-out infinite', animationDelay: `${index * 0.04}s` }}
+                      />
+                    </g>
+                  );
+                })}
                 <polyline points={previousLine} fill="none" stroke={skeletonSoft} strokeWidth="1.6" strokeDasharray="4 4" strokeLinecap="round" strokeLinejoin="round" />
                 <polyline points={currentLine} fill="none" stroke={skeletonStrong} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+                {previousValues.map((value, index) => (
+                  <circle key={`conversion-skeleton-previous-dot-${index}`} cx={chartXForIndex(index, previousValues.length)} cy={chartYForValue(value)} r="1.7" fill={skeletonSoft} opacity="0.78" />
+                ))}
+                {currentValues.map((value, index) => (
+                  <circle key={`conversion-skeleton-current-dot-${index}`} cx={chartXForIndex(index, currentValues.length)} cy={chartYForValue(value)} r={index === currentValues.length - 1 ? '2.4' : '1.9'} fill={skeletonStrong} />
+                ))}
               </svg>
               <div style={{ display: 'grid', gridTemplateColumns: `repeat(${chartTicks.length}, minmax(0, 1fr))`, gap: 4 }}>
                 {chartTicks.map((tick, index) => (
@@ -5183,7 +5419,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
         @keyframes opsDashFieldGlow {
           0% { opacity: 0; transform: translateX(-6px); border-left-color: transparent; }
           20% { opacity: 1; transform: translateX(0); }
-          40% { border-left-color: var(--stream-glow-color, #87F3F3); }
+          40% { border-left-color: var(--stream-glow-color, #3690CE); }
           100% { border-left-color: transparent; }
         }
         @keyframes opsDashSlideRight {
@@ -5315,40 +5551,22 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
         .ops-billing-frame[data-billing-stage="done"] {
           --billing-frame-bg: ${withAlpha(colours.green, 0.85)};
         }
-        /* One-shot completion sweep: a brighter green/accent ring fades in
-           and out once when the stage flips to done. Re-keyed via a state
-           nonce on the data-billing-complete attribute so React can refire
-           it (subsequent demo scrubs from non-done back to done). */
-        .ops-billing-frame::after {
-          content: '';
-          position: absolute;
-          inset: 0;
-          pointer-events: none;
-          padding: 1.5px;
-          background: linear-gradient(135deg, ${withAlpha(colours.accent, 0.95)} 0%, ${withAlpha(colours.green, 0.95)} 50%, ${withAlpha(colours.accent, 0.95)} 100%);
-          -webkit-mask:
-            linear-gradient(#000 0 0) content-box,
-            linear-gradient(#000 0 0);
-          -webkit-mask-composite: xor;
-          mask:
-            linear-gradient(#000 0 0) content-box,
-            linear-gradient(#000 0 0);
-          mask-composite: exclude;
-          opacity: 0;
-          filter: drop-shadow(0 0 6px ${withAlpha(colours.green, 0.55)});
-        }
+        /* One-shot completion sweep: the EXISTING 1px stage border (the
+           box-shadow on .ops-billing-frame above) briefly flashes brighter
+           — accent → green → settled stage colour — when the stage flips to
+           done. No second ring, no extra geometry: it's literally the same
+           border the user has been watching, momentarily lit up to
+           acknowledge the update. Re-keyed via a state nonce on
+           data-billing-complete so React can refire it (subsequent demo
+           scrubs from non-done back to done). */
         .ops-billing-frame[data-billing-complete] {
-          /* attribute presence is enough; key is the value (nonce) which
-             forces a fresh animation cycle when it changes. */
-        }
-        .ops-billing-frame[data-billing-complete]::after {
-          animation: opsBillingComplete 1.7s ease-out 1 both;
+          animation: opsBillingComplete 1.4s ease-out 1 both;
         }
         @keyframes opsBillingComplete {
-          0%   { opacity: 0;    transform: scale(1.005); }
-          15%  { opacity: 0.95; transform: scale(1); }
-          55%  { opacity: 0.65; }
-          100% { opacity: 0;    transform: scale(1); }
+          0%   { box-shadow: inset 0 0 0 1px var(--billing-frame-bg, transparent); }
+          15%  { box-shadow: inset 0 0 0 1.5px ${withAlpha(colours.accent, 1)}; }
+          45%  { box-shadow: inset 0 0 0 1.5px ${withAlpha(colours.green, 1)}; }
+          100% { box-shadow: inset 0 0 0 1px var(--billing-frame-bg, transparent); }
         }
         .ops-billing-tile {
           position: relative;
@@ -5494,7 +5712,26 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
       {(billingMetrics.length > 0 || isLoading) && (
         <div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: 18 }}>
-            <span className="home-section-header"><TbCurrencyPound size={11} className="home-section-header-icon" />Billing</span>
+            <span className="home-section-header" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <TbCurrencyPound size={11} className="home-section-header-icon" />Billing
+              {demoModeActive && (
+                <span
+                  title="Decorative-by-design: billing tiles are mocked while demo mode is on. No time entries are written for the operator."
+                  style={{
+                    fontSize: 9,
+                    fontWeight: 700,
+                    letterSpacing: '0.4px',
+                    textTransform: 'uppercase',
+                    padding: '1px 5px',
+                    border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.18)' : 'rgba(13,47,96,0.18)'}`,
+                    color: muted,
+                    lineHeight: 1.1,
+                  }}
+                >
+                  Demo numbers
+                </span>
+              )}
+            </span>
             {onRefresh && (
               <FiRefreshCw
                 size={11}
@@ -5740,7 +5977,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
           <div style={{ display: 'grid', gridTemplateColumns: isNarrow ? 'minmax(0, 1fr)' : (hidePipelineAndMatters ? (todoSlot ? 'minmax(0, 1fr) minmax(0, 1fr)' : 'minmax(0, 1fr)') : 'minmax(0, 1fr) minmax(0, 2fr)'), gap: 6 }}>
           {/* ── Left: Conversion ── */}
           <div>
-            <div className="home-section-header" style={{ minHeight: 18, animation: 'opsDashFadeIn 0.25s ease both' }}><FiTrendingUp size={10} className="home-section-header-icon" />Conversion</div>
+            <div className="home-section-header" style={{ height: pairedConversionHeaderHeight, minHeight: pairedConversionHeaderHeight ?? 24, boxSizing: pairedConversionHeaderHeight ? 'border-box' : undefined, padding: '2px 0 6px', animation: 'opsDashFadeIn 0.25s ease both' }}><FiTrendingUp size={10} className="home-section-header-icon" />Conversion</div>
             <div ref={conversionRailRef} style={{ minHeight: primaryRailMinHeight }}>
               {(!enquiryMetrics || enquiryMetrics.length === 0 || showExperimentalConversionSkeleton || (enableConversionComparison && !useExperimentalConversion)) ? (
                 renderConversionSkeleton()
@@ -5887,45 +6124,93 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                             {label}
                           </span>
                         );
+                        const periodMetaOwnLine = conversionCardWidth > 0
+                          ? conversionCardWidth < 620
+                          : conversionBreakpoint !== 'wide';
+                        const periodCurrentAccent = conversionAccent;
+                        const periodPreviousAccent = enquiriesPreviousAccent;
 
                         return (
                           <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                             {/* Period tabs */}
-                            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', padding: '10px 12px', borderBottom: `1px solid ${rowBorder}` }}>
-                              {visibleConversionRows.map((row) => {
-                                const isSelected = row.key === item.key;
-                                const label = row.key === 'week-vs-last'
-                                  ? 'Week'
-                                  : row.key === 'month-vs-last'
-                                    ? 'Month'
-                                    : row.key === 'quarter-vs-last'
-                                      ? 'Quarter'
-                                      : 'Today';
-                                return (
-                                  <button
-                                    key={row.key}
-                                    type="button"
-                                    onClick={() => setSelectedConversionKey(row.key)}
-                                    style={{
-                                      border: `1px solid ${isSelected ? (isDarkMode ? 'rgba(135,243,243,0.36)' : 'rgba(54,144,206,0.26)') : rowBorder}`,
-                                      background: isSelected ? (isDarkMode ? 'rgba(135,243,243,0.08)' : 'rgba(54,144,206,0.08)') : 'transparent',
-                                      color: isSelected ? text : muted,
-                                      padding: '5px 8px',
-                                      fontSize: 9,
-                                      fontWeight: 700,
-                                      letterSpacing: '0.08em',
-                                      textTransform: 'uppercase',
-                                      cursor: 'pointer',
-                                    }}
-                                  >
-                                    {label}
-                                  </button>
-                                );
-                              })}
-                              <span className="helix-eyebrow" style={{ marginLeft: 'auto', color: muted, opacity: 0.75, textAlign: 'right' }}>
-                                {item.currentLabel}
-                                {showPreviousComparison ? ` · vs ${item.previousLabel.toLowerCase()}` : ''}
-                              </span>
+                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', padding: '11px 12px', borderBottom: `1px solid ${rowBorder}` }}>
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  gap: 8,
+                                  flexWrap: periodMetaOwnLine ? 'wrap' : 'nowrap',
+                                  alignItems: 'center',
+                                  flex: periodMetaOwnLine ? '1 1 100%' : '0 0 auto',
+                                  minWidth: 0,
+                                }}
+                              >
+                                {visibleConversionRows.map((row) => {
+                                  const isSelected = row.key === item.key;
+                                  const label = row.key === 'week-vs-last'
+                                    ? 'Week'
+                                    : row.key === 'month-vs-last'
+                                      ? 'Month'
+                                      : row.key === 'quarter-vs-last'
+                                        ? 'Quarter'
+                                        : 'Today';
+                                  return (
+                                    <button
+                                      key={row.key}
+                                      type="button"
+                                      onClick={() => setSelectedConversionKey(row.key)}
+                                      style={{
+                                        border: `1px solid ${isSelected ? (isDarkMode ? 'rgba(135,243,243,0.36)' : 'rgba(54,144,206,0.26)') : rowBorder}`,
+                                        background: isSelected ? (isDarkMode ? 'rgba(135,243,243,0.08)' : 'rgba(54,144,206,0.08)') : 'transparent',
+                                        color: isSelected ? text : muted,
+                                        minHeight: 28,
+                                        minWidth: 62,
+                                        padding: '0 10px',
+                                        fontSize: 10,
+                                        fontWeight: 700,
+                                        letterSpacing: '0.08em',
+                                        textTransform: 'uppercase',
+                                        cursor: 'pointer',
+                                        fontFamily: 'var(--font-primary)',
+                                        lineHeight: 1,
+                                      }}
+                                    >
+                                      {label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                              <div
+                                className="helix-eyebrow"
+                                aria-label={showPreviousComparison ? `${item.currentLabel} compared with ${item.previousLabel}` : item.currentLabel}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: periodMetaOwnLine ? 'flex-start' : 'flex-end',
+                                  gap: 6,
+                                  flexWrap: 'wrap',
+                                  flex: periodMetaOwnLine ? '1 1 100%' : '0 1 auto',
+                                  marginLeft: periodMetaOwnLine ? 0 : 'auto',
+                                  minWidth: 0,
+                                  color: muted,
+                                  opacity: 0.86,
+                                  textAlign: 'left',
+                                  lineHeight: 1.35,
+                                }}
+                              >
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0, color: periodCurrentAccent }}>
+                                  <span aria-hidden="true" style={{ width: 8, height: 2, background: periodCurrentAccent, flexShrink: 0 }} />
+                                  <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.currentLabel}</span>
+                                </span>
+                                {showPreviousComparison ? (
+                                  <>
+                                    <span style={{ color: muted, opacity: 0.8 }}>vs</span>
+                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0, color: periodPreviousAccent }}>
+                                      <span aria-hidden="true" style={{ width: 8, height: 0, borderTop: `1.5px dashed ${periodPreviousAccent}`, flexShrink: 0 }} />
+                                      <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.previousLabel.toLowerCase()}</span>
+                                    </span>
+                                  </>
+                                ) : null}
+                              </div>
                             </div>
 
                             {/* 3 KPI cards — Enquiries / Matters / Conversion% */}
@@ -6109,8 +6394,14 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                                     isDarkMode={isDarkMode}
                                     maxVisible={14}
                                     breakpoint={conversionBreakpoint}
-                                    onOpenProspect={() => openInsight(selectedConversionInsightTarget || 'today')}
-                                    onOpenAll={selectedConversionInsightTarget ? () => openInsight(selectedConversionInsightTarget) : undefined}
+                                    onOpenProspect={() => {
+                                      setConversionStreamPreview(key);
+                                      setConversionInlineLedger(key);
+                                    }}
+                                    onOpenAll={() => {
+                                      setConversionStreamPreview(key);
+                                      setConversionInlineLedger(key);
+                                    }}
                                     overflowExpanded={conversionInlineLedger === key}
                                     onOverflowToggle={() => toggleConversionInlineLedger(key)}
                                     placeholderCount={items.length === 0 && placeholderCount > 0 ? placeholderCount : undefined}
@@ -7379,9 +7670,10 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
           {/* ── Right: ToDo (replaces Pipeline when toggled) ── */}
           {hidePipelineAndMatters && todoSlot && (
             <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%' }}>
-              <div className="home-section-header" style={{ minHeight: 18, justifyContent: 'space-between', width: '100%' }}>
+              <div ref={todoHeaderRef} className="home-section-header" style={{ minHeight: 28, justifyContent: 'space-between', width: '100%', gap: 12, padding: '2px 0 6px', flexWrap: 'wrap' }}>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                  <FiCheckCircle size={10} className="home-section-header-icon" />To Do
+                  {rightPanelIcon ?? <FiCheckCircle size={10} className="home-section-header-icon" />}
+                  {rightPanelLabel ?? 'To Do'}
                   {/* 2026-04-21: count moved inline with the header label as a
                       subtle pill — sized to the label cap-height so it never
                       increases the header strip's vertical footprint. The
@@ -7412,7 +7704,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                   )}
                 </span>
                 {todoScopeSlot && (
-                  <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', minWidth: 0, flexWrap: 'wrap', gap: 8 }}>
                     {todoScopeSlot}
                   </span>
                 )}
@@ -7466,7 +7758,19 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
               </div>
             )}
           >
-            <CallsAndNotes isDarkMode={isDarkMode} userInitials={userInitials || ''} userEmail={userEmail} userRate={currentUserTeamMember?.Rate} isNarrow={callsAndNotesNarrow} demoModeEnabled={demoModeEnabled} isActive={isActive} matterLookupOptions={callFilingMatterLookupOptions} recentEnquiryOptions={callFilingRecentEnquiries} viewAsProd={viewAsProd} />
+            <CallsAndNotes
+              isDarkMode={isDarkMode}
+              userInitials={userInitials || ''}
+              userEmail={userEmail}
+              userRate={currentUserTeamMember?.Rate}
+              isNarrow={callsAndNotesNarrow}
+              demoModeEnabled={demoModeEnabled}
+              isActive={isActive}
+              matterLookupOptions={callFilingMatterLookupOptions}
+              recentEnquiryOptions={callFilingRecentEnquiries}
+              teamOptions={callAttendanceTeamOptions}
+              viewAsProd={viewAsProd}
+            />
           </React.Suspense>
         </ErrorBoundary>
 
@@ -9106,8 +9410,24 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
           setCclUploadedMatter,
           showToast,
         });
-        const handleApproveCurrentLetter = cclApprovalHandlers.handleApprove;
+        const fireApproveCurrentLetter = cclApprovalHandlers.handleApprove;
         const handleUploadCurrentLetterToNd = cclApprovalHandlers.handleUploadToNd;
+        // The Approve button does NOT fire the pipeline directly. It opens a
+        // reassuring confirmation modal (pitch-builder pattern) that lists who
+        // gets emailed and what happens next. Only the modal's Confirm button
+        // actually calls the approval handler.
+        const handleApproveCurrentLetter = () => {
+          if (cclApprovingMatter) return;
+          setCclApproveConfirmMatter(cclLetterModal);
+        };
+        const handleConfirmApproveCurrentLetter = () => {
+          setCclApproveConfirmMatter(null);
+          void fireApproveCurrentLetter();
+        };
+        const handleCancelApproveCurrentLetter = () => {
+          if (cclApprovingMatter) return;
+          setCclApproveConfirmMatter(null);
+        };
 
         // Keyboard nav — delegated from the top-level document listener via ref.
         // ↑ previous · ↓ next · Enter (with Ctrl) approve · R toggle reviewed
@@ -9225,7 +9545,8 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
             padding: isMobileReview ? '14px 14px' : '14px 16px',
             animation: 'cclOverrideExpandIn 240ms cubic-bezier(0.22, 1, 0.36, 1) both',
           }}>
-            {currentDraftVersion > 0 && replacementDraftVersion ? (
+            {/* Version-history strip is dev-only (LZ/AC). Fee earners get the rerun button without the archive/fresh-run framing. */}
+            {['LZ', 'AC'].includes(String(userInitials || '').toUpperCase()) && currentDraftVersion > 0 && replacementDraftVersion ? (
               <div style={{
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -9273,7 +9594,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                   alignItems: 'center',
                   gap: 5,
                   padding: '5px 10px',
-                  border: '1px solid rgba(135, 243, 243, 0.28)',
+                  border: '1px solid rgba(54, 144, 206, 0.28)',
                   background: 'rgba(255, 255, 255, 0.04)',
                   color: '#d1d5db',
                   fontSize: isMobileReview ? 12 : 11,
@@ -9297,14 +9618,16 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                 New draft
               </div>
             )}
-            <div style={{
-              fontSize: isMobileReview ? 11 : 10.5,
-              color: colours.subtleGrey,
-              lineHeight: 1.5,
-              maxWidth: 360,
-            }}>
-              The current draft is archived to version history. A fresh run pulls live source data and the latest prompt.
-            </div>
+            {['LZ', 'AC'].includes(String(userInitials || '').toUpperCase()) && (
+              <div style={{
+                fontSize: isMobileReview ? 11 : 10.5,
+                color: colours.subtleGrey,
+                lineHeight: 1.5,
+                maxWidth: 360,
+              }}>
+                The current draft is archived to version history. A fresh run pulls live source data and the latest prompt.
+              </div>
+            )}
             <button
               type="button"
               onClick={() => {
@@ -9475,8 +9798,8 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                   style={{ width: '100%', height: '100%', display: 'block', objectFit: 'contain' }}
                 />
               </div>
-              <div style={{ textAlign: 'right' as const, fontSize: 9.5, lineHeight: 1.55, color: '#374151', minWidth: isMobileReview ? 160 : 220 }}>
-                <div style={{ fontSize: 10.5, fontWeight: 700, color: '#0D2F60' }}>01273 761990</div>
+              <div style={{ textAlign: 'right' as const, fontSize: '10pt', lineHeight: 1.55, color: '#374151', minWidth: isMobileReview ? 160 : 220 }}>
+                <div style={{ fontSize: '10pt', fontWeight: 700, color: '#0D2F60' }}>01273 761990</div>
                 <div>helix-law.com</div>
                 <div>Second Floor, Britannia House</div>
                 <div>21 Station Street, Brighton</div>
@@ -9484,7 +9807,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: isMobileReview ? 'minmax(0, 1fr)' : 'minmax(0, 1fr) max-content', gap: isMobileReview ? 16 : 28, fontSize: 10.5, lineHeight: 1.65, color: '#061733', marginTop: 22, marginBottom: 14, alignItems: 'start' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobileReview ? 'minmax(0, 1fr)' : 'minmax(0, 1fr) max-content', gap: isMobileReview ? 16 : 28, fontSize: '10pt', lineHeight: 1.65, color: '#061733', marginTop: 22, marginBottom: 14, alignItems: 'start' }}>
               <div style={{ display: 'grid', gap: 2, minWidth: 0 }}>
                 <div style={{ fontWeight: 600 }}>{recipientName || 'Sir / Madam'}</div>
                 {recipientAddressLines.map((line) => (
@@ -9499,18 +9822,18 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
             </div>
 
             {!!structuredReviewFields.client_email && (
-              <div style={{ fontSize: 10.5, lineHeight: 1.65, color: '#061733', marginBottom: 18 }}>
+              <div style={{ fontSize: '10pt', lineHeight: 1.65, color: '#061733', marginBottom: 18 }}>
                 BY EMAIL ONLY - {structuredReviewFields.client_email}
               </div>
             )}
 
             {!!recipientMatterHeading && (
-              <div style={{ fontSize: 11, lineHeight: 1.65, color: '#061733', fontWeight: 600, marginBottom: 18 }}>
+              <div style={{ fontSize: '10pt', lineHeight: 1.65, color: '#061733', fontWeight: 600, marginBottom: 18 }}>
                 {recipientMatterHeading}
               </div>
             )}
 
-            <div style={{ fontSize: 10.5, lineHeight: 1.65, color: '#061733', marginBottom: 18 }}>
+            <div style={{ fontSize: '10pt', lineHeight: 1.65, color: '#061733', marginBottom: 18 }}>
               Dear {recipientName || 'Sir / Madam'}
             </div>
           </>
@@ -9664,7 +9987,9 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
           || cclJustApproved === cclLetterModal
           || isUploadingNd
           || isUploadedNd;
-        const approvalLabel = isApproving ? (cclApprovalStep || 'Approving…') : 'Approve + send internal copy';
+        const approvalLabel = isApproving
+          ? (cclApprovalStep || 'Approving…')
+          : 'Approve + send internal copy';
         const approvalOverlay = isInApprovalCeremony ? (
           <div style={{
             position: 'absolute', inset: 0, zIndex: 50,
@@ -9686,7 +10011,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
             ) : isUploadingNd ? (
               <>
                 <div style={{ position: 'relative', width: 44, height: 44, marginBottom: 20 }}>
-                  <div style={{ position: 'absolute', inset: 0, border: '2px solid rgba(135, 243, 243, 0.08)', borderRadius: '50%' }} />
+                  <div style={{ position: 'absolute', inset: 0, border: '2px solid rgba(54, 144, 206, 0.08)', borderRadius: '50%' }} />
                   <div style={{ position: 'absolute', inset: 0, border: '2px solid transparent', borderTopColor: colours.accent, borderRadius: '50%', animation: 'cclLoadPulse 1.2s ease-in-out infinite, cclApprovalSpin 1s linear infinite' }} />
                 </div>
                 <div style={{ fontSize: 14, fontWeight: 700, color: '#f3f4f6', marginBottom: 6 }}>Uploading to NetDocuments…</div>
@@ -9699,7 +10024,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
                 </div>
                 <div style={{ fontSize: 16, fontWeight: 700, color: '#f3f4f6', marginBottom: 6 }}>Letter approved and sent internally</div>
                 <div style={{ fontSize: 13, color: colours.subtleGrey, maxWidth: 360, textAlign: 'center', lineHeight: 1.5, marginBottom: 22 }}>
-                  {matter?.displayNumber || 'This letter'} has been finalised, sent to Luke internally, and copied to Alex plus the fee earner. The client was not emailed.
+                  {matter?.displayNumber || 'This letter'} has been finalised and sent to Luke internally. Fee earners were not copied (safety lock). The client was not emailed.
                 </div>
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                   <button
@@ -9752,7 +10077,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
             ) : (
               <>
                 <div style={{ position: 'relative', width: 44, height: 44, marginBottom: 20 }}>
-                  <div style={{ position: 'absolute', inset: 0, border: '2px solid rgba(135, 243, 243, 0.08)', borderRadius: '50%' }} />
+                  <div style={{ position: 'absolute', inset: 0, border: '2px solid rgba(54, 144, 206, 0.08)', borderRadius: '50%' }} />
                   <div style={{ position: 'absolute', inset: 0, border: '2px solid transparent', borderTopColor: colours.accent, borderRadius: '50%', animation: 'cclLoadPulse 1.2s ease-in-out infinite, cclApprovalSpin 1s linear infinite' }} />
                 </div>
                 <div style={{ fontSize: 14, fontWeight: 700, color: '#f3f4f6', marginBottom: 6 }}>{cclApprovalStep || 'Approving…'}</div>
@@ -9760,6 +10085,169 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
               </>
             )}
           </div>
+        ) : null;
+        // Pitch-builder-style review-and-confirm modal. Opens when the operator
+        // clicks Approve, lists exactly what's about to happen, and only fires
+        // the internal-send pipeline when the operator clicks Confirm.
+        const showApproveConfirm = cclApproveConfirmMatter === cclLetterModal && !isInApprovalCeremony;
+        const confirmFeeEarnerEmail = structuredReviewFields.fee_earner_email || '';
+        const confirmFeeEarnerName = structuredReviewFields.name_of_person_handling_matter || 'the fee earner';
+        const confirmClientEmail = structuredReviewFields.client_email || '';
+        const confirmClientName = structuredReviewFields.insert_clients_name || matter?.clientName || 'the client';
+        const confirmMatterRef = matter?.displayNumber || cclLetterModal;
+        const approveConfirmOverlay = showApproveConfirm ? (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="ccl-approve-confirm-title"
+            style={{
+              position: 'absolute', inset: 0, zIndex: 60,
+              background: 'rgba(0, 3, 25, 0.72)',
+              backdropFilter: 'blur(6px)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              padding: 20,
+              animation: 'opsDashFadeIn 0.16s ease both',
+              fontFamily: "'Raleway', Arial, Helvetica, sans-serif",
+            }}
+            onClick={(e) => { if (e.target === e.currentTarget) handleCancelApproveCurrentLetter(); }}
+          >
+            <div
+              style={{
+                background: colours.darkBlue,
+                border: '1px solid rgba(54, 144, 206, 0.14)',
+                width: '100%',
+                maxWidth: 520,
+                maxHeight: '88vh',
+                overflow: 'hidden',
+                display: 'flex',
+                flexDirection: 'column',
+                boxShadow: '0 18px 48px rgba(0, 3, 25, 0.55)',
+              }}
+            >
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 12,
+                padding: '18px 22px 14px',
+                borderBottom: '1px solid rgba(54, 144, 206, 0.10)',
+              }}>
+                <div style={{
+                  width: 38, height: 38,
+                  background: 'rgba(54, 144, 206, 0.14)',
+                  border: '1px solid rgba(54, 144, 206, 0.32)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  flexShrink: 0,
+                }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={colours.highlight} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 2L11 13" /><path d="M22 2l-7 20-4-9-9-4 20-7z" /></svg>
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div id="ccl-approve-confirm-title" style={{ fontSize: 16, fontWeight: 700, color: '#f3f4f6', letterSpacing: '-0.01em', lineHeight: 1.2 }}>
+                    Approve & send internal copy
+                  </div>
+                  <div style={{ fontSize: 12, color: colours.subtleGrey, marginTop: 2 }}>
+                    Review what's about to happen for {confirmMatterRef}.
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ padding: '16px 22px', overflowY: 'auto', display: 'grid', gap: 14 }}>
+                <div style={{ fontSize: 12, lineHeight: 1.55, color: '#d1d5db' }}>
+                  This finalises the draft and emails an <strong style={{ color: '#f3f4f6' }}>internal copy only</strong>. The client is not emailed.
+                </div>
+
+                <div style={{
+                  border: '1px solid rgba(54, 144, 206, 0.10)',
+                  background: 'rgba(8, 28, 48, 0.6)',
+                  padding: '12px 14px',
+                  display: 'grid',
+                  gap: 10,
+                }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: colours.subtleGrey }}>
+                    Internal email recipients
+                  </div>
+                  <div style={{ display: 'grid', gap: 6, fontSize: 12, color: '#f3f4f6', lineHeight: 1.45 }}>
+                    <div><span style={{ color: colours.subtleGrey, marginRight: 6 }}>To</span>Luke Zemanek &lt;lz@helix-law.com&gt;</div>
+                  </div>
+                  <div style={{ fontSize: 11, lineHeight: 1.5, color: colours.subtleGrey }}>
+                    Safety lock: fee earners are <strong style={{ color: '#d1d5db', fontWeight: 600 }}>never</strong> CC'd on the internal copy while the send path is under guard. Only Luke receives it.
+                  </div>
+                </div>
+
+                {!!confirmClientEmail && (
+                  <div style={{
+                    border: '1px solid rgba(255, 140, 0, 0.22)',
+                    background: 'rgba(255, 140, 0, 0.06)',
+                    padding: '10px 14px',
+                    display: 'grid',
+                    gap: 4,
+                  }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: colours.orange }}>
+                      Client will not be emailed
+                    </div>
+                    <div style={{ fontSize: 12, color: '#f3f4f6', lineHeight: 1.45 }}>
+                      {confirmClientName} ({confirmClientEmail}) is not on this send. The CCL goes internally for sign-off first.
+                    </div>
+                  </div>
+                )}
+
+                <div style={{ fontSize: 11, lineHeight: 1.55, color: colours.subtleGrey }}>
+                  After this step you'll be offered <strong style={{ color: '#d1d5db', fontWeight: 600 }}>Upload to NetDocuments</strong> to file the approved letter in the matter workspace.
+                </div>
+              </div>
+
+              <div style={{
+                display: 'flex',
+                justifyContent: 'flex-end',
+                gap: 8,
+                padding: '14px 22px 18px',
+                borderTop: '1px solid rgba(54, 144, 206, 0.08)',
+                background: 'rgba(2, 6, 23, 0.4)',
+              }}>
+                <button
+                  type="button"
+                  onClick={handleCancelApproveCurrentLetter}
+                  style={{
+                    border: '1px solid rgba(255,255,255,0.18)',
+                    background: 'transparent',
+                    color: '#f3f4f6',
+                    padding: '10px 16px',
+                    fontFamily: "'Raleway', Arial, Helvetica, sans-serif",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    letterSpacing: '0.02em',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmApproveCurrentLetter}
+                  style={{
+                    border: 'none',
+                    background: colours.green,
+                    color: '#ffffff',
+                    padding: '10px 18px',
+                    fontFamily: "'Raleway', Arial, Helvetica, sans-serif",
+                    fontSize: 13,
+                    fontWeight: 700,
+                    letterSpacing: '0.02em',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 8,
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                  Yes, send internal copy
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null;
+        const combinedApprovalOverlay = approvalOverlay || approveConfirmOverlay ? (
+          <>
+            {approvalOverlay}
+            {approveConfirmOverlay}
+          </>
         ) : null;
         const devToolsDock = selectedFieldKey && selectedFieldMeta && canSeeCclDevPanel ? (
           <div className="ccl-review-devtools-dock" style={{
@@ -9811,7 +10299,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
         ) : null;
         const reviewModal = (
           <CclReviewModal
-            approvalOverlay={approvalOverlay}
+            approvalOverlay={combinedApprovalOverlay}
             devToolsDock={devToolsDock}
             handleCclLetterBackdropClick={handleCclLetterBackdropClick}
             closeCclLetterModal={closeCclLetterModal}

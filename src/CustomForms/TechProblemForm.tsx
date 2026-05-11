@@ -12,7 +12,7 @@ import { Dropdown } from '@fluentui/react/lib/Dropdown';
 import type { IDropdownOption } from '@fluentui/react/lib/Dropdown';
 import { Icon } from '@fluentui/react/lib/Icon';
 import { useTheme } from '../app/functionality/ThemeContext';
-import { getProxyBaseUrl } from '../utils/getProxyBaseUrl';
+import { getApiBase } from '../utils/getApiUrl';
 import { UserData } from '../app/functionality/types';
 import TechTicketsLedger from './shared/TechTicketsLedger';
 import {
@@ -23,8 +23,6 @@ import {
   getFormContentStyle,
   getFormSectionStyle,
   getFormSectionHeaderStyle,
-  getInfoBoxStyle,
-  getInfoBoxTextStyle,
   getInputStyles,
   getDropdownStyles,
   getFormPrimaryButtonStyles,
@@ -36,6 +34,7 @@ import {
 } from './shared/formStyles';
 import { useFormReadinessPulse } from './shared/useFormReadinessPulse';
 import { FormReadinessCue } from './shared/FormReadinessCue';
+import FormsStreamLanded from './shared/FormsStreamLanded';
 
 interface TechProblemFormProps {
   userData?: UserData[];
@@ -96,6 +95,8 @@ const TechProblemFormContent: React.FC<TechProblemFormProps> = ({
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [streamSubmissionId, setStreamSubmissionId] = useState<string | null>(null);
+  const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [ledgerRefreshKey, setLedgerRefreshKey] = useState(0);
 
   const handleFieldChange = useCallback((field: keyof FormData, value: string) => {
@@ -117,7 +118,7 @@ const TechProblemFormContent: React.FC<TechProblemFormProps> = ({
     setSubmitMessage(null);
 
     try {
-      const baseUrl = getProxyBaseUrl();
+      const baseUrl = getApiBase();
       const response = await fetch(`${baseUrl}/api/tech-tickets/problem`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -141,8 +142,14 @@ const TechProblemFormContent: React.FC<TechProblemFormProps> = ({
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
+        setStreamSubmissionId(errorData?.submissionId ?? null);
+        setStreamUrl(null);
         throw new Error(errorData.error || 'Failed to submit problem report');
       }
+
+      const data = await response.json().catch(() => ({}));
+      setStreamSubmissionId(data?.submissionId ?? null);
+      setStreamUrl(data?.streamUrl ?? null);
 
       setSubmitMessage({ type: 'success', text: 'Problem reported successfully. The Tech team has been notified.' });
       onSubmitSuccess?.('Problem reported successfully.');
@@ -203,15 +210,13 @@ const TechProblemFormContent: React.FC<TechProblemFormProps> = ({
             </MessageBar>
           )}
 
-          {/* Info Box */}
-          <div style={getInfoBoxStyle(isDarkMode, 'neutral')}>
-            <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
-              <Icon iconName="Info" style={{ color: accentColor, flexShrink: 0 }} />
-              <Text style={getInfoBoxTextStyle(isDarkMode)}>
-                Report bugs, errors, or technical issues. This notifies the Tech team and creates a tracking task.
-              </Text>
-            </Stack>
-          </div>
+          {streamSubmissionId && submitMessage && (
+            <FormsStreamLanded
+              submissionId={streamSubmissionId}
+              streamUrl={streamUrl}
+              isDarkMode={isDarkMode}
+            />
+          )}
 
           {/* Problem Details Section */}
           <div style={getFormSectionStyle(isDarkMode, accentColor)}>

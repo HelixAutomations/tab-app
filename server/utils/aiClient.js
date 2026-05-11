@@ -7,7 +7,7 @@
  * Environment variables:
  *   AZURE_OPENAI_ENDPOINT    – Azure OpenAI resource endpoint
  *   AZURE_OPENAI_API_KEY     – (optional) direct key; skips Key Vault
- *   AZURE_OPENAI_DEPLOYMENT  – model deployment name (default: gpt-5.1, matching enquiry-processing-v2)
+ *   AZURE_OPENAI_DEPLOYMENT  – model deployment name (default: gpt-5.4 — newer reasoning model, more stable gateway than gpt-5.1)
  *   AZURE_OPENAI_KEY_SECRET / AZURE_OPENAI_KEY_SECRET_NAME – Key Vault secret name
  */
 const { getSecret } = require('./getSecret');
@@ -18,7 +18,7 @@ let _initialising = false;
 const _waiters = [];
 
 const ENDPOINT = process.env.AZURE_OPENAI_ENDPOINT || 'https://autom-midmw1iy-eastus2.cognitiveservices.azure.com/';
-const DEPLOYMENT = process.env.AZURE_OPENAI_DEPLOYMENT || 'gpt-5.1';
+const DEPLOYMENT = process.env.AZURE_OPENAI_DEPLOYMENT || 'gpt-5.4';
 const KEY_SECRET_NAME = process.env.AZURE_OPENAI_KEY_SECRET || process.env.AZURE_OPENAI_KEY_SECRET_NAME || 'azure-openai-api-key';
 
 /**
@@ -89,6 +89,11 @@ async function chatCompletion(systemPrompt, userPrompt, options = {}) {
     const deployment = options.deployment || DEPLOYMENT;
     const trackingId = Math.random().toString(36).slice(2, 10);
     const startMs = Date.now();
+    // Azure OpenAI's reasoning-model gateways (gpt-5 family) intermittently
+    // return HTTP 500 with an empty body — confirmed via probe (~30% failure
+    // rate). Retry transient 5xx / network errors a couple of times with
+    // small backoff before bubbling up.
+    const maxRetries = options.maxRetries ?? 2;
 
     trackEvent('AI.ChatCompletion.Started', {
         trackingId,
@@ -97,62 +102,111 @@ async function chatCompletion(systemPrompt, userPrompt, options = {}) {
         userPromptLength: String(userPrompt.length),
     });
 
-    try {
-        // Aligned with enquiry-processing-v2: do NOT send max_tokens or
-        // max_completion_tokens — the model uses its own default and this
-        // avoids 400 "unsupported parameter" errors across GPT-4/5 variants.
-        const requestBody = {
-            model: deployment,
-            messages: [
-                { role: 'system', content: systemPrompt },
-                { role: 'user', content: userPrompt },
-            ],
-            temperature: options.temperature ?? 0.2,
-            response_format: { type: 'json_object' },
-        };
+    // Aligned with enquiry-processing-v2: do NOT send max_tokens or
+    // max_completion_tokens — the model uses its own default and this
+    // avoids 400 "unsupported parameter" errors across GPT-4/5 variants.
+    const requestBody = {
+        model: deployment,
+        messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+        ],
+        temperature: options.temperature ?? 0.2,
+        response_format: { type: 'json_object' },
+    };
 
-        // Only include max tokens if explicitly requested via options
-        if (options.max_tokens) {
-            // Try max_completion_tokens first (GPT-5+), fall back to max_tokens
-            const deploymentText = String(deployment || '');
-            if (/^gpt-5(\.|-|$)/i.test(deploymentText)) {
-                requestBody.max_completion_tokens = options.max_tokens;
-            } else {
-                requestBody.max_tokens = options.max_tokens;
-            }
+    // Only include max tokens if explicitly requested via options
+    if (options.max_tokens) {
+        // Try max_completion_tokens first (GPT-5+), fall back to max_tokens
+        const deploymentText = String(deployment || '');
+        if (/^gpt-5(\.|-|$)/i.test(deploymentText)) {
+            requestBody.max_completion_tokens = options.max_tokens;
+        } else {
+            requestBody.max_tokens = options.max_tokens;
         }
-
-        const response = await client.chat.completions.create(requestBody);
-
-        const durationMs = Date.now() - startMs;
-        const content = response.choices?.[0]?.message?.content || '{}';
-        const usage = response.usage || {};
-
-        trackEvent('AI.ChatCompletion.Completed', {
-            trackingId,
-            deployment,
-            maxTokensSent: String(!!options.max_tokens),
-            durationMs: String(durationMs),
-            promptTokens: String(usage.prompt_tokens || 0),
-            completionTokens: String(usage.completion_tokens || 0),
-            totalTokens: String(usage.total_tokens || 0),
-        });
-        trackMetric('AI.ChatCompletion.Duration', durationMs, { deployment });
-        trackMetric('AI.ChatCompletion.Tokens', usage.total_tokens || 0, { deployment });
-
-        try {
-            return JSON.parse(content);
-        } catch (parseErr) {
-            console.warn(`[AI] JSON parse failed (trackingId: ${trackingId}), returning raw`);
-            trackException(parseErr, { operation: 'AI.ChatCompletion.Parse', trackingId });
-            return { _raw: content, _parseError: true };
-        }
-    } catch (err) {
-        const durationMs = Date.now() - startMs;
-        console.error(`[AI] Chat completion failed (trackingId: ${trackingId}):`, err.message);
-        trackException(err, { operation: 'AI.ChatCompletion', trackingId, deployment, durationMs: String(durationMs) });
-        throw err;
     }
+
+    let lastErr = null;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+            const response = await client.chat.completions.create(requestBody);
+
+            const durationMs = Date.now() - startMs;
+            const content = response.choices?.[0]?.message?.content || '{}';
+            const usage = response.usage || {};
+
+            trackEvent('AI.ChatCompletion.Completed', {
+                trackingId,
+                deployment,
+                maxTokensSent: String(!!options.max_tokens),
+                durationMs: String(durationMs),
+                attempts: String(attempt + 1),
+                promptTokens: String(usage.prompt_tokens || 0),
+                completionTokens: String(usage.completion_tokens || 0),
+                totalTokens: String(usage.total_tokens || 0),
+            });
+            trackMetric('AI.ChatCompletion.Duration', durationMs, { deployment });
+            trackMetric('AI.ChatCompletion.Tokens', usage.total_tokens || 0, { deployment });
+
+            try {
+                return JSON.parse(content);
+            } catch (parseErr) {
+                console.warn(`[AI] JSON parse failed (trackingId: ${trackingId}), returning raw`);
+                trackException(parseErr, { operation: 'AI.ChatCompletion.Parse', trackingId });
+                return { _raw: content, _parseError: true };
+            }
+        } catch (err) {
+            lastErr = err;
+            const status = err?.status ?? null;
+            // Retry on transient classes only: empty 5xx, 502/503/504, or
+            // network errors with no status. Don't retry 4xx (auth, content
+            // filter, bad request) — those won't change.
+            const isTransient = status === null || status === 500 || status === 502 || status === 503 || status === 504;
+            const canRetry = attempt < maxRetries && isTransient;
+            if (canRetry) {
+                const backoffMs = 400 * Math.pow(2, attempt); // 400ms, 800ms
+                console.warn(`[AI] transient failure (status=${status}, attempt=${attempt + 1}/${maxRetries + 1}), retrying in ${backoffMs}ms (trackingId: ${trackingId})`);
+                trackEvent('AI.ChatCompletion.Retry', {
+                    trackingId,
+                    deployment,
+                    attempt: String(attempt + 1),
+                    status: String(status ?? ''),
+                    backoffMs: String(backoffMs),
+                });
+                await new Promise(r => setTimeout(r, backoffMs));
+                continue;
+            }
+            break;
+        }
+    }
+
+    // All attempts failed — surface structured detail and rethrow.
+    const err = lastErr;
+    const durationMs = Date.now() - startMs;
+    const detail = {
+        status: err?.status ?? null,
+        code: err?.code ?? null,
+        type: err?.type ?? null,
+        requestID: err?.requestID ?? err?.headers?.['x-request-id'] ?? null,
+        upstream: err?.error ?? null,
+        deployment,
+        attempts: maxRetries + 1,
+    };
+    console.error(`[AI] Chat completion failed after ${maxRetries + 1} attempts (trackingId: ${trackingId}):`, err.message, JSON.stringify(detail));
+    trackException(err, {
+        operation: 'AI.ChatCompletion',
+        trackingId,
+        deployment,
+        durationMs: String(durationMs),
+        attempts: String(detail.attempts),
+        status: String(detail.status ?? ''),
+        code: String(detail.code ?? ''),
+        type: String(detail.type ?? ''),
+        requestID: String(detail.requestID ?? ''),
+        upstream: detail.upstream ? JSON.stringify(detail.upstream).slice(0, 500) : '',
+    });
+    err.detail = detail;
+    throw err;
 }
 
 /**

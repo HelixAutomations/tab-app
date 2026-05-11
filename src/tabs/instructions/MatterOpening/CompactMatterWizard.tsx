@@ -361,6 +361,8 @@ const CompactMatterWizard: React.FC<CompactMatterWizardProps> = ({
   const matterId = useRef<string | null>(null);
   const matterDisplayNum = useRef<string | null>(null);
   const primaryClioContactId = useRef<string | null>(null);
+  const [handoffAutopilotStarted, setHandoffAutopilotStarted] = useState(true);
+  const [handoffAutopilotError, setHandoffAutopilotError] = useState<string | null>(null);
 
   const findTeamMemberByInitials = useCallback((initials: string) => {
     if (!teamData || !initials) return null;
@@ -984,6 +986,8 @@ const CompactMatterWizard: React.FC<CompactMatterWizardProps> = ({
       setProcessingSteps(initialSteps);
       setProcessingLogs([]);
       setFailureSummary('');
+      setHandoffAutopilotStarted(true);
+      setHandoffAutopilotError(null);
       setReportDelivered(false);
       autoReportSentRef.current = null;
       setCurrentStepIdx(0);
@@ -1062,12 +1066,27 @@ const CompactMatterWizard: React.FC<CompactMatterWizardProps> = ({
               }),
             });
             const payload = resp.ok ? await resp.clone().json() : null;
-            const msg = resp.ok ? `CCL service generated · ${(payload?.preview?.dataSources || []).length} sources (real)` : 'CCL service skipped';
-            setProcessingSteps(prev => prev.map((s, idx) => idx === i ? { ...s, status: 'success', message: msg } : s));
-            setProcessingLogs(prev => [...prev, `✓ ${msg}`]);
+            if (resp.ok) {
+              setHandoffAutopilotStarted(true);
+              setHandoffAutopilotError(null);
+              const msg = `CCL service generated · ${(payload?.preview?.dataSources || []).length} sources (real)`;
+              setProcessingSteps(prev => prev.map((s, idx) => idx === i ? { ...s, status: 'success', message: msg } : s));
+              setProcessingLogs(prev => [...prev, `✓ ${msg}`]);
+            } else {
+              const failureText = await resp.text().catch(() => '');
+              const failureMessage = failureText || `HTTP ${resp.status}`;
+              const msg = `CCL service unavailable · retry from handoff (${resp.status})`;
+              setHandoffAutopilotStarted(false);
+              setHandoffAutopilotError(failureMessage);
+              setProcessingSteps(prev => prev.map((s, idx) => idx === i ? { ...s, status: 'error', message: msg } : s));
+              setProcessingLogs(prev => [...prev, `! ${msg} — ${failureMessage}`]);
+            }
           } catch (err) {
-            setProcessingSteps(prev => prev.map((s, idx) => idx === i ? { ...s, status: 'success', message: 'CCL service skipped (non-blocking)' } : s));
-            setProcessingLogs(prev => [...prev, `✓ CCL service skipped — ${err instanceof Error ? err.message : 'error'}`]);
+            const failureMessage = err instanceof Error ? err.message : 'error';
+            setHandoffAutopilotStarted(false);
+            setHandoffAutopilotError(failureMessage);
+            setProcessingSteps(prev => prev.map((s, idx) => idx === i ? { ...s, status: 'error', message: 'CCL service unavailable · retry from handoff' } : s));
+            setProcessingLogs(prev => [...prev, `! CCL service unavailable — ${failureMessage}`]);
           }
         } else {
           // Simulate success for all other steps
@@ -1143,6 +1162,8 @@ const CompactMatterWizard: React.FC<CompactMatterWizardProps> = ({
     setProcessingSteps(initialSteps);
     setProcessingLogs([]);
     setFailureSummary('');
+    setHandoffAutopilotStarted(true);
+    setHandoffAutopilotError(null);
     setReportDelivered(false);
     autoReportSentRef.current = null;
     setCurrentStepIdx(0);
@@ -1620,14 +1641,6 @@ const CompactMatterWizard: React.FC<CompactMatterWizardProps> = ({
             </div>
           )}
 
-          <div style={{
-            fontSize: 10,
-            color: isDarkMode ? colours.subtleGrey : colours.greyText,
-            lineHeight: 1.45,
-          }}>
-            Matter opening has completed. Continue or close to return to the updated Matter tab view.
-          </div>
-
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {clioMatterUrl && (
               <button
@@ -1678,6 +1691,8 @@ const CompactMatterWizard: React.FC<CompactMatterWizardProps> = ({
               openedMatterId={handoffMatterId}
               matterOpenSucceeded={true}
               isDarkMode={isDarkMode}
+              initialAutopilotStarted={handoffAutopilotStarted}
+              initialAutopilotError={handoffAutopilotError}
               onGoToMatter={goToMatterView}
               onDismiss={closeSuccessView}
             />

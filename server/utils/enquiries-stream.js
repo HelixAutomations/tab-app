@@ -2,7 +2,7 @@
 // Intentionally payload-light: clients should refresh via existing API endpoints.
 
 const { withRequest, sql } = require('./db');
-const { trackEvent } = require('./appInsights');
+const { trackEvent, trackException } = require('./appInsights');
 
 // Store connected clients (http.ServerResponse)
 const clients = new Set();
@@ -24,6 +24,32 @@ const CLAIM_BACKOFF_INTERVAL_MS = 15000;
 const CLAIM_BACKOFF_THRESHOLD = Math.ceil((2 * 60 * 1000) / CLAIM_BASE_INTERVAL_MS); // ~24 ticks = 2 min
 let claimNoEventStreak = 0;
 let claimCurrentIntervalMs = CLAIM_BASE_INTERVAL_MS;
+let lazyEventPollerStarted = false;
+
+function ensureLazyEventPoller() {
+  if (lazyEventPollerStarted) return;
+  if (process.env.NODE_ENV === 'production' || process.env.HELIX_LAZY_INIT !== '1') return;
+
+  try {
+    const { startEventPoller } = require('./eventPoller');
+    startEventPoller();
+    lazyEventPollerStarted = true;
+    trackEvent('Enquiries.Stream.LazyEventPoller.Started', {
+      operation: 'enquiries-stream.lazyEventPoller',
+      triggeredBy: 'sse-client-connected',
+    });
+  } catch (error) {
+    trackException(error, {
+      operation: 'enquiries-stream.lazyEventPoller',
+      phase: 'start',
+    });
+    trackEvent('Enquiries.Stream.LazyEventPoller.Failed', {
+      operation: 'enquiries-stream.lazyEventPoller',
+      phase: 'start',
+      error: error?.message || String(error),
+    });
+  }
+}
 
 function pruneClaimCache() {
   const now = Date.now();
@@ -145,7 +171,7 @@ async function pollTeamsClaimsOnce() {
 }
 
 function startTeamsClaimWatcher() {
-  // TA-4: Feature-flag — allow disabling when enquiry.claimed events flow reliably from enq-proc
+  // TA-4: Feature-flag â€” allow disabling when enquiry.claimed events flow reliably from enq-proc
   if (process.env.DISABLE_TEAMS_CLAIM_WATCHER === '1') {
     console.log('[ClaimWatcher] Disabled via DISABLE_TEAMS_CLAIM_WATCHER');
     trackEvent('ClaimWatcher.Disabled', { reason: 'envFlag' });
@@ -244,6 +270,8 @@ function attachEnquiriesStream(router) {
 
     clients.add(res);
 
+    ensureLazyEventPoller();
+
     // Start shared watcher only while there are active SSE clients.
     startTeamsClaimWatcher();
 
@@ -277,3 +305,4 @@ module.exports = {
   lastBroadcastClaimStateByEnquiryId,
   getSseClientCount: () => clients.size,
 };
+

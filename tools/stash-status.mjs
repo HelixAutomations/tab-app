@@ -10,6 +10,7 @@
 import fs from 'fs';
 import path from 'path';
 import { loadAllBriefs, statusFor, daysSince, STATUS, INDEX_FILE } from './lib/stash-meta.mjs';
+import { generatedMarkdownComment } from './lib/generated-marker.mjs';
 
 const args = new Set(process.argv.slice(2));
 
@@ -36,7 +37,7 @@ const rows = briefs.map(b => {
   return (b.verified || '').localeCompare(a.verified || '');
 });
 
-const header = `# Stashed projects — index
+const header = `${generatedMarkdownComment('node tools/stash-status.mjs')}# Stashed projects — index
 
 Single source of truth for parked work. **This file is auto-generated** by \`tools/stash-status.mjs\` from the YAML metadata block in each brief. Edit the brief, not this file.
 

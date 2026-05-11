@@ -932,7 +932,7 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
             style={{
               border: 'none',
               background: 'transparent',
-              color: isDarkMode ? 'rgba(135, 243, 243, 0.72)' : 'rgba(54, 144, 206, 0.82)',
+              color: isDarkMode ? 'rgba(54, 144, 206, 0.72)' : 'rgba(54, 144, 206, 0.82)',
               fontSize: '10px',
               fontWeight: 600,
               fontVariantNumeric: 'tabular-nums',
@@ -940,7 +940,7 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
               lineHeight: 1.2,
               padding: 0,
               opacity: 0.9,
-              borderBottom: `1px dotted ${isDarkMode ? 'rgba(135, 243, 243, 0.45)' : 'rgba(54, 144, 206, 0.45)'}`,
+              borderBottom: `1px dotted ${isDarkMode ? 'rgba(54, 144, 206, 0.45)' : 'rgba(54, 144, 206, 0.45)'}`,
             }}
             aria-label="Toggle comparison mode"
             title={`Comparison (${comparisonMode === 'percent' ? '%' : 'value'}) — click to toggle`}
@@ -1053,14 +1053,14 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
               style={{
                 border: 'none',
                 background: 'transparent',
-                color: isDarkMode ? 'rgba(135, 243, 243, 0.72)' : 'rgba(54, 144, 206, 0.82)',
+                color: isDarkMode ? 'rgba(54, 144, 206, 0.72)' : 'rgba(54, 144, 206, 0.82)',
                 fontSize: '10px',
                 fontWeight: 600,
                 cursor: 'pointer',
                 lineHeight: 1.2,
                 padding: 0,
                 opacity: 0.9,
-                borderBottom: `1px dotted ${isDarkMode ? 'rgba(135, 243, 243, 0.45)' : 'rgba(54, 144, 206, 0.45)'}`,
+                borderBottom: `1px dotted ${isDarkMode ? 'rgba(54, 144, 206, 0.45)' : 'rgba(54, 144, 206, 0.45)'}`,
               }}
               aria-label="Toggle enquiry comparison mode"
               title={`${isWeekCard ? 'Last Week' : 'Last Month'} comparison (${mode === 'previous' ? 'full period' : 'to date'}) — click to toggle`}
@@ -1236,7 +1236,7 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                           width: `${Math.max(6, Math.min(syncProgress, 100))}%`,
                           height: '100%',
                           background: isDarkMode
-                            ? 'linear-gradient(90deg, rgba(54, 144, 206, 0.55) 0%, rgba(135, 243, 243, 0.78) 100%)'
+                            ? 'linear-gradient(90deg, rgba(54, 144, 206, 0.55) 0%, rgba(54, 144, 206, 0.78) 100%)'
                             : colours.highlightBlue,
                           transition: 'width 240ms ease-out',
                         }} />
@@ -1524,7 +1524,7 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                         <div style={{ marginTop: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                           <div style={{
                             flex: 1, height: '3px',
-                            background: isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.1)',
+                            background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.1)',
                             borderRadius: '2px', overflow: 'hidden',
                           }}>
                             <div style={{

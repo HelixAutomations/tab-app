@@ -40,7 +40,7 @@ export function surface(isDark: boolean, overrides: CSSProperties = {}): CSSProp
 
 export function getDatePickerStyles(isDarkMode: boolean): Partial<IDatePickerStyles> {
   const baseBorder = isDarkMode ? `${colours.dark.borderColor}66` : 'rgba(6, 23, 51, 0.12)';
-  const hoverBorder = isDarkMode ? 'rgba(135, 243, 243, 0.2)' : 'rgba(54, 144, 206, 0.3)';
+  const hoverBorder = isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.3)';
   const focusBorder = isDarkMode ? colours.accent : colours.highlight;
   const backgroundColour = isDarkMode ? colours.websiteBlue : 'rgba(255, 255, 255, 0.95)';
   const hoverBackground = isDarkMode ? colours.dark.cardBackground : colours.grey;
@@ -71,7 +71,7 @@ export function getDatePickerStyles(isDarkMode: boolean): Partial<IDatePickerSty
             border: `0.5px solid ${focusBorder} !important`,
             background: `${focusBackground} !important`,
             boxShadow: isDarkMode
-              ? '0 0 0 2px rgba(135, 243, 243, 0.08) !important'
+              ? '0 0 0 2px rgba(54, 144, 206, 0.08) !important'
               : '0 0 0 2px rgba(54, 144, 206, 0.08) !important',
           },
         },

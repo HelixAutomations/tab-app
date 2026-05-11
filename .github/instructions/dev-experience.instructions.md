@@ -17,6 +17,18 @@ need to reload the server or close + reopen Simple Browser to see changes.
 
 `dev:fast` is implemented in [tools/dev-fast.mjs](tools/dev-fast.mjs). It just sets a few env flags and re-uses `dev-all-with-logs.mjs`.
 
+## Local origin reality
+
+`http://localhost:3000` is the happy-path dev shell because CRA proxies `/api` to `http://localhost:8080` via [src/setupProxy.js](src/setupProxy.js).
+
+Not every local shell has that proxy. Teams/local hosts, browser fixtures, ad-hoc localhost ports, and some Simple Browser sessions can be on `localhost` while still sending `/api/...` to the wrong place or nowhere at all.
+
+Rules:
+
+1. If a feature must work outside CRA, make its local API base origin-aware instead of assuming relative `/api` is enough.
+2. When a loader is stuck, reproduce from the operator's actual browser origin first. A `curl` to `:8080` only proves the route works there; it does not prove the active page can reach it.
+3. If `:3000` works but another localhost origin does not, check local API base selection, proxy wiring, and dev CORS before touching SQL or route logic.
+
 ## Env flags (dev only — ignored in production)
 
 | Flag | Effect |
@@ -26,6 +38,37 @@ need to reload the server or close + reopen Simple Browser to see changes.
 | `BROWSER=none` | Don't auto-open a browser tab when CRA finishes compiling. Already the default for `dev:fast`. |
 
 Production safety contract: every gate is checked behind `process.env.NODE_ENV !== 'production'`. The flags do nothing in a deployed build.
+
+## Local browser snappiness reset
+
+Use this when the operator says things like `refresh local browser session`,
+`make local browser snappier`, `make Simple Browser snappier`, `reset Simple
+Browser`, or `Simple Browser is laggy`.
+
+Goal: refresh the VS Code Simple Browser/webview session and clear local dev
+clutter without touching app logic or spawning duplicate servers.
+
+Recommended ladder:
+
+1. Run `npm run dev:clean -- --dry-run` first. Report the recoverable size and
+   the largest bucket. This is read-only and usually shows whether webpack/log
+   clutter is part of the lag.
+2. If the user asked for a full snappiness reset, or recoverable clutter is
+   large (roughly 500MB+), run `npm run dev:clean -- --yes`. This clears
+   `node_modules/.cache`, stale CRA build output, and dev logs. Tell the user
+   the next webpack compile will be cold once.
+3. If the dev stack is still running and a full cache wipe is not needed, prefer
+   the cheaper `npm run dev:clean:logs`.
+4. Reset the embedded browser state. Prefer VS Code `Developer: Reload Webviews`
+   when available; otherwise tell the operator to close and reopen the Simple
+   Browser tab. A hard reload (`Ctrl+Shift+R`) is the lightest manual fallback.
+5. Reopen the happy-path shell at `http://localhost:3000`. If the dev stack is
+   stopped, restart with `npm run dev:fast`. If ports `3000`/`8080` are already
+   occupied, do not start another stack; use the existing one or stop it first.
+
+Do not add a changelog entry for this cleanup-only routine. If the lag turns
+out to be caused by app code, route behaviour, or UI regressions, treat that as
+a normal debugging task and log any resulting behavioural change.
 
 ## SSE survival across restarts
 

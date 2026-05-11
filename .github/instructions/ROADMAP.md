@@ -167,7 +167,7 @@ Status: **In progress — started 17 March 2026.** *(R7 of UX Realtime Programme
 ##### D4. Hub Tools consolidation (IN PROGRESS)
 - [x] Private floating Hub Tools chip created with separate access gating.
 - [x] Reporting utility routing (Activity Monitor, Data Centre) wired into chip.
-- [x] Cache Monitor view added to Reports tab (`CacheMonitor.tsx`) — shows Redis connection state, per-key status/TTL/age/size, hit rate, expiration distribution. Gated via `canSeePrivateHubControls` in prod, everyone locally. Auto-polls every 8s.
+- [x] Cache Monitor view added to Reports tab (`src/tabs/Reporting/CacheMonitor.tsx`) — shows Redis connection state, per-key status/TTL/age/size, hit rate, expiration distribution. Gated via `canSeePrivateHubControls` in prod, everyone locally. Auto-polls every 8s.
 - [ ] Pull remaining Reporting-only ops controls (cache invalidation modals in ReportingHome) into Hub Tools.
 - [ ] Extend Cache Monitor or add separate panel for: SQL pool health, Clio auth status, scheduler tier status.
 - [ ] Add enquiry freshness state visibility: snapshot age, SSE connection status, last event timestamp.
@@ -202,20 +202,20 @@ Status: **In progress — started 2 April 2026.**
 - [x] Cultural pillar added to `copilot-instructions.md` — Communication Frameworks and Architectural Transparency sections.
 - [x] Framework prompt templates created (`server/prompts/communication-frameworks.js`) — 6 frameworks: management, tasking, feedback, projects, communication, legal.
 - [x] Server route `POST /api/ai/pressure-test-comms` with App Insights telemetry.
-- [x] Frontend `CommsFrameworkPanel.tsx` — standalone pressure-test panel, admin-gated.
+- [x] Frontend `src/components/command-centre/CommsFrameworkSection.tsx` — command-centre pressure-test surface.
 - [x] PitchBuilder integration — "Pressure Test" button in email composer toolbar.
 - [ ] Framework prompt iteration — refine based on real usage feedback.
 - [ ] Editable frameworks in-app (Phase 2.5) — move from hardcoded prompts to DB-stored templates.
 
 ##### E2. Blueprints Tab (IN PROGRESS)
-- [x] Blueprints tab skeleton (`src/tabs/blueprints/Blueprints.tsx`) — admin-gated, lazy-loaded.
+- [ ] Blueprints tab skeleton (`src/tabs/blueprints/Blueprints.tsx`) — planned path; no shipped file exists yet.
 - [ ] Infrastructure blueprint — Azure resource map from static manifest, upgrade to live API.
 - [ ] Data flow blueprint — visual ARCHITECTURE_DATA_FLOW.md rendering.
 - [ ] Permissions & security blueprint — AAD app registrations, network topology.
 - [ ] Database schema blueprint — visual DATABASE_SCHEMA_REFERENCE.md rendering.
 
 ##### E3. Telemetry Transparency (IN PROGRESS)
-- [x] Processing transparency strip skeleton (`src/components/ProcessingTransparency.tsx`).
+- [ ] Processing transparency strip skeleton (`src/components/ProcessingTransparency.tsx`) — planned path; no shipped file exists yet.
 - [ ] Wire to live SSE or `/api/processing-status` endpoint.
 - [ ] Team-facing telemetry dashboard — simplified App Insights view, admin-gated.
 - [ ] Responsive design pass at 768px and 480px breakpoints.
@@ -816,8 +816,8 @@ Run `npm run check-sizes` to see current line counts.
 
 ---
 
-## Verification Check (Tiller) � follow-ups
+## Verification Check (Tiller) � follow-ups
 
-- [ ] PDF report download � proxy through the TillerManual Azure Function (`https://tillermanual.azurewebsites.net/api/PDF`) via a new server endpoint that streams the PDF. Surface in the form Result section (button currently disabled with tooltip).
+- [ ] PDF report download � proxy through the TillerManual Azure Function (`https://tillermanual.azurewebsites.net/api/PDF`) via a new server endpoint that streams the PDF. Surface in the form Result section (button currently disabled with tooltip).
 - [ ] Auto-upload verification report to Clio/NetDocuments against the matched matter when the instruction already has a matter reference.
-- [ ] Auto-detect Clio matter for a given `instructionRef` inside the form � show a linked-matter chip and a quick-open button so operators don't context-switch to find the file.
+- [ ] Auto-detect Clio matter for a given `instructionRef` inside the form � show a linked-matter chip and a quick-open button so operators don't context-switch to find the file.

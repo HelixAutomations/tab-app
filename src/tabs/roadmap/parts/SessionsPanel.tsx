@@ -28,7 +28,7 @@ const SessionsPanel: React.FC<Props> = ({ sessions, isDarkMode }) => {
         </span>
         {sessions && (
           <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 0, background: `${colours.green}30`, color: colours.green, fontFamily: 'monospace' }}>
-            {sessions.totalConnections} conn · {sessions.uniqueUsers} users
+            {sessions.totalConnections} conn - {sessions.uniqueUsers} users
           </span>
         )}
       </div>

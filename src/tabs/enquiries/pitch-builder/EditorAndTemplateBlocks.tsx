@@ -152,9 +152,12 @@ function escapeHtml(str: string) {
 function stripDashDividers(text: string): string {
   return text
     .split('\n')
-    .filter((line) => !/^\s*[-â€“â€”]{3,}\s*$/.test(line))
+    .filter((line) => !/^\s*[-\u2013\u2014]{3,}\s*$/.test(line))
     .join('\n');
 }
+
+const GBP_SYMBOL = '\u00a3';
+const POUND_SYMBOL_PATTERN = /(?:\u00a3|\u00c2\u00a3)/;
 
 // Convert very basic HTML to plain text for textarea defaults and copy actions
 function htmlToPlainText(html: string): string {
@@ -233,10 +236,10 @@ function highlightPlaceholdersHtml(html: string): string {
     el.removeAttribute('data-placeholder');
     const txt = el.textContent || '';
     if (/^\[[^\]]+\]$/.test(txt.trim())) {
-      // Unresolved placeholder â†’ mark as CTA red
+      // Unresolved placeholder -> mark as CTA red
       (el as HTMLElement).className = 'placeholder-unresolved';
     } else {
-      // Satisfied placeholder â†’ unwrap to plain text
+      // Satisfied placeholder -> unwrap to plain text
       const textNode = document.createTextNode(txt);
       el.parentNode?.replaceChild(textNode, el);
     }
@@ -300,7 +303,7 @@ function useAutoInsertRateRole(
     };
     const rateNumber = parseRate(rateRaw);
     const formatRateGBP = (n: number) =>
-      `Â£${n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} + VAT`;
+      `${GBP_SYMBOL}${n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} + VAT`;
 
     if (!body || (!roleStr && rateNumber == null)) {
       // No changes; clear any prior transient highlights
@@ -355,7 +358,7 @@ function formatPoundsAmount(amountRaw: string | undefined | null): string | null
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
-  return `Â£${withDecimals}`;
+  return `${GBP_SYMBOL}${withDecimals}`;
 }
 
 export function syncAmountIntoBody(prevBody: string, formattedAmount: string): string {
@@ -377,7 +380,7 @@ export function syncAmountIntoBody(prevBody: string, formattedAmount: string): s
     if (next !== prevBody) return next;
   }
 
-  const insertVatSpanPattern = /(<span\b[^>]*(?:data-original=(['"])\s*\[INSERT\]\s*\2|class=(['"])(?=[^'"]*\b(?:insert-placeholder|placeholder-edited|placeholder-editing)\b)[^'"]*\3)[^>]*>)(\s*(?:\[INSERT\]|Â£?\d[\d,]*(?:\.\d{1,2})?)\s*)(<\/span>)(\s*\+?\s*VAT)/i;
+  const insertVatSpanPattern = /(<span\b[^>]*(?:data-original=(['"])\s*\[INSERT\]\s*\2|class=(['"])(?=[^'"]*\b(?:insert-placeholder|placeholder-edited|placeholder-editing)\b)[^'"]*\3)[^>]*>)(\s*(?:\[INSERT\]|(?:\u00a3|\u00c2\u00a3)?\d[\d,]*(?:\.\d{1,2})?)\s*)(<\/span>)(\s*\+?\s*VAT)/i;
   const insertVatSpanNext = prevBody.replace(insertVatSpanPattern, (_match, openTag, _q1, _q2, _content, closeTag, vat) => {
     return `${openTag}${formattedAmount}${closeTag}${vat}`;
   });
@@ -389,7 +392,7 @@ export function syncAmountIntoBody(prevBody: string, formattedAmount: string): s
   const insertVatNext = prevBody.replace(/\[INSERT\](\s*\+?\s*VAT)/i, `${formattedAmount}$1`);
   if (insertVatNext !== prevBody) return insertVatNext;
 
-  const estimateVatPattern = /(\b(?:budget|estimate|estimated|approx(?:imately)?|quote)\b[^Â£]{0,80})Â£\s?\d[\d,]*(?:\.\d{1,2})?\s*\+?\s*VAT/i;
+  const estimateVatPattern = /(\b(?:budget|estimate|estimated|approx(?:imately)?|quote)\b(?:(?!\u00a3|\u00c2\u00a3).){0,80})(?:\u00a3|\u00c2\u00a3)\s?\d[\d,]*(?:\.\d{1,2})?\s*\+?\s*VAT/i;
   const estimateVatNext = prevBody.replace(estimateVatPattern, (_match, prefix) => `${prefix}${formattedAmount} + VAT`);
   return estimateVatNext;
 }
@@ -556,7 +559,7 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
       // Only update if the content is different
       const currentContent = bodyEditorRef.current.innerHTML;
       if (currentContent !== wrappedContent) {
-        console.log('[EditorSync] âš ï¸ WRITING innerHTML', { wrappedLength: wrappedContent.length });
+        console.log('[EditorSync] warning WRITING innerHTML', { wrappedLength: wrappedContent.length });
         bodyEditorRef.current.innerHTML = wrappedContent;
       }
     }
@@ -1002,7 +1005,7 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
               transition: 'all 0.12s ease',
               opacity: undoRedoState.currentIndex <= 0 ? 0.5 : 1
             }}
-            title={`Undo (Ctrl+Z)${undoRedoState.currentIndex > 0 ? ` â€¢ ${undoRedoState.currentIndex} step${undoRedoState.currentIndex > 1 ? 's' : ''} back` : ''}`}
+            title={`Undo (Ctrl+Z)${undoRedoState.currentIndex > 0 ? ` - ${undoRedoState.currentIndex} step${undoRedoState.currentIndex > 1 ? 's' : ''} back` : ''}`}
             onMouseOver={(e) => undoRedoState.currentIndex > 0 && (e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(71, 85, 105, 0.5)' : 'rgba(226, 232, 240, 0.9)')}
             onMouseOut={(e) => (e.currentTarget.style.backgroundColor = undoRedoState.currentIndex > 0 ? (isDarkMode ? 'rgba(71, 85, 105, 0.3)' : 'rgba(241, 245, 249, 0.8)') : 'transparent')}
           >
@@ -1031,7 +1034,7 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
               transition: 'all 0.12s ease',
               opacity: undoRedoState.currentIndex >= undoRedoState.history.length - 1 ? 0.5 : 1
             }}
-            title={`Redo (Ctrl+Y)${undoRedoState.currentIndex < undoRedoState.history.length - 1 ? ` â€¢ ${undoRedoState.history.length - 1 - undoRedoState.currentIndex} step${undoRedoState.history.length - 1 - undoRedoState.currentIndex > 1 ? 's' : ''} forward` : ''}`}
+            title={`Redo (Ctrl+Y)${undoRedoState.currentIndex < undoRedoState.history.length - 1 ? ` - ${undoRedoState.history.length - 1 - undoRedoState.currentIndex} step${undoRedoState.history.length - 1 - undoRedoState.currentIndex > 1 ? 's' : ''} forward` : ''}`}
             onMouseOver={(e) => undoRedoState.currentIndex < undoRedoState.history.length - 1 && (e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(71, 85, 105, 0.5)' : 'rgba(226, 232, 240, 0.9)')}
             onMouseOut={(e) => (e.currentTarget.style.backgroundColor = undoRedoState.currentIndex < undoRedoState.history.length - 1 ? (isDarkMode ? 'rgba(71, 85, 105, 0.3)' : 'rgba(241, 245, 249, 0.8)') : 'transparent')}
           >
@@ -1168,14 +1171,14 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
               const original = el.getAttribute('data-original') || '';
               const current = (el.textContent || '').trim();
               if (current === original) {
-                // No change â†’ restore original placeholder wrapper
+                // No change -> restore original placeholder wrapper
                 const span = document.createElement('span');
                 span.className = 'insert-placeholder';
                 span.setAttribute('data-insert', '');
                 span.textContent = original;
                 el.replaceWith(span);
               } else {
-                // Changed â†’ persist edited highlight
+                // Changed -> persist edited highlight
                 const span = document.createElement('span');
                 span.className = 'placeholder-edited';
                 if (original) span.setAttribute('data-original', original);
@@ -1658,7 +1661,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
       return isFinite(n) ? n : null;
     };
     const rateNumber = parseRate(rateRaw);
-    const formatRateGBP = (n: number) => `Â£${n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} + VAT`;
+    const formatRateGBP = (n: number) => `${GBP_SYMBOL}${n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} + VAT`;
     let out = text;
     if (rateNumber != null) out = out.replace(/\[RATE\]/gi, formatRateGBP(rateNumber));
     if (roleStr) out = out.replace(/\[ROLE\]/gi, roleStr);
@@ -1824,7 +1827,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
   // Replace placeholders with actual values when amount changes
   useEffect(() => {
     if (amountValue && scopeDescription && scopeDescription.includes('[AMOUNT]')) {
-      const formattedAmount = `Â£${parseFloat(amountValue).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      const formattedAmount = `${GBP_SYMBOL}${parseFloat(amountValue).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
       const updatedScope = scopeDescription.replace(/\[AMOUNT\]/g, formattedAmount);
       setScopeDescription(updatedScope);
       onScopeDescriptionChange?.(updatedScope);
@@ -1889,7 +1892,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
     
     // Replace [AMOUNT] placeholder with actual amount if available
     if (amountValue && processedValue.includes('[AMOUNT]')) {
-      const formattedAmount = `Â£${parseFloat(amountValue).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      const formattedAmount = `${GBP_SYMBOL}${parseFloat(amountValue).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
       processedValue = processedValue.replace(/\[AMOUNT\]/g, formattedAmount);
     }
     
@@ -1914,21 +1917,21 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
       if (value && !isNaN(Number(value))) {
         // Format the amount with currency and proper formatting
         const numericValue = parseFloat(value);
-        const formattedAmount = `Â£${numericValue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        const formattedAmount = `${GBP_SYMBOL}${numericValue.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
         
         // Replace existing [AMOUNT] placeholders with the actual formatted amount
         if (updatedScope.includes('[AMOUNT]')) {
           updatedScope = updatedScope.replace(/\[AMOUNT\]/g, formattedAmount);
-        } else if (!updatedScope.includes('Estimated fee:') && !updatedScope.includes('Â£')) {
+        } else if (!updatedScope.includes('Estimated fee:') && !POUND_SYMBOL_PATTERN.test(updatedScope)) {
           // Add the amount if it doesn't exist yet
           updatedScope = updatedScope + '\n\nEstimated fee: ' + formattedAmount;
         } else if (updatedScope.includes('Estimated fee:')) {
           // Replace existing amount in "Estimated fee:" line
-          updatedScope = updatedScope.replace(/(Estimated fee:\s*)Â£[\d,]+\.[\d]{2}/g, `$1${formattedAmount}`);
+          updatedScope = updatedScope.replace(/(Estimated fee:\s*)(?:\u00a3|\u00c2\u00a3)[\d,]+\.[\d]{2}/g, `$1${formattedAmount}`);
         }
       } else if (value === '') {
         // If amount is cleared, revert back to placeholder
-        updatedScope = updatedScope.replace(/Â£[\d,]+\.[\d]{2}/g, '[AMOUNT]');
+        updatedScope = updatedScope.replace(/(?:\u00a3|\u00c2\u00a3)[\d,]+\.[\d]{2}/g, '[AMOUNT]');
       }
       
       setScopeDescription(updatedScope);
@@ -2435,11 +2438,11 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                         ? 'linear-gradient(135deg, rgba(32, 178, 108, 0.35) 0%, rgba(32, 178, 108, 0.28) 100%)'
                         : 'linear-gradient(135deg, rgba(32, 178, 108, 0.16) 0%, rgba(32, 178, 108, 0.18) 100%)')
                     : (isDarkMode 
-                        ? 'linear-gradient(135deg, rgba(135, 243, 243, 0.24) 0%, rgba(135, 243, 243, 0.18) 100%)'
+                        ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.24) 0%, rgba(54, 144, 206, 0.18) 100%)'
                         : 'linear-gradient(135deg, rgba(54, 144, 206, 0.16) 0%, rgba(54, 144, 206, 0.18) 100%)'),
                   border: selectedScenarioId
                     ? `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.5)' : 'rgba(32, 178, 108, 0.3)'}`
-                    : `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`,
+                    : `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -2457,7 +2460,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                     switch(selectedScenarioId) {
                       case 'before-call-call':
                         return isDarkMode 
-                          ? 'linear-gradient(135deg, rgba(135, 243, 243, 0.2) 0%, rgba(135, 243, 243, 0.15) 100%)'
+                          ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.2) 0%, rgba(54, 144, 206, 0.15) 100%)'
                           : 'linear-gradient(135deg, rgba(54, 144, 206, 0.1) 0%, rgba(54, 144, 206, 0.08) 100%)';
                       case 'before-call-no-call':
                         return isDarkMode
@@ -2487,7 +2490,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   border: (() => {
                     switch(selectedScenarioId) {
                     case 'before-call-call':
-                      return `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.3)' : 'rgba(54, 144, 206, 0.2)'}`;
+                      return `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)'}`;
                     case 'before-call-no-call':
                       return `1px solid ${isDarkMode ? 'rgba(251, 191, 36, 0.3)' : 'rgba(217, 119, 6, 0.2)'}`;
                     case 'after-call-probably-cant-assist':
@@ -2594,7 +2597,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 fontSize: 10,
                 color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.65)'
               }}>
-                Pitch history Â· {pitchHistoryContextHint}
+                Pitch history - {pitchHistoryContextHint}
               </div>
             )}
           </div>
@@ -2669,7 +2672,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                       // If there's already a prefilled amount, replace [INSERT]+VAT in the scenario body
                       const currentAmount = s.id === 'cfa' ? '0.99' : amountValue;
                       if (currentAmount && parseFloat(currentAmount) > 0) {
-                        const formattedAmt = `Â£${parseFloat(currentAmount).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                        const formattedAmt = `${GBP_SYMBOL}${parseFloat(currentAmount).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
                         // Replace [INSERT] that appears before +VAT (the amount placeholder)
                         projected = projected.replace(/\[INSERT\](\s*\+?\s*VAT)/gi, `<span class="placeholder-edited" data-original="[INSERT]">${formattedAmt}</span>$1`);
                       }
@@ -2920,15 +2923,15 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                             {(() => {
                               switch(s.id) {
                                 case 'before-call-call': 
-                                  return 'Schedule consultation â€¢ Calendly link â€¢ No upfront cost';
+                                  return 'Schedule consultation - Calendly link - No upfront cost';
                                 case 'before-call-no-call':
-                                  return 'Detailed written pitch â€¢ Cost estimate â€¢ Instruction link';
+                                  return 'Detailed written pitch - Cost estimate - Instruction link';
                                 case 'after-call-probably-cant-assist':
-                                  return 'Polite decline â€¢ Alternative suggestions â€¢ Review request';
+                                  return 'Polite decline - Alternative suggestions - Review request';
                                 case 'after-call-want-instruction':
-                                  return 'Formal proposal â€¢ Comprehensive costs â€¢ Next steps';
+                                  return 'Formal proposal - Comprehensive costs - Next steps';
                                 case 'cfa':
-                                  return 'No-win-no-fee enquiry â€¢ Quick response â€¢ Clear expectations';
+                                  return 'No-win-no-fee enquiry - Quick response - Clear expectations';
                                 default:
                                   return 'Standard professional response template';
                               }
@@ -3025,11 +3028,11 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                         ? 'linear-gradient(135deg, rgba(32, 178, 108, 0.35) 0%, rgba(32, 178, 108, 0.28) 100%)'
                         : 'linear-gradient(135deg, rgba(32, 178, 108, 0.16) 0%, rgba(32, 178, 108, 0.18) 100%)')
                     : (isDarkMode 
-                        ? 'linear-gradient(135deg, rgba(135, 243, 243, 0.24) 0%, rgba(135, 243, 243, 0.18) 100%)'
+                        ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.24) 0%, rgba(54, 144, 206, 0.18) 100%)'
                         : 'linear-gradient(135deg, rgba(54, 144, 206, 0.16) 0%, rgba(54, 144, 206, 0.18) 100%)'),
                   border: !isSubjectEditing && subject && subject !== 'Your Enquiry - Helix Law'
                     ? `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.5)' : 'rgba(32, 178, 108, 0.3)'}`
-                    : `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`,
+                    : `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -3048,14 +3051,14 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                         ? 'linear-gradient(135deg, rgba(32, 178, 108, 0.35) 0%, rgba(32, 178, 108, 0.28) 100%)'
                         : 'linear-gradient(135deg, rgba(32, 178, 108, 0.16) 0%, rgba(32, 178, 108, 0.18) 100%)')
                     : (isDarkMode 
-                        ? 'linear-gradient(135deg, rgba(135, 243, 243, 0.24) 0%, rgba(135, 243, 243, 0.18) 100%)'
+                        ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.24) 0%, rgba(54, 144, 206, 0.18) 100%)'
                         : 'linear-gradient(135deg, rgba(54, 144, 206, 0.16) 0%, rgba(54, 144, 206, 0.18) 100%)'),
                   borderRadius: '6px',
                   display: 'flex',
                   alignItems: 'center',
                   border: !isSubjectEditing && subject && subject !== 'Your Enquiry - Helix Law'
                     ? `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.5)' : 'rgba(32, 178, 108, 0.3)'}`
-                    : `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`
+                    : `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`
                 }}>
                   <FaEdit style={{ 
                     fontSize: 12, 
@@ -3240,13 +3243,13 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                             ? 'linear-gradient(135deg, rgba(255, 213, 79, 0.35) 0%, rgba(234, 179, 8, 0.28) 100%)'
                             : 'linear-gradient(135deg, rgba(234, 179, 8, 0.2) 0%, rgba(202, 138, 4, 0.16) 100%)')
                         : (isDarkMode 
-                            ? 'linear-gradient(135deg, rgba(135, 243, 243, 0.24) 0%, rgba(135, 243, 243, 0.18) 100%)'
+                            ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.24) 0%, rgba(54, 144, 206, 0.18) 100%)'
                             : 'linear-gradient(135deg, rgba(54, 144, 206, 0.16) 0%, rgba(54, 144, 206, 0.18) 100%)'),
                     border: !isIncomplete
                       ? `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.5)' : 'rgba(32, 178, 108, 0.3)'}`
                       : needsAttention
                         ? `2px solid rgba(255, 213, 79, 0.7)`
-                        : `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`,
+                        : `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -3271,7 +3274,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                             ? 'linear-gradient(135deg, rgba(255, 213, 79, 0.35) 0%, rgba(234, 179, 8, 0.28) 100%)'
                             : 'linear-gradient(135deg, rgba(234, 179, 8, 0.2) 0%, rgba(202, 138, 4, 0.16) 100%)')
                         : (isDarkMode 
-                            ? 'linear-gradient(135deg, rgba(135, 243, 243, 0.24) 0%, rgba(135, 243, 243, 0.18) 100%)'
+                            ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.24) 0%, rgba(54, 144, 206, 0.18) 100%)'
                             : 'linear-gradient(135deg, rgba(54, 144, 206, 0.16) 0%, rgba(54, 144, 206, 0.18) 100%)'),
                     borderRadius: '6px',
                     display: 'flex',
@@ -3280,7 +3283,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                       ? `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.5)' : 'rgba(32, 178, 108, 0.3)'}`
                       : needsAttention
                         ? `1px solid rgba(255, 213, 79, 0.6)`
-                        : `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`
+                        : `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`
                   }}>
                     <FaFileAlt style={{ 
                       fontSize: 12, 
@@ -3396,11 +3399,11 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                           ? 'linear-gradient(135deg, rgba(32, 178, 108, 0.35) 0%, rgba(32, 178, 108, 0.28) 100%)'
                           : 'linear-gradient(135deg, rgba(32, 178, 108, 0.16) 0%, rgba(32, 178, 108, 0.18) 100%)')
                       : (isDarkMode 
-                          ? 'linear-gradient(135deg, rgba(135, 243, 243, 0.24) 0%, rgba(135, 243, 243, 0.18) 100%)'
+                          ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.24) 0%, rgba(54, 144, 206, 0.18) 100%)'
                           : 'linear-gradient(135deg, rgba(54, 144, 206, 0.16) 0%, rgba(54, 144, 206, 0.18) 100%)'),
                     border: amountValue && parseFloat(amountValue) > 0
                       ? `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.5)' : 'rgba(32, 178, 108, 0.3)'}`
-                      : `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`,
+                      : `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -3419,14 +3422,14 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                           ? 'linear-gradient(135deg, rgba(32, 178, 108, 0.35) 0%, rgba(32, 178, 108, 0.28) 100%)'
                           : 'linear-gradient(135deg, rgba(32, 178, 108, 0.16) 0%, rgba(32, 178, 108, 0.18) 100%)')
                       : (isDarkMode 
-                          ? 'linear-gradient(135deg, rgba(135, 243, 243, 0.24) 0%, rgba(135, 243, 243, 0.18) 100%)'
+                          ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.24) 0%, rgba(54, 144, 206, 0.18) 100%)'
                           : 'linear-gradient(135deg, rgba(54, 144, 206, 0.16) 0%, rgba(54, 144, 206, 0.18) 100%)'),
                     borderRadius: '6px',
                     display: 'flex',
                     alignItems: 'center',
                     border: amountValue && parseFloat(amountValue) > 0
                       ? `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.5)' : 'rgba(32, 178, 108, 0.3)'}`
-                      : `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`
+                      : `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`
                   }}>
                     <FaPoundSign style={{ 
                       fontSize: 12, 
@@ -3518,11 +3521,11 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                         ? 'linear-gradient(135deg, rgba(32, 178, 108, 0.35) 0%, rgba(32, 178, 108, 0.28) 100%)'
                         : 'linear-gradient(135deg, rgba(32, 178, 108, 0.16) 0%, rgba(32, 178, 108, 0.18) 100%)')
                     : (isDarkMode 
-                        ? 'linear-gradient(135deg, rgba(135, 243, 243, 0.24) 0%, rgba(135, 243, 243, 0.18) 100%)'
+                        ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.24) 0%, rgba(54, 144, 206, 0.18) 100%)'
                         : 'linear-gradient(135deg, rgba(54, 144, 206, 0.16) 0%, rgba(54, 144, 206, 0.18) 100%)'),
                   border: allPlaceholdersSatisfied
                     ? `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.5)' : 'rgba(32, 178, 108, 0.3)'}`
-                    : `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`,
+                    : `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -3541,14 +3544,14 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                         ? 'linear-gradient(135deg, rgba(32, 178, 108, 0.35) 0%, rgba(32, 178, 108, 0.28) 100%)'
                         : 'linear-gradient(135deg, rgba(32, 178, 108, 0.16) 0%, rgba(32, 178, 108, 0.18) 100%)')
                     : (isDarkMode 
-                        ? 'linear-gradient(135deg, rgba(135, 243, 243, 0.24) 0%, rgba(135, 243, 243, 0.18) 100%)'
+                        ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.24) 0%, rgba(54, 144, 206, 0.18) 100%)'
                         : 'linear-gradient(135deg, rgba(54, 144, 206, 0.16) 0%, rgba(54, 144, 206, 0.18) 100%)'),
                   borderRadius: '8px',
                   display: 'flex',
                   alignItems: 'center',
                   border: allPlaceholdersSatisfied
                     ? `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.5)' : 'rgba(32, 178, 108, 0.3)'}`
-                    : `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`
+                    : `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`
                 }}>
                   <FaFileAlt style={{ 
                     fontSize: 12, 
@@ -3570,7 +3573,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 flex: 1,
                 height: 1,
                 background: isDarkMode 
-                  ? 'linear-gradient(90deg, rgba(135, 243, 243, 0.2) 0%, transparent 100%)'
+                  ? 'linear-gradient(90deg, rgba(54, 144, 206, 0.2) 0%, transparent 100%)'
                   : 'linear-gradient(90deg, rgba(148, 163, 184, 0.3) 0%, transparent 100%)'
               }} />
               <button
@@ -4197,10 +4200,10 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
         .email-preview.dark-mode .insert-placeholder,
         .email-preview.dark-mode span[data-insert],
         .email-preview.dark-mode span[data-original*="INSERT"] {
-          background: linear-gradient(135deg, rgba(135, 243, 243, 0.15), rgba(135, 243, 243, 0.22)) !important;
+          background: linear-gradient(135deg, rgba(54, 144, 206, 0.15), rgba(54, 144, 206, 0.22)) !important;
           color: ${colours.accent} !important;
-          border-color: rgba(135, 243, 243, 0.5) !important;
-          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25), inset 0 0 0 1px rgba(135, 243, 243, 0.1) !important;
+          border-color: rgba(54, 144, 206, 0.5) !important;
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25), inset 0 0 0 1px rgba(54, 144, 206, 0.1) !important;
         }
         
         .email-preview.light-mode .insert-placeholder,
@@ -4315,11 +4318,11 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
         
         /* Placeholder highlighting styles */
         .insert-placeholder {
-          background: ${isDarkMode ? 'rgba(135, 243, 243, 0.08)' : colours.highlightBlue + '14'};
+          background: ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : colours.highlightBlue + '14'};
           color: ${isDarkMode ? colours.accent : colours.darkBlue};
           padding: 1px 5px;
           border-radius: 6px;
-          border: 1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.3)' : colours.darkBlue + '40'};
+          border: 1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : colours.darkBlue + '40'};
           font-style: normal;
           cursor: pointer;
           transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
@@ -4332,7 +4335,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
         }
         .insert-placeholder:hover,
         .insert-placeholder:focus {
-          background: ${isDarkMode ? 'rgba(135, 243, 243, 0.16)' : colours.blue + '2A'};
+          background: ${isDarkMode ? 'rgba(54, 144, 206, 0.16)' : colours.blue + '2A'};
           color: ${isDarkMode ? '#F8FAFC' : colours.darkBlue};
           border-color: ${isDarkMode ? colours.accent : colours.blue};
           outline: none;
@@ -4358,8 +4361,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
 
         /* Active editing wrapper */
         .placeholder-editing {
-          background: ${isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(54, 144, 206, 0.08)'} !important;
-          border: 1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.4)' : colours.blue + '55'} !important;
+          background: ${isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)'} !important;
+          border: 1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.4)' : colours.blue + '55'} !important;
           border-radius: 6px !important;
           padding: 1px 4px !important;
         }
@@ -4738,7 +4741,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
               </div>
             </div>
 
-            {/* Email Summary Section - Secondary (hidden for Before call â€” Call) */}
+            {/* Email Summary Section - Secondary (hidden for Before call - Call) */}
             {!isBeforeCallCall && (
               <div style={{
                 background: 'transparent',
@@ -5281,7 +5284,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                       borderRadius: '50%',
                       animation: 'spin 1s linear infinite'
                     }} />
-                    Sendingâ€¦
+                    Sending...
                   </>
                 ) : (
                   <>

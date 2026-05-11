@@ -1,13 +1,12 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Text } from '@fluentui/react/lib/Text';
 import { Icon } from '@fluentui/react/lib/Icon';
-import { DefaultButton, PrimaryButton, IconButton } from '@fluentui/react/lib/Button';
+import { DefaultButton, IconButton } from '@fluentui/react/lib/Button';
 import { Spinner, SpinnerSize } from '@fluentui/react/lib/Spinner';
 import { Modal } from '@fluentui/react/lib/Modal';
 import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
 import { colours } from '../../../app/styles/colours';
 import { isAdminUser } from '../../../app/admin';
-import { useTheme } from '../../../app/functionality/ThemeContext';
 import type { UserData, TeamData } from '../../../app/functionality/types';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -206,11 +205,19 @@ const RegistersWorkspace: React.FC<RegistersWorkspaceProps> = ({
   // L&D state
   const [ldPlans, setLdPlans] = useState<LDPlan[]>([]);
   const [ldYear, setLdYear] = useState(new Date().getFullYear());
+  const [ldScope, setLdScope] = useState<'mine' | 'firm'>('mine');
   const [ldLoading, setLdLoading] = useState(false);
   const [ldError, setLdError] = useState<string | null>(null);
   const [showAddActivity, setShowAddActivity] = useState(false);
   const [selectedPlanId, setSelectedPlanId] = useState<number | null>(null);
   const [showCreatePlan, setShowCreatePlan] = useState(false);
+
+  const visibleLdPlans = useMemo(() => {
+    if (!isAdmin || ldScope === 'mine') {
+      return ldPlans.filter(p => (p.initials || '').toUpperCase() === userInitials);
+    }
+    return ldPlans;
+  }, [ldPlans, isAdmin, ldScope, userInitials]);
 
   // Undertakings state
   const [undertakings, setUndertakings] = useState<Undertaking[]>([]);
@@ -347,7 +354,6 @@ const RegistersWorkspace: React.FC<RegistersWorkspaceProps> = ({
 
   // ── Styles ────────────────────────────────────────────────────────────────
 
-  const panelBg = isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground;
   const cardBg = isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground;
   const borderCol = isDarkMode ? colours.dark.border : colours.light.border;
   const textPrimary = isDarkMode ? colours.dark.text : colours.light.text;
@@ -831,8 +837,8 @@ const RegistersWorkspace: React.FC<RegistersWorkspaceProps> = ({
 
   const renderLDTab = () => (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <span style={sectionHeaderStyle}>CPD Plans</span>
           <div style={{ display: 'flex', gap: 4 }}>
             {[ldYear - 1, ldYear, ldYear + 1].map(y => (
@@ -849,6 +855,55 @@ const RegistersWorkspace: React.FC<RegistersWorkspaceProps> = ({
               </button>
             ))}
           </div>
+          {isAdmin && (
+            <div
+              role="group"
+              aria-label="Scope"
+              style={{
+                display: 'flex',
+                gap: 4,
+                paddingLeft: 12,
+                borderLeft: `1px solid ${isDarkMode ? '#ffffff1a' : '#0000001a'}`,
+              }}
+            >
+              {(['mine', 'firm'] as const).map(scope => (
+                <button
+                  key={scope}
+                  onClick={() => setLdScope(scope)}
+                  style={{
+                    ...tabStyle(scope === ldScope),
+                    padding: '4px 10px',
+                    fontSize: 12,
+                  }}
+                >
+                  {scope === 'mine' ? 'My plans' : 'Firm-wide'}
+                </button>
+              ))}
+            </div>
+          )}
+          {isAdmin && ldScope === 'firm' && (
+            <span
+              title="Admin view: showing every teammate's CPD plan"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '3px 8px',
+                fontSize: 11,
+                fontWeight: 600,
+                letterSpacing: 0.3,
+                textTransform: 'uppercase',
+                color: colours.cta,
+                background: isDarkMode ? 'rgba(214, 85, 65, 0.12)' : 'rgba(214, 85, 65, 0.08)',
+                border: `1px solid ${colours.cta}`,
+                borderRadius: 999,
+                fontFamily: 'Raleway, sans-serif',
+              }}
+            >
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: colours.cta }} />
+              Admin · Firm-wide
+            </span>
+          )}
         </div>
         <DefaultButton
           text="New plan"
@@ -860,9 +915,13 @@ const RegistersWorkspace: React.FC<RegistersWorkspaceProps> = ({
 
       {ldLoading && renderLoading()}
       {ldError && renderError(ldError)}
-      {!ldLoading && !ldError && ldPlans.length === 0 && renderEmpty('No CPD plans for this year. Create one to start logging activities.')}
+      {!ldLoading && !ldError && visibleLdPlans.length === 0 && renderEmpty(
+        isAdmin && ldScope === 'mine'
+          ? 'No CPD plans of yours for this year. Create one to start logging activities, or switch to Firm-wide to see your team.'
+          : 'No CPD plans for this year. Create one to start logging activities.'
+      )}
 
-      {ldPlans.map(plan => (
+      {visibleLdPlans.map(plan => (
         <div key={plan.id} style={{ ...rowStyle, marginBottom: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
             <div>

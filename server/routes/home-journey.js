@@ -41,6 +41,30 @@ const RECORDING_COLS = `
   r.document_emotion_json
 `.trim();
 
+const USER_MAP_OWNER_PREDICATE = `
+EXISTS (
+  SELECT 1
+  FROM dbo.dubber_user_map u
+  CROSS APPLY (VALUES
+    (LOWER(LTRIM(RTRIM(u.display_name)))),
+    (LOWER(LTRIM(RTRIM(CONCAT(u.first_name, ' ', u.last_name))))),
+    (LOWER(LTRIM(RTRIM(u.matched_team_email)))),
+    (LOWER(LTRIM(RTRIM(u.matched_team_initials))))
+  ) owner_names(name)
+  WHERE (
+    (@initials <> '' AND UPPER(LTRIM(RTRIM(u.matched_team_initials))) = @initials)
+    OR (@email <> '' AND LOWER(LTRIM(RTRIM(u.matched_team_email))) = @email)
+  )
+    AND owner_names.name <> ''
+    AND owner_names.name IN (
+      LOWER(LTRIM(RTRIM(r.from_label))),
+      LOWER(LTRIM(RTRIM(r.to_label))),
+      LOWER(LTRIM(RTRIM(r.from_party))),
+      LOWER(LTRIM(RTRIM(r.to_party)))
+    )
+)
+`.trim();
+
 function instrPool() {
   const connStr = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
   if (!connStr) throw new Error('INSTRUCTIONS_SQL_CONNECTION_STRING not configured');
@@ -73,10 +97,19 @@ function parseScope(value) {
   return null;
 }
 
-function isDevOwner(user, fallbackInitials, fallbackEmail) {
-  const initials = String(user?.initials || fallbackInitials || '').trim().toUpperCase();
-  const email = String(user?.email || fallbackEmail || '').trim().toLowerCase();
-  return initials === 'LZ' || email === 'lz@helix-law.com';
+function canUseAllCallScope(user, fallbackInitials, fallbackEmail) {
+  const adminInitials = new Set(['LZ', 'AC', 'KW', 'JW', 'LA', 'EA']);
+  const adminEmails = new Set(['lz@helix-law.com', 'ac@helix-law.com', 'kw@helix-law.com', 'jw@helix-law.com', 'la@helix-law.com', 'ea@helix-law.com']);
+  const adminNames = new Set(['lukasz', 'luke', 'alex', 'kanchel', 'jonathan', 'laura', 'emma']);
+  const initials = String(user?.initials || user?.Initials || fallbackInitials || '').trim().toUpperCase();
+  const email = String(user?.email || user?.Email || fallbackEmail || '').trim().toLowerCase();
+  const first = String(user?.first || user?.First || '').trim().toLowerCase();
+  const nickname = String(user?.nickname || user?.Nickname || '').trim().toLowerCase();
+  return adminInitials.has(initials) || adminEmails.has(email) || adminNames.has(first) || adminNames.has(nickname);
+}
+
+function isLukeIdentity(initials) {
+  return String(initials || '').trim().toUpperCase() === 'LZ';
 }
 
 function normDigits(raw) {
@@ -101,6 +134,46 @@ function parseJsonArray(raw) {
   } catch {
     return [];
   }
+}
+
+function parseJsonObject(raw) {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(String(raw));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeAttendanceAttendees(raw) {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set();
+  return raw.map((entry, index) => {
+    const name = String(entry?.name || '').trim();
+    const initials = String(entry?.initials || '').trim().toUpperCase() || null;
+    const email = String(entry?.email || '').trim().toLowerCase() || null;
+    if (!name && !initials && !email) return null;
+    const kind = entry?.kind === 'internal' ? 'internal' : 'external';
+    const requestedRole = String(entry?.role || '').trim().toLowerCase();
+    const role = kind === 'external'
+      ? 'external'
+      : ['primary', 'supporting', 'learning'].includes(requestedRole)
+        ? requestedRole
+        : 'supporting';
+    const key = `${kind}:${initials || email || name.toLowerCase() || index}`;
+    if (seen.has(key)) return null;
+    seen.add(key);
+    return {
+      id: String(entry?.id || key),
+      kind,
+      role,
+      name: name || initials || email || 'Attendee',
+      initials,
+      email,
+      source: entry?.source === 'manual' ? 'manual' : 'transcript',
+    };
+  }).filter(Boolean);
 }
 
 function toTimestamp(value) {
@@ -252,29 +325,36 @@ async function resolvePhoneNames(normDigitsArr) {
 async function getDubberUserMapRows() {
   const pool = await instrPool();
   const result = await pool.request().query(`
-    SELECT display_name, first_name, last_name, matched_team_email
+    SELECT display_name, first_name, last_name, matched_team_initials, matched_team_email
     FROM dbo.dubber_user_map
   `);
   return result.recordset || [];
 }
 
-async function fetchRawCallsForScope({ initials, email, showAll, limit }) {
+async function fetchRawCallsForScope({ initials, email, showAll, limit, scanLimit = limit, fetchAll = false }) {
   const pool = await instrPool();
-  const request = pool.request().input('limit', sql.Int, limit);
+  const useUnboundedUserFetch = Boolean(fetchAll && !showAll);
+  const boundedScanLimit = useUnboundedUserFetch ? null : Math.min(Math.max(Number(scanLimit) || limit, limit), 240);
+  const request = pool.request();
+  if (!useUnboundedUserFetch) {
+    request.input('limit', sql.Int, boundedScanLimit);
+  }
+  const topClause = useUnboundedUserFetch ? '' : 'TOP (@limit) ';
   const filters = [];
 
   if (!showAll) {
     const normalizedInitials = String(initials || '').trim().toUpperCase();
     const normalizedEmail = String(email || '').trim().toLowerCase();
 
+    request.input('initials', sql.NVarChar, normalizedInitials);
+    request.input('email', sql.NVarChar, normalizedEmail);
+
     if (normalizedInitials) {
-      request.input('initials', sql.NVarChar, normalizedInitials);
-      filters.push('r.matched_team_initials = @initials');
+      filters.push('UPPER(LTRIM(RTRIM(r.matched_team_initials))) = @initials');
     }
 
     if (normalizedEmail) {
-      request.input('email', sql.NVarChar, normalizedEmail);
-      filters.push('LOWER(r.matched_team_email) = @email');
+      filters.push('LOWER(LTRIM(RTRIM(r.matched_team_email))) = @email');
     }
   }
 
@@ -286,6 +366,48 @@ async function fetchRawCallsForScope({ initials, email, showAll, limit }) {
     return [];
   }
 
+  if (!showAll) {
+    const ownerPredicate = filters.join(' OR ');
+    const userScopePredicate = `(${ownerPredicate} OR ${USER_MAP_OWNER_PREDICATE})`;
+    const result = await request.query(`
+      IF OBJECT_ID('dbo.call_attendance_note_submissions', 'U') IS NULL
+      BEGIN
+        SELECT ${topClause}${RECORDING_COLS}
+        FROM dbo.dubber_recordings r
+        WHERE ${userScopePredicate}
+        ORDER BY r.start_time_utc DESC;
+      END
+      ELSE
+      BEGIN
+        SELECT ${topClause}${RECORDING_COLS}
+        FROM dbo.dubber_recordings r
+        WHERE (
+          ${userScopePredicate}
+          OR EXISTS (
+            SELECT 1
+            FROM dbo.call_attendance_note_submissions s
+            CROSS APPLY OPENJSON(CASE WHEN ISJSON(s.note_json) = 1 THEN s.note_json ELSE N'{}' END, '$.attendees')
+              WITH (
+                kind NVARCHAR(20) '$.kind',
+                role NVARCHAR(40) '$.role',
+                initials NVARCHAR(20) '$.initials',
+                email NVARCHAR(320) '$.email'
+              ) attendee
+            WHERE s.recording_id = r.recording_id
+              AND attendee.kind = 'internal'
+              AND (
+                (@initials <> '' AND UPPER(LTRIM(RTRIM(attendee.initials))) = @initials)
+                OR (@email <> '' AND LOWER(LTRIM(RTRIM(attendee.email))) = @email)
+              )
+          )
+        )
+        ORDER BY r.start_time_utc DESC;
+      END
+    `);
+
+    return result.recordset || [];
+  }
+
   const result = await request.query(`
     SELECT TOP (@limit) ${RECORDING_COLS}
     FROM dbo.dubber_recordings r
@@ -294,6 +416,77 @@ async function fetchRawCallsForScope({ initials, email, showAll, limit }) {
   `);
 
   return result.recordset || [];
+}
+
+async function fetchAttendanceSummariesByRecordingIds(recordingIds) {
+  const uniqueIds = [...new Set((recordingIds || []).filter(Boolean).map(String))].slice(0, 240);
+  if (!uniqueIds.length) return new Map();
+
+  const pool = await instrPool();
+  const request = pool.request();
+  const params = [];
+  uniqueIds.forEach((recordingId, index) => {
+    const param = `rid${index}`;
+    request.input(param, sql.NVarChar, recordingId);
+    params.push(`@${param}`);
+  });
+
+  const result = await request.query(`
+    IF OBJECT_ID('dbo.call_attendance_note_submissions', 'U') IS NULL
+    BEGIN
+      SELECT CAST(NULL AS NVARCHAR(100)) AS recording_id WHERE 1 = 0;
+    END
+    ELSE
+    BEGIN
+      WITH ranked AS (
+        SELECT
+          s.recording_id,
+          s.note_json,
+          s.target_type,
+          s.matter_ref,
+          s.submitted_by_initials,
+          s.submitted_at,
+          s.call_date,
+          s.processing_status,
+          s.nd_doc_id,
+          s.doc_file_name,
+          ROW_NUMBER() OVER (PARTITION BY s.recording_id ORDER BY s.submitted_at DESC) AS rn
+        FROM dbo.call_attendance_note_submissions s
+        WHERE s.recording_id IN (${params.join(', ')})
+      )
+      SELECT
+        recording_id,
+        note_json,
+        target_type,
+        matter_ref,
+        submitted_by_initials,
+        submitted_at,
+        call_date,
+        processing_status,
+        nd_doc_id,
+        doc_file_name
+      FROM ranked
+      WHERE rn = 1;
+    END
+  `);
+
+  const map = new Map();
+  for (const row of result.recordset || []) {
+    if (!row.recording_id) continue;
+    const note = parseJsonObject(row.note_json) || {};
+    map.set(String(row.recording_id), {
+      attendees: normalizeAttendanceAttendees(note.attendees),
+      target_type: row.target_type || null,
+      matter_ref: row.matter_ref || null,
+      saved_by: row.submitted_by_initials || null,
+      saved_at: row.submitted_at || null,
+      call_date: row.call_date || null,
+      processing_status: row.processing_status || null,
+      uploaded_nd: Boolean(row.nd_doc_id),
+      nd_file_name: row.doc_file_name || null,
+    });
+  }
+  return map;
 }
 
 async function fetchRawCallsByIds(recordingIds) {
@@ -323,15 +516,39 @@ async function enrichRecordings(recordings, userMapRows) {
   for (const row of userMapRows) {
     if (row.display_name) teamNames.add(String(row.display_name).toLowerCase());
     if (row.first_name && row.last_name) teamNames.add(`${row.first_name} ${row.last_name}`.toLowerCase());
+    if (row.matched_team_initials) teamNames.add(String(row.matched_team_initials).toLowerCase());
     if (row.matched_team_email) teamNames.add(String(row.matched_team_email).toLowerCase());
   }
 
   const recordingsWithInternalFlag = recordings.map((row) => {
     const fromStr = String(row.from_label || row.from_party || '').toLowerCase();
     const toStr = String(row.to_label || row.to_party || '').toLowerCase();
+    const matchStrategy = String(row.match_strategy || '').trim().toLowerCase();
+    const channel = String(row.channel || '').trim().toLowerCase();
+    const fromParty = String(row.from_party || '').toLowerCase();
+    const toParty = String(row.to_party || '').toLowerCase();
+    const hasPhoneSignal = [row.from_party, row.from_label, row.to_party, row.to_label].some(looksLikePhone);
+    const isInternal = matchStrategy === 'internal' || (teamNames.has(fromStr) && teamNames.has(toStr));
+    // Meeting-like = explicit screen-share / meeting / video / Teams session indicators
+    // anywhere in channel or party labels. Match strategy alone is NOT a meeting signal —
+    // username-email matches still happen for real external calls Dubber couldn't number-resolve.
+    const meetingPattern = /\b(screen[- ]?share|screenshare|meeting|video[- ]?call|teams[- ]?meeting|conference)\b/;
+    const isMeetingLike = !hasPhoneSignal && (
+      meetingPattern.test(channel)
+      || meetingPattern.test(fromStr)
+      || meetingPattern.test(toStr)
+      || meetingPattern.test(fromParty)
+      || meetingPattern.test(toParty)
+    );
     return {
       ...row,
-      is_internal: teamNames.has(fromStr) && teamNames.has(toStr),
+      is_internal: isInternal,
+      is_meeting_like: isMeetingLike,
+      // External Calls lane = anything not internal. Meeting-shaped Dubber rows
+      // (to_party='meeting' etc.) still belong here because that is what the
+      // team's recorded external interactions actually look like; the
+      // is_meeting_like flag is exposed separately for future UI badging.
+      is_external_call: !isInternal,
     };
   });
 
@@ -535,8 +752,15 @@ function uniqueCallsFromItems(items) {
 
 async function buildSnapshot({ initials, email, showAll, limit, requestId, sources }) {
   const callsOnlyRequest = Array.isArray(sources) && sources.length === 1 && sources[0] === 'calls';
+  const fetchAllLukeMineCalls = callsOnlyRequest && !showAll && isLukeIdentity(initials);
   const minimumSourceLimit = callsOnlyRequest ? Math.max(limit, 20) : 60;
   const sourceLimit = Math.min(Math.max(limit, minimumSourceLimit), 120);
+  // For Mine scope we widen the scan because owner-stamping is sometimes missing
+  // and the user-map fallback may need to look further back. For All scope every
+  // row passes the filter, so a wide scan only adds latency for no extra rows.
+  const callScanLimit = callsOnlyRequest
+    ? (fetchAllLukeMineCalls ? null : (showAll ? sourceLimit : Math.min(Math.max(limit * 5, 160), 240)))
+    : sourceLimit;
   const warnings = {};
   const includeCalls = !sources || sources.includes('calls');
   const includeNotes = !sources || sources.includes('notes');
@@ -547,7 +771,7 @@ async function buildSnapshot({ initials, email, showAll, limit, requestId, sourc
 
   const [rawCalls, notes, emailEvents, userMapRows, activities] = await Promise.all([
     includeCalls
-      ? fetchRawCallsForScope({ initials, email, showAll, limit: sourceLimit }).catch((error) => {
+      ? fetchRawCallsForScope({ initials, email, showAll, limit: sourceLimit, scanLimit: callScanLimit || sourceLimit, fetchAll: fetchAllLukeMineCalls }).catch((error) => {
         trackException(error, { component: 'HomeJourney', operation: 'FetchCalls', requestId });
         warnings.calls = 'Call data temporarily unavailable';
         return [];
@@ -594,11 +818,27 @@ async function buildSnapshot({ initials, email, showAll, limit, requestId, sourc
 
   const missingCalls = await fetchRawCallsByIds(missingRecordingIds);
   const enrichedCalls = await enrichRecordings([...rawCalls, ...missingCalls], userMapRows);
-  const callsById = new Map(enrichedCalls.map((call) => [call.recording_id, call]));
+  let attendanceSummaries = new Map();
+  try {
+    attendanceSummaries = await fetchAttendanceSummariesByRecordingIds([
+      ...enrichedCalls.map((call) => call.recording_id),
+      ...notes.map((note) => note.recording_id),
+    ]);
+  } catch (error) {
+    trackException(error, { component: 'HomeJourney', operation: 'FetchAttendanceSummaries', requestId });
+    warnings.attendance = 'Attendance context temporarily unavailable';
+  }
+  const enrichedCallsWithAttendance = enrichedCalls.map((call) => {
+    const attendance = attendanceSummaries.get(call.recording_id) || null;
+    return attendance
+      ? { ...call, attendance, attendees: attendance.attendees || [] }
+      : call;
+  });
+  const callsById = new Map(enrichedCallsWithAttendance.map((call) => [call.recording_id, call]));
 
   const items = [];
 
-  for (const call of enrichedCalls) {
+  for (const call of enrichedCallsWithAttendance) {
     items.push({
       key: `call-${call.recording_id}`,
       type: 'call',
@@ -608,6 +848,7 @@ async function buildSnapshot({ initials, email, showAll, limit, requestId, sourc
   }
 
   for (const note of notes) {
+    const attendance = attendanceSummaries.get(note.recording_id) || null;
     items.push({
       key: `note-${note.id}`,
       type: 'attendance-note',
@@ -616,6 +857,8 @@ async function buildSnapshot({ initials, email, showAll, limit, requestId, sourc
         ...note,
         topics: parseJsonArray(note.topics_json),
         actionItems: parseJsonArray(note.action_items_json),
+        attendees: attendance?.attendees || [],
+        attendance,
       },
       linkedCall: callsById.get(note.recording_id) || null,
     });
@@ -675,7 +918,7 @@ async function buildSnapshot({ initials, email, showAll, limit, requestId, sourc
       emails: emailEvents.length,
     },
     warnings: Object.keys(warnings).length > 0 ? warnings : undefined,
-    items: items.slice(0, limit),
+    items: fetchAllLukeMineCalls ? items : items.slice(0, callsOnlyRequest ? callScanLimit : limit),
   };
 }
 
@@ -691,7 +934,7 @@ router.get('/', async (req, res) => {
     return res.status(400).json({ error: 'Missing initials or email' });
   }
 
-  const canSeeAll = isDevOwner(req.user, initials, email);
+  const canSeeAll = canUseAllCallScope(req.user, initials, email);
   const requestedScope = parseScope(req.query.scope) || (canSeeAll ? 'all' : 'user');
   const effectiveScope = requestedScope === 'all' && canSeeAll ? 'all' : 'user';
   const showAll = effectiveScope === 'all';

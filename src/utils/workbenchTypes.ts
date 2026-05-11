@@ -4,7 +4,7 @@ export type WorkbenchJourneyStatus = WorkbenchStageStatus | 'current' | 'disable
 
 export type WorkbenchTab = 'details' | 'identity' | 'payment' | 'risk' | 'matter' | 'documents' | 'pitch';
 
-export type WorkbenchContextStage = 'enquiry' | 'instructed';
+export type WorkbenchContextStage = 'enquiry' | 'pitch' | 'instructed';
 
 export type WorkbenchStageKey = 'id' | 'payment' | 'risk' | 'matter' | 'documents';
 
@@ -56,9 +56,9 @@ export const workbenchTabForStageKey = (stageKey: string): WorkbenchTab => {
 };
 
 export const workbenchContextStageForStageKey = (stageKey: string): WorkbenchContextStage => (
-  stageKey === 'enquiry' ? 'enquiry' : 'instructed'
+  stageKey === 'enquiry' ? 'enquiry' : stageKey === 'pitch' ? 'pitch' : 'instructed'
 );
 
 export const isWorkbenchContextStageKey = (stageKey: string): boolean => (
-  stageKey === 'enquiry' || stageKey === 'instructed'
+  stageKey === 'enquiry' || stageKey === 'pitch' || stageKey === 'instructed'
 );

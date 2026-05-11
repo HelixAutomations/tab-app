@@ -15,7 +15,7 @@ import { Icon } from '@fluentui/react/lib/Icon';
 import { Spinner, SpinnerSize } from '@fluentui/react/lib/Spinner';
 import { TooltipHost } from '@fluentui/react/lib/Tooltip';
 import { useTheme } from '../app/functionality/ThemeContext';
-import { getProxyBaseUrl } from '../utils/getProxyBaseUrl';
+import { getApiBase } from '../utils/getApiUrl';
 import { UserData } from '../app/functionality/types';
 import { sortedTillerCountries, tillerGenders, tillerTitles } from './tillerReference';
 import {
@@ -36,6 +36,7 @@ import {
   formFieldTokens,
   formAccentColors,
 } from './shared/formStyles';
+import FormsStreamLanded from './shared/FormsStreamLanded';
 
 interface VerificationCheckFormProps {
   currentUser?: UserData;
@@ -210,6 +211,8 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
   const [instructionList, setInstructionList] = useState<InstructionPickOption[]>([]);
   const [isLoadingInstructions, setIsLoadingInstructions] = useState(false);
   const [submitMessage, setSubmitMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [streamSubmissionId, setStreamSubmissionId] = useState<string | null>(null);
+  const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [response, setResponse] = useState<unknown>(null);
   const [persistedSummary, setPersistedSummary] = useState<{ checkId?: string; overall?: string; pep?: string; address?: string } | null>(null);
   const [correlationId, setCorrelationId] = useState<string | null>(null);
@@ -221,7 +224,7 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
     if (!ref) { setHistory([]); return; }
     setIsLoadingHistory(true);
     try {
-      const baseUrl = getProxyBaseUrl();
+      const baseUrl = getApiBase();
       const res = await fetch(`${baseUrl}/api/verify-id/adhoc/history/${encodeURIComponent(ref)}`);
       const json = await res.json().catch(() => ({} as any));
       if (res.ok && Array.isArray(json.rows)) setHistory(json.rows);
@@ -268,7 +271,7 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
     setPriorVerifications(null);
 
     try {
-      const baseUrl = getProxyBaseUrl();
+      const baseUrl = getApiBase();
       const res = await fetch(`${baseUrl}/api/verify-id/adhoc/prefill/${encodeURIComponent(ref)}`);
       const json = await res.json().catch(() => ({} as any));
       if (!res.ok) {
@@ -316,7 +319,7 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
     const load = async () => {
       setIsLoadingInstructions(true);
       try {
-        const baseUrl = getProxyBaseUrl();
+        const baseUrl = getApiBase();
         const res = await fetch(`${baseUrl}/api/verify-id/adhoc/instructions?limit=75`);
         const json = await res.json().catch(() => ({} as any));
         if (!cancelled && res.ok && Array.isArray(json.instructions)) {
@@ -372,7 +375,7 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
     setCorrelationId(null);
 
     try {
-      const baseUrl = getProxyBaseUrl();
+      const baseUrl = getApiBase();
       const body = {
         instructionRef: formData.instructionRef.trim() || undefined,
         title: formData.title,
@@ -401,11 +404,16 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
       const json = await res.json().catch(() => ({} as any));
 
       if (!res.ok) {
+        setStreamSubmissionId(json?.submissionId ?? null);
+        setStreamUrl(null);
         const detail = json?.details || json?.error || `HTTP ${res.status}`;
         const validation = json?.validationErrors ? ` — ${JSON.stringify(json.validationErrors)}` : '';
         const missingList = Array.isArray(json?.missing) ? ` — missing: ${json.missing.join(', ')}` : '';
         throw new Error(`${detail}${validation}${missingList}`);
       }
+
+      setStreamSubmissionId(json?.submissionId ?? null);
+      setStreamUrl(json?.streamUrl ?? null);
 
       setResponse(json.response);
       setPersistedSummary(json.persistedSummary || null);
@@ -463,6 +471,14 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
             >
               {submitMessage.text}
             </MessageBar>
+          )}
+
+          {streamSubmissionId && submitMessage && (
+            <FormsStreamLanded
+              submissionId={streamSubmissionId}
+              streamUrl={streamUrl}
+              isDarkMode={isDarkMode}
+            />
           )}
 
           {!embedded && (

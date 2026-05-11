@@ -6,14 +6,20 @@ export const ADMIN_USERS = ['LZ', 'AC', 'KW', 'JW', 'LA', 'EA'] as const;
 // Admins who can access the Reports tab (LA is admin but no reports access)
 export const REPORTS_USERS = ['LZ', 'AC', 'KW', 'JW', 'EA'] as const;
 
-// Users who can see CCL features (early access while feature is in beta)
-export const CCL_USERS = ['LZ', 'AC'] as const;
+// CCL features are now live for all users (matter to-do items editable by
+// anyone). Kept as a constant so existing imports don't break; `isCclUser`
+// returns true unconditionally below.
+export const CCL_USERS = ['*'] as const;
 
-export const PRIVATE_HUB_CONTROL_USERS = ['LZ', 'AC'] as const;
+// Dev-preview lock — features in active development visible only to LZ.
+// AC was previously included; promoted features should now use isAdminUser
+// (broader admin tier) rather than this dev-preview gate.
+export const PRIVATE_HUB_CONTROL_USERS = ['LZ'] as const;
 
-export function isCclUser(initials?: string): boolean {
-    if (!initials) return false;
-    return CCL_USERS.includes(initials.toUpperCase().trim() as any);
+export function isCclUser(_initials?: string): boolean {
+    // CCL features (matter to-do items, lifecycle steps) are live for everyone.
+    // The dev-only CCL diff/eval panel uses `canSeePrivateHubControls` instead.
+    return true;
 }
 
 export function canSeePrivateHubControls(user?: UserData | null): boolean {
@@ -25,11 +31,8 @@ export function canSeePrivateHubControls(user?: UserData | null): boolean {
     return !!(
         (initials && PRIVATE_HUB_CONTROL_USERS.includes(initials as any)) ||
         first === 'luke' ||
-        first === 'alex' ||
         nickname === 'luke' ||
-        nickname === 'alex' ||
-        email === 'lz@helix-law.com' ||
-        email === 'ac@helix-law.com'
+        email === 'lz@helix-law.com'
     );
 }
 
@@ -75,7 +78,8 @@ export function isDevOwner(user?: UserData | null): boolean {
  * Agents can reference by shorthand: 'dev', 'devGroup', 'admin', 'user'.
  *
  * - dev: LZ only — god mode, data-scope override, all features
- * - devGroup: LZ + AC — feature preview, supervision access
+ * - devGroup: LZ only (currently identical to dev — AC was previously here
+ *   but is now plain admin so AC sees the app like other admins)
  * - admin: LZ, AC, KW, JW, LA — trusted internal feature tier
  * - user: everyone else — role/AoW personalised content
  */
@@ -84,14 +88,6 @@ export type UserTier = 'dev' | 'devGroup' | 'admin' | 'user';
 export function getUserTier(user?: UserData | null): UserTier {
     if (!user) return 'user';
     if (isDevOwner(user)) return 'dev';
-    const initials = user.Initials?.toUpperCase().trim();
-    const first = user.First?.toLowerCase().trim();
-    if (
-        initials === 'AC' ||
-        first === 'alex' ||
-        user.Nickname?.toLowerCase().trim() === 'alex' ||
-        user.Email?.toLowerCase().trim() === 'ac@helix-law.com'
-    ) return 'devGroup';
     if (isAdminUser(user)) return 'admin';
     return 'user';
 }
@@ -104,7 +100,7 @@ export function isDevGroupOrHigher(user?: UserData | null): boolean {
 
 export function canSeeActivityTab(user?: UserData | null, isLocalDev = false): boolean {
     if (isLocalDev) return true;
-    return isDevGroupOrHigher(user);
+    return isDevOwner(user);
 }
 
 // Helper to determine if a user can access the Instructions tab
@@ -128,6 +124,49 @@ export function canAccessReports(user?: UserData | null): boolean {
         (first && reportsNames.includes(first)) ||
         (nickname && reportsNames.includes(nickname))
     );
+}
+
+/**
+ * Home-only data-scope exception.
+ * Grants firm-wide Home datasets to LZ, KW, and EA without widening the
+ * broader non-Home data scope beyond `isDevOwner()`.
+ *
+ * Other admins (AC / JW / LA) can opt in per-browser via the Home firm-wide
+ * toggle, which sets `helix.homeFirmWideAdmin` in localStorage. This keeps the
+ * default cost profile unchanged (no extra firm-wide aggregations on every
+ * load) while still letting any admin flip the master switch when they need
+ * the wider view. The toggle reloads the page so all Home fetch effects re-run
+ * against the new gate.
+ */
+export const FIRM_WIDE_HOME_USERS = ['LZ', 'KW', 'EA'] as const;
+export const HOME_FIRM_WIDE_ADMIN_OPT_IN_KEY = 'helix.homeFirmWideAdmin';
+
+function readHomeFirmWideAdminOptIn(): boolean {
+    if (typeof window === 'undefined') return false;
+    try {
+        return window.localStorage.getItem(HOME_FIRM_WIDE_ADMIN_OPT_IN_KEY) === '1';
+    } catch {
+        return false;
+    }
+}
+
+export function isHomeFirmWideBuiltIn(user?: UserData | null): boolean {
+    if (!user) return false;
+    const initials = user.Initials?.toUpperCase().trim();
+    const email = user.Email?.toLowerCase().trim();
+    return !!(
+        (initials && FIRM_WIDE_HOME_USERS.includes(initials as any)) ||
+        email === 'lz@helix-law.com' ||
+        email === 'kw@helix-law.com' ||
+        email === 'ea@helix-law.com'
+    );
+}
+
+export function canSeeFirmWideHomeData(user?: UserData | null): boolean {
+    if (!user) return false;
+    if (isHomeFirmWideBuiltIn(user)) return true;
+    if (isAdminUser(user) && readHomeFirmWideAdminOptIn()) return true;
+    return false;
 }
 
 // Operations user — admin or has 'operations'/'tech' in AOW

@@ -368,7 +368,7 @@ export default function CclReviewModal({
           display: 'flex',
           flexDirection: 'column',
           background: 'rgba(6, 23, 51, 0.98)',
-          border: '1px solid rgba(135, 243, 243, 0.12)',
+          border: '1px solid rgba(54, 144, 206, 0.12)',
           boxShadow: 'var(--shadow-overlay-lg)',
           animation: 'opsDashScaleIn 0.24s ease both',
           overflow: 'hidden',
@@ -404,7 +404,7 @@ export default function CclReviewModal({
         {approvalOverlay}
         <style>{`@keyframes cclApprovalSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: isMobileReview ? '12px 14px' : '14px 18px', borderBottom: '1px solid rgba(135, 243, 243, 0.08)', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: isMobileReview ? '12px 14px' : '14px 18px', borderBottom: '1px solid rgba(54, 144, 206, 0.08)', flexShrink: 0 }}>
           <div style={{ width: 6, height: 6, borderRadius: '50%', background: statusColor, flexShrink: 0 }} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: isMobileReview ? 12 : 11, fontWeight: 700, color: '#f3f4f6', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -563,8 +563,8 @@ export default function CclReviewModal({
 
           {(showReviewIntro || showSetupInDefaultView || loadingReviewContext) && (
             <div style={{
-              borderLeft: isMobileReview ? 'none' : '1px solid rgba(135, 243, 243, 0.08)',
-              borderTop: isMobileReview ? '1px solid rgba(135, 243, 243, 0.12)' : 'none',
+              borderLeft: isMobileReview ? 'none' : '1px solid rgba(54, 144, 206, 0.08)',
+              borderTop: isMobileReview ? '1px solid rgba(54, 144, 206, 0.12)' : 'none',
               background: 'rgba(6, 23, 51, 0.98)',
               padding: isMobileReview ? '22px 18px 20px' : '34px 32px',
               display: 'flex',
@@ -613,8 +613,8 @@ export default function CclReviewModal({
           {shouldShowReviewRail && (
             <div
               style={{
-                borderLeft: !isMobileReview ? '1px solid rgba(135, 243, 243, 0.08)' : 'none',
-                borderTop: isMobileReview ? '1px solid rgba(135, 243, 243, 0.12)' : 'none',
+                borderLeft: !isMobileReview ? '1px solid rgba(54, 144, 206, 0.08)' : 'none',
+                borderTop: isMobileReview ? '1px solid rgba(54, 144, 206, 0.12)' : 'none',
                 overflow: 'auto',
                 scrollbarGutter: 'stable',
                 display: 'flex',
@@ -699,8 +699,8 @@ export default function CclReviewModal({
                         onClick={retryDraftFetch}
                         style={{
                           justifySelf: 'start',
-                          border: '1px solid rgba(135, 243, 243, 0.28)',
-                          background: 'rgba(135, 243, 243, 0.08)',
+                          border: '1px solid rgba(54, 144, 206, 0.28)',
+                          background: 'rgba(54, 144, 206, 0.08)',
                           color: '#f3f4f6',
                           padding: '8px 10px',
                           fontSize: isMobileReview ? 11.5 : 10.5,
@@ -733,7 +733,7 @@ export default function CclReviewModal({
                         {isStreamingNow ? (
                           <>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <div style={{ width: 16, height: 16, flexShrink: 0, border: '2px solid rgba(135, 243, 243, 0.12)', borderTopColor: colours.accent, borderRadius: '50%', animation: 'helix-spin 0.8s linear infinite' }} />
+                              <div style={{ width: 16, height: 16, flexShrink: 0, border: '2px solid rgba(54, 144, 206, 0.12)', borderTopColor: colours.accent, borderRadius: '50%', animation: 'helix-spin 0.8s linear infinite' }} />
                               <div style={{ fontSize: isMobileReview ? 10 : 9, color: colours.accent, fontWeight: 600 }}>
                                 {aiGeneratedCount > 0
                                   ? `${aiGeneratedCount} field${aiGeneratedCount === 1 ? '' : 's'} generated`
@@ -746,7 +746,7 @@ export default function CclReviewModal({
                           </>
                         ) : (
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <div style={{ width: 16, height: 16, flexShrink: 0, border: '2px solid rgba(135, 243, 243, 0.12)', borderTopColor: colours.accent, borderRadius: '50%', animation: 'helix-spin 0.8s linear infinite' }} />
+                            <div style={{ width: 16, height: 16, flexShrink: 0, border: '2px solid rgba(54, 144, 206, 0.12)', borderTopColor: colours.accent, borderRadius: '50%', animation: 'helix-spin 0.8s linear infinite' }} />
                             <div style={{ fontSize: isMobileReview ? 10 : 9, color: colours.subtleGrey, fontWeight: 600 }}>
                               Loading saved review…
                             </div>

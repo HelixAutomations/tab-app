@@ -14,7 +14,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from '@fluentui/react/lib/Icon';
 import type { UserData } from '../../app/functionality/types';
-import { getProxyBaseUrl } from '../../utils/getProxyBaseUrl';
+import { getApiBase } from '../../utils/getApiUrl';
 import { trackClientEvent } from '../../utils/telemetry';
 import {
   ComposerField,
@@ -146,7 +146,7 @@ const AiComposerDrawer: React.FC<AiComposerDrawerProps> = ({
 
     (async () => {
       try {
-        const response = await fetch(`${getProxyBaseUrl()}/api/forms-ai/plan`, {
+        const response = await fetch(`${getApiBase()}/api/forms-ai/plan`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ query: trimmed, currentUser: userPayload }),
@@ -218,7 +218,7 @@ const AiComposerDrawer: React.FC<AiComposerDrawerProps> = ({
     trackClientEvent('FormsAi', 'Discarded', { proposalId });
     if (proposalId) {
       try {
-        await fetch(`${getProxyBaseUrl()}/api/forms-ai/plan/${proposalId}/discarded`, { method: 'POST' });
+        await fetch(`${getApiBase()}/api/forms-ai/plan/${proposalId}/discarded`, { method: 'POST' });
       } catch {
         /* best-effort */
       }
@@ -256,7 +256,7 @@ const AiComposerDrawer: React.FC<AiComposerDrawerProps> = ({
     fontWeight: 700,
     textTransform: 'uppercase',
     letterSpacing: 0.6,
-    color: isDarkMode ? '#87F3F3' : '#3690CE',
+    color: isDarkMode ? '#3690CE' : '#3690CE',
   };
   const closeBtn: React.CSSProperties = {
     marginLeft: 'auto',
@@ -271,7 +271,7 @@ const AiComposerDrawer: React.FC<AiComposerDrawerProps> = ({
   return (
     <div className="forms-hub__ai-drawer helix-panel" role="region" aria-label="AI Forms Composer" style={surface}>
       <div style={headerRow}>
-        <Icon iconName="Lightbulb" style={{ fontSize: 14, color: isDarkMode ? '#87F3F3' : '#3690CE' }} />
+        <Icon iconName="Lightbulb" style={{ fontSize: 14, color: isDarkMode ? '#3690CE' : '#3690CE' }} />
         <span style={titleStyle}>Helix is composing</span>
         <button onClick={handleDiscard} type="button" style={closeBtn} aria-label="Close composer">
           <Icon iconName="Cancel" />

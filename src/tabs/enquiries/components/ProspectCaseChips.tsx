@@ -11,6 +11,7 @@ type EnquiryWindow = {
 interface ProspectCaseChipsProps {
   enquiryWindows: EnquiryWindow[];
   activeEnquiryId: string | number;
+  activeWindowRangeLabel: string;
   hoveredCaseId: string | null;
   setHoveredCaseId: (caseId: string | null) => void;
   onSelectEnquiry?: (enquiry: Enquiry) => void;
@@ -21,6 +22,7 @@ interface ProspectCaseChipsProps {
 const ProspectCaseChips: React.FC<ProspectCaseChipsProps> = ({
   enquiryWindows,
   activeEnquiryId,
+  activeWindowRangeLabel,
   hoveredCaseId,
   setHoveredCaseId,
   onSelectEnquiry,
@@ -33,119 +35,68 @@ const ProspectCaseChips: React.FC<ProspectCaseChipsProps> = ({
 
   return (
     <div
-      style={{
-        display: 'flex',
-        alignItems: 'stretch',
-        gap: '10px',
-        padding: '4px 24px 10px',
-        overflowX: 'auto',
-        background: 'transparent',
-      }}
+      className="prospect-case-switcher"
+      data-helix-region="enquiries/detail/case-switcher"
     >
-      {enquiryWindows.map((window) => {
-        const caseId = String(window.enquiry.ID);
-        const isActive = caseId === String(activeEnquiryId);
-        const isHovered = hoveredCaseId === caseId;
-        const canSelect = !isActive && typeof onSelectEnquiry === 'function';
-        const areaLabel = formatCaseAreaLabel(window.enquiry.Area_of_Work);
+      <div className="prospect-case-switcher-header">
+        <span className="prospect-case-switcher-label">Cases</span>
+        <span className="prospect-case-switcher-summary">Selected case scope: {activeWindowRangeLabel}</span>
+      </div>
+      <div className="prospect-case-switcher-list" role="tablist" aria-label="Cases">
+        {enquiryWindows.map((window) => {
+          const caseId = String(window.enquiry.ID);
+          const isActive = caseId === String(activeEnquiryId);
+          const isHovered = hoveredCaseId === caseId;
+          const canSelect = !isActive && typeof onSelectEnquiry === 'function';
+          const areaLabel = formatCaseAreaLabel(window.enquiry.Area_of_Work);
+          const rawValue = window.enquiry.Value;
+          const valueDisplay = rawValue && !isNaN(Number(rawValue)) && Number(rawValue) > 0
+            ? `£${Number(rawValue).toLocaleString()}`
+            : null;
+          const touchpointDate = (() => {
+            const raw = window.enquiry.Touchpoint_Date || window.enquiry.Date_Created;
+            if (!raw) return '—';
+            try {
+              const d = new Date(raw);
+              if (!Number.isFinite(d.getTime())) return '—';
+              return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+            } catch {
+              return '—';
+            }
+          })();
 
-        const typeOfWork = (window.enquiry.Type_of_Work || '').trim();
-        const typeLabel = typeOfWork || areaLabel;
-        const rawValue = window.enquiry.Value;
-        const valueDisplay = rawValue && !isNaN(Number(rawValue)) && Number(rawValue) > 0
-          ? `£${Number(rawValue).toLocaleString()}`
-          : null;
-
-        return (
-          <button
-            key={caseId}
-            type="button"
-            className="helix-case-pill"
-            onClick={() => canSelect && onSelectEnquiry?.(window.enquiry)}
-            onMouseEnter={() => setHoveredCaseId(caseId)}
-            onMouseLeave={() => setHoveredCaseId(null)}
-            title={typeLabel !== areaLabel ? `${typeLabel} — ${areaLabel}` : typeLabel}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              padding: '9px 12px',
-              minWidth: '160px',
-              borderRadius: 0,
-              border: isActive
-                ? `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlight}`
-                : `1px solid ${isDarkMode ? colours.dark.border : `${colours.greyText}14`}`,
-              background: isActive
-                ? (isDarkMode ? colours.darkBlue : colours.grey)
-                : (isDarkMode ? colours.dark.cardBackground : colours.grey),
-              color: isActive
-                ? (isDarkMode ? colours.dark.text : colours.light.text)
-                : (isDarkMode ? colours.dark.text : colours.light.text),
-              fontSize: 12,
-              fontWeight: 600,
-              cursor: canSelect ? 'pointer' : 'default',
-              transition: 'background 0.2s ease, border-color 0.2s ease, transform 0.18s ease, box-shadow 0.18s ease',
-              whiteSpace: 'nowrap',
-              flexShrink: 0,
-              boxShadow: 'none',
-              transform: isHovered && canSelect ? 'translateY(-1px)' : 'translateY(0)',
-            }}
-          >
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0, flex: 1 }}>
-              <div
-                style={{
-                  fontSize: 13,
-                  fontWeight: 600,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  lineHeight: 1.3,
-                }}
-              >
-                {typeLabel}
-              </div>
-              {(typeLabel !== areaLabel || valueDisplay) && (
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    fontSize: 11,
-                    fontWeight: 500,
-                  }}
-                >
-                  {typeLabel !== areaLabel && (
-                    <span
-                      style={{
-                        fontSize: 10,
-                        fontWeight: 600,
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.05em',
-                        color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                      }}
-                    >
-                      {areaLabel}
-                    </span>
-                  )}
-                  {valueDisplay && (
-                    <>
-                      {typeLabel !== areaLabel && <span style={{ opacity: 0.3 }}>·</span>}
-                      <span
-                        style={{
-                          fontWeight: 600,
-                          color: isDarkMode ? colours.dark.text : colours.light.text,
-                          fontSize: 11,
-                        }}
-                      >
-                        {valueDisplay}
-                      </span>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-          </button>
-        );
-      })}
+          return (
+            <button
+              key={caseId}
+              type="button"
+              className="prospect-case-switcher-pill"
+              data-active={isActive ? 'true' : undefined}
+              role="tab"
+              aria-selected={isActive ? 'true' : 'false'}
+              onClick={() => canSelect && onSelectEnquiry?.(window.enquiry)}
+              onMouseEnter={() => setHoveredCaseId(caseId)}
+              onMouseLeave={() => setHoveredCaseId(null)}
+              title={[touchpointDate, areaLabel, valueDisplay].filter(Boolean).join(' · ')}
+              style={{
+                '--case-accent': areaLabel.toLowerCase().includes('commercial')
+                  ? colours.blue
+                  : areaLabel.toLowerCase().includes('property')
+                  ? colours.green
+                  : areaLabel.toLowerCase().includes('construction')
+                  ? colours.orange
+                  : areaLabel.toLowerCase().includes('employment')
+                  ? colours.yellow
+                  : colours.greyText,
+                opacity: !isActive && !canSelect ? 0.72 : 1,
+                transform: isHovered && canSelect ? 'translateY(-1px)' : 'translateY(0)',
+              } as React.CSSProperties}
+            >
+              <span className="prospect-case-switcher-pill-date">{touchpointDate}</span>
+              <span className="prospect-case-switcher-pill-meta">{areaLabel}{valueDisplay ? ` · ${valueDisplay}` : ''}</span>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 };

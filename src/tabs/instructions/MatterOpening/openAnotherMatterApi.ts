@@ -13,7 +13,7 @@ export type OpenAnotherMatterPayload = {
     serviceDescription: string;
     areaOfWork: string;
     typeOfWork?: string;
-    capacity?: 'Individual' | 'Company' | 'Multiple Individuals';
+    capacity?: 'Individual' | 'Company';
     company?: { name?: string; number?: string; address?: string };
   };
   team: {
@@ -52,7 +52,19 @@ export type JobState = {
   finishedAt: number | null;
 };
 
-const BASE = '/api/matters/open-another';
+const LOCAL_DEV_EXPRESS_PORT = '8080';
+
+function getOpenAnotherApiBase(): string {
+  if (typeof window === 'undefined') return '';
+  const { hostname, port, origin } = window.location;
+  const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
+  if (!isLocalhost) return '';
+  if (port === LOCAL_DEV_EXPRESS_PORT) return origin;
+  // Teams/local hosts do not always proxy /api → 8080, so hit Express directly.
+  return `http://${hostname}:${LOCAL_DEV_EXPRESS_PORT}`;
+}
+
+const BASE = `${getOpenAnotherApiBase()}/api/matters/open-another`;
 
 // ── Source picker types ────────────────────────────────────────────────────
 
@@ -106,7 +118,20 @@ export async function searchSources(q: string, mode: 'current' | 'legacy' = 'cur
   const params = new URLSearchParams();
   if (q) params.set('q', q);
   params.set('mode', mode);
-  const res = await fetch(`${BASE}/sources?${params.toString()}`);
+  // Hard timeout so a wedged fetch surfaces as an error rather than an infinite spinner.
+  const ac = new AbortController();
+  const t = setTimeout(() => ac.abort(), 8000);
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}/sources?${params.toString()}`, { signal: ac.signal });
+  } catch (err) {
+    clearTimeout(t);
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new Error('Search timed out after 8s');
+    }
+    throw err;
+  }
+  clearTimeout(t);
   if (!res.ok) {
     let msg = `Search failed (${res.status})`;
     try { const j = await res.json(); if (j?.error) msg = j.error; } catch { /* ignore */ }

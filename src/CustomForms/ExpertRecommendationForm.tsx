@@ -12,7 +12,7 @@ import { Dropdown } from '@fluentui/react/lib/Dropdown';
 import type { IDropdownOption } from '@fluentui/react/lib/Dropdown';
 import { Icon } from '@fluentui/react/lib/Icon';
 import { useTheme } from '../app/functionality/ThemeContext';
-import { getProxyBaseUrl } from '../utils/getProxyBaseUrl';
+import { getApiBase } from '../utils/getApiUrl';
 import { UserData } from '../app/functionality/types';
 import AreaWorkTypeDropdown from './shared/AreaWorkTypeDropdown';
 import { useFormReadinessPulse } from './shared/useFormReadinessPulse';
@@ -130,7 +130,7 @@ const ExpertRecommendationFormContent: React.FC<ExpertRecommendationFormProps> =
     setSubmitMessage(null);
 
     try {
-      const baseUrl = getProxyBaseUrl();
+      const baseUrl = getApiBase();
       const response = await fetch(`${baseUrl}/api/experts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

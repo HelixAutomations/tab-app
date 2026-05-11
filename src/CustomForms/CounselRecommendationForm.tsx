@@ -13,7 +13,7 @@ import { Icon } from '@fluentui/react/lib/Icon';
 import { ChoiceGroup } from '@fluentui/react/lib/ChoiceGroup';
 import type { IChoiceGroupOption } from '@fluentui/react/lib/ChoiceGroup';
 import { useTheme } from '../app/functionality/ThemeContext';
-import { getProxyBaseUrl } from '../utils/getProxyBaseUrl';
+import { getApiBase } from '../utils/getApiUrl';
 import { UserData } from '../app/functionality/types';
 import AreaWorkTypeDropdown from './shared/AreaWorkTypeDropdown';
 import { useFormReadinessPulse } from './shared/useFormReadinessPulse';
@@ -144,7 +144,7 @@ const CounselRecommendationFormContent: React.FC<CounselRecommendationFormProps>
     setSubmitMessage(null);
 
     try {
-      const baseUrl = getProxyBaseUrl();
+      const baseUrl = getApiBase();
       const response = await fetch(`${baseUrl}/api/counsel`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

@@ -135,6 +135,8 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
   const homeColour = selectedKey === 'home'
     ? activeTextColour
     : textResting;
+  const navIconSize = 15;
+  const homeIconSize = 18;
 
   const handleTabClick = (tab: Tab) => {
     if (tab.disabled) {
@@ -151,13 +153,13 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
     // filled) + Ant Design Home — three icon families in one bar read as
     // dated next to the new chrome.
     switch (key) {
-      case 'enquiries':    return <FiInbox size={15} strokeWidth={1.8} />;
-      case 'instructions': return <FiClipboard size={15} strokeWidth={1.8} />;
-      case 'matters':      return <FiFolder size={15} strokeWidth={1.8} />;
-      case 'forms':        return <FiFileText size={15} strokeWidth={1.8} />;
-      case 'resources':    return <FiBookOpen size={15} strokeWidth={1.8} />;
-      case 'reporting':    return <FiBarChart2 size={15} strokeWidth={1.8} />;
-      default:             return <FiClipboard size={15} strokeWidth={1.8} />;
+      case 'enquiries':    return <FiInbox size={navIconSize} strokeWidth={1.8} />;
+      case 'instructions': return <FiClipboard size={navIconSize} strokeWidth={1.8} />;
+      case 'matters':      return <FiFolder size={navIconSize} strokeWidth={1.8} />;
+      case 'forms':        return <FiFileText size={navIconSize} strokeWidth={1.8} />;
+      case 'resources':    return <FiBookOpen size={navIconSize} strokeWidth={1.8} />;
+      case 'reporting':    return <FiBarChart2 size={navIconSize} strokeWidth={1.8} />;
+      default:             return <FiClipboard size={navIconSize} strokeWidth={1.8} />;
     }
   };
 
@@ -220,7 +222,7 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
           {/* Single Feather stroke icon — active state is carried by colour
               (homeColour) + background fill; a separate filled glyph was
               mixing icon families unnecessarily. */}
-          <FiHome size={18} strokeWidth={1.8} />
+          <FiHome size={homeIconSize} strokeWidth={1.8} />
         </div>
 
         {/* CTA notification dot */}
@@ -247,7 +249,7 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
         style={{
           width: 1,
           height: 20,
-          background: isDarkMode ? 'rgba(135, 243, 243, 0.22)' : 'rgba(54, 144, 206, 0.22)',
+          background: 'rgba(54, 144, 206, 0.22)',
           marginRight: 10,
           flexShrink: 0,
         }}
@@ -304,7 +306,7 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
                   '--tab-underline-colour': activeColour,
                   '--tab-text-color': active ? activeTextColour : textResting,
                   '--tab-text-hover': active ? activeTextColour : textHover,
-                  '--tab-hover-fill': isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.06)',
+                  '--tab-hover-fill': isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)',
                   '--tab-active-fill': 'transparent',
                 } as React.CSSProperties}
               >
@@ -326,7 +328,7 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
                   style={{
                     width: 1,
                     height: 18,
-                    background: isDarkMode ? 'rgba(135, 243, 243, 0.18)' : 'rgba(54, 144, 206, 0.18)',
+                    background: 'rgba(54, 144, 206, 0.18)',
                     margin: '0 6px',
                     flexShrink: 0,
                     alignSelf: 'center',

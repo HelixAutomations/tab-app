@@ -512,7 +512,9 @@ router.post('/', async (req, res) => {
     
     res.json({
       message: "Task created and OneDrive upload completed (if applicable).",
-      asanaTask: asanaResult
+      asanaTask: asanaResult,
+      submissionId,
+      streamUrl: submissionId ? `forms?focusSubmission=${submissionId}` : null,
     });
     
   } catch (error) {

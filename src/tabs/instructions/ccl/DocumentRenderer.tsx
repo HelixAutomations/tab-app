@@ -346,7 +346,7 @@ function renderInlineContent(text: string, keyPrefix: string, context: RenderCon
                 onMouseLeave={context.onFieldHover ? () => context.onFieldHover?.(null) : undefined}
                 title={isInteractive ? `Review ${titleText}` : titleText}
                 style={{
-                    background: isEditable ? 'transparent' : (isCrossHovered ? 'rgba(135, 243, 243, 0.22)' : statePresentation.background),
+                    background: isEditable ? 'transparent' : (isCrossHovered ? 'rgba(54, 144, 206, 0.22)' : statePresentation.background),
                     color: statePresentation.color,
                     borderBottom: isEditable ? 'none' : statePresentation.borderBottom,
                     cursor: isInteractive ? 'pointer' : 'inherit',
@@ -361,7 +361,7 @@ function renderInlineContent(text: string, keyPrefix: string, context: RenderCon
                     boxShadow: isEditable
                         ? 'none'
                         : (isCrossHovered
-                            ? '0 0 0 2px rgba(135, 243, 243, 0.55)'
+                            ? '0 0 0 2px rgba(54, 144, 206, 0.55)'
                             : isActive
                                 ? '0 0 0 2px rgba(54,144,206,0.18), inset 0 0 0 1px rgba(54,144,206,0.34)'
                                 : statePresentation.boxShadow),

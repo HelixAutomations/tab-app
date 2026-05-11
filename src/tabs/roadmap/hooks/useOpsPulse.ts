@@ -1,7 +1,7 @@
 // src/tabs/roadmap/hooks/useOpsPulse.ts — SSE hook for the Live Monitor dashboard
 
 import { useEffect, useRef, useCallback, useState } from 'react';
-import type { OpsPulseState, PulseData, SchedulerData, ErrorEntry, SessionsData, SessionTraceData, RequestEntry, PresenceData } from '../parts/ops-pulse-types';
+import type { OpsPulseState, PulseData, SchedulerData, ErrorEntry, SessionsData, SessionTraceData, RequestEntry, PresenceData, DoubledApiHit, OpsCheckRunSummary } from '../parts/ops-pulse-types';
 import { disposeOnHmr, onServerBounced } from '../../../utils/devHmr';
 
 const INITIAL_STATE: OpsPulseState = {
@@ -13,6 +13,8 @@ const INITIAL_STATE: OpsPulseState = {
   sessionTraces: null,
   requests: [],
   presence: null,
+  doubledApi: [],
+  opsChecks: null,
 };
 
 /**
@@ -57,6 +59,8 @@ export function useOpsPulse(enabled: boolean): OpsPulseState {
           sessionTraces?: SessionTraceData | null;
           requests?: RequestEntry[];
           presence?: PresenceData | null;
+          doubledApi?: DoubledApiHit[];
+          opsChecks?: OpsCheckRunSummary | null;
         } | null;
 
         if (snapshot) {
@@ -69,6 +73,8 @@ export function useOpsPulse(enabled: boolean): OpsPulseState {
             sessionTraces: snapshot.sessionTraces ?? prev.sessionTraces,
             requests: Array.isArray(snapshot.requests) ? snapshot.requests : prev.requests,
             presence: snapshot.presence ?? prev.presence,
+            doubledApi: Array.isArray(snapshot.doubledApi) ? snapshot.doubledApi : prev.doubledApi,
+            opsChecks: snapshot.opsChecks ?? prev.opsChecks,
           }));
         }
 
@@ -140,6 +146,33 @@ export function useOpsPulse(enabled: boolean): OpsPulseState {
           try {
             const data = JSON.parse(e.data) as PresenceData;
             setState((prev) => ({ ...prev, presence: data }));
+          } catch { /* ignore */ }
+        });
+
+        // Bulk replacement (initial snapshot from the server side of SSE).
+        es.addEventListener('doubledApi', (e: MessageEvent) => {
+          try {
+            const data = JSON.parse(e.data) as DoubledApiHit[];
+            setState((prev) => ({ ...prev, doubledApi: Array.isArray(data) ? data : prev.doubledApi }));
+          } catch { /* ignore */ }
+        });
+
+        // Single doubled-api hit pushed in real-time — prepend, cap at 50.
+        es.addEventListener('doubledApi.hit', (e: MessageEvent) => {
+          if (!e.data) return;
+          try {
+            const hit = JSON.parse(e.data) as DoubledApiHit;
+            setState((prev) => ({
+              ...prev,
+              doubledApi: [hit, ...prev.doubledApi].slice(0, 50),
+            }));
+          } catch { /* ignore */ }
+        });
+
+        es.addEventListener('opsChecks', (e: MessageEvent) => {
+          try {
+            const data = JSON.parse(e.data) as OpsCheckRunSummary;
+            setState((prev) => ({ ...prev, opsChecks: data }));
           } catch { /* ignore */ }
         });
 

@@ -80,8 +80,8 @@ const SkeletonBox: React.FC<{ width: string; height: string; isDarkMode: boolean
     borderRadius: '4px',
     background: isDarkMode 
       ? (animate
-        ? 'linear-gradient(90deg, rgba(135, 243, 243, 0.06) 0%, rgba(135, 243, 243, 0.12) 50%, rgba(135, 243, 243, 0.06) 100%)'
-        : 'rgba(135, 243, 243, 0.08)')
+        ? 'linear-gradient(90deg, rgba(54, 144, 206, 0.06) 0%, rgba(54, 144, 206, 0.12) 50%, rgba(54, 144, 206, 0.06) 100%)'
+        : 'rgba(54, 144, 206, 0.08)')
       : (animate
         ? 'linear-gradient(90deg, rgba(148, 163, 184, 0.15) 0%, rgba(148, 163, 184, 0.25) 50%, rgba(148, 163, 184, 0.15) 100%)'
         : 'rgba(148, 163, 184, 0.2)'),
@@ -102,7 +102,7 @@ const SkeletonMetricCard: React.FC<{ isDarkMode: boolean; index: number; showPro
       borderRadius: '0',
       padding: '8px',
       border: isDarkMode 
-        ? '1px solid rgba(135, 243, 243, 0.1)'
+        ? '1px solid rgba(54, 144, 206, 0.1)'
         : '1px solid rgba(148, 163, 184, 0.12)',
       boxShadow: 'none',
       opacity: 1,
@@ -390,7 +390,7 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
               gap: 10,
               fontSize: 12,
               padding: '8px 10px',
-              border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(15, 23, 42, 0.1)'}`,
+              border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(15, 23, 42, 0.1)'}`,
               background: isDarkMode ? 'rgba(6, 23, 51, 0.45)' : 'rgba(255, 255, 255, 0.7)',
             }}>
               <span style={{ color: isDarkMode ? colours.dark.text : colours.light.text, lineHeight: 1.3, minWidth: 0, flex: 1 }}>
@@ -499,8 +499,8 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
     letterSpacing: 0.6,
     textTransform: 'uppercase',
     color: isDarkMode ? 'rgba(148, 163, 184, 0.9)' : 'rgba(100, 116, 139, 0.95)',
-    border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(15, 23, 42, 0.10)'}`,
-    background: isDarkMode ? 'rgba(135, 243, 243, 0.06)' : 'rgba(255, 255, 255, 0.7)',
+    border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(15, 23, 42, 0.10)'}`,
+    background: isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(255, 255, 255, 0.7)',
     padding: '3px 8px',
     borderRadius: 999,
     lineHeight: 1,
@@ -548,7 +548,7 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
                 hint: deltaDirection === 'up' ? 'Above previous' : deltaDirection === 'down' ? 'Below previous' : 'No change',
               }].map((item) => (
                 <div key={item.label} style={{
-                  border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(15, 23, 42, 0.1)'}`,
+                  border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(15, 23, 42, 0.1)'}`,
                   background: isDarkMode ? 'rgba(6, 23, 51, 0.45)' : 'rgba(255, 255, 255, 0.7)',
                   padding: '10px 10px',
                 }}>
@@ -589,7 +589,7 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
         label: 'Pitch Cue',
         value: (
           <div style={{
-            border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.22)' : 'rgba(54, 144, 206, 0.24)'}`,
+            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.22)' : 'rgba(54, 144, 206, 0.24)'}`,
             background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
             padding: '10px 12px',
             display: 'grid',
@@ -918,14 +918,14 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
               style={{
                 border: 'none',
                 background: 'transparent',
-                color: isDarkMode ? 'rgba(135, 243, 243, 0.72)' : 'rgba(54, 144, 206, 0.82)',
+                color: isDarkMode ? 'rgba(54, 144, 206, 0.72)' : 'rgba(54, 144, 206, 0.82)',
                 fontSize: '10px',
                 fontWeight: 600,
                 cursor: 'pointer',
                 lineHeight: 1.2,
                 padding: 0,
                 opacity: 0.9,
-                borderBottom: `1px dotted ${isDarkMode ? 'rgba(135, 243, 243, 0.45)' : 'rgba(54, 144, 206, 0.45)'}`,
+                borderBottom: `1px dotted ${isDarkMode ? 'rgba(54, 144, 206, 0.45)' : 'rgba(54, 144, 206, 0.45)'}`,
               }}
               aria-label="Toggle enquiry comparison mode"
               title={`${isWeekCard ? 'Last Week' : 'Last Month'} comparison (${mode === 'previous' ? 'full period' : 'to date'}) — click to toggle`}
@@ -1086,7 +1086,7 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
                 {[0,1,2].map(i => (
                   <div key={i} style={{
                     padding: '12px 12px',
-                    borderRight: i < 2 ? `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.06)' : 'transparent'}` : 'none',
+                    borderRight: i < 2 ? `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'transparent'}` : 'none',
                   }}>
                     <SkeletonBox width="70px" height="9px" isDarkMode={isDarkMode} animate={false} />
                     <div style={{ marginTop: '6px' }}>
@@ -1101,7 +1101,7 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
                 {[0,1].map(i => (
                   <div key={i} style={{
                     padding: '12px 12px',
-                    borderRight: i < 1 ? `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.06)' : 'transparent'}` : 'none',
+                    borderRight: i < 1 ? `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'transparent'}` : 'none',
                   }}>
                     <SkeletonBox width="90px" height="9px" isDarkMode={isDarkMode} animate={false} />
                     <div style={{ marginTop: '6px' }}>
@@ -1142,7 +1142,7 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
                         border: isDarkMode ? metricBlockStyle.border : `1px solid ${lightModeBorderColor}`,
                         borderLeft: isDarkMode ? metricBlockStyle.borderLeft : `1px solid ${lightModeBorderColor}`,
                         borderRight: isDarkMode
-                          ? (index < 2 ? '1px solid rgba(135, 243, 243, 0.06)' : 'none')
+                          ? (index < 2 ? '1px solid rgba(54, 144, 206, 0.06)' : 'none')
                           : `1px solid ${lightModeBorderColor}`,
                         boxShadow: 'none',
                         cursor: canOpenBreakdown ? 'pointer' : 'default',
@@ -1268,7 +1268,7 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
                         border: isDarkMode ? metricBlockStyle.border : `1px solid ${lightModeBorderColor}`,
                         borderLeft: isDarkMode ? metricBlockStyle.borderLeft : `1px solid ${lightModeBorderColor}`,
                         borderRight: isDarkMode
-                          ? (index < 1 ? '1px solid rgba(135, 243, 243, 0.06)' : 'none')
+                          ? (index < 1 ? '1px solid rgba(54, 144, 206, 0.06)' : 'none')
                           : `1px solid ${lightModeBorderColor}`,
                         boxShadow: 'none',
                         cursor: canOpenBreakdown ? 'pointer' : 'default',
@@ -1373,12 +1373,12 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
                         <div style={{ marginTop: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                           <div style={{
                             flex: 1, height: '3px',
-                            background: isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(148, 163, 184, 0.15)',
+                            background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(148, 163, 184, 0.15)',
                             borderRadius: '2px', overflow: 'hidden',
                           }}>
                             <div style={{
                               width: `${Math.min(displayPercentage, 100)}%`, height: '100%',
-                              background: displayPercentage >= 80 ? 'var(--helix-green, #20b26c)' : 'var(--text-accent, #87F3F3)',
+                              background: displayPercentage >= 80 ? 'var(--helix-green, #20b26c)' : 'var(--text-accent, #3690CE)',
                               borderRadius: '2px',
                               transition: enableAnimationThisMount ? 'width 0.6s cubic-bezier(0.4, 0, 0.2, 1)' : 'none',
                             }} />

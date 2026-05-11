@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import type { CSSProperties } from 'react';
 import { DatePicker } from '@fluentui/react/lib/DatePicker';
 import { DayOfWeek } from '@fluentui/react/lib/Calendar';
@@ -87,7 +87,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 const getDatePickerStyles = (isDarkMode: boolean): Partial<IDatePickerStyles> => {
   const baseBorder = isDarkMode ? `${colours.dark.borderColor}66` : 'rgba(6, 23, 51, 0.12)';
-  const hoverBorder = isDarkMode ? 'rgba(135, 243, 243, 0.2)' : 'rgba(54, 144, 206, 0.3)';
+  const hoverBorder = isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.3)';
   const focusBorder = isDarkMode ? colours.accent : colours.highlight;
   const backgroundColour = isDarkMode ? colours.websiteBlue : 'rgba(255, 255, 255, 0.95)';
   const hoverBackground = isDarkMode ? colours.dark.cardBackground : colours.grey;
@@ -123,7 +123,7 @@ const getDatePickerStyles = (isDarkMode: boolean): Partial<IDatePickerStyles> =>
             border: `0.5px solid ${focusBorder} !important`,
             background: `${focusBackground} !important`,
             boxShadow: isDarkMode 
-              ? `0 0 0 2px rgba(135, 243, 243, 0.08) !important`
+              ? `0 0 0 2px rgba(54, 144, 206, 0.08) !important`
               : `0 0 0 2px rgba(54, 144, 206, 0.08) !important`,
           }
         }
@@ -232,15 +232,15 @@ const getTeamButtonStyles = (isDarkMode: boolean, active: boolean, hasWorked: bo
   // Solo/active: stronger brand border + 50% opacity tint fill
   // Excluded: no fill, faint border — clearly "off"
   const activeBackground = active
-    ? (isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.08)')
+    ? (isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.08)')
     : included
-      ? (isDarkMode ? 'rgba(135, 243, 243, 0.05)' : 'rgba(54, 144, 206, 0.05)')
+      ? (isDarkMode ? 'rgba(54, 144, 206, 0.05)' : 'rgba(54, 144, 206, 0.05)')
       : 'transparent';
 
   const activeBorder = active
-    ? `1.5px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.55)' : 'rgba(54, 144, 206, 0.50)'}`
+    ? `1.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.55)' : 'rgba(54, 144, 206, 0.50)'}`
     : included
-      ? `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.28)' : 'rgba(54, 144, 206, 0.22)'}`
+      ? `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.28)' : 'rgba(54, 144, 206, 0.22)'}`
       : `0.5px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.30)' : 'rgba(6, 23, 51, 0.10)'}`;
 
   // Greyed out styling when member hasn't worked
@@ -275,16 +275,16 @@ const getTeamButtonStyles = (isDarkMode: boolean, active: boolean, hasWorked: bo
     },
     rootHovered: {
       background: active 
-        ? (isDarkMode ? 'rgba(135, 243, 243, 0.14)' : 'rgba(54, 144, 206, 0.14)')
+        ? (isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(54, 144, 206, 0.14)')
         : included
-          ? (isDarkMode ? 'rgba(135, 243, 243, 0.10)' : 'rgba(54, 144, 206, 0.10)')
-          : (isDarkMode ? 'rgba(135, 243, 243, 0.06)' : 'rgba(54, 144, 206, 0.06)'),
+          ? (isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(54, 144, 206, 0.10)')
+          : (isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.06)'),
       boxShadow: 'none',
     },
     rootPressed: {
       background: active 
-        ? (isDarkMode ? 'rgba(135, 243, 243, 0.18)' : 'rgba(54, 144, 206, 0.18)')
-        : (isDarkMode ? 'rgba(135, 243, 243, 0.10)' : 'rgba(54, 144, 206, 0.10)'),
+        ? (isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.18)')
+        : (isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(54, 144, 206, 0.10)'),
     },
   };
 };
@@ -976,6 +976,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   const [showWipValueInfo, setShowWipValueInfo] = useState(false);
   const [showCollectedInfo, setShowCollectedInfo] = useState(false);
   const [timeElapsed, setTimeElapsed] = useState(0); // Time since last refresh in seconds
+
   const effectiveDataWindowDays = useMemo(() => (
     typeof dataWindowDays === 'number' && dataWindowDays > 0 ? dataWindowDays : null
   ), [dataWindowDays]);

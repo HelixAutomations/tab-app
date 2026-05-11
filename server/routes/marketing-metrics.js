@@ -1,12 +1,30 @@
 const express = require('express');
-const { getSecret, getClient } = require('../utils/getSecret');
-const { google } = require('googleapis');
+const { getClient } = require('../utils/getSecret');
 const fs = require('fs');
 const { getRedisClient, generateCacheKey, cacheWrapper } = require('../utils/redisClient');
 const { getCircuitBreaker } = require('../utils/circuitBreaker');
 const router = express.Router();
 
-// Helper: best-effort secret retrieval from multiple sources (ENV, Key Vault, Keys Proxy)
+let googleApis = null;
+
+function getGoogleApis() {
+  if (!googleApis) {
+    googleApis = require('googleapis').google;
+  }
+  return googleApis;
+}
+
+// Race a promise against a timeout that resolves to a sentinel value (used for fail-soft helpers)
+function raceTimeout(promise, ms, onTimeoutValue) {
+  let timer;
+  return Promise.race([
+    Promise.resolve(promise).finally(() => clearTimeout(timer)),
+    new Promise((resolve) => { timer = setTimeout(() => resolve(onTimeoutValue), ms); }),
+  ]);
+}
+
+// Helper: best-effort secret retrieval from multiple sources (ENV, Key Vault, Keys Proxy).
+// Each remote source is bounded so a slow Key Vault / proxy can't stall the request.
 async function getSecretFromAnySource(secretName) {
   if (!secretName) return null;
   // 1) Local env overrides (support both exact and UPPER_SNAKE_CASE without dashes)
@@ -15,20 +33,20 @@ async function getSecretFromAnySource(secretName) {
   const envSnake = process.env[secretName.replace(/-/g, '_').toUpperCase()];
   if (envSnake && String(envSnake).trim()) return String(envSnake).trim();
 
-  // 2) Azure Key Vault via shared singleton
+  // 2) Azure Key Vault via shared singleton (5s cap)
   try {
-    const sec = await getClient().getSecret(secretName);
+    const sec = await raceTimeout(getClient().getSecret(secretName), 5000, null);
     if (sec?.value) return sec.value;
   } catch (_) {
     // ignore and try proxy fallback
   }
 
-  // 3) Keys proxy fallback (works locally without MSI)
+  // 3) Keys proxy fallback (5s cap)
   try {
     const base = process.env.REACT_APP_PROXY_BASE_URL || 'https://helix-keys-proxy.azurewebsites.net/api';
     const url = `${base.replace(/\/$/, '')}/keys/${encodeURIComponent(secretName)}`;
-    const resp = await fetch(url);
-    if (resp.ok) {
+    const resp = await withTimeout((signal) => fetch(url, { signal }), 5000, 'Keys proxy timed out (5s)');
+    if (resp && resp.ok) {
       const json = await resp.json();
       if (json && json.value) return json.value;
     }
@@ -39,18 +57,18 @@ async function getSecretFromAnySource(secretName) {
   return null;
 }
 
-// Small helper: get a Facebook token from env first, else from Key Vault
+// Small helper: get a Facebook token from env first, else from Key Vault (5s cap)
 async function getFacebookSystemUserToken() {
   // Prefer explicit env var in App Service for resilience
   if (process.env.FACEBOOK_SYSTEM_USER_TOKEN && process.env.FACEBOOK_SYSTEM_USER_TOKEN.trim().length > 0) {
     return process.env.FACEBOOK_SYSTEM_USER_TOKEN.trim();
   }
-  // Fallback to Key Vault via shared singleton
+  // Fallback to Key Vault via shared singleton — bounded so it can't stall the route
   const client = getClient();
   const secretName = process.env.FACEBOOK_SYSTEM_USER_TOKEN_SECRET || 'facebook-system-user-token';
-  const facebookToken = await client.getSecret(secretName);
+  const facebookToken = await raceTimeout(client.getSecret(secretName), 5000, null);
   if (!facebookToken?.value) {
-    throw new Error('Facebook System User token not found in Key Vault');
+    throw new Error('Facebook System User token not available (Key Vault timeout or missing secret)');
   }
   return facebookToken.value;
 }
@@ -164,13 +182,20 @@ router.get('/', async (req, res) => {
           facebookData = await facebookResponse.json();
           let allInsights = facebookData.data || [];
 
-          // Follow pagination — Facebook caps at 25-500 records per page
+          // Follow pagination — Facebook caps at 25-500 records per page.
+          // Hard caps: 5s per page, 15s total across all pages, 10 pages max.
+          // (Node's native fetch ignores the legacy `timeout` option, so we wrap explicitly.)
           let nextUrl = facebookData.paging?.next;
           let pageNum = 2;
           const maxPages = 10;
-          while (nextUrl && pageNum <= maxPages) {
+          const paginationDeadline = Date.now() + 15000;
+          while (nextUrl && pageNum <= maxPages && Date.now() < paginationDeadline) {
             try {
-              const pageResp = await fetch(nextUrl, { timeout: 10000 });
+              const pageResp = await withTimeout(
+                (signal) => fetch(nextUrl, { signal }),
+                5000,
+                'Facebook page fetch timed out (5s)'
+              );
               if (!pageResp.ok) break;
               const pageBody = await pageResp.json();
               const pageData = pageBody.data || [];
@@ -625,6 +650,7 @@ router.get('/ga4', async (req, res) => {
     }
 
     // Auth with service account JSON (no file path required)
+    const google = getGoogleApis();
     const auth = new google.auth.GoogleAuth({
       credentials: serviceAccount,
       scopes: ['https://www.googleapis.com/auth/analytics.readonly'],
@@ -657,10 +683,18 @@ router.get('/ga4', async (req, res) => {
       };
     }
 
-    const response = await analyticsdata.properties.runReport({
-      property: `properties/${propertyId}`,
-      requestBody,
-    });
+    // Cap GA4 runReport at 15s so a slow upstream can't stall the response.
+    const response = await raceTimeout(
+      analyticsdata.properties.runReport({
+        property: `properties/${propertyId}`,
+        requestBody,
+      }),
+      15000,
+      null
+    );
+    if (!response) {
+      return res.status(504).json({ success: false, error: 'GA4 runReport timed out (15s)' });
+    }
 
     const rows = response.data.rows || [];
     const data = rows.map((row) => {
@@ -769,9 +803,14 @@ router.get('/google-ads', async (req, res) => {
     const redirectUri = cfg.redirectUri || 'https://developers.google.com/oauthplayground';
     let accessToken;
     try {
+      const google = getGoogleApis();
       const oauth2 = new google.auth.OAuth2(cfg.clientId, cfg.clientSecret, redirectUri);
       oauth2.setCredentials({ refresh_token: cfg.refreshToken });
-      const tokenResp = await oauth2.getAccessToken();
+      // Cap OAuth token exchange at 5s so a stalled Google endpoint can't hang the route.
+      const tokenResp = await raceTimeout(oauth2.getAccessToken(), 5000, null);
+      if (!tokenResp) {
+        return res.status(504).json({ success: false, error: 'Google Ads OAuth token exchange timed out (5s)' });
+      }
       accessToken = typeof tokenResp === 'string' ? tokenResp : tokenResp?.token;
     } catch (e) {
       const msg = e?.response?.data?.error || e?.message || 'OAuth error';
@@ -807,16 +846,22 @@ router.get('/google-ads', async (req, res) => {
     `;
 
     const url = `https://googleads.googleapis.com/${apiVersion}/customers/${cfg.customerId}/googleAds:search`;
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'developer-token': cfg.developerToken,
-        'login-customer-id': cfg.loginCustomerId,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ query }),
-    });
+    // Cap GAQL search at 15s so a stalled Google Ads endpoint can't hang the route.
+    const resp = await withTimeout(
+      (signal) => fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'developer-token': cfg.developerToken,
+          'login-customer-id': cfg.loginCustomerId,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ query }),
+        signal,
+      }),
+      15000,
+      'Google Ads GAQL search timed out (15s)'
+    );
 
     if (!resp.ok) {
       let errPayload = await resp.text();
@@ -912,6 +957,7 @@ async function getGa4AuthAndClient() {
   }
   const propertyId = process.env.GA4_PROPERTY_ID;
   if (!propertyId) throw new Error('GA4_PROPERTY_ID not set');
+  const google = getGoogleApis();
   const auth = new google.auth.GoogleAuth({ credentials: serviceAccount, scopes: ['https://www.googleapis.com/auth/analytics.readonly'] });
   const analyticsdata = google.analyticsdata({ version: 'v1beta', auth });
   return { analyticsdata, propertyId };

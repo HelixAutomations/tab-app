@@ -230,7 +230,7 @@ router.post('/learning-dev', requireInitials, async (req, res) => {
       createdBy: req.userInitials,
     });
 
-    res.status(201).json({ ok: true, plan: record });
+    res.status(201).json({ ok: true, plan: record, submissionId, streamUrl: submissionId ? `forms?focusSubmission=${submissionId}` : null });
   } catch (err) {
     if (submissionId) {
       await markFailed(submissionId, { lastEvent: 'learning_dev_plans.insert:failed', error: err });
@@ -334,7 +334,7 @@ router.post('/learning-dev/activity', requireInitials, async (req, res) => {
       createdBy: req.userInitials,
     });
 
-    res.status(201).json({ ok: true, activity: record });
+    res.status(201).json({ ok: true, activity: record, submissionId, streamUrl: submissionId ? `forms?focusSubmission=${submissionId}` : null });
   } catch (err) {
     if (submissionId) {
       await markFailed(submissionId, { lastEvent: 'learning_dev_activities.insert:failed', error: err });
@@ -597,7 +597,7 @@ router.post('/undertakings', requireInitials, async (req, res) => {
       createdBy: req.userInitials,
     });
 
-    res.status(201).json({ ok: true, undertaking: record });
+    res.status(201).json({ ok: true, undertaking: record, submissionId, streamUrl: submissionId ? `forms?focusSubmission=${submissionId}` : null });
   } catch (err) {
     if (submissionId) {
       await markFailed(submissionId, { lastEvent: 'undertakings.insert:failed', error: err });
@@ -786,7 +786,7 @@ router.post('/complaints', requireInitials, async (req, res) => {
       createdBy: req.userInitials,
     });
 
-    res.status(201).json({ ok: true, complaint: record });
+    res.status(201).json({ ok: true, complaint: record, submissionId, streamUrl: submissionId ? `forms?focusSubmission=${submissionId}` : null });
   } catch (err) {
     if (submissionId) {
       await markFailed(submissionId, { lastEvent: 'complaints.insert:failed', error: err });

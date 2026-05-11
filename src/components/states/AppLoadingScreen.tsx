@@ -150,7 +150,7 @@ const AppLoadingScreen: React.FC<AppLoadingScreenProps> = ({
             style={{
               position: 'absolute',
               inset: -2,
-              background: `radial-gradient(circle at 50% 50%, ${isDarkMode ? 'rgba(135, 243, 243, 0.18)' : 'rgba(54, 144, 206, 0.14)'}, transparent 70%)`,
+              background: `radial-gradient(circle at 50% 50%, ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)'}, transparent 70%)`,
               animation: 'appLoadingGlow 3.2s ease-in-out infinite',
               pointerEvents: 'none',
             }}
@@ -215,7 +215,7 @@ const AppLoadingScreen: React.FC<AppLoadingScreenProps> = ({
                         : (isDarkMode ? 'rgba(54, 144, 206, 0.28)' : colours.light.border),
                       transform: isActive ? 'scale(1.35)' : 'scale(1)',
                       boxShadow: isActive
-                        ? `0 0 6px ${isDarkMode ? 'rgba(135, 243, 243, 0.45)' : 'rgba(54, 144, 206, 0.35)'}`
+                        ? `0 0 6px ${isDarkMode ? 'rgba(54, 144, 206, 0.45)' : 'rgba(54, 144, 206, 0.35)'}`
                         : 'none',
                       transition: 'transform 0.4s cubic-bezier(0.22, 1, 0.36, 1), background 0.4s ease, box-shadow 0.4s ease',
                     }}
@@ -247,7 +247,7 @@ const AppLoadingScreen: React.FC<AppLoadingScreenProps> = ({
               style={{
                 position: 'absolute',
                 inset: 0,
-                background: `linear-gradient(90deg, transparent 0%, ${isDarkMode ? 'rgba(135, 243, 243, 0.45)' : 'rgba(54, 144, 206, 0.35)'} 50%, transparent 100%)`,
+                background: `linear-gradient(90deg, transparent 0%, ${isDarkMode ? 'rgba(54, 144, 206, 0.45)' : 'rgba(54, 144, 206, 0.35)'} 50%, transparent 100%)`,
                 animation: 'appLoadingBarShimmer 1.8s linear infinite',
                 pointerEvents: 'none',
               }}

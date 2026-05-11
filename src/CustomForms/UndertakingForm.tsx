@@ -7,21 +7,19 @@ import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
 import { Dropdown } from '@fluentui/react/lib/Dropdown';
 import type { IDropdownOption } from '@fluentui/react/lib/Dropdown';
 import { Icon } from '@fluentui/react/lib/Icon';
-import { getProxyBaseUrl } from '../utils/getProxyBaseUrl';
+import { getApiBase } from '../utils/getApiUrl';
 import type { UserData } from '../app/functionality/types';
 import { useFormReadinessPulse } from './shared/useFormReadinessPulse';
 import { FormReadinessCue } from './shared/FormReadinessCue';
+import FormsStreamLanded from './shared/FormsStreamLanded';
 import {
   getFormScrollContainerStyle,
   getFormCardStyle,
   getFormHeaderStyle,
   getFormHeaderTitleStyle,
-  getFormHeaderSubtitleStyle,
   getFormContentStyle,
   getFormSectionStyle,
   getFormSectionHeaderStyle,
-  getInfoBoxStyle,
-  getInfoBoxTextStyle,
   getInputStyles,
   getDropdownStyles,
   getFormPrimaryButtonStyles,
@@ -83,6 +81,8 @@ const UndertakingForm: React.FC<UndertakingFormProps> = ({ userData, onBack, onS
   const [formData, setFormData] = useState<UndertakingFormState>(emptyState);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [streamSubmissionId, setStreamSubmissionId] = useState<string | null>(null);
+  const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [recentItems, setRecentItems] = useState<any[]>([]);
   const [isLoadingRecent, setIsLoadingRecent] = useState(true);
   const [totalCount, setTotalCount] = useState(0);
@@ -98,7 +98,7 @@ const UndertakingForm: React.FC<UndertakingFormProps> = ({ userData, onBack, onS
     const ac = new AbortController();
     (async () => {
       try {
-        const baseUrl = getProxyBaseUrl();
+        const baseUrl = getApiBase();
         const res = await fetch(`${baseUrl}/api/registers/undertakings`, { headers: requestHeaders, signal: ac.signal });
         if (res.ok) {
           const data = await res.json();
@@ -133,7 +133,7 @@ const UndertakingForm: React.FC<UndertakingFormProps> = ({ userData, onBack, onS
     setSubmitMessage(null);
 
     try {
-      const baseUrl = getProxyBaseUrl();
+      const baseUrl = getApiBase();
       const response = await fetch(`${baseUrl}/api/registers/undertakings`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...requestHeaders },
@@ -149,8 +149,13 @@ const UndertakingForm: React.FC<UndertakingFormProps> = ({ userData, onBack, onS
 
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.ok) {
+        setStreamSubmissionId(payload?.submissionId ?? null);
+        setStreamUrl(null);
         throw new Error(payload.error || 'Failed to record undertaking');
       }
+
+      setStreamSubmissionId(payload?.submissionId ?? null);
+      setStreamUrl(payload?.streamUrl ?? null);
 
       if (payload.undertaking) {
         setRecentItems((prev) => [payload.undertaking, ...prev].slice(0, 10));
@@ -172,7 +177,7 @@ const UndertakingForm: React.FC<UndertakingFormProps> = ({ userData, onBack, onS
 
   return (
     <div style={getFormScrollContainerStyle(isDarkMode)}>
-      <div style={getFormCardStyle(isDarkMode, accentColor)}>
+      <div style={getFormCardStyle(isDarkMode)}>
         <div style={getFormHeaderStyle(isDarkMode, accentColor)}>
           <Stack horizontal horizontalAlign="space-between" verticalAlign="center">
             <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 12 }}>
@@ -180,9 +185,6 @@ const UndertakingForm: React.FC<UndertakingFormProps> = ({ userData, onBack, onS
               <div>
                 <Text variant="xLarge" style={getFormHeaderTitleStyle(isDarkMode)}>
                   New Undertaking
-                </Text>
-                <Text style={getFormHeaderSubtitleStyle(isDarkMode)}>
-                  Start the undertaking in Forms, then manage status and discharge from the compliance dashboard.
                 </Text>
               </div>
             </Stack>
@@ -209,14 +211,13 @@ const UndertakingForm: React.FC<UndertakingFormProps> = ({ userData, onBack, onS
             </MessageBar>
           )}
 
-          <div style={getInfoBoxStyle(isDarkMode, 'warning')}>
-            <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
-              <Icon iconName="Info" style={{ color: accentColor, flexShrink: 0 }} />
-              <Text style={getInfoBoxTextStyle(isDarkMode)}>
-                Use this for structured intake. The ongoing due-soon, overdue, discharged, and breach tracking stays in Resources.
-              </Text>
-            </Stack>
-          </div>
+          {streamSubmissionId && submitMessage && (
+            <FormsStreamLanded
+              submissionId={streamSubmissionId}
+              streamUrl={streamUrl}
+              isDarkMode={isDarkMode}
+            />
+          )}
 
           <div style={getFormSectionStyle(isDarkMode, accentColor)}>
             <div style={getFormSectionHeaderStyle(isDarkMode, accentColor)}>

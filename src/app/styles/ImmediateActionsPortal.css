@@ -8,6 +8,16 @@
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
+  min-height: 0;
+  transition: min-height 0.22s ease;
+}
+
+/* 2026-04-27 (A2 follow-up): only reserve the 56px horizon when the app-level
+   ImmediateActionsBar is actually mounted into this portal. Home's default
+   inline To Do layout suppresses the portal mount entirely; without this gate
+   the empty shell steals vertical room from Home on every load. */
+.immediate-actions-portal.has-portal-content {
+  min-height: var(--home-immediate-min-h, 56px);
 }
 
 /* Theme transition on portal container only — NOT descendants.
@@ -15,15 +25,22 @@
    causing severe layout thrashing. Scope to container + chips only. */
 #app-level-immediate-actions {
   transition: background-color 0.25s ease, border-color 0.25s ease, color 0.25s ease,
-    box-shadow 0.25s ease;
+    box-shadow 0.25s ease, min-height 0.22s ease;
   display: block;
   width: 100%;
   min-width: 0;
-  min-height: 0;
+  /* Inherits min-height from .immediate-actions-portal until resolved */
   box-sizing: border-box;
   border-radius: 0;
   border: none;
   background: transparent;
+}
+
+/* When the mounted portal bar resolves to empty (no actions, grace expired)
+  collapse the reserved horizon smoothly to zero. */
+.immediate-actions-portal.has-portal-content.is-resolved-empty,
+#app-level-immediate-actions.is-resolved-empty {
+  min-height: 0;
 }
 
 #app-level-immediate-actions .immediate-action-chip {
@@ -38,8 +55,14 @@
 
 /* ─── Tab-switch visibility for Navigator + ImmediateActions ───
    Bars live inside .app-scroll-region and scroll away naturally.
-   This class hides them instantly on non-applicable tabs. */
+   This class hides them instantly on non-applicable tabs.
+
+   `!important` is justified here: this is a utility hide class that
+   competes with `.app-navigator { display: flex; }` from Navigator.css
+   on equal specificity. Without `!important`, source-order wins and the
+   navigator (carrying Home's QuickActionsBar) bleeds onto Activity.
+   App.tsx toggles this class via `actionsWrapperRef`/`navigatorChromeRef`. */
 
 .chrome-tab-hidden {
-  display: none;
+  display: none !important;
 }

@@ -9,6 +9,7 @@ import { app } from '@microsoft/teams-js';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { isInTeams } from '../app/functionality/isInTeams';
 import type { UserData, TeamData } from '../app/functionality/types';
+import { isDevOwner } from '../app/admin';
 import { colours } from '../app/styles/colours';
 import ComplianceWorkspace from '../tabs/resources/registers/ComplianceWorkspace';
 import RegistersWorkspace from '../tabs/resources/registers/RegistersWorkspace';
@@ -1187,10 +1188,19 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
         }
     }, [selectedResource, asanaTeams.length, asanaTeamsLoading, fetchAsanaTeams]);
 
+    // Hide dev-only resource categories from non-dev users.
+    // 'Analytics & Development' contains internal dev tooling (Azure portal,
+    // GitHub, Postman, Power Automate, Power BI) that isn't relevant to fee
+    // earners and was flagged in release feedback as noise.
+    const showDevSections = isLocalDev || isDevOwner(userData?.[0]);
+    const visibleResourceSections = showDevSections
+        ? resourceSections
+        : resourceSections.filter(s => s.title !== 'Analytics & Development');
+
     // Build sections with favorites at top if any exist
     const sectionsToRender = favorites.length > 0 
-        ? [{ title: 'Favorites', resources: favorites }, ...resourceSections]
-        : resourceSections;
+        ? [{ title: 'Favorites', resources: favorites }, ...visibleResourceSections]
+        : visibleResourceSections;
 
     const selectedIsFavorite = selectedResource
         ? favorites.some(f => f.title === selectedResource.title)

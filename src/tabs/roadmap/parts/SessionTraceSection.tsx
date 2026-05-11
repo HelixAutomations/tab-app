@@ -16,7 +16,7 @@ function tabLabel(key: string): string {
     matters: 'Matters',
     instructions: 'Instructions',
     reporting: 'Reporting',
-    roadmap: 'Activity',
+    roadmap: 'System',
     blueprints: 'Blueprints',
     resources: 'Resources',
     forms: 'Forms',
@@ -56,7 +56,7 @@ const SessionTraceSection: React.FC<SessionTraceSectionProps> = ({ traces, isDar
     if (initialSessionId) setSelectedSessionId(initialSessionId);
   }, [initialSessionId]);
 
-  const allTraces = traces?.list || [];
+  const allTraces = useMemo(() => traces?.list ?? [], [traces]);
   const traceList = useMemo(() => {
     if (healthFilter === 'all') return allTraces;
     if (healthFilter === 'busy') return allTraces.filter((t) => t.health === 'busy');

@@ -11,6 +11,7 @@ import { Panel } from '@fluentui/react/lib/Panel';
 import { useParams } from 'react-router-dom';
 import { InstructionData, CCLJson, UserData } from '../../app/functionality/types';
 import { schema as cclSchema, tokens as cclTokens } from '../../app/functionality/cclSchema';
+import { colours } from '../../app/styles/colours';
 import localUserData from '../../localData/localUserData.json';
 import { dashboardTokens } from './componentTokens';
 import { buildCclApiUrl } from '../matters/ccl/cclAiService';

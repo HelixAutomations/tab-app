@@ -10,7 +10,6 @@ import { Dialog, DialogType, DialogFooter } from '@fluentui/react/lib/Dialog';
 import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
 import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { keyframes } from '@fluentui/react/lib/Styling';
-import { getProxyBaseUrl } from '../utils/getProxyBaseUrl';
 import { colours } from '../app/styles/colours';
 import { useTheme } from '../app/functionality/ThemeContext';
 import BespokeForm, { FormField } from './BespokeForms';

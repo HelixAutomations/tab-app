@@ -56,6 +56,45 @@ function determineLeaveApprovers(aow) {
 
 const getTodayIso = () => new Date().toISOString().split('T')[0];
 
+const LEAVE_DAY_MS = 24 * 60 * 60 * 1000;
+
+const formatLeaveDateInput = (value) => {
+  if (!value) return '';
+  const parsed = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return '';
+  }
+  return parsed.toISOString().slice(0, 10);
+};
+
+const parseLeaveDateInput = (value) => {
+  const normalized = formatLeaveDateInput(value);
+  if (!normalized) return null;
+  const parsed = new Date(`${normalized}T00:00:00.000Z`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const normalizeLeaveBoolean = (value, fallback = false) => {
+  if (value === undefined || value === null) return fallback;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value === 1;
+  const normalized = String(value).trim().toLowerCase();
+  return normalized === 'true' || normalized === '1' || normalized === 'yes';
+};
+
+const computeFallbackLeaveDaysTaken = ({ startDate, endDate, halfDayStart = false, halfDayEnd = false }) => {
+  const parsedStart = parseLeaveDateInput(startDate);
+  const parsedEnd = parseLeaveDateInput(endDate);
+  if (!parsedStart || !parsedEnd || parsedEnd < parsedStart) {
+    return null;
+  }
+
+  let computedDays = Math.round((parsedEnd.getTime() - parsedStart.getTime()) / LEAVE_DAY_MS) + 1;
+  if (halfDayStart) computedDays -= 0.5;
+  if (halfDayEnd) computedDays -= 0.5;
+  return Math.max(computedDays, 0);
+};
+
 // ── Connection string builder ──
 // Keeps the SQL template (Encrypt, MARS, Timeout) in one place so the 11
 // previously-duplicated inline strings can't drift. Password must be fetched
@@ -1421,11 +1460,17 @@ router.post('/annual-leave', async (req, res) => {
     for (const range of dateRanges) {
       const start = new Date(range.start_date);
       const end = new Date(range.end_date);
+      const halfDayStart = normalizeLeaveBoolean(range.half_day_start, false);
+      const halfDayEnd = normalizeLeaveBoolean(range.half_day_end, false);
+      const explicitDaysTaken = Number(range.days_taken);
       
       // Calculate actual days considering half-days
-      let computedDays = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-      if (range.half_day_start) computedDays -= 0.5;
-      if (range.half_day_end) computedDays -= 0.5;
+      let computedDays = Math.round((end.getTime() - start.getTime()) / LEAVE_DAY_MS) + 1;
+      if (halfDayStart) computedDays -= 0.5;
+      if (halfDayEnd) computedDays -= 0.5;
+      if (Number.isFinite(explicitDaysTaken) && explicitDaysTaken >= 0) {
+        computedDays = explicitDaysTaken;
+      }
       
       const result = await attendanceQuery(projectDataConnStr, (req, sql) =>
         req.input('fe', sql.VarChar(50), fe)
@@ -1437,13 +1482,13 @@ router.post('/annual-leave', async (req, res) => {
           .input('leave_type', sql.VarChar(50), leave_type)
           .input('hearing_confirmation', sql.Bit, hearing_confirmation?.toLowerCase() === "yes" ? 1 : 0)
           .input('hearing_details', sql.NVarChar(sql.MAX), hearing_details || "")
-          .input('half_day_start', sql.Bit, range.half_day_start ? 1 : 0)
-          .input('half_day_end', sql.Bit, range.half_day_end ? 1 : 0)
+          .input('half_day_start', sql.Bit, halfDayStart ? 1 : 0)
+          .input('half_day_end', sql.Bit, halfDayEnd ? 1 : 0)
           .query(`
             INSERT INTO [dbo].[annualLeave] 
               ([fe], [start_date], [end_date], [reason], [status], [days_taken], [leave_type], [hearing_confirmation], [hearing_details], [half_day_start], [half_day_end], [requested_at], [approved_at], [booked_at], [updated_at])
             VALUES 
-              (@fe, @start_date, @end_date, @reason, @status, @days_taken, @leave_type, @hearing_confirmation, @hearing_details, @half_day_start, @half_day_end, SYSUTCDATETIME(), CASE WHEN @status = 'booked' THEN SYSUTCDATETIME() ELSE NULL END, CASE WHEN @status = 'booked' THEN SYSUTCDATETIME() ELSE NULL END, SYSUTCDATETIME());
+              (@fe, @start_date, @end_date, @reason, @status, @days_taken, @leave_type, @hearing_confirmation, @hearing_details, @half_day_start, @half_day_end, SYSUTCDATETIME(), CASE WHEN @status IN ('approved', 'booked') THEN SYSUTCDATETIME() ELSE NULL END, CASE WHEN @status = 'booked' THEN SYSUTCDATETIME() ELSE NULL END, SYSUTCDATETIME());
             SELECT SCOPE_IDENTITY() AS InsertedId;
           `)
       );
@@ -1478,7 +1523,9 @@ router.post('/annual-leave', async (req, res) => {
       message: needsCalendarSync
         ? 'Annual leave entries created and automatically booked.'
         : 'Annual leave entries created successfully.',
-      insertedIds
+      insertedIds,
+      submissionId,
+      streamUrl: submissionId ? `forms?focusSubmission=${submissionId}` : null,
     });
 
     await recordStep(submissionId, {
@@ -1806,60 +1853,12 @@ async function ensureAnnualLeaveCalendarEntries({ projectDataConnStr, password, 
   }
 
   if (!shouldSyncAnnualLeaveCalendars(leaveRecord)) {
-    if (leaveRecord.ClioEntryId) {
-      const clioSecrets = await getClioSecrets();
-      if (clioSecrets) {
-        const accessToken = await getClioAccessToken(clioSecrets);
-        if (accessToken) {
-          const clioDeleted = await deleteClioCalendarEntry(accessToken, leaveRecord.ClioEntryId);
-          if (clioDeleted) {
-            await attendanceQuery(projectDataConnStr, (req, sql) =>
-              req.input('id', sql.Int, parsedId)
-                .query(`
-                  UPDATE [dbo].[annualLeave]
-                     SET [ClioEntryId] = NULL
-                   WHERE [request_id] = @id;
-                `)
-            );
-          }
-        }
-      }
-    }
-
-    const teamMember = await getTeamMemberByInitials(leaveRecord.fe, password);
-    const outlookUserId = teamMember?.entraId || teamMember?.email;
-    if (outlookUserId) {
-      const graphToken = await getGraphAccessToken();
-      if (graphToken) {
-        let outlookDeleted = false;
-        if (leaveRecord.OutlookEntryId) {
-          outlookDeleted = await deleteOutlookCalendarEntry(graphToken, outlookUserId, leaveRecord.OutlookEntryId);
-        }
-
-        if (!outlookDeleted) {
-          const fallbackEventId = await findOutlookEventIdForLeave(graphToken, outlookUserId, {
-            startDate: leaveRecord.start_date,
-            endDate: leaveRecord.end_date,
-            transactionId: `annual-leave-${parsedId}`,
-            subject: `${leaveRecord.fe} Annual Leave`
-          });
-          if (fallbackEventId) {
-            outlookDeleted = await deleteOutlookCalendarEntry(graphToken, outlookUserId, fallbackEventId);
-          }
-        }
-
-        if (leaveRecord.OutlookEntryId && outlookDeleted) {
-          await attendanceQuery(projectDataConnStr, (req, sql) =>
-            req.input('id', sql.Int, parsedId)
-              .query(`
-                UPDATE [dbo].[annualLeave]
-                   SET [OutlookEntryId] = NULL
-                 WHERE [request_id] = @id;
-              `)
-          );
-        }
-      }
-    }
+    await clearAnnualLeaveCalendarEntries({
+      projectDataConnStr,
+      password,
+      requestId: parsedId,
+      leaveRecord,
+    });
 
     return;
   }
@@ -1925,6 +1924,121 @@ async function ensureAnnualLeaveCalendarEntries({ projectDataConnStr, password, 
   }
 }
 
+async function clearAnnualLeaveCalendarEntries({ projectDataConnStr, password, requestId, leaveRecord: providedLeaveRecord = null }) {
+  const parsedId = Number(requestId);
+  if (!Number.isFinite(parsedId)) {
+    throw new Error(`clearAnnualLeaveCalendarEntries: invalid requestId '${requestId}'`);
+  }
+
+  let leaveRecord = providedLeaveRecord;
+  if (!leaveRecord) {
+    const leaveResult = await attendanceQuery(projectDataConnStr, (req, sql) =>
+      req.input('id', sql.Int, parsedId)
+        .query(`
+          SELECT fe, start_date, end_date, status, leave_type, ClioEntryId, OutlookEntryId, half_day_start, half_day_end
+          FROM [dbo].[annualLeave]
+          WHERE request_id = @id
+        `)
+    );
+    leaveRecord = leaveResult.recordset?.[0] || null;
+  }
+
+  if (!leaveRecord) {
+    return;
+  }
+
+  if (leaveRecord.ClioEntryId) {
+    const clioSecrets = await getClioSecrets();
+    if (clioSecrets) {
+      const accessToken = await getClioAccessToken(clioSecrets);
+      if (accessToken) {
+        const clioDeleted = await deleteClioCalendarEntry(accessToken, leaveRecord.ClioEntryId);
+        if (clioDeleted) {
+          await attendanceQuery(projectDataConnStr, (req, sql) =>
+            req.input('id', sql.Int, parsedId)
+              .query(`
+                UPDATE [dbo].[annualLeave]
+                   SET [ClioEntryId] = NULL
+                 WHERE [request_id] = @id;
+              `)
+          );
+        }
+      }
+    }
+  }
+
+  const teamMember = await getTeamMemberByInitials(leaveRecord.fe, password);
+  const outlookUserId = teamMember?.entraId || teamMember?.email;
+  if (!outlookUserId) {
+    return;
+  }
+
+  const graphToken = await getGraphAccessToken();
+  if (!graphToken) {
+    return;
+  }
+
+  let outlookDeleted = false;
+  if (leaveRecord.OutlookEntryId) {
+    outlookDeleted = await deleteOutlookCalendarEntry(graphToken, outlookUserId, leaveRecord.OutlookEntryId);
+  }
+
+  if (!outlookDeleted) {
+    const fallbackEventId = await findOutlookEventIdForLeave(graphToken, outlookUserId, {
+      startDate: leaveRecord.start_date,
+      endDate: leaveRecord.end_date,
+      transactionId: `annual-leave-${parsedId}`,
+      subject: `${leaveRecord.fe} Annual Leave`
+    });
+    if (fallbackEventId) {
+      outlookDeleted = await deleteOutlookCalendarEntry(graphToken, outlookUserId, fallbackEventId);
+    }
+  }
+
+  if (leaveRecord.OutlookEntryId && outlookDeleted) {
+    await attendanceQuery(projectDataConnStr, (req, sql) =>
+      req.input('id', sql.Int, parsedId)
+        .query(`
+          UPDATE [dbo].[annualLeave]
+             SET [OutlookEntryId] = NULL
+           WHERE [request_id] = @id;
+        `)
+    );
+  }
+}
+
+// Returns the Europe/London UTC offset in whole hours for the given date
+// (1 during BST, 0 during GMT). Server may run in any TZ, so we ask Intl.
+function getLondonUtcOffsetHours(date) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Europe/London',
+      timeZoneName: 'longOffset',
+    }).formatToParts(date);
+    const tz = parts.find(p => p.type === 'timeZoneName')?.value || 'GMT';
+    const match = tz.match(/GMT([+-]\d{1,2})(?::(\d{2}))?/);
+    return match ? parseInt(match[1], 10) : 0;
+  } catch {
+    // Fallback: treat as GMT if Intl fails
+    return 0;
+  }
+}
+
+// Set the given Date so its UTC instant corresponds to the given London-local
+// hour on the same calendar day. e.g. londonHour=13 in BST → UTC 12:00.
+// Offset is sampled at noon UTC of the target date to stay on the safe side
+// of DST transitions (which happen at 01:00 UTC in London).
+function setLondonHourUTC(dateObj, londonHour) {
+  const probe = new Date(Date.UTC(
+    dateObj.getUTCFullYear(),
+    dateObj.getUTCMonth(),
+    dateObj.getUTCDate(),
+    12, 0, 0, 0,
+  ));
+  const offset = getLondonUtcOffsetHours(probe);
+  dateObj.setUTCHours(londonHour - offset, 0, 0, 0);
+}
+
 // Helper function to create Clio calendar entry
 // half_day_start: true means start day is PM only (from 1pm)
 // half_day_end: true means end day is AM only (until 1pm)
@@ -1944,14 +2058,14 @@ async function createClioCalendarEntry(accessToken, fe, startDate, endDate, half
   let data;
   
   if (isHalfDay && isSingleDay) {
-    // Single day half-day: set specific times
-    // halfDayEnd = AM (morning only, 9am-1pm)
-    // halfDayStart = PM (afternoon only, 1pm-5pm)
+    // Single day half-day: set specific times (Europe/London local)
+    // halfDayEnd = AM (morning only, 9am-1pm London)
+    // halfDayStart = PM (afternoon only, 1pm-5pm London)
     const startHour = halfDayStart ? 13 : 9; // PM starts at 1pm, AM starts at 9am
     const endHour = halfDayEnd ? 13 : 17;     // AM ends at 1pm, PM ends at 5pm
-    
-    startDateObject.setUTCHours(startHour, 0, 0, 0);
-    endDateObject.setUTCHours(endHour, 0, 0, 0);
+
+    setLondonHourUTC(startDateObject, startHour);
+    setLondonHourUTC(endDateObject, endHour);
     
     data = {
       data: {
@@ -1964,13 +2078,13 @@ async function createClioCalendarEntry(accessToken, fe, startDate, endDate, half
       }
     };
   } else if (isHalfDay) {
-    // Multi-day range with half-day start/end
+    // Multi-day range with half-day start/end (Europe/London local)
     // For Clio, we'll note it in the summary since all_day doesn't support partial days well
     if (halfDayStart) {
-      startDateObject.setUTCHours(13, 0, 0, 0); // Start at 1pm
+      setLondonHourUTC(startDateObject, 13); // Start at 1pm London
     }
     if (halfDayEnd) {
-      endDateObject.setUTCHours(13, 0, 0, 0); // End at 1pm
+      setLondonHourUTC(endDateObject, 13); // End at 1pm London
     } else {
       // Full end day - set to next day for exclusive end
       endDateObject.setUTCDate(endDateObject.getUTCDate() + 1);
@@ -2056,8 +2170,10 @@ async function deleteClioCalendarEntry(accessToken, clioEntryId) {
 
 // PUT /api/attendance/admin/annual-leave - Admin endpoint to modify leave records (status, days_taken, leave_type, reason)
 router.put('/admin/annual-leave', async (req, res) => {
+  const operation = 'attendance.adminAnnualLeaveUpdate';
+  const startedAt = Date.now();
   try {
-    const { id, newStatus, days_taken, leave_type, reason } = req.body;
+    const { id, newStatus, days_taken, leave_type, reason, start_date, end_date, half_day_start, half_day_end } = req.body;
 
     if (!id) {
       return res.status(400).json({
@@ -2091,6 +2207,12 @@ router.put('/admin/annual-leave', async (req, res) => {
       });
     }
 
+    trackEvent('Attendance.AdminAnnualLeaveUpdate.Started', {
+      operation,
+      triggeredBy: 'admin-route',
+      requestId: String(id),
+    });
+
     const password = await getSqlPassword();
     if (!password) {
       return res.status(500).json({
@@ -2100,6 +2222,65 @@ router.put('/admin/annual-leave', async (req, res) => {
     }
 
     const { projectDataConnStr } = getAttendanceConnectionStrings(password);
+
+    const existingResult = await attendanceQuery(projectDataConnStr, (reqSql, sqlTypes) =>
+      reqSql.input('id', sqlTypes.Int, parsedId).query(`
+        SELECT request_id, fe, start_date, end_date, status, days_taken, leave_type, reason, half_day_start, half_day_end, ClioEntryId, OutlookEntryId
+        FROM [dbo].[annualLeave]
+        WHERE [request_id] = @id;
+      `)
+    );
+
+    const existingRecord = existingResult.recordset?.[0];
+    if (!existingRecord) {
+      return res.status(404).json({
+        success: false,
+        error: `No record found with ID ${id}.`
+      });
+    }
+
+    const existingStartDate = formatLeaveDateInput(existingRecord.start_date);
+    const existingEndDate = formatLeaveDateInput(existingRecord.end_date);
+    const nextStartDate = start_date !== undefined ? formatLeaveDateInput(start_date) : existingStartDate;
+    const nextEndDate = end_date !== undefined ? formatLeaveDateInput(end_date) : existingEndDate;
+    const nextHalfDayStart = normalizeLeaveBoolean(half_day_start, Boolean(existingRecord.half_day_start));
+    const nextHalfDayEnd = normalizeLeaveBoolean(half_day_end, Boolean(existingRecord.half_day_end));
+
+    if ((start_date !== undefined && !nextStartDate) || (end_date !== undefined && !nextEndDate)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid start_date or end_date. Use YYYY-MM-DD.'
+      });
+    }
+
+    const parsedStartDate = parseLeaveDateInput(nextStartDate);
+    const parsedEndDate = parseLeaveDateInput(nextEndDate);
+    if (!parsedStartDate || !parsedEndDate || parsedEndDate < parsedStartDate) {
+      return res.status(400).json({
+        success: false,
+        error: 'End date must be on or after start date.'
+      });
+    }
+
+    if (nextStartDate === nextEndDate && nextHalfDayStart && nextHalfDayEnd) {
+      return res.status(400).json({
+        success: false,
+        error: 'A single-day leave record cannot be both PM start and AM end.'
+      });
+    }
+
+    const scheduleChanged = nextStartDate !== existingStartDate
+      || nextEndDate !== existingEndDate
+      || nextHalfDayStart !== Boolean(existingRecord.half_day_start)
+      || nextHalfDayEnd !== Boolean(existingRecord.half_day_end);
+
+    const parsedDaysTaken = days_taken !== undefined && days_taken !== null ? Number(days_taken) : null;
+    if (parsedDaysTaken !== null && (!Number.isFinite(parsedDaysTaken) || parsedDaysTaken < 0)) {
+      return res.status(400).json({
+        success: false,
+        error: 'days_taken must be a number greater than or equal to 0.'
+      });
+    }
 
     // Build dynamic update query based on provided fields
     const updates = [];
@@ -2113,9 +2294,9 @@ router.put('/admin/annual-leave', async (req, res) => {
       updates.push(`[booked_at] = CASE WHEN @newStatus = 'booked' AND [booked_at] IS NULL THEN SYSUTCDATETIME() ELSE [booked_at] END`);
     }
 
-    if (days_taken !== undefined && days_taken !== null) {
+    if (parsedDaysTaken !== null) {
       updates.push('[days_taken] = @daysTaken');
-      inputs.push({ name: 'daysTaken', type: sql.Decimal(5, 1), value: parseFloat(days_taken) });
+      inputs.push({ name: 'daysTaken', type: sql.Decimal(5, 1), value: parsedDaysTaken });
     }
 
     if (leave_type) {
@@ -2128,10 +2309,43 @@ router.put('/admin/annual-leave', async (req, res) => {
       inputs.push({ name: 'reason', type: sql.NVarChar(sql.MAX), value: String(reason) });
     }
 
+    if (start_date !== undefined && nextStartDate !== existingStartDate) {
+      updates.push('[start_date] = @startDate');
+      inputs.push({ name: 'startDate', type: sql.Date, value: nextStartDate });
+    }
+
+    if (end_date !== undefined && nextEndDate !== existingEndDate) {
+      updates.push('[end_date] = @endDate');
+      inputs.push({ name: 'endDate', type: sql.Date, value: nextEndDate });
+    }
+
+    if (half_day_start !== undefined && nextHalfDayStart !== Boolean(existingRecord.half_day_start)) {
+      updates.push('[half_day_start] = @halfDayStart');
+      inputs.push({ name: 'halfDayStart', type: sql.Bit, value: nextHalfDayStart ? 1 : 0 });
+    }
+
+    if (half_day_end !== undefined && nextHalfDayEnd !== Boolean(existingRecord.half_day_end)) {
+      updates.push('[half_day_end] = @halfDayEnd');
+      inputs.push({ name: 'halfDayEnd', type: sql.Bit, value: nextHalfDayEnd ? 1 : 0 });
+    }
+
+    if (scheduleChanged && parsedDaysTaken === null) {
+      const fallbackDaysTaken = computeFallbackLeaveDaysTaken({
+        startDate: nextStartDate,
+        endDate: nextEndDate,
+        halfDayStart: nextHalfDayStart,
+        halfDayEnd: nextHalfDayEnd,
+      });
+      if (fallbackDaysTaken !== null) {
+        updates.push('[days_taken] = @daysTaken');
+        inputs.push({ name: 'daysTaken', type: sql.Decimal(5, 1), value: fallbackDaysTaken });
+      }
+    }
+
     if (updates.length === 0) {
       return res.status(400).json({
         success: false,
-        error: 'No valid fields to update. Provide newStatus, days_taken, leave_type, and/or reason.'
+        error: 'No valid fields to update. Provide status, dates, coverage, days taken, leave type, and/or reason.'
       });
     }
 
@@ -2149,14 +2363,20 @@ router.put('/admin/annual-leave', async (req, res) => {
       `);
     });
 
-    if (updateResult.rowsAffected[0] === 0) {
-      return res.status(404).json({
-        success: false,
-        error: `No record found with ID ${id}.`
-      });
+    if (scheduleChanged) {
+      try {
+        await clearAnnualLeaveCalendarEntries({
+          projectDataConnStr,
+          password,
+          requestId: parsedId,
+          leaveRecord: existingRecord,
+        });
+      } catch (calendarError) {
+        console.error('Error clearing annual leave calendars (admin):', calendarError);
+      }
     }
 
-    if (newStatus || leave_type) {
+    if (newStatus || leave_type || scheduleChanged) {
       try {
         await ensureAnnualLeaveCalendarEntries({ projectDataConnStr, password, requestId: parsedId });
       } catch (calendarError) {
@@ -2182,7 +2402,18 @@ router.put('/admin/annual-leave', async (req, res) => {
     // Attendance mem cache embeds the on-leave flag (120s TTL).
     clearAttendanceMemCached();
 
-    console.log(`[Admin] Updated annual leave record ${id}: status=${newStatus || 'unchanged'}, leave_type=${leave_type || 'unchanged'}, days_taken=${days_taken ?? 'unchanged'}, reason=${reason !== undefined ? 'updated' : 'unchanged'}`);
+    console.log(`[Admin] Updated annual leave record ${id}: status=${newStatus || 'unchanged'}, leave_type=${leave_type || 'unchanged'}, days_taken=${days_taken ?? 'unchanged'}, start_date=${start_date || 'unchanged'}, end_date=${end_date || 'unchanged'}, coverage=${half_day_start !== undefined || half_day_end !== undefined ? 'updated' : 'unchanged'}, reason=${reason !== undefined ? 'updated' : 'unchanged'}`);
+
+    trackEvent('Attendance.AdminAnnualLeaveUpdate.Completed', {
+      operation,
+      triggeredBy: 'admin-route',
+      requestId: String(id),
+      durationMs: String(Date.now() - startedAt),
+      scheduleChanged: String(scheduleChanged),
+    });
+    trackMetric('Attendance.AdminAnnualLeaveUpdate.Duration', Date.now() - startedAt, {
+      requestId: String(id),
+    });
 
     res.json({
       success: true,
@@ -2220,6 +2451,15 @@ router.put('/admin/annual-leave', async (req, res) => {
 
   } catch (error) {
     console.error('Error updating annual leave (admin):', error);
+    trackException(error, {
+      operation,
+      phase: 'route-handler',
+    });
+    trackEvent('Attendance.AdminAnnualLeaveUpdate.Failed', {
+      operation,
+      triggeredBy: 'admin-route',
+      error: error?.message || String(error),
+    });
     res.status(500).json({
       success: false,
       error: 'Failed to update annual leave record'

@@ -3,9 +3,11 @@ import { createPortal } from 'react-dom';
 import { colours } from '../app/styles/colours';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { UserData } from '../app/functionality/types';
-import { isAdminUser } from '../app/admin';
+import { isAdminUser, isDevOwner } from '../app/admin';
 import { BubbleToastTone, CommandCentreTokens } from './command-centre/types';
 import CommandDeck from './command-centre/CommandDeck';
+import ErrorScreenPreview from './command-centre/ErrorScreenPreview';
+import { trackClientEvent } from '../utils/telemetry';
 
 // Visible Suspense fallback + error boundary around the lazy CommandDeck chunk.
 // If the chunk fails to load or throws on render, the user must SEE it rather
@@ -74,7 +76,6 @@ const LoadingDebugModal = lazy(() => import('./debug/LoadingDebugModal'));
 const ErrorTracker = lazy(() => import('./ErrorTracker').then((m) => ({ default: m.ErrorTracker })));
 const RefreshDataModal = lazy(() => import('./RefreshDataModal'));
 const LegacyMigrationTool = lazy(() => import('./LegacyMigrationTool'));
-const ErrorScreenPreview = lazy(() => import('./command-centre/ErrorScreenPreview'));
 
 interface HubToolsChipProps {
     user: UserData;
@@ -95,6 +96,8 @@ interface HubToolsChipProps {
     enquiriesLiveRefreshInFlight?: boolean;
     enquiriesLastLiveSyncAt?: number | null;
     onOpenDemoMatter?: (showCcl?: boolean) => void;
+    /** Show the cheat-sheet chip (Ctrl+Shift+D) — only for users on the demo-cheat-sheet allowlist. */
+    cheatSheetEnabled?: boolean;
 }
 
 interface HealthComponent {
@@ -143,6 +146,7 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
     enquiriesLiveRefreshInFlight = false,
     enquiriesLastLiveSyncAt = null,
     onOpenDemoMatter,
+    cheatSheetEnabled = false,
 }) => {
     const { isDarkMode } = useTheme();
     const [open, setOpen] = useState(false);
@@ -155,24 +159,6 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
     const [showErrorPreview, setShowErrorPreview] = useState(false);
     const [toast, setToast] = useState<{ message: string; tone: BubbleToastTone } | null>(null);
     const [sessionElapsed, setSessionElapsed] = useState('');
-    // UX latency overlay — localStorage-backed, mirrors CommandDeck toggle.
-    // Local state so the satellite chip re-renders on toggle (from here or CommandDeck).
-    const [uxOverlayOn, setUxOverlayOn] = useState<boolean>(() => {
-        if (typeof window === 'undefined') return false;
-        try { return window.localStorage.getItem('helixUxDebug') === '1'; } catch { return false; }
-    });
-    useEffect(() => {
-        if (typeof window === 'undefined') return;
-        const sync = () => {
-            try { setUxOverlayOn(window.localStorage.getItem('helixUxDebug') === '1'); } catch { /* ignore */ }
-        };
-        window.addEventListener('helix:uxDebugToggled', sync);
-        window.addEventListener('storage', sync);
-        return () => {
-            window.removeEventListener('helix:uxDebugToggled', sync);
-            window.removeEventListener('storage', sync);
-        };
-    }, []);
     const [healthData, setHealthData] = useState<HealthData | null>(null);
     const [healthLoading, setHealthLoading] = useState(false);
     const [routeResults, setRouteResults] = useState<EnvResult[]>([
@@ -461,15 +447,72 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
 
     const isAdminEligible = isAdminUser(user) || isLocalDev || !!originalAdminUser;
     const canSwitchUser = isAdminUser(user) || !!originalAdminUser;
+    const hasFullToolsStrip = isDevOwner(user);
     const openHome = useCallback(() => {
         window.dispatchEvent(new CustomEvent('navigateToHome'));
     }, []);
     const handleDemoView = useCallback(() => {
         const next = !demoModeEnabled;
         onToggleDemoMode?.(next);
-        showToast(next ? 'Demo mode on' : 'Demo mode off', 'success');
-        if (next) openHome();
-    }, [demoModeEnabled, onToggleDemoMode, openHome, showToast]);
+        showToast(
+            next
+                ? 'Demo on — visit Prospects or Matters to see live inserts'
+                : 'Demo mode off',
+            'success',
+        );
+        // 2026-04-27: don't auto-navigate to Home on toggle. The demo prospect
+        // (DEMO-ENQ-*) and demo matter (DEMO-3311402) inject themselves into
+        // their tables and now play the canonical fresh-sweep arrival anim,
+        // so the operator can stay on whichever surface they want to demo.
+    }, [demoModeEnabled, onToggleDemoMode, showToast]);
+    const handleResetDemo = useCallback(async () => {
+        // One-click cleanup for rehearsal demo state. Reaches every cache the
+        // demo surfaces touch so the next "Demo on" gesture is a fresh sweep.
+        // See HELIX_REHEARSAL_RECORD_LUKE_TEST_AS_FIRM_SEED.md (Phase B / B7).
+        try {
+            try {
+                const ls = window.localStorage;
+                const lsKeys = Object.keys(ls);
+                for (const key of lsKeys) {
+                    if (
+                        key === 'demoModeEnabled'
+                        || key === 'demoMode'
+                        || key.startsWith('cclDraftCache.')
+                        || key.startsWith('helix.demo.')
+                        || key.startsWith('demo.')
+                    ) {
+                        try { ls.removeItem(key); } catch { /* ignore */ }
+                    }
+                }
+            } catch { /* ignore storage errors */ }
+            try {
+                const ss = window.sessionStorage;
+                const ssKeys = Object.keys(ss);
+                for (const key of ssKeys) {
+                    if (
+                        key === 'demoModeEnabled'
+                        || key.startsWith('helix.demo.')
+                        || key.startsWith('demo.')
+                    ) {
+                        try { ss.removeItem(key); } catch { /* ignore */ }
+                    }
+                }
+            } catch { /* ignore storage errors */ }
+            // Best-effort: ask server to reseed the rehearsal record. Failure
+            // here is non-fatal — local cache reset is the primary win.
+            let reseedOk = false;
+            try {
+                const r = await fetch('/api/dev/reseed-rehearsal', { method: 'POST' });
+                reseedOk = r.ok;
+            } catch { /* ignore network errors */ }
+            try { trackClientEvent('Demo', 'Reset.Triggered', { reseedOk, fromDemoOn: demoModeEnabled }); } catch { /* ignore */ }
+            // Force demo off after reset so the next toggle plays the fresh-sweep anim.
+            if (demoModeEnabled) onToggleDemoMode?.(false);
+            showToast('Demo reset · caches cleared', 'success');
+        } catch {
+            showToast('Demo reset failed — see console', 'warning');
+        }
+    }, [demoModeEnabled, onToggleDemoMode, showToast]);
     const handleProdView = useCallback(() => {
         const next = !featureToggles.viewAsProd;
         onFeatureToggle?.('viewAsProd', next);
@@ -483,20 +526,6 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
     // Tray chips are one-click invocations. Multi-option demo controls live
     // inside the Tools popover (CommandDeck → Demo lab).
     void handleDemoPulse;
-    const handleOpenRefresh = useCallback(() => {
-        setShowRefreshModal(true);
-    }, []);
-    const handleToggleUxOverlay = useCallback(() => {
-        if (typeof window === 'undefined') return;
-        const next = !uxOverlayOn;
-        try {
-            if (next) window.localStorage.setItem('helixUxDebug', '1');
-            else window.localStorage.removeItem('helixUxDebug');
-        } catch { /* ignore */ }
-        try { window.dispatchEvent(new CustomEvent('helix:uxDebugToggled')); } catch { /* ignore */ }
-        setUxOverlayOn(next);
-        showToast(next ? 'UX overlay on' : 'UX overlay off', 'success');
-    }, [uxOverlayOn, showToast]);
     // Prefetch the lazy modal chunks on Tools hover so the first click inside
     // the panel doesn't pay the parse cost. Fire-and-forget; errors ignored.
     const prefetchedRef = useRef(false);
@@ -544,8 +573,8 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
         position: 'relative',
         height: 28,
         padding: '0 11px 0 10px',
-        background: isDarkMode ? 'rgba(135, 243, 243, 0.10)' : 'rgba(54, 144, 206, 0.10)',
-        border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.28)' : 'rgba(54, 144, 206, 0.28)'}`,
+        background: isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(54, 144, 206, 0.10)',
+        border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.28)' : 'rgba(54, 144, 206, 0.28)'}`,
         borderRadius: 999,
         color: isDarkMode ? colours.accent : colours.highlight,
         cursor: 'pointer',
@@ -654,6 +683,7 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
             >
                 {/* Demo — satellite one-click chip. Toggles demo mode only.
                     Multi-option demo surface lives in Tools → Demo lab. */}
+                {hasFullToolsStrip && (
                 <button
                     type="button"
                     onClick={handleDemoView}
@@ -683,12 +713,51 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
                     title={demoModeEnabled ? 'Demo mode on' : 'Demo mode'}
                 >
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9z" />
-                        <path d="M19 14l.8 2 2 .8-2 .8L19 20l-.8-2-2-.8 2-.8z" />
+                        <circle cx="12" cy="12" r="10" />
+                        <polygon points="10,8 16,12 10,16" fill="currentColor" stroke="none" />
                     </svg>
                     <span>Demo</span>
                 </button>
-                {/* Production view — satellite one-click chip */}
+                )}
+                {/* Reset Demo — LZ/AC only, only visible when demo is on. Clears
+                    demo caches (localStorage cclDraftCache.*, helix.demo.*,
+                    demoModeEnabled), sessionStorage demo entries, then asks the
+                    server to reseed the rehearsal record. */}
+                {hasFullToolsStrip && demoModeEnabled && ['LZ', 'AC'].includes(String(user?.Initials || '').toUpperCase()) && (
+                    <button
+                        type="button"
+                        onClick={handleResetDemo}
+                        style={{
+                            ...stripSegmentBase,
+                            color: textPrimary,
+                            opacity: 0.82,
+                            background: 'transparent',
+                        }}
+                        onMouseEnter={(e) => {
+                            e.currentTarget.style.transform = 'translateY(-1px)';
+                            e.currentTarget.style.opacity = '1';
+                            e.currentTarget.style.color = stripHoverText;
+                            e.currentTarget.style.background = stripHoverBg;
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.transform = 'translateY(0)';
+                            e.currentTarget.style.opacity = '0.82';
+                            e.currentTarget.style.color = textPrimary;
+                            e.currentTarget.style.background = 'transparent';
+                        }}
+                        aria-label="Reset demo state"
+                        title="Reset demo · clears local caches and reseeds the rehearsal record"
+                    >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M3 12a9 9 0 1 0 3-6.7" />
+                            <path d="M3 4v5h5" />
+                        </svg>
+                        <span>Reset</span>
+                    </button>
+                )}
+                {/* About demo mode — removed (was opening raw DEMO_MODE_REFERENCE.md). Notes overlay (Ctrl+Shift+D) is the canonical presenter aid. */}
+                {/* Production view — satellite one-click chip. LZ only. */}
+                {hasFullToolsStrip && (
                 <button
                     type="button"
                     onClick={handleProdView}
@@ -724,11 +793,17 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
                     </svg>
                     <span>{featureToggles.viewAsProd ? 'Prod' : 'Local'}</span>
                 </button>
-                {/* Refresh — satellite chip. High-frequency "clear caches + re-fetch"
-                    utility; opens the RefreshDataModal that already lives in this file. */}
+                )}
+                {/* Notes — satellite chip. Toggles the presenter cheat sheet
+                    overlay (also bound to Ctrl+Shift+D). Only rendered for users on
+                    the demo-cheat-sheet allowlist. Replaces the old Refresh + UX chips
+                    (refresh is superseded by realtime; UX overlay lives in CommandDeck). */}
+                {cheatSheetEnabled && (
                 <button
                     type="button"
-                    onClick={handleOpenRefresh}
+                    onClick={() => {
+                        try { window.dispatchEvent(new CustomEvent('helix:toggleDemoCheatSheet')); } catch { /* noop */ }
+                    }}
                     style={{
                         ...stripSegmentBase,
                         padding: '0 9px',
@@ -747,56 +822,24 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
                         e.currentTarget.style.color = textPrimary;
                         e.currentTarget.style.background = 'transparent';
                     }}
-                    aria-label="Refresh data"
-                    title="Clear caches &amp; refresh"
+                    aria-label="Open presenter notes (Ctrl+Shift+D)"
+                    title="Notes — Ctrl+Shift+D"
                 >
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M23 4v6h-6" />
-                        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                        <path d="M4 4h12a2 2 0 0 1 2 2v14H6a2 2 0 0 1-2-2z" />
+                        <path d="M8 8h8M8 12h8M8 16h5" />
                     </svg>
-                    <span>Refresh</span>
+                    <span>Notes</span>
                 </button>
-                {/* UX latency overlay — satellite chip. Mirrors the CommandDeck
-                    toggle; localStorage-backed so page reload preserves state. */}
-                <button
-                    type="button"
-                    onClick={handleToggleUxOverlay}
-                    style={{
-                        ...stripSegmentBase,
-                        color: uxOverlayOn ? colours.cta : textPrimary,
-                        opacity: uxOverlayOn ? 1 : 0.82,
-                        background: uxOverlayOn ? (isDarkMode ? 'rgba(214, 85, 65, 0.14)' : 'rgba(214, 85, 65, 0.10)') : 'transparent',
-                    }}
-                    onMouseEnter={(e) => {
-                        e.currentTarget.style.transform = 'translateY(-1px)';
-                        if (!uxOverlayOn) {
-                            e.currentTarget.style.opacity = '1';
-                            e.currentTarget.style.color = stripHoverText;
-                            e.currentTarget.style.background = stripHoverBg;
-                        }
-                    }}
-                    onMouseLeave={(e) => {
-                        e.currentTarget.style.transform = 'translateY(0)';
-                        if (!uxOverlayOn) {
-                            e.currentTarget.style.opacity = '0.82';
-                            e.currentTarget.style.color = textPrimary;
-                            e.currentTarget.style.background = 'transparent';
-                        }
-                    }}
-                    aria-label={uxOverlayOn ? 'Turn off UX latency overlay' : 'Turn on UX latency overlay'}
-                    title={uxOverlayOn ? 'UX latency overlay on' : 'UX latency overlay'}
-                >
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="12" cy="12" r="9" />
-                        <path d="M12 7v5l3 2" />
-                    </svg>
-                    <span>UX</span>
-                </button>
+                )}
                 {/* Tools — primary container. Filled chip with label, env-health dot.
-                    This is the "box" — Demo + Prod are satellites sitting inside the pill. */}
+                    For LZ: clickable, opens CommandDeck. For notes-only viewers:
+                    purely cosmetic — shows initials + health dot, click is a no-op. */}
+                {(() => { const lzOnly = hasFullToolsStrip; return (
                 <button
                     ref={chipRef}
                     onClick={() => {
+                        if (!lzOnly) return;
                         if (open) closePanel();
                         else {
                             previouslyFocusedElement.current = document.activeElement as HTMLElement;
@@ -806,35 +849,36 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
                     style={{
                         ...toolsButtonBase,
                         marginLeft: 2,
+                        cursor: lzOnly ? 'pointer' : 'default',
                         background: open
-                            ? (isDarkMode ? 'rgba(135, 243, 243, 0.18)' : 'rgba(54, 144, 206, 0.16)')
+                            ? (isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.16)')
                             : toolsButtonBase.background,
                         borderColor: open
-                            ? (isDarkMode ? 'rgba(135, 243, 243, 0.45)' : 'rgba(54, 144, 206, 0.45)')
-                            : (toolsButtonBase.border as string).includes('rgba') ? (isDarkMode ? 'rgba(135, 243, 243, 0.28)' : 'rgba(54, 144, 206, 0.28)') : undefined,
-                        boxShadow: open ? (isDarkMode ? '0 4px 14px rgba(135, 243, 243, 0.18)' : '0 4px 14px rgba(54, 144, 206, 0.18)') : 'none',
+                            ? (isDarkMode ? 'rgba(54, 144, 206, 0.45)' : 'rgba(54, 144, 206, 0.45)')
+                            : (toolsButtonBase.border as string).includes('rgba') ? (isDarkMode ? 'rgba(54, 144, 206, 0.28)' : 'rgba(54, 144, 206, 0.28)') : undefined,
+                        boxShadow: open ? (isDarkMode ? '0 4px 14px rgba(54, 144, 206, 0.18)' : '0 4px 14px rgba(54, 144, 206, 0.18)') : 'none',
                     }}
                     onMouseEnter={(e) => {
                         prefetchToolsChunks();
                         e.currentTarget.style.transform = 'translateY(-1px)';
-                        e.currentTarget.style.background = isDarkMode ? 'rgba(135, 243, 243, 0.16)' : 'rgba(54, 144, 206, 0.14)';
-                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(135, 243, 243, 0.38)' : 'rgba(54, 144, 206, 0.38)';
-                        e.currentTarget.style.boxShadow = isDarkMode ? '0 4px 14px rgba(135, 243, 243, 0.18)' : '0 4px 14px rgba(54, 144, 206, 0.18)';
+                        e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.16)' : 'rgba(54, 144, 206, 0.14)';
+                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.38)' : 'rgba(54, 144, 206, 0.38)';
+                        e.currentTarget.style.boxShadow = isDarkMode ? '0 4px 14px rgba(54, 144, 206, 0.18)' : '0 4px 14px rgba(54, 144, 206, 0.18)';
                     }}
                     onFocus={prefetchToolsChunks}
                     onMouseLeave={(e) => {
                         e.currentTarget.style.transform = 'translateY(0)';
                         if (!open) {
-                            e.currentTarget.style.background = isDarkMode ? 'rgba(135, 243, 243, 0.10)' : 'rgba(54, 144, 206, 0.10)';
-                            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(135, 243, 243, 0.28)' : 'rgba(54, 144, 206, 0.28)';
+                            e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(54, 144, 206, 0.10)';
+                            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.28)' : 'rgba(54, 144, 206, 0.28)';
                             e.currentTarget.style.boxShadow = 'none';
                         }
                     }}
-                    aria-haspopup="dialog"
-                    aria-expanded={open}
-                    aria-controls={panelId}
-                    aria-label={`${user.FullName || user.Initials || 'User'} controls`}
-                    title={`${user.FullName || user.Initials || 'User'} controls`}
+                    aria-haspopup={lzOnly ? 'dialog' : undefined}
+                    aria-expanded={lzOnly ? open : undefined}
+                    aria-controls={lzOnly ? panelId : undefined}
+                    aria-label={lzOnly ? `${user.FullName || user.Initials || 'User'} controls` : (user.FullName || user.Initials || 'User')}
+                    title={lzOnly ? `${user.FullName || user.Initials || 'User'} controls` : (user.FullName || user.Initials || 'User')}
                 >
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
@@ -858,6 +902,7 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
                         transition: 'background 0.3s ease',
                     }} />
                 </button>
+                ); })()}
             </div>
             </div>
 
@@ -878,6 +923,7 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
                     demoModeEnabled={demoModeEnabled}
                     onToggleDemoMode={onToggleDemoMode}
                     isAdminEligible={isAdminEligible}
+                    isDevOwner={isDevOwner(user)}
                     canSwitchUser={canSwitchUser}
                     onUserChange={onUserChange}
                     availableUsers={availableUsers}

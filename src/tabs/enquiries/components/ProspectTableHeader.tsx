@@ -230,7 +230,7 @@ const ProspectTableHeader: React.FC<ProspectTableHeaderProps> = ({
   const elevatedSurface = isDarkMode ? 'rgba(12, 36, 62, 0.98)' : 'rgba(255, 255, 255, 0.98)';
   const headerNavBorder = isDarkMode ? 'rgba(75, 85, 99, 0.32)' : 'rgba(160, 160, 160, 0.22)';
   const headerNavIdleBg = isDarkMode ? 'rgba(8, 28, 48, 0.72)' : 'rgba(244, 244, 246, 0.9)';
-  const headerNavActiveBg = isDarkMode ? 'rgba(135, 243, 243, 0.14)' : 'rgba(54, 144, 206, 0.1)';
+  const headerNavActiveBg = isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(54, 144, 206, 0.1)';
   const headerMutedText = isDarkMode ? `${colours.subtleGrey}b3` : `${colours.greyText}99`;
   const pipelineGridPaddingRight = pipelineNeedsCarousel || hasAnyFilter ? 32 : 0;
 
@@ -269,7 +269,7 @@ const ProspectTableHeader: React.FC<ProspectTableHeaderProps> = ({
         backdropFilter: 'blur(12px)',
         borderTop: 'none',
         borderBottom: `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.38)' : 'rgba(160, 160, 160, 0.22)'}`,
-        fontFamily: 'Raleway, "Segoe UI", sans-serif',
+        fontFamily: 'Raleway, sans-serif',
         fontSize: '11px',
         fontWeight: 500,
         color: neutralTextColor,
@@ -355,7 +355,7 @@ const ProspectTableHeader: React.FC<ProspectTableHeaderProps> = ({
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'center',
+                  justifyContent: 'flex-start',
                   gap: 3,
                   height: 22,
                   width: '100%',
@@ -381,12 +381,12 @@ const ProspectTableHeader: React.FC<ProspectTableHeaderProps> = ({
                   style={{
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: 'center',
+                    justifyContent: 'flex-start',
                     gap: 3,
                     height: 22,
                     width: '100%',
                     padding: '0 8px',
-                    background: isFiltered ? (isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(54, 144, 206, 0.1)') : 'transparent',
+                    background: isFiltered ? (isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.1)') : 'transparent',
                     border: isFiltered ? `1px solid ${colours.highlight}40` : `1px solid ${neutralBorder}`,
                     borderRadius: 0,
                     cursor: 'pointer',
@@ -428,7 +428,7 @@ const ProspectTableHeader: React.FC<ProspectTableHeaderProps> = ({
                         gap: 8,
                         width: '100%',
                         padding: '8px 12px',
-                        background: !selectedPocFilter ? (isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(54, 144, 206, 0.1)') : 'transparent',
+                        background: !selectedPocFilter ? (isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.1)') : 'transparent',
                         border: 'none',
                         borderBottom: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(160, 160, 160, 0.15)'}`,
                         cursor: 'pointer',
@@ -454,7 +454,7 @@ const ProspectTableHeader: React.FC<ProspectTableHeaderProps> = ({
                             gap: 8,
                             width: '100%',
                             padding: '8px 12px',
-                            background: isSelected ? (isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(54, 144, 206, 0.1)') : 'transparent',
+                            background: isSelected ? (isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.1)') : 'transparent',
                             border: 'none',
                             cursor: 'pointer',
                             textAlign: 'left',
@@ -484,7 +484,7 @@ const ProspectTableHeader: React.FC<ProspectTableHeaderProps> = ({
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'center',
+                  justifyContent: 'flex-start',
                   gap: 3,
                   height: 22,
                   width: '100%',
@@ -597,7 +597,7 @@ const ProspectTableHeader: React.FC<ProspectTableHeaderProps> = ({
             minHeight: 22,
             borderRadius: '999px',
             border: `1px solid ${areActionsEnabled ? `${activeColor}66` : (isDarkMode ? 'rgba(75, 85, 99, 0.6)' : 'rgba(160, 160, 160, 0.35)')}`,
-            background: areActionsEnabled ? (isDarkMode ? 'rgba(135, 243, 243, 0.14)' : 'rgba(54, 144, 206, 0.1)') : (isDarkMode ? 'rgba(8, 28, 48, 0.72)' : 'rgba(244, 244, 246, 0.9)'),
+            background: areActionsEnabled ? (isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(54, 144, 206, 0.1)') : (isDarkMode ? 'rgba(8, 28, 48, 0.72)' : 'rgba(244, 244, 246, 0.9)'),
             color: 'inherit',
             display: 'flex',
             alignItems: 'center',

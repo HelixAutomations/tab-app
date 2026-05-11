@@ -14,7 +14,6 @@ import { initializeIcons } from '@fluentui/react/lib/Icons';
 import { TooltipHost } from '@fluentui/react/lib/Tooltip';
 import { SearchBox } from '@fluentui/react/lib/SearchBox';
 import OperationStatusToast from './pitch-builder/OperationStatusToast';
-import IconAreaFilter from '../../components/filter/IconAreaFilter';
 import { renderAreaOfWorkGlyph, getAreaGlyphMeta } from '../../components/filter/areaGlyphs';
 import PitchScenarioBadge, { getScenarioColor } from '../../components/PitchScenarioBadge';
 
@@ -26,7 +25,6 @@ import {
   Tooltip,
   ResponsiveContainer,
   Legend,
-  LabelList,
   XAxis,
   YAxis,
 } from 'recharts';
@@ -90,7 +88,6 @@ import type {
   RowPipelineHandlers,
   RowActionHandlers,
   RowDisplayState,
-  RowHoverHandlers,
   RowDataDeps,
 } from './components';
 import {
@@ -164,6 +161,7 @@ interface EnquiriesProps {
   demoModeEnabled?: boolean;
   onTeamWideEnquiriesLoaded?: (enquiries: Enquiry[]) => void;
   pendingEnquiryId?: string | null;
+  pendingEnquiryRequestAt?: number | null;
   pendingEnquirySubTab?: string | null;
   pendingEnquiryPitchScenario?: string | null;
   onPendingEnquiryHandled?: () => void;
@@ -171,6 +169,10 @@ interface EnquiriesProps {
 
 const STRUCTURED_AREA_FILTER_KEYS = ['Commercial', 'Construction', 'Employment', 'Property', 'Other/Unsure'] as const;
 const OTHER_AREA_FILTER_KEY = 'Other/Unsure';
+const PROSPECTS_PIPELINE_LAYOUT_CACHE = {
+  mode: 'short' as 'full' | 'short' | 'icon',
+  visibleChipCount: 7,
+};
 
 const matchStructuredAreaFilterKey = (rawArea: unknown): string | null => {
   const area = String(rawArea ?? '').trim().toLowerCase();
@@ -247,7 +249,7 @@ if (typeof document !== 'undefined') {
   }
 }
 
-// ─── Inject CSS for filter chip transitions (once) ────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Inject CSS for filter chip transitions (once) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 if (typeof document !== 'undefined' && !document.head.querySelector('style[data-enq-filter-css]')) {
   const filterCss = document.createElement('style');
   filterCss.setAttribute('data-enq-filter-css', 'true');
@@ -255,24 +257,6 @@ if (typeof document !== 'undefined' && !document.head.querySelector('style[data-
     @keyframes enq-filter-signal {
       0%, 100% { opacity: 0.45; transform: scaleX(0.92); }
       50% { opacity: 1; transform: scaleX(1); }
-    }
-    @keyframes enq-skeleton-breathe {
-      0%, 100% { opacity: 0.78; }
-      50% { opacity: 1; }
-    }
-    @keyframes enq-skeleton-shimmer {
-      0%   { background-position: 140% 0; }
-      100% { background-position: -40% 0; }
-    }
-    @keyframes enq-skeleton-fade-out {
-      from { opacity: 1; }
-      to   { opacity: 0; }
-    }
-    @media (prefers-reduced-motion: reduce) {
-      .enq-queue-skeleton,
-      .enq-queue-skeleton * {
-        animation: none !important;
-      }
     }
     .enq-filter-cluster,
     .enq-filter-secondary-cluster {
@@ -333,7 +317,7 @@ if (typeof document !== 'undefined' && !document.head.querySelector('style[data-
       background: var(--enq-chip-hover-bg) !important;
       box-shadow: inset 0 0 0 1px var(--enq-chip-hover-border) !important;
     }
-    /* Tactile press — match CustomTabs: scale(0.97) + opacity 0.85, no y-shift */
+    /* Tactile press Ã¢â‚¬â€ match CustomTabs: scale(0.97) + opacity 0.85, no y-shift */
     .enq-chip:active:not(:disabled), .enq-scope-chip:active:not(:disabled) {
       transform: scale(0.97);
       opacity: 0.85;
@@ -364,7 +348,7 @@ if (typeof document !== 'undefined' && !document.head.querySelector('style[data-
     }
     [data-theme="dark"] .enq-action-btn:hover {
       background: rgba(135,243,243,0.07);
-      color: #87F3F3;
+      color: #3690CE;
       box-shadow: inset 0 0 0 1px rgba(135,243,243,0.28);
     }
     [data-theme="light"] .enq-action-btn {
@@ -403,7 +387,7 @@ if (typeof document !== 'undefined' && !document.head.querySelector('style[data-
     [data-theme="dark"] .enq-add-contact-btn:hover {
       background: rgba(135,243,243,0.07);
       box-shadow: inset 0 0 0 1px rgba(135,243,243,0.28);
-      color: #87F3F3;
+      color: #3690CE;
     }
     [data-theme="light"] .enq-add-contact-btn:hover {
       background: rgba(54,144,206,0.05);
@@ -414,6 +398,12 @@ if (typeof document !== 'undefined' && !document.head.querySelector('style[data-
     .enq-add-contact-label {
       max-width: 0; overflow: hidden; opacity: 0;
       transition: max-width 200ms ease, opacity 150ms ease;
+    }
+    .enq-add-contact-btn[data-show-label="true"] {
+      width: auto; padding: 0 10px; gap: 5px;
+    }
+    .enq-add-contact-btn[data-show-label="true"] .enq-add-contact-label {
+      max-width: 120px; opacity: 1;
     }
     .enq-add-contact-btn:hover .enq-add-contact-label {
       max-width: 100px; opacity: 1;
@@ -460,10 +450,14 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   demoModeEnabled: demoModeEnabledProp,
   onTeamWideEnquiriesLoaded,
   pendingEnquiryId,
+  pendingEnquiryRequestAt,
   pendingEnquirySubTab,
   pendingEnquiryPitchScenario,
   onPendingEnquiryHandled,
 }) => {
+  // Use the checkIsLocalDev utility - respects "View as Production" toggle
+  const isLocalhost = checkIsLocalDev(featureToggles);
+
   // Function to check if an enquiry has been promoted to pitch/instruction
   const getPromotionStatus = useCallback((enquiry: Enquiry): { promoted: boolean; type: 'pitch' | 'instruction' | null; count: number } => {
     if (!instructionData || !enquiry.ID) {
@@ -536,7 +530,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const demoModeEnabled = (typeof demoModeEnabledProp === 'boolean' ? demoModeEnabledProp : demoModeEnabledLocal)
     || (() => { try { return localStorage.getItem('demoModeEnabled') === 'true'; } catch { return false; } })();
 
-  // Local overrides for instruction data — merged on top of prop-supplied data
+  // Local overrides for instruction data Ã¢â‚¬â€ merged on top of prop-supplied data
   // after inline operations (EID, risk, matter) complete. Keyed by InstructionRef.
   const [instructionOverrides, setInstructionOverrides] = useState<Map<string, any>>(new Map());
 
@@ -577,7 +571,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       const byLegacy = inlineWorkbenchByEnquiryId.get(String(legacyId));
       if (byLegacy) return byLegacy;
     }
-    // v2 enquiries may lack ACID — fall back to email match
+    // v2 enquiries may lack ACID Ã¢â‚¬â€ fall back to email match
     const email = String((enquiry as any).Email || (enquiry as any).email || '').trim().toLowerCase();
     if (email) {
       return inlineWorkbenchByEnquiryId.get(`email:${email}`);
@@ -638,7 +632,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       window.dispatchEvent(new CustomEvent('helix:rate-enquiry', { detail: { enquiryId: String(enquiryId) } }));
     },
     onTriggerEID: async (instructionRef: string) => {
-      // Run EID inline — no navigation to Instructions/Clients tab
+      // Run EID inline Ã¢â‚¬â€ no navigation to Instructions/Clients tab
       if (!instructionRef) return;
       const response = await fetch('/api/verify-id', {
         method: 'POST',
@@ -705,10 +699,10 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       }
     },
     onOpenIdReview: (_instructionRef: string) => {
-      // No-op — ID review (approve/request docs) is handled inline via InlineWorkbench's local modals
+      // No-op Ã¢â‚¬â€ ID review (approve/request docs) is handled inline via InlineWorkbench's local modals
     },
     onOpenRiskAssessment: (_instruction: any) => {
-      // No-op — risk assessment is handled inline via InlineWorkbench's local modal
+      // No-op Ã¢â‚¬â€ risk assessment is handled inline via InlineWorkbench's local modal
     },
     onRiskAssessmentSave: (instructionRef: string, savedRisk: any) => {
       const ref = (instructionRef || '').trim();
@@ -725,7 +719,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       });
     },
     onOpenMatter: (_instruction: any) => {
-      // No-op — matter opening is handled inline via InlineWorkbench's local modal
+      // No-op Ã¢â‚¬â€ matter opening is handled inline via InlineWorkbench's local modal
     },
     onDocumentPreview: (doc: any) => {
       const instructionRef = doc?.InstructionRef || doc?.instructionRef || doc?.instruction_ref || '';
@@ -772,7 +766,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   // Debug logging
 
-  // View mode — table only (card view removed)
+  // View mode Ã¢â‚¬â€ table only (card view removed)
   const viewMode = 'table' as const;
 
   // Unified enrichment data state (Teams + pitch data)
@@ -813,22 +807,26 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   type PipelineChipLabelMode = 'full' | 'short' | 'icon';
   const pipelineGridMeasureRef = useRef<HTMLDivElement | null>(null);
-  const [pipelineChipLabelMode, setPipelineChipLabelMode] = useState<PipelineChipLabelMode>('short');
-  // Start from the optimistic full-width state and let ResizeObserver compress only if needed.
-  const [visiblePipelineChipCount, setVisiblePipelineChipCount] = useState<number>(7);
+  const [pipelineChipLabelMode, setPipelineChipLabelMode] = useState<PipelineChipLabelMode>(() => PROSPECTS_PIPELINE_LAYOUT_CACHE.mode);
+  const [visiblePipelineChipCount, setVisiblePipelineChipCount] = useState<number>(() => PROSPECTS_PIPELINE_LAYOUT_CACHE.visibleChipCount);
   const pipelineMeasureRetryRef = useRef(0);
   const pipelineMeasureRetryTimerRef = useRef<number | null>(null);
+  const navigatorToolbarObserverRef = useRef<ResizeObserver | null>(null);
+  const [showNavigatorPersonLabels, setShowNavigatorPersonLabels] = useState<boolean>(() => (
+    typeof window !== 'undefined' ? window.innerWidth >= 1000 : false
+  ));
   // Counter to trigger re-measurement when returning from detail view
   const [pipelineRemeasureKey, setPipelineRemeasureKey] = useState<number>(0);
   // Minimum chip width at each mode (tuned for smoother width recognition)
   const CHIP_MIN_WIDTHS = { icon: 24, short: 68, full: 92 };
   const MIN_PIPELINE_STABLE_WIDTH_PX = 180;
+  const PIPELINE_WIDTH_UPDATE_TOLERANCE_PX = 4;
   const LOCKED_ACTIONS_COLUMN_WIDTH_PX = 56;
   const UNLOCKED_ACTIONS_COLUMN_WIDTH_PX = 188;
   const LOCKED_ACTIONS_COLUMN_WIDTH = `clamp(32px, 4vw, ${LOCKED_ACTIONS_COLUMN_WIDTH_PX}px)`;
   const UNLOCKED_ACTIONS_COLUMN_WIDTH = `clamp(80px, 14vw, ${UNLOCKED_ACTIONS_COLUMN_WIDTH_PX}px)`;
   const getTableGridTemplateColumns = (actionsEnabled: boolean) => (
-    `clamp(20px, 4vw, 36px) minmax(clamp(28px, 5vw, 60px), 0.45fr) minmax(clamp(44px, 7vw, 88px), 0.6fr) minmax(clamp(50px, 9vw, 140px), 1.1fr) minmax(clamp(60px, 15vw, 260px), 3.4fr) ${actionsEnabled ? UNLOCKED_ACTIONS_COLUMN_WIDTH : LOCKED_ACTIONS_COLUMN_WIDTH}`
+    `minmax(clamp(56px, 9vw, 112px), 0.82fr) minmax(clamp(34px, 5vw, 64px), 0.48fr) minmax(clamp(50px, 9vw, 140px), 1.1fr) minmax(clamp(60px, 15vw, 260px), 3.4fr) ${actionsEnabled ? UNLOCKED_ACTIONS_COLUMN_WIDTH : LOCKED_ACTIONS_COLUMN_WIDTH}`
   );
   const TABLE_GRID_GAP_PX = 4;
   const PIPELINE_CHIP_MIN_WIDTH_PX = CHIP_MIN_WIDTHS[pipelineChipLabelMode] ?? CHIP_MIN_WIDTHS.short;
@@ -850,6 +848,44 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [isActive]);
+
+  const updateNavigatorPersonLabels = useCallback((width: number) => {
+    const minWidth = isLocalhost ? 980 : 900;
+    const nextValue = width >= minWidth;
+    setShowNavigatorPersonLabels((prev) => (prev === nextValue ? prev : nextValue));
+  }, [isLocalhost]);
+
+  const handleNavigatorToolbarRef = useCallback((node: HTMLDivElement | null) => {
+    navigatorToolbarObserverRef.current?.disconnect();
+    navigatorToolbarObserverRef.current = null;
+
+    if (!node) {
+      return;
+    }
+
+    updateNavigatorPersonLabels(node.getBoundingClientRect().width);
+
+    if (typeof ResizeObserver === 'undefined') {
+      return;
+    }
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const contentBox = Array.isArray(entry.contentBoxSize)
+        ? entry.contentBoxSize[0]
+        : entry.contentBoxSize;
+      updateNavigatorPersonLabels(contentBox?.inlineSize || entry.contentRect.width);
+    });
+
+    observer.observe(node);
+    navigatorToolbarObserverRef.current = observer;
+  }, [updateNavigatorPersonLabels]);
+
+  useEffect(() => () => {
+    navigatorToolbarObserverRef.current?.disconnect();
+    navigatorToolbarObserverRef.current = null;
+  }, []);
 
   const pipelineStageUi = useMemo(() => {
     const entries: Array<{
@@ -1011,8 +1047,11 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         nextCount = 1;
       }
 
+      PROSPECTS_PIPELINE_LAYOUT_CACHE.mode = nextMode;
+      PROSPECTS_PIPELINE_LAYOUT_CACHE.visibleChipCount = nextCount;
+
       setPipelineChipLabelMode((prev) => (prev === nextMode ? prev : nextMode));
-      setVisiblePipelineChipCount(nextCount);
+      setVisiblePipelineChipCount((prev) => (prev === nextCount ? prev : nextCount));
     };
 
     const applyMeasuredWidth = (width: number, force = false) => {
@@ -1026,8 +1065,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       }
       pipelineMeasureRetryRef.current = 0;
 
-      // Skip if width hasn't changed significantly (within 1px tolerance)
-      if (!force && Math.abs(width - lastMeasuredWidth) < 1) return;
+      // Skip tiny measurement jitter so zoom/resize does not schedule layout work per pixel.
+      if (!force && Math.abs(width - lastMeasuredWidth) < PIPELINE_WIDTH_UPDATE_TOLERANCE_PX) return;
       lastMeasuredWidth = width;
 
       computePipelineLayout(width);
@@ -1049,8 +1088,28 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     const delayedMeasure = window.setTimeout(() => measureAndApply(true), 100);
     const delayedMeasureLate = window.setTimeout(() => measureAndApply(true), 240);
     
-    // Debounced resize handler for smoother updates
     let resizeRaf: number | null = null;
+    let observerRaf: number | null = null;
+    let pendingObservedWidth = el.getBoundingClientRect().width;
+
+    const readObservedWidth = (entry: ResizeObserverEntry) => {
+      const contentBox = Array.isArray(entry.contentBoxSize)
+        ? entry.contentBoxSize[0]
+        : entry.contentBoxSize;
+      return contentBox?.inlineSize || entry.contentRect.width;
+    };
+
+    const queueObservedWidth = (width: number) => {
+      pendingObservedWidth = width;
+      if (observerRaf !== null) {
+        return;
+      }
+      observerRaf = requestAnimationFrame(() => {
+        observerRaf = null;
+        applyMeasuredWidth(pendingObservedWidth);
+      });
+    };
+
     const handleResize = () => {
       if (resizeRaf) cancelAnimationFrame(resizeRaf);
       resizeRaf = requestAnimationFrame(() => {
@@ -1061,9 +1120,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     window.addEventListener('resize', handleResize);
     
     const observer = new ResizeObserver((items) => {
-      const rect = items[0]?.contentRect;
-      if (!rect) return;
-      applyMeasuredWidth(rect.width);
+      const entry = items[0];
+      if (!entry) return;
+      queueObservedWidth(readObservedWidth(entry));
     });
 
     observer.observe(el);
@@ -1074,6 +1133,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       cancelAnimationFrame(settleRaf);
       cancelAnimationFrame(settleRafLate);
       if (resizeRaf) cancelAnimationFrame(resizeRaf);
+      if (observerRaf) cancelAnimationFrame(observerRaf);
       if (pipelineMeasureRetryTimerRef.current) {
         window.clearTimeout(pipelineMeasureRetryTimerRef.current);
       }
@@ -1081,20 +1141,20 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     };
   }, [viewMode, pipelineRemeasureKey, selectedPocFilter, enquiryPipelineFilters.size, schedulePipelineRemeasure]);
   
-  // Pipeline filter toggle handler - cycles through: no filter → yes → no → clear (loop)
+  // Pipeline filter toggle handler - cycles through: no filter Ã¢â€ â€™ yes Ã¢â€ â€™ no Ã¢â€ â€™ clear (loop)
   const cycleEnquiryPipelineFilter = useCallback((stage: EnquiryPipelineStage) => {
     setEnquiryPipelineFilters(prev => {
       const newFilters = new Map(prev);
       const currentFilter = newFilters.get(stage);
       
       if (!currentFilter) {
-        // No filter → show 'has this stage' (green)
+        // No filter Ã¢â€ â€™ show 'has this stage' (green)
         newFilters.set(stage, 'yes');
       } else if (currentFilter === 'yes') {
-        // 'Has' → show 'missing this stage' (red)
+        // 'Has' Ã¢â€ â€™ show 'missing this stage' (red)
         newFilters.set(stage, 'no');
       } else {
-        // 'Missing' → clear filter (loop back to no filter)
+        // 'Missing' Ã¢â€ â€™ clear filter (loop back to no filter)
         newFilters.delete(stage);
       }
       
@@ -1205,6 +1265,13 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   // Reassignment state
   const [reassignmentDropdown, setReassignmentDropdown] = useState<{ enquiryId: string; x: number; y: number; openAbove?: boolean } | null>(null);
   const [isReassigning, setIsReassigning] = useState(false);
+  const [pendingReassignment, setPendingReassignment] = useState<{
+    enquiryId: string;
+    previousOwnerEmail: string;
+    previousOwnerName: string;
+    nextOwnerEmail: string;
+    nextOwnerName: string;
+  } | null>(null);
 
   // Navigation state variables  
   // (declaration moved below, only declare once)
@@ -1213,11 +1280,11 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const fetchAllEnquiries = useCallback(async (options?: { bypassCache?: boolean }) => {
     // Dedup: if a non-bypass fetch is already in flight, reuse it
     if (fetchAllInFlightRef.current && !options?.bypassCache) {
-      debugLog('🔄 Reusing in-flight fetchAllEnquiries promise');
+      debugLog('Ã°Å¸â€â€ž Reusing in-flight fetchAllEnquiries promise');
       return fetchAllInFlightRef.current;
     }
     if (isLoadingAllData && !options?.bypassCache) {
-      debugLog('🔄 Already loading all data, skipping fetch');
+      debugLog('Ã°Å¸â€â€ž Already loading all data, skipping fetch');
       return;
     }
     
@@ -1225,7 +1292,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       reason: lastTeamWideFetchReasonRef.current || 'unknown',
       hasFetchedAllData: hasFetchedAllData.current,
     });
-    debugLog('🔄 Attempting to fetch all enquiries, hasFetched:', hasFetchedAllData.current);
+    debugLog('Ã°Å¸â€â€ž Attempting to fetch all enquiries, hasFetched:', hasFetchedAllData.current);
     
     const doFetch = async () => {
     try {
@@ -1253,24 +1320,24 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   
   // Date range: 12 months ago to today
       
-      debugLog('🌐 Fetching ALL enquiries (unified) from:', allDataUrl);
+      debugLog('Ã°Å¸Å’Â Fetching ALL enquiries (unified) from:', allDataUrl);
       
       const response = await fetch(allDataUrl, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
       });
       
-      debugLog('📡 Response status:', response.status, response.statusText);
-      debugLog('📡 Response headers:', Object.fromEntries(response.headers.entries()));
+      debugLog('Ã°Å¸â€œÂ¡ Response status:', response.status, response.statusText);
+      debugLog('Ã°Å¸â€œÂ¡ Response headers:', Object.fromEntries(response.headers.entries()));
       
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('❌ Response not OK:', response.status, errorText);
+        console.error('Ã¢ÂÅ’ Response not OK:', response.status, errorText);
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
       
       const data = await response.json();
-      debugLog('🔍 RAW RESPONSE from unified route:', {
+      debugLog('Ã°Å¸â€Â RAW RESPONSE from unified route:', {
         dataType: typeof data,
         isArray: Array.isArray(data),
         hasEnquiries: !!data.enquiries,
@@ -1282,28 +1349,28 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       let rawEnquiries: any[] = [];
       if (Array.isArray(data)) {
         rawEnquiries = data;
-        debugLog('📦 Using data as direct array');
+        debugLog('Ã°Å¸â€œÂ¦ Using data as direct array');
       } else if (Array.isArray(data.enquiries)) {
         rawEnquiries = data.enquiries;
-        debugLog('📦 Using data.enquiries array');
+        debugLog('Ã°Å¸â€œÂ¦ Using data.enquiries array');
       } else if (Array.isArray((data as any).data)) {
         rawEnquiries = (data as any).data;
-        debugLog('📦 Using data.data array');
+        debugLog('Ã°Å¸â€œÂ¦ Using data.data array');
       } else {
-        debugWarn('⚠️ Unexpected data structure:', data);
+        debugWarn('Ã¢Å¡Â Ã¯Â¸Â Unexpected data structure:', data);
       }
       
-      debugLog('✅ Fetched all enquiries:', rawEnquiries.length);
+      debugLog('Ã¢Å“â€¦ Fetched all enquiries:', rawEnquiries.length);
       
       // Convert to normalized format
       const normalizedEnquiries = rawEnquiries.map((raw: any) => normalizeEnquiry(raw));
       
-      debugLog('🔄 Setting normalized data to state:', normalizedEnquiries.length);
+      debugLog('Ã°Å¸â€â€ž Setting normalized data to state:', normalizedEnquiries.length);
       
       // IMPORTANT: Do not overwrite per-user dataset when fetching team-wide data for All/Mine+Claimed.
       // Keep `allEnquiries` sourced from props (per-user), and store the unified dataset only in teamWideEnquiries.
       // This prevents Mine view from briefly switching to team-wide dataset and dropping claimed items.
-      // Apply team-wide data synchronously — startTransition delays would cause
+      // Apply team-wide data synchronously Ã¢â‚¬â€ startTransition delays would cause
       // downstream effects to see stale empty state and trigger duplicate fetches.
       setTeamWideEnquiries(normalizedEnquiries);
       hasFetchedAllData.current = true;
@@ -1315,11 +1382,11 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         reason: lastTeamWideFetchReasonRef.current || 'unknown',
         count: normalizedEnquiries.length,
       });
-      debugLog('✅ Team-wide enquiries loaded; preserved per-user allEnquiries');
+      debugLog('Ã¢Å“â€¦ Team-wide enquiries loaded; preserved per-user allEnquiries');
       
       return normalizedEnquiries;
     } catch (error) {
-      console.error('❌ Failed to fetch all enquiries:', error);
+      console.error('Ã¢ÂÅ’ Failed to fetch all enquiries:', error);
       hasFetchedAllData.current = false;
       console.warn('[Enquiries] fetchAllEnquiries:error', {
         reason: lastTeamWideFetchReasonRef.current || 'unknown',
@@ -1344,11 +1411,12 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const { isDarkMode } = useTheme();
   const headerTextColor = isDarkMode ? colours.dark.text : colours.light.text;
   const { setContent } = useNavigatorActions();
+  const lastNavigatorContentKeyRef = useRef<string | null>(null);
   
   // Generate subtle pulse animation CSS based on theme
   const pulseGlowStyle = useMemo(() => {
-    const baseColor = isDarkMode ? 'rgba(135, 243, 243, 0.6)' : 'rgba(54, 144, 206, 0.7)';
-    const baseBg = isDarkMode ? 'rgba(135, 243, 243, 0.10)' : 'rgba(54, 144, 206, 0.12)';
+    const baseColor = isDarkMode ? 'rgba(54, 144, 206, 0.6)' : 'rgba(54, 144, 206, 0.7)';
+    const baseBg = isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(54, 144, 206, 0.12)';
     const greenColor = isDarkMode ? 'rgba(32, 178, 108, 0.6)' : 'rgba(32, 178, 108, 0.7)';
     const greenBg = isDarkMode ? 'rgba(32, 178, 108, 0.10)' : 'rgba(32, 178, 108, 0.12)';
     
@@ -1357,13 +1425,13 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   0%, 100% { 
     border: 1px dashed ${baseColor};
     background: ${baseBg};
-    box-shadow: 0 2px 4px ${isDarkMode ? 'rgba(135, 243, 243, 0.06)' : 'rgba(54, 144, 206, 0.08)'};
+    box-shadow: 0 2px 4px ${isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.08)'};
     opacity: 0.85;
   }
   50% { 
     border: 1px dashed ${baseColor};
     background: ${baseBg};
-    box-shadow: 0 2px 6px ${isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(54, 144, 206, 0.15)'};
+    box-shadow: 0 2px 6px ${isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.15)'};
     opacity: 1;
   }
 }
@@ -1403,13 +1471,13 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   }, [pulseGlowStyle]);
   const [selectedEnquiry, setSelectedEnquiry] = useState<Enquiry | null>(null);
   const [twoColumn, setTwoColumn] = useState<boolean>(false);
-  // Use the checkIsLocalDev utility - respects "View as Production" toggle
-  const isLocalhost = checkIsLocalDev(featureToggles);
   // Check if running in VSCode webview (userAgent contains 'Code')
   const isVSCodeWebview = (typeof navigator !== 'undefined') && navigator.userAgent.includes('Code');
   // Scope toggle - always default to "Mine" for focused workflow
   const [showMineOnly, setShowMineOnly] = useState<boolean>(true);
   const [activeState, setActiveState] = useState<EnquiriesActiveState>('Claimed');
+  const isClaimedQueueHoldingPreviewRequested = Boolean(featureToggles?.previewClaimedQueueHolding) && isLocalhost;
+  const shouldPreviewClaimedQueueHolding = isClaimedQueueHoldingPreviewRequested && activeState === 'Claimed' && showMineOnly;
 
   // Use deferred values for smoother filter transitions
   const deferredShowMineOnly = useDeferredValue(showMineOnly);
@@ -1467,7 +1535,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   // Deal Capture is always enabled by default now
   const showDealCapture = true;
   
-  // Auto-refresh state (pulse poller + SSE handle realtime refresh; manual button for on-demand)
+  // Auto-refresh state (pulse poller + SSE handle realtime refresh)
   const [lastRefreshTime, setLastRefreshTime] = useState<Date>(() => enquiriesLastLiveSyncAt ? new Date(enquiriesLastLiveSyncAt) : new Date(0));
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const lastActivationRefreshAtRef = useRef<number>(0);
@@ -1541,7 +1609,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     }
   }, [allEnquiries, displayEnquiries, selectedEnquiry, teamWideEnquiries]);
 
-  // ─── New-arrival animation tracking ───────────────────────
+  // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ New-arrival animation tracking Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
   // Stores the set of enquiry IDs from the previous displayedItems render.
   // When displayedItems changes, any ID not in this set is "newly arrived"
   // and gets a CSS entrance animation via DOM class injection.
@@ -1585,14 +1653,18 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     refreshRef.current()
       .then(() => {
         setLastRefreshTime(new Date());
+        setClaimedQueueRefreshError(null);
       })
       .catch((error) => {
         console.warn('[Enquiries] Active-tab live refresh failed:', error);
+        if (activeState === 'Claimed' && showMineOnly) {
+          setClaimedQueueRefreshError(error instanceof Error ? error.message : 'Claimed queue refresh failed.');
+        }
       })
       .finally(() => {
         setIsRefreshing(false);
       });
-  }, [isActive, enquiriesUsingSnapshot, enquiriesLastLiveSyncAt, enquiriesLiveRefreshInFlight, isLoadingAllData, isRefreshing]);
+  }, [activeState, enquiriesUsingSnapshot, enquiriesLastLiveSyncAt, enquiriesLiveRefreshInFlight, isActive, isLoadingAllData, isRefreshing, showMineOnly]);
 
   const getEnquiryTimestamp = useCallback((enquiry: Partial<Enquiry> | any): number => {
     const raw = enquiry?.Touchpoint_Date || enquiry?.Date_Created || enquiry?.datetime || enquiry?.claim;
@@ -1612,6 +1684,36 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       lastKnownEnquiryTsRef.current = maxTs;
     }
   }, [allEnquiries, teamWideEnquiries, getEnquiryTimestamp]);
+
+  const mapEnquiriesIfChanged = useCallback(
+    (
+      enquiriesToUpdate: NormalizedEnquiry[],
+      updater: (enquiry: NormalizedEnquiry) => NormalizedEnquiry,
+    ): NormalizedEnquiry[] => {
+      let didChange = false;
+      const next = enquiriesToUpdate.map((enquiry) => {
+        const updated = updater(enquiry);
+        if (updated !== enquiry) {
+          didChange = true;
+        }
+        return updated;
+      });
+
+      return didChange ? next : enquiriesToUpdate;
+    },
+    [],
+  );
+
+  const filterEnquiriesIfChanged = useCallback(
+    (
+      enquiriesToFilter: NormalizedEnquiry[],
+      predicate: (enquiry: NormalizedEnquiry) => boolean,
+    ): NormalizedEnquiry[] => {
+      const next = enquiriesToFilter.filter(predicate);
+      return next.length === enquiriesToFilter.length ? enquiriesToFilter : next;
+    },
+    [],
+  );
 
   const applyRealtimeClaimPatch = useCallback((enquiryId: string, claimedByEmail: string, claimedAt?: string | null) => {
     if (!enquiryId) return false;
@@ -1640,15 +1742,22 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         const isUnclaimed = nextPoc.toLowerCase() === 'team@helix-law.com';
         next.claim = isUnclaimed ? null : ((enquiry as any).claim ?? claimIso);
       }
+      if (
+        (enquiry as any).Point_of_Contact === next.Point_of_Contact
+        && (enquiry as any).poc === next.poc
+        && (enquiry as any).claim === next.claim
+      ) {
+        return enquiry;
+      }
       return next;
     };
 
     // Update local state immediately so filters + counts react instantly.
-    setAllEnquiries(prev => prev.map(updateEnquiry));
-    setDisplayEnquiries(prev => prev.map(updateEnquiry));
-    setTeamWideEnquiries(prev => prev.map(updateEnquiry));
+    setAllEnquiries(prev => mapEnquiriesIfChanged(prev, updateEnquiry));
+    setDisplayEnquiries(prev => mapEnquiriesIfChanged(prev, updateEnquiry));
+    setTeamWideEnquiries(prev => mapEnquiriesIfChanged(prev, updateEnquiry));
     return true;
-  }, []);
+  }, [mapEnquiriesIfChanged]);
 
   /**
    * Apply a generic field-level patch from an SSE event.
@@ -1670,13 +1779,23 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
     const updateEnquiry = (enquiry: NormalizedEnquiry): NormalizedEnquiry => {
       if (String(enquiry.ID) !== String(enquiryId)) return enquiry;
-      return { ...enquiry, ...patch } as NormalizedEnquiry;
+      let didChange = false;
+      const next: Record<string, unknown> = { ...enquiry };
+
+      Object.entries(patch).forEach(([key, value]) => {
+        if ((next as any)[key] !== value) {
+          (next as any)[key] = value;
+          didChange = true;
+        }
+      });
+
+      return didChange ? (next as NormalizedEnquiry) : enquiry;
     };
 
-    setAllEnquiries(prev => prev.map(updateEnquiry));
-    setDisplayEnquiries(prev => prev.map(updateEnquiry));
-    setTeamWideEnquiries(prev => prev.map(updateEnquiry));
-  }, []);
+    setAllEnquiries(prev => mapEnquiriesIfChanged(prev, updateEnquiry));
+    setDisplayEnquiries(prev => mapEnquiriesIfChanged(prev, updateEnquiry));
+    setTeamWideEnquiries(prev => mapEnquiriesIfChanged(prev, updateEnquiry));
+  }, [mapEnquiriesIfChanged]);
 
   const applyRealtimeUpdatePatchRef = useRef(applyRealtimeUpdatePatch);
   applyRealtimeUpdatePatchRef.current = applyRealtimeUpdatePatch;
@@ -1735,7 +1854,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     };
   }, []);
 
-  // Stable refs for SSE/pulse callbacks — prevents stream reconnection when deps change
+  // Stable refs for SSE/pulse callbacks Ã¢â‚¬â€ prevents stream reconnection when deps change
   const applyRealtimeClaimPatchRef = useRef(applyRealtimeClaimPatch);
   applyRealtimeClaimPatchRef.current = applyRealtimeClaimPatch;
   const refreshVisibleRef = useRef(refreshVisibleEnquiriesDataset);
@@ -1747,7 +1866,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     // and broadcasts parsed events to registered listeners.
     //
     // 2026-04-24: do NOT gate on `isActive`. The component is kept-alive
-    // (mounted with display:none) when on other tabs — keeping the
+    // (mounted with display:none) when on other tabs Ã¢â‚¬â€ keeping the
     // subscription open in the background means when the user returns,
     // the dataset is already current. The just-arrived row pulse only
     // fires when the user is actually looking at the table, because the
@@ -1770,7 +1889,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       console.info('[Enquiries] stream:event', { type: changeType, hasRecord: !!record });
 
       if (changeType === 'claim' && enquiryId) {
-        // Instant local patch — no refresh needed, background reconciliation handles drift
+        // Instant local patch Ã¢â‚¬â€ no refresh needed, background reconciliation handles drift
         applyRealtimeClaimPatchRef.current(enquiryId, claimedBy || '', claimedAt ?? null);
         return;
       }
@@ -1789,28 +1908,27 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           String(enquiryId || '').trim(),
           ...deletedIds,
         ]);
-        // Remove from all local datasets — instant
+        // Remove from all local datasets Ã¢â‚¬â€ instant
         const removeEnquiry = (enq: NormalizedEnquiry) => !Array.from(candidateIds).some((candidateId) => enquiryReferencesId(enq, candidateId));
-        setAllEnquiries(prev => prev.filter(removeEnquiry));
-        setDisplayEnquiries(prev => prev.filter(removeEnquiry));
-        setTeamWideEnquiries(prev => prev.filter(removeEnquiry));
+        setAllEnquiries(prev => filterEnquiriesIfChanged(prev, removeEnquiry));
+        setDisplayEnquiries(prev => filterEnquiriesIfChanged(prev, removeEnquiry));
+        setTeamWideEnquiries(prev => filterEnquiriesIfChanged(prev, removeEnquiry));
         return;
       }
 
       if (changeType === 'create') {
-        // New record — schedule a gentle background refresh to pick up the full row
-        // (the app shell handles the reconciliation timer)
+        // New record Ã¢â‚¬â€ allow a short settle window, then pull the merged row.
         if (refreshTimerRef.current) {
           window.clearTimeout(refreshTimerRef.current);
         }
         refreshTimerRef.current = window.setTimeout(() => {
           refreshTimerRef.current = null;
           refreshVisibleRef.current('stream-create');
-        }, 5000);
+        }, 1200);
         return;
       }
 
-      // Fallback: unknown event types — no aggressive refresh
+      // Fallback: unknown event types Ã¢â‚¬â€ no aggressive refresh
       console.info('[Enquiries] stream:unhandled-event', { type: changeType });
     });
 
@@ -1824,9 +1942,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         refreshTimerRef.current = null;
       }
     };
-  }, [subscribeToEnquiryStream]);
+  }, [filterEnquiriesIfChanged, subscribeToEnquiryStream]);
 
-  // Pulse polling — fallback for missed SSE events. Runs at 60s intervals.
+  // Pulse polling Ã¢â‚¬â€ fallback for missed SSE events. Runs at 60s intervals.
   useEffect(() => {
     if (!isActive || !refreshRef.current) return;
 
@@ -1858,7 +1976,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       window.clearInterval(intervalId);
     };
   }, [isActive]); // Only restart poll when tab activation changes
-  // Admin check (match Matters logic) – be robust to spaced keys and fallbacks
+  // Admin check (match Matters logic) Ã¢â‚¬â€œ be robust to spaced keys and fallbacks
   const userRec: any = (userData && userData[0]) ? userData[0] : {};
   const userRole: string = (userRec.Role || userRec.role || '').toString();
   const userFullName: string = (
@@ -1867,7 +1985,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     [userRec.First, userRec.Last].filter(Boolean).join(' ')
   )?.toString() || '';
   const isAdmin = isAdminUser(userData?.[0] || null);
-  debugLog('🔍 ADMIN STATUS DEBUG:', {
+  debugLog('Ã°Å¸â€Â ADMIN STATUS DEBUG:', {
     userEmail: userData?.[0]?.Email,
     userInitials: userData?.[0]?.Initials,
     userName: userData?.[0]?.First,
@@ -1878,16 +1996,71 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   // Debug storage for raw payloads when inspecting
   const [debugRaw, setDebugRaw] = useState<{ legacy?: unknown; direct?: unknown }>({});
   const [debugLoading, setDebugLoading] = useState(false);
-  const [debugError, setDebugError] = useState<string | null>(null);
+  const [claimedQueueRefreshError, setClaimedQueueRefreshError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isClaimedQueueHoldingPreviewRequested) {
+      return;
+    }
+
+    if (selectedEnquiry) {
+      setSelectedEnquiry(null);
+    }
+    if (!showMineOnly) {
+      setShowMineOnly(true);
+    }
+    if (activeState !== 'Claimed') {
+      setActiveState('Claimed');
+    }
+    if (claimedQueueRefreshError) {
+      setClaimedQueueRefreshError(null);
+    }
+  }, [activeState, claimedQueueRefreshError, isClaimedQueueHoldingPreviewRequested, selectedEnquiry, showMineOnly]);
   
   // Toast notification state (consolidated)
-  const [toast, setToast] = useState<{ visible: boolean; message: string; details: string; type: 'success' | 'error' | 'info' | 'warning' } | null>(null);
+  const [toast, setToast] = useState<{
+    visible: boolean;
+    message: string;
+    details: string;
+    type: 'success' | 'error' | 'info' | 'warning';
+    actionLabel?: string;
+    onAction?: () => void;
+  } | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' | 'warning', details = '', durationMs = 3000) => {
+  const dismissToast = useCallback(() => {
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = null;
+    }
+    setToast(prev => prev ? { ...prev, visible: false } : null);
+  }, []);
+  const showToast = useCallback((
+    message: string,
+    type: 'success' | 'error' | 'info' | 'warning',
+    details = '',
+    durationMs = 3000,
+    action?: { label: string; onClick: () => void },
+  ) => {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    setToast({ visible: true, message, details, type });
+    setToast({
+      visible: true,
+      message,
+      details,
+      type,
+      actionLabel: action?.label,
+      onAction: action?.onClick,
+    });
     if (durationMs > 0) {
-      toastTimerRef.current = setTimeout(() => setToast(prev => prev ? { ...prev, visible: false } : null), durationMs);
+      toastTimerRef.current = setTimeout(() => {
+        setToast(prev => prev ? { ...prev, visible: false } : null);
+        toastTimerRef.current = null;
+      }, durationMs);
+    }
+  }, []);
+
+  useEffect(() => () => {
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current);
     }
   }, []);
 
@@ -1918,14 +2091,19 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     if (hasRetriedEmptyAllData.current) return;
 
     hasRetriedEmptyAllData.current = true;
-    // Don't reset hasFetchedAllData — that allows mode:all to double-fire.
-    debugWarn('⚠️ All mode resolved empty team-wide dataset; retrying once with bypass cache');
+    // Don't reset hasFetchedAllData Ã¢â‚¬â€ that allows mode:all to double-fire.
+    debugWarn('Ã¢Å¡Â Ã¯Â¸Â All mode resolved empty team-wide dataset; retrying once with bypass cache');
     triggerFetchAllEnquiries('recover:empty-all');
   }, [showMineOnly, isLoadingAllData, teamWideEnquiries.length, triggerFetchAllEnquiries]);
   
   // Track enquiry visibility (for viewport-based enrichment)
   const handleEnquiryVisibilityChange = useCallback((enquiryId: string, isVisible: boolean) => {
     setVisibleEnquiryIds(prev => {
+      const alreadyVisible = prev.has(enquiryId);
+      if (alreadyVisible === isVisible) {
+        return prev;
+      }
+
       const next = new Set(prev);
       if (isVisible) {
         next.add(enquiryId);
@@ -1936,7 +2114,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     });
   }, []);
   
-  // Search handler — FilterBanner manages its own local typing state (debounceMs),
+  // Search handler Ã¢â‚¬â€ FilterBanner manages its own local typing state (debounceMs),
   // so this callback only fires after the debounce delay with the final value.
   const handleSearchChange = useCallback((value: string) => {
     setDebouncedSearchTerm(value);
@@ -2015,7 +2193,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   // Prevent stale person filter from hiding items when toggling scope or tab
   useEffect(() => {
     if (selectedPersonInitials) {
-      debugLog('🧹 Clearing selected person filter due to scope/tab change', {
+      debugLog('Ã°Å¸Â§Â¹ Clearing selected person filter due to scope/tab change', {
         clearing: selectedPersonInitials,
         showMineOnly,
         activeState
@@ -2026,7 +2204,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   // CRITICAL DEBUG: Log incoming enquiries prop
   React.useEffect(() => {
-    debugLog('🚨 ENQUIRIES PROP DEBUG:', {
+    debugLog('Ã°Å¸Å¡Â¨ ENQUIRIES PROP DEBUG:', {
       hasEnquiries: !!enquiries,
       enquiriesLength: enquiries?.length || 0,
       enquiriesIsArray: Array.isArray(enquiries),
@@ -2043,6 +2221,18 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     email: String(userData?.[0]?.Email || '').trim().toLowerCase(),
     initials: String(userData?.[0]?.Initials || '').trim().toUpperCase(),
   }), [userData]);
+  const actualMineScopeLabel = useMemo(
+    () => String(userData?.[0]?.First || '').trim() || actualEnquiryIdentity.initials || 'Mine',
+    [actualEnquiryIdentity.initials, userData]
+  );
+  const actualMineScopeTitle = useMemo(
+    () => String(
+      userData?.[0]?.FullName
+      || `${userData?.[0]?.First || ''} ${userData?.[0]?.Last || ''}`.trim()
+      || actualMineScopeLabel
+    ).trim(),
+    [actualMineScopeLabel, userData]
+  );
 
   const canUseDevOwnerMineOverride = useMemo(
     () => isLocalhost && isDevOwner(userData?.[0] || null) && !originalAdminUser,
@@ -2051,7 +2241,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   // Normalize all incoming enquiries once (unfiltered by toggle)
   useEffect(() => {
-    debugLog('🔄 Prop useEffect triggered:', { 
+    debugLog('Ã°Å¸â€â€ž Prop useEffect triggered:', { 
       hasEnquiries: !!enquiries, 
       enquiriesLength: enquiries?.length || 0, 
       isAdmin, 
@@ -2062,7 +2252,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     // DON'T skip prop normalization if we have unified data - this causes the 1337 override
     // Instead, only use props for regular users and only fetch unified for admins
     // if (hasFetchedAllData.current) {
-    //   debugLog('🔒 Keeping unified dataset (skip prop normalization)', { hasFetched: hasFetchedAllData.current });
+    //   debugLog('Ã°Å¸â€â€™ Keeping unified dataset (skip prop normalization)', { hasFetched: hasFetchedAllData.current });
     //   return;
     // }
     
@@ -2073,10 +2263,10 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     
     // Don't override fetched data when admin is in "All" mode
     if (isAdmin && !showMineOnly) {
-      debugLog('👤 Admin in All mode - keeping fetched dataset, not using prop data');
+      debugLog('Ã°Å¸â€˜Â¤ Admin in All mode - keeping fetched dataset, not using prop data');
       // If we already have fetched data, don't clear it
       if (displayEnquiries.length > 0) {
-        debugLog('👤 Preserving existing fetched data:', displayEnquiries.length, 'enquiries');
+        debugLog('Ã°Å¸â€˜Â¤ Preserving existing fetched data:', displayEnquiries.length, 'enquiries');
         return;
       }
     }
@@ -2090,7 +2280,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       if (recentUpdate && Date.now() - recentUpdate.timestamp < 5000) {
         // Apply the recent update to preserve user's change
         (rec as any)[recentUpdate.field] = recentUpdate.value;
-        debugLog('🔒 Preserving recent update for', enquiryId, ':', recentUpdate.field, '=', recentUpdate.value);
+        debugLog('Ã°Å¸â€â€™ Preserving recent update for', enquiryId, ':', recentUpdate.field, '=', recentUpdate.value);
       }
       
       return rec;
@@ -2130,15 +2320,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
     const actualEmail = actualEnquiryIdentity.email;
     const actualInitials = actualEnquiryIdentity.initials || actualEmail.split('@')[0]?.slice(0, 2).toUpperCase() || 'ME';
-    const actualFirst = String(userData?.[0]?.First || '').trim();
-    const actualFull = String(
-      userData?.[0]?.FullName
-      || `${userData?.[0]?.First || ''} ${userData?.[0]?.Last || ''}`.trim()
-      || actualEmail
-    ).trim();
 
     if (actualEmail) {
-      pushOption(actualEmail, actualFirst || actualInitials, actualFull, actualInitials, true);
+      pushOption(actualEmail, actualMineScopeLabel || actualInitials, actualMineScopeTitle || actualEmail, actualInitials, true);
     }
 
     (teamData || [])
@@ -2161,7 +2345,18 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       });
 
     return options;
-  }, [actualEnquiryIdentity.email, actualEnquiryIdentity.initials, canUseDevOwnerMineOverride, teamData, userData]);
+  }, [actualEnquiryIdentity.email, actualEnquiryIdentity.initials, actualMineScopeLabel, actualMineScopeTitle, canUseDevOwnerMineOverride, teamData]);
+
+  const currentMineScopeOption = useMemo(() => {
+    const selectedEmail = String(devOwnerMineOverrideEmail || actualEnquiryIdentity.email || '').trim().toLowerCase();
+    return devOwnerMineOptions.find((option) => option.email === selectedEmail) || {
+      email: selectedEmail,
+      label: actualMineScopeLabel,
+      fullLabel: actualMineScopeTitle,
+      initials: actualEnquiryIdentity.initials || actualMineScopeLabel.slice(0, 2).toUpperCase() || 'ME',
+      isSelf: !devOwnerMineOverrideEmail,
+    };
+  }, [actualEnquiryIdentity.email, actualEnquiryIdentity.initials, actualMineScopeLabel, actualMineScopeTitle, devOwnerMineOptions, devOwnerMineOverrideEmail]);
 
   const mineScopeIdentity = useMemo(() => {
     if (!canUseDevOwnerMineOverride || !devOwnerMineOverrideEmail) {
@@ -2182,7 +2377,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     [devOwnerMineOptions]
   );
   const selectedAreasKey = useMemo(() => selectedAreas.join('|'), [selectedAreas]);
-  const hasAreaFilterAccess = Boolean(userData && userData[0]?.AOW);
   const navigatorRefreshLoading = isRefreshing || isRealtimeQueueSyncing || isLoadingAllData || enquiriesLiveRefreshInFlight;
 
   const handleSetDevOwnerMineOverride = useCallback((email: string) => {
@@ -2229,7 +2423,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     return map;
   }, [teamData]);
 
-  // Pre-computed POC dropdown options (avoids O(n²) findIndex dedup on every render)
+  // Pre-computed POC dropdown options (avoids O(nÃ‚Â²) findIndex dedup on every render)
   const pocOptionsMemo = useMemo(() => {
     const currentUserEmail = mineScopeIdentity.email;
     const currentUserInitials = mineScopeIdentity.initials ||
@@ -2288,6 +2482,29 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     });
   }, [teamMemberOptions]);
 
+  const getAssigneeDisplayName = useCallback((email: string) => {
+    const normalized = String(email || '').trim().toLowerCase();
+    if (!normalized || normalized === 'team@helix-law.com') return 'Team inbox';
+
+    const matchedTeamMember = teamMemberOptions.find((option) =>
+      option.value.toLowerCase() === normalized || option.email.toLowerCase() === normalized,
+    );
+    if (matchedTeamMember) {
+      return matchedTeamMember.text.replace(/\s*\([^)]*\)\s*$/, '').trim();
+    }
+
+    const claimer = claimerMap[normalized] as Record<string, unknown> | undefined;
+    const claimerName = typeof claimer?.['Full Name'] === 'string' ? String(claimer['Full Name']).trim() : '';
+    if (claimerName) return claimerName;
+
+    return normalized
+      .split('@')[0]
+      .split('.')
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ');
+  }, [claimerMap, teamMemberOptions]);
+
   // Handle reassignment click - open dropdown
   const handleReassignClick = useCallback((enquiryId: string, event: React.MouseEvent) => {
     event.stopPropagation();
@@ -2308,24 +2525,20 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     });
   }, []);
 
-  // Handle reassignment selection
-  const handleReassignmentSelect = useCallback(async (selectedEmail: string) => {
-    if (!selectedEmail || !reassignmentDropdown) return;
-    
-    const selectedOption = teamMemberOptions.find(option => option.value === selectedEmail);
-    if (!selectedOption) return;
-    
-    const enquiryId = reassignmentDropdown.enquiryId;
+  const submitReassignment = useCallback(async (
+    enquiryId: string,
+    nextOwnerEmail: string,
+    nextOwnerName: string,
+  ) => {
     const targetEnquiry = findEnquiryForMutation(allEnquiries, enquiryId);
-    const newOwnerName = selectedOption.text.split(' (')[0];
-    
-    // Close dropdown immediately for snappy feel
-    setReassignmentDropdown(null);
+    if (!targetEnquiry) {
+      showToast('Reassignment failed', 'error', 'Enquiry could not be found', 4000);
+      return false;
+    }
+
     setIsReassigning(true);
-    
-    // Show in-progress toast
-    showToast('Reassigning enquiry...', 'info', `Moving to ${newOwnerName}`, 0);
-    
+    showToast('Reassigning enquiry...', 'info', `Moving to ${nextOwnerName}`, 0);
+
     try {
       const response = await fetch('/api/enquiries-unified/update', {
         method: 'POST',
@@ -2333,39 +2546,105 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(buildEnquiryMutationPayload(targetEnquiry, {
-          Point_of_Contact: selectedEmail,
+          Point_of_Contact: nextOwnerEmail,
         }))
       });
 
       const result = await response.json();
-      
-      if (response.ok && result.success) {
-        // Update local state immediately for optimistic UI
-        setAllEnquiries(prev => prev.map(enq => 
-          String(enq.ID) === String(enquiryId)
-            ? { ...enq, Point_of_Contact: selectedEmail, poc: selectedEmail }
-            : enq
-        ));
-        setTeamWideEnquiries(prev => prev.map(enq => 
-          String(enq.ID) === String(enquiryId)
-            ? { ...enq, Point_of_Contact: selectedEmail, poc: selectedEmail }
-            : enq
-        ));
-        
-        // Show success toast — SSE broadcast will confirm the patch
-        showToast('Enquiry reassigned', 'success', `Now assigned to ${newOwnerName}`);
-      } else {
-        // Show error toast
+
+      if (!(response.ok && result.success)) {
         showToast('Reassignment failed', 'error', result.message || 'Please try again', 4000);
+        return false;
       }
+
+      applyRealtimeClaimPatch(enquiryId, nextOwnerEmail);
+      return true;
     } catch (error) {
       console.error('Error reassigning enquiry:', error);
-      // Show error toast
       showToast('Reassignment failed', 'error', error instanceof Error ? error.message : 'Network error - please try again', 4000);
+      return false;
     } finally {
       setIsReassigning(false);
     }
-  }, [reassignmentDropdown, teamMemberOptions, allEnquiries]);
+  }, [allEnquiries, applyRealtimeClaimPatch, showToast]);
+
+  // Handle reassignment selection
+  const handleReassignmentSelect = useCallback((selectedEmail: string) => {
+    if (!selectedEmail || !reassignmentDropdown) return;
+    
+    const selectedOption = teamMemberOptions.find(option => option.value === selectedEmail);
+    if (!selectedOption) return;
+    
+    const enquiryId = reassignmentDropdown.enquiryId;
+    const targetEnquiry = findEnquiryForMutation(allEnquiries, enquiryId);
+    if (!targetEnquiry) {
+      setReassignmentDropdown(null);
+      showToast('Reassignment failed', 'error', 'Enquiry could not be found', 4000);
+      return;
+    }
+
+    const previousOwnerEmail = String((targetEnquiry as any).Point_of_Contact || (targetEnquiry as any).poc || '').trim();
+    const previousOwnerName = getAssigneeDisplayName(previousOwnerEmail);
+    const newOwnerName = selectedOption.text.split(' (')[0];
+    
+    setReassignmentDropdown(null);
+    if (previousOwnerEmail.toLowerCase() === selectedEmail.toLowerCase()) {
+      showToast('Already assigned', 'info', `Still with ${newOwnerName}`, 2400);
+      return;
+    }
+
+    setPendingReassignment({
+      enquiryId,
+      previousOwnerEmail,
+      previousOwnerName,
+      nextOwnerEmail: selectedEmail,
+      nextOwnerName: newOwnerName,
+    });
+  }, [allEnquiries, getAssigneeDisplayName, reassignmentDropdown, showToast, teamMemberOptions]);
+
+  const handleUndoReassignment = useCallback(async (
+    enquiryId: string,
+    previousOwnerEmail: string,
+    previousOwnerName: string,
+  ) => {
+    dismissToast();
+    const didUndo = await submitReassignment(enquiryId, previousOwnerEmail, previousOwnerName);
+    if (didUndo) {
+      showToast('Reassignment undone', 'success', `Restored to ${previousOwnerName}`, 2600);
+    }
+  }, [dismissToast, showToast, submitReassignment]);
+
+  const confirmPendingReassignment = useCallback(async () => {
+    if (!pendingReassignment) return;
+
+    const nextReassignment = pendingReassignment;
+    setPendingReassignment(null);
+
+    const didReassign = await submitReassignment(
+      nextReassignment.enquiryId,
+      nextReassignment.nextOwnerEmail,
+      nextReassignment.nextOwnerName,
+    );
+
+    if (didReassign) {
+      showToast(
+        'Enquiry reassigned',
+        'success',
+        `Now assigned to ${nextReassignment.nextOwnerName}`,
+        5000,
+        {
+          label: 'Undo',
+          onClick: () => {
+            void handleUndoReassignment(
+              nextReassignment.enquiryId,
+              nextReassignment.previousOwnerEmail,
+              nextReassignment.previousOwnerName,
+            );
+          },
+        },
+      );
+    }
+  }, [handleUndoReassignment, pendingReassignment, showToast, submitReassignment]);
 
   // Close reassignment dropdown
   const closeReassignmentDropdown = useCallback(() => {
@@ -2426,7 +2705,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   // Apply dataset toggle to derive display list without losing the other dataset
   useEffect(() => {
-    debugLog('📊 Display derivation effect:', {
+    debugLog('Ã°Å¸â€œÅ  Display derivation effect:', {
       allEnquiriesLength: allEnquiries.length,
       teamWideLength: teamWideEnquiries.length,
       isAdmin,
@@ -2435,7 +2714,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     });
     
     if (!allEnquiries.length && !teamWideEnquiries.length) {
-      debugLog('⚠️ No enquiry dataset loaded yet, clearing display');
+      debugLog('Ã¢Å¡Â Ã¯Â¸Â No enquiry dataset loaded yet, clearing display');
       if (lastStableDisplayRef.current.length === 0) {
         setDisplayEnquiries([]);
       }
@@ -2449,13 +2728,13 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     // Show the real team-wide set when ready, otherwise show the loading state only.
     if (!showMineOnly) {
       if (teamWideEnquiries.length > 0) {
-        debugLog('🌐 All mode - showing unified data:', teamWideEnquiries.length);
+        debugLog('Ã°Å¸Å’Â All mode - showing unified data:', teamWideEnquiries.length);
         lastStableDisplayRef.current = teamWideEnquiries;
         setDisplayEnquiries(teamWideEnquiries);
         return;
       }
 
-      debugLog('⏳ All mode - team-wide dataset pending, holding display');
+      debugLog('Ã¢ÂÂ³ All mode - team-wide dataset pending, holding display');
       if (lastStableDisplayRef.current.length > 0) {
         setDisplayEnquiries(lastStableDisplayRef.current);
       }
@@ -2466,7 +2745,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     // Do not render the claimed-only prop dataset here; it creates an empty/stale gap
     // before the real claimable/triaged rows arrive.
     if (activeState !== 'Claimed' && isAwaitingTeamWideQueue) {
-      debugLog('⏳ Mine queue awaiting team-wide dataset, holding display');
+      debugLog('Ã¢ÂÂ³ Mine queue awaiting team-wide dataset, holding display');
       if (lastStableDisplayRef.current.length > 0) {
         setDisplayEnquiries(lastStableDisplayRef.current);
       }
@@ -2475,7 +2754,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
     // Mine mode continues to use the scoped prop dataset for fastest first render.
     if (allEnquiries.length > 0) {
-      debugLog('👤 Mine mode - using user-scoped prop data:', allEnquiries.length);
+      debugLog('Ã°Å¸â€˜Â¤ Mine mode - using user-scoped prop data:', allEnquiries.length);
       lastStableDisplayRef.current = allEnquiries;
       setDisplayEnquiries(allEnquiries);
       return;
@@ -2483,7 +2762,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
     // Backstop: if Mine mode lands before prop data but team-wide is already warm, use it.
     if (teamWideEnquiries.length > 0) {
-      debugLog('🌐 All mode - showing unified data:', teamWideEnquiries.length);
+      debugLog('Ã°Å¸Å’Â All mode - showing unified data:', teamWideEnquiries.length);
       lastStableDisplayRef.current = teamWideEnquiries;
       setDisplayEnquiries(teamWideEnquiries);
       return;
@@ -2535,12 +2814,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     }
   }, [activeState, selectedAreas, userData, userManuallyChangedAreas]);
 
-  // Custom handler for manual area changes to prevent useEffect overrides
-  const handleManualAreaChange = useCallback((newAreas: string[]) => {
-    setUserManuallyChangedAreas(true);
-    setSelectedAreas(newAreas);
-  }, []);
-
   // Reset manual flag when UserBubble changes userData (allow UserBubble override to work)
   const prevUserDataRef = useRef<typeof userData>();
   useEffect(() => {
@@ -2583,7 +2856,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         const needsUpdate = JSON.stringify(currentSorted) !== JSON.stringify(claimedSorted);
 
         if (needsUpdate) {
-          debugLog('🎯 Auto-enabling area filters for Mine/Claimed enquiries:', areasArray);
+          debugLog('Ã°Å¸Å½Â¯ Auto-enabling area filters for Mine/Claimed enquiries:', areasArray);
           setSelectedAreas(areasArray);
         }
       }
@@ -2593,7 +2866,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   // Auto-enable all area filters for admin users
   useEffect(() => {
     // Only auto-enable if user is admin and hasn't manually changed areas
-    debugLog('🔍 Admin auto-enable check:', {
+    debugLog('Ã°Å¸â€Â Admin auto-enable check:', {
       isAdmin,
       userManuallyChangedAreas,
       activeState,
@@ -2609,14 +2882,14 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       const allAreasSorted = [...allAreas].sort();
       const needsUpdate = JSON.stringify(currentSorted) !== JSON.stringify(allAreasSorted);
 
-      debugLog('🎯 Admin area comparison:', {
+      debugLog('Ã°Å¸Å½Â¯ Admin area comparison:', {
         currentSorted,
         allAreasSorted,
         needsUpdate
       });
 
       if (needsUpdate) {
-        debugLog('👑 Admin: Auto-enabling all area filters');
+        debugLog('Ã°Å¸â€˜â€˜ Admin: Auto-enabling all area filters');
         setSelectedAreas(allAreas);
       }
     }
@@ -2627,11 +2900,11 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   // This prevents the dataset override issue for regular users
   // useEffect(() => {
   //   if (teamWideEnquiries.length === 0 && !isLoadingAllData && !hasFetchedAllData.current) {
-  //     debugLog('🌐 Fetching team-wide enquiries for suppression index');
+  //     debugLog('Ã°Å¸Å’Â Fetching team-wide enquiries for suppression index');
   //     fetchAllEnquiries().then((data) => {
   //       if (data && data.length > 0) {
   //         setTeamWideEnquiries(data);
-  //         debugLog('✅ Team-wide suppression data loaded:', data.length);
+  //         debugLog('Ã¢Å“â€¦ Team-wide suppression data loaded:', data.length);
   //       }
   //     });
   //   }
@@ -2650,22 +2923,18 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     // No need to fetch the full team-wide dataset on initial load.
     // Keep the focused Mine view on the scoped prop dataset until the user opens a team-wide queue.
     if (showMineOnly && activeState === 'Claimed') {
-      debugLog('🔄 Mine+Claimed mode - using prop data, no team-wide fetch needed');
-      if (allEnquiries.length > 0) {
-        setDisplayEnquiries(allEnquiries);
-      }
+      debugLog('Ã°Å¸â€â€ž Mine+Claimed mode - using prop data, no team-wide fetch needed');
       return;
     }
     
     if (showMineOnly && activeState !== 'Claimed') {
       // Regular Mine mode (Claimable/Triaged) - needs team-wide data for cross-user filtering
       if (teamWideEnquiries.length > 0) {
-        debugLog('🔄 Mine mode (not Claimed) - using existing team-wide dataset:', teamWideEnquiries.length);
-        setDisplayEnquiries(teamWideEnquiries);
+        debugLog('Ã°Å¸â€â€ž Mine mode (not Claimed) - using existing team-wide dataset:', teamWideEnquiries.length);
         return;
       }
       if (!hasFetchedAllData.current) {
-        debugLog('🔄 Mine mode needs team-wide data, fetching...');
+        debugLog('Ã°Å¸â€â€ž Mine mode needs team-wide data, fetching...');
         triggerFetchAllEnquiries('mode:mine+' + activeState.toLowerCase());
       }
       return;
@@ -2673,7 +2942,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     
     // All mode - needs full dataset
     if (!showMineOnly && !hasFetchedAllData.current) {
-      debugLog('🔄 All mode - fetching complete dataset');
+      debugLog('Ã°Å¸â€â€ž All mode - fetching complete dataset');
       triggerFetchAllEnquiries('mode:all');
     }
   }, [showMineOnly, activeState, userEmail, triggerFetchAllEnquiries, isAdmin]); // Simplified dependencies
@@ -3186,8 +3455,35 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   // Handle deep link navigation from App.tsx props (replaces localStorage approach)
   useEffect(() => {
     if (!isActive || !pendingEnquiryId) return;
-    
-    const found = displayEnquiries.find(e => String(e.ID) === pendingEnquiryId);
+
+    const matchesPendingEnquiry = (enquiry: Enquiry) => {
+      const candidateIds = [
+        enquiry.ID,
+        (enquiry as any).ProspectId,
+        (enquiry as any).prospectId,
+        (enquiry as any).ACID,
+        (enquiry as any).acid,
+        (enquiry as any).Acid,
+      ]
+        .map((value) => String(value || '').trim())
+        .filter(Boolean);
+
+      return candidateIds.includes(pendingEnquiryId);
+    };
+
+    const candidateSources: Array<NormalizedEnquiry[] | null | undefined> = [
+      displayEnquiries,
+      teamWideEnquiries,
+      allEnquiries,
+    ];
+
+    let found: NormalizedEnquiry | undefined;
+    for (const source of candidateSources) {
+      if (!Array.isArray(source) || source.length === 0) continue;
+      found = source.find(matchesPendingEnquiry);
+      if (found) break;
+    }
+
     if (found) {
       setSelectedEnquiry(found);
       if (pendingEnquirySubTab === 'Pitch') {
@@ -3202,10 +3498,28 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           localStorage.removeItem('navigateToTimelineItem');
           sessionStorage.setItem('scrollToTimelineItem', navTimelineItem);
         }
+        // Check for workbench tab hint (e.g. "documents" from the Home Allocate
+        // Documents card). Lands directly on the right workbench tab so the user
+        // doesn't have to scroll the timeline + click through.
+        const navWorkbenchTab = localStorage.getItem('navigateToWorkbenchTab');
+        if (navWorkbenchTab) {
+          localStorage.removeItem('navigateToWorkbenchTab');
+          setWorkbenchInitialTab(navWorkbenchTab);
+        }
       }
       onPendingEnquiryHandled?.();
     }
-    }, [isActive, pendingEnquiryId, pendingEnquiryPitchScenario, pendingEnquirySubTab, displayEnquiries, onPendingEnquiryHandled]);
+    }, [
+      allEnquiries,
+      displayEnquiries,
+      isActive,
+      onPendingEnquiryHandled,
+      pendingEnquiryId,
+      pendingEnquiryRequestAt,
+      pendingEnquiryPitchScenario,
+      pendingEnquirySubTab,
+      teamWideEnquiries,
+    ]);
 
   const ensureDemoEnquiryPresent = useCallback(() => {
     const currentUserEmail = actualEnquiryIdentity.email || 'lz@helix-law.com';
@@ -3226,29 +3540,24 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     const priorDate = new Date(now.getTime() - 120 * 24 * 60 * 60 * 1000);
     const priorTouchpoint = priorDate.toISOString().split('T')[0];
 
+    // DEMO-ENQ-0001 is intentionally NOT injected: the canonical demo prospect
+    // is the real rehearsal record (HLX-27367-94842 / Helix Demo) which is
+    // already present in the live dataset with its full pitch / instruction /
+    // ID-check / payment / risk / matter pipeline. Injecting a synthetic copy
+    // would shadow the rich row with an enquiry-only stub.
     const demoEnquiries: Array<NormalizedEnquiry> = [
-      {
-        ...DEV_PREVIEW_TEST_ENQUIRY,
-        ID: 'DEMO-ENQ-0001',
-        Point_of_Contact: currentUserEmail,
-        shared_with: demoSharedSimulationById['DEMO-ENQ-0001'] || '',
-        Shared_With: demoSharedSimulationById['DEMO-ENQ-0001'] || '',
-        Touchpoint_Date: currentTouchpoint,
-        Date_Created: currentTouchpoint,
-        __sourceType: 'legacy',
-      },
       {
         ...DEV_PREVIEW_TEST_ENQUIRY,
         ID: 'DEMO-ENQ-0002',
         First_Name: 'Demo',
-        Last_Name: 'Prospect',
+        Last_Name: 'Prospect (Lease renewal)',
         Point_of_Contact: alternateDemoOwnerEmail,
         shared_with: demoSharedSimulationById['DEMO-ENQ-0002'] || '',
         Shared_With: demoSharedSimulationById['DEMO-ENQ-0002'] || '',
         Touchpoint_Date: priorTouchpoint,
         Date_Created: priorTouchpoint,
         Area_of_Work: 'Property',
-        Type_of_Work: 'Lease Renewal',
+        Type_of_Work: 'Demo Ã‚Â· Lease renewal',
         Method_of_Contact: 'Phone',
         Rating: 'Good',
         Value: '45000',
@@ -3260,86 +3569,80 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         ...DEV_PREVIEW_TEST_ENQUIRY,
         ID: 'DEMO-ENQ-0003',
         First_Name: 'Demo',
-        Last_Name: 'Complete',
+        Last_Name: 'Prospect (Employment tribunal)',
         Point_of_Contact: currentUserEmail,
         shared_with: demoSharedSimulationById['DEMO-ENQ-0003'] || '',
         Shared_With: demoSharedSimulationById['DEMO-ENQ-0003'] || '',
         Touchpoint_Date: priorTouchpoint,
         Date_Created: priorTouchpoint,
         Area_of_Work: 'Employment',
-        Type_of_Work: 'Employment Tribunal',
+        Type_of_Work: 'Demo Ã‚Â· Employment tribunal',
         Method_of_Contact: 'Email',
         Rating: 'Good',
         Value: '50000',
         Ultimate_Source: 'Google Ads',
-        Initial_first_call_notes: 'Unfair dismissal claim — fully instructed demo prospect with matter opened, EID passed, risk assessed, and payment received.',
+        Initial_first_call_notes: 'Unfair dismissal claim Ã¢â‚¬â€ fully instructed demo prospect with matter opened, EID passed, risk assessed, and payment received.',
         __sourceType: 'legacy',
       },
     ];
 
     const demoIds = new Set(demoEnquiries.map(enq => String(enq.ID)));
+    const mergeDemoEntries = (prev: NormalizedEnquiry[]): NormalizedEnquiry[] => {
+      const withoutDemo = prev.filter(e => !demoIds.has(String(e.ID)));
+      const nextLeading = demoEnquiries.map((demoEnquiry) => {
+        const existing = prev.find((entry) => String(entry.ID) === String(demoEnquiry.ID));
+        if (!existing) {
+          return demoEnquiry;
+        }
+
+        const existingShared = String((existing as any).shared_with || (existing as any).Shared_With || '');
+        const nextShared = String((demoEnquiry as any).shared_with || (demoEnquiry as any).Shared_With || '');
+        const sameDemoShape =
+          existing.Point_of_Contact === demoEnquiry.Point_of_Contact &&
+          existing.Touchpoint_Date === demoEnquiry.Touchpoint_Date &&
+          existing.Date_Created === demoEnquiry.Date_Created &&
+          existing.Area_of_Work === demoEnquiry.Area_of_Work &&
+          existing.Type_of_Work === demoEnquiry.Type_of_Work &&
+          existing.Method_of_Contact === demoEnquiry.Method_of_Contact &&
+          existing.Rating === demoEnquiry.Rating &&
+          existing.Value === demoEnquiry.Value &&
+          existing.Ultimate_Source === demoEnquiry.Ultimate_Source &&
+          existing.Initial_first_call_notes === demoEnquiry.Initial_first_call_notes &&
+          existingShared === nextShared;
+
+        return sameDemoShape ? existing : { ...existing, ...demoEnquiry };
+      });
+
+      const next = [...nextLeading, ...withoutDemo];
+      if (next.length === prev.length && next.every((entry, index) => entry === prev[index])) {
+        return prev;
+      }
+
+      return next;
+    };
 
     setDisplayEnquiries(prev => {
-      const withoutDemo = prev.filter(e => !demoIds.has(String(e.ID)));
-      return [...demoEnquiries, ...withoutDemo];
+      return mergeDemoEntries(prev);
     });
 
     setAllEnquiries(prev => {
-      const withoutDemo = prev.filter(e => !demoIds.has(String(e.ID)));
-      return [...demoEnquiries, ...withoutDemo];
+      return mergeDemoEntries(prev);
     });
 
     setTeamWideEnquiries(prev => {
       if (prev.length === 0) return prev;
-      const withoutDemo = prev.filter(e => !demoIds.has(String(e.ID)));
-      return [...demoEnquiries, ...withoutDemo];
+      return mergeDemoEntries(prev);
     });
 
-    // Also inject synthetic enrichment data for the demo record
+    // Also inject synthetic enrichment data for the demo records (DEMO-ENQ-0002/3 only;
+    // DEMO-ENQ-0001 is the real rehearsal record and brings its own real enrichment).
     const pitchedDate = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
     const priorPitchDate = new Date(priorDate.getTime() + 2 * 24 * 60 * 60 * 1000);
     setEnrichmentMap(prevMap => {
+      let didChange = false;
       const newMap = new Map(prevMap);
-      if (!newMap.has('DEMO-ENQ-0001')) {
-        newMap.set('DEMO-ENQ-0001', {
-          enquiryId: 'DEMO-ENQ-0001',
-          teamsData: {
-            Id: 99999,
-            ActivityId: 'demo-activity-99999',
-            ChannelId: 'demo-channel',
-            TeamId: 'demo-team',
-            EnquiryId: 'DEMO-ENQ-0001',
-            LeadName: 'Demo Prospect',
-            Email: DEV_PREVIEW_TEST_ENQUIRY.Email || '',
-            Phone: DEV_PREVIEW_TEST_ENQUIRY.Phone_Number || '',
-            CardType: 'enquiry',
-            MessageTimestamp: now.toISOString(),
-            TeamsMessageId: 'demo-msg-99999',
-            CreatedAtMs: now.getTime(),
-            Stage: 'Enquiry',
-            Status: 'Active',
-            ClaimedBy: currentUserEmail.split('@')[0].toUpperCase(),
-            ClaimedAt: new Date(now.getTime() - 4 * 24 * 60 * 60 * 1000).toISOString(),
-            CreatedAt: new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-            UpdatedAt: now.toISOString(),
-            teamsLink: '',
-          },
-          pitchData: {
-            dealId: 99999,
-            email: DEV_PREVIEW_TEST_ENQUIRY.Email || '',
-            serviceDescription: 'Contract Disputes',
-            amount: 1500,
-            status: 'Pitched',
-            areaOfWork: 'commercial',
-            pitchedBy: 'LZ',
-            pitchedDate: pitchedDate.toISOString().split('T')[0],
-            pitchedTime: pitchedDate.toTimeString().split(' ')[0],
-            scenarioId: 'before-call-call',
-            scenarioDisplay: 'Before call (call)',
-          }
-        });
-      }
       if (!newMap.has('DEMO-ENQ-0002')) {
+        didChange = true;
         newMap.set('DEMO-ENQ-0002', {
           enquiryId: 'DEMO-ENQ-0002',
           teamsData: {
@@ -3379,6 +3682,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         });
       }
       if (!newMap.has('DEMO-ENQ-0003')) {
+        didChange = true;
         newMap.set('DEMO-ENQ-0003', {
           enquiryId: 'DEMO-ENQ-0003',
           teamsData: {
@@ -3417,7 +3721,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           }
         });
       }
-      return newMap;
+      return didChange ? newMap : prevMap;
     });
   }, [actualEnquiryIdentity.email, demoSharedSimulationById]);
 
@@ -3450,7 +3754,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
     const hasDemo = (list: Enquiry[]) => list.some((e) => {
       const id = String(e.ID);
-      return id === 'DEMO-ENQ-0001' || id === 'DEMO-ENQ-0002' || id === 'DEMO-ENQ-0003';
+      return id === 'DEMO-ENQ-0002' || id === 'DEMO-ENQ-0003';
     });
 
     const missingInAll = allEnquiries.length > 0 && !hasDemo(allEnquiries);
@@ -3464,38 +3768,155 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   // Auto-refresh functionality
   const handleManualRefresh = useCallback(async () => {
-  debugLog('🔄 Manual refresh triggered');
+  debugLog('Ã°Å¸â€â€ž Manual refresh triggered');
   debugLog('isRefreshing:', isRefreshing);
-  debugLog('onRefreshEnquiries available:', !!onRefreshEnquiries);
+  debugLog('refreshRef available:', !!refreshRef.current);
     
     if (isRefreshing) {
-      debugLog('❌ Already refreshing, skipping');
+      debugLog('Ã¢ÂÅ’ Already refreshing, skipping');
       return;
     }
     
-    if (!onRefreshEnquiries) {
-      debugLog('❌ No onRefreshEnquiries function provided');
-      alert('Refresh function not available. Please check the parent component.');
+    if (!refreshRef.current) {
+      debugLog('Ã¢ÂÅ’ No onRefreshEnquiries function provided');
+      const message = 'Live refresh is not available right now.';
+      setClaimedQueueRefreshError(message);
+      showToast('Refresh unavailable', 'warning', message, 4000);
       return;
     }
     
     setIsRefreshing(true);
-    debugLog('✅ Starting refresh...');
+    debugLog('Ã¢Å“â€¦ Starting refresh...');
     
     try {
-      await onRefreshEnquiries();
+      await refreshRef.current();
       setLastRefreshTime(new Date());
-      debugLog('✅ Refresh completed successfully');
+      setClaimedQueueRefreshError(null);
+      debugLog('Ã¢Å“â€¦ Refresh completed successfully');
     } catch (error) {
-      console.error('❌ Failed to refresh enquiries:', error);
-      alert(`Refresh failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      setClaimedQueueRefreshError(message);
+      console.error('Ã¢ÂÅ’ Failed to refresh enquiries:', error);
+      showToast('Refresh failed', 'error', message, 5000);
     } finally {
       setIsRefreshing(false);
-      debugLog('🏁 Refresh process finished');
+      debugLog('Ã°Å¸ÂÂ Refresh process finished');
     }
-  }, [isRefreshing, onRefreshEnquiries]);
+  }, [isRefreshing, showToast]);
 
-  // Auto-refresh timer removed — pulse poller (60s) + SSE stream provide
+  const renderClaimedQueueHoldingState = useCallback(() => {
+    const showRetry = Boolean(claimedQueueRefreshError);
+    const badgeBorder = isDarkMode ? 'rgba(54, 144, 206, 0.22)' : 'rgba(54, 144, 206, 0.16)';
+    const badgeBackground = isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)';
+    const panelBorder = isDarkMode ? 'rgba(75, 85, 99, 0.26)' : 'rgba(13, 47, 96, 0.10)';
+    const panelBackground = isDarkMode ? 'rgba(8, 28, 48, 0.82)' : 'rgba(255, 255, 255, 0.82)';
+
+    return (
+      <div
+        data-helix-region="enquiries/claimed-holding"
+        style={{
+          flex: 1,
+          minHeight: 0,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '36px 24px 48px',
+        }}
+      >
+        <div
+          style={{
+            width: 'min(100%, 520px)',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 14,
+            padding: '28px 32px',
+            textAlign: 'center',
+            background: panelBackground,
+            border: `1px solid ${panelBorder}`,
+            boxShadow: isDarkMode ? '0 12px 32px rgba(0, 0, 0, 0.20)' : '0 12px 32px rgba(13, 47, 96, 0.06)',
+            backdropFilter: 'blur(10px)',
+          }}
+        >
+          <div
+            style={{
+              width: 60,
+              height: 60,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: badgeBackground,
+              border: `1px solid ${badgeBorder}`,
+              color: colours.highlight,
+            }}
+          >
+            <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+              <path d="M9 6v16" />
+              <path d="M19 6v16" />
+              <path d="M9 14h10" />
+              <path d="M6 9.5h3" opacity="0.55" />
+              <path d="M19 18.5h3" opacity="0.55" />
+            </svg>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center' }}>
+            <h3
+              style={{
+                margin: 0,
+                fontSize: 18,
+                fontWeight: 600,
+                fontFamily: 'Raleway, sans-serif',
+                color: isDarkMode ? colours.dark.text : colours.light.text,
+              }}
+            >
+              {showRetry ? 'Claimed queue needs a refresh' : 'Claimed queue standing by'}
+            </h3>
+            <p
+              style={{
+                margin: 0,
+                maxWidth: 420,
+                fontSize: 14,
+                lineHeight: 1.55,
+                fontFamily: 'Raleway, sans-serif',
+                color: isDarkMode ? '#d1d5db' : '#374151',
+              }}
+            >
+              {showRetry
+                ? 'Helix could not refresh your claimed enquiries just now. Retry when you want to pull the queue back into sync.'
+                : 'This space stays reserved for live claimed work. Helix will place enquiries here as soon as processing settles them into your queue.'}
+            </p>
+          </div>
+
+          {showRetry && (
+            <button
+              type="button"
+              onClick={() => {
+                void handleManualRefresh();
+              }}
+              disabled={isRefreshing}
+              style={{
+                marginTop: 4,
+                padding: '10px 14px',
+                border: `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.42)' : 'rgba(13, 47, 96, 0.14)'}`,
+                background: 'transparent',
+                color: isDarkMode ? colours.dark.text : colours.light.text,
+                fontSize: 12,
+                fontWeight: 600,
+                letterSpacing: '0.02em',
+                fontFamily: 'Raleway, sans-serif',
+                cursor: isRefreshing ? 'default' : 'pointer',
+                opacity: isRefreshing ? 0.6 : 1,
+              }}
+            >
+              {isRefreshing ? 'Retrying...' : 'Retry queue refresh'}
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }, [claimedQueueRefreshError, handleManualRefresh, isDarkMode, isRefreshing]);
+
+  // Auto-refresh timer removed Ã¢â‚¬â€ pulse poller (60s) + SSE stream provide
   // realtime change detection. Manual refresh button (handleManualRefresh)
   // remains for on-demand use.
 
@@ -3566,7 +3987,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       setAllEnquiries(prev => prev.map(updateEnquiry));
       setDisplayEnquiries(prev => prev.map(updateEnquiry));
       
-  debugLog('✅ Enquiry updated successfully:', updatedEnquiry.ID, updates);
+  debugLog('Ã¢Å“â€¦ Enquiry updated successfully:', updatedEnquiry.ID, updates);
       
     } catch (error) {
       console.error('Failed to edit enquiry:', error);
@@ -3621,7 +4042,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       // Show success toast
       showToast('Area updated', 'success', `Enquiry area changed to ${newArea}`);
       
-  debugLog('✅ Enquiry area updated successfully:', enquiryId, 'to', newArea);
+  debugLog('Ã¢Å“â€¦ Enquiry area updated successfully:', enquiryId, 'to', newArea);
       
     } catch (error) {
       console.error('Failed to update enquiry area:', error);
@@ -3656,9 +4077,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       setAllEnquiries(prev => prev.map(updateEnquiry));
       setDisplayEnquiries(prev => prev.map(updateEnquiry));
       
-  debugLog('✅ Enquiry updated successfully:', enquiryId, updates);
+  debugLog('Ã¢Å“â€¦ Enquiry updated successfully:', enquiryId, updates);
     } catch (error) {
-      console.error('❌ Failed to update enquiry:', error);
+      console.error('Ã¢ÂÅ’ Failed to update enquiry:', error);
       throw error;
     }
   }, []);
@@ -3710,7 +4131,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       // Show success toast with real-time feedback
       showToast('Rating updated', 'success', `Enquiry rated as ${newRating}`);
       
-      debugLog('✅ Enquiry rating updated successfully:', enquiryId, 'to', newRating);
+      debugLog('Ã¢Å“â€¦ Enquiry rating updated successfully:', enquiryId, 'to', newRating);
       
     } catch (error) {
       console.error('Failed to update enquiry rating:', error);
@@ -3897,7 +4318,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         return;
       }
 
-      // Optimistic update — patch local state and close modal before API call.
+      // Optimistic update Ã¢â‚¬â€ patch local state and close modal before API call.
       setAllEnquiries((prev) => prev.map(applySharedUpdate));
       setDisplayEnquiries((prev) => prev.map(applySharedUpdate));
       setTeamWideEnquiries((prev) => prev.map(applySharedUpdate));
@@ -3908,7 +4329,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       setShareModalExternalEmails([]);
       setShareModalSearch('');
 
-      // Background API call — revert on failure
+      // Background API call Ã¢â‚¬â€ revert on failure
       const response = await fetch('/api/enquiries-unified/update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -4211,20 +4632,30 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     mineScopeIdentity.email,
   ]);
 
+  const hasSharedProspectIds = useMemo(
+    () => allEnquiries.some((record) => shouldAlwaysShowProspectHistory(record)),
+    [allEnquiries]
+  );
+
+  useEffect(() => {
+    if (activeState !== 'Claimed' || !showMineOnly || filteredEnquiries.length > 0) {
+      setClaimedQueueRefreshError((prev) => (prev === null ? prev : null));
+    }
+  }, [activeState, filteredEnquiries.length, showMineOnly]);
+
+  useEffect(() => {
+    if (!hasSharedProspectIds) return;
+    if (teamWideEnquiries.length > 0) return;
+    if (isLoadingAllData) return;
+    if (hasTriggeredSharedHistoryFetch.current) return;
+
+    debugLog('Ã°Å¸â€Â Shared IDs detected, need team-wide data for complete history');
+    hasTriggeredSharedHistoryFetch.current = true;
+    triggerFetchAllEnquiries('shared-history:missing-teamwide');
+  }, [hasSharedProspectIds, teamWideEnquiries.length, isLoadingAllData, triggerFetchAllEnquiries]);
+
   // Build a quick lookup of every enquiry keyed by ID so special shared IDs can hydrate their history.
   const sharedProspectHistoryMap = useMemo(() => {
-    // For shared prospect IDs, we ALWAYS want the complete team-wide dataset
-    // If teamWideEnquiries is empty, trigger a fetch when we detect shared IDs in the current view
-    const hasSharedIds = allEnquiries.some(record => shouldAlwaysShowProspectHistory(record));
-    
-    // If we have shared IDs but no team-wide data, trigger fetch
-    if (hasSharedIds && teamWideEnquiries.length === 0 && !isLoadingAllData && !hasTriggeredSharedHistoryFetch.current) {
-      debugLog('🔍 Shared IDs detected, need team-wide data for complete history');
-      hasTriggeredSharedHistoryFetch.current = true;
-      // Trigger fetch asynchronously
-      setTimeout(() => triggerFetchAllEnquiries('shared-history:missing-teamwide'), 0);
-    }
-    
     const dataset = teamWideEnquiries.length > 0 ? teamWideEnquiries : allEnquiries;
     if (!dataset.length) {
       return new Map<string, NormalizedEnquiry[]>();
@@ -4247,7 +4678,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     });
 
     return map;
-  }, [teamWideEnquiries, allEnquiries, isLoadingAllData, triggerFetchAllEnquiries]);
+  }, [teamWideEnquiries, allEnquiries]);
 
   const filteredEnquiriesWithSharedHistory = useMemo(() => {
     if (!filteredEnquiries.length || sharedProspectHistoryMap.size === 0) {
@@ -4478,7 +4909,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     activeState,
   ]);
 
-  // Pre-compute day separator counts (avoids O(n²) filter inside render .map())
+  // Pre-compute day separator counts (avoids O(nÃ‚Â²) filter inside render .map())
   const dayCounts = useMemo(() => {
     const counts = new Map<string, number>();
     if (viewMode !== 'table') return counts;
@@ -4498,14 +4929,11 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     return counts;
   }, [displayedItems, viewMode]);
 
-  // ─── New-arrival animation ──────────────────────────────────
+  // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ New-arrival animation Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
   // After each render with updated displayedItems, detect IDs that
   // weren't in the previous set and apply a CSS entrance animation
-  // via the DOM. We only "arm" the detector AFTER the first non-empty
-  // render — otherwise every row appears new compared to the empty
-  // seed and pulses in unison on initial data load (the separator-
-  // pulse bug). We also gate on realtime SSE + filter transitions so
-  // filter switches / scope changes don't mass-animate.
+  // via the DOM. Normal list hydration and reshapes only refresh the
+  // baseline; the shimmer is reserved for realtime queue insertions.
   useEffect(() => {
     const currentIds = new Set<string>();
     for (const item of displayedItems) {
@@ -4516,8 +4944,22 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       }
     }
 
-    // Arm the detector only once we have a real dataset. The first empty /
-    // single-render during boot is NOT a "previous state" we can diff against.
+    const pulseRows = (ids: ReadonlyArray<string>) => {
+      if (ids.length === 0 || ids.length > 4) return;
+      requestAnimationFrame(() => {
+        for (const id of ids) {
+          const el = document.querySelector(`[data-enquiry-id="${CSS.escape(id)}"]`) as HTMLElement | null;
+          if (!el) continue;
+          el.classList.add('prospect-row--new-arrival');
+          el.addEventListener('animationend', () => {
+            el.classList.remove('prospect-row--new-arrival');
+          }, { once: true });
+        }
+      });
+    };
+
+    // Arm the detector only once we have a real dataset. First load is not a
+    // new-arrival event, including Mine's predefined existing rows.
     if (!initialRenderDoneRef.current) {
       if (currentIds.size > 0) {
         prevDisplayedIdsRef.current = currentIds;
@@ -4526,9 +4968,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       return;
     }
 
-    // Skip animation bursts triggered by filter/scope transitions or the
-    // manual refresh loading state — those are not genuine "new" events.
-    if (manualFilterTransitioning || isLoadingAllData) {
+    // Filter/scope transitions, first-load hydration, and background reshapes
+    // are not genuine new arrivals. Keep the baseline current without shimmer.
+    if (manualFilterTransitioning || isLoadingAllData || !isRealtimeQueueSyncing) {
       prevDisplayedIdsRef.current = currentIds;
       return;
     }
@@ -4539,23 +4981,17 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       if (!prev.has(id)) newIds.push(id);
     });
 
-    // Tight cap: only animate for true real-time arrivals (1–4 rows).
+    // Tight cap: only animate for true real-time arrivals (1Ã¢â‚¬â€œ4 rows).
     // Anything larger is almost certainly a background refetch / reshape.
-    if (newIds.length > 0 && newIds.length <= 4) {
-      for (const id of newIds) {
-        const el = document.querySelector(`[data-enquiry-id="${CSS.escape(id)}"]`) as HTMLElement | null;
-        if (el) {
-          el.classList.add('prospect-row--new-arrival');
-          el.addEventListener('animationend', () => {
-            el.classList.remove('prospect-row--new-arrival');
-          }, { once: true });
-        }
+    if (newIds.length > 0) {
+      pulseRows(newIds);
+      if (newIds.length <= 4) {
+        console.info('[Enquiries] new-arrival animation:', newIds.length, 'items');
       }
-      console.info('[Enquiries] new-arrival animation:', newIds.length, 'items');
     }
 
     prevDisplayedIdsRef.current = currentIds;
-  }, [displayedItems, manualFilterTransitioning, isLoadingAllData]);
+  }, [displayedItems, manualFilterTransitioning, isLoadingAllData, isRealtimeQueueSyncing]);
 
   const handleLoadMore = useCallback(() => {
     setItemsToShow((prev) => Math.min(prev + 20, filteredEnquiries.length));
@@ -4725,7 +5161,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       }
     };
 
-    const debounceTime = visibleEnquiryIds.size > 8 ? 120 : 80;
+    const debounceTime = visibleEnquiryIds.size > 8 ? 64 : 32;
     
     const timeoutId = setTimeout(fetchProgressiveEnrichment, debounceTime);
     return () => clearTimeout(timeoutId);
@@ -4743,12 +5179,12 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const eagerPrefetchDoneRef = useRef<boolean>(false);
   useEffect(() => {
     // Only run once per data load
-    if (eagerPrefetchDoneRef.current || selectedEnquiry || displayedItems.length === 0) return;
+    if (!isActive || eagerPrefetchDoneRef.current || selectedEnquiry || displayedItems.length === 0) return;
     
     const eagerPrefetch = async () => {
       // Warm only the first viewport-sized slice.
       const firstBatch = displayedItems
-        .slice(0, showMineOnly ? (isLocalhost ? 16 : 8) : (isLocalhost ? 40 : 24))
+        .slice(0, showMineOnly ? (isLocalhost ? 20 : 10) : (isLocalhost ? 56 : 32))
         .filter((item): item is NormalizedEnquiry => 
           'ID' in item && Boolean(item.ID) && !enrichmentMap.has(String(item.ID))
         );
@@ -4795,31 +5231,43 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     };
 
     let timeoutId: ReturnType<typeof globalThis.setTimeout> | null = null;
-    let idleId: number | null = null;
+    let firstRafId: number | null = null;
+    let secondRafId: number | null = null;
 
-    if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
-      idleId = (window as typeof window & {
-        requestIdleCallback: (cb: IdleRequestCallback, options?: IdleRequestOptions) => number;
-      }).requestIdleCallback(() => {
-        eagerPrefetch().catch(() => { /* ignore */ });
-      }, { timeout: isLocalhost ? 900 : 1800 });
+    if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+      firstRafId = window.requestAnimationFrame(() => {
+        secondRafId = window.requestAnimationFrame(() => {
+          eagerPrefetch().catch(() => { /* ignore */ });
+        });
+      });
     } else {
       timeoutId = globalThis.setTimeout(() => {
         eagerPrefetch().catch(() => { /* ignore */ });
-      }, isLocalhost ? 180 : 600);
+      }, 0);
     }
 
     return () => {
       if (timeoutId !== null) {
         globalThis.clearTimeout(timeoutId);
       }
-      if (idleId !== null && typeof window !== 'undefined' && 'cancelIdleCallback' in window) {
-        (window as typeof window & {
-          cancelIdleCallback: (id: number) => void;
-        }).cancelIdleCallback(idleId);
+      if (firstRafId !== null && typeof window !== 'undefined' && typeof window.cancelAnimationFrame === 'function') {
+        window.cancelAnimationFrame(firstRafId);
+      }
+      if (secondRafId !== null && typeof window !== 'undefined' && typeof window.cancelAnimationFrame === 'function') {
+        window.cancelAnimationFrame(secondRafId);
       }
     };
-  }, [displayedItems.length > 0, showMineOnly]); // Only trigger when items first appear
+  }, [
+    activeState,
+    debouncedSearchTerm,
+    displayedItems.length,
+    enrichmentMap.size,
+    isActive,
+    isLocalhost,
+    selectedArea,
+    selectedEnquiry,
+    showMineOnly,
+  ]);
 
   // Reset eager prefetch when filters/view changes significantly
   useEffect(() => {
@@ -4932,18 +5380,46 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     enrichmentLastAttemptRef.current.clear();
   }, [showUnclaimedBoard, showGroupedView, viewMode, selectedArea, dateRange?.oldest, dateRange?.newest, debouncedSearchTerm]);
 
+  const displayedDocumentCountIds = useMemo(() => (
+    displayedItems
+      .filter((item): item is Enquiry => 'ID' in item && Boolean(item.ID))
+      .map(item => String(item.ID))
+      .join('|')
+  ), [displayedItems]);
+
   // Fetch document counts for displayed enquiries
   // Note: This will be activated when the backend API is implemented
   // The API should be at: /api/prospect-documents/counts (POST with enquiryIds array)
   useEffect(() => {
     const fetchDocumentCounts = async () => {
+      const displayedIds = displayedDocumentCountIds ? displayedDocumentCountIds.split('|') : [];
       // Get currently displayed enquiries that need document counts
-      const enquiryIds = displayedItems
-        .filter((item): item is Enquiry => 'ID' in item && Boolean(item.ID))
-        .map(item => String(item.ID))
+      const enquiryIds = displayedIds
         .filter(id => !(id in documentCounts));
       
       if (enquiryIds.length === 0) return;
+
+      const applyDocumentCounts = (counts: Record<string, unknown>) => {
+        setDocumentCounts((prev: Record<string, number>) => {
+          const next = { ...prev };
+          let changed = false;
+
+          enquiryIds.forEach(id => {
+            const rawCount = counts[id];
+            const numericCount = typeof rawCount === 'number'
+              ? rawCount
+              : Number.isFinite(Number(rawCount))
+                ? Number(rawCount)
+                : 0;
+            if (next[id] !== numericCount) {
+              next[id] = numericCount;
+              changed = true;
+            }
+          });
+
+          return changed ? next : prev;
+        });
+      };
       
       try {
         const response = await fetch('/api/prospect-documents/counts', {
@@ -4954,33 +5430,50 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
         if (response.ok) {
           const data = await response.json();
-          setDocumentCounts((prev: Record<string, number>) => ({ ...prev, ...data.counts }));
+          applyDocumentCounts(data?.counts && typeof data.counts === 'object' ? data.counts : {});
         } else {
           // Initialise with zeros to prevent re-fetching on failure
-          setDocumentCounts((prev: Record<string, number>) => {
-            const newCounts = { ...prev };
-            enquiryIds.forEach(id => {
-              if (!(id in newCounts)) newCounts[id] = 0;
-            });
-            return newCounts;
-          });
+          applyDocumentCounts({});
         }
       } catch (error) {
         console.error('[Enquiries] Failed to fetch document counts:', error);
+        applyDocumentCounts({});
       }
     };
     
     const timeoutId = setTimeout(fetchDocumentCounts, 200);
     return () => clearTimeout(timeoutId);
-  }, [displayedItems, documentCounts]);
+  }, [displayedDocumentCountIds, documentCounts]);
 
   // Store filteredEnquiries.length in a ref so the observer callback always has current value
   const filteredLengthRef = useRef(filteredEnquiries.length);
   filteredLengthRef.current = filteredEnquiries.length;
 
+  useLayoutEffect(() => {
+    if (!isActive || viewMode !== 'table' || selectedEnquiry) {
+      return;
+    }
+
+    const region = document.querySelector('.app-scroll-region') as HTMLElement | null;
+    if (!region) {
+      return;
+    }
+
+    const previousOverflowY = region.style.overflowY;
+    const previousScrollbarGutter = region.style.scrollbarGutter;
+
+    region.style.overflowY = 'hidden';
+    region.style.scrollbarGutter = 'auto';
+
+    return () => {
+      region.style.overflowY = previousOverflowY;
+      region.style.scrollbarGutter = previousScrollbarGutter;
+    };
+  }, [isActive, selectedEnquiry, viewMode]);
+
   // Set up scroll listener for infinite scroll (more reliable than IntersectionObserver here)
   useEffect(() => {
-    // On mobile (≤640px) the root .app-root becomes the scroll container
+    // On mobile (Ã¢â€°Â¤640px) the root .app-root becomes the scroll container
     // because the bars scroll with content. Pick the first element that scrolls.
     const findScrollRoot = (): HTMLElement | null => {
       if (scrollContainerRef.current) return scrollContainerRef.current;
@@ -5029,8 +5522,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       // Show initial batch immediately; requestAnimationFrame loads more
       // without blocking the paint so the tab switch feels instant.
       // Use a fixed ceiling (not filteredLengthRef) because when toggling
-      // Mine→All the ref still holds the old (small) count until the async
-      // team-wide fetch completes — capping against it would freeze
+      // MineÃ¢â€ â€™All the ref still holds the old (small) count until the async
+      // team-wide fetch completes Ã¢â‚¬â€ capping against it would freeze
       // itemsToShow at the Mine count and the scroll-based loader would
       // never fire (no overflow).  slice(0, 60) on a smaller array is safe.
       setItemsToShow(20);
@@ -5329,58 +5822,58 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     const lowerValue = value.toLowerCase();
     
     // Normalize common patterns first - handle partial/truncated values
-    // High value (£500k+)
-    if (lowerValue.includes('500,001') || lowerValue.includes('over £500') || lowerValue.includes('500k+')) {
-      return '£500k+';
+    // High value (Ã‚Â£500k+)
+    if (lowerValue.includes('500,001') || lowerValue.includes('over Ã‚Â£500') || lowerValue.includes('500k+')) {
+      return 'Ã‚Â£500k+';
     }
     
-    // £100k-500k range
+    // Ã‚Â£100k-500k range
     if ((lowerValue.includes('100,001') && lowerValue.includes('500,000')) || 
-        lowerValue.includes('£100k-500k') ||
+        lowerValue.includes('Ã‚Â£100k-500k') ||
         (lowerValue.includes('between') && lowerValue.includes('100') && lowerValue.includes('500'))) {
-      return '£100k-500k';
+      return 'Ã‚Â£100k-500k';
     }
     
-    // £100k+ 
-    if (lowerValue.includes('greater than £100') || lowerValue.includes('£100k+') || lowerValue === '£100,000+') {
-      return '£100k+';
+    // Ã‚Â£100k+ 
+    if (lowerValue.includes('greater than Ã‚Â£100') || lowerValue.includes('Ã‚Â£100k+') || lowerValue === 'Ã‚Â£100,000+') {
+      return 'Ã‚Â£100k+';
     }
     
-    // £50k-100k range
+    // Ã‚Â£50k-100k range
     if ((lowerValue.includes('50,000') && lowerValue.includes('100,000')) ||
-        lowerValue.includes('£50k-100k')) {
-      return '£50k-100k';
+        lowerValue.includes('Ã‚Â£50k-100k')) {
+      return 'Ã‚Â£50k-100k';
     }
     
-    // £25k-50k range
+    // Ã‚Â£25k-50k range
     if ((lowerValue.includes('25,000') && lowerValue.includes('50,000')) ||
-        lowerValue.includes('£25k-50k')) {
-      return '£25k-50k';
+        lowerValue.includes('Ã‚Â£25k-50k')) {
+      return 'Ã‚Â£25k-50k';
     }
     
-    // £10k-100k range
+    // Ã‚Â£10k-100k range
     if ((lowerValue.includes('10,001') && lowerValue.includes('100,000')) ||
         (lowerValue.includes('10,000') && lowerValue.includes('100,000')) ||
         (lowerValue.includes('between') && lowerValue.includes('10') && lowerValue.includes('100')) ||
-        lowerValue.includes('£10k-100k')) {
-      return '£10k-100k';
+        lowerValue.includes('Ã‚Â£10k-100k')) {
+      return 'Ã‚Â£10k-100k';
     }
     
-    // £10k-50k range
+    // Ã‚Â£10k-50k range
     if ((lowerValue.includes('10,000') && lowerValue.includes('50,000')) ||
-        lowerValue.includes('£10k-50k')) {
-      return '£10k-50k';
+        lowerValue.includes('Ã‚Â£10k-50k')) {
+      return 'Ã‚Â£10k-50k';
     }
     
-    // ≤£10k / <£10k (under 10k)
-    if (lowerValue.includes('below £10') || 
-        lowerValue.includes('less than £10') ||
+    // Ã¢â€°Â¤Ã‚Â£10k / <Ã‚Â£10k (under 10k)
+    if (lowerValue.includes('below Ã‚Â£10') || 
+        lowerValue.includes('less than Ã‚Â£10') ||
         lowerValue.includes('10,000 or less') ||
-        lowerValue.includes('under £10') ||
-        lowerValue.includes('<£10k') ||
-        lowerValue.includes('≤£10k') ||
-        lowerValue === '£10,000 or less') {
-      return '<£10k';
+        lowerValue.includes('under Ã‚Â£10') ||
+        lowerValue.includes('<Ã‚Â£10k') ||
+        lowerValue.includes('Ã¢â€°Â¤Ã‚Â£10k') ||
+        lowerValue === 'Ã‚Â£10,000 or less') {
+      return '<Ã‚Â£10k';
     }
     
     // Non-monetary
@@ -5405,7 +5898,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     }
     
     // Already formatted compact values - return as-is
-    if (/^[<≤>]?£\d+k[-+]?(\d+k)?$/.test(value)) {
+    if (/^[<Ã¢â€°Â¤>]?Ã‚Â£\d+k[-+]?(\d+k)?$/.test(value)) {
       return value;
     }
     
@@ -5413,29 +5906,29 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     if (/^\d+$/.test(value)) {
       const num = parseInt(value);
       if (num >= 1000000) {
-        return `£${(num / 1000000).toFixed(1)}m`;
+        return `Ã‚Â£${(num / 1000000).toFixed(1)}m`;
       }
       if (num >= 1000) {
-        return `£${Math.round(num / 1000)}k`;
+        return `Ã‚Â£${Math.round(num / 1000)}k`;
       }
-      return `£${value}`;
+      return `Ã‚Â£${value}`;
     }
     
-    // Currency with commas (e.g. "£10,000")
-    const currencyMatch = value.match(/^£?([\d,]+)$/);
+    // Currency with commas (e.g. "Ã‚Â£10,000")
+    const currencyMatch = value.match(/^Ã‚Â£?([\d,]+)$/);
     if (currencyMatch) {
       const num = parseInt(currencyMatch[1].replace(/,/g, ''));
       if (num >= 1000000) {
-        return `£${(num / 1000000).toFixed(1)}m`;
+        return `Ã‚Â£${(num / 1000000).toFixed(1)}m`;
       }
       if (num >= 1000) {
-        return `£${Math.round(num / 1000)}k`;
+        return `Ã‚Â£${Math.round(num / 1000)}k`;
       }
-      return `£${num}`;
+      return `Ã‚Â£${num}`;
     }
     
-    // If value already starts with £ and is short enough, return as-is
-    if (value.startsWith('£') && value.length <= 10) {
+    // If value already starts with Ã‚Â£ and is short enough, return as-is
+    if (value.startsWith('Ã‚Â£') && value.length <= 10) {
       return value;
     }
     
@@ -5478,6 +5971,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     return mergeStyles({
       backgroundColor: dark ? colours.dark.background : colours.light.background,
       flex: 1,
+      height: '100%',
       minHeight: 0,
       display: 'flex',
       flexDirection: 'column',
@@ -5491,7 +5985,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   // Check if we're in a pending/transitioning state for filter changes
   const isFilterTransitioning = showMineOnly !== deferredShowMineOnly || activeState !== deferredActiveState;
 
-  // Ensure the processing cue shows when switching views (All tab OR Mine↔All toggle)
+  // Ensure the processing cue shows when switching views (All tab OR MineÃ¢â€ â€All toggle)
   const previousShowMineOnlyRef = useRef(showMineOnly);
   useEffect(() => {
     const previous = previousActiveStateRef.current;
@@ -5523,7 +6017,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   // Global Navigator: list vs detail.
   // useLayoutEffect (not useEffect) so the FilterBanner is written synchronously
-  // before paint — otherwise there's a frame during processing/re-renders where
+  // before paint Ã¢â‚¬â€ otherwise there's a frame during processing/re-renders where
   // Navigator.tsx sees `content=null` and fades the banner out (opacity 0).
   // Matches the pattern in Home.tsx.
   useLayoutEffect(() => {
@@ -5550,16 +6044,51 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     }
 
     if (!isActive) {
-      // Don't write null — the newly-active tab will overwrite.
+      lastNavigatorContentKeyRef.current = null;
+      // Don't write null Ã¢â‚¬â€ the newly-active tab will overwrite.
       // Writing null here races with the other tab's setContent.
       return;
     }
 
+    const navigatorContentKey = selectedEnquiry
+      ? [
+          'detail',
+          String(selectedEnquiry.ID || ''),
+          activeSubTab,
+          isDarkMode ? 'dark' : 'light',
+        ].join('|')
+      : [
+          'list',
+          activeState,
+          showMineOnly ? 'mine' : 'all',
+          selectedAreasKey,
+          debouncedSearchTerm,
+          scopeCounts.mineCount,
+          scopeCounts.allCount ?? 'na',
+          isAdmin ? 'admin' : 'user',
+          navigatorRefreshLoading ? 'refreshing' : 'idle',
+          manualFilterTransitioning ? 'transitioning' : 'steady',
+          selectedPersonInitials || '',
+          devOwnerMineOverrideEmail || '',
+          canUseDevOwnerMineOverride ? 'override' : 'normal',
+          devOwnerMineOptionsKey,
+          actualEnquiryIdentity.email,
+          isLocalhost ? 'local' : 'remote',
+          showNavigatorPersonLabels ? 'labels' : 'icons',
+        ].join('|');
+
+    if (lastNavigatorContentKeyRef.current === navigatorContentKey) {
+      return;
+    }
+
+    lastNavigatorContentKeyRef.current = navigatorContentKey;
+
     // List mode: filter/search bar in Navigator (like Matters list state)
     if (!selectedEnquiry) {
-      debugLog('🔄 Setting new FilterBanner content for Enquiries');
+      debugLog('Ã°Å¸â€â€ž Setting new FilterBanner content for Enquiries');
       
       setContent(
+        <div data-helix-region="enquiries/list-toolbar" ref={handleNavigatorToolbarRef}>
         <FilterBanner
           dense
           collapsibleSearch
@@ -5572,74 +6101,16 @@ const Enquiries: React.FC<EnquiriesProps> = ({
               scopeCounts={scopeCounts}
               isAdmin={isAdmin}
               isBusy={isLoadingAllData || isRealtimeQueueSyncing || manualFilterTransitioning}
+              mineChipLabel={currentMineScopeOption.label}
+              mineChipTitle={currentMineScopeOption.fullLabel}
+              selectedMineScopeEmail={currentMineScopeOption.email}
+              mineScopeOptions={canUseDevOwnerMineOverride ? devOwnerMineOptions : undefined}
               onSetActiveState={handleSetActiveState}
               onSetShowMineOnly={setShowMineOnly}
+              onSetMineScopeEmail={canUseDevOwnerMineOverride ? handleSetDevOwnerMineOverride : undefined}
             />
           }
-          secondaryFilter={(
-            <div className="enq-filter-secondary-cluster" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap', minWidth: 0, overflow: 'hidden' }}>
-              {hasAreaFilterAccess && (
-                <IconAreaFilter
-                  selectedAreas={selectedAreas}
-                  availableAreas={ALL_AREAS_OF_WORK}
-                  onAreaChange={handleManualAreaChange}
-                  ariaLabel="Filter enquiries by area of work"
-                  variant="glyph"
-                />
-              )}
-              {canUseDevOwnerMineOverride && devOwnerMineOptions.length > 0 && (
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    minWidth: 0,
-                    maxWidth: 250,
-                    height: 30,
-                    padding: '0 8px',
-                    border: `1px solid ${isDarkMode ? 'rgba(135,243,243,0.2)' : 'rgba(54,144,206,0.18)'}`,
-                    background: isDarkMode ? 'rgba(135,243,243,0.06)' : 'rgba(54,144,206,0.04)',
-                    color: isDarkMode ? '#d1d5db' : colours.greyText,
-                    overflow: 'hidden',
-                  }}
-                  title="Local Luke-only prospects scope. This changes the Mine view without switching user."
-                >
-                  <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: isDarkMode ? colours.accent : colours.highlight, flexShrink: 0 }}>
-                    Showing as:
-                  </span>
-                  <select
-                    aria-label="Choose whose claimed prospects to show in Mine"
-                    value={devOwnerMineOverrideEmail || actualEnquiryIdentity.email}
-                    onChange={(event) => handleSetDevOwnerMineOverride(event.target.value)}
-                    style={{
-                      minWidth: 0,
-                      flex: 1,
-                      height: 22,
-                      padding: '0 22px 0 8px',
-                      border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(6,23,51,0.08)'}`,
-                      borderRadius: 0,
-                      outline: 'none',
-                      background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.78)',
-                      color: isDarkMode ? '#f3f4f6' : colours.darkBlue,
-                      fontSize: 11,
-                      fontWeight: 600,
-                      fontFamily: 'Raleway, sans-serif',
-                      appearance: 'none',
-                      cursor: 'pointer',
-                    }}
-                    title="Choose whose claimed prospects to inspect"
-                  >
-                    {devOwnerMineOptions.map((option) => (
-                      <option key={option.email} value={option.email}>
-                        {option.fullLabel}
-                      </option>
-                    ))}
-                  </select>
-                  <Icon iconName="ChevronDown" style={{ fontSize: 10, color: isDarkMode ? colours.accent : colours.highlight, marginLeft: -20, pointerEvents: 'none', flexShrink: 0 }} />
-                </div>
-              )}
-            </div>
-          )}
+          secondaryFilter={undefined}
           search={{
             value: debouncedSearchTerm,
             onChange: handleSearchChange,
@@ -5654,30 +6125,28 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                 <button
                   type="button"
                   className="enq-add-contact-btn"
-                  title="Search people across all records"
-                  aria-label="Search people"
+                  data-show-label={showNavigatorPersonLabels ? 'true' : 'false'}
+                  title="Open person lookup across all enquiry records (local only)"
+                  aria-label="Open person lookup"
                   onClick={() => setIsPeopleSearchOpen(true)}
                 >
-                  <Icon iconName="Search" style={{ fontSize: 14 }} />
-                  <span className="enq-add-contact-label">Find Person</span>
+                  <Icon iconName="Contact" style={{ fontSize: 14 }} />
+                  <span className="enq-add-contact-label">Person Lookup</span>
                 </button>
               )}
               <button
                 type="button"
                 className="enq-add-contact-btn"
-                title="Add new contact/enquiry"
-                aria-label="Add new contact"
+                data-show-label={showNavigatorPersonLabels ? 'true' : 'false'}
+                title="Add new person/enquiry"
+                aria-label="Add new person"
                 onClick={() => setIsCreateContactModalOpen(true)}
               >
                 <Icon iconName="AddFriend" style={{ fontSize: 14 }} />
-                <span className="enq-add-contact-label">Add Contact</span>
+                <span className="enq-add-contact-label">Add Person</span>
               </button>
             </>
           }
-          refresh={{
-            onRefresh: handleManualRefresh,
-            isLoading: navigatorRefreshLoading,
-          }}
         >
           {selectedPersonInitials && (
             <div
@@ -5705,6 +6174,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
             </div>
           )}
         </FilterBanner>
+        </div>
       );
     } else {
       // Detail mode: navigation on left side (back + context tabs)
@@ -5730,13 +6200,11 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     scopeCounts.mineCount,
     scopeCounts.allCount,
     debouncedSearchTerm,
-    hasAreaFilterAccess,
     isAdmin,
     showMineOnly,
     activeSubTab,
     handleBackToList,
     handleSetActiveState,
-    handleManualAreaChange,
     isLocalhost,
     navigatorRefreshLoading,
     handleManualRefresh,
@@ -5746,8 +6214,10 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     canUseDevOwnerMineOverride,
     devOwnerMineOptionsKey,
     actualEnquiryIdentity.email,
+    handleNavigatorToolbarRef,
     handleSetDevOwnerMineOverride,
     isActive,
+    showNavigatorPersonLabels,
   ]);
 
   // NOTE: deliberately no unmount cleanup that calls setContent(null).
@@ -5757,7 +6227,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   // with the newly-active tab's setContent and wipes its banner. The app-level
   // effect in App.tsx already nulls content when navigating to non-banner tabs.
 
-  // ─── Prop bundles for <ProspectTableRow /> ──────────────────
+  // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Prop bundles for <ProspectTableRow /> Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
   const renderClaimPromptChip = useCallback(
     (options?: {
       size?: 'default' | 'compact';
@@ -5815,21 +6285,12 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     areActionsEnabled,
     copiedNameKey,
     expandedNotesInTable: expandedNotesInTable,
-    hoveredRowKey,
-    hoveredDayKey,
-    hoveredRowKeyReady,
-    hoveredDayKeyReady,
     pipelineNeedsCarousel,
     visiblePipelineChipCount,
     PIPELINE_CHIP_MIN_WIDTH_PX,
     collapsedDays,
     currentUserEmail: userEmail,
-  }), [isDarkMode, activeState, viewMode, areActionsEnabled, copiedNameKey, expandedNotesInTable, hoveredRowKey, hoveredDayKey, hoveredRowKeyReady, hoveredDayKeyReady, pipelineNeedsCarousel, visiblePipelineChipCount, PIPELINE_CHIP_MIN_WIDTH_PX, collapsedDays, userEmail]);
-  const rowHoverHandlers: RowHoverHandlers = {
-    setHoveredRowKey,
-    setHoveredDayKey,
-    toggleDayCollapse,
-  };
+  }), [isDarkMode, activeState, viewMode, areActionsEnabled, copiedNameKey, expandedNotesInTable, pipelineNeedsCarousel, visiblePipelineChipCount, PIPELINE_CHIP_MIN_WIDTH_PX, collapsedDays, userEmail]);
   const rowDataDeps: RowDataDeps = useMemo(() => ({
     claimerMap,
     enrichmentMap,
@@ -5853,13 +6314,13 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     || Boolean(devOwnerMineOverrideEmail)
     || (selectedAreas.length > 0 && userManuallyChangedAreas);
   const prospectsLoadingLabel = enquiries === null
-    ? 'Loading prospects…'
+    ? 'Loading prospectsÃ¢â‚¬Â¦'
     : isRealtimeQueueSyncing
-      ? 'Applying latest updates…'
+      ? 'Applying latest updatesÃ¢â‚¬Â¦'
       : isAwaitingQueueDataset
-        ? (showMineOnly && activeState !== 'Claimed' ? 'Preparing your queue…' : 'Loading all prospects…')
+        ? (showMineOnly && activeState !== 'Claimed' ? 'Preparing your queueÃ¢â‚¬Â¦' : 'Loading all prospectsÃ¢â‚¬Â¦')
         : isLoadingAllData
-          ? 'Loading all prospects…'
+          ? 'Loading all prospectsÃ¢â‚¬Â¦'
           : 'Updating view...';
 
   return (
@@ -5871,6 +6332,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         details={toast?.details || ''}
         type={toast?.type || 'success'}
         icon={toast?.type === 'success' ? 'CheckMark' : undefined}
+        actionLabel={toast?.actionLabel}
+        onAction={toast?.onAction}
+        isDarkMode={isDarkMode}
       />
 
       {/* SSE disconnect indicator */}
@@ -5902,38 +6366,35 @@ const Enquiries: React.FC<EnquiriesProps> = ({
             background: colours.orange,
             display: 'inline-block',
           }} />
-          Reconnecting…
+          ReconnectingÃ¢â‚¬Â¦
         </div>
       )}
 
       {demoOverlay?.visible && (
         <div style={{
+          // 2026-04-27: non-blocking corner pill instead of full-area scrim.
+          // Operator can still see the table + the demo rows shimmering in.
           position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: isDarkMode ? 'rgba(0, 3, 25, 0.6)' : 'rgba(255, 255, 255, 0.45)',
-          backdropFilter: 'blur(2px)',
+          top: 12,
+          right: 12,
           zIndex: 120,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
           pointerEvents: 'none',
+          maxWidth: 320,
+          animation: 'helix-fresh-sweep 1.7s ease-out 1 both',
         }}>
           <div style={{
             display: 'flex',
             flexDirection: 'column',
-            gap: 6,
-            padding: '14px 22px',
+            gap: 4,
+            padding: '10px 14px',
             borderRadius: 0,
             background: isDarkMode ? colours.darkBlue : colours.light.cardBackground,
-            boxShadow: isDarkMode ? '0 4px 20px rgba(0, 0, 0, 0.5)' : '0 4px 20px rgba(0, 0, 0, 0.12)',
+            boxShadow: isDarkMode ? '0 4px 14px rgba(0, 0, 0, 0.45)' : '0 4px 14px rgba(0, 0, 0, 0.12)',
             border: `1px solid ${isDarkMode ? colours.dark.border : 'rgba(0, 0, 0, 0.08)'}`,
-            maxWidth: 420,
+            borderLeft: `2px solid ${colours.green}`,
           }}>
             <div style={{
-              fontSize: 13,
+              fontSize: 12,
               fontWeight: 600,
               color: isDarkMode ? colours.dark.text : colours.darkBlue,
               fontFamily: 'Raleway, sans-serif',
@@ -5945,6 +6406,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                 fontSize: 11,
                 color: isDarkMode ? colours.subtleGrey : colours.greyText,
                 fontFamily: 'Raleway, sans-serif',
+                lineHeight: 1.4,
               }}>
                 {demoOverlay.details}
               </div>
@@ -5953,7 +6415,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         </div>
       )}
 
-      {/* Blocking overlay for first load — subtle backdrop with in-place skeletons */}
+      {/* Blocking overlay for first load Ã¢â‚¬â€ subtle backdrop with in-place skeletons */}
       {shouldShowBlockingProspectsOverlay && (
         <div style={{
           position: 'fixed',
@@ -5981,6 +6443,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         styles={{
           root: {
             flex: 1,
+            height: '100%',
             minHeight: 0,
             overflow: 'hidden',
             display: 'flex',
@@ -6006,12 +6469,16 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         key={activeState}
         className={mergeStyles({
           flex: 1,
+          height: '100%',
           minHeight: 0,
           display: 'flex',
           flexDirection: 'column',
           gap: '0px',
+          overflow: 'hidden',
           paddingBottom: 0,
-          backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
+          backgroundColor: !selectedEnquiry && viewMode === 'table'
+            ? (isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground)
+            : (isDarkMode ? colours.dark.background : colours.light.background),
         })}
       >
         {selectedEnquiry ? (
@@ -6029,7 +6496,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                   {activeState === 'Triaged' && !triagedDataLoaded ? (
                     <LoadingState
                       message="Preparing your triage queue"
-                      subMessage="Getting everything ready — this will only take a moment."
+                      subMessage="Getting everything ready Ã¢â‚¬â€ this will only take a moment."
                       size="md"
                       icon={
                         <svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -6043,64 +6510,65 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                     ((enquiriesLiveRefreshInFlight || enquiriesUsingSnapshot) && !hasActiveUserFilters)
                     || (enquiries !== null && enquiries.length > 0 && displayEnquiries.length === 0)
                   ) ? (
-                    /* Still awaiting first live data or prop normalisation pipeline — show skeleton, not empty state */
+                    /* Still awaiting first live data or prop normalisation pipeline Ã¢â‚¬â€ show skeleton, not empty state */
                     <QueueLoadingSkeleton variant="inline" isDarkMode={isDarkMode} />
+                  ) : shouldPreviewClaimedQueueHolding ? (
+                    renderClaimedQueueHoldingState()
                   ) :filteredEnquiries.length === 0 ? (
-                    <EmptyState
-                      title={
-                        hasActiveUserFilters
-                          ? (navigatorRefreshLoading || enquiriesUsingSnapshot
-                              ? 'Refreshing filtered enquiries'
-                              : 'No matching enquiries')
-                          : activeState === 'Claimed' && showMineOnly
-                          ? 'No claimed enquiries yet'
-                          : activeState === 'Claimed'
-                          ? 'No claimed enquiries'
-                          : activeState === 'Triaged'
-                          ? 'No triaged enquiries'
-                          : 'No enquiries found'
-                      }
-                      description={
-                        hasActiveUserFilters
-                          ? (navigatorRefreshLoading || enquiriesUsingSnapshot
-                              ? 'Your filters are still applied, and the live feed is settling. More matching enquiries may appear shortly.'
-                              : 'No enquiries match your current filters. Try adjusting or clearing your filters to see more results.')
-                          : activeState === 'Claimed' && showMineOnly
-                          ? 'You haven\'t claimed any enquiries yet. Check the claimable section to get started.'
-                          : activeState === 'Claimed'
-                          ? 'No enquiries have been claimed yet.'
-                          : activeState === 'Triaged'
-                          ? 'No enquiries have been processed by triage in this view.'
-                          : 'Try adjusting your date range or filters.'
-                      }
-                      illustration={
-                        hasActiveUserFilters
-                          ? 'filter'
-                          : activeState === 'Triaged' ? 'filter' : 'search'
-                      }
-                      size="md"
-                      action={
-                        hasActiveUserFilters
-                          ? {
-                              label: 'Clear All Filters',
-                              onClick: () => {
-                                setEnquiryPipelineFilters(new Map());
-                                setSelectedPocFilter(null);
-                                if (searchTimeoutRef.current) {
-                                  clearTimeout(searchTimeoutRef.current);
-                                }
-                                setDebouncedSearchTerm('');
-                                setSelectedAreas([]);
-                                setSelectedPersonInitials(null);
-                                setDevOwnerMineOverrideEmail(null);
-                                setPipelineScrollOffset(0);
-                                setPipelineRemeasureKey(k => k + 1);
-                              },
-                              variant: 'primary'
-                            }
-                          : undefined
-                      }
-                    />
+                    activeState === 'Claimed' && showMineOnly && !hasActiveUserFilters ? (
+                      renderClaimedQueueHoldingState()
+                    ) : (
+                      <EmptyState
+                        title={
+                          hasActiveUserFilters
+                            ? (navigatorRefreshLoading || enquiriesUsingSnapshot
+                                ? 'Refreshing filtered enquiries'
+                                : 'No matching enquiries')
+                            : activeState === 'Claimed'
+                            ? 'No claimed enquiries'
+                            : activeState === 'Triaged'
+                            ? 'No triaged enquiries'
+                            : 'No enquiries found'
+                        }
+                        description={
+                          hasActiveUserFilters
+                            ? (navigatorRefreshLoading || enquiriesUsingSnapshot
+                                ? 'Your filters are still applied, and the live feed is settling. More matching enquiries may appear shortly.'
+                                : 'No enquiries match your current filters. Try adjusting or clearing your filters to see more results.')
+                            : activeState === 'Claimed'
+                            ? 'No enquiries have been claimed yet.'
+                            : activeState === 'Triaged'
+                            ? 'No enquiries have been processed by triage in this view.'
+                            : 'Try adjusting your date range or filters.'
+                        }
+                        illustration={
+                          hasActiveUserFilters
+                            ? 'filter'
+                            : activeState === 'Triaged' ? 'filter' : 'search'
+                        }
+                        size="md"
+                        action={
+                          hasActiveUserFilters
+                            ? {
+                                label: 'Clear All Filters',
+                                onClick: () => {
+                                  setEnquiryPipelineFilters(new Map());
+                                  setSelectedPocFilter(null);
+                                  if (searchTimeoutRef.current) {
+                                    clearTimeout(searchTimeoutRef.current);
+                                  }
+                                  setDebouncedSearchTerm('');
+                                  setSelectedPersonInitials(null);
+                                  setDevOwnerMineOverrideEmail(null);
+                                  setPipelineScrollOffset(0);
+                                  setPipelineRemeasureKey(k => k + 1);
+                                },
+                                variant: 'primary'
+                              }
+                            : undefined
+                        }
+                      />
+                    )
 
             ) : (
               <>
@@ -6140,17 +6608,22 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                 )}
                 {/* Table View */}
                   <div 
-                    ref={scrollContainerRef}
-                    className="prospect-table-scroll"
+                    className="prospect-table-shell"
                     style={{
-                      backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
-                      overflowY: 'auto',
-                      overflowX: 'auto',
-                      fontFamily: 'Raleway, "Segoe UI", sans-serif',
+                      background: isDarkMode ? colours.dark.background : colours.light.cardBackground,
+                      fontFamily: 'Raleway, sans-serif',
                       display: 'flex',
                       flexDirection: 'column',
                       flex: 1,
+                      height: '100%',
                       minHeight: 0,
+                      overflowX: 'auto',
+                      overflowY: 'hidden',
+                      borderTop: 'none',
+                      borderLeft: 'none',
+                      borderRight: 'none',
+                      borderBottom: `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.16)' : 'rgba(13, 47, 96, 0.05)'}`,
+                      boxShadow: 'none',
                       transition: 'opacity 180ms ease, transform 180ms ease',
                       opacity: manualFilterTransitioning ? 0.88 : 1,
                       transform: manualFilterTransitioning ? 'translateY(2px)' : 'translateY(0)',
@@ -6159,88 +6632,32 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                     <div 
                       className="prospect-table-header"
                       style={{
-                        position: 'sticky',
-                        top: 0,
+                        position: 'relative',
                         zIndex: 20,
                         display: 'grid',
                         gridTemplateColumns: TABLE_GRID_TEMPLATE_COLUMNS,
                         gap: `${TABLE_GRID_GAP_PX}px`,
                         padding: '0 14px',
-                        height: 44,
+                        height: 40,
                         boxSizing: 'border-box',
                         alignItems: 'center',
                         flexShrink: 0,
-                        background: isDarkMode 
+                        background: isDarkMode
                           ? colours.darkBlue
                           : colours.light.cardBackground,
-                        backdropFilter: 'blur(12px)',
-                        borderTop: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
-                        borderBottom: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)'}`,
-                        fontFamily: 'Raleway, "Segoe UI", sans-serif',
+                        backdropFilter: 'none',
+                        borderTop: 'none',
+                        borderBottom: `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.24)' : 'rgba(13, 47, 96, 0.06)'}`,
+                        fontFamily: 'Raleway, sans-serif',
                         fontSize: '11px',
-                        fontWeight: 500,
+                        fontWeight: 600,
                         color: headerTextColor,
                         textTransform: 'uppercase',
                         letterSpacing: '0.5px',
-                        boxShadow: isDarkMode 
-                          ? '0 2px 8px rgba(0, 0, 0, 0.3)'
-                          : '0 2px 8px rgba(0, 0, 0, 0.08)',
+                        lineHeight: 1.05,
+                        boxShadow: 'none',
                       }}
                     >
-                      {/* Timeline header cell — matches the 1px vertical line in rows */}
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                        title="Timeline"
-                      >
-                        <div style={{
-                          width: 1,
-                          height: 14,
-                          background: isDarkMode ? colours.accent : colours.highlight,
-                          opacity: 0.45,
-                          borderRadius: 0,
-                        }} />
-                      </div>
-                      <div 
-                        onClick={() => {
-                          if (sortColumn === 'date') {
-                            setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
-                          } else {
-                            setSortColumn('date');
-                            setSortDirection('desc');
-                          }
-                        }}
-                        style={{ 
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 6,
-                          paddingInline: 2,
-                          transition: 'color 0.15s ease',
-                          color: sortColumn === 'date' 
-                            ? (isDarkMode ? colours.highlight : colours.highlight)
-                            : undefined,
-                        }}
-                        title="Sort by date"
-                      >
-                        DATE
-                        <Icon 
-                          iconName={sortColumn === 'date' ? (sortDirection === 'asc' ? 'ChevronUpSmall' : 'ChevronDownSmall') : 'ChevronDownSmall'} 
-                          styles={{ 
-                            root: { 
-                              fontSize: 8,
-                              opacity: sortColumn === 'date' ? 1 : 0.35,
-                              color: sortColumn === 'date' 
-                                ? (isDarkMode ? colours.highlight : colours.highlight)
-                                : (isDarkMode ? `${colours.subtleGrey}80` : `${colours.greyText}80`),
-                              transition: 'opacity 0.15s ease',
-                            },
-                          }}
-                        />
-                      </div>
                       {/* ID header (sortable) */}
                       <div 
                         onClick={() => {
@@ -6254,14 +6671,15 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                         style={{ 
                           display: 'flex',
                           alignItems: 'center',
-                          gap: 6,
+                          gap: 4,
                           cursor: 'pointer',
                           whiteSpace: 'nowrap',
                           transition: 'color 0.15s ease',
-                          paddingInline: 2,
+                          padding: 0,
                           color: sortColumn === 'id' 
                             ? (isDarkMode ? colours.highlight : colours.highlight)
                             : undefined,
+                          minWidth: 0,
                         }}
                         title="Sort by ID"
                       >
@@ -6297,6 +6715,45 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                       </div>
                       <div 
                         onClick={() => {
+                          if (sortColumn === 'date') {
+                            setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+                          } else {
+                            setSortColumn('date');
+                            setSortDirection('desc');
+                          }
+                        }}
+                        style={{ 
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          padding: 0,
+                          minWidth: 0,
+                          whiteSpace: 'nowrap',
+                          transition: 'color 0.15s ease',
+                          color: sortColumn === 'date' 
+                            ? (isDarkMode ? colours.highlight : colours.highlight)
+                            : undefined,
+                        }}
+                        title="Sort by date"
+                      >
+                        Date
+                        <Icon 
+                          iconName={sortColumn === 'date' ? (sortDirection === 'asc' ? 'ChevronUpSmall' : 'ChevronDownSmall') : 'ChevronDownSmall'} 
+                          styles={{ 
+                            root: { 
+                              fontSize: 8,
+                              opacity: sortColumn === 'date' ? 1 : 0.35,
+                              color: sortColumn === 'date' 
+                                ? (isDarkMode ? colours.highlight : colours.highlight)
+                                : (isDarkMode ? `${colours.subtleGrey}80` : `${colours.greyText}80`),
+                              transition: 'opacity 0.15s ease',
+                            },
+                          }}
+                        />
+                      </div>
+                      <div 
+                        onClick={() => {
                           if (sortColumn === 'contact') {
                             setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
                           } else {
@@ -6308,18 +6765,19 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                           cursor: 'pointer',
                           display: 'flex',
                           alignItems: 'center',
-                          gap: 6,
-                          paddingInline: 2,
+                          gap: 4,
+                          padding: 0,
                           transition: 'color 0.15s ease',
                           color: sortColumn === 'contact' 
                             ? (isDarkMode ? colours.highlight : colours.highlight)
                             : undefined,
                           minWidth: 0,
                           overflow: 'hidden',
+                          whiteSpace: 'nowrap',
                         }}
                         title="Sort by prospect name"
                       >
-                        PROSPECT
+                        Prospect
                         <Icon 
                           iconName={sortColumn === 'contact' ? (sortDirection === 'asc' ? 'ChevronUpSmall' : 'ChevronDownSmall') : 'ChevronDownSmall'} 
                           styles={{ 
@@ -6383,7 +6841,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                 <div style={{
                                   display: 'flex',
                                   alignItems: 'center',
-                                  justifyContent: 'center',
+                                  justifyContent: 'flex-start',
                                   gap: 3,
                                   height: 22,
                                   width: '100%',
@@ -6395,13 +6853,14 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                   minWidth: 0,
                                 }}>
                                         <span style={{ 
-                                          fontSize: 10, 
-                                          fontWeight: 500, 
+                                          fontSize: 11, 
+                                          fontWeight: 600, 
                                           color: headerTextColor, 
                                           textTransform: 'uppercase',
                                           whiteSpace: 'nowrap',
                                           overflow: 'hidden',
                                           textOverflow: 'ellipsis',
+                                          lineHeight: 1.05,
                                         }}>
                                           {pipelineChipLabelMode === 'icon' ? 'POC' : 'CLAIMER'}
                                         </span>
@@ -6437,7 +6896,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                         style={{
                                           display: 'flex',
                                           alignItems: 'center',
-                                          justifyContent: 'center',
+                                          justifyContent: 'flex-start',
                                           gap: 2,
                                           height: 22,
                                           width: '100%',
@@ -6456,7 +6915,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                           minWidth: 0,
                                         }}
                                       >
-                                        <span style={{ fontSize: 10, fontWeight: 500, color: filterColor, textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
+                                        <span style={{ fontSize: 11, fontWeight: 600, color: filterColor, textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0, lineHeight: 1.05 }}>
                                                 {pipelineChipLabelMode === 'icon' ? 'POC' : 'CLAIMER'}
                                               </span>
                                         <Icon iconName="ChevronDown" styles={{ root: { fontSize: 8, color: filterColor, flexShrink: 0 } }} />
@@ -6497,7 +6956,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                               width: '100%',
                                               padding: '8px 12px',
                                               background: !selectedPocFilter
-                                                ? (isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(54, 144, 206, 0.1)')
+                                                ? (isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.1)')
                                                 : 'transparent',
                                               border: 'none',
                                               borderBottom: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(160, 160, 160, 0.15)'}`,
@@ -6529,7 +6988,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                                   width: '100%',
                                                   padding: '8px 12px',
                                                   background: isSelected
-                                                    ? (isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(54, 144, 206, 0.1)')
+                                                    ? (isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.1)')
                                                     : 'transparent',
                                                   border: 'none',
                                                   cursor: 'pointer',
@@ -6574,7 +7033,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                       style={{
                                         display: 'flex',
                                         alignItems: 'center',
-                                        justifyContent: 'center',
+                                        justifyContent: 'flex-start',
                                         gap: 2,
                                         height: 22,
                                         width: '100%',
@@ -6593,7 +7052,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                         minWidth: 0,
                                       }}
                                     >
-                                      <span style={{ fontSize: 10, fontWeight: 500, color: mineFilterColor, textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
+                                      <span style={{ fontSize: 11, fontWeight: 600, color: mineFilterColor, textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0, lineHeight: 1.05 }}>
                                         {pipelineChipLabelMode === 'icon' ? 'POC' : 'CLAIMER'}
                                       </span>
                                     </button>
@@ -6622,8 +7081,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                 <button
                                   type="button"
                                   title={hasFilter
-                                    ? `Showing: ${stateLabel} · Click → ${nextState}`
-                                    : `Filter by Pitch · Click to toggle`}
+                                    ? `Showing: ${stateLabel} Ã‚Â· Click Ã¢â€ â€™ ${nextState}`
+                                    : `Filter by Pitch Ã‚Â· Click to toggle`}
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     cycleEnquiryPipelineFilter('pitched');
@@ -6650,7 +7109,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                     minWidth: 0,
                                   }}
                                 >
-                                    <span style={{ fontSize: 10, fontWeight: 500, color: filterColor, textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>PITCH</span>
+                                    <span style={{ fontSize: 11, fontWeight: 600, color: filterColor, textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.05 }}>PITCH</span>
                                   {hasFilter && (
                                     <span style={{
                                       width: 6, height: 6, borderRadius: '50%',
@@ -6668,7 +7127,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                             {([
                               { stage: 'instructed' as const, label: 'INSTR', fullLabel: 'INSTRUCTION', icon: 'CheckMark', textIcon: null, chipIndex: 2 },
                               { stage: 'idcheck' as const, label: 'EID', fullLabel: 'ID CHECK', icon: 'ContactCard', textIcon: null, chipIndex: 3 },
-                              { stage: 'paid' as const, label: 'PAY', fullLabel: 'PAYMENT', icon: null, textIcon: '£', chipIndex: 4 },
+                              { stage: 'paid' as const, label: 'PAY', fullLabel: 'PAYMENT', icon: null, textIcon: 'Ã‚Â£', chipIndex: 4 },
                               { stage: 'risk' as const, label: 'RISK', fullLabel: 'RISK', icon: 'Shield', textIcon: null, chipIndex: 5 },
                               { stage: 'matter' as const, label: 'MATTER', fullLabel: 'MATTER', icon: 'OpenFolderHorizontal', textIcon: null, chipIndex: 6 },
                             ] as const).filter(({ chipIndex }) => headerIsVisible(chipIndex)).map(({ stage, label, fullLabel, icon, textIcon }) => {
@@ -6687,8 +7146,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                   key={stage}
                                   type="button"
                                   title={hasFilter
-                                    ? `Showing: ${stateLabel} · Click → ${nextState}`
-                                    : `Filter by ${label} · Click to toggle`}
+                                    ? `Showing: ${stateLabel} Ã‚Â· Click Ã¢â€ â€™ ${nextState}`
+                                    : `Filter by ${label} Ã‚Â· Click to toggle`}
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     cycleEnquiryPipelineFilter(stage);
@@ -6715,7 +7174,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                     minWidth: 0,
                                   }}
                                 >
-                                  <span style={{ fontSize: 10, fontWeight: 500, color: filterColor, textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                  <span style={{ fontSize: 11, fontWeight: 600, color: filterColor, textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.05 }}>
                                     {headerDisplayLabel}
                                   </span>
                                   {hasFilter && (
@@ -6844,9 +7303,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                             minWidth: 22,
                             minHeight: 22,
                             borderRadius: 0,
-                            border: `1px solid ${areActionsEnabled ? (isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(54, 144, 206, 0.3)') : (isDarkMode ? 'rgba(75, 85, 99, 0.52)' : 'rgba(160, 160, 160, 0.24)')}`,
+                            border: `1px solid ${areActionsEnabled ? (isDarkMode ? 'rgba(54, 144, 206, 0.4)' : 'rgba(54, 144, 206, 0.3)') : (isDarkMode ? 'rgba(75, 85, 99, 0.52)' : 'rgba(160, 160, 160, 0.24)')}`,
                             background: areActionsEnabled
-                              ? (isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(214, 232, 255, 0.88)')
+                              ? (isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(214, 232, 255, 0.88)')
                               : (isDarkMode ? 'rgba(8, 28, 48, 0.42)' : 'rgba(244, 244, 246, 0.74)'),
                             color: areActionsEnabled
                               ? (isDarkMode ? colours.accent : colours.highlight)
@@ -6860,14 +7319,14 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                           }}
                           onMouseEnter={(e) => {
                             e.currentTarget.style.transform = 'translateY(-1px)';
-                            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(54, 144, 206, 0.3)';
-                            e.currentTarget.style.background = isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(214, 232, 255, 0.88)';
+                            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.4)' : 'rgba(54, 144, 206, 0.3)';
+                            e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(214, 232, 255, 0.88)';
                             e.currentTarget.style.color = isDarkMode ? colours.accent : colours.highlight;
                           }}
                           onMouseLeave={(e) => {
                             e.currentTarget.style.transform = 'translateY(0)';
-                            e.currentTarget.style.borderColor = areActionsEnabled ? (isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(54, 144, 206, 0.3)') : (isDarkMode ? 'rgba(75, 85, 99, 0.52)' : 'rgba(160, 160, 160, 0.24)');
-                            e.currentTarget.style.background = areActionsEnabled ? (isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(214, 232, 255, 0.88)') : (isDarkMode ? 'rgba(8, 28, 48, 0.42)' : 'rgba(244, 244, 246, 0.74)');
+                            e.currentTarget.style.borderColor = areActionsEnabled ? (isDarkMode ? 'rgba(54, 144, 206, 0.4)' : 'rgba(54, 144, 206, 0.3)') : (isDarkMode ? 'rgba(75, 85, 99, 0.52)' : 'rgba(160, 160, 160, 0.24)');
+                            e.currentTarget.style.background = areActionsEnabled ? (isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(214, 232, 255, 0.88)') : (isDarkMode ? 'rgba(8, 28, 48, 0.42)' : 'rgba(244, 244, 246, 0.74)');
                             e.currentTarget.style.color = areActionsEnabled ? (isDarkMode ? colours.accent : colours.highlight) : (isDarkMode ? 'rgba(209, 213, 219, 0.82)' : colours.greyText);
                           }}
                           aria-pressed={areActionsEnabled}
@@ -6884,6 +7343,21 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                         </button>
                       </div>
                     </div>
+
+                    <div
+                      ref={scrollContainerRef}
+                      className="prospect-table-scroll"
+                      style={{
+                        overflowY: 'scroll',
+                        overflowX: 'hidden',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        flex: 1,
+                        minHeight: 0,
+                        background: isDarkMode ? colours.dark.background : colours.light.cardBackground,
+                        paddingBottom: 12,
+                      }}
+                    >
 
                     {/* Data Rows - keyed wrapper for crossfade on filter change */}
                     <div key={`rows-${activeState}-${showMineOnly}`} className="prospect-content-fade">
@@ -6954,6 +7428,21 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                           }
                         }
                         const groupIsLastInDay = !groupNextItem || groupToDayKey(groupNextDateStr) !== thisDayKey;
+                        const groupIsExpanded = expandedGroupsInTable.has(item.clientKey);
+                        const groupEnquiryCount = item.enquiries.length;
+                        const groupNotesCount = item.enquiries.filter((enq) => Boolean(enq.Initial_first_call_notes?.trim())).length;
+                        const groupMatterCount = item.enquiries.filter((enq: any) => {
+                          const wb = getEnquiryWorkbenchItem(enq);
+                          return Boolean(wb?.instruction?.MatterId || (wb?.matters && wb.matters.length > 0));
+                        }).length;
+                        const groupCompanyLabel = (latestEnquiry.Company || '').trim();
+                        const groupAreaLabel = latestEnquiry.Area_of_Work || 'Unspecified';
+                        const groupLatestSignalLabel = getCompactTimeDisplay(dateReceived || latestEnquiry.Date_Created || null);
+                        const primaryOwnerLabel = claimerBadges[0]?.label || null;
+                        const extraOwnerCount = Math.max(claimerBadges.length - 1, 0);
+                        const groupOwnerSummary = primaryOwnerLabel
+                          ? `${primaryOwnerLabel}${extraOwnerCount > 0 ? ` +${extraOwnerCount}` : ''}`
+                          : 'Inbox';
                         // Check if any enquiry in this group has been converted / matter opened
                         const groupHasConverted = item.enquiries.some((enq: any) => {
                           const wb = getEnquiryWorkbenchItem(enq);
@@ -6964,13 +7453,14 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                           <div
                             data-enquiry-id={`group-${item.clientKey}`}
                             data-row-parity={idx % 2 === 0 ? 'even' : 'odd'}
+                            data-group-expanded={groupIsExpanded ? 'true' : 'false'}
                             style={{
                               gridTemplateColumns: TABLE_GRID_TEMPLATE_COLUMNS,
-                              borderBottom: (groupIsLastInDay && !expandedGroupsInTable.has(item.clientKey))
-                                ? `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.35)' : 'rgba(0, 0, 0, 0.09)'}`
-                                : `0.5px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.10)' : 'rgba(160, 160, 160, 0.08)'}`,
+                              borderBottom: (groupIsLastInDay && !groupIsExpanded)
+                                ? `1px solid ${isDarkMode ? 'rgba(var(--subtle-grey-rgb), 0.28)' : 'rgba(var(--subtle-grey-rgb), 0.18)'}`
+                                : `0.5px solid ${isDarkMode ? 'rgba(var(--subtle-grey-rgb), 0.16)' : 'rgba(var(--subtle-grey-rgb), 0.12)'}`,
                             }}
-                            className={`prospect-row${groupHasConverted ? ' prospect-row--converted' : ''}`}
+                            className={`prospect-row prospect-group-row${groupIsExpanded ? ' prospect-group-row--expanded' : ''}${groupHasConverted ? ' prospect-row--converted' : ''}`}
                             onClick={(e) => {
                               // Toggle group expansion
                               const groupKey = item.clientKey;
@@ -6985,15 +7475,12 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               });
                             }}
                           >
-                            {/* Timeline cell */}
-                            <div className="prospect-timeline-cell">
-                              <div
-                                className="prospect-timeline-cell__line"
-                                style={{
-                                  background: getAreaOfWorkLineColor(latestEnquiry.Area_of_Work || '', isDarkMode, hoveredDayKey === thisDayKey),
-                                  opacity: hoveredDayKey === thisDayKey ? 1 : 0.9,
-                                }}
-                              />
+
+                            {/* AOW anchor */}
+                            <div style={{ display: 'flex', alignItems: 'center', height: '100%', minHeight: '100%', padding: '0 2px 0 6px', borderLeft: `2px solid ${getAreaOfWorkLineColor(groupAreaLabel, isDarkMode, false)}`, boxSizing: 'border-box' }}>
+                              <span className="prospect-aow-icon" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }} title={groupAreaLabel}>
+                                {renderAreaOfWorkGlyph(groupAreaLabel, getAreaGlyphMeta(groupAreaLabel).color, 'glyph', 17)}
+                              </span>
                             </div>
 
                             {/* Date column - stacked format */}
@@ -7006,63 +7493,47 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                 const { top, bottom } = getStackedDateDisplay(dateReceived);
                                 return (
                                   <div className="prospect-date">
-                                    <span className="prospect-date__top">
-                                      {top}
-                                    </span>
-                                    <span className="prospect-date__bottom">
-                                      {bottom}
-                                    </span>
+                                    <span className="prospect-date__top">{top}</span>
+                                    <span className="prospect-date__bottom">{bottom}</span>
                                   </div>
                                 );
                               })()}
                             </TooltipHost>
-
-                            {/* Merged AOW / ID column for grouped enquiries */}
-                            <div style={{ display: 'flex', alignItems: 'center', height: '100%', paddingInline: 2 }}>
-                              <span className="prospect-aow-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }} title={latestEnquiry.Area_of_Work || ''}>
-                                {renderAreaOfWorkGlyph(latestEnquiry.Area_of_Work || '', getAreaGlyphMeta(latestEnquiry.Area_of_Work || '').color, 'glyph', 17)}
-                              </span>
-                            </div>
-
-                            {/* Contact & Company */}
+                            {/* Contact & account summary */}
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', height: '100%', paddingInline: 2 }}>
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                                <div style={{
-                                  fontSize: '9px',
-                                  fontWeight: 700,
-                                  color: isDarkMode ? 'rgba(160, 160, 160, 0.65)' : 'rgba(107, 107, 107, 0.6)',
-                                  textTransform: 'uppercase',
-                                  letterSpacing: '0.4px',
-                                }}>
-                                  Prospect
-                                </div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontWeight: 600, fontSize: '13px', color: groupHasConverted ? colours.green : (isDarkMode ? '#f3f4f6' : '#061733') }}>
-                                  {contactName}
-                                  {groupHasConverted && (
-                                    <Icon iconName="CompletedSolid" styles={{ root: { fontSize: 9, color: colours.green, opacity: 0.7 } }} />
-                                  )}
-                                </div>
-                                {latestEnquiry.Company && (
-                                  <div style={{ 
-                                    fontSize: '11px', 
-                                    color: isDarkMode ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.5)',
-                                    fontWeight: 500 
-                                  }}>
-                                    {latestEnquiry.Company}
+                              <div className="prospect-group-identity">
+                                <div className="prospect-group-identity__line">
+                                  <div className="prospect-group-identity__title" style={{ color: groupHasConverted ? colours.green : undefined }}>
+                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{contactName}</span>
+                                    {groupHasConverted && (
+                                      <Icon iconName="CompletedSolid" styles={{ root: { fontSize: 9, color: colours.green, opacity: 0.7 } }} />
+                                    )}
                                   </div>
-                                )}
+                                  <div className="prospect-group-identity__meta">
+                                    <span>{groupCompanyLabel || groupAreaLabel}</span>
+                                    <span className="prospect-group-identity__meta-sep" aria-hidden="true" />
+                                    <span>{groupEnquiryCount} linked prospect{groupEnquiryCount === 1 ? '' : 's'}</span>
+                                  </div>
+                                </div>
                               </div>
                             </div>
 
-                            {/* Pipeline column - empty for group headers */}
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, height: '100%', flexWrap: 'wrap', overflow: 'hidden', fontSize: '10px' }}>
-                              {/* Empty - individual claimer badges will show in child rows */}
+                            {/* Pipeline column - account summary, not empty spacer chrome */}
+                            <div className="prospect-group-summary" style={{ minHeight: '100%', paddingInline: 2 }}>
+                              <span className="prospect-group-summary-chip prospect-group-summary-chip--strong">{groupOwnerSummary}</span>
+                              <span className="prospect-group-summary-chip">{groupLatestSignalLabel || 'Pending'}</span>
+                              {groupMatterCount > 0 ? (
+                                <span className="prospect-group-summary-chip">{groupMatterCount} matter{groupMatterCount === 1 ? '' : 's'}</span>
+                              ) : null}
+                              {groupNotesCount > 0 ? (
+                                <span className="prospect-group-summary-chip prospect-group-summary-chip--quiet">{groupNotesCount} note{groupNotesCount === 1 ? '' : 's'}</span>
+                              ) : null}
                             </div>
 
                             {/* Actions column - contains chevron for group expansion */}
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px' }}>
+                            <div className="prospect-group-actions" style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px' }}>
                               <InlineExpansionChevron
-                                isExpanded={expandedGroupsInTable.has(item.clientKey)}
+                                isExpanded={groupIsExpanded}
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   const groupKey = item.clientKey;
@@ -7084,7 +7555,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                           </div>
                           
                           {/* Expanded child enquiries - show ALL enquiries when expanded */}
-                          {expandedGroupsInTable.has(item.clientKey) && item.enquiries.map((childEnquiry: Enquiry, childIdx: number) => {
+                          {groupIsExpanded && item.enquiries.map((childEnquiry: Enquiry, childIdx: number) => {
                             const childAOW = childEnquiry.Area_of_Work || 'Unspecified';
                             const childValue = childEnquiry.Value || '';
                             const childIsV2 = (childEnquiry as any).__sourceType === 'new' || (childEnquiry as any).source === 'instructions';
@@ -7114,6 +7585,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               return `${rawFirst} ${rawLast}`.trim() || 'Unknown';
                             })();
                             const childDisplayId = (childEnquiry as any).acid || childEnquiry.ID;
+                            const childIdentityAccentColor = getAreaOfWorkLineColor(childAOW, isDarkMode, false);
                             const childCompanyName = childEnquiry.Company || '';
                             const childPocIdentifier = childEnquiry.Point_of_Contact || (childEnquiry as any).poc || '';
                             const childPocEmail = childPocIdentifier.toLowerCase();
@@ -7123,12 +7595,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                             const childClaimerSecondary = childClaimerInfo?.DisplayName?.split(' ')[0] || (childEnquiry.Point_of_Contact || '').split('@')[0] || 'Claimed';
                             const childHasClaimer = !!childPocEmail && !childIsTeamInboxPoc;
                             const childShowClaimer = childHasClaimer && activeState !== 'Triaged';
-                            const childRowHoverKey = buildEnquiryIdentityKey(childEnquiry);
-                            const childShowDetails = hoveredRowKey === childRowHoverKey || hoveredDayKey === thisDayKey;
-                            const childNameCopyKey = `name-${childRowHoverKey}`;
+                            const childNameCopyKey = `name-${childNoteKey}`;
                             const isChildNameCopied = copiedNameKey === childNameCopyKey;
                             const childRowBaseBackground = isDarkMode ? colours.dark.background : colours.sectionBackground;
-                            const childRowHoverBackground = isDarkMode ? 'rgba(13, 47, 96, 0.38)' : colours.highlightBlue;
                             const childMutedBorder = isDarkMode ? `${colours.dark.borderColor}8c` : 'rgba(160, 160, 160, 0.28)';
                             const childMutedBackground = isDarkMode ? colours.darkBlue : colours.grey;
                             const childMutedBackgroundHover = isDarkMode ? colours.helixBlue : colours.highlightBlue;
@@ -7143,10 +7612,10 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                 key={`item-${childEnquiry.ID}-${childEnquiry.First_Name || ''}-${childEnquiry.Last_Name || ''}-${childEnquiry.Touchpoint_Date || ''}-${childEnquiry.Point_of_Contact || ''}`}
                                 className={[
                                   'prospect-row',
+                                  'enquiry-row',
+                                  'enquiry-row--css-hover',
+                                  'enquiry-row--group-child',
                                   childIsConverted ? 'prospect-row--converted' : '',
-                                  (hoveredRowKey === childRowHoverKey || hoveredDayKey === thisDayKey)
-                                    ? `pipeline-row-hover${(hoveredRowKeyReady === childRowHoverKey || hoveredDayKeyReady === thisDayKey) ? ' pipeline-row-hover-ready' : ''}`
-                                    : '',
                                 ].filter(Boolean).join(' ') || undefined}
                                 style={{
                                   gridTemplateColumns: TABLE_GRID_TEMPLATE_COLUMNS,
@@ -7154,8 +7623,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                   padding: '8px 14px',
                                   alignItems: 'center',
                                   borderBottom: (groupIsLastInDay && childIdx === item.enquiries.length - 1)
-                                    ? `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.35)' : 'rgba(0, 0, 0, 0.09)'}`
-                                    : `0.5px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.10)' : 'rgba(160, 160, 160, 0.08)'}`,
+                                    ? `1px solid ${isDarkMode ? 'rgba(var(--subtle-grey-rgb), 0.28)' : 'rgba(var(--subtle-grey-rgb), 0.18)'}`
+                                    : `0.5px solid ${isDarkMode ? 'rgba(var(--subtle-grey-rgb), 0.16)' : 'rgba(var(--subtle-grey-rgb), 0.12)'}`,
                                   position: 'relative',
                                   fontSize: '13px',
                                   color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : 'rgba(6, 23, 51, 0.9)',
@@ -7166,39 +7635,92 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                   e.stopPropagation();
                                   handleSelectEnquiry(childEnquiry);
                                 }}
-                                onMouseEnter={(e) => {
-                                  e.currentTarget.style.backgroundColor = childRowHoverBackground;
-                                  // Show child tooltip on hover
-                                  const tooltip = e.currentTarget.querySelector('.child-timeline-date-tooltip') as HTMLElement;
-                                  if (tooltip) tooltip.style.opacity = '1';
-                                  setHoveredRowKey(childRowHoverKey);
-                                }}
-                                onMouseLeave={(e) => {
-                                  e.currentTarget.style.backgroundColor = childRowBaseBackground;
-                                  // Hide child tooltip
-                                  const tooltip = e.currentTarget.querySelector('.child-timeline-date-tooltip') as HTMLElement;
-                                  if (tooltip) tooltip.style.opacity = '0';
-                                  setHoveredRowKey((prev) => (prev === childRowHoverKey ? null : prev));
-                                }}
                               >
-                                {/* Timeline cell - matches main row structure */}
-                                <div style={{
-                                  position: 'relative',
-                                  height: '100%',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                }}>
-                                  <div style={{
-                                    position: 'absolute',
-                                    left: '50%',
-                                    top: 0,
-                                    bottom: 0,
-                                    width: '1px',
-                                    transform: 'translateX(-50%)',
-                                    background: getAreaOfWorkLineColor(childAOW, isDarkMode, hoveredDayKey === thisDayKey),
-                                    opacity: hoveredDayKey === thisDayKey ? 1 : 0.9,
-                                  }} />
+                                {/* Merged AOW / ID / Value */}
+                                <div
+                                  className="enquiry-row__identity"
+                                  data-has-value={formatValueForDisplay(childValue) ? 'true' : 'false'}
+                                  style={{
+                                    position: 'relative',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    minHeight: '100%',
+                                    lineHeight: 1.3,
+                                    padding: '0 2px 0 6px',
+                                    overflow: 'hidden',
+                                    borderLeft: `2px solid ${childIdentityAccentColor}`,
+                                    boxSizing: 'border-box',
+                                  }}>
+                                  {(() => {
+                                    const numValue = typeof childValue === 'string' ? parseFloat(childValue.replace(/[^0-9.]/g, '')) : (typeof childValue === 'number' ? childValue : 0);
+                                    const displayValue = formatValueForDisplay(childValue);
+                                    const hasValue = Boolean(displayValue);
+
+                                    let textColor: string;
+                                    if (numValue >= 50000) {
+                                      textColor = isDarkMode ? 'rgba(54, 144, 206, 1)' : 'rgba(54, 144, 206, 1)';
+                                    } else if (numValue >= 10000) {
+                                      textColor = isDarkMode ? 'rgba(54, 144, 206, 0.75)' : 'rgba(54, 144, 206, 0.75)';
+                                    } else {
+                                      textColor = isDarkMode ? 'rgba(54, 144, 206, 0.5)' : 'rgba(54, 144, 206, 0.55)';
+                                    }
+
+                                    return (
+                                      <>
+                                        <div
+                                          className="enquiry-row__identity-base"
+                                          style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 5,
+                                            transition: 'opacity 160ms ease',
+                                          }}>
+                                          <span className="prospect-aow-icon" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", lineHeight: 1, flexShrink: 0 }} title={childAOW}>
+                                            {renderAreaOfWorkGlyph(childAOW, getAreaGlyphMeta(childAOW).color, 'glyph', 17)}
+                                          </span>
+                                          <span style={{
+                                            fontFamily: 'Raleway, sans-serif',
+                                            fontSize: '10px',
+                                            fontWeight: 500,
+                                            color: childIsConverted ? colours.green : (isDarkMode ? colours.dark.text : colours.light.text),
+                                            overflow: 'hidden',
+                                            textOverflow: 'ellipsis',
+                                            whiteSpace: 'nowrap',
+                                            minWidth: 0,
+                                          }}>
+                                            {childDisplayId}
+                                          </span>
+                                        </div>
+                                        {hasValue && (
+                                          <div
+                                            className="enquiry-row__identity-value"
+                                            style={{
+                                              position: 'absolute',
+                                              left: 8,
+                                              top: 0,
+                                              bottom: 0,
+                                              display: 'flex',
+                                              alignItems: 'center',
+                                              gap: 5,
+                                              transition: 'opacity 160ms ease',
+                                              pointerEvents: 'none',
+                                            }}>
+                                            <span className="prospect-aow-icon" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", lineHeight: 1, flexShrink: 0, visibility: "hidden" }}>
+                                              {renderAreaOfWorkGlyph(childAOW, getAreaGlyphMeta(childAOW).color, 'glyph', 17)}
+                                            </span>
+                                            <span style={{
+                                              fontSize: 10,
+                                              fontWeight: 700,
+                                              color: textColor,
+                                              whiteSpace: 'nowrap',
+                                            }}>
+                                              {displayValue}
+                                            </span>
+                                          </div>
+                                        )}
+                                      </>
+                                    );
+                                  })()}
                                 </div>
 
                                 {/* Date column for child - stacked format */}
@@ -7218,86 +7740,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                     );
                                   })()}
                                 </TooltipHost>
-
-                                {/* Merged AOW / ID / Value */}
-                                <div style={{
-                                  position: 'relative',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  lineHeight: 1.3,
-                                  paddingInline: 2,
-                                  overflow: 'hidden',
-                                }}>
-                                  {(() => {
-                                    const numValue = typeof childValue === 'string' ? parseFloat(childValue.replace(/[^0-9.]/g, '')) : (typeof childValue === 'number' ? childValue : 0);
-                                    const displayValue = formatValueForDisplay(childValue);
-                                    const hasValue = Boolean(displayValue);
-
-                                    let textColor: string;
-                                    if (numValue >= 50000) {
-                                      textColor = isDarkMode ? 'rgba(54, 144, 206, 1)' : 'rgba(54, 144, 206, 1)';
-                                    } else if (numValue >= 10000) {
-                                      textColor = isDarkMode ? 'rgba(54, 144, 206, 0.75)' : 'rgba(54, 144, 206, 0.75)';
-                                    } else {
-                                      textColor = isDarkMode ? 'rgba(54, 144, 206, 0.5)' : 'rgba(54, 144, 206, 0.55)';
-                                    }
-
-                                    return (
-                                      <>
-                                        <div style={{
-                                          display: 'flex',
-                                          alignItems: 'center',
-                                          gap: 6,
-                                          opacity: (childShowDetails && hasValue) ? 0 : 1,
-                                          transition: 'opacity 160ms ease',
-                                        }}>
-                                          <span className="prospect-aow-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1, flexShrink: 0 }} title={childAOW}>
-                                            {renderAreaOfWorkGlyph(childAOW, getAreaGlyphMeta(childAOW).color, 'glyph', 17)}
-                                          </span>
-                                          <span style={{
-                                            fontFamily: 'Monaco, Consolas, monospace',
-                                            fontSize: '10px',
-                                            fontWeight: 500,
-                                            color: childIsConverted ? colours.green : (isDarkMode ? colours.dark.text : colours.light.text),
-                                            overflow: 'hidden',
-                                            textOverflow: 'ellipsis',
-                                            whiteSpace: 'nowrap',
-                                            minWidth: 0,
-                                          }}>
-                                            {childDisplayId}
-                                          </span>
-                                        </div>
-                                        {hasValue && (
-                                          <div style={{
-                                            position: 'absolute',
-                                            left: 2,
-                                            top: 0,
-                                            bottom: 0,
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: 6,
-                                            opacity: childShowDetails ? 1 : 0,
-                                            transition: 'opacity 160ms ease',
-                                            pointerEvents: 'none',
-                                          }}>
-                                            <span className="prospect-aow-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1, flexShrink: 0, visibility: 'hidden' }}>
-                                              {renderAreaOfWorkGlyph(childAOW, getAreaGlyphMeta(childAOW).color, 'glyph', 17)}
-                                            </span>
-                                            <span style={{
-                                              fontSize: 10,
-                                              fontWeight: 700,
-                                              color: textColor,
-                                              whiteSpace: 'nowrap',
-                                            }}>
-                                              {displayValue}
-                                            </span>
-                                          </div>
-                                        )}
-                                      </>
-                                    );
-                                  })()}
-                                </div>
-
                                 {/* Contact & Company - stacked layout to match main rows */}
                                 <div style={{ 
                                   position: 'relative',
@@ -7308,7 +7750,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                   justifyContent: 'center' 
                                 }}>
                                   {/* Name row */}
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                  <div className="enquiry-row__contact-header" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                                     <span style={{
                                       fontWeight: 500,
                                       fontSize: '13px',
@@ -7390,6 +7832,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                   {/* Email row - stacked below name */}
                                   {childEnquiry.Email && (
                                     <div
+                                      className="enquiry-row__email"
                                       style={{
                                         position: 'absolute',
                                         left: 0,
@@ -7400,8 +7843,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                         overflow: 'hidden',
                                         textOverflow: 'ellipsis',
                                         whiteSpace: 'nowrap',
-                                        opacity: childShowDetails ? 1 : 0,
-                                        transform: childShowDetails ? 'translateY(6px)' : 'translateY(3px)',
                                         transition: 'opacity 140ms ease, transform 160ms ease',
                                         pointerEvents: 'none',
                                       }}
@@ -7900,7 +8341,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                           const instructionServiceDesc = deal?.ServiceDescription ?? deal?.serviceDescription ?? inst?.ServiceDescription ?? '';
                                           const instructionAmount = deal?.Amount ?? deal?.amount ?? inst?.Amount;
                                           const instructionAmountText = instructionAmount && !isNaN(Number(instructionAmount))
-                                            ? `£${Number(instructionAmount).toLocaleString('en-GB', { maximumFractionDigits: 2 })}`
+                                            ? `Ã‚Â£${Number(instructionAmount).toLocaleString('en-GB', { maximumFractionDigits: 2 })}`
                                             : '';
                                           // Shell entries (checkout opened but not submitted) have InstructionRef but no submission data
                                           // Only mark as having instruction if there's actual submission date OR stage indicates completion
@@ -7941,7 +8382,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                           // Also treat as confirmed if status is succeeded even if method not detected
                                           const hasConfirmedPayment = isCardConfirmed || isBankConfirmed || isSucceededStatus;
                                           const hasPayment = payments.length > 0;
-                                          const paymentLabel = hasConfirmedPayment ? 'Paid' : hasPayment ? (isBankPayment ? 'Pending' : '£') : '£';
+                                          const paymentLabel = hasConfirmedPayment ? 'Paid' : hasPayment ? (isBankPayment ? 'Pending' : 'Ã‚Â£') : 'Ã‚Â£';
                                           const paymentIcon = hasConfirmedPayment
                                             ? (isCardPayment ? 'PaymentCard' : 'Bank')
                                             : 'CurrencyPound';
@@ -7955,7 +8396,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                           const paymentAmountNumber = typeof paymentAmountRaw === 'string' ? parseFloat(paymentAmountRaw) : paymentAmountRaw;
                                           const paymentAmount = Number.isFinite(paymentAmountNumber) ? paymentAmountNumber : null;
                                           const paymentAmountText = paymentAmount !== null
-                                            ? `£${paymentAmount.toLocaleString('en-GB', { maximumFractionDigits: 2 })}`
+                                            ? `Ã‚Â£${paymentAmount.toLocaleString('en-GB', { maximumFractionDigits: 2 })}`
                                             : null;
                                           
                                           const hasRisk = Boolean(childInlineWorkbenchItem?.risk);
@@ -8144,7 +8585,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                             border: `1px solid ${childMutedBorder}`,
                                             borderRadius: 0,
                                             background: childHasMoreChips
-                                              ? (isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(54, 144, 206, 0.08)')
+                                              ? (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)')
                                               : childMutedBackground,
                                             cursor: 'pointer',
                                             transition: 'all 0.15s ease',
@@ -8172,9 +8613,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
                                 {/* Actions Column for Child Enquiry */}
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px' }}>
-                                {/* Call / Email / Rate actions — only in unlocked action mode */}
+                                {/* Call / Email / Rate actions Ã¢â‚¬â€ only in unlocked action mode */}
                                 {areActionsEnabled && childShowClaimer && !childIsTeamInboxPoc && (
-                                  <>
+                                  <div className="enquiry-row__quick-actions" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                                     <button
                                       type="button"
                                       disabled={!(childEnquiry.Phone_Number || (childEnquiry as any).phone)}
@@ -8285,7 +8726,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                     >
                                       <Icon iconName={getRatingChipMeta(childEnquiry.Rating, isDarkMode).iconName} styles={{ root: { fontSize: 11 } }} />
                                     </button>
-                                  </>
+                                  </div>
                                 )}
                                 {/* Notes chevron - always show, disabled when no content */}
                                 <div
@@ -8517,7 +8958,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                           ? String(nextDisplayedItem.Touchpoint_Date || (nextDisplayedItem as any).datetime || (nextDisplayedItem as any).claim || nextDisplayedItem.Date_Created || '')
                           : '';
 
-                        // Handle individual enquiries — rendered via extracted component
+                        // Handle individual enquiries Ã¢â‚¬â€ rendered via extracted component
                         return (
                           <ProspectTableRow
                             key={`${item.ID}-${item.First_Name || ''}-${item.Last_Name || ''}-${item.Touchpoint_Date || ''}-${item.Point_of_Contact || ''}`}
@@ -8527,7 +8968,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                             pipelineHandlers={rowPipelineHandlers}
                             actionHandlers={rowActionHandlers}
                             displayState={rowDisplayState}
-                            hoverHandlers={rowHoverHandlers}
                             dataDeps={rowDataDeps}
                           />
                         );
@@ -8558,18 +8998,15 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               opacity: 0.5 - (idx * 0.08),
                             }}
                           >
-                            <div style={{ height: 12, background: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(6,23,51,0.04)' }} />
-                            <div style={{ height: 10, background: isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(6,23,51,0.06)' }} />
                             <div style={{ height: 22, background: isDarkMode ? 'rgba(135,243,243,0.08)' : 'rgba(54,144,206,0.08)' }} />
+                            <div style={{ height: 18, background: isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(6,23,51,0.06)' }} />
                             <div style={{ height: 10, background: isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(6,23,51,0.06)' }} />
                             <div style={{ height: 10, background: isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(6,23,51,0.06)' }} />
-                            <div style={{ height: 18, background: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(6,23,51,0.04)' }} />
-                            <div style={{ height: 10, background: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(6,23,51,0.04)' }} />
-                            <div style={{ height: 22, background: isDarkMode ? 'rgba(32,178,108,0.08)' : 'rgba(32,178,108,0.06)' }} />
-                          </div>
+                            <div style={{ height: 22, background: isDarkMode ? 'rgba(32,178,108,0.08)' : 'rgba(32,178,108,0.06)' }} />                          </div>
                         ))}
                       </div>
                     )}
+                    </div>
                     </div>
                   </div>
               </>
@@ -8635,6 +9072,104 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       />
 
       <Modal
+        isOpen={Boolean(pendingReassignment)}
+        onDismiss={() => {
+          if (isReassigning) return;
+          setPendingReassignment(null);
+        }}
+        isBlocking={isReassigning}
+        styles={{
+          main: {
+            background: isDarkMode ? colours.darkBlue : colours.light.cardBackground,
+            borderRadius: 0,
+            border: `1px solid ${isDarkMode ? `${colours.accent}4d` : `${colours.highlight}4d`}`,
+            boxShadow: '0 12px 32px rgba(0,0,0,0.22)',
+            width: 420,
+            maxWidth: '92vw',
+          },
+        }}
+      >
+        <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 14, fontFamily: 'Raleway, sans-serif' }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text }}>
+            Reassign claimer
+          </div>
+
+          <div style={{ fontSize: 12, lineHeight: 1.5, color: isDarkMode ? '#d1d5db' : '#374151' }}>
+            Move this prospect from {pendingReassignment?.previousOwnerName} to {pendingReassignment?.nextOwnerName}.
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              padding: '5px 9px',
+              border: `1px solid ${isDarkMode ? 'rgba(160,160,160,0.24)' : 'rgba(107,107,107,0.18)'}`,
+              background: isDarkMode ? 'rgba(8, 28, 48, 0.55)' : 'rgba(244, 244, 246, 0.9)',
+              color: isDarkMode ? colours.dark.text : colours.light.text,
+              fontSize: 11,
+              fontWeight: 600,
+            }}>
+              {pendingReassignment?.previousOwnerName}
+            </span>
+            <Icon iconName="ChevronRightSmall" styles={{ root: { fontSize: 12, color: isDarkMode ? colours.subtleGrey : colours.greyText } }} />
+            <span style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              padding: '5px 9px',
+              border: `1px solid ${isDarkMode ? `${colours.accent}40` : `${colours.highlight}40`}`,
+              background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(214, 232, 255, 0.72)',
+              color: isDarkMode ? colours.accent : colours.highlight,
+              fontSize: 11,
+              fontWeight: 700,
+            }}>
+              {pendingReassignment?.nextOwnerName}
+            </span>
+          </div>
+
+          <div style={{ fontSize: 11, lineHeight: 1.45, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+            You can undo this for 5 seconds after confirming.
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <button
+              type="button"
+              onClick={() => setPendingReassignment(null)}
+              disabled={isReassigning}
+              style={{
+                border: `1px solid ${isDarkMode ? 'rgba(160,160,160,0.24)' : 'rgba(107,107,107,0.18)'}`,
+                background: 'transparent',
+                color: isDarkMode ? colours.dark.text : colours.light.text,
+                padding: '7px 12px',
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: isReassigning ? 'default' : 'pointer',
+                opacity: isReassigning ? 0.55 : 1,
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => { void confirmPendingReassignment(); }}
+              disabled={isReassigning}
+              style={{
+                border: `1px solid ${colours.highlight}`,
+                background: isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(54, 144, 206, 0.1)',
+                color: colours.highlight,
+                padding: '7px 12px',
+                fontSize: 11,
+                fontWeight: 700,
+                cursor: isReassigning ? 'default' : 'pointer',
+                opacity: isReassigning ? 0.6 : 1,
+              }}
+            >
+              {isReassigning ? 'Reassigning...' : 'Reassign'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
         isOpen={Boolean(shareModalEnquiry)}
         onDismiss={() => {
           if (isShareModalSaving) return;
@@ -8655,7 +9190,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           },
         }}
       >
-        <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12, fontFamily: 'Raleway, Segoe UI, sans-serif' }}>
+        <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12, fontFamily: 'Raleway, sans-serif' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
             <div style={{ fontSize: 14, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text }}>
               Share access
@@ -8724,7 +9259,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                   }}
                 >
                   <span>{option?.displayName || email}</span>
-                  <span style={{ color: isDarkMode ? colours.accent : colours.highlight }}>×</span>
+                  <span style={{ color: isDarkMode ? colours.accent : colours.highlight }}>Ãƒâ€”</span>
                 </button>
               );
             })}
@@ -8751,7 +9286,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                 title="Remove external share"
               >
                 <span>{email}</span>
-                <span>×</span>
+                <span>Ãƒâ€”</span>
               </button>
             ))}
           </div>
@@ -8881,7 +9416,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                 opacity: isShareModalSaving ? 0.7 : 1,
               }}
             >
-              {isShareModalSaving ? 'Saving…' : 'Save access'}
+              {isShareModalSaving ? 'SavingÃ¢â‚¬Â¦' : 'Save access'}
             </button>
           </div>
         </div>
@@ -8893,3 +9428,4 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 }
 
 export default React.memo(Enquiries);
+

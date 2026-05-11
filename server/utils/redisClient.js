@@ -458,14 +458,20 @@ async function setCache(key, data, ttl = CACHE_CONFIG.TTL.UNIFIED) {
  */
 async function deleteCache(keys) {
   try {
-    const client = await initRedisClient();
-    if (!client || !isConnected) return 0;
-
-    const keyArray = Array.isArray(keys) ? keys : [keys];
-    const deleted = await client.del(keyArray);
-    log.debug(`🗑️  Cache DELETE: ${deleted} keys removed`);
-    return deleted;
-
+    // Race the Redis op against a timeout so a flapping/reconnecting client
+    // doesn't block forceRefresh callers for tens of seconds.
+    const result = await Promise.race([
+      (async () => {
+        const client = await initRedisClient();
+        if (!client || !isConnected) return 0;
+        const keyArray = Array.isArray(keys) ? keys : [keys];
+        const deleted = await client.del(keyArray);
+        log.debug(`🗑️  Cache DELETE: ${deleted} keys removed`);
+        return deleted;
+      })(),
+      new Promise((resolve) => setTimeout(() => resolve(0), REDIS_OP_TIMEOUT_MS)),
+    ]);
+    return result;
   } catch (error) {
     log.error('Cache DELETE error:', error);
     return 0;
@@ -479,15 +485,19 @@ async function deleteCache(keys) {
  */
 async function deleteCachePattern(pattern) {
   try {
-    const client = await initRedisClient();
-    if (!client || !isConnected) return 0;
-
-    const keys = await client.keys(pattern);
-    if (keys.length === 0) return 0;
-
-    const deleted = await client.del(keys);
-    log.debug(`🗑️  Cache PATTERN DELETE: ${deleted} keys removed (${pattern})`);
-    return deleted;
+    const result = await Promise.race([
+      (async () => {
+        const client = await initRedisClient();
+        if (!client || !isConnected) return 0;
+        const keys = await client.keys(pattern);
+        if (keys.length === 0) return 0;
+        const deleted = await client.del(keys);
+        log.debug(`🗑️  Cache PATTERN DELETE: ${deleted} keys removed (${pattern})`);
+        return deleted;
+      })(),
+      new Promise((resolve) => setTimeout(() => resolve(0), REDIS_OP_TIMEOUT_MS)),
+    ]);
+    return result;
 
   } catch (error) {
     log.error(`❌ Cache PATTERN DELETE error for ${pattern}:`, error);

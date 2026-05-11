@@ -13,6 +13,50 @@ Demo mode is a **developer/stakeholder testing tool** toggled via the user bubbl
 
 User bubble → "Demo mode" switch → persists to `localStorage('demoModeEnabled')`.
 
+## Two demo tiers (read this first)
+
+The platform has **two coexisting demo concepts**. They serve different purposes — do not conflate them.
+
+| Tier | Anchor | What it does | When to use |
+|------|--------|--------------|-------------|
+| **Rehearsal Record** (real-fire) | `HLX-27367-94842` ("Helix Demo") + company variant `HLX-27367-11112011` | Real Clio / SQL / NetDocuments writes against a single canonical client owned by the firm. Engineered so CCL generation + Safety Net produce showcase-quality output. | Live demos to stakeholders. End-to-end walkthroughs that should look + behave like production. |
+| **Demo Mode toggle** (synthetic) | `localStorage.demoModeEnabled` + decorative fixtures | Seeds `Demo · ` labelled mocks across aggregate tiles (time metrics, leave, OperationsQueue) and adds matter-opening auto-skip behaviours (`DEMO-3311402`). Does not write to backends. | Previewing tile shapes / states without affecting real data. Walking the matter-opening wizard with a simulated EID outcome. |
+
+Both can be on at once. The rehearsal record stays real even when Demo Mode is toggled.
+
+Brief: [docs/notes/HELIX_REHEARSAL_RECORD_LUKE_TEST_AS_FIRM_SEED.md](../../docs/notes/HELIX_REHEARSAL_RECORD_LUKE_TEST_AS_FIRM_SEED.md).
+
+## Reset Demo (CommandDeck → LZ/AC only, when Demo Mode is on)
+
+The "Reset demo" chip in the CommandDeck strip:
+
+1. Sets `demoModeEnabled = false` (so the next gesture plays the fresh-sweep anim).
+2. Clears `localStorage` keys `demoModeEnabled`, `cclDraftCache.*`, `helix.demo.*`, plus matching `sessionStorage`.
+3. Calls `POST /api/dev/reseed-rehearsal` — runs `scripts/seed-rehearsal-record-sql.mjs --confirm` server-side.
+4. After the reseed, busts `unified:data:*` + `unified:enquiries:*` Redis caches and the in-process memory cache, then SSE-broadcasts `enquiries.changed { changeType: 'invalidate' }`. Connected clients refetch in ~400ms.
+5. Toasts "Demo reset · seed reaffirmed".
+
+If you ran the seed from a terminal instead of the chip, the script also pings `POST /api/dev/invalidate-enquiries` so the dev server's caches are busted the same way (silent no-op when the dev server is not running).
+
+The "About demo mode" chip next to it opens this runbook via `GET /api/dev/demo-reference` (so it works without GitHub auth).
+
+## Production-safety env flags
+
+These gate the rehearsal/demo refs (`HLX-27367-*`, `DEMO-*`, `HLX-DEMO-*`) at the server boundary. Defined in `.env.example`.
+
+| Flag | Default | Effect when truthy (`1`/`true`/`yes`/`on`) |
+|------|---------|---------------------------------------------|
+| `CLIO_DRY_RUN_FOR_REHEARSAL_REFS` | unset | `/api/clio-contacts` and `/api/clio-matters` short-circuit on rehearsal/demo refs and return synthetic `{ dryRun: true }` payloads. Emits `Demo.Clio.WriteSkipped` to App Insights. **Set to `1` locally for safe demos. Leave unset in production unless you really want demo refs muted.** |
+| `CCL_ND_UPLOAD_FOLDER_REHEARSAL` | unset | Rehearsal/demo refs route CCL uploads here. Emits `Demo.ND.RouteSwitched` whenever used. |
+| `CCL_ND_UPLOAD_FOLDER_PROD` | unset | Real-client refs route CCL uploads here. |
+| `CCL_ND_UPLOAD_FOLDER` | unset | Legacy single-folder fallback if either of the above is missing (back-compat). |
+
+Telemetry events to watch:
+
+- `Demo.Mode.Enabled`, `Demo.Mode.Disabled`, `Demo.Reset.Triggered` — client-side, via `trackClientEvent('Demo', ...)`.
+- `Demo.Clio.WriteSkipped`, `Demo.ND.RouteSwitched` — server-side.
+- All rehearsal-ref telemetry carries `customDimensions.seed == 'rehearsal'` (Phase A8 middleware).
+
 ## What Demo Mode Seeds
 
 | Surface | Source File | Data Seeded |
@@ -31,15 +75,17 @@ User bubble → "Demo mode" switch → persists to `localStorage('demoModeEnable
 
 ## Demo Cases (Enquiries)
 
+After Phase B (2026-05-06) the early-stage card is **the rehearsal record** itself; the mid/complete cards remain as decorative decoys (`Demo · ` labelled, never written to backends).
+
 | Case | ID | Stage | EID | Risk | Payment | Documents |
 |------|----|-------|-----|------|---------|-----------|
-| 1 (early) | `DEMO-ENQ-0001` | enquiry | pending | none | no | 0 |
-| 2 (mid) | `DEMO-ENQ-0002` | proof-of-id | Refer/Review | none | no | 1 |
-| 3 (complete) | `DEMO-ENQ-0003` | matter-opened | Pass | Low Risk | yes | 3 |
+| 1 (real-fire) | `HLX-27367-94842` (Helix Demo) | from live SQL | Pass | Low–Medium | yes | yes |
+| 2 (decoy) | `DEMO-ENQ-0002` · `Demo · Lease renewal` | proof-of-id | Refer/Review | none | no | 1 |
+| 3 (decoy) | `DEMO-ENQ-0003` · `Demo · Employment tribunal` | matter-opened | Pass | Low Risk | yes | 3 |
 
 ## Demo Instruction (Instructions tab)
 
-Ref: `HLX-DEMO-00001`. Includes: Test Client, Demo Co Ltd, Commercial/Contract Dispute, full address, passport, payment (£2,500), 2 documents (Passport_Scan.pdf, Engagement_Letter_Signed.pdf), Standard risk (score 12), EID configurable via DemoEidSimConfig.
+Phase B repointed the Matters tab `DEMO_MATTER` to resolve to the rehearsal record's real Clio matter when one exists, falling back to the synthetic `HLX-DEMO-00001` only if no real matter has been opened yet. The synthetic instruction (`HLX-DEMO-00001`) still ships as the offline / dev-disconnect fallback so previewing the Instructions tab without a server is still possible: Test Client, Demo Co Ltd, Commercial/Contract Dispute, full address, passport, payment (£2,500), 2 documents, Standard risk (score 12), EID configurable via `DemoEidSimConfig`.
 
 ## Demo POID
 

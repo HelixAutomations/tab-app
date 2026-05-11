@@ -24,6 +24,7 @@ const areaConfig: Record<string, AreaOption> = {
   'Construction': { key: 'Construction', label: 'Construction', color: colours.orange },
   'Employment': { key: 'Employment', label: 'Employment', color: colours.yellow },
   'Other/Unsure': { key: 'Other/Unsure', label: 'Other', color: colours.greyText },
+  'Misc/Other': { key: 'Misc/Other', label: 'Other', color: colours.greyText },
 };
 
 // Inject CSS once for area filter hover/active (avoids per-render JS handlers)

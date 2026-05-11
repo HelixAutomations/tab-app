@@ -58,7 +58,7 @@ const PipelineHoverTooltip: React.FC<Props> = ({ info, isDarkMode }) => {
           padding: '3px 8px',
           borderRadius: 4,
           background: isDarkMode
-            ? 'rgba(135, 243, 243, 0.14)'
+            ? 'rgba(54, 144, 206, 0.14)'
             : 'rgba(54, 144, 206, 0.1)',
           fontSize: 11,
           fontWeight: 600,

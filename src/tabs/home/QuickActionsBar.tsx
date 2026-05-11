@@ -86,6 +86,16 @@ const getShortTitle = (title: string) => {
   }
 };
 
+const QUICK_ACTIONS_COMPACT_ENTER_MAX = 624;
+const QUICK_ACTIONS_COMPACT_EXIT_MIN = 656;
+
+function resolveCompactMode(width: number, wasCompact: boolean): boolean {
+  if (wasCompact) {
+    return width < QUICK_ACTIONS_COMPACT_EXIT_MIN;
+  }
+  return width <= QUICK_ACTIONS_COMPACT_ENTER_MAX;
+}
+
 const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
   isDarkMode,
   quickActions,
@@ -109,20 +119,49 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
   // Catches browser zoom AND viewport resize — CSS media queries alone miss zoom.
   const barRef = React.useRef<HTMLDivElement>(null);
   const [isCompact, setIsCompact] = React.useState(false);
+  const compactModeRef = React.useRef(false);
 
   React.useEffect(() => {
     const el = barRef.current;
     if (!el) return;
+    let frameId: number | null = null;
+    let pendingWidth = el.getBoundingClientRect().width;
+
+    const flushResize = () => {
+      frameId = null;
+      const nextCompact = resolveCompactMode(pendingWidth, compactModeRef.current);
+      if (compactModeRef.current === nextCompact) {
+        return;
+      }
+      compactModeRef.current = nextCompact;
+      setIsCompact(nextCompact);
+    };
+
+    const queueResize = (width: number) => {
+      pendingWidth = width;
+      if (frameId !== null) {
+        return;
+      }
+      frameId = window.requestAnimationFrame(flushResize);
+    };
+
     const ro = new ResizeObserver((entries) => {
       for (const entry of entries) {
-        setIsCompact(entry.contentBoxSize?.[0]?.inlineSize
-          ? entry.contentBoxSize[0].inlineSize <= 640
-          : entry.contentRect.width <= 640);
+        const inlineSize = Array.isArray(entry.contentBoxSize)
+          ? entry.contentBoxSize[0]?.inlineSize
+          : entry.contentRect.width;
+        queueResize(inlineSize || entry.contentRect.width);
       }
     });
     ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
+    queueResize(pendingWidth);
+    return () => {
+      ro.disconnect();
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+    };
+  }, [loading]);
 
   // Release notes unread dot — once per session
   const [releaseNotesUnread, setReleaseNotesUnread] = React.useState(() => {
@@ -195,6 +234,7 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
   const textPrimary = 'var(--text-primary)';
   const textSecondary = 'var(--text-muted)';
   const interactiveAccent = isDarkMode ? colours.accent : colours.blue;
+  const greetingAccent = isDarkMode ? colours.highlight : colours.helixBlue;
   const interactiveHoverBg = `${interactiveAccent}${isDarkMode ? '1A' : '14'}`;
 
   // Loading skeleton state - show chips similar to home page skeletons
@@ -421,7 +461,7 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
               fontSize: 12,
               fontWeight: 500,
               letterSpacing: '0.01em',
-              color: isDarkMode ? colours.accent : colours.blue,
+              color: greetingAccent,
               whiteSpace: 'nowrap',
               pointerEvents: 'none',
               paddingRight: 4,

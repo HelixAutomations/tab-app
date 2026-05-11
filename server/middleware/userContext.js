@@ -175,6 +175,7 @@ async function userContextMiddleware(req, res, next) {
   // Extract user identifiers from query/body/headers
   const entraId = asString(req.query?.entraId)
     || asString(req.body?.entraId)
+    || asString(req.body?.userObjectId)
     || asString(req.headers?.['x-helix-entra-id'])
     || getClientPrincipalClaim(clientPrincipal, [
       'http://schemas.microsoft.com/identity/claims/objectidentifier',

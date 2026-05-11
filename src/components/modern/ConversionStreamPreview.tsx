@@ -49,7 +49,7 @@ const ConversionStreamPreview: React.FC<ConversionStreamPreviewProps> = ({
 
   const title = section === 'enquiries' ? 'Enquiries stream' : 'Matters opened';
   const panelBg = isDarkMode ? 'rgba(6, 23, 51, 0.98)' : '#ffffff';
-  const panelBorder = isDarkMode ? 'rgba(135, 243, 243, 0.2)' : 'rgba(13, 47, 96, 0.18)';
+  const panelBorder = isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(13, 47, 96, 0.18)';
   const rowBorder = isDarkMode ? 'rgba(255,255,255,0.07)' : 'rgba(13, 47, 96, 0.08)';
   const text = isDarkMode ? colours.dark.text : colours.light.text;
   const muted = isDarkMode ? colours.subtleGrey : colours.greyText;

@@ -221,7 +221,9 @@ router.post('/', async (req, res) => {
     return res.status(201).json({
       success: true,
       id: result?.id,
-      created_at: result?.created_at
+      created_at: result?.created_at,
+      submissionId,
+      streamUrl: submissionId ? `forms?focusSubmission=${submissionId}` : null,
     });
 
   } catch (error) {

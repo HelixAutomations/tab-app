@@ -159,7 +159,7 @@ const DebugLatencyOverlay: React.FC<DebugLatencyOverlayProps> = ({ enabled, bott
           }}
           aria-expanded={expanded}
         >
-          UX · {allStats.count} samples · p95 {allStats.p95.toFixed(0)}ms
+          UX - {allStats.count} samples - p95 {allStats.p95.toFixed(0)}ms
         </button>
         <button
           type="button"
@@ -206,9 +206,9 @@ const DebugLatencyOverlay: React.FC<DebugLatencyOverlayProps> = ({ enabled, bott
             const c = classifyDuration(s.p95);
             return (
               <div key={name} style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                <span style={{ color: '#d1d5db' }}>{name} · {s.count}</span>
+                <span style={{ color: '#d1d5db' }}>{name} - {s.count}</span>
                 <span style={{ fontVariantNumeric: 'tabular-nums', color: colours.subtleGrey }}>
-                  p50 {s.p50.toFixed(0)} · <span style={{ color: c.color, fontWeight: 600 }}>p95 {s.p95.toFixed(0)}</span>
+                  p50 {s.p50.toFixed(0)} - <span style={{ color: c.color, fontWeight: 600 }}>p95 {s.p95.toFixed(0)}</span>
                 </span>
               </div>
             );

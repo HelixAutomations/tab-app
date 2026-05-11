@@ -8,6 +8,7 @@
  *   matter.opened   – matter successfully created in Clio + DB
  *   eid.completed   – ID verification submitted via Tiller
  *   ccl.approved    – CCL approved for a matter
+ *   sync.upcoming   – data-ops scheduler is about to fire
  *   sync.completed  – collected time or WIP sync finished
  *   error.critical  – unhandled 500 on an API route
  */
@@ -45,6 +46,7 @@ const ACCENT_COLOURS = {
   'eid.completed':  'accent',    // blue
   'ccl.approved':   'good',      // green
   'ccl.ready':      'accent',    // blue — draft ready for review
+  'sync.upcoming':  'accent',    // blue
   'sync.completed': 'accent',    // blue
   'error.critical': 'attention', // red
 };
@@ -54,6 +56,7 @@ const TITLES = {
   'eid.completed':  'ID Check Completed',
   'ccl.approved':   'CCL Approved',
   'ccl.ready':      'CCL Draft Ready',
+  'sync.upcoming':  'Data Sync Soon',
   'sync.completed': 'Data Sync',
   'error.critical': 'Error',
 };
@@ -63,6 +66,7 @@ const ICONS = {
   'eid.completed':  '\uD83D\uDCCB',  // 📋
   'ccl.approved':   '\uD83D\uDCDD',  // 📝
   'ccl.ready':      '\uD83D\uDCDD',  // 📝
+  'sync.upcoming':  '\uD83D\uDD14',  // 🔔
   'sync.completed': '\uD83D\uDD04',  // 🔄
   'error.critical': '\u26A0\uFE0F',  // ⚠️
 };
@@ -98,6 +102,20 @@ const NOTIFICATION_TEMPLATE_LIBRARY = [
       practiceArea: 'Commercial',
       confidence: 'full',
       fieldCount: 26,
+    },
+  },
+  {
+    id: 'sync-upcoming',
+    notifyType: 'sync.upcoming',
+    label: 'Data sync upcoming',
+    category: 'Team Hub notifications',
+    description: 'Heads-up card sent at the top of the hour before data-ops syncs fire.',
+    defaultRoute: 'lz-dm',
+    summary: 'Upcoming data sync notification',
+    sampleData: {
+      window: '14:00',
+      jobs: '14:05 Collected current month\n14:20 WIP current month',
+      triggeredBy: 'scheduler',
     },
   },
   {
@@ -173,7 +191,18 @@ function buildCard(type, data) {
   if (type === 'sync.completed') {
     if (data.entity) facts.push({ title: 'Entity', value: data.entity });
     if (data.tier) facts.push({ title: 'Tier', value: data.tier });
+    if (data.slotKey) facts.push({ title: 'Slot', value: String(data.slotKey) });
+    if (data.deletedRows != null) facts.push({ title: 'Removed', value: Number(data.deletedRows).toLocaleString('en-GB') });
+    if (data.insertedRows != null) facts.push({ title: 'Reinserted', value: Number(data.insertedRows).toLocaleString('en-GB') });
+    if (data.noData === 'true' || data.noData === true) facts.push({ title: 'Clio data', value: 'No rows returned' });
+    if (data.preserved === 'true' || data.preserved === true) facts.push({ title: 'SQL preserved', value: 'Yes' });
     if (data.durationMs) facts.push({ title: 'Duration', value: `${(Number(data.durationMs) / 1000).toFixed(1)}s` });
+    if (data.triggeredBy) facts.push({ title: 'Trigger', value: data.triggeredBy });
+  }
+
+  if (type === 'sync.upcoming') {
+    if (data.window) facts.push({ title: 'Window', value: String(data.window) });
+    if (data.jobs) facts.push({ title: 'Jobs', value: String(data.jobs) });
     if (data.triggeredBy) facts.push({ title: 'Trigger', value: data.triggeredBy });
   }
 
@@ -243,7 +272,7 @@ function truncate(str, max) {
 
 /**
  * Send a notification card to the Dev channel.
- * @param {'matter.opened'|'eid.completed'|'ccl.approved'|'sync.completed'|'error.critical'} type
+ * @param {'matter.opened'|'eid.completed'|'ccl.approved'|'sync.upcoming'|'sync.completed'|'error.critical'} type
  * @param {Record<string, string>} data - Event-specific key/value pairs
  */
 async function notify(type, data = {}) {

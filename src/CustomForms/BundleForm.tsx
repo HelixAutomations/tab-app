@@ -26,7 +26,6 @@ import {
     getFormPrimaryButtonStyles,
     getFormDefaultButtonStyles,
     getFormLabelStyle,
-    getFormHelperTextStyle,
     getFormSystemNoteStyle,
     getFormSystemNoteIconStyle,
     getFormSubmitFeedbackStyle,
@@ -39,6 +38,7 @@ import {
 } from './shared/formStyles';
 import { useFormReadinessPulse } from './shared/useFormReadinessPulse';
 import { FormReadinessCue } from './shared/FormReadinessCue';
+import FormsStreamLanded from './shared/FormsStreamLanded';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES
@@ -92,6 +92,8 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
     const [submitting, setSubmitting] = useState<boolean>(false);
     const [submitStatus, setSubmitStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle');
     const [submitMessage, setSubmitMessage] = useState<string>('');
+    const [streamSubmissionId, setStreamSubmissionId] = useState<string | null>(null);
+    const [streamUrl, setStreamUrl] = useState<string | null>(null);
 
     // Matter search state
     const [matterSearchTerm, setMatterSearchTerm] = useState(matterRef || '');
@@ -149,10 +151,10 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
     };
 
     const recipientRowStyle: React.CSSProperties = {
-        display: 'flex',
-        gap: 8,
-        flexWrap: 'wrap',
-        alignItems: 'flex-start',
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+        gap: 12,
+        alignItems: 'end',
         background: isDarkMode ? 'rgba(6, 23, 51,0.5)' : '#ffffff',
         padding: '12px',
         border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}`,
@@ -310,11 +312,16 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
             });
             
             if (response.ok) {
+                const data = await response.json().catch(() => ({}));
+                setStreamSubmissionId(data?.submissionId ?? null);
+                setStreamUrl(data?.streamUrl ?? null);
                 setSubmitStatus('success');
                 setSubmitMessage('Bundle task created successfully!');
                 setTimeout(() => onBack(), 1500);
             } else {
                 const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+                setStreamSubmissionId(errorData?.submissionId ?? null);
+                setStreamUrl(null);
                 setSubmitStatus('error');
                 setSubmitMessage(`Failed to create task: ${errorData.error || 'Unknown error'}`);
             }
@@ -528,14 +535,23 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
                                             fontSize: '11px',
                                             textTransform: 'uppercase',
                                             letterSpacing: '0.5px',
+                                            marginBottom: '4px',
                                         }}>
                                             Recipients
                                         </Label>
-                                        
+                                        <Text style={{
+                                            fontSize: '12px',
+                                            color: 'var(--text-muted)',
+                                            display: 'block',
+                                            marginBottom: '10px',
+                                        }}>
+                                            Where the bundle is being posted. Add one row per address.
+                                        </Text>
                                         {postedRecipients.map((rec, idx) => (
                                             <div key={idx} style={recipientRowStyle}>
                                                 <TextField
-                                                    placeholder="Recipient"
+                                                    label={idx === 0 ? 'Company / firm' : undefined}
+                                                    placeholder="e.g. Smith & Co Solicitors"
                                                     value={rec.recipient}
                                                     onChange={(_, v) => {
                                                         const next = [...postedRecipients];
@@ -545,11 +561,12 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
                                                             `${x.recipient}${x.addressee ? ' (' + x.addressee + ')' : ''}${x.email ? ' <' + x.email + '>' : ''}`.trim()
                                                         ).filter(x => x));
                                                     }}
-                                                    styles={{ ...inputStyles, root: { minWidth: 140, flex: 1 } }}
+                                                    styles={inputStyles}
                                                     disabled={submitting}
                                                 />
                                                 <TextField
-                                                    placeholder="Addressee"
+                                                    label={idx === 0 ? 'FAO (person)' : undefined}
+                                                    placeholder="e.g. Jane Doe"
                                                     value={rec.addressee}
                                                     onChange={(_, v) => {
                                                         const next = [...postedRecipients];
@@ -559,11 +576,12 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
                                                             `${x.recipient}${x.addressee ? ' (' + x.addressee + ')' : ''}${x.email ? ' <' + x.email + '>' : ''}`.trim()
                                                         ).filter(x => x));
                                                     }}
-                                                    styles={{ ...inputStyles, root: { minWidth: 140, flex: 1 } }}
+                                                    styles={inputStyles}
                                                     disabled={submitting}
                                                 />
                                                 <TextField
-                                                    placeholder="Email"
+                                                    label={idx === 0 ? 'Email (optional)' : undefined}
+                                                    placeholder="name@firm.com"
                                                     value={rec.email}
                                                     onChange={(_, v) => {
                                                         const next = [...postedRecipients];
@@ -573,7 +591,7 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
                                                             `${x.recipient}${x.addressee ? ' (' + x.addressee + ')' : ''}${x.email ? ' <' + x.email + '>' : ''}`.trim()
                                                         ).filter(x => x));
                                                     }}
-                                                    styles={{ ...inputStyles, root: { minWidth: 180, flex: 1 } }}
+                                                    styles={inputStyles}
                                                     disabled={submitting}
                                                 />
                                                 <DefaultButton
@@ -589,6 +607,7 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
                                                     }}
                                                     styles={defaultButtonStyles}
                                                     disabled={submitting}
+                                                    iconProps={{ iconName: 'Delete' }}
                                                 />
                                             </div>
                                         ))}
@@ -608,34 +627,57 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
                                         />
 
                                         {/* Date and Cover Letter */}
-                                        <Stack horizontal tokens={{ childrenGap: 16 }} style={{ marginTop: '16px' }} wrap>
+                                        <div
+                                            style={{
+                                                marginTop: '16px',
+                                                display: 'grid',
+                                                gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                                                gap: 16,
+                                                alignItems: 'start',
+                                            }}
+                                        >
                                             <DatePicker
                                                 label="Arrival date"
+                                                placeholder="Select date"
                                                 value={arrivalDate || undefined}
                                                 onSelectDate={(date) => setArrivalDate(date ?? null)}
                                                 styles={{
-                                                    root: { minWidth: 180, flex: 1 },
-                                                    textField: inputStyles,
+                                                    root: { width: '100%' },
+                                                    textField: {
+                                                        fieldGroup: {
+                                                            borderRadius: 0,
+                                                            border: '1px solid var(--home-tile-border)',
+                                                            background: 'var(--surface-card)',
+                                                            minHeight: '44px',
+                                                            height: '44px',
+                                                        },
+                                                        field: {
+                                                            background: 'transparent',
+                                                            color: 'var(--text-primary)',
+                                                            fontSize: '14px',
+                                                            height: '42px',
+                                                            lineHeight: '42px',
+                                                        },
+                                                    } as any,
                                                 }}
                                             />
                                             <TextField
                                                 label="Covering letter link"
                                                 value={coverLetter.link}
                                                 onChange={(_, v) => setCoverLetter(c => ({ ...c, link: v || '' }))}
-                                                styles={{ ...inputStyles, root: { minWidth: 240, flex: 2 } }}
-                                                placeholder="Link"
+                                                styles={{ ...inputStyles, root: { gridColumn: 'span 2', minWidth: 0 } as any }}
+                                                placeholder="NetDocs or SharePoint link"
                                             />
                                             <TextField
-                                                label="Copies"
+                                                label="Copies for recipient"
                                                 type="number"
+                                                min={1}
                                                 value={coverLetter.copies.toString()}
                                                 onChange={(_, v) => setCoverLetter(c => ({ ...c, copies: Number(v) || 1 }))}
-                                                styles={{ ...inputStyles, root: { width: 100 } }}
+                                                styles={inputStyles}
+                                                description="Number of bundle copies posted to this address"
                                             />
-                                        </Stack>
-                                        <Text style={getFormHelperTextStyle(isDarkMode)}>
-                                            Copies to the address on the covering letter
-                                        </Text>
+                                        </div>
                                     </div>
                                 )}
 
@@ -652,24 +694,49 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
                                             Office Collection Details
                                         </Text>
                                         
-                                        <Stack horizontal tokens={{ childrenGap: 16 }} wrap>
+                                        <div
+                                            style={{
+                                                display: 'grid',
+                                                gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                                                gap: 16,
+                                                alignItems: 'start',
+                                            }}
+                                        >
                                             <DatePicker
                                                 label="Office-ready date"
+                                                placeholder="Select date"
                                                 value={officeDate || undefined}
                                                 onSelectDate={(date) => setOfficeDate(date ?? null)}
                                                 styles={{
-                                                    root: { minWidth: 180, flex: 1 },
-                                                    textField: inputStyles,
+                                                    root: { width: '100%' },
+                                                    textField: {
+                                                        fieldGroup: {
+                                                            borderRadius: 0,
+                                                            border: '1px solid var(--home-tile-border)',
+                                                            background: 'var(--surface-card)',
+                                                            minHeight: '44px',
+                                                            height: '44px',
+                                                        },
+                                                        field: {
+                                                            background: 'transparent',
+                                                            color: 'var(--text-primary)',
+                                                            fontSize: '14px',
+                                                            height: '42px',
+                                                            lineHeight: '42px',
+                                                        },
+                                                    } as any,
                                                 }}
                                             />
                                             <TextField
                                                 label="Copies in office"
                                                 type="number"
+                                                min={1}
                                                 value={copiesInOffice.toString()}
                                                 onChange={(_, v) => setCopiesInOffice(Number(v) || 1)}
-                                                styles={{ ...inputStyles, root: { width: 140 } }}
+                                                styles={inputStyles}
+                                                description="Bundle copies left for collection"
                                             />
-                                        </Stack>
+                                        </div>
                                     </div>
                                 )}
                             </div>
@@ -733,6 +800,14 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
                                         {submitMessage}
                                     </Text>
                                 </div>
+                            )}
+
+                            {streamSubmissionId && (submitStatus === 'success' || submitStatus === 'error') && (
+                                <FormsStreamLanded
+                                    submissionId={streamSubmissionId}
+                                    streamUrl={streamUrl}
+                                    isDarkMode={isDarkMode}
+                                />
                             )}
 
                             {/* Action Buttons */}

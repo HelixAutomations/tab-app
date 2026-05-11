@@ -74,7 +74,7 @@ export const DealCapture: React.FC<DealCaptureProps> = ({
     if (scopeDescription && scopeDescription.trim()) {
       return isDarkMode ? 'rgba(32, 178, 108, 0.35)' : 'rgba(32, 178, 108, 0.3)';
     }
-    return isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(54, 144, 206, 0.2)';
+    return isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)';
   };
 
   const getAmountConnectorColor = () => {
@@ -82,7 +82,7 @@ export const DealCapture: React.FC<DealCaptureProps> = ({
     if (amount && parseFloat(amount) > 0) {
       return isDarkMode ? 'rgba(32, 178, 108, 0.35)' : 'rgba(32, 178, 108, 0.3)';
     }
-    return isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(54, 144, 206, 0.2)';
+    return isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)';
   };
 
   return (
@@ -268,9 +268,9 @@ export const DealCapture: React.FC<DealCaptureProps> = ({
         <div style={{ display:'flex', gap:6 }}>
           <button type="button" onClick={() => adjust(50)} style={{
               padding:'8px 14px',
-              border:`1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.3)' : 'rgba(54, 144, 206, 0.25)'}`,
+              border:`1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.25)'}`,
               background: isDarkMode 
-                ? 'linear-gradient(135deg, rgba(135, 243, 243, 0.15) 0%, rgba(135, 243, 243, 0.1) 100%)'
+                ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.15) 0%, rgba(54, 144, 206, 0.1) 100%)'
                 : 'linear-gradient(135deg, rgba(54, 144, 206, 0.1) 0%, rgba(54, 144, 206, 0.08) 100%)',
               color: accent,
               borderRadius:8,
@@ -282,12 +282,12 @@ export const DealCapture: React.FC<DealCaptureProps> = ({
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.background = isDarkMode
-                ? 'linear-gradient(135deg, rgba(135, 243, 243, 0.25) 0%, rgba(135, 243, 243, 0.18) 100%)'
+                ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.25) 0%, rgba(54, 144, 206, 0.18) 100%)'
                 : 'linear-gradient(135deg, rgba(54, 144, 206, 0.18) 0%, rgba(54, 144, 206, 0.15) 100%)';
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.background = isDarkMode
-                ? 'linear-gradient(135deg, rgba(135, 243, 243, 0.15) 0%, rgba(135, 243, 243, 0.1) 100%)'
+                ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.15) 0%, rgba(54, 144, 206, 0.1) 100%)'
                 : 'linear-gradient(135deg, rgba(54, 144, 206, 0.1) 0%, rgba(54, 144, 206, 0.08) 100%)';
             }}
             >+50</button>

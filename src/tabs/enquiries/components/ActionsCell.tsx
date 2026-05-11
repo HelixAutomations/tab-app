@@ -20,7 +20,6 @@ export interface ActionsCellProps {
   isNotesExpanded: boolean;
   noteKey: string;
   contactName: string;
-  isHovered?: boolean;
   getRatingChipMeta: (ratingKey: string | undefined, darkMode: boolean) => {
     iconName: string;
     color: string;
@@ -49,7 +48,6 @@ const ActionsCell: React.FC<ActionsCellProps> = ({
   isNotesExpanded,
   noteKey,
   contactName,
-  isHovered = false,
   getRatingChipMeta,
   handleRate,
   handleDeleteEnquiry,
@@ -65,7 +63,7 @@ const ActionsCell: React.FC<ActionsCellProps> = ({
   const showQuickActions = areActionsEnabled && mainShowClaimer && !isMainTeamInboxPoc;
   const neutralBorder = isDarkMode ? 'rgba(75, 85, 99, 0.52)' : 'rgba(160, 160, 160, 0.24)';
   const neutralBackground = isDarkMode ? 'rgba(8, 28, 48, 0.42)' : 'rgba(244, 244, 246, 0.74)';
-  const neutralBackgroundHover = isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(214, 232, 255, 0.88)';
+  const neutralBackgroundHover = isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(214, 232, 255, 0.88)';
   const neutralText = isDarkMode ? 'rgba(209, 213, 219, 0.82)' : colours.greyText;
   const neutralTextStrong = isDarkMode ? 'rgba(243, 244, 246, 0.94)' : colours.light.text;
   const interactiveAccent = isDarkMode ? colours.accent : colours.highlight;
@@ -74,14 +72,12 @@ const ActionsCell: React.FC<ActionsCellProps> = ({
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '3px' }}>
       {/* Call / Email / Rate — only in unlocked action mode */}
       {showQuickActions && (
-        <div style={{
+        <div
+          className="enquiry-row__quick-actions"
+          style={{
           display: 'flex',
           alignItems: 'center',
           gap: '3px',
-          opacity: isHovered ? 1 : 0,
-          transform: isHovered ? 'translateX(0)' : 'translateX(6px)',
-          transition: 'opacity 140ms ease, transform 160ms ease',
-          pointerEvents: isHovered ? 'auto' : 'none',
         }}>
           {/* Phone */}
           <button

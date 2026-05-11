@@ -19,6 +19,8 @@ import { colours } from '../../app/styles/colours';
 
 export interface ProspectLookupOption {
   id: number;
+  acid?: string | null;
+  acContactId?: string | null;
   firstName: string;
   lastName: string;
   email: string;
@@ -51,6 +53,7 @@ const defaultEndpoint = '/api/people-search';
 
 interface ApiResult {
   id: string;
+  acid?: string | null;
   first: string;
   last: string;
   email: string;
@@ -73,6 +76,8 @@ async function fetchPeople(q: string, signal: AbortSignal, endpoint: string, lim
   return {
     results: raw.map((r) => ({
       id: Number.parseInt(r.id, 10),
+      acid: r.acid ? String(r.acid) : null,
+      acContactId: r.acid ? String(r.acid) : null,
       firstName: r.first || '',
       lastName: r.last || '',
       email: r.email || '',
@@ -168,10 +173,10 @@ export default function ProspectLookup({
     setLegacyAvailable(false);
   }, [value]);
 
-  const accent = isDarkMode ? '#87F3F3' : colours.highlight;
+  const accent = isDarkMode ? '#3690CE' : colours.highlight;
   const panelBg = isDarkMode ? colours.dark.cardBackground : '#ffffff';
-  const panelBorder = isDarkMode ? `rgba(135, 243, 243, 0.22)` : `rgba(13, 47, 96, 0.22)`;
-  const rowBorder = isDarkMode ? `rgba(135, 243, 243, 0.08)` : `rgba(13, 47, 96, 0.06)`;
+  const panelBorder = isDarkMode ? `rgba(54, 144, 206, 0.22)` : `rgba(13, 47, 96, 0.22)`;
+  const rowBorder = isDarkMode ? `rgba(54, 144, 206, 0.08)` : `rgba(13, 47, 96, 0.06)`;
   const text = isDarkMode ? colours.dark.text : colours.light.text;
   const bodyText = isDarkMode ? '#d1d5db' : '#374151';
   const muted = isDarkMode ? colours.subtleGrey : colours.greyText;
@@ -250,6 +255,61 @@ export default function ProspectLookup({
     setActiveIndex(-1);
   };
 
+  const renderIdentityStack = (opt: ProspectLookupOption, sourceLabel?: string) => {
+    const acId = opt.acid || opt.acContactId || null;
+    const identityLineStyle: React.CSSProperties = {
+      maxWidth: 118,
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap',
+      fontSize: 10,
+      lineHeight: 1.2,
+      color: muted,
+      fontWeight: 600,
+      fontVariantNumeric: 'tabular-nums',
+      textAlign: 'right',
+    };
+
+    return (
+      <div
+        style={{
+          justifySelf: 'end',
+          minWidth: 76,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'flex-end',
+          gap: 2,
+          flexShrink: 0,
+        }}
+      >
+        {sourceLabel && (
+          <span
+            title={opt.source === 'legacy' ? 'From legacy enquiries database' : 'From current instructions enquiries'}
+            style={{
+              fontSize: 8,
+              fontWeight: 700,
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+              padding: '2px 6px',
+              border: `1px solid ${sourceChipBorder}`,
+              background: sourceChipBg,
+              color: muted,
+              borderRadius: 0,
+            }}
+          >
+            {sourceLabel}
+          </span>
+        )}
+        <span title={acId ? `ActiveCampaign ID ${acId}` : 'No ActiveCampaign ID available'} style={identityLineStyle}>
+          ACID {acId || '—'}
+        </span>
+        <span title={`Enquiry ID ${opt.id}`} style={identityLineStyle}>
+          ID {opt.id}
+        </span>
+      </div>
+    );
+  };
+
   return (
     <div ref={containerRef} style={{ position: 'relative' }}>
       <input
@@ -307,19 +367,20 @@ export default function ProspectLookup({
                       borderBottom: `1px solid ${rowBorder}`,
                       cursor: 'pointer',
                       display: 'grid',
-                      gridTemplateColumns: 'minmax(0, 1fr)',
+                      gridTemplateColumns: 'minmax(0, 1fr) auto',
+                      columnGap: 10,
                       alignItems: 'center',
                     }}
                   >
                     <div style={{ minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: text, fontWeight: 600 }}>
                         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fullName}</span>
-                        <span style={{ fontSize: 10, color: muted, fontWeight: 400 }}>#{opt.id}</span>
                       </div>
                       <div style={{ fontSize: 10, color: bodyText, opacity: 0.8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {opt.aow || '—'}{opt.email ? ` · ${opt.email}` : ''}{!opt.email && opt.phone ? ` · ${opt.phone}` : ''}
                       </div>
                     </div>
+                    {renderIdentityStack(opt, opt.source === 'legacy' ? 'Legacy' : undefined)}
                   </div>
                 );
               })}
@@ -376,36 +437,19 @@ export default function ProspectLookup({
                   cursor: 'pointer',
                   display: 'grid',
                   gridTemplateColumns: 'minmax(0, 1fr) auto',
-                  columnGap: 8,
+                  columnGap: 10,
                   alignItems: 'center',
                 }}
               >
                 <div style={{ minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: text, fontWeight: 600 }}>
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fullName}</span>
-                    <span style={{ fontSize: 10, color: muted, fontWeight: 400 }}>#{opt.id}</span>
                   </div>
                   <div style={{ fontSize: 10, color: bodyText, opacity: 0.8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {opt.aow || '—'}{opt.email ? ` · ${opt.email}` : ''}{!opt.email && opt.phone ? ` · ${opt.phone}` : ''}
                   </div>
                 </div>
-                <span
-                  title={opt.source === 'legacy' ? 'From legacy enquiries database' : 'From current instructions enquiries'}
-                  style={{
-                    fontSize: 8,
-                    fontWeight: 700,
-                    letterSpacing: '0.08em',
-                    textTransform: 'uppercase',
-                    padding: '2px 6px',
-                    border: `1px solid ${sourceChipBorder}`,
-                    background: sourceChipBg,
-                    color: muted,
-                    borderRadius: 0,
-                    flexShrink: 0,
-                  }}
-                >
-                  {sourceLabel}
-                </span>
+                {renderIdentityStack(opt, sourceLabel)}
               </div>
             );
           })}
@@ -425,19 +469,20 @@ export default function ProspectLookup({
                       borderBottom: `1px solid ${rowBorder}`,
                       cursor: 'pointer',
                       display: 'grid',
-                      gridTemplateColumns: 'minmax(0, 1fr)',
+                      gridTemplateColumns: 'minmax(0, 1fr) auto',
+                      columnGap: 10,
                       alignItems: 'center',
                     }}
                   >
                     <div style={{ minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: text, fontWeight: 600 }}>
                         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fullName}</span>
-                        <span style={{ fontSize: 10, color: muted, fontWeight: 400 }}>#{opt.id}</span>
                       </div>
                       <div style={{ fontSize: 10, color: bodyText, opacity: 0.8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {opt.aow || '—'}{opt.email ? ` · ${opt.email}` : ''}{!opt.email && opt.phone ? ` · ${opt.phone}` : ''}
                       </div>
                     </div>
+                    {renderIdentityStack(opt, opt.source === 'legacy' ? 'Legacy' : undefined)}
                   </div>
                 );
               })}

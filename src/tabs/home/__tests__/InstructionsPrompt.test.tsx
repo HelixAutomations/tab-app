@@ -1,5 +1,5 @@
 /** @jest-environment jsdom */
-import { getActionableInstructions } from '../InstructionsPrompt';
+import { getActionableInstructions } from '../InstructionsPrompt.helpers';
 import { InstructionData } from '../../../app/functionality/types';
 
 describe('getActionableInstructions', () => {

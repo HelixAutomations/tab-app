@@ -95,18 +95,6 @@ const LocalDevSection: React.FC<LocalDevSectionProps> = ({
 
     const homeSurfaceToggles: CompactFeatureToggle[] = onFeatureToggle ? [
         {
-            key: 'showAttendance',
-            label: 'Attendance',
-            hint: 'Home team strip',
-            enabled: !!featureToggles.showAttendance,
-            accent: colours.green,
-            onClick: () => {
-                const next = !featureToggles.showAttendance;
-                onFeatureToggle('showAttendance', next);
-                showToast(next ? 'Attendance visible' : 'Attendance hidden', next ? 'success' : 'warning');
-            },
-        },
-        {
             key: 'showHomeOpsCclDates',
             label: 'Show CCL',
             hint: 'Home ops dates box',
@@ -263,7 +251,7 @@ const LocalDevSection: React.FC<LocalDevSectionProps> = ({
                                         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
                                         Demo matter
                                     </button>
-                                    <button onClick={() => onOpenDemoMatter(true)} style={{ ...actionBtn, color: colours.accent, borderColor: isDarkMode ? 'rgba(135, 243, 243, 0.18)' : 'rgba(54, 144, 206, 0.18)' }}>
+                                    <button onClick={() => onOpenDemoMatter(true)} style={{ ...actionBtn, color: colours.accent, borderColor: isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.18)' }}>
                                         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
                                         Demo CCL
                                     </button>

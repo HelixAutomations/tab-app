@@ -16,16 +16,21 @@ import { hasActiveMatterOpening } from './functionality/matterOpeningUtils';
 import { normalizeMatterData } from '../utils/matterNormalization';
 import { getProxyBaseUrl } from '../utils/getProxyBaseUrl';
 import { ADMIN_USERS, isAdminUser, canSeePrivateHubControls, canSeeActivityTab } from './admin';
+import { useCapability } from './useEffectiveCapabilities';
 import { EffectivePermissionsProvider } from './effectivePermissions';
 import HubToolsChip from '../components/HubToolsChip';
 import DebugLatencyOverlay from '../components/DebugLatencyOverlay';
+import DemoCheatSheetOverlay from '../components/DemoCheatSheetOverlay';
 import TabMountMeter from '../components/TabMountMeter';
+import BackgroundActivityBar from '../components/BackgroundActivityBar';
 import { startInteraction } from '../utils/interactionTracker';
 import { useFirstHydration } from '../utils/useFirstHydration';
 import MaintenanceNotice from './MaintenanceNotice';
 import { useServiceHealthMonitor } from './functionality/useServiceHealthMonitor';
 import actionLog from '../utils/actionLog';
 import { trackClientEvent } from '../utils/telemetry';
+
+const CclDiff = lazy(() => import('../tabs/dev/CclDiff'));
 
 const proxyBaseUrl = getProxyBaseUrl();
 
@@ -152,7 +157,7 @@ interface AppProps {
   lastPipelineEventAt?: number | null;
 }
 
-type ReportingNavigationView = 'logMonitor' | 'dataCentre';
+type ReportingNavigationView = 'logMonitor' | 'dataCentre' | 'ppcReport';
 
 interface ReportingNavigationRequest {
   view: ReportingNavigationView;
@@ -200,14 +205,41 @@ const App: React.FC<AppProps> = ({
   lastPipelineEventAt,
 }) => {
   const [activeTab, setActiveTab] = useState('home');
-  const [enquiriesEverVisited, setEnquiriesEverVisited] = useState(false);
-  const [mattersEverVisited, setMattersEverVisited] = useState(false);
+  // Persist keep-alive flags across reloads in the same session so we don't
+  // re-pay the first-mount cost (matters hydration, enquiries shell) on every
+  // refresh. SessionStorage scopes this to the current tab session.
+  const [enquiriesEverVisited, setEnquiriesEverVisited] = useState<boolean>(() => {
+    try { return sessionStorage.getItem('helix.tab.enquiriesEverVisited') === '1'; } catch { return false; }
+  });
+  const [mattersEverVisited, setMattersEverVisited] = useState<boolean>(() => {
+    try { return sessionStorage.getItem('helix.tab.mattersEverVisited') === '1'; } catch { return false; }
+  });
+  const [formsEverVisited, setFormsEverVisited] = useState<boolean>(() => {
+    try { return sessionStorage.getItem('helix.tab.formsEverVisited') === '1'; } catch { return false; }
+  });
+  useEffect(() => {
+    if (enquiriesEverVisited) {
+      try { sessionStorage.setItem('helix.tab.enquiriesEverVisited', '1'); } catch { /* ignore */ }
+    }
+  }, [enquiriesEverVisited]);
+  useEffect(() => {
+    if (mattersEverVisited) {
+      try { sessionStorage.setItem('helix.tab.mattersEverVisited', '1'); } catch { /* ignore */ }
+    }
+  }, [mattersEverVisited]);
+  useEffect(() => {
+    if (formsEverVisited) {
+      try { sessionStorage.setItem('helix.tab.formsEverVisited', '1'); } catch { /* ignore */ }
+    }
+  }, [formsEverVisited]);
   const [pendingMatterId, setPendingMatterId] = useState<string | null>(null);
   const [pendingShowCcl, setPendingShowCcl] = useState(false);
   const [pendingEnquiryId, setPendingEnquiryId] = useState<string | null>(null);
+  const [pendingEnquiryRequestAt, setPendingEnquiryRequestAt] = useState<number | null>(null);
   const [pendingEnquirySubTab, setPendingEnquirySubTab] = useState<string | null>(null);
   const [pendingEnquiryPitchScenario, setPendingEnquiryPitchScenario] = useState<string | null>(null);
   const [pendingFormTitle, setPendingFormTitle] = useState<string | null>(null);
+  const [pendingFocusSubmissionId, setPendingFocusSubmissionId] = useState<string | null>(null);
   const [reportingNavigationRequest, setReportingNavigationRequest] = useState<ReportingNavigationRequest | null>(null);
   const [demoModeEnabled, setDemoModeEnabled] = useState<boolean>(() => {
     try {
@@ -217,6 +249,25 @@ const App: React.FC<AppProps> = ({
     }
   });
   const [pendingDemoMode, setPendingDemoMode] = useState(() => demoModeEnabled);
+  // CCL Dev Diff (W2D) — opens fullscreen overlay when ?cclDiff=1 is in URL.
+  // Gated below by canSeePrivateHubControls (LZ + AC) at the render site.
+  const [showCclDiff, setShowCclDiff] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return new URLSearchParams(window.location.search).get('cclDiff') === '1';
+  });
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const sync = () => setShowCclDiff(new URLSearchParams(window.location.search).get('cclDiff') === '1');
+    window.addEventListener('popstate', sync);
+    return () => window.removeEventListener('popstate', sync);
+  }, []);
+  const closeCclDiff = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete('cclDiff');
+    window.history.replaceState({}, '', url.toString());
+    setShowCclDiff(false);
+  }, []);
   const { state: serviceHealth, dismiss: dismissMaintenance } = useServiceHealthMonitor();
   const systemPrefersDark = typeof window !== 'undefined' && window.matchMedia
     ? window.matchMedia('(prefers-color-scheme: dark)').matches
@@ -371,9 +422,9 @@ const App: React.FC<AppProps> = ({
       // rateChangeTracker defaults to false - users opt-in via UserBubble
       // showAttendance defaults to true - annual leave visible by default
       // showOpsQueue defaults to false - expensive preview surface, opt-in via Hub Tools
-      return { rateChangeTracker: false, showAttendance: true, cclGuideMode: false, showOpsQueue: false, showHomeOpsCclDates: false, ...parsed };
+      return { rateChangeTracker: false, showAttendance: true, cclGuideMode: false, showOpsQueue: false, showHomeOpsCclDates: false, previewClaimedQueueHolding: false, ...parsed };
     } catch {
-      return { rateChangeTracker: false, showAttendance: true, cclGuideMode: false, showOpsQueue: false, showHomeOpsCclDates: false };
+      return { rateChangeTracker: false, showAttendance: true, cclGuideMode: false, showOpsQueue: false, showHomeOpsCclDates: false, previewClaimedQueueHolding: false };
     }
   });
 
@@ -381,7 +432,14 @@ const App: React.FC<AppProps> = ({
   const mattersHydrationRequestedForUserRef = React.useRef<string | null>(null);
   const prevTabRef = React.useRef(activeTab);
   // Scroll position map for keep-alive tabs
-  const tabScrollPositions = React.useRef<Record<string, number>>({});
+  const tabScrollPositions = React.useRef<Record<string, number>>(((): Record<string, number> => {
+    try {
+      const raw = sessionStorage.getItem('helix.tab.scrollPositions');
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch { return {}; }
+  })());
   // Refs for tab-switch visibility of Navigator + ImmediateActions
   const navigatorChromeRef = React.useRef<HTMLDivElement | null>(null);
   const actionsWrapperRef = React.useRef<HTMLDivElement | null>(null);
@@ -406,7 +464,14 @@ const App: React.FC<AppProps> = ({
     () => ({ ...(featureToggles || {}) }),
     [featureToggles]
   );
-  const showActivityTab = canSeeActivityTab(currentUser, isLocalDev) && !isProductionPreview;
+  // Phase Access.D: consult /api/access/effective so LZ can grant the
+  // capability via the Access panel without a redeploy. Hardcoded check is
+  // the bootstrap fallback (used until the fetch returns or if it fails).
+  const activityTabCap = useCapability(
+    'feature:activity-tab',
+    canSeeActivityTab(currentUser, isLocalDev),
+  );
+  const showActivityTab = activityTabCap && !isProductionPreview;
   const matterSeedUserName = useMemo(() => {
     const user = userData?.[0];
     if (!user) {
@@ -676,26 +741,26 @@ const App: React.FC<AppProps> = ({
     }
   }, [activeTab, enquiriesEverVisited, mattersEverVisited]);
 
+  // Pre-warm sibling tab chunks during idle time, regardless of which tab the
+  // user landed on. Originally Home-only; expanded so that landing on (or
+  // sitting on) any tab still primes the others, removing the chunk-fetch leg
+  // from the first cross-tab click.
   useEffect(() => {
     if (typeof window === 'undefined') return;
     if (!userData?.[0]) return;
-    if (activeTab !== 'home') return;
 
     let cancelled = false;
     let idleId: number | null = null;
     const warmNavigationChunks = () => {
-      if (cancelled || document.hidden || activeTab !== 'home') return;
+      if (cancelled || document.hidden) return;
       // Chunks only — just downloads the JS, no component mount.
       // Makes first-visit tab switches feel instant by removing the
       // network leg from the critical path.
-      void loadEnquiriesTab();
-      void loadInstructionsTab();
-      void loadReportingTab();
+      if (activeTab !== 'home') void loadHomeTab();
+      if (activeTab !== 'enquiries') void loadEnquiriesTab();
+      if (activeTab !== 'matters') void loadMattersTab();
+      if (activeTab !== 'reporting') void loadReportingTab();
       void retryImport(() => import('../tabs/roadmap/Roadmap'));
-      if (!mattersEverVisited) {
-        void loadMattersTab();
-        setMattersEverVisited(true);
-      }
     };
 
     const scheduleWarmNavigation = () => {
@@ -720,7 +785,7 @@ const App: React.FC<AppProps> = ({
       }
       globalThis.clearTimeout(timer);
     };
-  }, [activeTab, mattersEverVisited, userData]);
+  }, [activeTab, userData]);
 
   // ─── Bars inside scroll region — tab-switch visibility only ───
   // Navigator + ImmediateActions are inside .app-scroll-region so they
@@ -748,7 +813,7 @@ const App: React.FC<AppProps> = ({
     const navNode = navigatorChromeRef.current;
     const actNode = actionsWrapperRef.current;
     if (navNode) {
-      navNode.classList.toggle('chrome-tab-hidden', activeTab !== 'home' && activeTab !== 'enquiries');
+      navNode.classList.toggle('chrome-tab-hidden', activeTab !== 'home' && activeTab !== 'enquiries' && activeTab !== 'matters');
     }
     if (actNode) {
       actNode.classList.toggle('chrome-tab-hidden', activeTab !== 'home');
@@ -764,11 +829,20 @@ const App: React.FC<AppProps> = ({
     if (!scrollContainer) return;
 
     let frameId: number | null = null;
+    let persistTimer: number | null = null;
+    const persistScrollMap = () => {
+      try {
+        sessionStorage.setItem('helix.tab.scrollPositions', JSON.stringify(tabScrollPositions.current));
+      } catch { /* ignore quota / private mode */ }
+    };
     const onScroll = () => {
       if (frameId != null) return;
       frameId = requestAnimationFrame(() => {
         frameId = null;
         tabScrollPositions.current[activeTab] = scrollContainer.scrollTop;
+        if (persistTimer != null) window.clearTimeout(persistTimer);
+        // Debounce sessionStorage writes — scroll fires often.
+        persistTimer = window.setTimeout(persistScrollMap, 200);
       });
     };
 
@@ -776,6 +850,9 @@ const App: React.FC<AppProps> = ({
     return () => {
       scrollContainer.removeEventListener('scroll', onScroll);
       if (frameId != null) cancelAnimationFrame(frameId);
+      if (persistTimer != null) window.clearTimeout(persistTimer);
+      // Flush on unmount/tab change so the latest position survives.
+      persistScrollMap();
     };
   }, [activeTab]);
 
@@ -788,6 +865,8 @@ const App: React.FC<AppProps> = ({
     trackClientEvent('Nav', 'heartbeat', { tab: activeTab });
     return () => clearInterval(id);
   }, [activeTab]);
+
+  const { setContent } = useNavigatorActions();
 
   useEffect(() => {
     mattersHydrationRequestedForUserRef.current = null;
@@ -835,6 +914,7 @@ const App: React.FC<AppProps> = ({
   // Stable callbacks for keep-alive children (avoids new closure per render)
   const handlePendingEnquiryHandled = useCallback(() => {
     setPendingEnquiryId(null);
+    setPendingEnquiryRequestAt(null);
     setPendingEnquirySubTab(null);
     setPendingEnquiryPitchScenario(null);
   }, []);
@@ -844,6 +924,20 @@ const App: React.FC<AppProps> = ({
   }, []);
 
   const activateTab = useCallback((nextTab: string) => {
+    if (nextTab === 'enquiries') {
+      void loadEnquiriesTab();
+      setEnquiriesEverVisited(true);
+    } else if (nextTab === 'matters') {
+      void loadMattersTab();
+      setMattersEverVisited(true);
+    } else if (nextTab === 'forms') {
+      setFormsEverVisited(true);
+    }
+
+    // Let the next active tab overwrite the shared navigator. Eagerly writing
+    // null here creates a blank frame because Navigator fades to opacity 0
+    // before Enquiries/Matters can publish their own banner content.
+
     // Phase 0 (UX Realtime Programme): measure tab-switch latency.
     // setActiveTab() must NOT be wrapped in startTransition (see /memories/repo/home-boot-performance.md).
     setActiveTab((prev) => {
@@ -857,7 +951,7 @@ const App: React.FC<AppProps> = ({
       }
       return nextTab;
     });
-  }, []);
+  }, [activeTab, setContent]);
 
   // CCL deep-link: Teams autopilot card links here as
   //   ?tab=operations&cclMatter=<id>&autoReview=1
@@ -902,11 +996,10 @@ const App: React.FC<AppProps> = ({
     setAllMattersFromHome(fetchedMatters);
   }, []);
 
-  const warmMattersTab = useCallback(() => {
-    void loadMattersTab();
-    setMattersEverVisited(true);
-  }, []);
-
+  // Hover/focus pre-warm: chunk only. Do NOT mark the tab as visited or it
+  // would mount the (hidden) tab subtree on casual mouseover and trigger
+  // matters hydration / enquiries first-render work prematurely. Mounting is
+  // the activation handler's job (see `activateTab`).
   const warmTabByKey = useCallback((key: string) => {
     switch (key) {
       case 'home':
@@ -919,7 +1012,7 @@ const App: React.FC<AppProps> = ({
         void loadInstructionsTab();
         break;
       case 'matters':
-        warmMattersTab();
+        void loadMattersTab();
         break;
       case 'reporting':
         void loadReportingTab();
@@ -931,7 +1024,7 @@ const App: React.FC<AppProps> = ({
       default:
         break;
     }
-  }, [warmMattersTab]);
+  }, []);
 
   const handleOutstandingBalancesFetched = useCallback((data: any) => {
     setOutstandingBalances(data);
@@ -1013,15 +1106,26 @@ const App: React.FC<AppProps> = ({
       actionLog('Navigate → home');
       activateTab('home');
     };
+    const handleNavigateToTab = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      const requestedTab = typeof detail?.tab === 'string' ? detail.tab : '';
+      if (!['home', 'enquiries', 'matters', 'forms', 'reporting', 'roadmap'].includes(requestedTab)) return;
+      actionLog('Navigate → tab', requestedTab);
+      activateTab(requestedTab);
+    };
     const handleNavigateToEnquiry = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       actionLog('Navigate → enquiry', detail?.enquiryId ? `#${detail.enquiryId}` : undefined);
       if (detail?.enquiryId) {
         setPendingEnquiryId(String(detail.enquiryId));
+        setPendingEnquiryRequestAt(Date.now());
         if (detail.subTab) setPendingEnquirySubTab(detail.subTab);
         setPendingEnquiryPitchScenario(typeof detail.pitchScenario === 'string' ? detail.pitchScenario : null);
         if (detail.timelineItem) {
           try { localStorage.setItem('navigateToTimelineItem', detail.timelineItem); } catch {}
+        }
+        if (typeof detail.workbenchTab === 'string' && detail.workbenchTab) {
+          try { localStorage.setItem('navigateToWorkbenchTab', detail.workbenchTab); } catch {}
         }
       }
       activateTab('enquiries');
@@ -1030,7 +1134,7 @@ const App: React.FC<AppProps> = ({
       const detail = (e as CustomEvent).detail;
       const requestedView = detail?.view;
       actionLog('Navigate → reporting', requestedView || undefined);
-      if (requestedView === 'logMonitor' || requestedView === 'dataCentre') {
+      if (requestedView === 'logMonitor' || requestedView === 'dataCentre' || requestedView === 'ppcReport') {
         setReportingNavigationRequest({
           view: requestedView,
           requestedAt: Date.now(),
@@ -1041,7 +1145,7 @@ const App: React.FC<AppProps> = ({
     const handleNavigateToMatter = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       actionLog('Navigate → matter', detail?.matterId || undefined);
-      warmMattersTab();
+        warmTabByKey('matters');
       if (detail?.matterId) {
         setPendingMatterId(detail.matterId);
       }
@@ -1051,15 +1155,18 @@ const App: React.FC<AppProps> = ({
     const handleNavigateToForms = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       const requestedFormTitle = typeof detail?.formTitle === 'string' ? detail.formTitle : null;
-      actionLog('Navigate → forms', requestedFormTitle || undefined);
+      const focusSubmissionId = typeof detail?.focusSubmissionId === 'string' ? detail.focusSubmissionId : null;
+      actionLog('Navigate → forms', requestedFormTitle || focusSubmissionId || undefined);
       setPendingFormTitle(requestedFormTitle);
+      setPendingFocusSubmissionId(focusSubmissionId);
       activateTab('forms');
     };
     const handleWarmMattersTab = () => {
-      warmMattersTab();
+      warmTabByKey('matters');
     };
 
     window.addEventListener('navigateToHome', handleNavigateToHome);
+  window.addEventListener('navigateToTab', handleNavigateToTab);
     window.addEventListener('navigateToInstructions', handleNavigateToInstructions);
     window.addEventListener('navigateToEnquiries', handleNavigateToEnquiries);
     window.addEventListener('navigateToEnquiry', handleNavigateToEnquiry);
@@ -1070,6 +1177,7 @@ const App: React.FC<AppProps> = ({
 
     return () => {
       window.removeEventListener('navigateToHome', handleNavigateToHome);
+      window.removeEventListener('navigateToTab', handleNavigateToTab);
       window.removeEventListener('navigateToInstructions', handleNavigateToInstructions);
       window.removeEventListener('navigateToEnquiries', handleNavigateToEnquiries);
       window.removeEventListener('navigateToEnquiry', handleNavigateToEnquiry);
@@ -1078,7 +1186,7 @@ const App: React.FC<AppProps> = ({
       window.removeEventListener('navigateToForms', handleNavigateToForms);
       window.removeEventListener('warmMattersTab', handleWarmMattersTab);
     };
-  }, [activateTab, warmMattersTab]);
+  }, [activateTab, warmTabByKey]);
 
   // State to trigger instruction data refresh
   const [instructionRefreshTrigger, setInstructionRefreshTrigger] = useState<number>(0);
@@ -1140,6 +1248,7 @@ const App: React.FC<AppProps> = ({
   const handleToggleDemoMode = useCallback(
     (enabled: boolean) => {
       if (enabled) {
+        try { trackClientEvent('Demo', 'Mode.Enabled', { source: 'userbubble' }); } catch { /* ignore */ }
         handleShowTestEnquiry();
         return;
       }
@@ -1150,6 +1259,7 @@ const App: React.FC<AppProps> = ({
       } catch {
         // ignore storage errors
       }
+      try { trackClientEvent('Demo', 'Mode.Disabled', { source: 'userbubble' }); } catch { /* ignore */ }
     },
     [handleShowTestEnquiry]
   );
@@ -1180,6 +1290,32 @@ const App: React.FC<AppProps> = ({
 
   // Determine the current user's initials
   const userInitials = userData?.[0]?.Initials?.toUpperCase() || '';
+
+  // Demo Cheat Sheet (Ctrl+Shift+D) — server-backed allowlist. LZ-owned;
+  // LZ can grant/revoke access to other initials in-overlay. Non-blocking.
+  const [demoCheatAllowed, setDemoCheatAllowed] = React.useState<string[]>([]);
+  const refreshDemoCheatAccess = React.useCallback(async () => {
+    try {
+      const res = await fetch('/api/demo-cheat-sheet/access');
+      if (!res.ok) return;
+      const json = await res.json();
+      if (Array.isArray(json?.allowed)) {
+        setDemoCheatAllowed(json.allowed.map((v: string) => String(v || '').toUpperCase()));
+      }
+    } catch { /* ignore — overlay just stays gated to LZ */ }
+  }, []);
+  React.useEffect(() => { void refreshDemoCheatAccess(); }, [refreshDemoCheatAccess]);
+  // Cheat-sheet access: LZ owns the notes, anyone on the server allowlist can
+  // open them, and AC/JW/EA are always included so the minimal strip Notes
+  // experience works in demos without needing a manual grant. The full Tools
+  // panel itself stays LZ-only and is gated separately in HubToolsChip.
+  const demoCheatEnabled = !!userInitials && (
+    userInitials === 'LZ'
+    || userInitials === 'AC'
+    || userInitials === 'JW'
+    || userInitials === 'EA'
+    || demoCheatAllowed.includes(userInitials)
+  );
 
   // Ref-based guard: track whether instruction data has been fetched to avoid re-triggering the effect
   const instructionDataFetchedRef = React.useRef(false);
@@ -1260,7 +1396,7 @@ const App: React.FC<AppProps> = ({
               };
             }
 
-            if (field === 'id_verification') {
+            if (field === 'id_verification' || field === 'id' || field === 'identity' || field === 'verification') {
               const idData = data || {};
               const existingEidChecks = prospect.electronicIDChecks || [];
               const existingIdVerifs = prospect.idVerifications || [];
@@ -1556,7 +1692,7 @@ const App: React.FC<AppProps> = ({
       { key: 'matters', text: 'Matters' },
       { key: 'forms', text: 'Forms' },
       { key: 'resources', text: 'Resources', disabled: true },
-      ...(showActivityTab ? [{ key: 'roadmap', text: 'Activity' }] : []),
+      ...(showActivityTab ? [{ key: 'roadmap', text: 'System' }] : []),
       ...(showReportsTab ? [{ key: 'reporting', text: 'Reports' }] : []),
     ];
   }, [currentUser, showActivityTab]);
@@ -1573,8 +1709,6 @@ const App: React.FC<AppProps> = ({
       setActiveTab('home'); // Redirect to home if current tab is no longer valid or is disabled
     }
   }, [tabs, activeTab]);
-
-  const { setContent } = useNavigatorActions();
 
   // Clear the shared navigator only for tabs that do not own banner content.
   // Home, Enquiries, and Matters all manage the navigator themselves.
@@ -1663,6 +1797,10 @@ const App: React.FC<AppProps> = ({
             <div ref={navigatorChromeRef} className="app-navigator">
               <Navigator />
             </div>
+            {/* Phase 2B.5 (2026-04-27): subtle 2px shimmer whenever a tracked
+                background refresh is in flight. Sits below the navigator so
+                it cues data movement without competing with the boot strip. */}
+            <BackgroundActivityBar />
             <div ref={actionsWrapperRef}>
               <div
                 id="app-level-immediate-actions"
@@ -1732,6 +1870,7 @@ const App: React.FC<AppProps> = ({
                     isActive={activeTab === 'enquiries'}
                     onTeamWideEnquiriesLoaded={setTeamWideEnquiries}
                     pendingEnquiryId={pendingEnquiryId}
+                    pendingEnquiryRequestAt={pendingEnquiryRequestAt}
                     pendingEnquirySubTab={pendingEnquirySubTab}
                     pendingEnquiryPitchScenario={pendingEnquiryPitchScenario}
                     onPendingEnquiryHandled={handlePendingEnquiryHandled}
@@ -1785,7 +1924,9 @@ const App: React.FC<AppProps> = ({
                 </TabMountMeter>
               </Suspense>
             )}
-            {activeTab === 'forms' && (
+            {/* Keep-alive: Forms mounted once visited; FormsHub bails on `!isOpen` so hidden mount is cheap. */}
+            {formsEverVisited && (
+              <div style={{ display: activeTab === 'forms' ? undefined : 'none' }}>
               <TabMountMeter name="forms">
               <FormsHub
                 initialFormTitle={pendingFormTitle}
@@ -1793,13 +1934,17 @@ const App: React.FC<AppProps> = ({
                 matters={matters || []}
                 onDismiss={() => {
                   setPendingFormTitle(null);
+                  setPendingFocusSubmissionId(null);
                   activateTab('home');
                 }}
                 onInitialFormHandled={() => setPendingFormTitle(null)}
+                focusSubmissionId={pendingFocusSubmissionId}
+                onFocusSubmissionHandled={() => setPendingFocusSubmissionId(null)}
                 teamData={teamData}
                 userData={userData}
               />
               </TabMountMeter>
+              </div>
             )}
             {/* Reporting: admin-only, mount/unmount is fine */}
             {activeTab === 'reporting' && (
@@ -1826,7 +1971,7 @@ const App: React.FC<AppProps> = ({
             </>
           </div>
         </div>
-        {dataReady && (isLocalDev || canSeePrivateHubControls(userData[0] || null) || canSeePrivateHubControls(originalAdminUser || null)) && (
+        {dataReady && (isLocalDev || canSeePrivateHubControls(userData[0] || null) || canSeePrivateHubControls(originalAdminUser || null) || demoCheatEnabled) && (
           <HubToolsChip
             user={userData[0] || { First: 'Local', Last: 'Dev', Initials: 'LD', AOW: 'Commercial, Construction, Property, Employment, Misc/Other', Email: 'local@dev.com' }}
             isLocalDev={isLocalDev}
@@ -1845,6 +1990,7 @@ const App: React.FC<AppProps> = ({
             enquiriesLiveRefreshInFlight={enquiriesLiveRefreshInFlight}
             enquiriesLastLiveSyncAt={enquiriesLastLiveSyncAt}
             onOpenDemoMatter={handleOpenDemoMatter}
+            cheatSheetEnabled={demoCheatEnabled}
           />
         )}
         {/* UX Realtime Programme — Phase 0: dev-only latency overlay (LZ/AC + ?ux-debug=1). */}
@@ -1852,6 +1998,19 @@ const App: React.FC<AppProps> = ({
           enabled={dataReady && (isLocalDev || canSeePrivateHubControls(userData[0] || null) || canSeePrivateHubControls(originalAdminUser || null))}
           bottomOffset={(!demoModeEnabled && serviceHealth.isUnavailable) ? 132 : 78}
         />
+        {/* Presenter cheat sheet — Ctrl+Shift+D. LZ-owned; LZ can grant access to others. */}
+        <DemoCheatSheetOverlay
+          enabled={dataReady && demoCheatEnabled}
+          presenterId={userInitials}
+          teamData={teamData || []}
+          allowedInitials={demoCheatAllowed}
+          onAccessChanged={refreshDemoCheatAccess}
+        />
+        {showCclDiff && dataReady && (isLocalDev || canSeePrivateHubControls(userData[0] || null) || canSeePrivateHubControls(originalAdminUser || null)) && (
+          <Suspense fallback={null}>
+            <CclDiff isDarkMode={isDarkMode} onClose={closeCclDiff} />
+          </Suspense>
+        )}
         </ToastProvider>
       </ThemeProvider>
       </EffectivePermissionsProvider>

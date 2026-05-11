@@ -91,19 +91,26 @@ Gated by `isCclUser()` in `src/app/admin.ts`. Currently: `CCL_USERS = ['LZ', 'AC
 | 4 | Action points — AI generates matter-specific action points | ⬜ Future |
 | 5 | Correspondence analysis — AI reads email threads for scope/timelines | ⬜ Future |
 
+### Current files for remaining work
 
-| `src/components/PreviewStep.tsx` | Blank highlighting, sidebar blank summary |
-| `src/constants/cclSections.ts` | Practice area defaults map |
-| `server/routes/ccl.js` | Pull pitch/instruction data for auto-fill |
+| File | Role |
+|------|------|
+| `src/tabs/matters/ccl/PreviewStep.tsx` | Blank highlighting, sidebar blank summary, Safety Net status surface |
+| `src/tabs/matters/ccl/cclSections.ts` | Practice area section/default structure for the Matters CCL editor |
+| `server/routes/ccl.js` | CCL CRUD and Word download route |
+| `server/routes/ccl-ai.js` | AI fill, practice area defaults, inline system prompt, and pressure test |
+| `server/prompts/helixVoice.js` | Shared Helix voice block for CCL prompts |
+| `server/prompts/cclVoiceExamples.js` | Practice-area voice examples appended to the CCL system prompt |
 
-### Files to Create (Phase 2)
+### AI files now shipped
 
 | File | Purpose |
 |------|---------|
 | `server/utils/aiClient.js` | Azure OpenAI singleton client |
-| `server/routes/ccl-ai.js` | AI generation endpoint |
-| `server/prompts/ccl-scope.txt` | System prompt template |
-| `src/services/cclAiService.ts` | Client-side AI service calls |
+| `server/routes/ccl-ai.js` | AI generation and pressure-test endpoint |
+| `server/prompts/helixVoice.js` | Shared voice and pressure-test axis guidance |
+| `server/prompts/cclVoiceExamples.js` | Practice-area voice examples |
+| `src/tabs/matters/ccl/cclAiService.ts` | Client-side AI service calls |
 
 ### Key Vault Secrets (already provisioned)
 - `azure-openai-api-key` — same key used by enquiry-processing-v2

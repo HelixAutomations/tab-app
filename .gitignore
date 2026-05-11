@@ -44,6 +44,8 @@ __queuestorage__/
 
 # Local data / generated assets
 src/localData/
+data/roadmap-whiteboard.json
+data/roadmap-whiteboard.archive.json
 public/ccls/*.docx
 src/assets/signatures/
 

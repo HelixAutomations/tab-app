@@ -320,3 +320,82 @@ conflicts_with:
 - 2D (the harness) **must** be built before 2A/2B/2C. Do not "save time" by skipping it — without side-by-side comparison, the prompt + template + model work is folklore.
 - The CCL conflicts in metadata above (especially `ccl-review-wrap-up…` and `ccl-prompt-feedback-loop…`) overlap on the same files. If those briefs are picked up first, re-verify W1's file refs and the prompt-version constants before starting.
 - When this brief ships, close it via `node tools/stash-close.mjs ccl-first-wrap-upload-confirmation-docx-fidelity-prompt-and-model-refresh`, then add a single changelog entry under the title "CCL first wrap shipped" listing all workstreams completed.
+
+---
+
+## 10. Update 2026-04-28 — model swap done, two new workstreams parked
+
+### 10.1 W2B partially shipped (model swap to gpt-5.4)
+
+The "model upgrade" work in W2B is partly done outside the harness (W2D not yet built). What shipped:
+
+- `gpt-5.4` (version 2026-03-05, GlobalStandard, 50 TPM) deployed alongside `gpt-5.1` on `autom-midmw1iy-eastus2`. Same resource, same key, additive — no risk to existing flows.
+- Default in [server/utils/aiClient.js](../../server/utils/aiClient.js) flipped from `gpt-5.1` → `gpt-5.4`. `AZURE_OPENAI_DEPLOYMENT` env var still overrides.
+- Smoke probe: `gpt-5.4` returned 5/5 success at 0.9–1.9s vs `gpt-5.1` at 14–20s with ~30% empty-body 500 rate. **Both speed AND reliability win.**
+- Bounded retry shield (1 + up to 2 retries on transient 5xx, 400ms/800ms backoff) is also in `chatCompletion` — kept as belt-and-braces.
+- `gpt-5.5` was preferred but quota = 0 in eastus2; would need a portal quota-increase request (not blocking — `gpt-5.4` is fine).
+
+What's still to do under W2B (when W2D harness exists):
+- 2B.4 — Run the fixed test set of 10 representative matters via the harness, comparing `CclPressureTest` scores side-by-side `gpt-5.1 vs gpt-5.4`. Flip back via env var only if scores regress.
+
+### 10.2 W3 — Chunked-parallel CCL generation (NEW)
+
+**Problem.** The CCL generate flow today is one ~15s blocking call returning all 26 fields. Even at gpt-5.4 latency, it's still a long single-shot — no progressive UX, no per-section failure isolation, and the spinner hides progress for 15s straight.
+
+**Proposal.** Split generation into ~5 parallel chunks grouped by semantic coherence (parties & contact, scope & service, costs & estimates, confirmations & terms, risk & AML). Each chunk is its own `chatCompletion` call. Run them in parallel via `Promise.allSettled`. Stream completion events to the client via SSE.
+
+**Expected outcome:**
+- Wall clock: ~15s → ~3s (max of chunks, not sum)
+- UX: fields light up progressively as chunks land — feels alive
+- Resilience: one chunk failing only requires re-rolling that chunk, not the entire CCL
+- Cross-field consistency preserved within chunks; cross-chunk handled by Safety Net (W2 PT) which runs once on assembled result, unchanged
+- Cost: ~2× current (system prompt repeated 5×). At 10–20 CCLs/day this is pennies.
+
+**Where to implement:**
+- Server: [server/routes/cclAi.js](../../server/routes/cclAi.js) `POST /ccl-ai/fill` — refactor to orchestrate 5 chunked calls + emit SSE progress.
+- Schema: needs explicit chunk grouping (the schema already roughly clusters by section; just formalise it).
+- Client: [src/tabs/matters/ccl/PreviewStep.tsx](../../src/tabs/matters/ccl/PreviewStep.tsx) `aiStatus`/`aiLoadingKeys` consumer — wire the SSE event stream into incremental field reveal.
+
+**Coordinates with:** W2A (template fidelity), W2C (prompt refinement) — chunked prompts are *not* the same as the monolithic prompt; need a fresh round of pressure-testing per chunk.
+
+**Out of scope for W3:** True token-level streaming inside a single response. (Possible future W3.5 if perceptual win still wanted on top of chunking.)
+
+### 10.3 W4 — Workflow modal honesty (✅ SHIPPED 2026-04-28, partial)
+
+**Original framing was wrong.** Investigation showed `aiStatus === 'loading'` in [PreviewStep.tsx](../../src/tabs/matters/ccl/PreviewStep.tsx) is **only** set inside the user-triggered `triggerAiFill` callback in [CCLEditor.tsx](../../src/tabs/matters/ccl/CCLEditor.tsx) (L173). Hydration of a saved draft goes through the GET draft `useEffect` and never touches `aiStatus`. So the PreviewStep workflow modal was already gated correctly — it was not the lie.
+
+**The actual lie was in [MatterOpenedHandoff.tsx](../../src/components/modern/matter-opening/MatterOpenedHandoff.tsx).** This card (the "in" to CCL after a matter opens) renders a 4-pill step strip — Compile context · Generate draft · Pressure test · Review ready. The pills snap from muted → "all done" the instant `fetchedOnce` flips, so when re-entering a matter where the draft is already settled, it visually flashes through stages it never actually walked. After settlement the strip just sat there as decoration of past state.
+
+**What shipped:**
+- Step strip now hidden when `tone === 'attention' || tone === 'ready'`. Only renders during live progression (`'working'` / `'idle'`). After settlement, the headline + CTA are the focal point — no decorative past-state.
+- Stripped the `· none confidence` artefact from the metadata line (it was rendering literally when `entry.confidence === 'none'`).
+- Removed the redundant *"Matter opening has completed. Continue or close..."* sentence from the surrounding `CompactMatterWizard` success block — the handoff card already tells the user what to do, the sentence was duplicated chrome.
+
+**Still parked under W4 (genuinely small):**
+- The PT strip simulation timers in `PreviewStep` (L826–L840) are still fake `setTimeout` advances. They only fire while PT is actually running (user-triggered, not on hydration), so they're a smaller honesty issue than originally written. They'll be replaced by real per-chunk events when W3 ships, so leaving in place.
+
+**Coordinates with:** W3 (chunked-parallel) — once chunks emit real events, both the modal and the PT strip become truthful by construction.
+
+### 10.4 Suggested execution order if picking this up
+
+1. ~~W4 first~~ (✅ done in part — see 10.3).
+2. W2D (comparison harness — still required before any further prompt/template/model work).
+3. W3 (chunked-parallel) — biggest perceptual + resilience win. Run W2C prompt refinement *per chunk* during this phase.
+4. W2A (template fidelity).
+
+### 10.5 W5 — Review CCL in-place over the workbench (NEW)
+
+**Problem.** Clicking Review on the post-matter-open handoff card (`MatterOpenedHandoff`) currently dispatches `openHomeCclReview` + `navigateToHome`, which boots the user out of the matter-opening surface they were just on and lands them on Home where `OperationsDashboard` opens the CCL modal. Jarring — the user just opened a matter, they're in flow, popping them to a different tab to review the CCL is unnecessary context loss. The user should be able to stay on the workbench and have the review modal open as an overlay over that page.
+
+**Why it's not trivial.** The CCL review modal stack (`openCclLetterModal`, `openCclWorkflowModal`, `cclLetterModal` state, draft cache, PT cache, `setCclPreviewOpen`, etc.) all lives inside `OperationsDashboard` — a Home-tab-only mount. The `openHomeCclReview` event listener is on that component, so anywhere off Home the event is a no-op until you navigate.
+
+**Fix shape (~2–4 hrs):**
+- Lift the CCL review modal mount + state out of `OperationsDashboard` into a top-level provider/portal (e.g. `CclReviewPortal` rendered in `App.tsx`). The portal owns: `cclLetterModal`, draft cache, PT cache, AI trace cache, the listener for `openHomeCclReview`.
+- `OperationsDashboard` keeps its own row state (expandedCcl, etc.) but stops being the modal owner.
+- Drop the `navigateToHome` dispatch from `MatterOpenedHandoff` — once the portal exists, the modal opens in place over whatever surface the user is on.
+- Coordination: every existing dispatcher (`Home.tsx` `openHomeCclReview`, `Matters.tsx`, `MatterTableView.tsx`, `InlineWorkbench.tsx`, `App.tsx` URL forwarder) keeps working because the event contract is unchanged.
+
+**Coordinates with:** Nothing — independent of W2/W3/W4. Could ship anytime.
+
+**Until then:** the handoff card's Review CTA still navigates to Home, but at least it now skips the intro landing on attention drafts (shipped 2026-04-28) so it lands directly on the field-fix view.
+

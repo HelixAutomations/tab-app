@@ -209,7 +209,13 @@ router.post('/', async (req, res) => {
     await markComplete(submissionId, { lastEvent: 'transaction created (pending)' });
 
     invalidateV2Cache();
-    res.json({ success: true, id: inserted?.id, createdAt: inserted?.created_at });
+    res.json({
+      success: true,
+      id: inserted?.id,
+      createdAt: inserted?.created_at,
+      submissionId,
+      streamUrl: submissionId ? `forms?focusSubmission=${submissionId}` : null,
+    });
   } catch (error) {
     trackException(error, { operation: 'TransactionsV2.Create', phase: 'insert' });
     trackEvent('TransactionsV2.CreateFailed', { error: error.message });

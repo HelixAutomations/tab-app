@@ -75,6 +75,12 @@ screenshot, page-source dump, or HAR capture. Set
    selectors are forbidden). They are observation-only.
 4. Don't remove a region name once shipped — agents and operators may have
    bookmarked it.
+5. **Navigator content is whitelisted by tab.** If your tab writes content
+   via `setContent()` from `useNavigatorActions`, add the tab key to BOTH
+   `chrome-tab-hidden` toggles in `src/app/App.tsx` (~L772) — `navNode` and
+   `actNode`. Otherwise your FilterBanner/header writes to context correctly
+   but the wrapper is `display: none` and nothing shows. Symptom: tab content
+   renders fine, navigator slot is empty.
 
 ## Why this matters
 

@@ -11,6 +11,25 @@
     "azureFunctions.stopFuncTaskPostDebug": false,
     "azureFunctions.showProjectWarning": false,
     "csharp.suppressDotnetRestoreNotification": true,
+    "chatCustomizationsEvaluations.enable": true,
+    "chatCustomizationsEvaluations.customDiagnostics": [
+        {
+            "name": "Helix guardrail drift",
+            "description": "Flag any instruction or prompt that contradicts Helix safety guardrails: production deploy confirmation, no secret handling in chat, no raw client PII in chat, submodules read-only, product guardrails, changelog logging, and the user-tier taxonomy. Report only concrete contradictions or missing risky-action checks."
+        },
+        {
+            "name": "Agent output skew",
+            "description": "Flag wording that biases the agent toward a predetermined conclusion, excessive positivity, unnecessary implementation, or a preferred style when the user is asking for analysis. Do not flag firm tone or concise British English unless it conflicts with accuracy or user intent."
+        },
+        {
+            "name": "Context weight",
+            "description": "Flag broad, duplicated, or always-on instructions that add cognitive load without changing behaviour. Prefer narrower applyTo patterns, references to existing source-of-truth docs, or deletion of stale guidance."
+        },
+        {
+            "name": "Risky action approval",
+            "description": "Flag prompts that ask the agent to mutate production, deploy, run database writes, alter secrets, or change submodules without an explicit confirmation path, dry-run option, rollback note, or local-only boundary."
+        }
+    ],
     "github.copilot.chat.codeGeneration.useInstructionFiles": true,
     "github.copilot.chat.reviewSelection.instructions": [
         { "text": "Prioritize correctness, security, and TypeScript types. Flag unsafe SQL, secret leakage, and missing error handling. Skip minor style nits unless risky." }

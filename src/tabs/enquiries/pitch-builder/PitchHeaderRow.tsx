@@ -66,25 +66,19 @@ const PitchHeaderRow: React.FC<PitchHeaderRowProps> = ({
 
   const labelColour = isDarkMode ? '#fff' : colours.darkBlue;
 
-  // Modern card style with gradients and enhanced shadows
+  // On-brand surface ladder. borderRadius:0, no gradients/blur/MD shadows.
+  // See COMPONENT_STYLE_GUIDE.md and UserBubble reference.
   const sectionStyle = {
     display: 'flex',
     flexDirection: 'column' as const,
     width: '100%',
-    padding: '24px',
-    gap: '16px',
-    border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.26)' : 'rgba(148, 163, 184, 0.16)'}`,
-    borderRadius: '16px',
-    background: isDarkMode 
-      ? 'linear-gradient(135deg, rgba(5, 12, 26, 0.98) 0%, rgba(9, 22, 44, 0.94) 52%, rgba(13, 35, 63, 0.9) 100%)'
-      : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-    boxShadow: isDarkMode 
-      ? '0 20px 44px rgba(2, 6, 17, 0.72)'
-      : '0 16px 40px rgba(13, 47, 96, 0.18)',
-    backdropFilter: 'blur(12px)',
-    transition: 'all 0.25s ease',
+    padding: '16px',
+    gap: '12px',
+    border: `1px solid ${isDarkMode ? colours.dark.border : 'rgba(6, 23, 51, 0.12)'}`,
+    borderRadius: 0,
+    background: isDarkMode ? colours.dark.cardBackground : '#FFFFFF',
+    transition: 'border-color 0.15s ease',
     position: 'relative' as const,
-    minHeight: '160px'
   };
 
   const enquiryNotesContainer = mergeStyles({
@@ -92,29 +86,19 @@ const PitchHeaderRow: React.FC<PitchHeaderRowProps> = ({
   });
 
   const enquiryNotesHeader = mergeStyles({
-    color: isDarkMode ? colours.dark.text : '#0F172A',
+    color: isDarkMode ? colours.dark.text : colours.darkBlue,
+    fontFamily: 'Raleway, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
     fontWeight: 600,
-    fontSize: '17px',
+    fontSize: '11px',
+    letterSpacing: '0.08em',
+    textTransform: 'uppercase' as const,
     lineHeight: 1.4,
-    marginBottom: '16px',
+    marginBottom: '8px',
+    paddingBottom: '8px',
     display: 'flex',
     alignItems: 'center',
-    gap: '12px',
-    paddingBottom: '12px',
-    borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.16)'}`,
-    position: 'relative' as const,
-    '&::before': {
-      content: '""',
-      position: 'absolute' as const,
-      top: '-1px',
-      left: '0',
-      right: '0',
-      height: '3px',
-      background: isDarkMode 
-        ? `linear-gradient(90deg, ${colours.blue}, ${colours.accent})`
-        : `linear-gradient(90deg, ${colours.blue}, ${colours.highlight})`,
-      borderRadius: '0 0 8px 8px'
-    }
+    gap: '8px',
+    borderBottom: `1px solid ${isDarkMode ? colours.dark.border : 'rgba(6, 23, 51, 0.08)'}`,
   });
 
   const enquiryNotesContent = mergeStyles({
@@ -127,20 +111,13 @@ const PitchHeaderRow: React.FC<PitchHeaderRowProps> = ({
   });
 
   const notesContainerStyle = mergeStyles({
-    background: isDarkMode 
-      ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.94) 0%, rgba(11, 30, 55, 0.86) 100%)'
-      : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-    border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.24)' : 'rgba(148, 163, 184, 0.22)'}`,
-    borderRadius: '12px',
-    padding: '16px',
-    fontSize: '14px',
-    boxShadow: isDarkMode 
-      ? '0 18px 32px rgba(2, 6, 17, 0.58)'
-      : '0 12px 28px rgba(13, 47, 96, 0.12)',
-    backdropFilter: 'blur(12px)',
+    background: isDarkMode ? colours.dark.sectionBackground : colours.grey,
+    border: `1px solid ${isDarkMode ? colours.dark.border : 'rgba(6, 23, 51, 0.08)'}`,
+    borderRadius: 0,
+    padding: '12px 14px',
+    fontSize: '13px',
     width: '100%',
-    transition: 'all 0.25s ease',
-    marginTop: '16px'
+    marginTop: '12px'
   });
 
   const notesTextStyle = mergeStyles({
@@ -154,11 +131,12 @@ const PitchHeaderRow: React.FC<PitchHeaderRowProps> = ({
   });
 
   const intakeHeader = mergeStyles({
-    color: isDarkMode ? colours.dark.text : '#0F172A',
+    color: isDarkMode ? colours.dark.text : colours.darkBlue,
+    fontFamily: 'Raleway, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
     fontWeight: 600,
-    fontSize: '16px',
-    marginBottom: '12px',
-    padding: '0 4px',
+    fontSize: '12px',
+    letterSpacing: '0.04em',
+    marginBottom: '8px',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -166,20 +144,19 @@ const PitchHeaderRow: React.FC<PitchHeaderRowProps> = ({
   });
 
   const toggleCcBccStyle = mergeStyles({
-    color: isDarkMode ? '#94A3B8' : colours.greyText,
+    color: isDarkMode ? colours.subtleGrey : colours.greyText,
     cursor: 'pointer',
     fontSize: '12px',
     marginTop: '8px',
     padding: '6px 12px',
-    borderRadius: '6px',
-    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.16)'}`,
-    background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.05)',
-    transition: 'all 0.2s ease',
+    borderRadius: 0,
+    border: `1px solid ${isDarkMode ? colours.dark.border : 'rgba(6, 23, 51, 0.12)'}`,
+    background: 'transparent',
+    transition: 'border-color 0.15s ease, color 0.15s ease',
     selectors: {
       ':hover': { 
-        color: isDarkMode ? colours.dark.text : labelColour,
-        background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.08)',
-        borderColor: isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)'
+        color: isDarkMode ? colours.accent : colours.highlight,
+        borderColor: isDarkMode ? colours.accent : colours.highlight,
       },
     },
   });
@@ -188,28 +165,29 @@ const PitchHeaderRow: React.FC<PitchHeaderRowProps> = ({
     display: 'flex',
     alignItems: 'center',
     gap: '12px',
-    fontSize: '14px',
+    fontSize: '13px',
     padding: '8px 0',
-    borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)'}`,
+    borderBottom: `1px solid ${isDarkMode ? colours.dark.border : 'rgba(6, 23, 51, 0.06)'}`,
     ':last-child': {
       borderBottom: 'none'
     }
   });
 
   const detailLabelStyle = mergeStyles({ 
+    fontFamily: 'Raleway, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
     fontWeight: 600,
-    color: isDarkMode ? '#94A3B8' : '#6B7280',
-    fontSize: '13px',
+    color: isDarkMode ? colours.subtleGrey : colours.greyText,
+    fontSize: '11px',
     minWidth: '60px',
     textTransform: 'uppercase' as const,
-    letterSpacing: '0.025em'
+    letterSpacing: '0.06em'
   });
 
   const detailValueStyle = mergeStyles({ 
     flexGrow: 1, 
     overflowWrap: 'anywhere' as const,
-    color: isDarkMode ? colours.dark.text : '#1F2937',
-    fontSize: '14px',
+    color: isDarkMode ? colours.dark.text : colours.darkBlue,
+    fontSize: '13px',
     fontWeight: 500
   });
 
@@ -231,37 +209,22 @@ const PitchHeaderRow: React.FC<PitchHeaderRowProps> = ({
     flexWrap: 'wrap' as const,
     gap: '8px',
     padding: '12px',
-    background: isDarkMode 
-      ? 'linear-gradient(135deg, rgba(5, 12, 26, 0.98) 0%, rgba(9, 22, 44, 0.94) 52%, rgba(13, 35, 63, 0.9) 100%)'
-      : 'linear-gradient(135deg, rgba(248, 250, 252, 0.96) 0%, rgba(255, 255, 255, 0.94) 100%)',
-    border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.28)' : 'rgba(148, 163, 184, 0.25)'}`,
-    borderRadius: '16px',
-    boxShadow: isDarkMode 
-      ? '0 20px 44px rgba(2, 6, 17, 0.72)' 
-      : '0 8px 24px rgba(13, 47, 96, 0.16)',
-    backdropFilter: 'blur(12px)',
-    borderLeft: isDarkMode 
-      ? '3px solid rgba(125, 211, 252, 0.7)' 
-      : '3px solid rgba(54, 144, 206, 0.6)',
-    animation: 'cascadeIn 0.6s ease-out'
+    background: isDarkMode ? colours.dark.sectionBackground : colours.grey,
+    border: `1px solid ${isDarkMode ? colours.dark.border : 'rgba(6, 23, 51, 0.08)'}`,
+    borderLeft: `2px solid ${isDarkMode ? colours.accent : colours.highlight}`,
+    borderRadius: 0,
   });
 
   const emailFieldBase = {
     flexGrow: 1,
-    padding: '16px',
+    padding: '12px 14px',
     display: 'flex',
     flexDirection: 'column' as const,
-    background: isDarkMode 
-      ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.94) 0%, rgba(11, 30, 55, 0.86) 100%)'
-      : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-    border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.24)' : 'rgba(148, 163, 184, 0.22)'}`,
-    borderRadius: '12px',
-    margin: '4px',
-    boxShadow: isDarkMode 
-      ? '0 8px 16px rgba(2, 6, 17, 0.4)'
-      : '0 4px 12px rgba(13, 47, 96, 0.08)',
-    backdropFilter: 'blur(8px)',
-    transition: 'all 0.25s ease'
+    background: isDarkMode ? colours.dark.cardBackground : '#FFFFFF',
+    border: `1px solid ${isDarkMode ? colours.dark.border : 'rgba(6, 23, 51, 0.10)'}`,
+    borderRadius: 0,
+    margin: 0,
+    transition: 'border-color 0.15s ease'
   };
 
   const toFieldStyle = mergeStyles(emailFieldBase, {
@@ -271,11 +234,8 @@ const PitchHeaderRow: React.FC<PitchHeaderRowProps> = ({
   const ccFieldStyle = mergeStyles(emailFieldBase, {
     minWidth: '250px',
     selectors: {
-      '&:hover': {
-        transform: 'translateY(-2px)',
-        boxShadow: isDarkMode 
-          ? '0 12px 20px rgba(2, 6, 17, 0.6)'
-          : '0 8px 16px rgba(13, 47, 96, 0.12)'
+      '&:focus-within': {
+        borderColor: isDarkMode ? colours.accent : colours.highlight,
       }
     }
   });
@@ -283,11 +243,8 @@ const PitchHeaderRow: React.FC<PitchHeaderRowProps> = ({
   const bccFieldStyle = mergeStyles(emailFieldBase, {
     minWidth: '250px',
     selectors: {
-      '&:hover': {
-        transform: 'translateY(-2px)',
-        boxShadow: isDarkMode 
-          ? '0 12px 20px rgba(2, 6, 17, 0.6)'
-          : '0 8px 16px rgba(13, 47, 96, 0.12)'
+      '&:focus-within': {
+        borderColor: isDarkMode ? colours.accent : colours.highlight,
       }
     }
   });
@@ -349,7 +306,7 @@ const PitchHeaderRow: React.FC<PitchHeaderRowProps> = ({
     });
 
   return (
-    <Stack tokens={{ childrenGap: 8 }} styles={{ root: { width: '100%' } }}>
+    <Stack tokens={{ childrenGap: 8 }} styles={{ root: { width: '100%' } }} data-helix-region="pitch-builder.header">
       <div className={headerRowStyle}>
         {/* Enquiry Details */}
         <div className={enquiryNotesContainer}>

@@ -2064,15 +2064,18 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
                   {queueTitle}
                 </span>
                 {demoModeActive && (
-                  <span style={{
-                    fontSize: 7,
-                    fontWeight: 700,
-                    color: textMuted,
-                    padding: '1px 4px',
-                    border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.15)' : 'rgba(13,47,96,0.15)'}`,
-                    lineHeight: 1.1,
-                  }}>
-                    demo
+                  <span
+                    title="Operations Queue numbers are decorative-by-design while demo mode is on — totals, payments, and refs are mock data."
+                    style={{
+                      fontSize: 7,
+                      fontWeight: 700,
+                      color: textMuted,
+                      padding: '1px 4px',
+                      border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.15)' : 'rgba(13,47,96,0.15)'}`,
+                      lineHeight: 1.1,
+                    }}
+                  >
+                    demo numbers
                   </span>
                 )}
               </div>
@@ -2526,9 +2529,9 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
                       alignItems: 'center',
                       justifyContent: 'center',
                       background: txnVersion === v
-                        ? (isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(13, 47, 96, 0.08)')
+                        ? (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(13, 47, 96, 0.08)')
                         : 'transparent',
-                      border: `1px solid ${txnVersion === v ? (isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(13, 47, 96, 0.12)') : 'transparent'}`,
+                      border: `1px solid ${txnVersion === v ? (isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(13, 47, 96, 0.12)') : 'transparent'}`,
                       borderRadius: 0,
                       padding: '3px 8px',
                       cursor: 'pointer',
@@ -2605,9 +2608,9 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
                       }}
                       style={{
                         background: isActive
-                          ? (isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(13, 47, 96, 0.08)')
+                          ? (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(13, 47, 96, 0.08)')
                           : 'transparent',
-                        border: `1px solid ${isActive ? (isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(13, 47, 96, 0.12)') : (isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(13,47,96,0.08)')}`,
+                        border: `1px solid ${isActive ? (isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(13, 47, 96, 0.12)') : (isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(13,47,96,0.08)')}`,
                         borderRadius: 0,
                         padding: '3px 8px',
                         cursor: 'pointer',
@@ -2640,9 +2643,9 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
                           alignItems: 'center',
                           justifyContent: 'center',
                           background: txnVersion === v
-                            ? (isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(13, 47, 96, 0.08)')
+                            ? (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(13, 47, 96, 0.08)')
                             : 'transparent',
-                          border: `1px solid ${txnVersion === v ? (isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(13, 47, 96, 0.12)') : 'transparent'}`,
+                          border: `1px solid ${txnVersion === v ? (isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(13, 47, 96, 0.12)') : 'transparent'}`,
                           borderRadius: 0,
                           padding: '3px 8px',
                           cursor: 'pointer',

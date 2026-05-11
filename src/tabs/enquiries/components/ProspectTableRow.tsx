@@ -1,5 +1,5 @@
 /**
- * ProspectTableRow — renders a single enquiry row in the prospects table.
+ * ProspectTableRow â€” renders a single enquiry row in the prospects table.
  *
  * Extracted from the ~1,400-line individual-row branch in Enquiries.tsx.
  * Composes: 6-column grid row (Timeline, Date, ID/Value,
@@ -28,9 +28,9 @@ const UNLOCKED_ACTIONS_COLUMN_WIDTH_PX = 188;
 const LOCKED_ACTIONS_COLUMN_WIDTH = `clamp(32px, 4vw, ${LOCKED_ACTIONS_COLUMN_WIDTH_PX}px)`;
 const UNLOCKED_ACTIONS_COLUMN_WIDTH = `clamp(80px, 14vw, ${UNLOCKED_ACTIONS_COLUMN_WIDTH_PX}px)`;
 
-/** Grid template used by every row — must match the live Enquiries table. */
+/** Grid template used by every row â€” must match the live Enquiries table. */
 const getTableGridTemplateColumns = (areActionsEnabled: boolean) => (
-  `clamp(20px, 4vw, 36px) minmax(clamp(28px, 5vw, 60px), 0.45fr) minmax(clamp(44px, 7vw, 88px), 0.6fr) minmax(clamp(50px, 9vw, 140px), 1.1fr) minmax(clamp(60px, 15vw, 260px), 3.4fr) ${areActionsEnabled ? UNLOCKED_ACTIONS_COLUMN_WIDTH : LOCKED_ACTIONS_COLUMN_WIDTH}`
+  `minmax(clamp(56px, 9vw, 112px), 0.82fr) minmax(clamp(34px, 5vw, 64px), 0.48fr) minmax(clamp(50px, 9vw, 140px), 1.1fr) minmax(clamp(60px, 15vw, 260px), 3.4fr) ${areActionsEnabled ? UNLOCKED_ACTIONS_COLUMN_WIDTH : LOCKED_ACTIONS_COLUMN_WIDTH}`
 );
 
 const ProspectTableRow: React.FC<ProspectTableRowProps> = ({
@@ -40,7 +40,6 @@ const ProspectTableRow: React.FC<ProspectTableRowProps> = ({
   pipelineHandlers,
   actionHandlers,
   displayState,
-  hoverHandlers,
   dataDeps,
 }) => {
   const {
@@ -49,17 +48,12 @@ const ProspectTableRow: React.FC<ProspectTableRowProps> = ({
     areActionsEnabled,
     copiedNameKey,
     expandedNotesInTable,
-    hoveredRowKey,
-    hoveredDayKey,
-    hoveredRowKeyReady,
-    hoveredDayKeyReady,
     pipelineNeedsCarousel,
     visiblePipelineChipCount,
     PIPELINE_CHIP_MIN_WIDTH_PX,
     currentUserEmail,
   } = displayState;
 
-  const { setHoveredRowKey, setHoveredDayKey } = hoverHandlers;
   const { handleSelectEnquiry, handleCopyName, setExpandedNotesInTable: setExpandedNotes } = actionHandlers;
   const { enrichmentMap, getEnquiryWorkbenchItem, isUnclaimedPoc, getRatingChipMeta, combineDateAndTime, claimerMap, contactVisibilityMap } = dataDeps;
 
@@ -86,7 +80,7 @@ const ProspectTableRow: React.FC<ProspectTableRowProps> = ({
   const areaOfWork = item.Area_of_Work || 'Unspecified';
   const dateReceived = item.Touchpoint_Date || item.Date_Created || '';
   const rawValue: any = (item as any).Value ?? (item as any).value ?? '';
-  const value = typeof rawValue === 'string' ? rawValue.replace(/^£\s*/, '').trim() : rawValue;
+  const value = typeof rawValue === 'string' ? rawValue.replace(/^Â£\s*/, '').trim() : rawValue;
   const isFromInstructions = (item as any).source === 'instructions';
   const hasNotes = !!(item.Initial_first_call_notes && item.Initial_first_call_notes.trim().length > 0);
   const normalizedNotes = item.Initial_first_call_notes?.replace(/\\n/g, '\n').replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim() || '';
@@ -102,6 +96,7 @@ const ProspectTableRow: React.FC<ProspectTableRowProps> = ({
   const mainShowClaimer = !!mainPocValue && activeState !== 'Triaged' && !isMainTeamInboxPoc;
   const accentColor = isDarkMode ? colours.accent : colours.highlight;
   const idTextColor = isConverted ? colours.green : (isDarkMode ? colours.dark.text : colours.light.text);
+  const identityAccentColor = getAreaOfWorkLineColor(areaOfWork, isDarkMode, false);
   const tableGridTemplateColumns = getTableGridTemplateColumns(areActionsEnabled);
   const isClaimableRow = activeState === 'Claimable' && isUnclaimed;
   const claimRail = isClaimableRow
@@ -132,8 +127,6 @@ const ProspectTableRow: React.FC<ProspectTableRowProps> = ({
   const singleDayKey = toDayKey(thisDateStr);
   const isLastInDay = !nextDateStr || toDayKey(nextDateStr) !== singleDayKey;
   const fullDateTooltip = formatFullDateTime(thisDateStr || dateReceived || null);
-  const rowHoverKey = buildEnquiryIdentityKey(item);
-  const showRowDetails = hoveredRowKey === rowHoverKey || hoveredDayKey === singleDayKey;
 
   return (
     <React.Fragment key={`${item.ID}-${item.First_Name || ''}-${item.Last_Name || ''}-${item.Touchpoint_Date || ''}-${item.Point_of_Contact || ''}`}>
@@ -143,76 +136,47 @@ const ProspectTableRow: React.FC<ProspectTableRowProps> = ({
         style={{
           gridTemplateColumns: tableGridTemplateColumns,
           borderBottom: isLastInDay
-            ? `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.35)' : 'rgba(0, 0, 0, 0.09)'}`
-            : `0.5px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.10)' : 'rgba(160, 160, 160, 0.08)'}`,
+            ? `1px solid ${isDarkMode ? 'rgba(var(--subtle-grey-rgb), 0.28)' : 'rgba(var(--subtle-grey-rgb), 0.18)'}`
+            : `0.5px solid ${isDarkMode ? 'rgba(var(--subtle-grey-rgb), 0.16)' : 'rgba(var(--subtle-grey-rgb), 0.12)'}`,
           '--row-index': Math.min(idx, 15),
         } as React.CSSProperties}
-        className={`prospect-row enquiry-row enquiry-row--enter${isConverted ? ' prospect-row--converted' : ''}${(hoveredRowKey === rowHoverKey || hoveredDayKey === singleDayKey) ? ' pipeline-row-hover' : ''}${(hoveredRowKeyReady === rowHoverKey || hoveredDayKeyReady === singleDayKey) ? ' pipeline-row-hover-ready' : ''}`}
-        onMouseEnter={(e) => {
-          const tooltip = e.currentTarget.querySelector('.timeline-date-tooltip') as HTMLElement;
-          if (tooltip) tooltip.style.opacity = '1';
-          setHoveredRowKey(rowHoverKey);
-        }}
-        onMouseLeave={(e) => {
-          const tooltip = e.currentTarget.querySelector('.timeline-date-tooltip') as HTMLElement;
-          if (tooltip) tooltip.style.opacity = '0';
-          setHoveredRowKey((prev) => (prev === rowHoverKey ? null : prev));
-        }}
+        className={`prospect-row enquiry-row enquiry-row--enter enquiry-row--css-hover${isConverted ? ' prospect-row--converted' : ''}`}
         onClick={() => !isUnclaimed && handleSelectEnquiry(item)}
       >
-        <div className="prospect-timeline-cell">
-          <div
-            className="prospect-timeline-cell__line"
-            style={{
-              background: getAreaOfWorkLineColor(areaOfWork, isDarkMode, hoveredDayKey === singleDayKey),
-              opacity: hoveredDayKey === singleDayKey ? 1 : 0.9,
-            }}
-          />
-        </div>
-
-        <TooltipHost
-          content={fullDateTooltip}
-          styles={{ root: { display: 'flex', alignItems: 'center', height: '100%', paddingInline: 2 } }}
-          calloutProps={{ gapSpace: 6 }}
-        >
-          {(() => {
-            const { top, bottom } = getStackedDateDisplay(dateReceived);
-            return (
-              <div className="prospect-date">
-                <span className="prospect-date__top">{top}</span>
-                <span className="prospect-date__bottom">{bottom}</span>
-              </div>
-            );
-          })()}
-        </TooltipHost>
-
-        <div style={{
-          position: 'relative',
-          display: 'flex',
-          alignItems: 'center',
-          lineHeight: 1.3,
-          paddingInline: 2,
-          overflow: 'hidden',
-        }}>
-          {/* ID row — visible by default, fades out on hover when value exists */}
+        <div
+          className="enquiry-row__identity"
+          data-has-value={formatValueForDisplay(value) ? 'true' : 'false'}
+          style={{
+            position: 'relative',
+            display: 'flex',
+            alignItems: 'center',
+            minHeight: '100%',
+            lineHeight: 1.3,
+            padding: '0 2px 0 6px',
+            overflow: 'hidden',
+            borderLeft: `2px solid ${identityAccentColor}`,
+            boxSizing: 'border-box',
+          }}>
+          {/* ID row visible by default, fades out on hover when value exists */}
           {(() => {
             const numValue = typeof value === 'string' ? parseFloat(value.replace(/[^0-9.]/g, '')) : (typeof value === 'number' ? value : 0);
             const displayValue = formatValueForDisplay(value);
             const hasValue = Boolean(displayValue);
             return (
               <>
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  opacity: (showRowDetails && hasValue) ? 0 : 1,
-                  transition: 'opacity 160ms ease',
-                }}>
-                  <span className="prospect-aow-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1, flexShrink: 0 }} title={areaOfWork}>
+                <div
+                  className="enquiry-row__identity-base"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 5,
+                    transition: 'opacity 160ms ease',
+                  }}>
+                  <span className="prospect-aow-icon" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", lineHeight: 1, flexShrink: 0 }} title={areaOfWork}>
                     {getAreaOfWorkIcon(areaOfWork)}
                   </span>
                   <span style={{
-                    fontFamily: 'Monaco, Consolas, monospace',
+                    fontFamily: 'Raleway, sans-serif',
                     fontSize: '10px',
                     fontWeight: 500,
                     color: idTextColor,
@@ -225,19 +189,20 @@ const ProspectTableRow: React.FC<ProspectTableRowProps> = ({
                   </span>
                 </div>
                 {hasValue && (
-                  <div style={{
-                    position: 'absolute',
-                    left: 2,
-                    top: 0,
-                    bottom: 0,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    opacity: showRowDetails ? 1 : 0,
-                    transition: 'opacity 160ms ease',
-                    pointerEvents: 'none',
-                  }}>
-                    <span className="prospect-aow-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1, flexShrink: 0, visibility: 'hidden' }}>
+                  <div
+                    className="enquiry-row__identity-value"
+                    style={{
+                      position: 'absolute',
+                      left: 8,
+                      top: 0,
+                      bottom: 0,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 5,
+                      transition: 'opacity 160ms ease',
+                      pointerEvents: 'none',
+                    }}>
+                    <span className="prospect-aow-icon" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", lineHeight: 1, flexShrink: 0, visibility: "hidden" }}>
                       {getAreaOfWorkIcon(areaOfWork)}
                     </span>
                     <span style={{
@@ -259,6 +224,22 @@ const ProspectTableRow: React.FC<ProspectTableRowProps> = ({
           })()}
         </div>
 
+        <TooltipHost
+          content={fullDateTooltip}
+          styles={{ root: { display: 'flex', alignItems: 'center', height: '100%', paddingInline: 2 } }}
+          calloutProps={{ gapSpace: 6 }}
+        >
+          {(() => {
+            const { top, bottom } = getStackedDateDisplay(dateReceived);
+            return (
+              <div className="prospect-date">
+                <span className="prospect-date__top">{top}</span>
+                <span className="prospect-date__bottom">{bottom}</span>
+              </div>
+            );
+          })()}
+        </TooltipHost>
+
         <div style={{
           position: 'relative',
           display: 'flex',
@@ -268,15 +249,16 @@ const ProspectTableRow: React.FC<ProspectTableRowProps> = ({
           justifyContent: 'center',
           paddingInline: 2,
         }}>
-          <div style={{
+          <div
+            className="enquiry-row__contact-header"
+            style={{
             display: 'flex',
             alignItems: 'center',
             gap: 4,
-            transform: showRowDetails ? 'translateY(-4px)' : 'translateY(0)',
             transition: 'transform 160ms ease',
           }}>
             <span style={{
-              fontSize: '13px',
+              fontSize: '12px',
               fontWeight: 500,
               color: isConverted ? colours.green : (isDarkMode ? colours.dark.text : colours.light.text),
               overflow: 'hidden',
@@ -358,7 +340,9 @@ const ProspectTableRow: React.FC<ProspectTableRowProps> = ({
             gap: '0',
           }}>
             {item.Email && (
-              <span style={{
+              <span
+                className="enquiry-row__email"
+                style={{
                 position: 'absolute',
                 left: 0,
                 top: '50%',
@@ -366,8 +350,6 @@ const ProspectTableRow: React.FC<ProspectTableRowProps> = ({
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
-                opacity: showRowDetails ? 1 : 0,
-                transform: showRowDetails ? 'translateY(6px)' : 'translateY(3px)',
                 transition: 'opacity 140ms ease, transform 160ms ease',
                 pointerEvents: 'none',
               }}>
@@ -444,7 +426,6 @@ const ProspectTableRow: React.FC<ProspectTableRowProps> = ({
           contactName={contactName}
           getRatingChipMeta={getRatingChipMeta}
           handleRate={actionHandlers.handleRate}
-          isHovered={showRowDetails}
           handleDeleteEnquiry={actionHandlers.handleDeleteEnquiry}
           handleShareEnquiry={actionHandlers.handleShareEnquiry}
           setEditingEnquiry={actionHandlers.setEditingEnquiry}
@@ -481,21 +462,12 @@ const ProspectTableRow: React.FC<ProspectTableRowProps> = ({
   );
 };
 
-const getRowDayKey = (item: Enquiry): string => {
-  const dateValue = (item.Touchpoint_Date || (item as any).datetime || (item as any).claim || item.Date_Created || '') as string;
-  if (!dateValue) return '';
-  const parsed = new Date(dateValue);
-  if (Number.isNaN(parsed.getTime())) return '';
-  return parsed.toISOString().split('T')[0];
-};
-
 const areRowPropsEqual = (prev: ProspectTableRowProps, next: ProspectTableRowProps): boolean => {
   if (prev.item !== next.item) return false;
   if (prev.idx !== next.idx) return false;
   if (prev.nextDateStr !== next.nextDateStr) return false;
   if (prev.pipelineHandlers !== next.pipelineHandlers) return false;
   if (prev.actionHandlers !== next.actionHandlers) return false;
-  if (prev.hoverHandlers !== next.hoverHandlers) return false;
   if (prev.dataDeps !== next.dataDeps) return false;
 
   const prevDisplay = prev.displayState;
@@ -509,15 +481,8 @@ const areRowPropsEqual = (prev: ProspectTableRowProps, next: ProspectTableRowPro
   if (prevDisplay.currentUserEmail !== nextDisplay.currentUserEmail) return false;
 
   const rowKey = buildEnquiryIdentityKey(prev.item);
-  const dayKey = getRowDayKey(prev.item);
   const noteKey = rowKey;
   const nameCopyKey = `name-${noteKey}`;
-  const prevShowRowDetails = prevDisplay.hoveredRowKey === rowKey || prevDisplay.hoveredDayKey === dayKey;
-  const nextShowRowDetails = nextDisplay.hoveredRowKey === rowKey || nextDisplay.hoveredDayKey === dayKey;
-  if (prevShowRowDetails !== nextShowRowDetails) return false;
-  const prevHoverReady = prevDisplay.hoveredRowKeyReady === rowKey || prevDisplay.hoveredDayKeyReady === dayKey;
-  const nextHoverReady = nextDisplay.hoveredRowKeyReady === rowKey || nextDisplay.hoveredDayKeyReady === dayKey;
-  if (prevHoverReady !== nextHoverReady) return false;
   const prevNotesExpanded = prevDisplay.expandedNotesInTable.has(noteKey);
   const nextNotesExpanded = nextDisplay.expandedNotesInTable.has(noteKey);
   if (prevNotesExpanded !== nextNotesExpanded) return false;

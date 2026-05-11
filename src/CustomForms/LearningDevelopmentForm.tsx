@@ -8,7 +8,7 @@ import { Dropdown } from '@fluentui/react/lib/Dropdown';
 import type { IDropdownOption } from '@fluentui/react/lib/Dropdown';
 import { Icon } from '@fluentui/react/lib/Icon';
 import { IconButton } from '@fluentui/react/lib/Button';
-import { getProxyBaseUrl } from '../utils/getProxyBaseUrl';
+import { getApiBase } from '../utils/getApiUrl';
 import type { TeamData, UserData } from '../app/functionality/types';
 import {
   getFormScrollContainerStyle,
@@ -31,6 +31,7 @@ import {
 } from './shared/formStyles';
 import { useFormReadinessPulse } from './shared/useFormReadinessPulse';
 import { FormReadinessCue } from './shared/FormReadinessCue';
+import FormsStreamLanded from './shared/FormsStreamLanded';
 import { colours } from '../app/styles/colours';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { isAdminUser } from '../app/admin';
@@ -104,6 +105,8 @@ const LearningDevelopmentForm: React.FC<LearningDevelopmentFormProps> = ({ userD
   const [planForm, setPlanForm] = useState<PlanFormState>(emptyPlan);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [streamSubmissionId, setStreamSubmissionId] = useState<string | null>(null);
+  const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [selectedInitials, setSelectedInitials] = useState<string>(ownInitials);
 
   const switchableUsers = useMemo(() => {
@@ -143,7 +146,7 @@ const LearningDevelopmentForm: React.FC<LearningDevelopmentFormProps> = ({ userD
     const ac = new AbortController();
     (async () => {
       try {
-        const baseUrl = getProxyBaseUrl();
+        const baseUrl = getApiBase();
         const res = await fetch(`${baseUrl}/api/registers/learning-dev?year=${currentYear}`, { headers: requestHeaders, signal: ac.signal });
         if (res.ok) {
           const data = await res.json();
@@ -170,7 +173,7 @@ const LearningDevelopmentForm: React.FC<LearningDevelopmentFormProps> = ({ userD
     try {
       const matchedUser = (teamData || []).find((member) => String(member.Initials || '').trim().toUpperCase() === targetInitials);
       const fullName = String(matchedUser?.['Full Name'] || matchedUser?.First || targetInitials);
-      const baseUrl = getProxyBaseUrl();
+      const baseUrl = getApiBase();
       const response = await fetch(`${baseUrl}/api/registers/learning-dev`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...requestHeaders },
@@ -185,8 +188,13 @@ const LearningDevelopmentForm: React.FC<LearningDevelopmentFormProps> = ({ userD
 
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.ok) {
+        setStreamSubmissionId(payload?.submissionId ?? null);
+        setStreamUrl(null);
         throw new Error(payload.error || 'Failed to create plan');
       }
+
+      setStreamSubmissionId(payload?.submissionId ?? null);
+      setStreamUrl(payload?.streamUrl ?? null);
 
       setMyPlan({ ...payload.plan, activities: [], total_hours: 0 });
       setSubmitMessage({ type: 'success', text: `CPD plan created for ${currentYear}. You can now log activities.` });
@@ -211,7 +219,7 @@ const LearningDevelopmentForm: React.FC<LearningDevelopmentFormProps> = ({ userD
     setSubmitMessage(null);
 
     try {
-      const baseUrl = getProxyBaseUrl();
+      const baseUrl = getApiBase();
       const response = await fetch(`${baseUrl}/api/registers/learning-dev/activity`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...requestHeaders },
@@ -229,8 +237,13 @@ const LearningDevelopmentForm: React.FC<LearningDevelopmentFormProps> = ({ userD
 
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.ok) {
+        setStreamSubmissionId(payload?.submissionId ?? null);
+        setStreamUrl(null);
         throw new Error(payload.error || 'Failed to log activity');
       }
+
+      setStreamSubmissionId(payload?.submissionId ?? null);
+      setStreamUrl(payload?.streamUrl ?? null);
 
       const newHours = parseFloat(activityForm.hours) || 0;
       setMyPlan((prev: any) => ({
@@ -275,7 +288,7 @@ const LearningDevelopmentForm: React.FC<LearningDevelopmentFormProps> = ({ userD
     setIsSubmitting(true);
     setSubmitMessage(null);
     try {
-      const baseUrl = getProxyBaseUrl();
+      const baseUrl = getApiBase();
       const response = await fetch(`${baseUrl}/api/registers/learning-dev/${myPlan.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...requestHeaders },
@@ -316,7 +329,7 @@ const LearningDevelopmentForm: React.FC<LearningDevelopmentFormProps> = ({ userD
     setIsSubmitting(true);
     setSubmitMessage(null);
     try {
-      const baseUrl = getProxyBaseUrl();
+      const baseUrl = getApiBase();
       const response = await fetch(`${baseUrl}/api/registers/learning-dev/activity/${editingActivityId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...requestHeaders },
@@ -356,7 +369,7 @@ const LearningDevelopmentForm: React.FC<LearningDevelopmentFormProps> = ({ userD
     setIsSubmitting(true);
     setSubmitMessage(null);
     try {
-      const baseUrl = getProxyBaseUrl();
+      const baseUrl = getApiBase();
       const response = await fetch(`${baseUrl}/api/registers/learning-dev/activity/${activityId}`, {
         method: 'DELETE',
         headers: requestHeaders,
@@ -486,6 +499,14 @@ const LearningDevelopmentForm: React.FC<LearningDevelopmentFormProps> = ({ userD
             >
               {submitMessage.text}
             </MessageBar>
+          )}
+
+          {streamSubmissionId && submitMessage && (
+            <FormsStreamLanded
+              submissionId={streamSubmissionId}
+              streamUrl={streamUrl}
+              isDarkMode={isDarkMode}
+            />
           )}
 
           {isLoadingPlan ? (

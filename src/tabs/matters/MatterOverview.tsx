@@ -1758,7 +1758,7 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
     ...detailViewToggleBaseStyle,
     appearance: 'none',
     background: selected
-      ? (isDarkMode ? 'rgba(135, 243, 243, 0.14)' : 'rgba(54, 144, 206, 0.12)')
+      ? (isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(54, 144, 206, 0.12)')
       : 'transparent',
     color: selected
       ? (isDarkMode ? colours.accent : colours.highlight)
@@ -2166,7 +2166,7 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
                           ':hover': {
                             color: isDarkMode ? colours.accent : colours.highlight,
                             transform: 'translateY(-1px)',
-                            textShadow: isDarkMode ? '0 1px 10px rgba(135, 243, 243, 0.20)' : '0 1px 8px rgba(54, 144, 206, 0.16)',
+                            textShadow: isDarkMode ? '0 1px 10px rgba(54, 144, 206, 0.20)' : '0 1px 8px rgba(54, 144, 206, 0.16)',
                             textDecoration: 'none',
                           },
                           ':active': {
@@ -2396,7 +2396,7 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
                           ':hover': {
                             color: isDarkMode ? colours.accent : colours.highlight,
                             transform: 'translateY(-1px)',
-                            textShadow: isDarkMode ? '0 1px 10px rgba(135, 243, 243, 0.20)' : '0 1px 8px rgba(54, 144, 206, 0.16)',
+                            textShadow: isDarkMode ? '0 1px 10px rgba(54, 144, 206, 0.20)' : '0 1px 8px rgba(54, 144, 206, 0.16)',
                             textDecoration: 'none',
                           },
                           ':active': {

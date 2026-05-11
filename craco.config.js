@@ -3,9 +3,13 @@ const { BundleAnalyzerPlugin } = require('webpack-bundle-analyzer');
 const isDev = process.env.NODE_ENV !== 'production';
 
 module.exports = {
-  eslint: {
-    enable: !isDev, // skip ESLint during dev — saves ~30-60s per rebuild
-  },
+  // In dev we set DISABLE_ESLINT_PLUGIN=true (see tools/dev-all-with-logs.mjs),
+  // which makes CRA omit the ESLintWebpackPlugin from the webpack config
+  // entirely. craco still probes for the plugin internally and warns
+  // "Cannot find ESLint plugin (ESLintWebpackPlugin)." unless we explicitly
+  // tell it the plugin is disabled. `eslint: { enable: false }` short-circuits
+  // craco's plugin lookup so the warning goes away.
+  eslint: isDev ? { enable: false } : { enable: true },
   webpack: {
     configure: (config) => {
       // In dev, remove ForkTsCheckerWebpackPlugin — the IDE handles type checking

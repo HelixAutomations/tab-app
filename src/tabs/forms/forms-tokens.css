@@ -385,6 +385,13 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
+  scrollbar-width: none;
+}
+
+.forms-hub__content::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }
 
 .forms-hub__launcher-panel {
@@ -449,9 +456,16 @@
   max-height: 100%;
   min-height: 0;
   overflow: auto;
+  scrollbar-width: none;
   opacity: 1;
   transform: translateX(0);
   transition: max-height 180ms ease, opacity 180ms ease, transform 220ms ease;
+}
+
+.forms-hub__stream-list::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }
 
 .forms-hub__stream-list--collapsed {
@@ -484,6 +498,18 @@
 
 .forms-hub__stream-item--editing {
   background: rgba(54, 144, 206, 0.06);
+}
+
+/* Forms-stream landing flash: brief background pulse so the user can see
+   their just-submitted form land in the rail. Kept subtle (no movement) and
+   short (2.2s) — transparency, not theatre. */
+.forms-hub__stream-item--focus-flash {
+  animation: forms-hub-focus-flash 2.2s ease-out 1;
+}
+@keyframes forms-hub-focus-flash {
+  0% { background: rgba(54, 144, 206, 0.28); box-shadow: inset 2px 0 0 var(--helix-accent, #3690ce); }
+  60% { background: rgba(54, 144, 206, 0.16); box-shadow: inset 2px 0 0 var(--helix-accent, #3690ce); }
+  100% { background: transparent; box-shadow: none; }
 }
 
 .forms-hub__stream-item-dot {
@@ -940,6 +966,7 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+  flex: 1;
   min-width: 0;
 }
 
@@ -958,7 +985,6 @@
 }
 
 .forms-hub__bookmark-item-cognito {
-  margin-left: auto;
   display: inline-flex;
   align-items: center;
   flex-shrink: 0;
@@ -970,6 +996,42 @@
 
 .forms-hub__bookmark-item:hover .forms-hub__bookmark-item-cognito {
   opacity: 0.6;
+}
+
+.forms-hub__bookmark-item-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.forms-hub__bookmark-route-dot {
+  width: 7px;
+  height: 7px;
+  opacity: 0.7;
+}
+
+.forms-hub__bookmark-route-dot.forms-hub__route-health-dot--checking {
+  box-shadow: none;
+  opacity: 0.42;
+}
+
+.forms-hub__bookmark-route-dot.forms-hub__route-health-dot--healthy {
+  box-shadow: 0 0 0 1px rgba(var(--green-rgb), 0.16);
+  opacity: 0.78;
+}
+
+.forms-hub__bookmark-route-dot.forms-hub__route-health-dot--unhealthy {
+  box-shadow: 0 0 0 1px rgba(var(--cta-rgb), 0.2);
+  opacity: 0.86;
+}
+
+.forms-hub__bookmark-route-dot.forms-hub__route-health-dot--unconfigured {
+  background: var(--text-muted);
+  box-shadow: none;
+  opacity: 0.28;
 }
 
 .forms-hub__status-pill {
@@ -1040,9 +1102,9 @@
   align-items: center;
   margin-left: 6px;
   padding: 2px 8px;
-  border: 1px solid rgba(135, 243, 243, 0.35);
-  background: rgba(135, 243, 243, 0.08);
-  color: var(--helix-accent, #87f3f3);
+  border: 1px solid rgba(54, 144, 206, 0.35);
+  background: rgba(54, 144, 206, 0.08);
+  color: var(--helix-accent, #3690ce);
   font-size: 9px;
   font-weight: 700;
   text-transform: uppercase;

@@ -85,7 +85,7 @@ export const ModalSkeleton: React.FC<ModalSkeletonProps> = ({ variant = 'generic
           <div style={{
             padding: 10,
             marginBottom: 12,
-            background: isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.06)',
+            background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)',
             borderRadius: 0
           }}>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>

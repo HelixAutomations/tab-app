@@ -42,9 +42,9 @@ export const sharedSearchBoxStyle = (isDarkMode: boolean) => ({
         borderColor: isDarkMode ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.18)',
       },
       ':focus-within': {
-        borderColor: isDarkMode ? 'rgba(135, 243, 243, 0.5)' : 'rgba(54, 144, 206, 0.5)',
+        borderColor: 'rgba(54, 144, 206, 0.5)',
         boxShadow: isDarkMode 
-          ? '0 0 0 2px rgba(135, 243, 243, 0.2)' 
+          ? '0 0 0 2px rgba(54, 144, 206, 0.2)' 
           : '0 0 0 2px rgba(54, 144, 206, 0.15)',
       },
       // Disable Fluent's default focus ring on the wrapper

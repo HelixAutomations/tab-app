@@ -1121,8 +1121,8 @@ const EnquiryLineItem: React.FC<EnquiryLineItemProps> = ({
                     borderRadius: '6px',
                     fontSize: '11px',
                     fontWeight: 600,
-                    background: isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(135, 243, 243, 0.2)',
-                    color: isDarkMode ? '#87F3F3' : '#061733',
+                    background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.2)',
+                    color: isDarkMode ? '#3690CE' : '#061733',
                   }}
                   title={`${documentCount} document${documentCount > 1 ? 's' : ''} attached`}
                 >

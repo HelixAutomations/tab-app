@@ -4,7 +4,7 @@ import { Spinner, SpinnerSize } from '@fluentui/react/lib/Spinner';
 import { colours } from '../../../app/styles/colours';
 import type { NormalizedMatter } from '../../../app/functionality/types';
 import type { AiStatus, CclLoadInfo } from './CCLEditor';
-import { submitAiFeedback, submitCclSupportTicket, checkCclIntegrations, uploadToNetDocuments, fetchPressureTest, type AiDebugTrace, type CclSupportTicket, type CclIntegrations, type PressureTestResponse, type PressureTestFieldScore } from './cclAiService';
+import { submitCclSupportTicket, checkCclIntegrations, uploadToNetDocuments, fetchPressureTest, type AiDebugTrace, type CclSupportTicket, type CclIntegrations, type PressureTestResponse } from './cclAiService';
 import { CCL_SECTIONS } from './cclSections';
 import { FIELD_PROMPTS, FIELD_PROMPT_MAP } from './cclFieldPrompts';
 import CclOpsPanel from './CclOpsPanel';
@@ -24,245 +24,6 @@ interface GenerateDocxResult {
   url: string | null;
   unresolvedPlaceholders: string[];
 }
-
-// ─── AI Feedback Widget ─────────────────────────────────────────────────────
-// Subtle thumbs up/down + optional comment, with expandable data sources panel.
-// Modelled on the tech ticket form pattern — lightweight, non-intrusive.
-interface AiFeedbackWidgetProps {
-  matterId: string;
-  aiStatus: string;
-  dataSources: string[];
-  contextSummary: string;
-  isDarkMode: boolean;
-  text: string;
-  textMuted: string;
-  cardBorder: string;
-  accentBlue: string;
-}
-
-const AiFeedbackWidget: React.FC<AiFeedbackWidgetProps> = ({
-  matterId, aiStatus, dataSources, contextSummary, isDarkMode, text, textMuted, cardBorder, accentBlue,
-}) => {
-  const [rating, setRating] = useState<'up' | 'down' | null>(null);
-  const [showComment, setShowComment] = useState(false);
-  const [comment, setComment] = useState('');
-  const [submitted, setSubmitted] = useState(false);
-  const [showSources, setShowSources] = useState(false);
-
-  const handleRate = async (nextRating: 'up' | 'down') => {
-    setRating(nextRating);
-    setSubmitted(false);
-    if (nextRating === 'up') {
-      await submitAiFeedback({ matterId, rating: nextRating });
-      setSubmitted(true);
-      return;
-    }
-    setShowComment(true);
-  };
-
-  const handleSubmitComment = async () => {
-    if (!rating) return;
-    await submitAiFeedback({ matterId, rating, comment: comment.trim() || undefined });
-    setSubmitted(true);
-    setShowComment(false);
-  };
-
-  return (
-    <div style={{ margin: '0 10px 8px' }}>
-      <div
-        style={{
-          padding: '8px 12px',
-          borderRadius: 4,
-          fontSize: 11,
-          background: isDarkMode ? 'rgba(54,144,206,0.05)' : 'rgba(54,144,206,0.03)',
-          border: `1px solid ${cardBorder}`,
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-          <span style={{ color: textMuted, fontWeight: 600 }}>
-            {submitted ? 'Thanks for the feedback' : 'How was the AI draft?'}
-          </span>
-          {!submitted && (
-            <div style={{ display: 'flex', gap: 4 }}>
-              <button
-                type="button"
-                onClick={() => handleRate('up')}
-                title="Good - AI got it mostly right"
-                style={{
-                  width: 26,
-                  height: 26,
-                  borderRadius: 3,
-                  border: `1px solid ${rating === 'up' ? accentBlue : cardBorder}`,
-                  background: rating === 'up' ? (isDarkMode ? 'rgba(54,144,206,0.15)' : 'rgba(54,144,206,0.08)') : 'transparent',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: rating === 'up' ? accentBlue : textMuted,
-                  fontSize: 13,
-                  transition: 'all 0.15s ease',
-                }}
-              >
-                <Icon iconName="Like" />
-              </button>
-              <button
-                type="button"
-                onClick={() => handleRate('down')}
-                title="Needs work - tell us what was wrong"
-                style={{
-                  width: 26,
-                  height: 26,
-                  borderRadius: 3,
-                  border: `1px solid ${rating === 'down' ? colours.cta : cardBorder}`,
-                  background: rating === 'down' ? (isDarkMode ? 'rgba(214,85,65,0.15)' : 'rgba(214,85,65,0.08)') : 'transparent',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: rating === 'down' ? colours.cta : textMuted,
-                  fontSize: 13,
-                  transition: 'all 0.15s ease',
-                }}
-              >
-                <Icon iconName="Dislike" />
-              </button>
-            </div>
-          )}
-          {submitted && <Icon iconName="SkypeCheck" styles={{ root: { fontSize: 13, color: accentBlue } }} />}
-        </div>
-
-        {showComment && !submitted && (
-          <div style={{ marginTop: 8 }}>
-            <textarea
-              value={comment}
-              onChange={(event) => setComment(event.target.value)}
-              placeholder="What needs improving? (optional)"
-              style={{
-                width: '100%',
-                minHeight: 48,
-                padding: '6px 8px',
-                fontSize: 11,
-                fontFamily: 'inherit',
-                borderRadius: 3,
-                border: `1px solid ${cardBorder}`,
-                background: isDarkMode ? 'rgba(0,0,0,0.2)' : 'rgba(0,0,0,0.03)',
-                color: text,
-                resize: 'vertical',
-                outline: 'none',
-              }}
-            />
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 4 }}>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowComment(false);
-                  setRating(null);
-                }}
-                style={{
-                  padding: '3px 10px',
-                  borderRadius: 2,
-                  fontSize: 10,
-                  fontWeight: 600,
-                  border: `1px solid ${cardBorder}`,
-                  background: 'transparent',
-                  color: textMuted,
-                  cursor: 'pointer',
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleSubmitComment}
-                style={{
-                  padding: '3px 10px',
-                  borderRadius: 2,
-                  fontSize: 10,
-                  fontWeight: 600,
-                  border: 'none',
-                  background: accentBlue,
-                  color: '#fff',
-                  cursor: 'pointer',
-                }}
-              >
-                Submit
-              </button>
-            </div>
-          </div>
-        )}
-
-        {dataSources.length > 0 && (
-          <button
-            type="button"
-            onClick={() => setShowSources(!showSources)}
-            style={{
-              marginTop: 6,
-              padding: 0,
-              border: 'none',
-              background: 'transparent',
-              color: accentBlue,
-              fontSize: 10,
-              fontWeight: 600,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 4,
-              opacity: 0.8,
-            }}
-          >
-            <Icon iconName={showSources ? 'ChevronDown' : 'ChevronRight'} styles={{ root: { fontSize: 8 } }} />
-            {dataSources.length} data source{dataSources.length !== 1 ? 's' : ''} used
-          </button>
-        )}
-
-        {showSources && dataSources.length > 0 && (
-          <div
-            style={{
-              marginTop: 4,
-              padding: '6px 8px',
-              borderRadius: 3,
-              background: isDarkMode ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.02)',
-              border: `1px solid ${cardBorder}`,
-            }}
-          >
-            <div style={{ fontSize: 10, color: textMuted, marginBottom: 4, fontWeight: 600 }}>
-              Context gathered from:
-            </div>
-            {dataSources.map((source, index) => (
-              <div
-                key={index}
-                style={{
-                  fontSize: 10,
-                  color: text,
-                  padding: '2px 0',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 5,
-                }}
-              >
-                <span
-                  style={{
-                    width: 4,
-                    height: 4,
-                    borderRadius: '50%',
-                    background: accentBlue,
-                    flexShrink: 0,
-                  }}
-                />
-                {source}
-              </div>
-            ))}
-            {contextSummary && (
-              <div style={{ fontSize: 9, color: textMuted, marginTop: 4, fontStyle: 'italic' }}>
-                {contextSummary}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
 
 export interface PreviewStepProps {
   content: string;
@@ -292,87 +53,7 @@ export interface PreviewStepProps {
   onTriggerAiFill?: () => void;
 }
 
-const CANONICAL_SYSTEM_PROMPT = `You are a senior UK solicitor at Helix Law, a specialist litigation firm. Helix Law acts across four core practice areas: commercial disputes (shareholder and partnership disputes, investment and loan disputes, debt recovery, statutory demands, civil fraud, contract disputes, restrictive covenants, injunctions), property disputes (landlord and tenant, evictions, boundary and land disputes), construction disputes (adjudication, payment disputes, contract breaches, unlawful terminations), and employment law. The firm is SRA-regulated (ID 565557) and based in Brighton. Your task is to generate the intake fields for a Client Care Letter (CCL) based on the matter context provided.
-
-The CCL is a regulatory requirement under SRA rules. It must be professional, accurate, and tailored to the specific matter. Write in clear, professional British English suitable for a client who is not legally trained.
-
-CRITICAL: You are filling in the placeholder fields of a real legal template. Each field you generate is injected verbatim into the letter - it must read naturally in context. Below is how each field appears in the actual template so you understand exactly where your output goes.
-
-TEMPLATE CONTEXT (how your fields are used - {{field_name}} = your output):
-
-Section 2 - Scope of services:
-"{{insert_current_position_and_scope_of_retainer}} ("Initial Scope")"
--> This is the opening paragraph of the scope section. Write 2-4 complete sentences describing what the client has instructed Helix Law to do. Must be specific to this matter. Ends with the text ("Initial Scope") which is added by the template.
-
-Section 3 - Next steps:
-"The next steps in your matter are {{next_steps}}."
--> Start lowercase. This completes the sentence. List 2-3 specific actions.
-
-"We expect this will take {{realistic_timescale}}."
--> A realistic period, e.g. "4-6 weeks" or "2-3 months".
-
-Section 4.1 - Charges:
-"My rate is £{{handler_hourly_rate}} per hour."
--> Number only (already auto-filled, but if missing use the rate given in context).
-
-"{{charges_estimate_paragraph}}"
--> 1-3 complete sentences estimating fees for the Initial Scope. Include a £ range plus VAT. Base this on the deal amount, pitch email amount, or practice area norms. Must be realistic.
-
-Section 4.2 - Disbursements:
-"{{disbursements_paragraph}}"
--> 1-2 complete sentences about likely disbursements for this matter type.
-
-Section 4.3 - Costs other party:
-"{{costs_other_party_paragraph}}"
--> 1-2 sentences. If there is an opponent: note the risk. If no opponent or not litigation: "We do not expect that you will have to pay another party's costs."
-
-Section 6 - Payment on account:
-"Please provide us with £{{figure}} on account of costs."
--> Number only, no £ sign, e.g. "2,500". Usually 50-100% of the low end of the estimate range.
-
-Section 7 - Costs updates:
-"We have agreed to provide you with an update on the amount of costs as the matter progresses{{and_or_intervals_eg_every_three_months}}."
--> Starts with ", " then the qualifier. Usually ", when appropriate" or ", monthly" or ", every three months".
-
-Section 13 - Duties to court:
-"Your matter {{may_will}} involve court proceedings."
--> Either "may" or "will". Use "may" unless court proceedings are certain.
-
-Section 18 - Action points:
-"☐ {{insert_next_step_you_would_like_client_to_take}} | {{state_why_this_step_is_important}}"
--> insert_next_step: Imperative sentence - what the client must do. Be specific to this matter.
--> state_why_this_step_is_important: Why it matters. 1 sentence.
-
-"☐ Provide a payment on account of costs and disbursements of £{{state_amount}} | If we do not receive a payment on account... {{insert_consequence}}"
--> state_amount: Same as figure.
--> insert_consequence: What happens if they don't pay, e.g. "we may not be able to start work on your matter"
-
-"{{describe_first_document_or_information_you_need_from_your_client}}"
-"{{describe_second_document_or_information_you_need_from_your_client}}"
-"{{describe_third_document_or_information_you_need_from_your_client}}"
--> Each is a bullet point. Be specific to this matter type - name the actual documents needed.
-
-NOT SHOWN DIRECTLY AS STANDALONE SENTENCES IN THE LETTER:
-- "next_stage": Brief label for the next milestone (used for internal tracking, not shown to client)
-- "figure_or_range": Cost estimate range, e.g. "2,500 - 5,000" (used in sidebar display)
-- "estimate": Full estimate string, e.g. "£2,500 to £5,000 plus VAT"
-- "in_total_including_vat_or_for_the_next_steps_in_your_matter": Either "in total, including VAT" or "for the next steps in your matter"
-- "give_examples_of_what_your_estimate_includes_eg_accountants_report_and_court_fees": Brief list of what the estimate covers
-- "we_cannot_give_an_estimate_of_our_overall_charges_in_this_matter_because_reason_why_estimate_is_not_possible": If estimate is possible, set to "". Only fill if genuinely impossible.
-- "simple_disbursements_estimate": Estimated disbursements (number only, e.g. "500")
-- "identify_the_other_party_eg_your_opponents": Supporting matter data inserted only inside the second 4.3 costs-risk alternative
-
-COST ACCURACY RULES:
-1. If a Deal Amount is provided, the costs estimate must be consistent with it. The payment on account (figure) should match the agreed amount unless a fee earner has explicitly said otherwise.
-2. If a Pitch Email is provided, match its quoted figures exactly - the client has already seen these numbers.
-3. If neither is available, use practice area norms for a UK specialist litigation firm.
-4. Never invent costs figures that are wildly different from the deal or pitch context.
-
-Respond with only a JSON object containing these fields. No markdown, no explanation, just the JSON object.`;
-
-const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, matter, fields, updateField, userEditedKeys, userInitials, aiStatus, aiLoadingKeys, aiSource, aiDurationMs, aiDataSources, aiContextSummary, aiUserPrompt, aiSystemPrompt: aiSystemPromptRaw, aiFallbackReason, aiDebugTrace, aiGeneratedKeys, draftLoaded = true, loadInfo = null, isDarkMode, onBack: _onBack, onClose, onAdvancedMode, onTriggerAiFill }) => {
-  // Use server-returned system prompt if available, otherwise canonical fallback
-  const aiSystemPrompt = aiSystemPromptRaw || CANONICAL_SYSTEM_PROMPT;
+const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, matter, fields, updateField, userEditedKeys, userInitials, aiStatus, aiLoadingKeys, aiSource, aiDurationMs, aiDataSources, aiContextSummary, aiUserPrompt, aiFallbackReason, aiDebugTrace, aiGeneratedKeys, draftLoaded = true, loadInfo = null, isDarkMode, onBack: _onBack, onClose, onAdvancedMode, onTriggerAiFill }) => {
   const text = isDarkMode ? '#f1f5f9' : '#1e293b';
   const textMuted = isDarkMode ? '#94a3b8' : '#64748b';
   const cardBorder = isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(148, 163, 184, 0.15)';
@@ -397,14 +78,6 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
   const [documentMode, setDocumentMode] = useState<'preview' | 'edit'>('edit');
   // showAiTrace removed — AI details dropdown stripped for simplicity
 
-  // Boilerplate sections collapse by default — user-relevant sections stay expanded
-  const BOILERPLATE = useMemo(() => new Set(['5', '7', '8', '9', '10', '11', '12', '13', '14', '15', '16', '17']), []);
-  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(() => new Set(['5', '7', '8', '9', '10', '11', '12', '13', '14', '15', '16', '17']));
-  const toggleSection = useCallback((id: string) => {
-    setCollapsedSections(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-  }, []);
-  const expandAll = useCallback(() => setCollapsedSections(new Set()), []);
-  const collapseBoilerplate = useCallback(() => setCollapsedSections(new Set(['5', '7', '8', '9', '10', '11', '12', '13', '14', '15', '16', '17'])), []);
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const sectionElementRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const introRef = useRef<HTMLDivElement | null>(null);
@@ -412,11 +85,6 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
   const recipientRef = useRef<HTMLDivElement | null>(null);
   const [measuredSectionHeights, setMeasuredSectionHeights] = useState<Record<string, number>>({});
   const [measuredSectionElementHeights, setMeasuredSectionElementHeights] = useState<Record<string, number>>({});
-  const scrollToSection = useCallback((id: string) => {
-    const el = sectionRefs.current[id];
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    setCollapsedSections(prev => { const n = new Set(prev); n.delete(id); return n; }); // expand if collapsed
-  }, []);
   const getSectionElementMeasurementKey = useCallback((sectionNumber: string, elementIndex: number) => `${sectionNumber}::${elementIndex}`, []);
 
   const generateDocx = useCallback(async (): Promise<GenerateDocxResult> => {
@@ -514,9 +182,6 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
   }, [generateDocx, matter, fields.name_of_person_handling_matter]);
 
   const HELIX_LOGO = 'https://helix-law.co.uk/wp-content/uploads/2025/01/Asset-2@72x.png';
-  const HELIX_ADDRESS = 'Helix Law Ltd. Second Floor, Britannia House, 21 Station Street, Brighton, BN1 4DE';
-  const HELIX_PHONE = '0345 314 2044';
-  const HELIX_WEB = 'helix-law.com';
   const headingColor = isDarkMode ? '#3690CE' : '#0D2F60';
   const tableBorder = isDarkMode ? 'rgba(54,144,206,0.22)' : 'rgba(13,47,96,0.12)';
   const paperAreaBg = isDarkMode
@@ -534,13 +199,6 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
   const loadBannerBorder = isDarkMode ? 'rgba(135,243,243,0.28)' : 'rgba(54,144,206,0.2)';
   const loadBannerText = isDarkMode ? colours.accent : colours.helixBlue;
   const hasStoredLoad = Boolean(loadInfo?.hasStoredDraft || loadInfo?.hasStoredVersion);
-  const loadSourceLabel = loadInfo?.source === 'db'
-    ? 'database'
-    : loadInfo?.source === 'file-cache'
-      ? 'saved cache'
-      : loadInfo?.source === 'json-file'
-        ? 'saved file'
-        : 'stored draft';
   const storedVersionLabel = loadInfo?.version ? `Version ${loadInfo.version}` : 'Stored draft';
   const storedTimestamp = loadInfo?.finalizedAt || loadInfo?.createdAt || null;
   const storedTimestampLabel = storedTimestamp
@@ -600,15 +258,11 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
   const [showNdConfirm, setShowNdConfirm] = useState(false);
   const shouldAutoCollapseSidebar = viewportWidth < SIDEBAR_COLLAPSE_BREAKPOINT;
   const sidebarToggleLabel = sidebarOpen ? 'Hide review panel' : 'Show review panel';
-  const sidebarStatusLabel = sidebarOpen ? 'Review panel open' : shouldAutoCollapseSidebar ? 'Review panel auto-collapsed for space' : 'Review panel hidden';
 
   // documentMode is always 'edit' — preview/edit toggle removed
 
   // ─── Handlers: support report, integration check, uploads ───
   const matterId = matter.matterId || matter.displayNumber || '';
-
-  // Demo matter detection — bypass server calls entirely
-  const isDemoMatter = matterId === 'DEMO-3311402' || matterId === '3311402' || matter.displayNumber === 'HELIX01-01';
 
   const handleCheckIntegrations = useCallback(async () => {
     if (!matterId || integrationsLoading) return;
@@ -619,7 +273,7 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
     } finally {
       setIntegrationsLoading(false);
     }
-  }, [matterId, integrationsLoading, isDemoMatter]);
+  }, [matterId, integrationsLoading]);
 
   // Auto-check integrations on mount (silent — no UI if unavailable)
   useEffect(() => {
@@ -785,7 +439,7 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
     default: { border: isDarkMode ? 'rgba(148,163,184,0.45)' : 'rgba(100,116,139,0.35)', bg: isDarkMode ? 'rgba(148,163,184,0.05)' : 'rgba(148,163,184,0.04)', bgHover: isDarkMode ? 'rgba(148,163,184,0.10)' : 'rgba(148,163,184,0.08)' },
     scaffold: { border: isDarkMode ? 'rgba(250,204,21,0.65)' : 'rgba(202,138,4,0.7)', bg: isDarkMode ? 'rgba(250,204,21,0.06)' : 'rgba(250,204,21,0.08)', bgHover: isDarkMode ? 'rgba(250,204,21,0.11)' : 'rgba(250,204,21,0.12)' },
     user: { border: isDarkMode ? colours.blue : colours.helixBlue, bg: isDarkMode ? 'rgba(54,144,206,0.06)' : 'rgba(13,47,96,0.04)', bgHover: isDarkMode ? 'rgba(54,144,206,0.12)' : 'rgba(13,47,96,0.08)' },
-  }), [isDarkMode, accentBlue]);
+  }), [isDarkMode]);
 
   // ─── Pressure Test state ───
   const [ptResult, setPtResult] = useState<PressureTestResponse | null>(null);
@@ -970,7 +624,7 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
 
   /** Convert plain-text URLs, emails, and phone numbers into clickable <a> elements */
   const linkifyText = useCallback((segment: string, keyBase: string): React.ReactNode => {
-    const linkRe = /(https?:\/\/[^\s,)]+)|(\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b)|(\b0\d{4}\s?\d{3}\s?\d{3}\b)/g;
+    const linkRe = /(https?:\/\/[^\s,)]+)|(\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b)|(\b0\d{4}\s?\d{3}\s?\d{3}\b)/g;
     if (!linkRe.test(segment)) return segment;
     linkRe.lastIndex = 0;
     const nodes: React.ReactNode[] = [];
@@ -1120,13 +774,13 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
       parts.push(linkifyText(rawText.slice(lastIndex), `${keyPrefix}-tail`));
     }
     return <>{parts}</>;
-  }, [fields, fieldProvenance, provColours, editingField, updateField, documentMode, linkifyText, getEmptyFieldLabel, isDarkMode, highlightedField, hoveredField]);
+  }, [fields, fieldProvenance, provColours, editingField, updateField, documentMode, linkifyText, getEmptyFieldLabel, isDarkMode, highlightedField, hoveredField, text]);
 
   const renderChecklistCellContent = useCallback((primaryText: string, extraLines: string[], keyPrefix: string, tone: 'body' | 'muted' = 'body') => {
     const cleanedExtraLines = extraLines
       .map((line) => line.trim())
       .filter(Boolean)
-      .map((line) => line.replace(/^[•*—–\-]\s*/, '').trim())
+      .map((line) => line.replace(/^[•*—–-]\s*/, '').trim())
       .filter(Boolean);
 
     return (
@@ -1178,7 +832,7 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
 
     // Patterns
     const sectionRe = /^(\d+(?:\.\d+)?)\s+(.+)$/;
-    const bulletRe = /^[—–\-•*]\s*(.+)$/;
+    const bulletRe = /^[—–•*-]\s*(.+)$/;
     const checkboxRe = /^☐\s*(.+)$/;
     const tableRowRe = /^.+\|.+$/;
 
@@ -1463,7 +1117,7 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
         // This catches AI-filled fields like {{describe_first_document...}} → "• A copy of..."
         const resolvedBullets: { lineIdx: number; text: string; key: string }[] = [];
         const plainParas: { lineIdx: number; text: string }[] = [];
-        const bulletValueRe = /^[•*—–\-]\s+/;
+        const bulletValueRe = /^[•*—–-]\s+/;
         for (let li = 0; li < paraLines.length; li++) {
           const pl = paraLines[li];
           const phMatch = pl.match(/^\{\{([^}]+)\}\}$/);
@@ -1496,7 +1150,7 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
               {resolvedBullets.map((rb, bi) => {
                 // Strip the leading bullet marker from the field value for display
                 const rawVal = (fields[rb.key] || '').toString();
-                const strippedVal = rawVal.replace(/^[•*—–\-]\s+/, '');
+                const strippedVal = rawVal.replace(/^[•*—–-]\s+/, '');
                 return (
                   <li key={bi} style={{
                     position: 'relative',
@@ -1550,7 +1204,7 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
     // Finalise last section
     if (current.elements.length > 0) sections.push(current);
     return sections;
-  }, [documentSource, isDarkMode, headingColor, tableBorder, textMuted, accentBlue, text, renderWithFields, fields]);
+  }, [documentSource, isDarkMode, headingColor, tableBorder, textMuted, accentBlue, text, renderWithFields, renderChecklistCellContent, fields]);
 
   // ─── A4 page break system ─────────────────────────────────────────────────
   // Each page is rendered as its own 794×1123 card with consistent margins.
@@ -1622,22 +1276,8 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
       let chunkHeight = headingHeight;
       let chunkIndex = 0;
 
-      const commitChunk = () => {
-        if (chunkElements.length === 0) return;
-        currentPageSections.push({
-          ...section,
-          id: `${section.id}-page-${pageNum}-chunk-${chunkIndex}`,
-          elements: chunkElements,
-          sourceElementIndices: chunkSourceIndices,
-        });
-        currentPageHeight += chunkHeight;
-        chunkElements = [];
-        chunkSourceIndices = [];
-        chunkHeight = headingHeight;
-        chunkIndex += 1;
-      };
-
-      section.elements.forEach((element, elementIndex) => {
+      for (let elementIndex = 0; elementIndex < section.elements.length; elementIndex += 1) {
+        const element = section.elements[elementIndex];
         const measuredHeight = measuredSectionElementHeights[getSectionElementMeasurementKey(section.number, elementIndex)] || 0;
         const elementHeight = Math.max(measuredHeight, elementFallbackHeight);
         const requiredHeight = chunkHeight + elementHeight;
@@ -1647,20 +1287,38 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
             startNewPage();
           }
         } else if (currentPageHeight + requiredHeight > pageMax) {
-          commitChunk();
+          if (chunkElements.length > 0) {
+            currentPageSections.push({
+              ...section,
+              id: `${section.id}-page-${pageNum}-chunk-${chunkIndex}`,
+              elements: chunkElements,
+              sourceElementIndices: chunkSourceIndices,
+            });
+            currentPageHeight += chunkHeight;
+            chunkElements = [];
+            chunkSourceIndices = [];
+            chunkHeight = headingHeight;
+            chunkIndex += 1;
+          }
           startNewPage();
-      }
+        }
 
         chunkElements.push(element);
         chunkSourceIndices.push(elementIndex);
         chunkHeight += elementHeight;
-      });
+      }
 
       if (chunkElements.length > 0) {
         if (currentPageHeight > 0 && currentPageHeight + chunkHeight > pageMax) {
           startNewPage();
         }
-        commitChunk();
+        currentPageSections.push({
+          ...section,
+          id: `${section.id}-page-${pageNum}-chunk-${chunkIndex}`,
+          elements: chunkElements,
+          sourceElementIndices: chunkSourceIndices,
+        });
+        currentPageHeight += chunkHeight;
       }
     }
     if (currentPageSections.length > 0) {
@@ -1680,12 +1338,12 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
     const lines = cleanedContent.split('\n');
     let idx = 0;
     const sectionRe = /^(\d+(?:\.\d+)?)\s+(.+)$/;
-    const bulletRe = /^[—–\-•*]\s*(.+)$/;
+    const bulletRe = /^[—–•*-]\s*(.+)$/;
     const checkboxRe = /^☐\s*(.+)$/;
     const tableRowRe = /^.+\|.+$/;
     const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const renderInlineHtml = (value: string) => {
-      const linkRe = /(https?:\/\/[^\s,)]+)|(\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b)|(\b0\d{4}\s?\d{3}\s?\d{3}\b)/g;
+      const linkRe = /(https?:\/\/[^\s,)]+)|(\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b)|(\b0\d{4}\s?\d{3}\s?\d{3}\b)/g;
       let last = 0;
       let output = '';
       let match: RegExpExecArray | null;
@@ -1815,7 +1473,7 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
                 }
               }
               const documentsHtml = documents.length > 0
-                ? `<ul class="checklist-sublist">${documents.map((doc) => `<li><span class="checklist-sublist-marker"></span><span class="checklist-sublist-text">${renderInlineHtml(doc.replace(/^[•*—–\-]\s*/, ''))}</span></li>`).join('')}</ul>`
+                ? `<ul class="checklist-sublist">${documents.map((doc) => `<li><span class="checklist-sublist-marker"></span><span class="checklist-sublist-text">${renderInlineHtml(doc.replace(/^[•*—–-]\s*/, ''))}</span></li>`).join('')}</ul>`
                 : '';
               checklistTableHtml += `<tr><td class="cb"></td><td><strong>${renderInlineHtml(action)}</strong>${documentsHtml}</td>${parts[1] ? `<td class="muted">${renderInlineHtml(parts[1])}</td>` : '<td></td>'}</tr>`;
               idx = documents.length > 0 ? nextIdx : idx + 1;
@@ -2239,14 +1897,6 @@ ${pagesMarkup}
     const cclSectionId = fieldSectionMap[fieldKey]?.sectionId;
     const docSections = cclSectionId ? (CCL_SECTION_TO_DOC_SECTIONS[cclSectionId] || []) : [];
 
-    if (docSections.length > 0) {
-      setCollapsedSections(prev => {
-        const next = new Set(prev);
-        docSections.forEach(sectionId => next.delete(sectionId));
-        return next;
-      });
-    }
-
     const runJump = () => {
       for (const candidateKey of candidates) {
         const target = paperScrollRef.current?.querySelector(`[data-ccl-field="${candidateKey}"]`) as HTMLElement | null;
@@ -2272,6 +1922,23 @@ ${pagesMarkup}
 
     setTimeout(runJump, 120);
   }, [CCL_SECTION_TO_DOC_SECTIONS, QUICK_FIELD_ALIASES, fieldLabelMap, fieldSectionMap, getLeadNavigationKey, openFieldEditor, pauseScrollSync]);
+
+  // Key fields that users most commonly tweak at preview time
+  const QUICK_FIELDS: { key: string; label: string; type: 'text' | 'textarea' }[] = useMemo(() => [
+    { key: 'insert_clients_name', label: 'Client Name', type: 'text' },
+    { key: 'insert_heading_eg_matter_description', label: 'Letter Heading', type: 'text' },
+    { key: 'name_of_person_handling_matter', label: 'Handler', type: 'text' },
+    { key: 'status', label: 'Handler Status', type: 'text' },
+    { key: 'handler_hourly_rate', label: 'Hourly Rate (£)', type: 'text' },
+    { key: 'figure', label: 'Payment on Account (£)', type: 'text' },
+    { key: 'charges_estimate_paragraph', label: 'Charges Estimate', type: 'textarea' },
+    { key: 'insert_current_position_and_scope_of_retainer', label: 'Scope of Work', type: 'textarea' },
+    { key: 'next_steps', label: 'Next Steps', type: 'textarea' },
+    { key: 'realistic_timescale', label: 'Timescale', type: 'text' },
+    { key: 'identify_the_other_party_eg_your_opponents', label: 'Other Party Name', type: 'text' },
+    { key: 'disbursements_paragraph', label: 'Disbursements', type: 'textarea' },
+    { key: 'costs_other_party_paragraph', label: 'Costs (Other Party)', type: 'textarea' },
+  ], []);
 
   const resizeTextareaToContent = useCallback((element: HTMLTextAreaElement | null) => {
     if (!element) return;
@@ -2363,35 +2030,7 @@ ${pagesMarkup}
         {isEmpty ? `[${QUICK_FIELDS.find(f => f.key === fieldKey)?.label || fieldKey}]` : displayValue}
       </span>
     );
-  }, [editingField, updateField, isDarkMode, accentBlue, text, fieldProvenance, provColours]);
-
-  // Key fields that users most commonly tweak at preview time
-  const QUICK_FIELDS: { key: string; label: string; type: 'text' | 'textarea' }[] = useMemo(() => [
-    { key: 'insert_clients_name', label: 'Client Name', type: 'text' },
-    { key: 'insert_heading_eg_matter_description', label: 'Letter Heading', type: 'text' },
-    { key: 'name_of_person_handling_matter', label: 'Handler', type: 'text' },
-    { key: 'status', label: 'Handler Status', type: 'text' },
-    { key: 'handler_hourly_rate', label: 'Hourly Rate (£)', type: 'text' },
-    { key: 'figure', label: 'Payment on Account (£)', type: 'text' },
-    { key: 'charges_estimate_paragraph', label: 'Charges Estimate', type: 'textarea' },
-    { key: 'insert_current_position_and_scope_of_retainer', label: 'Scope of Work', type: 'textarea' },
-    { key: 'next_steps', label: 'Next Steps', type: 'textarea' },
-    { key: 'realistic_timescale', label: 'Timescale', type: 'text' },
-    { key: 'identify_the_other_party_eg_your_opponents', label: 'Other Party Name', type: 'text' },
-    { key: 'disbursements_paragraph', label: 'Disbursements', type: 'textarea' },
-    { key: 'costs_other_party_paragraph', label: 'Costs (Other Party)', type: 'textarea' },
-  ], []);
-
-  // Sidebar section styling helper
-  const sidebarSectionStyle = {
-    padding: '10px 14px',
-    borderBottom: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.08)' : '#f1f5f9'}`,
-  };
-  const sidebarLabelStyle = {
-    fontSize: 9, fontWeight: 700 as const, color: textMuted,
-    textTransform: 'uppercase' as const, letterSpacing: '0.06em',
-    marginBottom: 8, display: 'block' as const,
-  };
+  }, [editingField, updateField, text, fieldProvenance, provColours, resizeTextareaToContent, QUICK_FIELDS]);
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 0, minHeight: 0, overflow: 'hidden', position: 'relative', fontFamily: "'Raleway', Arial, Helvetica, sans-serif" }}>
@@ -3066,12 +2705,12 @@ ${pagesMarkup}
               <div>
 
                 <img src={HELIX_LOGO} alt="Helix Law" style={{ width: 170, height: 'auto', display: 'block' }} />
-                <div style={{ fontSize: 8.5, color: textMuted, lineHeight: 1.5, marginTop: 8 }}>
+                <div style={{ fontSize: 13, color: textMuted, lineHeight: 1.6, marginTop: 8 }}>
                   Second Floor, Britannia House<br />21 Station Street, Brighton, BN1 4DE<br />0345 314 2044 · helix-law.com
                 </div>
               </div>
-              <div style={{ textAlign: 'right' as const, fontSize: 10.5, lineHeight: 1.5, color: textMuted }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: isDarkMode ? '#94a3b8' : '#0D2F60', marginBottom: 2 }}>
+              <div style={{ textAlign: 'right' as const, fontSize: 13, lineHeight: 1.6, color: textMuted }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: isDarkMode ? '#94a3b8' : '#0D2F60', marginBottom: 2 }}>
                   {matter.displayNumber}
                 </div>
                 <div>Client Care Letter</div>
@@ -3080,7 +2719,7 @@ ${pagesMarkup}
             </div>
 
             {/* Recipient block */}
-            <div ref={recipientRef} style={{ marginBottom: 24, fontSize: 12.5, lineHeight: 1.6 }}>
+            <div ref={recipientRef} style={{ marginBottom: 24, fontSize: 13, lineHeight: 1.6 }}>
               <div style={{ fontWeight: 600, marginBottom: 2 }}>
                 <InlineField
                   fieldKey="insert_clients_name"
@@ -3089,12 +2728,12 @@ ${pagesMarkup}
                   style={{ fontWeight: 600 }}
                 />
               </div>
-              <div style={{ color: textMuted, fontSize: 11 }}>
+              <div style={{ color: textMuted, fontSize: 13 }}>
                 Re: <InlineField
                   fieldKey="insert_heading_eg_matter_description"
                   value={fields.insert_heading_eg_matter_description || ''}
                   fallback={matter.description || ''}
-                  style={{ fontSize: 11 }}
+                  style={{ fontSize: 13 }}
                 />
               </div>
             </div>

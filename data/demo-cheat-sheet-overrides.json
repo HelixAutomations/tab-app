@@ -1,0 +1,410 @@
+{
+  "LZ": {
+    "schema": 1,
+    "sections": {
+      "prospects": {
+        "notes": [
+          "This old section is now covered by Step 3, Prospects: claim, triage, pitch routes. Keep it as a lightweight fallback only if the overlay ever exposes the legacy prospects id.",
+          "Prospects is the internal intake board before instruction: Claimed, Unclaimed and Triaged are the three operating lanes.",
+          "Triaged means the enquiry has been processed by the triage layer and, where appropriate, pitched automatically rather than manually through Pitch Builder.",
+          "Pitches toggle means anything emailed through Pitch Builder; it is not every prospect with a deal or every client-facing link.",
+          "Add Contact is the manual route for prospects outside the normal enquiry channels.",
+          "Claim & Respond is the ownership moment: the claimer gets the detail they need, and the prospect can move into pitch or overview work without leaving Hub.",
+          "AOW and POC reassignment are live correction tools. Use them when intake placed the enquiry in the wrong bucket or with the wrong owner.",
+          "Quality rating is a signal, not just a label. It feeds back into acquisition/ad targeting and keeps the intake loop honest.",
+          "Clicking a prospect opens the real split: Overview for evidence and status, Pitch Builder for action.",
+          "What to say: this is where raw enquiries become owned prospects. The point is control: claim, correct, understand, then pitch from the same record."
+        ]
+      },
+      "notification": {
+        "notes": [
+          "This legacy notification section is now mostly folded into Step 1. Keep the message simple: prompts can arrive by email, Teams or Hub, but the work itself lives in Hub.",
+          "The client-side instruction journey happens in instruct-pitch. Once that journey creates work for a fee earner, Hub becomes the operating surface.",
+          "Email is a prompt, not the system of record. If the email is missed, the To Do strip is still the answer to what needs doing.",
+          "The To Do strip is stage-led: ID needs checking, Risk needs assessing, Matter ready to open, CCL ready to review, and other operational cards as the workflow widens.",
+          "The reliable demo line is not 'notifications are solved'. It is 'the work is centralised, and the prompts are improving around it'.",
+          "Emma's role is adoption intelligence: watch where fee earners hesitate, collect what bites, and feed that back into the support loop.",
+          "Boundary: notification is still the weakest part of the loop today. Settling, not solved, so do not overclaim it as a perfect alerting layer.",
+          "What to say: the email gets attention, the To Do card gives direction, and Hub is where the action is actually completed."
+        ]
+      },
+      "main-use": {
+        "title": "Start Here",
+        "notes": [
+          "Hub sits between the enquiry coming in and the client portal. The internal layer where the work actually happens.",
+          "Hub looks different depending on who you are. Fee earners work from notifications and To Do. Admins and ops use the wider tools. Luke also sees the system layer underneath.",
+          "For fee earners, the prompt may be email, Teams or Home To Do. The important shift is that the work now lands in one place instead of scattering across inboxes.",
+          "Prospects is the starting point for claimers: claim the enquiry, review the evidence, then use Pitch Builder for either a full email or checkout/instruct link.",
+          "Admin opens more tools. It does not automatically open more data. Where each person can see firm-wide vs their own is a separate, deliberate decision.",
+          "What Luke sees is different again. System, telemetry, roadmap, access, demo controls. The machinery behind the demo, not part of normal day-to-day Hub.",
+          "The To Do strip is the bridge. Without it the email is just noise. With it, each stage tells you what is owed next.",
+          "Notifications are still the weakest link. The queue is the part to trust. Settling, not solved.",
+          "The enquiry comes in before Hub, the client portal happens after Hub. Hub is what the firm runs in between."
+        ],
+        "approachLZWhen": [],
+        "crossApp": [
+          "enquiry-processing-v2 captures and normalises the early enquiry.",
+          "instruct-pitch delivers the client-facing pitch, checkout and instruction portal.",
+          "tab-app / Hub is where the internal work is operated."
+        ]
+      },
+      "home-todo": {
+        "notes": [
+          "Home is the start-of-day screen, not a landing page. It should answer three things: what needs doing, what's changed, and how the day is shaping up.",
+          "Some Home panels are firm-wide for LZ, KW and EA. Everyone else sees their own work unless a panel clearly says otherwise.",
+          "Core bands: billing, conversion, To Do, L&D, external calls and filing, attendance and leave. All in one place so you start the day without hunting through tabs.",
+          "To Do is the single queue. Cards clear when the underlying step is actually done. No manual dismiss, so a clear card means the work moved on.",
+          "Cards cover the real work: ID checks, risk assessments, matters to open, CCLs to review, undertaking approvals, leave requests and approvals, and files ready to open.",
+          "Conversion chart uses enquiries as a line and matters as bars. Blue is the current period, grey is the period before. Recent prospect chips stay pinned so you can keep talking about one without losing it.",
+          "External Calls is Mine by default, All for admins. Sourced from Dubber, and the row opens straight into the filing workspace, so it is not a dead call list.",
+          "Attendance and annual leave are firm-wide. Admins can add or correct records where the workflow allows.",
+          "L&D covers training plans, logged CPD activity and progress tracking. The hours-target side is still placeholder, so be careful not to oversell it.",
+          "UX rule: the shell is there before the data. Panels hold their space, updates fill in behind, no flicker on tab switches.",
+          "Home is the start of the day in one place. Your work, the team's pressure, and the live signals, all visible enough that the next action is obvious."
+        ]
+      },
+      "prospects-claim": {
+        "notes": [
+          "Prospects is the internal board before instruction. Where raw enquiries become claimed, corrected and pitched.",
+          "Three lanes: Claimed, Unclaimed, Triaged. The detail is what each lane lets you see and do next.",
+          "Mine / All, AOW, search, actions and sharing narrow the board without losing live context.",
+          "Triaged means triage already handled it. Some get pitched as part of triage, which creates the same kind of deal record as Pitch Builder.",
+          "Claim & Respond is the ownership moment. You get the enquiry notes and go straight into response or pitch.",
+          "Add Contact is for manual prospects, outside the normal enquiry channels. Not part of automated intake.",
+          "AOW and POC are fix-it controls. If intake placed the enquiry wrong, we correct it here, not just relabel it.",
+          "Quality rating feeds back into ad targeting.",
+          "Overview is the read view: enquiry detail, history, deal status, claimer, AOW and quality rating. Pitch Builder is the action view.",
+          "Two pitch routes: send the full email, or use the checkout/instruct link on its own. Teams-card pitching is forward scope, not live today.",
+          "This is the front door for the team. One record. Claim it, correct it, understand it, pitch it."
+        ],
+        "crossApp": [
+          "Enquiries originate in enquiry-processing-v2.",
+          "Triage classifies the enquiry before it lands in Hub.",
+          "The client-facing next step is instruct-pitch. Hub stays the internal layer."
+        ]
+      },
+      "pitch-builder": {
+        "notes": [
+          "Two outputs. Full pitch email with the instruct link inside, or just the checkout/instruct link with no email sent from Hub.",
+          "The real thing here is the instruct link, not the email. The link is what moves the client into the portal.",
+          "The pitch ID and passcode are unique to this prospect. They build the portal link, so never reuse an old link for a new prospect.",
+          "Scenarios are preset cards. The card explains the offer before you commit to the email body.",
+          "Placeholders stay red until satisfied. The checklist has to pass before Send unlocks. Preview stays available throughout, so the draft can be inspected while gaps are still being filled.",
+          "Send opens Review & Send. Check CC/BCC, confirm everything looks good. Optional: send a draft to yourself first to check the layout.",
+          "Automated mail uses the same rich-card signature across the firm. Sender is the fee earner where available, falling back to automations@helix-law.com.",
+          "Teams-card pitching is forward scope.",
+          "The email sells the work, the link starts the instruction. Pitch Builder packages both in one place."
+        ],
+        "crossApp": [
+          "The instruct link opens the instruct-pitch portal.",
+          "Email sends from the fee earner where available, falling back to automations@helix-law.com, and is saved to Sent Items where the mail path supports it.",
+          "The client never sees Hub. Their whole journey sits in the portal.",
+          "The same passcode unlocks the portal session."
+        ]
+      },
+      "post-instruct-overview": {
+        "title": "After instruction: Overview + step strip",
+        "notes": [
+          "This is the post-instruction handoff screen: the fee earner lands here from a To Do card or by opening the instructed prospect in Prospects > Overview.",
+          "The step strip shows the journey in order: Claimed, Pitched, Instructed, ID, Payment, Risk, Matter, Client Care Letter and Document Transfer.",
+          "Each step shows real state: actioned, pending or unactioned. Colour reflects the underlying data, not where we hope the matter is.",
+          "Overview is the evidence frame. It keeps the correspondence timeline, emails, calls, pitches, payments and documents visible while the action tabs handle the work.",
+          "The point of the strip is orientation. Fee earners should know what has happened, what is blocked, and which workbench step to open next.",
+          "Payment and documents are signals here; the actual downstream work happens in the ID, Risk, Matter, CCL and document-transfer steps that follow.",
+          "Boundary: this is still prospect-side until Matter opening completes. Do not talk as though a Clio matter exists before the Matter step succeeds.",
+          "After the client instructs, Hub stops being a pitch tool and becomes the checklist for safely turning that instruction into an open matter."
+        ]
+      },
+      "workbench-id": {
+        "notes": [
+          "Fee earner lands here from the ID To Do card or by selecting the ID stage in the workbench journey strip.",
+          "The journey strip shows ID status; the work happens inside the Identity / ID Check tab.",
+          "The tab is evidence-first: name, DOB, document, nationality/address, provider and reference where those fields exist.",
+          "ID pills must open through onEIDClick. No detail expansion from the pill itself; that is a product guardrail.",
+          "If ID is still pending, Run verification starts the electronic check. It covers identity, address and PEP/sanctions, and does not send a client email.",
+          "Once the result returns, the tab shows overall, PEP and address pills plus the verification report, raw JSON and save-to-docs path where available.",
+          "If the check flags issues, the path is manual review and additional documents, not pretending the electronic check passed.",
+          "Request Docs today is email-first. Choose recipient/CC, preview the request, and send from the fee earner mailbox.",
+          "The ID document request asks for one Section A ID document and one Section B address document as clear photos or scans.",
+          "Approve only after the fee earner is satisfied the person is who they say they are. Approve marks ID verified and advances the instruction; it does not send a client email.",
+          "Boundary: portal/shared upload reuse is future scope for this ID review path. Today it is separate from the email-first document request.",
+          "This is the safety gate before matter opening. Hub shows the evidence, runs or records the check, and keeps manual approval explicit when the electronic route is not enough."
+        ]
+      },
+      "workbench-risk": {
+        "notes": [
+          "Fee earner lands here from the Risk To Do card or the Risk stage in the workbench journey.",
+          "The Risk tab is the assessment itself: scored answers plus required confirmations, not a separate form elsewhere.",
+          "Scored questions cover client type, destination and type of funds, how the client came in, limitation, source of funds and instruction value.",
+          "The live score calculates the overall result: Low, Medium or High. Less than six months to limitation forces High Risk.",
+          "Transaction Risk Level is one input. The journey colour and status come from Risk Assessment Result.",
+          "Fee earner must confirm they considered client risk, transaction risk, firm-wide sanctions and the AML policy; policy links stay visible until confirmed.",
+          "Submit saves the assessor, date, six-month review expiry, score, answers and Risk Assessment Result back to the instruction.",
+          "Low Risk completes the stage. Medium shows a warning and High stays visibly flagged for review.",
+          "Once recorded, the tab becomes the evidence view: confirmations, answers, edit action and a downloadable file-review note including the ID status."
+        ]
+      },
+      "workbench-matter": {
+        "notes": [
+          "Fee earner lands here from the Ready to Open / Matter To Do card or the Matter stage in the workbench journey.",
+          "The Matter tab starts with preflight: choose client setup, check the contact preview, matter preview and description, then continue into the wizard.",
+          "Individual and Company are the live first-matter paths. Multiple and Existing are dev-preview choices; Existing currently says linking is not live in this inline flow yet.",
+          "Continue to Matter Form only unlocks once the required setup is present: description, company name where needed, or joint clients for the multiple-client path.",
+          "The compact wizard is the opening form. It pre-populates from instruction, deal, ID, risk, payment and document data already in the workbench.",
+          "The prerequisites strip shows Client, Identity, Payment and Risk. Red badges mean the opening can still be blocked by upstream gaps.",
+          "Required checks are Fee Earner, Supervising Partner, Originating Solicitor, Area of Work, Practice Area and Conflict Check.",
+          "Keep Originating aligned with the user/token opening the matter; Clio rejects matter creation when the originating attorney does not match the OAuth token user.",
+          "Opponent and opponent solicitor details are optional; add them when known so they flow into the matter request and Clio relationship data.",
+          "Review shows client, matter ref preview, compliance badges, team, source and value. Open Matter stays locked until 'I confirm all details are correct and ready to open' is ticked.",
+          "Processing then runs as a visible checklist: credentials, opponent record, matter request, Clio contacts, Clio matter, instruction sync, portal/checklist setup and CCL context/service.",
+          "The NetDocuments workspace trigger is a background checklist step here. CCL upload to NetDocuments is not automatic in this step; it happens later after solicitor approval.",
+          "Success shows Matter Ref, Clio Matter ID, Primary Contact ID, links into Clio, and the CCL handoff/review path.",
+          "If anything fails, the failed step stays visible, a diagnostic report goes out, and the user can go back to the form, report or retry.",
+          "Separate path: + Another appears after a matter exists for dev-preview users. It opens a new matter for an existing client/source, is currently simulated, and is not the first-matter wizard."
+        ]
+      },
+      "workbench-ccl-generate": {
+        "notes": [
+          "This starts after matter opening: either the post-open CCL handoff card appears, or a Home To Do card says Review CCL.",
+          "It is not a normal workbench tab. The review rail lives on Home, and off-Home launchers navigate there before opening the CCL review modal.",
+          "Generation has two parts: compile the evidence pack, then run the CCL service to draft the fields.",
+          "The evidence pack pulls from the matter, instruction, deal, pitch content, Core Data, emails, call transcripts and uploaded documents where available.",
+          "The AI first pass fills the CCL intake fields and saves a draft version with provenance: prompt version, template version, data sources, missing flags and generated fields.",
+          "Existing manually entered draft values are preserved by default. Starting again or replacing AI fields is an explicit rerun choice.",
+          "Confidence is full, partial or fallback. Partial/fallback output can merge with practice-area defaults and is treated as needing review.",
+          "If the generated draft has unresolved placeholders, the handoff shows attention rather than ready. The next step is review/fix, not sending.",
+          "Full-confidence, no-placeholder drafts can move through the generation step without manual field-by-field intervention, but they still need the later Safety Net/approval path.",
+          "The handoff polls live status: Compiled, Generated, Pressure tested, Reviewed or Sent. If the autopilot does not respond, Retry autopilot calls the same CCL service again.",
+          "Nothing is sent to the client and nothing uploads to NetDocuments at generation. NetDocuments upload waits for solicitor approval in the review step.",
+          "This is settling. The template, source coverage and data quality are improving."
+        ]
+      },
+      "workbench-ccl-pressure-test": {
+        "notes": [
+          "Safety Net is the second AI pass after CCL generation. It checks the generated fields against source evidence before fee-earner sign-off.",
+          "It can run automatically after the CCL service generates a draft, or manually from the review modal via Run Safety Net.",
+          "It needs generated AI review fields. If there is no generated draft/trace to test, it blocks with 'Generate AI review context first'.",
+          "The UI shows the work as a live pipeline: load generated draft, prepare Safety Net review, gather evidence, score fields, compile results.",
+          "Evidence comes from the same CCL context plus extra verification material: pitch content, deal data, enquiry/instruction notes, emails, call transcripts and documents where available.",
+          "The pressure-test prompt scores each generated field out of 10 against the evidence. Score 7 or below becomes a flag for fee-earner review.",
+          "Voice/tone scoring is saved for trace and trend data, but it does not create fee-earner flags. Flags are driven by evidence support only.",
+          "While Safety Net is still running, the selected-field panel shows an orange 'Pressure test still running' warning because new review points can still appear.",
+          "When it completes, the pipeline insight shows how many fields were pressure-tested, how many were surfaced, the average Safety Net score and the source list.",
+          "Flagged fields become verify points in the review queue. Unresolved or unknown-confidence fields stay as wording points, which is a different kind of fix.",
+          "The stage changes to Pressure tested and the Home review CCL card can say either flagged review or clean approval, but that is still not client send or NetDocuments upload.",
+          "Safety Net does not rewrite the letter. It tells the fee earner where the draft may not be properly supported by the evidence."
+        ]
+      },
+      "workbench-ccl-review": {
+        "notes": [
+          "Fee earner opens this from the post-matter handoff, a Home Review CCL To Do card, or a CCL status pill.",
+          "The review modal is the workspace: formatted letter on the left, guided review rail on the right.",
+          "The rail starts with a summary/landing view. Open first point starts the guided queue; Stay on full letter keeps the whole draft in focus.",
+          "Review points split into two types: set wording for unresolved/unknown-confidence fields, and verify wording for Safety Net flagged fields.",
+          "Each point shows the section/group, the field label directly above the editor, and the reason it needs attention.",
+          "For Safety Net flags, the header shows the score and reason. The Evidence toggle can show the sources and trace/prompt details behind the flag.",
+          "The decision panel is either structured choices or an editable text area. Save / next point marks the point reviewed and moves through the queue; Reopen brings it back.",
+          "Field changes are recorded for feedback: accepted, rewritten, cleared, or safety-net override, with prompt/template version context.",
+          "Approve only appears once there are no remaining review points, no unresolved placeholders, and the draft is at Generated or Pressure tested stage.",
+          "Approve opens a confirmation modal: Approve & send internal copy. It says exactly what will happen before anything fires.",
+          "Current safety lock: the internal copy goes only to Luke. Fee earners are not copied, and the client is not emailed from this guarded path.",
+          "Approval marks the CCL reviewed/finalised, then records a guarded internal sent event. That sent event is separate from the reviewed timestamp.",
+          "After approval, the success overlay offers Upload to NetDocuments or Done. NetDocuments is a separate explicit click, not part of generation or approval.",
+          "Upload to NetDocuments rebuilds the DOCX from the current on-screen fields, blocks if placeholders remain, files it in the matter workspace, and clears the Review CCL To Do card.",
+          "Hub narrows the decision points and records the audit trail. The fee earner still reviews, approves and chooses when to file/send."
+        ]
+      },
+      "workbench-doc-transfer": {
+        "notes": [
+          "This is deliberately after CCL in the demo sequence, even though the client uploaded documents earlier. The practical reason is folder readiness: CCL generation/review gives the matter workspace time to exist.",
+          "Do not demo this as a working transfer today. The step is marked not-for-use and the live code does not yet have the Home card, modal or transfer endpoint for this workflow.",
+          "What exists today: the doc workspace can list and upload files in the prospect-files Azure storage container under enquiry/passcode folders.",
+          "It also has a Holding-folder pending-actions scan for enquiry-stage allocation. That is still source-side document handling, not transfer into the opened matter workspace.",
+          "There is an older Docs chip on matter rows. It reads TransferDocsComplete and maps back to the documents tab, but it does not upload files to NetDocuments or Clio.",
+          "What is not wired yet: no review-docs-transfer To Do card, no openDocsTransferReview event, no DocsTransferReviewModal, and no /api/doc-workspace/transfer route.",
+          "The planned workflow is solicitor-controlled: gather prospect-uploaded files from Azure storage/instruction document records, show them for review, then upload selected files into the matter workspace only after an explicit approval click.",
+          "The same safety rule applies as CCL upload: nothing should silently move to NetDocuments just because a matter was opened or a CCL was approved.",
+          "Optional future target is a Clio link as well as the NetDocuments matter folder, but that is not part of the working flow today.",
+          "This is the next bridge to build. Today Hub preserves the source files and shows document state; the actual transfer-to-matter review step is upcoming."
+        ]
+      },
+      "matter-handoff": {
+        "notes": [
+          "This handoff starts on the matter-opening success panel, not in a separate workbench tab.",
+          "The panel stays open after success so the user can see the outcome instead of losing the trail to an auto-close.",
+          "It shows Matter Ref, Clio Matter ID and Primary Contact ID, plus direct Open Matter in Clio and Open Contact in Clio buttons when those IDs exist.",
+          "The embedded CCL handoff polls live status from /api/ccl/batch-status, with /api/ccl/:matterId as fallback. It is not a demo-only replica.",
+          "While CCL autopilot is running, the strip shows Compile context, Generate draft, Pressure test and Review ready. Once ready or attention is needed, the CTA becomes the focus.",
+          "Review & send CCL or Review & fix navigates to Home and dispatches openHomeCclReview, so the modern review rail opens on the right matter.",
+          "If the draft needs attention or is already reviewed/sent, the handoff skips the extra review intro and lands closer to the field-fix/review workspace.",
+          "Go to matter dispatches navigateToMatter. App warms and activates the Matters tab, stores the pending matter id, and Matters auto-selects the matching matter by Clio ID or display number when it is in the current dataset.",
+          "Inline workbench also sets an optimistic opened state and refreshes the instruction data, so the original workbench card should stop behaving like an unopened instruction.",
+          "Rough edge: if the new matter has not hydrated into the Matters list yet, or filters hide it, the jump may land on the Matters list rather than the detail view. The Clio buttons are the reliable immediate fallback.",
+          "In the matter detail view, Overview owns the operating handoff: the rail mirrors the journey from Enquiry through Pitch, Instruction, ID, Payment, Risk, Matter, Docs and CCL.",
+          "Clicking rail stages opens the embedded Inline Workbench for context/history. CCL opens the Home review flow, not the old editor-first path.",
+          "The Matters list also has a CCL status pill. Pending is visual only; draft/generated/reviewed/sent can reopen the Home CCL review modal.",
+          "Do not imply document transfer is complete here. That bridge is still upcoming; this handoff currently covers Clio matter creation, CCL status/review, and entry into the matter operating view.",
+          "This is the switch from opening mode to running mode. Hub keeps the post-open state visible, gives a CCL next action, and then hands the fee earner into the matter space."
+        ]
+      },
+      "matter-card": {
+        "notes": [
+          "This is the running-matter surface after the opening handoff. In the current UI it starts as a dense Matters list row, not a standalone card page.",
+          "The row shows open date, matter ref, client, worktype/practice area, fee-earner initials, summary, and optional CCL Status / CCL Date columns.",
+          "The matter ref is a direct Clio matter link and the client name is a direct Clio contact link. Clicking either opens Clio and deliberately does not select the Hub row.",
+          "Clicking elsewhere on the row opens the Hub Matter Overview and resets the detail tab to Overview. That is the main bridge from list mode into operating mode.",
+          "The CCL status pill is live from the same CCL service summary used elsewhere. Pending is visual only; draft/generated/reviewed/sent can dispatch openHomeCclReview and reopen the Home review rail for that matter.",
+          "The Overview opens with a journey rail mirroring the workbench stages: Enquiry, Pitched, Instruction, ID, Payment, Risk, Matter, Docs and CCL.",
+          "Selecting most rail stages opens the embedded Inline Workbench for source context and history. Selecting CCL routes back to the Home review flow rather than reviving an older editor-first workflow.",
+          "The KPI strip pulls live matter metrics: WIP/time entries, outstanding balances, funds on account and billable/non-billable hours. It shows a Matter metrics toast while WIP, funds and outstanding balances are being resolved.",
+          "The Clio bridge in Overview is deeper than a hyperlink: it resolves the Clio matter, loads latest activities through /api/matter-metrics/activities, and shows dates, hours, notes, billed/non-billed state and totals when available.",
+          "The NetDocuments bridge uses the matter client ID and matter key/display number to find the workspace, then lists folders and documents with breadcrumbs and external document links when the workspace resolves.",
+          "Matter Details and Team are compact strips: matter number/status/open date/worktype style facts sit beside responsible/originating/supervising assignments.",
+          "The Documents tab currently carries CCL draft/status context and an Open workbench action for admins, but still says no documents loaded yet. Do not present it as the completed transfer-to-matter workflow.",
+          "Activities and Billing have live KPI numbers from the metrics fetches, but their lower lists are still sparse: Activities says no activities loaded yet, Billing says no transaction history loaded yet.",
+          "Communications exposes mailto/tel links when client email or phone exists, but the communications timeline itself is still not loaded.",
+          "This is where Hub stops being an intake tool and becomes the matter operating view. It bridges back to Clio and NetDocuments, keeps CCL review reachable, and shows the shape of the running-matter cockpit while some resource tabs are still settling."
+        ]
+      },
+      "forms-feedback": {
+        "notes": [
+          "This is the first post-core-journey step: the Forms launcher is the team's structured intake surface for everything that does not belong in the main enquiry-to-matter flow.",
+          "The launcher groups workflows into General, Operations, Finance, Tech, Recommendations and Directories. The process hub maps those into lanes: Start, Log, Request, Escalate and Find.",
+          "Search and recents are the everyday entry points. LZ/AC also see the dev-preview AI composer for long-form intent, but do not make that the main demo promise for everyone.",
+          "Be precise about the persistence claim. Bespoke React/Express forms now write a unified form_submissions record; older embedded Cognito forms are still transition entries using their existing engine.",
+          "For modern forms, the server records form_key, submitted_by, lane, payload JSON, summary, processing status and step history. The audit log is additive and best-effort, so a logging blip should not block the actual form submission.",
+          "Successful modern submissions return a submissionId and a streamUrl such as forms?focusSubmission=<id>. The form then shows the quiet Logged in stream strip with a short entry id.",
+          "Clicking View in stream dispatches navigateToForms. App opens the Forms launcher, passes the focusSubmissionId, and the Form entries rail scrolls to and flashes that row when it has surfaced.",
+          "The Form entries rail is still dev-preview in the launcher: visible to LZ/AC only. It pulls recent server-backed rows from /api/process-hub/submissions and merges them with local manual/demo entries.",
+          "Admin users can open an entry drawer, inspect the stored payload and processing steps, change local ledger status, open the related form, and retrigger server-backed submissions where the dispatcher supports that form.",
+          "Today retrigger is wired for tech ideas and tech problems. Other form_keys return a clear unsupported response rather than pretending a replay happened.",
+          "Tech Development Idea and Report Technical Problem both write their own SQL record, create an Asana task through the submitter's Asana credentials, and record each side-effect step against the submission.",
+          "Tech problems are the feedback loop for broken Hub behaviour: the route inserts into tech_problems, creates an Asana task with urgency/due-date handling, and assigns or collaborates the tech recipients with LZ as fallback.",
+          "Each modern form that has adopted the pattern also mounts a readiness pulse: GET /api/form-health/:formId with a short timeout, mapped to ready or degraded. It is reassurance only, never a blocker.",
+          "The Forms launcher itself pressure-tests /api/process-hub/health every minute while open. If the process hub route is not ready, the small route-health dot goes unhealthy and the backend can notify Luke in Teams with cooldown.",
+          "The /api/api guard is the old silent proxy-regression fix. Server catches doubled-prefix requests, logs Server.DoubledApiPrefix.Hit, pushes the event into ops-pulse, and returns a structured doubled_api_prefix error with the suggested path.",
+          "Activity's Errors lens is where that regression becomes visible: normal server errors sit above Doubled /api/api/ hits, and the KPI/alerts strip can route straight there.",
+          "This turns random side-channel requests into accountable work. The team submits through familiar forms; Hub records the payload and side effects; tech support creates trackable work for us; and route/proxy failures are designed to become visible instead of silently dying."
+        ]
+      },
+      "reports": {
+        "notes": [
+          "Not the core fee-earner journey. Leadership and ops answer to whether pipeline, work output and data feeds line up.",
+          "Do not present every report tile as generally live. The production-facing entry surface is deliberately narrow: Management Dashboard, Enquiries report and Enquiry Ledger.",
+          "The Reports access model defines report users as LZ, AC, KW, JW and EA.",
+          "Reporting Home starts with source confidence rather than a wall of charts. The pulse strip watches collected fees and recorded time from sync history, with quiet ticks when those feeds refresh.",
+          "Report cards show their required datasets and state: ready, fetching, needs data or disabled. Dependency dots can also carry trust rings from the management-readiness preflight.",
+          "Opening the Management Dashboard goes through the ManagementAccessIndicator. If a blocking readiness check is active, entry pauses until refresh/remediation or an admin override records the warning.",
+          "The loading model is lazy and streamed. Reports only pull the datasets they need, and non-dev users do not pay for dev-preview marketing/calls feeds on the cold landing page.",
+          "Management Dashboard combines enquiries, matters, WIP, collected fees, team/user data and annual leave. It filters by date range, dedupes enquiries by ID/week, and indexes WIP/fees by Clio ID for team metrics.",
+          "The main management table is per person: enquiries, matters, WIP hours, WIP value and collected fees. It is sortable and folds leave/target context into the productivity signal.",
+          "Previous-period comparison is real logic, not a static label. Today compares to the previous working day and skips weekends; week/month/quarter/year ranges each compute their own comparable period.",
+          "Enquiries report is prod-tier but still labelled in development. It has date presets/custom range, source/MOC/POC filters, role/team filters, enquiry/claimed/unclaimed stat cards, an enquiries-over-time line chart with weekend shading, top-source/contact/fee-earner charts, and a recent enquiries timeline.",
+          "Enquiry Ledger is the operational report. It filters New vs Legacy source and pipeline stage, supports search, shows claimed/unclaimed plus pitched/instructed/matter pills, and opens an edit modal with record ID, processing ID, instruction ref, matter link context and editable enquiry fields.",
+          "Saving from the ledger posts to /api/enquiries-unified/update, applies an optimistic edit and refreshes the report. This is more than a read-only report; it is a controlled clean-up surface.",
+          "Annual Leave Report exists but is draft/dev-preview from the Reports landing. It supports ranges, status/type/member/role filters, per-member entitlement summaries and CSV exports; do not sell it as Jonathan's main live report yet.",
+          "PPC exists as a local/dev draft: Google Ads spend/clicks/conversions, PPC income attribution, revenue, ROI and payback. In the normal production Reports landing it is disabled/draft, so frame it as upcoming unless showing local dev.",
+          "Matters, SEO, Calls, Aged Debts and Response Time are also draft, disabled or utility views in this surface. Useful to know they exist, but they are not the clean Jonathan demo path today.",
+          "Activity monitor and Sync history are backstage confidence tools for report-access users; Cache monitor is local/dev-owner. Use them to explain observability, not as the headline report.",
+          "Reports is the confidence layer. It does not just draw charts; it tells us which source feeds are ready, lazy-loads the right datasets, gives Jonathan the management picture, and keeps the messy draft reports out of the main promise until they earn promotion."
+        ]
+      },
+      "attendance-notes": {
+        "notes": [
+          "This is the Call Centre / attendance-note surface on Home. It is separate from the enquiry-to-matter journey, but it is now an operating workflow rather than a side form.",
+          "The current surface is external-call first. CallsAndNotes keeps broader journey plumbing, but callCentreEnabled is true and the fast fetch asks /api/home-journey for calls only; internal calls are only visible to LZ as a special view.",
+          "The left list is the call queue. Each row carries caller/callee context, time, duration, resolved prospect/matter hints where available, and three tiny cues for time, file and attendees.",
+          "The attendee cue is important: the system resolves a primary internal attendee from matched_team_initials or saved/generated attendee metadata. Supporting and learning attendees are visible, but only the primary owner can file the note.",
+          "If the logged-in user is only a supporting attendee, the workspace opens read-only with the message 'Only the primary call owner can file this note.' That is deliberate revenue/control hygiene, not a broken button.",
+          "Selecting a call opens the right-hand Call Filing Workspace and fetches the transcript on demand. If a note already exists, it can load the saved note instead of regenerating it.",
+          "The empty note state is explicit: Generate from transcript, or Write note manually. Generation calls POST /api/dubberCalls/:recordingId/attendance-note and the server uses transcript sentences plus recording summaries to produce summary, topics, actions, attendees and the telephone note.",
+          "The filing workspace has a Matter/Prospect target switch. Matter mode uses the shared MatterLookup with recent/current matter options and can prefill from /api/dubberCalls/:recordingId/matter-chain when phone matching finds a chain.",
+          "Prospect mode uses ProspectLookup. Its save path is intentionally narrower: Hub SQL plus ActiveCampaign contact note. No NetDocuments upload and no Clio time entry are attempted for prospect filing.",
+          "Matter mode mirrors the Clio-style attendance-note box: document type locked to Attendance Note - Telephone Call, call date, read-only call duration, chargeable six-minute units, editable telephone-note narrative, transcript backing, attendees and action-point checklist.",
+          "Chargeable time defaults from the call duration rounded to Clio's six-minute cadence, but the user can adjust units or mark the call non-chargeable before filing. The Clio time-entry toggle is separate from the chargeable toggle.",
+          "Matter filing is a three-leg flow in the UI: save-note, upload-nd and clio-time-entry. The todo-reconcile leg is shown as deferred, so do not claim To Do reconciliation is complete here yet.",
+          "The save-note leg writes the durable call_attendance_note_submissions row first, optionally records a process-hub form_submission for matter notes, writes blob backup when storage is available, and updates the legacy dubber_attendance_notes index for existing Home journey views.",
+          "The NetDocuments leg generates a DOCX, resolves the matter workspace, currently uses the luke-sandbox dev folder override while the production Attendance Notes folder targeting settles, uploads the document and records the ND result back against the call note.",
+          "The Clio leg is live as POST /api/dubberCalls/:recordingId/clio-time-entry. It creates a Clio communication first, then a linked TimeEntry activity with seconds-based quantity, user initials mapped to Clio user id, structured retriable errors and CallCentre.TimeEntry telemetry.",
+          "Clio's activity payload currently sets no_charge true and non_billable false. For demo language, say it records the time-entry activity; avoid overselling billing semantics until that Clio mapping is finalised.",
+          "Prospect filing saves the note row, tries to resolve acid from the enquiry/Deals data or by email lookup, posts an ActiveCampaign contact note, and returns 207-style partial success when Hub saved but AC could not sync.",
+          "The row cues close the loop: green for ND uploaded or Clio time recorded, muted/amber when work is pending, and hover tooltips explain the matter, file, value and attendee status.",
+          "This turns telephone notes into a controlled filing cockpit. The fee earner can generate or write the note, choose matter or prospect, verify attendees and transcript, decide the chargeable time, then file to Hub, NetDocuments, Clio and/or ActiveCampaign with each leg visible instead of silent."
+        ]
+      },
+      "ac-uploads": {
+        "notes": [
+          "Treat the title as historical shorthand. There is not a generic 'upload a document to ActiveCampaign' matter flow in Hub. The live promise is prospect-side uploads and prospect-side ActiveCampaign sync only.",
+          "This is separate from Step 12 document transfer. Matter-side document movement is NetDocuments/Clio/instruction file work; prospect uploads live before a matter exists and are keyed by enquiry, passcode and doc-request deal.",
+          "The internal Enquiries timeline action is Request Documents. It creates or reuses a DOC_REQUEST deal through the Pitch backend, requires a worktype, stores the passcode locally for idempotency, and opens a Secure Document Workspace timeline item.",
+          "The Pitch backend doc-request-deals route keeps ProspectId aligned to the enquiry id for compatibility, writes DealKind/Status as DOC_REQUEST, generates a passcode, and provisions the blob-folder workspace plus template folders on a best-effort basis.",
+          "The client-facing workspace is instruct-pitch, not tab-app. The passcode routes to a document upload page, shows existing documents on file, and posts files to /api/doc-request/upload.",
+          "Client uploads go into Azure Blob Storage under prospect-files, normally enquiries/{enquiryId}/{passcode}/Holding/{timestamp}-{random}-{filename}. The audit row in prospect_docs is best-effort so the upload can still succeed if the DB insert fails.",
+          "Hub can also write to the same prospect-files evidence layer through /api/doc-workspace/upload, but only after a prospect document workspace/passcode exists. It accepts a constrained subfolder such as Evidence, Holding or Telephone Attendance Notes and emits DocWorkspace.Upload telemetry.",
+          "Doc workspace status and listing are Hub-owned read paths: /api/doc-workspace/status resolves the latest workspace, /api/doc-workspace/documents lists blobs with short-lived read URLs, and /api/doc-workspace/stream pushes docWorkspace.changed events for refreshes.",
+          "The older /api/prospect-documents route in tab-app is now mostly a bridge: /counts powers document-count badges in Enquiries cards, and /proxy safely previews Azure Blob URLs. It does not contain the main upload route.",
+          "The full Pitch prospect-documents backend still has a fee-earner upload endpoint for prospect_docs, validates Helix uploaders, file type and 10 MB size, and can resolve doc-request passcode folders. It belongs to instruct-pitch, not the Hub Express upload route.",
+          "Document counts on Enquiries cards are deliberately light. Hub posts displayed enquiry IDs to /api/prospect-documents/counts, maps enquiry/prospect IDs through Deals to Instructions, and counts Documents rows for the small attachment badge.",
+          "Preview is deliberately controlled. If a timeline document already has a blob URL, Hub proxies it through /api/prospect-documents/proxy with no-store headers; otherwise EnquiryTimeline asks the Pitch backend for a preview URL and then proxies that blob URL back through Hub.",
+          "ActiveCampaign in this area is contact/prospect metadata, not document storage. ProspectLookup exposes ACID/acContactId so prospect filing and lookup views can carry the right contact identity forward.",
+          "Call attendance prospect filing is the clean ActiveCampaign example: /api/dubberCalls/:recordingId/save-prospect-note saves the Hub row, resolves AC contact id from request, enquiries.acid, Deals.ProspectId or email lookup, then posts a contact note to ActiveCampaign.",
+          "That prospect note path is intentionally narrow. It does not upload to NetDocuments, does not create Clio time, and does not create a To Do row; if ActiveCampaign fails, the UI can show 'Saved in Hub, but ActiveCampaign failed' instead of pretending the sync completed.",
+          "Claiming an enquiry has a different ActiveCampaign touchpoint. /api/claimEnquiry forwards to enquiry-processing-v2, whose claim flow updates SQL, ActiveCampaign field 23 for point of contact, and the Teams card; that is not a document upload either.",
+          "For demo language, keep the boundary simple: prospect documents go to the prospect-files workspace and surface back in Hub; ActiveCampaign receives contact/notes/status syncs for prospect routes; once the journey becomes a matter, the document story moves to NetDocuments/Clio instead.",
+          "This prevents the team from assuming every upload path behaves the same. Before instruction, we collect prospect evidence against the enquiry and passcode, surface it back in Enquiries/Home, and only sync the prospect signal to ActiveCampaign where that contact route exists."
+        ]
+      },
+      "rollout-framework": {
+        "notes": [
+          "This section answers the five rollout questions: where changes are announced, how readiness is labelled, where questions go, where issues go, and how fixes come back around.",
+          "Announcement layer is not one single broadcast button. The live system record is logs/changelog.md, served by /api/release-notes and rendered in the Changelog modal, Home quick actions and the System release-notes area.",
+          "The Home quick-action Changelog icon has a once-per-session unread dot. Good for 'what changed since I last looked', not a replacement for an ops call when behaviour changes materially.",
+          "System shows the same changelog plus operational feed, route checks, errors, forms, traces, briefs and Actions. In deployed environments the tab is LZ-only by default; local dev can see it, and data-driven capability grants can widen access later.",
+          "Forge/System controls are the control room, not the team announcement page yet. Recent changes, stale briefs, generated artifacts, live grants and Asana mirrors are for operating the rollout, not asking normal users to self-triage every change.",
+          "Readiness labels in these demo notes are honest presenter labels: ready, settling, not-for-use. They are hand-curated on each walkthrough section today, not driven by a central feature-readiness manifest yet.",
+          "Access rollout ladder stays separate from data scope: dev preview for LZ/local or temporary owner locks, admin for trusted internal validation, then all users. Do not use admin to widen data loading; data-scope remains dev-owner or explicit surface exception.",
+          "Questions are still a human channel: ask in 1:1 ops chat or the relevant ops call. The app does not yet provide a general Q&A inbox for product questions.",
+          "Issues go through Forms > Tech Support > Report Technical Problem. That form sends /api/tech-tickets/problem, records the submission stream, inserts tech_problems, and creates an Asana task in Tech & Automations when submitter Asana credentials are available.",
+          "Feature ideas are separate: Forms > Tech Support > Tech Development Idea sends /api/tech-tickets/idea, records tech_ideas, and creates an Asana idea task. Bugs and broken workflows should not be diluted into the ideas lane.",
+          "Both Tech Support forms show a recent ledger. Status means pending review, logged, or logged with Asana failure; the SQL/process stream still keeps the submission visible even if the Asana side-effect fails.",
+          "The System Asana mirror is read-only. It mirrors Tech & Automations by default and can select other visible org projects, but it is not the write path for normal staff feedback; staff use the forms.",
+          "Process Hub / Forms stream is the live audit trail for submitted forms. A successful Tech Support submission can deep-link back to forms?focusSubmission=... so the operator can inspect the steps and retrigger where supported.",
+          "The feedback loop is: report issue, capture in SQL/process stream, create or recover Asana task, fix or park as a brief, ship the change, add changelog entry, release notes pick it up.",
+          "Staging/prod is an operating discipline, not magic. Staging should be used for edge cases before cutover, and critical flows should have a prod-parity smoke path; the app only proves what the route checks and live dependency checks actually exercise.",
+          "Seven-day review window is a rollout rule from the training framework, not currently enforced by code. Treat it as a discipline: pilot real usage, then promote once the rough edges are known.",
+          "Induction is different from feature training. New-starter process training belongs in the people/training workflow; change rollout is about what changed, who it affects, and what to do when it breaks.",
+          "Use real-world reviewers deliberately. JW, LA, SP, RC, JWH, BOD and EV were named as useful practical lenses; the point is one real user per change, not abstract sign-off from me alone.",
+          "Honest framing: this is confidence recovery. We over-promised the dream for months; the framework is how we now ship narrower slices, show the readiness state, catch issues quickly and close the loop in front of the team.",
+          "This is the social contract around Hub changes. We announce through changelog/release notes and ops calls, mark readiness honestly, route questions to people, route broken things through Tech Support, and make the fix visible when it lands."
+        ]
+      },
+      "dev-only": {
+        "notes": [
+          "This is the wrap-up: Luke sees the machinery behind the demo. Do not sell this as normal staff UX; it is the owner/control-plane layer that keeps the public surfaces safe.",
+          "System/Activity is controlled by feature:activity-tab through the effective-capabilities bridge. The hardcoded fallback is LZ or local dev, production preview hides it, and Access Grants can widen it later without a redeploy.",
+          "The Controls/Forge lens has two modes. Roadmap mode is the safer read-only view; Dev mode is the LZ control room with system readiness, role matrix, live grants, roadmap writes, stale briefs, recent changes and toolbelt outputs.",
+          "Forge read APIs have started widening carefully. LZ and AC can read the dev-console summary, Asana mirror and roadmap GET routes, but roadmap create/update/delete and the dev-mode write controls still require dev-owner.",
+          "Roadmap Whiteboard is not a static doc. It reads data/roadmap-whiteboard.json through /api/dev-console/roadmap, classifies work into This week, Next week, Two weeks out, Later, Parked and Done, and writes changes only for LZ.",
+          "Asana mirror is read-only. /api/dev-console/asana/projects lists selectable org projects, /api/dev-console/asana/tech-automations renders the chosen project, and the UI deliberately has no write affordance.",
+          "Operator Actions are first-class one-offs, not terminal lore. The server registry exposes a tier-filtered catalogue, validates schemas, wraps every run in an audit row, and refuses to run if the audit DB is unavailable.",
+          "The action registry itself includes admin-safe lookup/verify actions plus owner-only writes. The Activity Actions chip is still dev-owner gated today, so demo it as Luke's operator surface, not as a general admin panel yet.",
+          "matter-oneoff-replay is the live-write example: allowedTiers dev, dry-run supported, and live runs require the exact REPLAY MATTER confirmation phrase. The phrase is converted to a confirmation sentinel so telemetry/audit never stores the literal value.",
+          "Operator Actions telemetry is explicit: OperatorActions.Run.Started, Completed, Failed and Duration. Attachments have their own Started/Completed/Failed/Duration events too, so a one-off is observable after it leaves the browser.",
+          "Access Controls are the data-driven gate. /api/access/effective answers what the caller can do, while /api/access/grants, grant mutations, history and sweep-now are LZ-only. Deny wins, expiries are filtered and swept, and mutations write AccessGrantHistory.",
+          "The RoleAccessMatrix is live, not a slide. Members come from /api/access/grants, capabilities mirror src/app/capabilities.ts, and the Access panel dispatches helix:access-changed so frontend gates can update without a reload.",
+          "Stashed briefs are visible only to the dev-owner in the Activity Briefs lens. The slim panel searches open and archived briefs, shows status, age, branch and dependency/co-ordination/conflict counts, and lazy-loads body previews only after expand.",
+          "Failures lens has two channels. Error Stream shows recent 4xx/5xx and handler failures with path/message filtering; Doubled /api/api hits is a separate 15-minute regression feed that points back to the originating page.",
+          "Arrival animation is now a shared language. useFreshIds marks new stream rows with data-fresh for a short fade-in, while Prospects and Matters use the prospect-row--new-arrival / helix-fresh-sweep treatment for true live arrivals.",
+          "The animation is deliberately calm. First render, scope switches and dataset reshapes are reseeded silently, reduced-motion users get no pulse, and only small newcomer batches animate so the tables do not flash as a block.",
+          "Demo mode is wired to the same arrival story. Toggling demo mode no longer navigates away; it injects DEMO-ENQ records and DEMO-3311402 where relevant, then dispatches demoRealtimePulse plus enquiry/matter/billing/ops change events so the app reacts like live data landed.",
+          "Demo notes editor is this overlay: seed data plus server-backed per-presenter overrides. LZ can edit, changes buffer locally, Done saves through /api/demo-cheat-sheet/overrides, and collapse/close does not silently write.",
+          "Reset Demo has two surfaces. CommandDeck Reset Demo State clears local demo and CCL draft cache keys and toggles demo off; the HubTools reset also clears session demo keys and best-effort POSTs /api/dev/reseed-rehearsal.",
+          "The rehearsal reseed route is dev-only by mount and double-checks NODE_ENV !== production. It runs the seed script, invalidates unified-enquiries cache where available, and returns the tail of stdout/stderr for operator inspection.",
+          "App Insights is the operating standard around this layer. DevConsole summary, roadmap routes, Operator Actions, CCL, forms and other server processes emit Started/Completed/Failed/Duration-style events so failures become traceable, not folklore.",
+          "The team sees polished workflows; Luke sees the control room. This layer is where we grant access, run audited one-offs, mirror delivery, watch failures, reset demos and prove that rollout machinery exists behind the show."
+        ]
+      }
+    },
+    "updatedAt": "2026-05-07T09:11:09.361Z"
+  }
+}

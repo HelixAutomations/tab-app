@@ -3,7 +3,7 @@
  * This triggers the full claim flow: SQL update, ActiveCampaign sync, and Teams card update.
  */
 import { useState } from 'react';
-import { getProxyBaseUrl } from './getProxyBaseUrl';
+import { getApiUrl } from './getApiUrl';
 
 interface ClaimEnquiryRequest {
     enquiryId: string;
@@ -45,9 +45,10 @@ export async function claimEnquiry(
     dataSource: 'new' | 'legacy' = 'legacy'
 ): Promise<ClaimEnquiryResponse> {
     try {
-        // Use the server route which calls the enquiry-processing platform
-        const url = `${getProxyBaseUrl()}/api/claimEnquiry`;
-        
+        // Same-origin call to our Express server (skips legacy
+        // helix-keys-proxy hop). Express forwards to enquiry-processing.
+        const url = getApiUrl('/api/claimEnquiry');
+
         const response = await fetch(url, {
             method: 'POST',
             headers: {

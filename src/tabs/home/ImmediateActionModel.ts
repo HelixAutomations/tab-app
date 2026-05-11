@@ -42,9 +42,32 @@ export interface TodoExpansionSummaryField {
   value: string;
 }
 
+/**
+ * One row inside a list-kind expansion (e.g. "Transfer Documents" listing
+ * every instruction with pending transfers). Designed to be reusable for any
+ * surface that surfaces a small queue inline rather than punting the user
+ * to another tab.
+ */
+export interface TodoExpansionListRow {
+  /** Stable id for keying — instructionRef, enquiryId, etc. */
+  id: string;
+  /** Primary line — client/company name. */
+  primary: string;
+  /** Optional secondary line — instruction ref, matter id, status, etc. */
+  secondary?: string;
+  /** Right-aligned count badge (e.g. "3 files"). */
+  badge?: string;
+  /** AoW token for the row's left accent dot. */
+  aow?: string;
+  /** Owner initials chip (e.g. "LZ") for firm-wide views. */
+  ownerInitials?: string;
+  /** Click handler for the whole row. */
+  onClick: () => void;
+}
+
 export interface TodoExpansion {
   /** Routing/data kind — drives default iconography and accent colour. */
-  kind: 'enquiry' | 'matter' | 'generic';
+  kind: 'enquiry' | 'matter' | 'generic' | 'list';
   /** Primary line (e.g. client/prospect name or matter display number). */
   primary: string;
   /** Secondary line (e.g. area of work + fee earner). */
@@ -55,6 +78,12 @@ export interface TodoExpansion {
   description?: string;
   /** 0–4 labelled key/value fields rendered as a compact grid. */
   fields?: TodoExpansionSummaryField[];
+  /**
+   * Inline list rows (only used when kind === 'list'). Each row is clickable
+   * and represents one entity in the queue. Rendered above the action
+   * buttons. Cap displayed rows in the renderer.
+   */
+  list?: TodoExpansionListRow[];
   /** 1–3 quick actions rendered as buttons. */
   actions?: TodoExpansionAction[];
 }

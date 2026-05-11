@@ -74,8 +74,8 @@ export default function CclReviewSetupPanel({
               onClick={onRetryDraftFetch}
               style={{
                 justifySelf: 'start',
-                border: '1px solid rgba(135, 243, 243, 0.28)',
-                background: 'rgba(135, 243, 243, 0.08)',
+                border: '1px solid rgba(54, 144, 206, 0.28)',
+                background: 'rgba(54, 144, 206, 0.08)',
                 color: '#f3f4f6',
                 padding: '10px 12px',
                 fontSize: isMobileReview ? 12 : 11,

@@ -37,9 +37,47 @@ interface LogEntry {
   message?: string;
 }
 
+interface PersistedTierInfo {
+  lastRun: {
+    ts: number;
+    status: string;
+    message?: string | null;
+    triggeredBy?: string | null;
+  } | null;
+  schedule: string;
+}
+
+interface PersistedRun {
+  id: string;
+  ts: number;
+  entity: 'collected' | 'wip';
+  operation: string;
+  status: string;
+  triggeredBy: string;
+  modeLabel: string;
+  invokedBy?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  windowLabel: string;
+  resultLabel?: string | null;
+  durationMs?: number | null;
+  deletedRows?: number | null;
+  insertedRows?: number | null;
+  message?: string | null;
+}
+
+interface PersistedSchedulerSnapshot {
+  tiers: {
+    collected: { hot: PersistedTierInfo; warm: PersistedTierInfo; cold: PersistedTierInfo; monthly: PersistedTierInfo };
+    wip: { hot: PersistedTierInfo; warm: PersistedTierInfo; cold: PersistedTierInfo };
+  };
+  recentRuns: PersistedRun[];
+}
+
 interface SyncHistoryData {
   scheduler: SchedulerState;
   recentLog: Record<string, LogEntry[]>;
+  persisted?: PersistedSchedulerSnapshot;
   serverTime: number;
 }
 
@@ -145,6 +183,12 @@ const SyncHistory: React.FC<SyncHistoryProps> = ({ onBack }) => {
   const renderTierRow = (entity: 'collected' | 'wip', tierKey: string, tier: TierState | null) => {
     const nextFireKey = NEXT_FIRE_KEYS[entity]?.[tierKey];
     const nextFire = nextFireKey && data?.scheduler.nextFires[nextFireKey];
+    const persistedTier = data?.persisted?.tiers[entity]?.[tierKey as keyof typeof data.persisted.tiers[typeof entity]] as PersistedTierInfo | undefined;
+    const effectiveStatus = tier?.status ?? persistedTier?.lastRun?.status ?? null;
+    const effectiveTs = tier?.ts ?? persistedTier?.lastRun?.ts ?? null;
+    const effectiveError = tier?.error || ((persistedTier?.lastRun?.status === 'error' || persistedTier?.lastRun?.status === 'timeout')
+      ? persistedTier.lastRun.message || undefined
+      : undefined);
 
     return (
       <div
@@ -162,8 +206,8 @@ const SyncHistory: React.FC<SyncHistoryProps> = ({ onBack }) => {
       >
         {/* Status dot */}
         <FontIcon
-          iconName={statusIcon(tier?.status ?? null)}
-          style={{ fontSize: 14, color: statusColour(tier?.status ?? null), flexShrink: 0 }}
+          iconName={statusIcon(effectiveStatus)}
+          style={{ fontSize: 14, color: statusColour(effectiveStatus), flexShrink: 0 }}
         />
 
         {/* Tier name */}
@@ -173,7 +217,7 @@ const SyncHistory: React.FC<SyncHistoryProps> = ({ onBack }) => {
 
         {/* Last run time */}
         <span style={{ fontSize: 11, color: bodyCol, flex: 1 }}>
-          {tier?.ts ? formatAgo(tier.ts, now) : '—'}
+          {effectiveTs ? formatAgo(effectiveTs, now) : '—'}
         </span>
 
         {/* Duration */}
@@ -188,9 +232,15 @@ const SyncHistory: React.FC<SyncHistoryProps> = ({ onBack }) => {
           </span>
         )}
 
+        {!nextFire && persistedTier?.schedule && (
+          <span style={{ fontSize: 10, color: helpCol, width: 78, textAlign: 'right' }}>
+            {persistedTier.schedule}
+          </span>
+        )}
+
         {/* Error indicator */}
-        {tier?.error && (
-          <FontIcon iconName="Warning" style={{ fontSize: 12, color: colours.cta, marginLeft: 2 }} title={tier.error} />
+        {effectiveError && (
+          <FontIcon iconName="Warning" style={{ fontSize: 12, color: colours.cta, marginLeft: 2 }} title={effectiveError} />
         )}
       </div>
     );
@@ -280,6 +330,12 @@ const SyncHistory: React.FC<SyncHistoryProps> = ({ onBack }) => {
     );
   };
 
+  const persistedRuns = data?.persisted?.recentRuns ?? [];
+  const fallbackRuns = Object.entries(data?.recentLog || {})
+    .flatMap(([, entries]) => entries)
+    .sort((a, b) => b.ts - a.ts)
+    .slice(0, 12);
+
   return (
     <div style={{
       display: 'flex',
@@ -356,7 +412,7 @@ const SyncHistory: React.FC<SyncHistoryProps> = ({ onBack }) => {
             {renderSchedulerMeta()}
 
             {/* Recent log entries */}
-            {Object.keys(data.recentLog).length > 0 && (
+            {(persistedRuns.length > 0 || Object.keys(data.recentLog).length > 0) && (
               <div style={{ marginTop: 6 }}>
                 <div style={{
                   fontSize: 11,
@@ -377,11 +433,44 @@ const SyncHistory: React.FC<SyncHistoryProps> = ({ onBack }) => {
                   maxHeight: 220,
                   overflowY: 'auto',
                 }}>
-                  {Object.entries(data.recentLog)
-                    .flatMap(([, entries]) => entries)
-                    .sort((a, b) => b.ts - a.ts)
-                    .slice(0, 12)
-                    .map((entry, i) => (
+                  {persistedRuns.length > 0 ? persistedRuns.slice(0, 12).map((run) => {
+                    const detail = run.resultLabel || run.message || 'Result pending';
+                    const entityLabel = run.entity === 'collected' ? 'Collected Time' : 'WIP';
+                    return (
+                      <div
+                        key={run.id}
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 3,
+                          padding: '7px 12px',
+                          borderBottom: `0.5px solid ${borderCol}`,
+                          fontSize: 11,
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <FontIcon
+                            iconName={run.status === 'completed' ? 'SkypeCircleCheck' : run.status === 'error' || run.status === 'timeout' ? 'StatusErrorFull' : 'CircleRing'}
+                            style={{ fontSize: 11, color: run.status === 'completed' ? colours.green : run.status === 'error' || run.status === 'timeout' ? colours.cta : helpCol }}
+                          />
+                          <span style={{ color: bodyCol, flex: 1 }}>{entityLabel} · {run.modeLabel} · {run.windowLabel}</span>
+                          <span style={{ color: helpCol, fontSize: 10 }}>{formatAgo(run.ts, now)}</span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', paddingLeft: 19 }}>
+                          <span style={{ color: statusColour(run.status), fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>{run.status}</span>
+                          <span style={{ color: run.status === 'error' || run.status === 'timeout' ? colours.cta : helpCol, fontSize: 10 }} title={detail}>
+                            {detail}
+                          </span>
+                          {run.durationMs != null && (
+                            <span style={{ color: helpCol, fontSize: 10 }}>{formatDuration(run.durationMs)}</span>
+                          )}
+                          {run.invokedBy && (
+                            <span style={{ color: helpCol, fontSize: 10 }}>{run.invokedBy}</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  }) : fallbackRuns.map((entry, i) => (
                     <div
                       key={`log-${i}`}
                       style={{

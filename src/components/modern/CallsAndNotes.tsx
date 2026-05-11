@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { FiPhone, FiPhoneIncoming, FiPhoneOutgoing, FiFileText, FiClock, FiCheck, FiLink, FiX, FiRefreshCw, FiChevronRight, FiChevronDown, FiEdit3, FiSave, FiUploadCloud, FiSearch, FiMail, FiCode, FiDownload } from 'react-icons/fi';
-import { colours } from '../../app/styles/colours';
-import { isDevOwner } from '../../app/admin';
+import { FiPhone, FiPhoneIncoming, FiPhoneOutgoing, FiFileText, FiClock, FiCheck, FiLink, FiX, FiRefreshCw, FiChevronRight, FiChevronDown, FiEdit3, FiSave, FiUploadCloud, FiSearch, FiMail, FiCode, FiDownload, FiUsers, FiUser } from 'react-icons/fi';
+import { colours, withAlpha } from '../../app/styles/colours';
+import { canSeeFirmWideHomeData, isAdminUser } from '../../app/admin';
 import { useFreshIds } from '../../hooks/useFreshIds';
 import clioLogo from '../../assets/clio.svg';
-import { getProxyBaseUrl } from '../../utils/getProxyBaseUrl';
 import { disposeOnHmr, onServerBounced } from '../../utils/devHmr';
 import { useRealtimeChannel } from '../../hooks/useRealtimeChannel';
-import AttendanceNoteBox, { type AttendanceNoteBoxPayload, type AttendanceNoteBoxSaveLegStatus } from './AttendanceNoteBox';
+import { buildRequestAuthHeaders } from '../../utils/requestAuthContext';
+import AttendanceNoteBox, { type AttendanceNoteAttendee, type AttendanceNoteBoxPayload, type AttendanceNoteBoxSaveLegStatus, type AttendanceNoteTeamOption, type AttendanceNoteTarget } from './AttendanceNoteBox';
+import type { ProspectLookupOption } from '../matter-lookup/ProspectLookup';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface CallRecord {
@@ -27,6 +28,23 @@ interface CallRecord {
   resolved_source?: string;
   resolved_ref?: string | null;
   resolved_area?: string | null;
+  matched_team_email?: string | null;
+  is_meeting_like?: boolean;
+  is_external_call?: boolean;
+  attendees?: AttendanceNoteAttendee[];
+  attendance?: CallAttendanceSummary | null;
+}
+
+interface CallAttendanceSummary {
+  attendees?: AttendanceNoteAttendee[];
+  target_type?: string | null;
+  matter_ref?: string | null;
+  saved_by?: string | null;
+  saved_at?: string | null;
+  call_date?: string | null;
+  processing_status?: string | null;
+  uploaded_nd?: boolean;
+  nd_file_name?: string | null;
 }
 
 interface ClioActivity {
@@ -69,6 +87,7 @@ interface AttendanceNote {
   date: string;
   parties: { from: string; to: string };
   teamMember: string | null;
+  attendees?: AttendanceNoteAttendee[];
   systemPrompt?: string;
   userPrompt?: string;
 }
@@ -93,7 +112,19 @@ interface SavedNote {
   saved_at: string;
   uploaded_nd: boolean;
   nd_file_name: string | null;
+  attendees?: AttendanceNoteAttendee[];
+  attendance?: CallAttendanceSummary | null;
 }
+
+type SavedNoteCacheMeta = {
+  matter_ref?: string | null;
+  saved_by?: string | null;
+  saved_at?: string;
+  uploaded_nd?: boolean;
+  nd_file_name?: string | null;
+  processing_status?: string | null;
+  target_type?: string | null;
+};
 
 interface EmailJourneyEvent {
   eventId: string;
@@ -148,10 +179,24 @@ interface CallsAndNotesProps {
   isActive?: boolean;
   matterLookupOptions?: MatterOption[];
   recentEnquiryOptions?: import('../matter-lookup/ProspectLookup').ProspectLookupOption[];
+  teamOptions?: AttendanceNoteTeamOption[];
   viewAsProd?: boolean;
 }
 
 type JourneyFilter = 'all' | 'external' | 'internal' | 'notes' | 'activity' | 'emails';
+
+type CallCueKind = 'time' | 'file' | 'attendance';
+
+interface HoveredCallCue {
+  recordingId: string;
+  cue: CallCueKind;
+}
+
+const EMPTY_ATTENDEES: AttendanceNoteAttendee[] = [];
+const DEMO_WORKSPACE_MATTER_DISPLAY_NUMBER = 'HELIX01-01';
+const DEMO_WORKSPACE_MATTER_CLIENT_NAME = 'Helix administration';
+const DEMO_REHEARSAL_PROSPECT_ID = '27367';
+const DEMO_REHEARSAL_PROSPECT_NAME = 'Helix Demo';
 
 type JourneyItem =
   | { key: string; kind: 'call'; timestamp: number; call: CallRecord }
@@ -190,13 +235,171 @@ function formatDuration(secs: number | null): string {
   return s > 0 ? `${m}m ${s}s` : `${m}m`;
 }
 
+const GENERIC_CALL_PARTY_LABELS = new Set([
+  'meeting',
+  'teams meeting',
+  'video call',
+  'conference',
+  'screen share',
+  'screenshare',
+  'unknown',
+]);
+
+function usablePartyLabel(value?: string | null): string | null {
+  const label = String(value || '').trim();
+  if (!label) return null;
+  const normalized = label.toLowerCase().replace(/\s+/g, ' ');
+  return GENERIC_CALL_PARTY_LABELS.has(normalized) ? null : label;
+}
+
 function externalPartyName(call: CallRecord): string {
   const isInbound = call.call_type === 'inbound';
   const label = isInbound ? call.from_label : call.to_label;
   const party = isInbound ? call.from_party : call.to_party;
-  // Prefer resolved name over phone-number labels
-  if (call.resolved_name) return call.resolved_name;
-  return label || party || 'Unknown';
+  const resolvedName = usablePartyLabel(call.resolved_name);
+  if (resolvedName) return resolvedName;
+  const explicitLabel = usablePartyLabel(label) || usablePartyLabel(party);
+  if (explicitLabel) return explicitLabel;
+  return call.is_meeting_like ? 'External recording' : 'Unknown caller';
+}
+
+function isInternalCall(call: CallRecord): boolean {
+  return call.is_internal === true;
+}
+
+function isExternalPhoneCall(call: CallRecord): boolean {
+  if (isInternalCall(call)) return false;
+  if (typeof call.is_external_call === 'boolean') return call.is_external_call;
+  return true;
+}
+
+function canViewerSeeInternalCalls(userInitials: string): boolean {
+  return normalizeInitials(userInitials) === 'LZ';
+}
+
+function isVisibleCallCentreCall(call: CallRecord, canSeeInternalCalls: boolean): boolean {
+  return isExternalPhoneCall(call) || (canSeeInternalCalls && isInternalCall(call));
+}
+
+function matchesCallCentreVisibility(item: JourneyItem, canSeeInternalCalls: boolean): boolean {
+  if (item.kind === 'call') return isVisibleCallCentreCall(item.call, canSeeInternalCalls);
+  if (item.kind === 'note') return !!item.linkedCall && isVisibleCallCentreCall(item.linkedCall, canSeeInternalCalls);
+  return false;
+}
+
+function normalizeInitials(value?: string | null): string {
+  return String(value || '').trim().toUpperCase();
+}
+
+function attendeeDisplay(attendee: AttendanceNoteAttendee): string {
+  return attendee.initials || attendee.name || attendee.email || 'Attendee';
+}
+
+function attendeeKey(attendee: AttendanceNoteAttendee): string {
+  return `${attendee.kind}:${normalizeInitials(attendee.initials) || String(attendee.email || '').toLowerCase() || attendee.name.toLowerCase()}`;
+}
+
+function compactAttendees(attendees: Array<AttendanceNoteAttendee | null | undefined>): AttendanceNoteAttendee[] {
+  const seen = new Set<string>();
+  const compact: AttendanceNoteAttendee[] = [];
+  for (const attendee of attendees) {
+    if (!attendee?.name && !attendee?.initials && !attendee?.email) continue;
+    const key = attendeeKey(attendee);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    compact.push(attendee);
+  }
+  return compact;
+}
+
+function findCallFromJourneyItems(items: JourneyItem[], recordingId: string): CallRecord | null {
+  for (const item of items) {
+    if (item.kind === 'call' && item.call.recording_id === recordingId) return item.call;
+    if (item.kind === 'note' && item.linkedCall?.recording_id === recordingId) return item.linkedCall;
+  }
+  return null;
+}
+
+function findSavedNoteFromJourneyItems(items: JourneyItem[], recordingId: string): SavedNote | null {
+  for (const item of items) {
+    if (item.kind === 'note' && item.note.recording_id === recordingId) return item.note;
+  }
+  return null;
+}
+
+function ownerAttendeeForCall(call: CallRecord): AttendanceNoteAttendee | null {
+  const initials = normalizeInitials(call.matched_team_initials);
+  if (!initials) return null;
+  return {
+    id: `internal:${initials}`,
+    kind: 'internal',
+    role: 'primary',
+    name: initials,
+    initials,
+    email: call.matched_team_email || null,
+    source: 'transcript',
+  };
+}
+
+function attendeeMatchesUser(attendee: AttendanceNoteAttendee, userInitials: string, userEmail?: string): boolean {
+  const initials = normalizeInitials(userInitials);
+  const email = String(userEmail || '').trim().toLowerCase();
+  const attendeeInitials = normalizeInitials(attendee.initials);
+  const attendeeEmail = String(attendee.email || '').trim().toLowerCase();
+  return Boolean(
+    (initials && attendeeInitials && initials === attendeeInitials)
+    || (email && attendeeEmail && email === attendeeEmail),
+  );
+}
+
+function resolveCallAttendees(
+  call: CallRecord,
+  savedNoteSummary: SavedNote | null,
+  cachedSavedNote: { note: AttendanceNote; meta: SavedNoteCacheMeta } | undefined,
+  inlineGeneratedNote: AttendanceNote | null,
+): AttendanceNoteAttendee[] {
+  const attendees = compactAttendees([
+    ownerAttendeeForCall(call),
+    ...(call.attendees || []),
+    ...(call.attendance?.attendees || []),
+    ...(savedNoteSummary?.attendees || []),
+    ...(savedNoteSummary?.attendance?.attendees || []),
+    ...(cachedSavedNote?.note?.attendees || []),
+    ...(inlineGeneratedNote?.attendees || []),
+  ]);
+  const ownerInitials = normalizeInitials(call.matched_team_initials);
+  if (ownerInitials && !attendees.some((attendee) => attendee.kind === 'internal' && attendee.role === 'primary')) {
+    const owner = attendees.find((attendee) => normalizeInitials(attendee.initials) === ownerInitials);
+    if (owner) owner.role = 'primary';
+  }
+  return attendees;
+}
+
+function resolveCallAttendanceContext(
+  call: CallRecord,
+  savedNoteSummary: SavedNote | null,
+  cachedSavedNote: { note: AttendanceNote; meta: SavedNoteCacheMeta } | undefined,
+  inlineGeneratedNote: AttendanceNote | null,
+  userInitials: string,
+  userEmail?: string,
+) {
+  const attendees = resolveCallAttendees(call, savedNoteSummary, cachedSavedNote, inlineGeneratedNote);
+  const primaryAttendee = attendees.find((attendee) => attendee.kind === 'internal' && attendee.role === 'primary') || ownerAttendeeForCall(call);
+  const primaryInitials = normalizeInitials(primaryAttendee?.initials || call.matched_team_initials);
+  const secondaryAttendees = attendees.filter((attendee) => attendee.kind === 'internal' && attendee.role !== 'primary');
+  const userIsPrimary = Boolean(primaryInitials && normalizeInitials(userInitials) === primaryInitials)
+    || attendees.some((attendee) => attendee.kind === 'internal' && attendee.role === 'primary' && attendeeMatchesUser(attendee, userInitials, userEmail));
+  const userIsSecondary = !userIsPrimary && secondaryAttendees.some((attendee) => attendeeMatchesUser(attendee, userInitials, userEmail));
+  const canControl = !normalizeInitials(userInitials) || !primaryInitials || userIsPrimary;
+  return {
+    attendees,
+    primaryAttendee,
+    primaryInitials,
+    secondaryAttendees,
+    userIsPrimary,
+    userIsSecondary,
+    canControl,
+  };
 }
 
 function hasExplicitTime(raw?: string | null): boolean {
@@ -312,8 +515,8 @@ function mergeJourneyItems(existing: JourneyItem[], incoming: JourneyItem[]): Jo
 function matchesJourneyFilter(item: JourneyItem, journeyFilter: JourneyFilter): boolean {
   switch (journeyFilter) {
     case 'external':
-      if (item.kind === 'call') return !item.call.is_internal;
-      if (item.kind === 'note') return !!item.linkedCall && !item.linkedCall.is_internal;
+      if (item.kind === 'call') return isExternalPhoneCall(item.call);
+      if (item.kind === 'note') return !!item.linkedCall && isExternalPhoneCall(item.linkedCall);
       return false;
     case 'internal':
       if (item.kind === 'call') return !!item.call.is_internal;
@@ -543,8 +746,10 @@ function NotePromptInspector({ systemPrompt, userPrompt, isDarkMode, accent, tex
                   style={{
                     flex: 1, padding: '4px 8px', fontSize: 9, fontWeight: active ? 700 : 500,
                     background: active ? (isDarkMode ? 'rgba(13,47,96,0.45)' : 'rgba(214,232,255,0.55)') : 'transparent',
-                    borderBottom: `2px solid ${active ? accent : 'transparent'}`,
-                    border: 'none', borderBottomWidth: 2, borderBottomStyle: 'solid',
+                    borderStyle: 'solid',
+                    borderWidth: 0,
+                    borderColor: 'transparent',
+                    borderBottomWidth: 2,
                     borderBottomColor: active ? accent : 'transparent',
                     color: active ? text : muted, cursor: 'pointer',
                     fontFamily: 'Raleway, sans-serif', textTransform: 'uppercase',
@@ -572,14 +777,24 @@ function NotePromptInspector({ systemPrompt, userPrompt, isDarkMode, accent, tex
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
-export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, userRate, isNarrow, demoModeEnabled = false, isActive = true, matterLookupOptions = [], recentEnquiryOptions = [], viewAsProd = false }: CallsAndNotesProps) {
-  const showAll = isDevOwner({ Initials: userInitials, Email: userEmail || '' } as any);
-  // Dubber API requests go directly to the Express backend on localhost to avoid
-  // HTTP/1.1 connection exhaustion — the 6+ SSE streams through the CRA proxy
-  // consume all per-origin connection slots, starving regular fetches.
+export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, userRate, isNarrow, demoModeEnabled = false, isActive = true, matterLookupOptions = [], recentEnquiryOptions = [], teamOptions = [], viewAsProd = false }: CallsAndNotesProps) {
+  const accessUser = React.useMemo(() => ({ Initials: userInitials, Email: userEmail || '' } as any), [userEmail, userInitials]);
+  const canUseAllView = isAdminUser(accessUser);
+  const startsInAllView = canSeeFirmWideHomeData(accessUser);
+  const journeyScopeStorageKey = React.useMemo(() => {
+    const identity = normalizeInitials(userInitials) || String(userEmail || '').trim().toLowerCase() || 'anonymous';
+    return `home-call-centre-scope:${identity}`;
+  }, [userEmail, userInitials]);
+  // Dubber API requests:
+  //  - Localhost: hit the Express backend directly on :8080 so the 6+ SSE
+  //    streams that go through the CRA dev proxy don't starve regular fetches
+  //    of per-origin HTTP/1.1 connection slots.
+  //  - Staging + prod: same-origin (`''`) — Express serves both the SPA and
+  //    the API, so we skip the legacy `helix-keys-proxy` hop entirely. The
+  //    proxy was previously inserted by `getProxyBaseUrl()` and produced
+  //    `/api/api/dubberCalls/...` 404s when its `/api`-suffixed default URL
+  //    was concatenated with our `/api/...` paths.
   const dubberApiBaseUrl = React.useMemo(() => {
-    const baseUrl = getProxyBaseUrl();
-    if (baseUrl) return baseUrl;
     if (typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname)) {
       return 'http://localhost:8080';
     }
@@ -612,6 +827,17 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
   const hoverBg = isDarkMode ? 'rgba(54,144,206,0.06)' : 'rgba(13,47,96,0.03)';
   const tabActiveBg = isDarkMode ? 'rgba(54,144,206,0.04)' : 'rgba(13,47,96,0.015)';
   const clioLogoFilter = isDarkMode ? 'brightness(0) invert(1)' : 'none';
+  const callsToggleChrome = React.useMemo(() => ({
+    shellBorder: isDarkMode ? withAlpha(colours.highlight, 0.2) : withAlpha(colours.helixBlue, 0.14),
+    shellBackground: isDarkMode ? withAlpha(colours.dark.sectionBackground, 0.86) : withAlpha(colours.grey, 0.72),
+    dividerBorder: isDarkMode ? withAlpha(colours.highlight, 0.14) : withAlpha(colours.helixBlue, 0.1),
+    activeBackground: isDarkMode ? withAlpha(colours.highlight, 0.16) : withAlpha(colours.highlight, 0.12),
+    activeText: isDarkMode ? colours.dark.text : colours.highlight,
+    inactiveText: isDarkMode ? colours.subtleGrey : colours.greyText,
+    buttonBorder: isDarkMode ? withAlpha(colours.highlight, 0.14) : withAlpha(colours.helixBlue, 0.12),
+    buttonBackground: isDarkMode ? withAlpha(colours.dark.sectionBackground, 0.78) : withAlpha(colours.grey, 0.58),
+    buttonIcon: colours.highlight,
+  }), [isDarkMode]);
 
   // ── State ──
   const [journeyItems, setJourneyItems] = useState<JourneyItem[]>([]);
@@ -621,20 +847,23 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
   const [activitiesLoading, setActivitiesLoading] = useState(false);
   const [journeyError, setJourneyError] = useState<string | null>(null);
   const [journeyWarnings, setJourneyWarnings] = useState<Record<string, string> | null>(null);
-  const callCentreEnabled = ['LZ', 'AC'].includes((userInitials || '').trim().toUpperCase());
+  const callCentreEnabled = true;
+  const useDemoJourneySeed = demoModeActive && !callCentreEnabled;
   const [journeyMeta, setJourneyMeta] = useState({ generatedAt: null as string | null, latestTimestamp: 0, scope: 'user' as 'user' | 'all', cachedWindowSeconds: 120 });
-  const defaultJourneyScope = callCentreEnabled ? 'user' as const : (showAll ? 'all' as const : 'user' as const);
-  const [selectedJourneyScope, setSelectedJourneyScope] = useState<'user' | 'all'>(defaultJourneyScope);
-  // In Call Centre Mine view, "external only" hides team↔team internal calls (e.g. AC → LZ),
-  // which are legitimate calls I need to see. Only apply the external default in Team view
-  // where the internal chatter would otherwise swamp the feed.
-  const defaultJourneyFilter: JourneyFilter = callCentreEnabled
-    ? (selectedJourneyScope === 'user' ? 'all' : 'external')
-    : 'all';
-  // CALL_CENTRE_EXTERNAL — Phase A dev-preview flag. Gates the prod Call Centre
-  // surface (external-only, enlarged "Add to file" primary, chip row hidden).
-  // Per rollout ladder, kept inline LZ/AC until the box (Cut 2) + fork (Cut 3)
-  // ship. Promote to `canSeeCallCentre()` in src/app/admin.ts when ready.
+  const defaultJourneyScope = React.useMemo<'user' | 'all'>(() => {
+    if (!canUseAllView || useDemoJourneySeed) return 'user';
+    try {
+      const storedScope = localStorage.getItem(journeyScopeStorageKey);
+      if (storedScope === 'user' || storedScope === 'all') return storedScope;
+    } catch {
+      // ignore localStorage failures and use the role-based default below
+    }
+    return startsInAllView ? 'all' : 'user';
+  }, [canUseAllView, journeyScopeStorageKey, startsInAllView, useDemoJourneySeed]);
+  const [selectedJourneyScope, setSelectedJourneyScope] = useState<'user' | 'all'>(() => defaultJourneyScope);
+  // Call Centre is the default surface for everyone. Keep the broader journey
+  // plumbing intact for future note/email filing, but show external calls only.
+  const defaultJourneyFilter: JourneyFilter = 'external';
   const [journeyFilter, setJourneyFilter] = useState<JourneyFilter>(defaultJourneyFilter);
   const [selectedCallId, setSelectedCallId] = useState<string | null>(null);
   const [generatingNoteFor, setGeneratingNoteFor] = useState<string | null>(null);
@@ -647,6 +876,8 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
   const [noteGenError, setNoteGenError] = useState<string | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [attendanceSaveLegs, setAttendanceSaveLegs] = useState<AttendanceNoteBoxSaveLegStatus[]>([]);
+  const [filingTarget, setFilingTarget] = useState<AttendanceNoteTarget>('matter');
+  const [hoveredCallCue, setHoveredCallCue] = useState<HoveredCallCue | null>(null);
   // Synthetic recording id for standalone "manual" attendance notes (no call selected).
   // Regenerated after each successful save to start a fresh draft.
   const [manualRecordingId, setManualRecordingId] = useState<string>(() => {
@@ -662,14 +893,16 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
   const rootRef = useRef<HTMLDivElement>(null);
   const journeyLoadedKeyRef = useRef<string | null>(null);
   const journeyRequestContextRef = useRef('');
+  const journeyRequestSeqRef = useRef(0);
   const lastJourneyTimestampRef = useRef(0);
   const [panelVisible, setPanelVisible] = useState(false);
   const [isDocumentVisible, setIsDocumentVisible] = useState(() => (typeof document === 'undefined' ? true : !document.hidden));
-  const [savedNoteCache, setSavedNoteCache] = useState<Record<string, { note: AttendanceNote; meta: { matter_ref?: string | null; saved_by?: string | null; saved_at?: string; uploaded_nd?: boolean; nd_file_name?: string | null } }>>({});
+  const [savedNoteCache, setSavedNoteCache] = useState<Record<string, { note: AttendanceNote; meta: SavedNoteCacheMeta }>>({});
   const [loadingSavedNote, setLoadingSavedNote] = useState<string | null>(null);
   const demoJourneySeed = React.useMemo(() => buildDemoJourneySeed(userInitials, userEmail), [userEmail, userInitials]);
-  const resolvedJourneyScope = showAll ? selectedJourneyScope : 'user';
-  const canToggleJourneyScope = showAll && !demoModeActive;
+  const resolvedJourneyScope = canUseAllView ? selectedJourneyScope : 'user';
+  const canToggleJourneyScope = canUseAllView && !useDemoJourneySeed;
+  const canSeeInternalCalls = canViewerSeeInternalCalls(userInitials);
   const journeyRequestLimit = React.useMemo(() => {
     if (!callCentreEnabled) return isNarrow ? 80 : 100;
     return resolvedJourneyScope === 'user' ? 40 : 70;
@@ -710,6 +943,52 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
         return true;
       });
   }, [matterLookupOptions]);
+
+  const demoWorkspaceMatterPrefill = React.useMemo(() => {
+    if (!demoModeActive) return null;
+    const canonicalMatter = localMatterLookupOptions.find((matter) => {
+      const displayNumber = String(matter.displayNumber || '').trim().toUpperCase();
+      const clientName = String(matter.clientName || '').trim().toUpperCase();
+      return displayNumber === DEMO_WORKSPACE_MATTER_DISPLAY_NUMBER
+        || clientName === DEMO_WORKSPACE_MATTER_CLIENT_NAME.toUpperCase();
+    });
+    if (canonicalMatter) {
+      return {
+        displayNumber: canonicalMatter.displayNumber,
+        clientName: canonicalMatter.clientName || DEMO_WORKSPACE_MATTER_CLIENT_NAME,
+        description: canonicalMatter.description || 'Admin',
+      };
+    }
+    return {
+      displayNumber: DEMO_WORKSPACE_MATTER_DISPLAY_NUMBER,
+      clientName: DEMO_WORKSPACE_MATTER_CLIENT_NAME,
+      description: 'Admin',
+    };
+  }, [demoModeActive, localMatterLookupOptions]);
+
+  const demoWorkspaceProspectPrefill = React.useMemo<ProspectLookupOption | null>(() => {
+    if (!demoModeActive) return null;
+    const canonicalProspect = (recentEnquiryOptions || []).find((option) => {
+      const optionId = String(option.id || '').trim();
+      const acid = String(option.acid || option.acContactId || '').trim();
+      const fullName = `${option.firstName || ''} ${option.lastName || ''}`.trim().toUpperCase();
+      return optionId === DEMO_REHEARSAL_PROSPECT_ID
+        || acid === DEMO_REHEARSAL_PROSPECT_ID
+        || fullName === DEMO_REHEARSAL_PROSPECT_NAME.toUpperCase();
+    });
+    if (canonicalProspect) return canonicalProspect;
+    return {
+      id: Number(DEMO_REHEARSAL_PROSPECT_ID),
+      acid: DEMO_REHEARSAL_PROSPECT_ID,
+      acContactId: DEMO_REHEARSAL_PROSPECT_ID,
+      firstName: 'Helix',
+      lastName: 'Demo',
+      email: '',
+      phone: '',
+      aow: 'Commercial',
+      source: 'instructions',
+    };
+  }, [demoModeActive, recentEnquiryOptions]);
 
   const filterLocalMatterLookupOptions = useCallback((q: string, limit = 20): MatterOption[] => {
     const needle = q.trim().toLowerCase();
@@ -784,6 +1063,8 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
   useEffect(() => {
     journeyLoadedKeyRef.current = null;
     lastJourneyTimestampRef.current = 0;
+    setJourneyItems([]);
+    setLastStableJourneyItems([]);
     setJourneyMeta((prev) => ({
       generatedAt: prev.generatedAt,
       latestTimestamp: prev.latestTimestamp,
@@ -877,11 +1158,11 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
   }, [callCentreEnabled, isNarrow, selectedCallId]);
 
   const panelActivated = isActive && panelVisible;
-  const journeyFetchKey = `${journeyRequestContext}:${demoModeActive ? 'demo' : 'live'}`;
+  const journeyFetchKey = `${journeyRequestContext}:${useDemoJourneySeed ? 'demo' : 'live'}`;
 
   const fetchJourney = useCallback(async (mode: 'full' | 'delta' = 'full') => {
     const requestContext = journeyRequestContext;
-    if (demoModeActive) {
+    if (useDemoJourneySeed) {
       setJourneyItems(demoJourneySeed.items);
       setJourneyMeta({
         generatedAt: demoJourneySeed.generatedAt,
@@ -905,6 +1186,14 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
       return;
     }
 
+    const requestSeq = journeyRequestSeqRef.current + 1;
+    journeyRequestSeqRef.current = requestSeq;
+    const isCurrentJourneyRequest = () => (
+      journeyRequestSeqRef.current === requestSeq
+      && journeyRequestContextRef.current === requestContext
+    );
+    const journeyUrl = (query: URLSearchParams) => `${dubberApiBaseUrl}/api/home-journey?${query.toString()}`;
+
     const params = new URLSearchParams({
       initials: userInitials,
       limit: String(journeyRequestLimit),
@@ -925,10 +1214,11 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
       }
       try {
         setIsRefreshingJourney(true);
-        const response = await fetch(`/api/home-journey?${params.toString()}`, { headers });
+        const response = await fetch(journeyUrl(params), { headers });
+        if (!isCurrentJourneyRequest()) return;
         if (!response.ok) return;
         const data = await response.json();
-        if (journeyRequestContextRef.current !== requestContext) return;
+        if (!isCurrentJourneyRequest()) return;
         setJourneyError(null);
         if (data.warnings) setJourneyWarnings(prev => ({ ...(prev || {}), ...data.warnings }));
         const nextItems = Array.isArray(data.items)
@@ -947,7 +1237,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
       } catch {
         // keep current snapshot on delta fail
       } finally {
-        setIsRefreshingJourney(false);
+        if (isCurrentJourneyRequest()) setIsRefreshingJourney(false);
       }
       return;
     }
@@ -966,7 +1256,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
       ? (() => {
           const slowParams = new URLSearchParams(params);
           slowParams.set('sources', 'activities');
-          return fetch(`/api/home-journey?${slowParams.toString()}`, { headers })
+          return fetch(journeyUrl(slowParams), { headers })
             .then(r => r.ok ? r.json() : null)
             .catch(() => null);
         })()
@@ -974,10 +1264,11 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
 
     // Await fast sources — show items immediately
     try {
-      const fastRes = await fetch(`/api/home-journey?${fastParams.toString()}`, { headers });
-      if (journeyRequestContextRef.current !== requestContext) { setIsLoadingJourney(false); setActivitiesLoading(false); return; }
+      const fastRes = await fetch(journeyUrl(fastParams), { headers });
+      if (!isCurrentJourneyRequest()) return;
       if (fastRes.ok) {
         const data = await fastRes.json();
+        if (!isCurrentJourneyRequest()) return;
         const nextItems = Array.isArray(data.items) ? data.items.map(normaliseJourneyItem).filter(Boolean) as JourneyItem[] : [];
         nextItems.sort(compareJourneyItems);
         setJourneyItems(nextItems);
@@ -989,14 +1280,15 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
         setJourneyError('Unable to load calls and notes.');
       }
     } catch {
-      setJourneyError('Connection error — check your network.');
+      if (isCurrentJourneyRequest()) setJourneyError('Connection error — check your network.');
     }
+    if (!isCurrentJourneyRequest()) return;
     setIsLoadingJourney(false);
 
     // Await activities — merge into existing items
     try {
       const slowData = await slowPromise;
-      if (journeyRequestContextRef.current !== requestContext) { setActivitiesLoading(false); return; }
+      if (!isCurrentJourneyRequest()) return;
       if (slowData) {
         const activityItems = Array.isArray(slowData.items) ? slowData.items.map(normaliseJourneyItem).filter(Boolean) as JourneyItem[] : [];
         if (activityItems.length > 0) {
@@ -1014,8 +1306,9 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
         }
       }
     } catch { /* activities failed — fast sources still visible */ }
+    if (!isCurrentJourneyRequest()) return;
     setActivitiesLoading(false);
-  }, [activitiesEnabled, callCentreEnabled, demoJourneySeed, demoModeActive, journeyRequestContext, journeyRequestLimit, resolvedJourneyScope, userEmail, userInitials]);
+  }, [activitiesEnabled, callCentreEnabled, demoJourneySeed, dubberApiBaseUrl, journeyRequestContext, journeyRequestLimit, resolvedJourneyScope, useDemoJourneySeed, userEmail, userInitials]);
 
   useEffect(() => {
     if (!panelActivated) return;
@@ -1025,12 +1318,12 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
   }, [fetchJourney, journeyFetchKey, panelActivated]);
 
   useEffect(() => {
-    if (demoModeActive || !panelActivated || !isDocumentVisible || !journeyLoadedKeyRef.current) return;
+    if (useDemoJourneySeed || !panelActivated || !isDocumentVisible || !journeyLoadedKeyRef.current) return;
     const intervalId = window.setInterval(() => {
       void fetchJourney('delta');
     }, 600_000); // 10 min safety net — SSE push handles real-time updates
     return () => window.clearInterval(intervalId);
-  }, [demoModeActive, fetchJourney, isDocumentVisible, panelActivated]);
+  }, [fetchJourney, isDocumentVisible, panelActivated, useDemoJourneySeed]);
 
   // Realtime: when data-ops sync completes, fetch delta immediately instead of waiting for poll.
   // Uses shared EventSource via useRealtimeChannel so we don't open a 2nd connection to
@@ -1041,7 +1334,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
     {
       event: 'dataOps.synced',
       name: 'callsAndNotes.dataOps',
-      enabled: !demoModeActive && panelActivated,
+      enabled: !useDemoJourneySeed && panelActivated,
       debounceMs: 1000,
       onChange: () => {
         if (journeyLoadedKeyRef.current) {
@@ -1055,10 +1348,10 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
   // journeyItems.length is a guard (don't delta before initial load) but NOT a dep —
   // having it in deps created a feedback loop (fetch → items change → re-fetch → cache hit → stop).
   useEffect(() => {
-    if (demoModeActive || !panelActivated || !isDocumentVisible || journeyItems.length === 0 || isLoadingJourney || journeyLoadedKeyRef.current !== journeyFetchKey) return;
+    if (useDemoJourneySeed || !panelActivated || !isDocumentVisible || journeyItems.length === 0 || isLoadingJourney || journeyLoadedKeyRef.current !== journeyFetchKey) return;
     void fetchJourney('delta');
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [demoModeActive, fetchJourney, isDocumentVisible, isLoadingJourney, journeyFetchKey, panelActivated]);
+  }, [fetchJourney, isDocumentVisible, isLoadingJourney, journeyFetchKey, panelActivated, useDemoJourneySeed]);
 
   // ── Fetch a single saved note for inline display ──
   const fetchSavedNote = useCallback(async (recordingId: string) => {
@@ -1099,6 +1392,16 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
       });
       setMatterSearch('HLX-33114-00012');
       return;
+    }
+    const callForRecording = findCallFromJourneyItems(journeyItems, recordingId);
+    if (callForRecording) {
+      const noteSummaryForRecording = findSavedNoteFromJourneyItems(journeyItems, recordingId);
+      const attendanceContext = resolveCallAttendanceContext(callForRecording, noteSummaryForRecording, savedNoteCache[recordingId], null, userInitials, userEmail);
+      if (!attendanceContext.canControl) {
+        setGeneratedNote(null);
+        setNoteGenError('Only the primary call owner can craft this note.');
+        return;
+      }
     }
     setGeneratingNoteFor(recordingId);
     setGeneratedNote(null);
@@ -1164,7 +1467,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
       setNoteGenError(`Connection error — ${msg}`);
     }
     finally { setGeneratingNoteFor(null); }
-  }, [demoJourneySeed.generatedNote, demoModeActive, dubberApiBaseUrl, journeyItems]);
+  }, [demoJourneySeed.generatedNote, demoModeActive, dubberApiBaseUrl, journeyItems, savedNoteCache, userEmail, userInitials]);
 
   // ── Search matters for picker ──
   const searchMatters = useCallback(async (q: string, options?: { includeLegacy?: boolean }) => {
@@ -1227,17 +1530,21 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
         }
       }
 
-      const legacyRes = await fetch(`${dubberApiBaseUrl}/api/outstanding-balances/matter-search?q=${encodeURIComponent(trimmed)}&limit=${includeLegacy ? 20 : 1}`);
+      // Skip the speculative legacy probe — only call the slow full-scan
+      // outstanding-balances/matter-search endpoint when the user explicitly
+      // asks for legacy results via the reveal affordance. The probe used to
+      // fire on every keystroke and time out (~6–10s, network-error).
+      if (!includeLegacy) {
+        setMatterOptions([]);
+        setMatterLegacyAvailable(true);
+        return;
+      }
+
+      const legacyRes = await fetch(`${dubberApiBaseUrl}/api/outstanding-balances/matter-search?q=${encodeURIComponent(trimmed)}&limit=20`);
       const legacyData = legacyRes?.ok ? await legacyRes.json() : null;
       const legacyMatters = Array.isArray(legacyData?.results) ? legacyData.results : [];
 
       if (matterSearchRequestRef.current !== requestId) return;
-
-      if (!includeLegacy) {
-        setMatterOptions([]);
-        setMatterLegacyAvailable(legacyMatters.length > 0);
-        return;
-      }
 
       setMatterOptions(legacyMatters.slice(0, 20).map((matter: any) => ({
         key: matter.displayNumber || matter.matterId || '',
@@ -1317,8 +1624,8 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
     try {
       const res = await fetchWithTimeout(`${dubberApiBaseUrl}/api/dubberCalls/${encodeURIComponent(recordingId)}/save-note`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-user-initials': userInitials },
-        body: JSON.stringify({ note: noteToSave, matterRef }),
+        headers: buildRequestAuthHeaders({ 'Content-Type': 'application/json', 'x-user-initials': userInitials }),
+        body: JSON.stringify({ note: noteToSave, matterRef, targetType: matterRef ? 'matter' : 'unknown' }),
       }, 30000);
       if (res?.ok) {
         const data = await res.json();
@@ -1397,7 +1704,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
     try {
       const res = await fetch(`${dubberApiBaseUrl}/api/dubberCalls/${encodeURIComponent(recordingId)}/upload-note-nd`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: buildRequestAuthHeaders({ 'Content-Type': 'application/json', 'x-user-initials': userInitials }),
         body: JSON.stringify({ note: noteToUpload, matterRef }),
       });
       if (res?.ok) {
@@ -1435,7 +1742,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
       setUploadError('Connection error — upload failed.');
       return { ok: false, message: 'Connection error — upload failed.' };
     }
-  }, [demoModeActive, dubberApiBaseUrl, fetchJourney, generatedNote, pipeline.linkedMatterRef, savedNoteCache, selectedCallId]);
+  }, [demoModeActive, dubberApiBaseUrl, fetchJourney, generatedNote, pipeline.linkedMatterRef, savedNoteCache, selectedCallId, userInitials]);
 
   const recordClioTimeEntry = useCallback(async (payload: AttendanceNoteBoxPayload, options?: { refreshJourney?: boolean }) => {
     if (!payload.recordClioTimeEntry) return { ok: true, skipped: true, message: 'Not requested' };
@@ -1445,35 +1752,62 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
     try {
       const res = await fetch(`${dubberApiBaseUrl}/api/dubberCalls/${encodeURIComponent(payload.recordingId)}/clio-time-entry`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: buildRequestAuthHeaders({ 'Content-Type': 'application/json', 'x-user-initials': userInitials }),
         body: JSON.stringify({
           matterDisplayNumber: payload.matterDisplayNumber,
           chargeableMinutes: payload.chargeableMinutes,
           narrative: payload.narrative,
           date: payload.date,
+          callStartedAt: payload.callStartedAt,
           userInitials,
         }),
       });
       if (res?.ok) {
         const data = await res.json();
+        const activityId = data?.activityId ?? data?.activity?.id;
         if (options?.refreshJourney !== false) void fetchJourney('full');
         return {
           ok: true,
-          message: data?.activity?.id ? `Activity #${data.activity.id}` : `Recorded ${payload.chargeableMinutes} min in Clio`,
+          message: activityId ? `Activity #${activityId}` : `Recorded ${payload.chargeableMinutes} min in Clio`,
         };
       }
-      let message = 'Failed to record Clio time entry.';
-      let retriable = true;
-      try {
-        const errData = await res.json();
-        if (typeof errData?.error === 'string' && errData.error.trim()) {
-          message = errData.error;
+      const rawBody = await res.text().catch(() => '');
+      let message = res?.status === 422
+        ? 'Clio rejected the time entry.'
+        : res?.status === 429
+          ? 'Clio rate-limited the time entry request.'
+          : 'Failed to record Clio time entry.';
+      let retriable = res?.status === 429 || (typeof res?.status === 'number' && res.status >= 500);
+      if (rawBody) {
+        try {
+          const errData = JSON.parse(rawBody);
+          const code = typeof errData?.code === 'string' ? errData.code.trim() : '';
+          const detailedMessage = typeof errData?.message === 'string' && errData.message.trim()
+            ? errData.message.trim()
+            : typeof errData?.error === 'string' && errData.error.trim()
+              ? errData.error.trim()
+              : '';
+          if (detailedMessage) {
+            message = code && code !== 'CLIO_WRITE_REJECTED' && !detailedMessage.startsWith(code)
+              ? `${code}: ${detailedMessage}`
+              : detailedMessage;
+          } else if (code) {
+            message = code;
+          }
+          if (typeof errData?.retriable === 'boolean') {
+            retriable = errData.retriable;
+          }
+        } catch {
+          const cleanedMessage = rawBody
+            .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+            .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+            .replace(/<[^>]+>/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+          if (cleanedMessage) {
+            message = cleanedMessage.length > 240 ? `${cleanedMessage.slice(0, 237)}...` : cleanedMessage;
+          }
         }
-        if (typeof errData?.retriable === 'boolean') {
-          retriable = errData.retriable;
-        }
-      } catch {
-        // non-JSON response
       }
       return { ok: false, message, retriable };
     } catch (error: unknown) {
@@ -1502,6 +1836,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
         to: call.to_label || call.to_party || userInitials || 'Helix',
       },
       teamMember: baseNote?.teamMember || userInitials || null,
+      attendees: payload.attendees,
       systemPrompt: baseNote?.systemPrompt,
       userPrompt: baseNote?.userPrompt,
     };
@@ -1517,20 +1852,28 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
   }, [journeyItems]);
 
   const handleAttendanceWorkspaceSave = useCallback(async (payload: AttendanceNoteBoxPayload) => {
-    // ── Prospect target: single-leg save to prospect doc-workspace ──
+    const callForPayload = calls.find((entry) => entry.recording_id === payload.recordingId) || null;
+    if (callForPayload) {
+      const noteSummaryForPayload = findSavedNoteFromJourneyItems(journeyItems, payload.recordingId);
+      const cachedNoteForPayload = savedNoteCache[payload.recordingId];
+      const inlineGeneratedNote = generatedNote && selectedCallId === payload.recordingId ? generatedNote : null;
+      const attendanceContext = resolveCallAttendanceContext(callForPayload, noteSummaryForPayload, cachedNoteForPayload, inlineGeneratedNote, userInitials, userEmail);
+      if (!attendanceContext.canControl) {
+        setAttendanceSaveLegs([{ leg: 'save-note', status: 'failed', message: 'Only the primary call owner can file this note.' }]);
+        return;
+      }
+    }
+
+    // ── Prospect target: SQL source row + ActiveCampaign note ──
     if (payload.target === 'prospect') {
       if (!payload.enquiryId) return;
       setAttendanceSaveLegs([
         { leg: 'save-note', status: 'running' },
-        { leg: 'upload-nd', status: 'skipped', message: 'Prospect notes file to doc-workspace' },
-        { leg: 'clio-time-entry', status: 'skipped', message: 'Not billable' },
-        { leg: 'todo-reconcile', status: 'skipped', message: 'Deferred' },
       ]);
 
       // Build a minimal AttendanceNote from the payload narrative.
-      const fallbackCall = calls.find((entry) => entry.recording_id === payload.recordingId);
-      const baseNote: AttendanceNote = fallbackCall
-        ? buildWorkspaceAttendanceNote(fallbackCall, payload)
+      const baseNote: AttendanceNote = callForPayload
+        ? buildWorkspaceAttendanceNote(callForPayload, payload)
         : {
             summary: payload.narrative.trim().slice(0, 500) || `Call with ${payload.contactName || 'Prospect'}`,
             topics: [],
@@ -1540,29 +1883,100 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
             date: payload.date,
             parties: { from: payload.contactName || 'Prospect', to: userInitials || 'Helix' },
             teamMember: userInitials || null,
+            attendees: payload.attendees,
           };
 
       try {
+        const headersBase: Record<string, string> = {
+          'Content-Type': 'application/json',
+        };
+        if (userInitials) headersBase['x-user-initials'] = userInitials;
         const res = await fetch(`${dubberApiBaseUrl}/api/dubberCalls/${encodeURIComponent(payload.recordingId)}/save-prospect-note`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-user-initials': userInitials },
+          headers: buildRequestAuthHeaders(headersBase),
           body: JSON.stringify({
             note: baseNote,
             enquiryId: payload.enquiryId,
+            acContactId: payload.acContactId || undefined,
+            prospectEmail: payload.prospectEmail || undefined,
             passcode: payload.passcode || undefined,
             contactName: payload.contactName || undefined,
           }),
         });
         if (res?.ok) {
           const data = await res.json();
+          if (data?.ok === false || data?.acSynced === false) {
+            setSavedNoteCache(prev => ({
+              ...prev,
+              [payload.recordingId]: {
+                note: baseNote,
+                meta: {
+                  matter_ref: null,
+                  saved_by: userInitials || null,
+                  saved_at: new Date().toISOString(),
+                  uploaded_nd: false,
+                  nd_file_name: null,
+                  processing_status: data.processingStatus || 'failed',
+                },
+              },
+            }));
+            const serverMessage = typeof data?.error === 'string' ? data.error.trim() : '';
+            const message = serverMessage
+              ? (/saved in hub/i.test(serverMessage) ? serverMessage : `${serverMessage} Saved in Hub.`)
+              : 'Saved in Hub, but ActiveCampaign failed.';
+            setAttendanceSaveLegs(prev => prev.map((entry) => (
+              entry.leg === 'save-note' ? { ...entry, status: 'failed' as const, message, retriable: true } : entry
+            )));
+            void fetchJourney('full');
+            return;
+          }
+          setSavedNoteCache(prev => ({
+            ...prev,
+            [payload.recordingId]: {
+              note: baseNote,
+              meta: {
+                matter_ref: null,
+                saved_by: userInitials || null,
+                saved_at: new Date().toISOString(),
+                uploaded_nd: false,
+                nd_file_name: null,
+              },
+            },
+          }));
           setAttendanceSaveLegs(prev => prev.map((entry) => (
             entry.leg === 'save-note'
-              ? { ...entry, status: 'success' as const, message: data.filename || 'Filed to prospect workspace' }
+              ? {
+                  ...entry,
+                  status: 'success' as const,
+                  message: data.acNoteId ? `AC note #${data.acNoteId}` : (data.warning || 'Saved in Hub + ActiveCampaign'),
+                }
               : entry
           )));
+          void fetchJourney('full');
         } else {
           let message = 'Failed to file prospect note.';
-          try { const errData = await res.json(); if (errData?.error) message = errData.error; } catch {}
+          try {
+            const errData = await res.json();
+            if (errData?.error) message = errData.error;
+            if (errData?.saved) {
+              setSavedNoteCache(prev => ({
+                ...prev,
+                [payload.recordingId]: {
+                  note: baseNote,
+                  meta: {
+                    matter_ref: null,
+                    saved_by: userInitials || null,
+                    saved_at: new Date().toISOString(),
+                    uploaded_nd: false,
+                    nd_file_name: null,
+                    processing_status: errData.processingStatus || 'failed',
+                  },
+                },
+              }));
+              message = `${message} Saved in Hub.`;
+              void fetchJourney('full');
+            }
+          } catch {}
           setAttendanceSaveLegs(prev => prev.map((entry) => (
             entry.leg === 'save-note' ? { ...entry, status: 'failed' as const, message, retriable: true } : entry
           )));
@@ -1625,7 +2039,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
     }
 
     void fetchJourney('full');
-  }, [buildWorkspaceAttendanceNote, calls, dubberApiBaseUrl, fetchJourney, recordClioTimeEntry, saveNote, uploadToND, userInitials]);
+  }, [buildWorkspaceAttendanceNote, calls, dubberApiBaseUrl, fetchJourney, generatedNote, journeyItems, recordClioTimeEntry, saveNote, savedNoteCache, selectedCallId, uploadToND, userEmail, userInitials]);
 
   // ── Fetch transcript on demand ──
   const fetchTranscript = useCallback(async (recordingId: string) => {
@@ -1701,8 +2115,12 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
       return acc;
     }, {} as Record<string, SavedNote>)
   ), [savedNotes]);
-  const externalCalls = calls.filter(c => !c.is_internal);
+  const externalCalls = calls.filter(isExternalPhoneCall);
   const internalCalls = calls.filter(c => c.is_internal);
+  const callCentreVisibleCalls = React.useMemo(
+    () => calls.filter((call) => isVisibleCallCentreCall(call, canSeeInternalCalls)),
+    [calls, canSeeInternalCalls],
+  );
   const selectedCall = React.useMemo(
     () => calls.find((call) => call.recording_id === selectedCallId) || null,
     [calls, selectedCallId],
@@ -1729,6 +2147,13 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
           to: selectedCall.to_label || selectedCall.to_party || userInitials || 'Helix',
         },
         teamMember: userInitials || null,
+        attendees: compactAttendees([
+          ownerAttendeeForCall(selectedCall),
+          ...(selectedSavedNoteSummary.attendees || []),
+          ...(selectedSavedNoteSummary.attendance?.attendees || []),
+          ...(selectedCall.attendees || []),
+          ...(selectedCall.attendance?.attendees || []),
+        ]),
       } as AttendanceNote;
     }
     return null;
@@ -1741,6 +2166,12 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
       description: selectedWorkspaceNote?.summary || selectedSavedNoteSummary?.summary || undefined,
     };
   }, [pipeline.linkedMatterRef, pipeline.matterChainRef, selectedCachedSavedNote, selectedSavedNoteSummary, selectedWorkspaceNote]);
+  const selectedAttendanceContext = React.useMemo(() => (
+    selectedCall
+      ? resolveCallAttendanceContext(selectedCall, selectedSavedNoteSummary, selectedCachedSavedNote || undefined, generatedNote, userInitials, userEmail)
+      : null
+  ), [generatedNote, selectedCachedSavedNote, selectedCall, selectedSavedNoteSummary, userEmail, userInitials]);
+  const selectedCallReadOnly = Boolean(selectedCall && selectedAttendanceContext && !selectedAttendanceContext.canControl);
   const selectedTranscriptText = React.useMemo(() => {
     if (!selectedCallId) return '';
     if (loadingTranscript === selectedCallId) return 'Loading transcript…';
@@ -1749,6 +2180,10 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
     const transcript = transcriptCache[selectedCallId];
     if (!transcript) return '';
     const summaryText = transcript.summaries?.find((summary) => summary.summary_type === 'overall')?.summary_text || '';
+    const hasSentences = Array.isArray(transcript.sentences) && transcript.sentences.length > 0;
+    if (!hasSentences && !summaryText) {
+      return 'No transcript available for this call yet. The recording may still be processing.';
+    }
     const sentenceText = transcript.sentences
       .map((sentence, index) => `${index + 1}. ${sentence.speaker ? `${sentence.speaker}: ` : ''}${sentence.content}`)
       .join('\n');
@@ -1760,15 +2195,22 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
   );
 
   const filteredJourneyItems = React.useMemo(() => {
+    if (callCentreEnabled) {
+      return journeyItems.filter((item) => matchesCallCentreVisibility(item, canSeeInternalCalls));
+    }
     return journeyItems.filter((item) => matchesJourneyFilter(item, journeyFilter));
-  }, [journeyFilter, journeyItems]);
+  }, [callCentreEnabled, canSeeInternalCalls, journeyFilter, journeyItems]);
 
   const visibleJourneyItems = React.useMemo(() => {
     if (filteredJourneyItems.length > 0 || !isLoadingJourney || lastStableJourneyItems.length === 0) {
       return filteredJourneyItems;
     }
-    return lastStableJourneyItems.filter((item) => matchesJourneyFilter(item, journeyFilter));
-  }, [filteredJourneyItems, isLoadingJourney, journeyFilter, lastStableJourneyItems]);
+    return lastStableJourneyItems.filter((item) => (
+      callCentreEnabled
+        ? matchesCallCentreVisibility(item, canSeeInternalCalls)
+        : matchesJourneyFilter(item, journeyFilter)
+    ));
+  }, [callCentreEnabled, canSeeInternalCalls, filteredJourneyItems, isLoadingJourney, journeyFilter, lastStableJourneyItems]);
 
   const recomputeSnappedJourneyListHeight = useCallback(() => {
     if (!callCentreEnabled || isNarrow) {
@@ -1832,12 +2274,12 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
 
   const journeyFilterCounts = React.useMemo(() => ({
     all: journeyItems.length,
-    external: externalCalls.length,
+    external: callCentreEnabled ? callCentreVisibleCalls.length : externalCalls.length,
     internal: internalCalls.length,
     notes: savedNotes.length,
     activity: activities.length,
     emails: emailEvents.length,
-  }), [activities.length, emailEvents.length, externalCalls.length, internalCalls.length, journeyItems.length, savedNotes.length]);
+  }), [activities.length, callCentreEnabled, callCentreVisibleCalls.length, emailEvents.length, externalCalls.length, internalCalls.length, journeyItems.length, savedNotes.length]);
 
   const visibleJourneyFilterCounts = React.useMemo(() => {
     if (journeyItems.length > 0 || !isLoadingJourney || lastStableJourneyItems.length === 0) {
@@ -1854,13 +2296,17 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
     const fallbackCallsList = [...fallbackCalls.values()];
     return {
       all: lastStableJourneyItems.length,
-      external: fallbackCallsList.filter((call) => !call.is_internal).length,
+      external: fallbackCallsList.filter((call) => (
+        callCentreEnabled
+          ? isVisibleCallCentreCall(call, canSeeInternalCalls)
+          : isExternalPhoneCall(call)
+      )).length,
       internal: fallbackCallsList.filter((call) => !!call.is_internal).length,
       notes: fallbackSavedNotes.length,
       activity: fallbackActivities.length,
       emails: fallbackEmails.length,
     };
-  }, [isLoadingJourney, journeyFilterCounts, journeyItems.length, lastStableJourneyItems]);
+  }, [callCentreEnabled, canSeeInternalCalls, isLoadingJourney, journeyFilterCounts, journeyItems.length, lastStableJourneyItems]);
 
   const emptyJourneyLabel = React.useMemo(() => {
     switch (journeyFilter) {
@@ -1887,7 +2333,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
     }
     return s;
   }, [activities]);
-  const liveStatusLabel = demoModeActive ? 'Demo' : (!panelActivated ? 'Idle' : !isDocumentVisible ? 'Paused' : isRefreshingJourney ? 'Refreshing' : 'Live');
+  const liveStatusLabel = useDemoJourneySeed ? 'Demo' : (!panelActivated ? 'Idle' : !isDocumentVisible ? 'Paused' : isRefreshingJourney ? 'Refreshing' : 'Live');
   const canManualJourneyRefresh = panelActivated && !isLoadingJourney && !isRefreshingJourney;
 
   const handleManualJourneyRefresh = React.useCallback(() => {
@@ -1900,7 +2346,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
     setSelectedCallId(call.recording_id);
     resetSelectedWorkspace();
     fetchTranscript(call.recording_id);
-    if (notedIds.has(call.recording_id)) fetchSavedNote(call.recording_id);
+    if (notedIds.has(call.recording_id) || call.attendance) fetchSavedNote(call.recording_id);
   }, [defaultJourneyFilter, fetchSavedNote, fetchTranscript, notedIds, resetSelectedWorkspace]);
   const streamDateColumnWidth = 48;
   const streamRowGap = 6;
@@ -1931,6 +2377,69 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
     const rounded = Math.round(amount * 100) / 100;
     return rounded % 1 === 0 ? `£${rounded.toFixed(0)}` : `£${rounded.toFixed(2)}`;
   }, []);
+
+  const filingTargetControl = (
+    <div
+      role="tablist"
+      aria-label="Filing target"
+      style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(2, minmax(78px, 1fr))',
+        width: isNarrow ? '100%' : 172,
+        minHeight: 28,
+        border: `1px solid ${callsToggleChrome.shellBorder}`,
+        background: callsToggleChrome.shellBackground,
+        flex: isNarrow ? '1 1 100%' : '0 0 172px',
+        minWidth: isNarrow ? 0 : 172,
+      }}
+    >
+      {([
+        { key: 'matter', label: 'Matter', icon: <FiFileText size={11} aria-hidden /> } as const,
+        { key: 'prospect', label: 'Prospect', icon: <FiUser size={11} aria-hidden /> } as const,
+      ]).map((option) => {
+        const active = filingTarget === option.key;
+        return (
+          <button
+            key={option.key}
+            role="tab"
+            aria-selected={active}
+            aria-label={option.key === 'matter' ? 'File to a Matter' : 'File to a Prospect'}
+            title={option.key === 'matter' ? 'File to a Matter' : 'File to a Prospect'}
+            type="button"
+            onClick={() => setFilingTarget(option.key)}
+            disabled={workspaceSaving}
+            style={{
+              appearance: 'none',
+              borderStyle: 'solid',
+              borderWidth: option.key === 'prospect' ? '0 0 0 1px' : 0,
+              borderColor: callsToggleChrome.dividerBorder,
+              background: active ? callsToggleChrome.activeBackground : 'transparent',
+              padding: '0 10px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 5,
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+              cursor: workspaceSaving ? 'not-allowed' : (active ? 'default' : 'pointer'),
+              color: active ? callsToggleChrome.activeText : callsToggleChrome.inactiveText,
+              opacity: active ? 1 : 0.84,
+              transition: 'background 0.15s ease, color 0.15s ease, opacity 0.15s ease',
+              fontFamily: 'var(--font-primary)',
+              lineHeight: 1,
+              minWidth: 0,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {option.icon}
+            <span>{option.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
 
   // ── Render ──
   return (
@@ -2246,71 +2755,83 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
           </div>
         )}
 
-      {(() => null)()}
-      {/* Right-aligned controls (Mine/Team scope toggle + manual refresh)
-          reused in both the single-header (legacy/narrow) and split-header
-          (call-centre wide) layouts below so the JSX is only declared once. */}
-      {/* Define the shared controls block as a JSX const just before the
-          main panel so both header layouts can drop it into the correct slot.
-          IIFE returns the JSX node for inline reuse. */}
       <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-        {(() => {
-          const journeyHeaderControls = (
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: 'var(--font-primary)', lineHeight: 1 }}>
-              {canToggleJourneyScope && (
-                <div role="group" aria-label={callCentreEnabled ? 'Call scope' : 'Activity scope'} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                  {([
-                    { key: 'user', label: 'Mine' } as const,
-                    { key: 'all', label: 'Team' } as const,
-                  ]).map((scopeOption, idx) => {
-                    const active = resolvedJourneyScope === scopeOption.key;
-                    return (
-                      <React.Fragment key={scopeOption.key}>
-                        {idx > 0 && (
-                          <span aria-hidden="true" style={{ fontSize: 9, color: muted, opacity: 0.55 }}>·</span>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (resolvedJourneyScope === scopeOption.key) return;
-                            setSelectedJourneyScope(scopeOption.key);
-                            setSelectedCallId(null);
-                            setGeneratedNote(null);
-                            // Re-apply the scope-appropriate default filter:
-                            // Mine shows everything (including team↔team
-                            // internal calls); Team defaults to external-only
-                            // so office chatter does not swamp the feed.
-                            if (callCentreEnabled) {
-                              setJourneyFilter(scopeOption.key === 'user' ? 'all' : 'external');
-                            }
-                          }}
-                          title={scopeOption.key === 'all' ? (callCentreEnabled ? 'Show team calls' : 'Show team activity') : (callCentreEnabled ? 'Show only my calls' : 'Show only my activity')}
-                          style={{
-                            appearance: 'none',
-                            border: 'none',
-                            background: 'transparent',
-                            padding: '2px 2px',
-                            fontSize: 9,
-                            fontWeight: 700,
-                            letterSpacing: '0.08em',
-                            textTransform: 'uppercase',
-                            cursor: active ? 'default' : 'pointer',
-                            color: active ? (isDarkMode ? colours.accent : colours.highlight) : muted,
-                            opacity: active ? 1 : 0.85,
-                            transition: 'color 0.15s ease, opacity 0.15s ease',
-                            fontFamily: 'var(--font-primary)',
-                            lineHeight: 1,
-                            flexShrink: 0,
-                          }}
-                        >
-                          {scopeOption.label}
-                        </button>
-                      </React.Fragment>
-                    );
-                  })}
-                </div>
-              )}
-
+        <div style={{ background: cardBg, border: `1px solid ${cardBorder}`, boxShadow: cardShadow, display: 'flex', flexDirection: 'column', flex: 1, minHeight: 220 }}>
+          {(() => {
+            const handleScopeChange = (scope: 'user' | 'all') => {
+              if (resolvedJourneyScope === scope) return;
+              journeyLoadedKeyRef.current = null;
+              journeyRequestSeqRef.current += 1;
+              lastJourneyTimestampRef.current = 0;
+              setJourneyItems([]);
+              setLastStableJourneyItems([]);
+              setJourneyWarnings(null);
+              setJourneyError(null);
+              setIsLoadingJourney(true);
+              setIsRefreshingJourney(false);
+              try {
+                localStorage.setItem(journeyScopeStorageKey, scope);
+              } catch {
+                // ignore localStorage failures; the in-memory toggle still applies
+              }
+              setSelectedJourneyScope(scope);
+              setSelectedCallId(null);
+              setGeneratedNote(null);
+              if (callCentreEnabled) setJourneyFilter('external');
+            };
+            const scopeControl = canToggleJourneyScope ? (
+              <div
+                role="group"
+                aria-label={callCentreEnabled ? 'Call scope' : 'Activity scope'}
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(2, minmax(54px, 1fr))',
+                  width: isNarrow ? '100%' : 128,
+                  minHeight: 28,
+                  border: `1px solid ${callsToggleChrome.shellBorder}`,
+                  background: callsToggleChrome.shellBackground,
+                  flex: isNarrow ? '1 1 100%' : '0 0 128px',
+                  minWidth: isNarrow ? 0 : 128,
+                }}
+              >
+                {([
+                  { key: 'user', label: 'Mine' } as const,
+                  { key: 'all', label: 'All' } as const,
+                ]).map((scopeOption) => {
+                  const active = resolvedJourneyScope === scopeOption.key;
+                  return (
+                    <button
+                      key={scopeOption.key}
+                      type="button"
+                      onClick={() => handleScopeChange(scopeOption.key)}
+                      title={scopeOption.key === 'all' ? (callCentreEnabled ? 'Show all calls' : 'Show all activity') : (callCentreEnabled ? 'Show only my calls' : 'Show only my activity')}
+                      style={{
+                        appearance: 'none',
+                        borderStyle: 'solid',
+                        borderWidth: scopeOption.key === 'all' ? '0 0 0 1px' : 0,
+                        borderColor: callsToggleChrome.dividerBorder,
+                        background: active ? callsToggleChrome.activeBackground : 'transparent',
+                        padding: '0 10px',
+                        fontSize: 10,
+                        fontWeight: 700,
+                        letterSpacing: '0.08em',
+                        textTransform: 'uppercase',
+                        cursor: active ? 'default' : 'pointer',
+                        color: active ? callsToggleChrome.activeText : callsToggleChrome.inactiveText,
+                        opacity: active ? 1 : 0.84,
+                        transition: 'background 0.15s ease, color 0.15s ease, opacity 0.15s ease',
+                        fontFamily: 'var(--font-primary)',
+                        lineHeight: 1,
+                        minWidth: 0,
+                      }}
+                    >
+                      {scopeOption.label}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null;
+            const refreshControl = (
               <button
                 type="button"
                 onClick={handleManualJourneyRefresh}
@@ -2320,15 +2841,15 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                   display: 'inline-flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  width: 16,
-                  height: 16,
+                  width: 28,
+                  height: 28,
                   padding: 0,
-                  border: 'none',
+                  border: `1px solid ${callsToggleChrome.buttonBorder}`,
                   borderRadius: 0,
-                  background: 'transparent',
-                  color: liveStatusLabel === 'Paused' ? muted : (isDarkMode ? colours.accent : colours.highlight),
+                  background: callsToggleChrome.buttonBackground,
+                  color: liveStatusLabel === 'Paused' ? muted : callsToggleChrome.buttonIcon,
                   cursor: canManualJourneyRefresh ? 'pointer' : 'default',
-                  opacity: canManualJourneyRefresh ? 0.9 : 0.5,
+                  opacity: canManualJourneyRefresh ? 0.92 : 0.54,
                   fontFamily: 'var(--font-primary)',
                   margin: 0,
                   appearance: 'none',
@@ -2337,60 +2858,82 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                 }}
               >
                 {isRefreshingJourney || isLoadingJourney || activitiesLoading ? (
-                  <FiRefreshCw size={9} style={{ animation: 'opsDashSpin 1s linear infinite' }} />
+                  <FiRefreshCw size={11} style={{ animation: 'opsDashSpin 1s linear infinite' }} />
                 ) : canManualJourneyRefresh ? (
-                  <FiRefreshCw size={9} />
+                  <FiRefreshCw size={11} />
                 ) : (
-                  <FiClock size={9} />
+                  <FiClock size={11} />
                 )}
               </button>
-            </div>
-          );
-
-          // In call-centre mode the panel has two halves (External Calls +
-          // Call Filing Workspace). Lift those eyebrow labels OUT of the box
-          // and mirror the body's two-column grid above it, matching the
-          // "Conversion" / "Today's actions" section-label pattern used
-          // elsewhere on Home — no parent "Call Notes" header.
-          if (callCentreEnabled && !isNarrow) {
-            return (
-              <div style={{ minHeight: 18, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', columnGap: 12, alignItems: 'center' }}>
-                <span className="home-section-header" style={{ minWidth: 0, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                  <FiPhoneIncoming className="home-section-header-icon" />
-                  External Calls
-                  <span style={{ fontSize: 10, fontWeight: 600, opacity: 0.7, fontVariantNumeric: 'tabular-nums', letterSpacing: 0, textTransform: 'none' }}>
-                    {visibleJourneyFilterCounts.external}
-                  </span>
-                </span>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, minWidth: 0 }}>
+            );
+            const headerControls = (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: isNarrow ? 'flex-start' : 'flex-end', gap: 8, width: isNarrow ? '100%' : undefined, flexWrap: isNarrow ? 'wrap' : 'nowrap', fontFamily: 'var(--font-primary)', lineHeight: 1 }}>
+                {scopeControl}
+                {refreshControl}
+              </div>
+            );
+            const renderAttachedHeader = ({
+              icon,
+              title,
+              count,
+              detail,
+              controls,
+              rightCell = false,
+            }: {
+              icon: React.ReactNode;
+              title: string;
+              count?: number;
+              detail?: string | null;
+              controls?: React.ReactNode;
+              rightCell?: boolean;
+            }) => (
+              <div
+                style={{
+                  minHeight: isNarrow ? 48 : 40,
+                  display: 'flex',
+                  alignItems: isNarrow ? 'stretch' : 'center',
+                  justifyContent: 'space-between',
+                  gap: isNarrow ? 10 : 12,
+                  padding: isNarrow ? '10px 10px 9px' : '8px 12px 7px',
+                  flexDirection: isNarrow ? 'column' : 'row',
+                  minWidth: 0,
+                  borderLeft: rightCell && !isNarrow ? `1px solid ${isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(6,23,51,0.06)'}` : undefined,
+                }}
+              >
+                <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
                   <span className="home-section-header" style={{ minWidth: 0, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                    <FiFileText className="home-section-header-icon" />
-                    Call Filing Workspace
-                    {selectedCall && (
-                      <span style={{ fontSize: 10, fontWeight: 500, opacity: 0.65, textTransform: 'none', letterSpacing: 0 }}>
-                        · {externalPartyName(selectedCall)}
+                    {icon}
+                    <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</span>
+                    {typeof count === 'number' && (
+                      <span style={{ fontSize: 10, fontWeight: 600, opacity: 0.72, fontVariantNumeric: 'tabular-nums', letterSpacing: 0, textTransform: 'none' }}>
+                        {count}
                       </span>
                     )}
                   </span>
-                  {journeyHeaderControls}
+                  {detail && (
+                    <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 10, color: muted, opacity: 0.74, fontWeight: 500 }}>
+                      {detail}
+                    </span>
+                  )}
                 </div>
+                {controls}
               </div>
             );
-          }
-          return (
-            <div style={{ minHeight: 18, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
-              <span className="home-section-header" style={{ minWidth: 0 }}>
-                <FiPhone className="home-section-header-icon" />
-                {callCentreEnabled ? 'External Calls' : 'Activity'}
-              </span>
-              {journeyHeaderControls}
-            </div>
-          );
-        })()}
 
-        <div style={{ background: cardBg, border: `1px solid ${cardBorder}`, boxShadow: cardShadow, display: 'flex', flexDirection: 'column', flex: 1, minHeight: 220 }}>
+            if (callCentreEnabled) {
+              return (
+                <div style={{ display: 'grid', gridTemplateColumns: !isNarrow ? 'minmax(0, 1fr) minmax(0, 1fr)' : 'minmax(0, 1fr)', borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(6,23,51,0.06)'}` }}>
+                  {renderAttachedHeader({ icon: <FiPhoneIncoming className="home-section-header-icon" />, title: 'External Calls', count: visibleJourneyFilterCounts.external, controls: headerControls })}
+                  {!isNarrow && renderAttachedHeader({ icon: <FiFileText className="home-section-header-icon" />, title: 'Call Filing Workspace', detail: selectedCall ? externalPartyName(selectedCall) : null, controls: filingTargetControl, rightCell: true })}
+                </div>
+              );
+            }
+
+            return renderAttachedHeader({ icon: <FiPhone className="home-section-header-icon" />, title: 'Activity', controls: headerControls });
+          })()}
+          {!callCentreEnabled && (
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '8px 10px', borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(6,23,51,0.06)'}` }}>
-            {!callCentreEnabled && ([
+            {([
               { key: 'all', label: 'All', count: journeyFilterCounts.all, icon: <FiPhone size={9} style={{ color: accent, opacity: 0.86 }} /> },
               { key: 'external', label: 'External', count: journeyFilterCounts.external, icon: <FiPhoneIncoming size={9} style={{ color: accent, opacity: 0.9 }} /> },
               { key: 'internal', label: 'Internal', count: journeyFilterCounts.internal, icon: <FiLink size={9} style={{ color: muted, opacity: 0.92 }} /> },
@@ -2433,6 +2976,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
               );
             })}
           </div>
+          )}
           <div style={{ display: callCentreEnabled ? 'grid' : 'block', gridTemplateColumns: callCentreEnabled && !isNarrow ? 'minmax(0, 1fr) minmax(0, 1fr)' : '1fr', alignItems: callCentreEnabled && !isNarrow ? 'stretch' : 'start', flex: 1, minHeight: 0 }}>
           <div ref={scrollRef} className="ops-dash-scroll" style={{ minHeight: 0, overflowY: 'auto', overflowX: 'hidden', maxHeight: syncedJourneyListHeight, height: callCentreEnabled && !isNarrow ? syncedJourneyListHeight : undefined, borderRight: callCentreEnabled && !isNarrow ? `1px solid ${isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(6,23,51,0.06)'}` : 'none', scrollPaddingBottom: 24 }}>
             {!panelActivated ? (
@@ -2475,8 +3019,9 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                         style={{
                           padding: streamCardPadding,
                           background: 'transparent',
-                          border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(6,23,51,0.04)'}`,
-                          borderLeft: `2px solid ${isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(6,23,51,0.08)'}`,
+                          borderStyle: 'solid',
+                          borderWidth: '1px 1px 1px 2px',
+                          borderColor: `${isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(6,23,51,0.04)'} ${isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(6,23,51,0.04)'} ${isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(6,23,51,0.04)'} ${isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(6,23,51,0.08)'}`,
                         }}
                       >
                         <div style={{ display: 'grid', gridTemplateColumns: `${streamIconColumnWidth}px minmax(0, 1fr) auto`, alignItems: 'center', gap: 6 }}>
@@ -2486,14 +3031,16 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                             <div style={{ ...pulseStyle, height: 7, width: `${35 + ((i * 5) % 20)}%`, background: skelBlock, opacity: 0.7 }} />
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', columnGap: 4, flexShrink: 0 }}>
-                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, order: 1 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', order: 1 }}>
                               <div style={{ ...pulseStyle, width: 32, height: 8, background: skelBlock }} />
-                              <div style={{ ...pulseStyle, width: 18, height: 6, background: skelBlock, opacity: 0.6 }} />
                             </div>
                             {callCentreEnabled ? (
                               <>
-                                <div style={{ ...pulseStyle, minHeight: 30, width: 100, background: skelLine, order: 2 }} />
-                                <div style={{ ...pulseStyle, minHeight: 30, width: 100, background: skelBlock, order: 3 }} />
+                                <div style={{ width: 1, height: 12, background: skelBlock, opacity: 0.55, order: 2 }} />
+                                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, order: 3 }}>
+                                  <div style={{ ...pulseStyle, width: 16, height: 18, background: skelLine }} />
+                                  <div style={{ ...pulseStyle, width: 14, height: 14, background: skelBlock }} />
+                                </div>
                               </>
                             ) : (
                               <>
@@ -2533,20 +3080,28 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                     const hasSavedNote = Boolean(savedNoteSummary || notedIds.has(call.recording_id));
                     const cachedSavedNote = savedNoteCache[call.recording_id];
                     const inlineGeneratedNote = isSelected ? generatedNote : null;
+                    // Indicator/light reflects CONFIRMED attendees only (saved-note rows or
+                    // server-side attendance summaries). AI-suggested attendees from an
+                    // unsaved inline draft must not light the row — they're just the
+                    // suggested input shown when the user opens the editor.
+                    const attendanceContext = resolveCallAttendanceContext(call, savedNoteSummary, cachedSavedNote, null, userInitials, userEmail);
+                    const callAttendanceMeta = call.attendance || savedNoteSummary?.attendance || null;
                     const inlineUploadNote = inlineGeneratedNote || cachedSavedNote?.note || null;
-                    const inlineUploadMatterRef = (isSelected ? pipeline.linkedMatterRef : null) || cachedSavedNote?.meta?.matter_ref || savedNoteSummary?.matter_ref || null;
+                    const inlineUploadMatterRef = (isSelected ? pipeline.linkedMatterRef : null) || cachedSavedNote?.meta?.matter_ref || savedNoteSummary?.matter_ref || callAttendanceMeta?.matter_ref || null;
                     const isGeneratingInline = generatingNoteFor === call.recording_id;
                     const isUploadingInline = pipeline.uploading && isSelected;
-                    const hasPersistedCraft = Boolean(savedNoteSummary || cachedSavedNote || hasSavedNote || (pipeline.saved && isSelected));
-                    const hasNdCue = Boolean(savedNoteSummary?.uploaded_nd || cachedSavedNote?.meta?.uploaded_nd || (pipeline.uploaded && isSelected));
+                    const hasPersistedCraft = Boolean(savedNoteSummary || cachedSavedNote || hasSavedNote || callAttendanceMeta || (pipeline.saved && isSelected));
+                    const hasNdCue = Boolean(savedNoteSummary?.uploaded_nd || cachedSavedNote?.meta?.uploaded_nd || callAttendanceMeta?.uploaded_nd || (pipeline.uploaded && isSelected));
                     // Time-entry filing status: did we see a Clio TimeEntry activity
                     // for this call's date + matter ref?
-                    const hasTimeEntry = Boolean(
-                      savedNoteSummary?.call_date
-                      && savedNoteSummary?.matter_ref
-                      && timeEntryKeys.has(`${savedNoteSummary.call_date}:${savedNoteSummary.matter_ref}`),
-                    );
-                    const canInlineUpload = !isUploadingInline && !hasNdCue && (Boolean(inlineUploadNote && inlineUploadMatterRef) || hasPersistedCraft);
+                    const timeEntryDate = savedNoteSummary?.call_date || callAttendanceMeta?.call_date || null;
+                    const timeEntryMatterRef = savedNoteSummary?.matter_ref || callAttendanceMeta?.matter_ref || null;
+                    const timeEntryKey = timeEntryDate && timeEntryMatterRef ? `${timeEntryDate}:${timeEntryMatterRef}` : null;
+                    const matchingTimeActivity = timeEntryKey
+                      ? activities.find((activity) => activity.date === timeEntryDate && activity.matter?.display_number === timeEntryMatterRef) || null
+                      : null;
+                    const hasTimeEntry = Boolean(timeEntryKey && timeEntryKeys.has(timeEntryKey));
+                    const canInlineUpload = attendanceContext.canControl && !isUploadingInline && !hasNdCue && (Boolean(inlineUploadNote && inlineUploadMatterRef) || hasPersistedCraft);
                     const craftTone = hasPersistedCraft ? colours.orange : accent;
                     const ndTone = hasNdCue ? colours.green : muted;
                     const uploadTone = hasNdCue ? colours.green : (canInlineUpload ? accent : muted);
@@ -2645,7 +3200,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                               resetSelectedWorkspace();
                               if (nextId) {
                                 fetchTranscript(call.recording_id);
-                                if (notedIds.has(call.recording_id)) fetchSavedNote(call.recording_id);
+                                if (notedIds.has(call.recording_id) || call.attendance) fetchSavedNote(call.recording_id);
                               }
                             }}
                             style={{
@@ -2654,8 +3209,9 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                               color: text,
                               cursor: 'pointer',
                               background: isSelected ? (isDarkMode ? 'rgba(13,47,96,0.5)' : 'rgba(214,232,255,0.55)') : 'transparent',
-                              border: `1px solid ${isSelected ? accent : cardBorder}`,
-                              borderLeft: `2px solid ${isInbound ? colours.green : accent}`,
+                              borderStyle: 'solid',
+                              borderWidth: '1px 1px 1px 2px',
+                              borderColor: `${isSelected ? accent : cardBorder} ${isSelected ? accent : cardBorder} ${isSelected ? accent : cardBorder} ${isInbound ? colours.green : accent}`,
                               transition: 'background 0.15s ease, border-color 0.15s ease',
                             }}
                             onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = hoverBg; }}
@@ -2671,15 +3227,15 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                               <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
                                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontStyle: hasResolvedSuggestion ? 'italic' : 'normal', color: hasResolvedSuggestion ? accent : text }}>
                                   {partyName}
-                                  {hasResolvedSuggestion && (
-                                    <span style={{ fontSize: 8, marginLeft: 4, opacity: 0.5 }}>({call.resolved_source})</span>
-                                  )}
                                 </span>
                                 <span style={{ fontSize: 8, color: muted, display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
                                   <span>{isInbound ? 'Incoming call' : 'Outgoing call'}</span>
                                   {call.resolved_ref && <span style={{ color: accent }}>{call.resolved_ref}</span>}
                                   {call.resolved_area && <span>· {call.resolved_area}</span>}
-                                  {call.matched_team_initials && <span style={{ fontWeight: 700, color: accent }}>{call.matched_team_initials}</span>}
+                                  {attendanceContext.userIsSecondary && (
+                                    <span style={{ color: colours.orange, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase' }}>Attending</span>
+                                  )}
+                                  {resolvedJourneyScope === 'all' && call.matched_team_initials && <span style={{ fontWeight: 700, color: accent }}>{call.matched_team_initials}</span>}
                                 </span>
                               </div>
                               <div style={{ display: 'flex', alignItems: 'center', columnGap: 4, minWidth: 0, flexShrink: 0 }}>
@@ -2687,83 +3243,195 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                                   const units = unitsForDuration(call.duration_seconds);
                                   return (
                                     <span
-                                      style={{ minWidth: 42, textAlign: 'right', fontVariantNumeric: 'tabular-nums', flexShrink: 0, order: 1, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', lineHeight: 1 }}
+                                      style={{ minWidth: 38, textAlign: 'right', fontVariantNumeric: 'tabular-nums', flexShrink: 0, order: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', lineHeight: 1 }}
                                       title={`Duration ${formatDuration(call.duration_seconds)} · ${units} billable unit${units === 1 ? '' : 's'} (6 min each)`}
                                     >
                                       <span style={{ fontSize: 9, color: muted }}>{formatDuration(call.duration_seconds)}</span>
-                                      <span style={{ fontSize: 8, color: muted, opacity: 0.7, marginTop: 1 }}>{units > 0 ? `${units}u` : '—'}</span>
                                     </span>
                                   );
                                 })()}
+                                {callCentreEnabled && (
+                                  <span
+                                    aria-hidden="true"
+                                    style={{ order: 2, color: muted, opacity: 0.35, fontSize: 10, lineHeight: 1, flexShrink: 0 }}
+                                  >
+                                    |
+                                  </span>
+                                )}
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 3, minWidth: 0, order: callCentreEnabled ? 3 : 2 }}>
                                   {callCentreEnabled ? (() => {
-                                    // Status indicators only — the actual actions live in the
-                                    // call filing workspace below. When both legs have completed
-                                    // we collapse to a single audit stamp.
                                     const units = unitsForDuration(call.duration_seconds);
                                     const amount = parsedUserRate != null && units > 0 ? (units * parsedUserRate) / 10 : null;
                                     const amountLabel = amount != null ? formatGbp(amount) : null;
-                                    const fullyFiled = hasTimeEntry && hasNdCue;
-                                    const indicatorBase: React.CSSProperties = {
+                                    const timeTone = hasTimeEntry ? colours.green : muted;
+                                    const fileTone = hasNdCue ? colours.green : muted;
+                                    const fileName = (isSelected ? pipeline.ndResult?.fileName : null) || savedNoteSummary?.nd_file_name || cachedSavedNote?.meta?.nd_file_name || callAttendanceMeta?.nd_file_name || null;
+                                    const hasSecondaryAttendees = attendanceContext.secondaryAttendees.length > 0;
+                                    const attendeeTone = attendanceContext.userIsSecondary
+                                      ? colours.orange
+                                      : hasSecondaryAttendees
+                                        ? accent
+                                        : muted;
+                                    const cueTooltipStyle: React.CSSProperties = {
+                                      position: 'absolute',
+                                      top: 20,
+                                      right: 0,
+                                      zIndex: 40,
+                                      minWidth: 190,
+                                      maxWidth: 250,
+                                      padding: '9px 10px',
+                                      background: isDarkMode ? 'rgba(2,6,23,0.96)' : 'rgba(255,255,255,0.96)',
+                                      color: text,
+                                      border: `1px solid ${isDarkMode ? 'rgba(135,243,243,0.22)' : 'rgba(54,144,206,0.18)'}`,
+                                      boxShadow: isDarkMode ? '0 12px 28px rgba(0,0,0,0.38)' : '0 12px 28px rgba(6,23,51,0.14)',
+                                      fontFamily: 'Raleway, sans-serif',
+                                      textAlign: 'left',
+                                      pointerEvents: 'none',
+                                    };
+                                    const cueLineStyle: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 10, lineHeight: 1.35 };
+                                    const renderCueTooltip = (
+                                      cue: CallCueKind,
+                                      title: string,
+                                      status: string,
+                                      statusColour: string,
+                                      rows: Array<{ label: string; value: React.ReactNode; valueColour?: string; strong?: boolean }>,
+                                    ) => hoveredCallCue?.recordingId === call.recording_id && hoveredCallCue.cue === cue ? (
+                                      <div role="tooltip" style={cueTooltipStyle}>
+                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 7 }}>
+                                          <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: accent }}>{title}</span>
+                                          <span style={{ fontSize: 9, fontWeight: 800, color: statusColour, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{status}</span>
+                                        </div>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                                          {rows.map((row) => (
+                                            <div key={row.label} style={cueLineStyle}>
+                                              <span style={{ color: muted, textTransform: 'uppercase', letterSpacing: '0.06em', fontSize: 8 }}>{row.label}</span>
+                                              <span style={{ minWidth: 0, color: row.valueColour || text, fontWeight: row.strong ? 700 : 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'right' }}>{row.value}</span>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    ) : null;
+                                    const cueStyle: React.CSSProperties = {
+                                      minWidth: 18,
+                                      display: 'inline-flex',
+                                      flexDirection: 'column',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      gap: 1,
+                                      padding: '0 1px',
+                                      fontFamily: 'Raleway, sans-serif',
+                                      fontVariantNumeric: 'tabular-nums',
+                                      flexShrink: 0,
+                                    };
+                                    const iconWrapStyle: React.CSSProperties = {
+                                      position: 'relative',
                                       display: 'inline-flex',
                                       alignItems: 'center',
-                                      gap: 4,
-                                      fontSize: 9,
-                                      letterSpacing: '0.04em',
-                                      textTransform: 'uppercase',
-                                      fontWeight: 600,
-                                      whiteSpace: 'nowrap',
-                                      fontFamily: 'Raleway, sans-serif',
-                                      padding: '2px 4px',
+                                      justifyContent: 'center',
+                                      width: 14,
+                                      height: 14,
                                     };
-                                    const dot = (lit: boolean, tone: string): React.CSSProperties => ({
-                                      display: 'inline-block',
-                                      width: 6,
-                                      height: 6,
+                                    const statusDot = (lit: boolean, tone: string): React.CSSProperties => ({
+                                      position: 'absolute',
+                                      top: -1,
+                                      right: -2,
+                                      width: 5,
+                                      height: 5,
                                       borderRadius: '50%',
                                       border: `1px solid ${tone}`,
                                       background: lit ? tone : 'transparent',
                                       boxSizing: 'border-box',
+                                      opacity: lit ? 1 : 0.72,
                                     });
-                                    if (fullyFiled) {
-                                      return (
-                                        <span
-                                          style={{ ...indicatorBase, color: colours.green, gap: 6 }}
-                                          title={`Filed · Clio time entry recorded · NetDocuments uploaded${amountLabel ? ` · ${units} unit${units === 1 ? '' : 's'} · ${amountLabel}` : ''}`}
-                                        >
-                                          <FiCheck size={10} style={{ color: colours.green }} />
-                                          <span style={{ color: colours.green }}>Filed</span>
-                                          {amountLabel && (
-                                            <span style={{ color: muted, fontWeight: 500, fontVariantNumeric: 'tabular-nums', textTransform: 'none', letterSpacing: 0 }}>
-                                              · {units}u · {amountLabel}
-                                            </span>
-                                          )}
-                                        </span>
-                                      );
-                                    }
-                                    const timeTone = hasTimeEntry ? (isDarkMode ? accent : colours.highlight) : muted;
-                                    const fileTone = hasNdCue ? colours.green : muted;
                                     return (
-                                      <>
+                                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                                         <span
-                                          style={{ ...indicatorBase, color: timeTone }}
+                                          aria-label={hasTimeEntry ? 'Time recorded' : 'Time pending'}
+                                          style={{ ...cueStyle, position: 'relative' }}
                                           title={hasTimeEntry
                                             ? `Time recorded · ${units} unit${units === 1 ? '' : 's'}${amountLabel ? ` · ${amountLabel}` : ''}`
                                             : amountLabel
                                               ? `Time pending · suggested ${units} unit${units === 1 ? '' : 's'} (${amountLabel}) — record in the workspace below`
                                               : 'Time pending — record in the workspace below'}
+                                          onMouseEnter={() => setHoveredCallCue({ recordingId: call.recording_id, cue: 'time' })}
+                                          onMouseLeave={() => setHoveredCallCue(null)}
+                                          onClick={(event) => event.stopPropagation()}
                                         >
-                                          <span style={dot(hasTimeEntry, timeTone)} />
-                                          <span>{hasTimeEntry ? `${units}u` : 'Time pending'}</span>
+                                          <span style={iconWrapStyle}>
+                                            <FiClock size={11} style={{ color: timeTone, opacity: hasTimeEntry ? 1 : 0.62 }} />
+                                            <span style={statusDot(hasTimeEntry, timeTone)} />
+                                          </span>
+                                          {amountLabel && (
+                                            <span style={{ fontSize: 7, lineHeight: 1, color: muted, opacity: 0.68 }}>
+                                              {amountLabel}
+                                            </span>
+                                          )}
+                                          {renderCueTooltip('time', 'Time', hasTimeEntry ? 'Recorded' : 'Not recorded yet', hasTimeEntry ? colours.green : muted, [
+                                            { label: hasTimeEntry ? 'Entry' : 'Suggested', value: `${units} unit${units === 1 ? '' : 's'} · ${Math.max(0, units * 6)} min`, strong: hasTimeEntry },
+                                            { label: 'Value', value: matchingTimeActivity ? formatMoneyValue(matchingTimeActivity.total) || 'Recorded' : amountLabel || 'No value yet', valueColour: hasTimeEntry ? colours.green : muted },
+                                            { label: 'Matter', value: matchingTimeActivity?.matter?.display_number || timeEntryMatterRef || 'No matter linked', valueColour: matchingTimeActivity?.matter?.display_number || timeEntryMatterRef ? accent : muted },
+                                            { label: 'Date', value: timeEntryDate || call.start_time_utc.slice(0, 10), valueColour: muted },
+                                          ])}
                                         </span>
                                         <span
-                                          style={{ ...indicatorBase, color: fileTone }}
+                                          aria-label={hasNdCue ? 'Attendance note filed' : 'File pending'}
+                                          style={{ ...cueStyle, position: 'relative' }}
                                           title={hasNdCue ? 'Attendance note uploaded to NetDocuments' : 'File pending — save in the workspace below'}
+                                          onMouseEnter={() => setHoveredCallCue({ recordingId: call.recording_id, cue: 'file' })}
+                                          onMouseLeave={() => setHoveredCallCue(null)}
+                                          onClick={(event) => event.stopPropagation()}
                                         >
-                                          <span style={dot(hasNdCue, fileTone)} />
-                                          <span>{hasNdCue ? 'Filed' : 'File pending'}</span>
+                                          <span style={iconWrapStyle}>
+                                            <FiFileText size={11} style={{ color: fileTone, opacity: hasNdCue ? 1 : 0.62 }} />
+                                            <span style={statusDot(hasNdCue, fileTone)} />
+                                          </span>
+                                          {renderCueTooltip('file', 'Filing', hasNdCue ? 'Filed' : hasPersistedCraft ? 'Ready' : 'Not filed yet', hasNdCue ? colours.green : hasPersistedCraft ? accent : muted, [
+                                            { label: 'Hub note', value: hasPersistedCraft ? 'Saved' : 'Not saved yet', valueColour: hasPersistedCraft ? colours.green : muted, strong: hasPersistedCraft },
+                                            { label: 'NetDocs', value: hasNdCue ? 'Uploaded' : 'Not uploaded yet', valueColour: hasNdCue ? colours.green : muted },
+                                            { label: 'Matter', value: inlineUploadMatterRef || 'No matter linked', valueColour: inlineUploadMatterRef ? accent : muted },
+                                            { label: 'File', value: fileName || 'No document yet', valueColour: fileName ? text : muted },
+                                          ])}
                                         </span>
-                                      </>
+                                        <span
+                                          aria-label={attendanceContext.userIsSecondary ? 'You are a supporting attendee' : hasSecondaryAttendees ? 'Call has supporting attendees' : 'Primary attendee'}
+                                          style={{ ...cueStyle, position: 'relative' }}
+                                          onMouseEnter={() => setHoveredCallCue({ recordingId: call.recording_id, cue: 'attendance' })}
+                                          onMouseLeave={() => setHoveredCallCue(null)}
+                                          onClick={(event) => event.stopPropagation()}
+                                        >
+                                          <span style={iconWrapStyle}>
+                                            <FiUsers size={12} style={{ color: attendeeTone, opacity: hasSecondaryAttendees || attendanceContext.userIsSecondary ? 1 : 0.62 }} />
+                                            <span style={statusDot(hasSecondaryAttendees || attendanceContext.userIsSecondary, attendeeTone)} />
+                                          </span>
+                                          {hoveredCallCue?.recordingId === call.recording_id && hoveredCallCue.cue === 'attendance' && (
+                                            <div
+                                              role="tooltip"
+                                              style={cueTooltipStyle}
+                                            >
+                                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 7 }}>
+                                                <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: accent }}>Attendees</span>
+                                                {attendanceContext.userIsSecondary && <span style={{ fontSize: 9, fontWeight: 800, color: colours.orange, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Your sit-in</span>}
+                                              </div>
+                                              <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                                                {attendanceContext.primaryAttendee && (
+                                                  <div style={cueLineStyle}>
+                                                    <span style={{ color: text, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{attendeeDisplay(attendanceContext.primaryAttendee)}</span>
+                                                    <span style={{ color: muted, textTransform: 'uppercase', letterSpacing: '0.06em', fontSize: 8 }}>Primary</span>
+                                                  </div>
+                                                )}
+                                                {attendanceContext.secondaryAttendees.length > 0 ? attendanceContext.secondaryAttendees.map((attendee) => (
+                                                  <div key={attendeeKey(attendee)} style={cueLineStyle}>
+                                                    <span style={{ color: text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{attendeeDisplay(attendee)}</span>
+                                                    <span style={{ color: attendee.role === 'learning' ? colours.orange : muted, textTransform: 'uppercase', letterSpacing: '0.06em', fontSize: 8 }}>{attendee.role === 'learning' ? 'Learning' : 'Supporting'}</span>
+                                                  </div>
+                                                )) : (
+                                                  <span style={{ color: muted, fontSize: 10, lineHeight: 1.35 }}>No secondary attendees tagged.</span>
+                                                )}
+                                              </div>
+                                            </div>
+                                          )}
+                                        </span>
+                                      </div>
                                     );
                                   })() : (
                                     <>
@@ -2771,11 +3439,12 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                                         type="button"
                                         onClick={async (e) => {
                                           e.stopPropagation();
+                                          if (!attendanceContext.canControl) return;
                                           openCallFromJourney(call);
                                           await generateNote(call.recording_id);
                                         }}
-                                        disabled={isGeneratingInline || hasPersistedCraft}
-                                        title={hasPersistedCraft ? 'Attendance note already saved' : 'Craft attendance note'}
+                                        disabled={!attendanceContext.canControl || isGeneratingInline || hasPersistedCraft}
+                                        title={!attendanceContext.canControl ? 'Only the primary call owner can craft this note' : hasPersistedCraft ? 'Attendance note already saved' : 'Craft attendance note'}
                                         style={{
                                           ...actionBoxBaseStyle,
                                           border: `1px solid ${hasPersistedCraft
@@ -2785,8 +3454,8 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                                             ? (isDarkMode ? 'rgba(255,140,0,0.08)' : 'rgba(255,140,0,0.05)')
                                             : (isDarkMode ? 'rgba(135,243,243,0.08)' : 'rgba(54,144,206,0.08)'),
                                           color: craftTone,
-                                          cursor: hasPersistedCraft ? 'default' : (isGeneratingInline ? 'wait' : 'pointer'),
-                                          opacity: isGeneratingInline ? 0.58 : 1,
+                                          cursor: !attendanceContext.canControl || hasPersistedCraft ? 'default' : (isGeneratingInline ? 'wait' : 'pointer'),
+                                          opacity: !attendanceContext.canControl || isGeneratingInline ? 0.58 : 1,
                                         }}
                                       >
                                         <span style={craftDotStyle} />
@@ -2810,6 +3479,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                                         type="button"
                                         onClick={async (e) => {
                                           e.stopPropagation();
+                                          if (!attendanceContext.canControl) return;
                                           openCallFromJourney(call);
                                           let nextNote = inlineUploadNote;
                                           let nextMatterRef = inlineUploadMatterRef;
@@ -2823,7 +3493,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                                           }
                                         }}
                                         disabled={!canInlineUpload}
-                                        title={hasNdCue ? 'Attendance note already uploaded to NetDocuments' : (canInlineUpload ? 'Upload attendance note to NetDocuments' : 'Generate or load a linked matter before uploading to NetDocuments')}
+                                        title={!attendanceContext.canControl ? 'Only the primary call owner can upload this note' : hasNdCue ? 'Attendance note already uploaded to NetDocuments' : (canInlineUpload ? 'Upload attendance note to NetDocuments' : 'Generate or load a linked matter before uploading to NetDocuments')}
                                         style={{
                                           ...actionBoxBaseStyle,
                                           border: `1px solid ${hasNdCue
@@ -2875,7 +3545,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                           <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
                             <span style={{ fontSize: 11, color: muted, lineHeight: 1.4 }}>{formatDate(call.start_time_utc)} · {formatTime(call.start_time_utc)}</span>
                             <span style={{ fontSize: 11, color: muted, lineHeight: 1.4 }}>{formatDuration(call.duration_seconds)}</span>
-                            {call.matched_team_initials && (
+                            {resolvedJourneyScope === 'all' && call.matched_team_initials && (
                               <span style={{ fontSize: 11, fontWeight: 600, color: accent, letterSpacing: '0.04em' }}>{call.matched_team_initials}</span>
                             )}
                           </div>
@@ -2911,7 +3581,20 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                             if (!td) return null;
                             const hasSentences = td.sentences.length > 0;
                             const aiSummaryOnly = !hasSentences && td.summaries?.some(s => s.summary_type === 'overall');
-                            if (!hasSentences && !aiSummaryOnly) return null;
+                            if (!hasSentences && !aiSummaryOnly) {
+                              return (
+                                <div style={{
+                                  display: 'flex', alignItems: 'center', gap: 8,
+                                  padding: '8px 10px', marginBottom: 6,
+                                  fontSize: 10, lineHeight: 1.45,
+                                  color: muted,
+                                  background: isDarkMode ? 'rgba(255,255,255,0.035)' : 'rgba(15,23,42,0.035)',
+                                  border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(15,23,42,0.06)'}`,
+                                }}>
+                                  No transcript available for this call yet. The recording may still be processing.
+                                </div>
+                              );
+                            }
 
                             // Show AI summary if available
                             const aiSummary = td.summaries?.find(s => s.summary_type === 'overall');
@@ -3034,8 +3717,8 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                           )}
                           {!callCentreEnabled && (
                           <button
-                            onClick={() => generateNote(call.recording_id)}
-                            disabled={!!generatingNoteFor}
+                            onClick={() => { if (attendanceContext.canControl) generateNote(call.recording_id); }}
+                            disabled={!attendanceContext.canControl || !!generatingNoteFor}
                             style={{
                               display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px',
                               fontSize: 9, fontWeight: 600,
@@ -3046,8 +3729,8 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                                 ? (isDarkMode ? 'rgba(255,140,0,0.2)' : 'rgba(255,140,0,0.1)')
                                 : (isDarkMode ? 'rgba(54,144,206,0.2)' : 'rgba(13,47,96,0.1)')}`,
                               color: savedNoteCache[call.recording_id] ? colours.orange : accent,
-                              cursor: generatingNoteFor ? 'wait' : 'pointer',
-                              opacity: generatingNoteFor ? 0.5 : 1,
+                              cursor: !attendanceContext.canControl ? 'not-allowed' : generatingNoteFor ? 'wait' : 'pointer',
+                              opacity: !attendanceContext.canControl || generatingNoteFor ? 0.5 : 1,
                               transition: 'opacity 0.15s ease',
                             }}
                           >
@@ -3088,8 +3771,9 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                           }}
                           style={{
                             padding: streamCardPadding,
-                            border: `1px solid ${cardBorder}`,
-                            borderLeft: `2px solid ${note.uploaded_nd ? colours.green : colours.orange}`,
+                            borderStyle: 'solid',
+                            borderWidth: '1px 1px 1px 2px',
+                            borderColor: `${cardBorder} ${cardBorder} ${cardBorder} ${note.uploaded_nd ? colours.green : colours.orange}`,
                             background: isDarkMode ? 'rgba(255,140,0,0.05)' : 'rgba(255,140,0,0.03)',
                             cursor: linkedCall ? 'pointer' : 'default',
                           }}
@@ -3138,7 +3822,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                           <span style={{ fontSize: 9, fontWeight: 700, lineHeight: 1.05, color: stamp.secondary ? text : muted }}>{stamp.primary}</span>
                           <span style={{ fontSize: 7, lineHeight: 1.05, opacity: stamp.secondary ? 0.82 : 0.45 }}>{stamp.secondary || '—'}</span>
                         </div>
-                        <div style={{ padding: streamCardPadding, border: `1px solid ${cardBorder}`, borderLeft: `2px solid ${colours.green}`, background: isDarkMode ? 'rgba(32,178,108,0.05)' : 'rgba(32,178,108,0.03)' }}>
+                        <div style={{ padding: streamCardPadding, borderStyle: 'solid', borderWidth: '1px 1px 1px 2px', borderColor: `${cardBorder} ${cardBorder} ${cardBorder} ${colours.green}`, background: isDarkMode ? 'rgba(32,178,108,0.05)' : 'rgba(32,178,108,0.03)' }}>
                           <div style={{ display: 'grid', gridTemplateColumns: `${streamIconColumnWidth}px minmax(0, 1fr) auto`, gap: 6, alignItems: 'start' }}>
                             <span style={{ display: 'flex', alignItems: 'center' }}><FiMail size={10} style={{ color: colours.green }} /></span>
                             <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -3174,7 +3858,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                         <span style={{ fontSize: 9, fontWeight: 700, lineHeight: 1.05, color: stamp.secondary ? text : muted }}>{stamp.primary}</span>
                         <span style={{ fontSize: 7, lineHeight: 1.05, opacity: stamp.secondary ? 0.82 : 0.45 }}>{stamp.secondary || '—'}</span>
                       </div>
-                      <div style={{ padding: streamCardPadding, border: `1px solid ${cardBorder}`, borderLeft: `2px solid ${accent}`, background: isDarkMode ? 'rgba(54,144,206,0.04)' : 'rgba(13,47,96,0.02)' }}>
+                      <div style={{ padding: streamCardPadding, borderStyle: 'solid', borderWidth: '1px 1px 1px 2px', borderColor: `${cardBorder} ${cardBorder} ${cardBorder} ${accent}`, background: isDarkMode ? 'rgba(54,144,206,0.04)' : 'rgba(13,47,96,0.02)' }}>
                         <div style={{ display: 'grid', gridTemplateColumns: `${streamIconColumnWidth}px minmax(0, 1fr) auto`, gap: 6, alignItems: 'start' }}>
                           <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}><img src={clioLogo} alt="Clio" style={{ width: 12, height: 12, opacity: isDarkMode ? 0.88 : 0.72, filter: clioLogoFilter }} /></span>
                           <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -3215,6 +3899,22 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                 background: 'transparent',
               }}
             >
+              {isNarrow && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: '10px 10px 9px', borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(6,23,51,0.06)'}` }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+                    <span className="home-section-header" style={{ minWidth: 0, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <FiFileText className="home-section-header-icon" />
+                      <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Call Filing Workspace</span>
+                    </span>
+                    {filingTargetControl}
+                  </div>
+                  {selectedCall && (
+                    <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 10, color: muted, opacity: 0.74, fontWeight: 500 }}>
+                      {externalPartyName(selectedCall)}
+                    </span>
+                  )}
+                </div>
+              )}
               {!selectedCall ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0, flex: 1, padding: '10px 10px 12px', overflow: 'hidden' }}>
                   <div style={{ minHeight: 0, flex: 1, display: 'flex' }}>
@@ -3223,6 +3923,8 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                       isDarkMode={isDarkMode}
                       userInitials={userInitials}
                       recordingId={manualRecordingId}
+                      initialTarget={filingTarget}
+                      showTargetTabs={false}
                       callDate={new Date().toISOString()}
                       durationSec={0}
                       isBlankDraft
@@ -3231,9 +3933,12 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                       generatedBody=""
                       actionItems={[]}
                       transcriptText=""
+                      prefillMatter={demoWorkspaceMatterPrefill}
                       matterOptions={localMatterLookupOptions}
                       recentMatters={localMatterLookupOptions}
                       recentEnquiries={recentEnquiryOptions}
+                      prefillProspect={demoWorkspaceProspectPrefill}
+                      teamOptions={teamOptions}
                       saveLegs={attendanceSaveLegs}
                       saving={workspaceSaving}
                       hourlyRate={parsedUserRate}
@@ -3267,6 +3972,9 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                         {attendanceSaveLegs.some((leg) => leg.leg === 'clio-time-entry' && leg.status === 'success') && (
                           <span style={{ fontSize: 9, fontWeight: 700, padding: '3px 7px', background: isDarkMode ? 'rgba(54,144,206,0.08)' : 'rgba(54,144,206,0.05)', border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.18)' : 'rgba(54,144,206,0.12)'}`, color: accent, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Clio</span>
                         )}
+                        {selectedAttendanceContext?.userIsSecondary && (
+                          <span style={{ fontSize: 9, fontWeight: 700, padding: '3px 7px', background: isDarkMode ? 'rgba(255,140,0,0.08)' : 'rgba(255,140,0,0.05)', border: `1px solid ${isDarkMode ? 'rgba(255,140,0,0.18)' : 'rgba(255,140,0,0.12)'}`, color: colours.orange, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Sit-in</span>
+                        )}
                         {selectedWorkspaceMatter && (
                           <span style={{ fontSize: 9, color: accent, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 600 }}>
                             {selectedWorkspaceMatter.displayNumber}{pipeline.matterChainRef === selectedWorkspaceMatter.displayNumber ? ' · auto-linked' : ''}
@@ -3288,20 +3996,27 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                       isDarkMode={isDarkMode}
                       userInitials={userInitials}
                       recordingId={selectedCall.recording_id}
+                      initialTarget={filingTarget}
+                      showTargetTabs={false}
                       callDate={selectedCall.start_time_utc}
                       durationSec={selectedCall.duration_seconds || 0}
                       generatedSummary={selectedWorkspaceNote?.summary || ''}
                       generatedBody={selectedWorkspaceNote?.attendanceNote || ''}
                       actionItems={selectedWorkspaceNote?.actionItems || []}
                       transcriptText={selectedTranscriptText}
-                      prefillMatter={selectedWorkspaceMatter}
+                      prefillMatter={selectedWorkspaceMatter || demoWorkspaceMatterPrefill}
                       matterOptions={localMatterLookupOptions}
                       recentMatters={localMatterLookupOptions}
                       recentEnquiries={recentEnquiryOptions}
+                      prefillProspect={demoWorkspaceProspectPrefill}
+                      teamOptions={teamOptions}
+                      initialAttendees={selectedAttendanceContext?.attendees || selectedWorkspaceNote?.attendees || EMPTY_ATTENDEES}
                       saveLegs={attendanceSaveLegs}
                       saving={workspaceSaving}
                       hourlyRate={parsedUserRate}
-                      onGenerateNote={() => void generateNote(selectedCall.recording_id)}
+                      readOnly={selectedCallReadOnly}
+                      readOnlyMessage="Only the primary call owner can file this note."
+                      onGenerateNote={() => { if (!selectedCallReadOnly) void generateNote(selectedCall.recording_id); }}
                       generating={generatingNoteFor === selectedCall.recording_id}
                       onClose={() => {
                         setSelectedCallId(null);

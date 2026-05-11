@@ -5,9 +5,9 @@ import { buildEnquiryMutationPayload } from '../../app/functionality/enquiryProc
 import { colours } from '../../app/styles/colours';
 import SectionCard from '../home/SectionCard';
 import { useTheme } from '../../app/functionality/ThemeContext';
-import { BiLogoMicrosoftTeams } from 'react-icons/bi';
 import { FaEnvelope, FaPhone, FaFileAlt, FaCheck, FaCheckCircle, FaCircle, FaArrowRight, FaUser, FaCalendar, FaInfoCircle, FaChevronDown, FaChevronUp, FaPoundSign, FaClipboard, FaExternalLinkAlt, FaLink, FaIdCard, FaShieldAlt, FaFolderOpen, FaExclamationTriangle, FaBuilding, FaHome, FaHardHat, FaBriefcase, FaUsers, FaUserClock, FaKey, FaGavel, FaQuestionCircle, FaCopy, FaCreditCard, FaFolder, FaUserPlus } from 'react-icons/fa';
 import { FaRegEnvelope, FaRegFileAlt, FaRegClipboard, FaRegAddressCard, FaRegFolderOpen, FaRegCheckCircle, FaRegCircle, FaRegUser, FaRegCommentDots } from 'react-icons/fa';
+import { FiAlertTriangle, FiClipboard, FiCreditCard, FiFileText, FiFolder, FiInbox, FiSend, FiShield } from 'react-icons/fi';
 import { parseISO, format, differenceInDays } from 'date-fns';
 import { useToast } from '../../components/feedback/ToastProvider';
 import CompactOptionStrip from '../../components/CompactOptionStrip';
@@ -850,6 +850,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
   const [showPitchConfirm, setShowPitchConfirm] = useState(false);
   const [selectedScenario, setSelectedScenario] = useState<string | null>(null);
   const [isWorkbenchCollapsed, setIsWorkbenchCollapsed] = useState<boolean>(false);
+  const [isCaseSwitching, setIsCaseSwitching] = useState<boolean>(false);
   type WorkbenchTabKey = WorkbenchTab;
   type ContextStageKey = WorkbenchContextStage;
   const [selectedWorkbenchTab, setSelectedWorkbenchTab] = useState<WorkbenchTabKey>(
@@ -858,6 +859,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
   const [selectedContextStage, setSelectedContextStage] = useState<ContextStageKey | null>('enquiry');
   const [isCompactPipelineMode, setIsCompactPipelineMode] = useState<boolean>(false);
   const [focusedTimelineIndex, setFocusedTimelineIndex] = useState<number>(-1);
+  const previousEnquiryIdRef = useRef<string | null>(null);
 
   // Sync workbench tab when parent changes it (e.g. pipeline chip click → matter)
   useEffect(() => {
@@ -867,6 +869,32 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
       setIsWorkbenchCollapsed(false);
     }
   }, [initialWorkbenchTab]);
+
+  useEffect(() => {
+    const nextEnquiryId = String(enquiry?.ID || '').trim();
+    if (!nextEnquiryId) return;
+
+    if (previousEnquiryIdRef.current === null) {
+      previousEnquiryIdRef.current = nextEnquiryId;
+      return;
+    }
+
+    if (previousEnquiryIdRef.current === nextEnquiryId) {
+      return;
+    }
+
+    previousEnquiryIdRef.current = nextEnquiryId;
+    setHoveredCaseId(null);
+    setIsCaseSwitching(true);
+
+    const timeoutId = window.setTimeout(() => {
+      setIsCaseSwitching(false);
+    }, 190);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [enquiry?.ID]);
 
   useEffect(() => {
     const updateCompactPipelineMode = () => {
@@ -1065,6 +1093,9 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
 
   const activeWindowLabel = activeEnquiryWindow ? formatEnquiryWindowDate(activeEnquiryWindow.startTs) : 'Unknown date';
   const activeWindowEndLabel = activeEnquiryWindow?.endTs ? formatEnquiryWindowDate(activeEnquiryWindow.endTs) : 'Present';
+  const activeWindowRangeLabel = activeEnquiryWindow
+    ? `${activeWindowLabel}${activeWindowEndLabel !== activeWindowLabel ? ` to ${activeWindowEndLabel}` : ''}`
+    : activeWindowLabel;
 
   const resolveEnquiryAreaOfWorkRaw = (enquiryInput: Enquiry | undefined): string => {
     if (!enquiryInput) return '';
@@ -1072,6 +1103,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
     const candidate = record.Area_of_Work ?? record.AreaOfWork ?? record.area_of_work ?? record.areaOfWork ?? record.aow;
     return String(candidate ?? '').trim();
   };
+
+  const activeCaseAccentColor = getCaseAreaColour(resolveEnquiryAreaOfWorkRaw(enquiry));
 
   const resolveDefaultAreaOfWork = (rawAreaOfWork: unknown): string => {
     const candidate = String(rawAreaOfWork ?? '').trim();
@@ -1385,7 +1418,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             {emotionTags.map((e) => (
               <span key={e.label} style={{
                 fontSize: '10px', fontWeight: 600, padding: '2px 8px', borderRadius: '999px',
-                background: isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(54, 144, 206, 0.08)',
+                background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.08)',
                 color: isDarkMode ? colours.accent : colours.blue,
                 textTransform: 'capitalize',
               }}>
@@ -2014,8 +2047,6 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
     showToast('Creating document request link...', 'info', { loading: true, duration: 0 });
 
     try {
-      const pitchBackendUrl = process.env.REACT_APP_PITCH_BACKEND_URL || 'https://instruct.helix-law.com';
-
       const worktype = String(docRequestWorktype || '').trim();
       if (!worktype) {
         showToast('Worktype is required', 'warning', { duration: 3500 });
@@ -2050,7 +2081,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         payload.pitched_by = userInitials.trim().toUpperCase();
       }
 
-      const response = await fetch(`${pitchBackendUrl}/api/doc-request-deals/ensure`, {
+      const response = await fetch('/api/doc-request-deals/ensure', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -2947,231 +2978,348 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
 
         const timelineItems: TimelineItem[] = [];
         const isFirstCase = enquiry.ID === 'DEMO-ENQ-0001';
+        const ownerName = isFirstCase ? 'Luke Zemanek' : 'Chris Baguley';
+        const ownerEmail = userEmail || (isFirstCase ? 'lz@helix-law.com' : 'cb@helix-law.com');
+        const areaOfWork = isFirstCase ? 'Commercial' : 'Property';
+        const enquirySource = isFirstCase ? 'Google Search' : 'Referral';
+        const enquiryMethod = isFirstCase ? 'Phone' : 'Email';
+        const primaryService = isFirstCase ? 'Contract Dispute' : 'Lease Renewal';
+        const secondaryService = isFirstCase ? 'General Advice Pack' : 'Heads of Terms Review';
+        const instructionRef = isFirstCase ? 'HLX-DEMO-0001' : 'HLX-DEMO-0002';
+        const matterDisplayNumber = isFirstCase ? 'DEMO-MTR-0001' : 'DEMO-MTR-0002';
+        const emailPitchPasscode = isFirstCase ? '85042' : '47658';
+        const linkPitchPasscode = isFirstCase ? '85043' : '47659';
+        const workspacePasscode = isFirstCase ? 'DOC85042' : 'DOC47658';
+        const workspaceUrlPath = `/pitch/${workspacePasscode}`;
+        const pitchAmount = isFirstCase ? 1500 : 3200;
+        const linkPitchAmount = isFirstCase ? 950 : 1800;
+        const demoClientName = 'Demo Client';
 
-        // ─── MILESTONE TYPES (filled square container) ───
-        
-        // Enquiry stage item
+        // ─── MILESTONE TYPES ───
         timelineItems.push({
           id: `enquiry-demo-${enquiry.ID}`,
           type: 'enquiry',
-          date: makeDate(-3, 0),
+          date: makeDate(-5, 0),
           subject: 'Enquiry received',
-          content: isFirstCase ? 'Area: Commercial' : 'Area: Property',
-          createdBy: isFirstCase ? 'Luke Zemanek' : 'Chris Baguley',
+          content: `Area: ${areaOfWork}`,
+          createdBy: ownerName,
           stageStatus: 'complete',
           metadata: {
-            areaOfWork: isFirstCase ? 'Commercial' : 'Property',
-            ultimateSource: 'Google Search',
-            methodOfContact: 'Phone',
-            pointOfContact: isFirstCase ? 'Luke Zemanek' : 'Chris Baguley',
+            areaOfWork,
+            ultimateSource: enquirySource,
+            methodOfContact: enquiryMethod,
+            pointOfContact: ownerName,
+            email: enquiry.Email || 'demo.client@example.com',
+            phoneNumber: '+44 7700 900123',
+            company: isFirstCase ? 'Demo Commercial Ltd' : 'Demo Property Holdings',
           },
         });
 
-        // Pitch stage item
-        const pitchId = `pitch-demo-${enquiry.ID}`;
+        const emailPitchId = `pitch-demo-email-${enquiry.ID}`;
         timelineItems.push({
-          id: pitchId,
+          id: emailPitchId,
           type: 'pitch',
-          date: makeDate(isFirstCase ? 1 : 2, 2),
-          subject: isFirstCase ? 'Deal captured – Contract Dispute' : 'Deal captured – Lease Renewal',
-          content: isFirstCase
-            ? 'Dear Demo Client,\n\nSharing our initial advice and next steps for the contract dispute.\n\nBest, Helix Law'
-            : 'Dear Demo Client,\n\nHere is the proposed approach for the lease renewal.\n\nBest, Helix Law',
-          createdBy: isFirstCase ? 'Luke Zemanek' : 'Chris Baguley',
+          date: makeDate(-2, 2),
+          subject: `Deal captured – ${primaryService}`,
+          content: `Dear Demo Client,\n\nSharing our initial advice and next steps for the ${primaryService.toLowerCase()}.\n\nBest, Helix Law`,
+          createdBy: ownerName,
           stageStatus: 'complete',
           metadata: {
-            amount: isFirstCase ? 1500 : 3200,
+            amount: pitchAmount,
             status: 'sent',
-            scenarioId: isFirstCase ? 'before-call-call' : 'after-call-email',
-            dealOrigin: isFirstCase ? 'email' : 'link',
-            dealOriginLabel: isFirstCase ? 'Email' : 'Link',
-            dealServiceDescription: isFirstCase ? 'Contract Dispute' : 'Lease Renewal',
-            pitchAmount: isFirstCase ? 1500 : 3200,
-            pitchService: isFirstCase ? 'Contract Dispute' : 'Lease Renewal',
+            scenarioId: isFirstCase ? 'before-call-call' : 'after-call-want-instruction',
+            dealOrigin: 'email',
+            dealOriginLabel: 'Email',
+            dealServiceDescription: primaryService,
+            pitchAmount,
+            pitchService: primaryService,
+            pitchAreaOfWork: areaOfWork,
+            pitchPitchedBy: ownerName,
+            pitchEmailSubject: `${primaryService} – next steps`,
+            pitchScenarioId: isFirstCase ? 'before-call-call' : 'after-call-want-instruction',
+            pitchDealId: isFirstCase ? 1769 : 1451,
+            pitchPasscode: emailPitchPasscode,
+            pitchValidUntil: format(new Date(makeDate(5, 0)), 'dd MMM yyyy'),
           },
         });
-        statusMap[pitchId] = {
-          verifyIdStatus: isFirstCase ? 'pending' : 'complete',
-          riskStatus: isFirstCase ? 'pending' : 'complete',
-          matterStatus: isFirstCase ? 'pending' : 'complete',
-          cclStatus: isFirstCase ? 'pending' : 'complete',
-          paymentStatus: isFirstCase ? 'pending' : 'complete',
+        statusMap[emailPitchId] = {
+          verifyIdStatus: 'review',
+          riskStatus: 'pending',
+          matterStatus: 'pending',
+          cclStatus: 'pending',
+          paymentStatus: 'pending',
         };
 
-        // Instruction stage item (only for second case to show progression)
-        if (!isFirstCase) {
-          timelineItems.push({
-            id: `instruction-demo-${enquiry.ID}`,
-            type: 'instruction',
-            date: makeDate(3, 1),
-            subject: 'Instruction Received',
-            content: 'Ref: HLX-DEMO-0002',
-            createdBy: 'Chris Baguley',
-            stageStatus: 'complete',
-            metadata: {
-              instructionRef: 'HLX-DEMO-0002',
-              instructionFeeEarner: 'Chris Baguley',
-              instructionArea: 'Property',
-            },
-          });
-          
-          // Identity stage item
-          timelineItems.push({
-            id: `identity-demo-${enquiry.ID}`,
-            type: 'identity',
-            date: makeDate(3, 3),
-            subject: 'ID verification: Pass',
-            content: 'Passport',
-            createdBy: '',
-            stageStatus: 'complete',
-            metadata: {
-              identityResult: 'Pass',
-              identityDocType: 'Passport',
-            },
-          });
-          
-          // Payment stage item
-          timelineItems.push({
-            id: `payment-demo-${enquiry.ID}`,
-            type: 'payment',
-            date: makeDate(4, 0),
-            subject: 'Payment received: £3,200.00',
-            content: 'Card payment',
-            createdBy: '',
-            stageStatus: 'complete',
-            metadata: {
-              paymentAmount: 3200,
-              paymentMethod: 'card',
-              paymentStatus: 'succeeded',
-            },
-          });
-          
-          // Risk stage item
-          timelineItems.push({
-            id: `risk-demo-${enquiry.ID}`,
-            type: 'risk',
-            date: makeDate(4, 2),
-            subject: 'Risk assessment: Low',
-            content: 'Standard risk profile',
-            createdBy: 'Chris Baguley',
-            stageStatus: 'complete',
-            metadata: {
-              riskLevel: 'Low',
-            },
-          });
-          
-          // Matter stage item
-          timelineItems.push({
-            id: `matter-demo-${enquiry.ID}`,
-            type: 'matter',
-            date: makeDate(5, 0),
-            subject: 'Matter Portal',
-            content: 'Lease Renewal',
-            createdBy: 'Chris Baguley',
-            stageStatus: 'complete',
-            metadata: {
-              matterDisplayNumber: 'DEMO-MTR-0002',
-              matterDescription: 'Lease Renewal',
-            },
-          });
-        }
+        const linkPitchId = `pitch-demo-link-${enquiry.ID}`;
+        timelineItems.push({
+          id: linkPitchId,
+          type: 'pitch',
+          date: makeDate(-1, 4),
+          subject: `Checkout link created – ${secondaryService}`,
+          createdBy: ownerName,
+          stageStatus: 'complete',
+          metadata: {
+            amount: linkPitchAmount,
+            status: 'CHECKOUT_LINK',
+            scenarioId: isFirstCase ? 'before-call-no-call' : 'cfa',
+            dealOrigin: 'link',
+            dealOriginLabel: 'Checkout link',
+            dealServiceDescription: secondaryService,
+            dealPasscode: linkPitchPasscode,
+            pitchAmount: linkPitchAmount,
+            pitchService: secondaryService,
+            pitchAreaOfWork: areaOfWork,
+            pitchPitchedBy: ownerName,
+            pitchScenarioId: isFirstCase ? 'before-call-no-call' : 'cfa',
+            pitchDealId: isFirstCase ? 1770 : 1452,
+            pitchPasscode: linkPitchPasscode,
+            pitchValidUntil: format(new Date(makeDate(6, 0)), 'dd MMM yyyy'),
+          },
+        });
+        statusMap[linkPitchId] = {
+          verifyIdStatus: 'pending',
+          riskStatus: 'pending',
+          matterStatus: 'pending',
+          cclStatus: 'pending',
+          paymentStatus: 'pending',
+        };
 
-        // ─── COMMUNICATION TYPES (circular outline container) ───
-        
-        // Inbound email
+        timelineItems.push({
+          id: `instruction-demo-${enquiry.ID}`,
+          type: 'instruction',
+          date: makeDate(0, 1),
+          subject: 'Instruction received',
+          content: `Ref: ${instructionRef}`,
+          createdBy: ownerName,
+          stageStatus: 'complete',
+          metadata: {
+            instructionRef,
+            instructionFeeEarner: ownerName,
+            instructionArea: areaOfWork,
+            instructionStage: 'Initialised',
+            instructionInternalStatus: 'Ready for opening',
+            instructionClientType: 'Individual',
+            instructionMatterId: isFirstCase ? 'MAT-1001' : 'MAT-2001',
+            instructionSubmissionDate: makeDate(0, 1),
+          },
+        });
+
+        timelineItems.push({
+          id: `identity-demo-${enquiry.ID}`,
+          type: 'identity',
+          date: makeDate(0, 3),
+          subject: isFirstCase ? 'ID verification: Refer' : 'ID verification: Pass',
+          content: isFirstCase ? 'Manual review required' : 'Passport verified',
+          createdBy: ownerName,
+          stageStatus: isFirstCase ? 'review' : 'complete',
+          metadata: {
+            identityResult: isFirstCase ? 'Refer' : 'Pass',
+            identityStatus: isFirstCase ? 'manual review' : 'verified',
+            identityDocType: 'Passport',
+            identityDocExpiry: '14 Oct 2031',
+            identityProvider: 'Thirdfort',
+            identityCheckId: isFirstCase ? 'TF-CHK-1001' : 'TF-CHK-2001',
+            identityPepResult: 'Clear',
+            identityAddressResult: isFirstCase ? 'Pending' : 'Pass',
+            identityManualApproval: isFirstCase,
+          },
+        });
+
+        timelineItems.push({
+          id: `payment-demo-${enquiry.ID}`,
+          type: 'payment',
+          date: makeDate(1, 0),
+          subject: isFirstCase ? `Payment pending: £${pitchAmount.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `Payment received: £${pitchAmount.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+          content: isFirstCase ? 'Client is completing the checkout link' : 'Card payment confirmed',
+          createdBy: ownerName,
+          stageStatus: isFirstCase ? 'pending' : 'complete',
+          metadata: {
+            paymentAmount: pitchAmount,
+            paymentMethod: 'card',
+            paymentStatus: isFirstCase ? 'pending' : 'succeeded',
+            paymentIntentId: isFirstCase ? 'pi_demo_pending_0001' : 'pi_demo_paid_0002',
+            paymentCurrency: 'gbp',
+            paymentInternalStatus: isFirstCase ? 'awaiting_confirmation' : 'confirmed',
+          },
+        });
+
+        timelineItems.push({
+          id: `risk-demo-${enquiry.ID}`,
+          type: 'risk',
+          date: makeDate(1, 2),
+          subject: isFirstCase ? 'Risk assessment: Enhanced review' : 'Risk assessment: Low',
+          content: isFirstCase ? 'Source-of-funds follow-up required' : 'Standard risk profile',
+          createdBy: ownerName,
+          stageStatus: isFirstCase ? 'failed' : 'complete',
+          metadata: {
+            riskResult: isFirstCase ? 'Enhanced Review' : 'Standard',
+            riskScore: isFirstCase ? 68 : 18,
+            riskLevel: isFirstCase ? 'Medium' : 'Low',
+            riskAssessor: ownerName,
+            riskClientType: 'Individual',
+            riskSourceOfFunds: isFirstCase ? 'Awaiting evidence' : 'Salary',
+            riskDestinationOfFunds: isFirstCase ? 'Settlement reserve' : 'Matter fees',
+            riskFundsType: 'Bank transfer',
+            riskValueOfInstruction: `£${pitchAmount.toLocaleString('en-GB')}`,
+            riskComplianceExpiry: format(new Date(makeDate(90, 0)), 'yyyy-MM-dd'),
+          },
+        });
+
+        timelineItems.push({
+          id: `matter-demo-${enquiry.ID}`,
+          type: 'matter',
+          date: makeDate(2, 1),
+          subject: 'Matter opened',
+          content: primaryService,
+          createdBy: ownerName,
+          stageStatus: 'complete',
+          metadata: {
+            matterDisplayNumber,
+            matterStatus: 'Open',
+            matterFeeEarner: ownerName,
+            matterClient: [enquiry.First_Name, enquiry.Last_Name].filter(Boolean).join(' ').trim() || demoClientName,
+            matterPracticeArea: areaOfWork,
+            matterDescription: primaryService,
+            matterResponsibleSolicitor: ownerName,
+            matterOriginatingSolicitor: ownerName,
+            matterSupervisingPartner: isFirstCase ? 'Alex Lee' : 'Ryan Choi',
+          },
+        });
+
+        // ─── COMMUNICATION TYPES ───
         timelineItems.push({
           id: `email-demo-in-${enquiry.ID}`,
           type: 'email',
-          date: makeDate(-1, 3),
+          date: makeDate(-3, 3),
           subject: isFirstCase ? 'Re: Contract dispute follow-up' : 'Re: Lease renewal next steps',
           content: 'Thanks for the update — confirming availability this week.',
-          createdBy: 'Demo Client',
+          createdBy: demoClientName,
+          actionRequired: true,
           metadata: {
             direction: 'inbound',
             messageId: `demo-msg-in-${enquiry.ID}`,
-            feeEarnerEmail: userEmail || 'lz@helix-law.com',
+            feeEarnerEmail: ownerEmail,
           },
         });
 
-        // Outbound email
         timelineItems.push({
           id: `email-demo-out-${enquiry.ID}`,
           type: 'email',
-          date: makeDate(0, -2),
+          date: makeDate(-2, 0),
           subject: isFirstCase ? 'Next steps for your contract dispute' : 'Lease renewal scope + costs',
           content: 'Outlined scope, pricing, and proposed timeline for your matter.',
-          createdBy: isFirstCase ? 'Luke Zemanek' : 'Chris Baguley',
+          createdBy: ownerName,
           metadata: {
             direction: 'outbound',
             messageId: `demo-msg-out-${enquiry.ID}`,
-            feeEarnerEmail: userEmail || 'lz@helix-law.com',
+            feeEarnerEmail: ownerEmail,
           },
         });
 
-        // Call
         timelineItems.push({
-          id: `call-demo-${enquiry.ID}`,
+          id: `call-demo-in-${enquiry.ID}`,
           type: 'call',
-          date: makeDate(0, -6),
-          subject: isFirstCase ? 'Inbound Call' : 'Outbound Call',
-          content: isFirstCase
-            ? 'Duration: 14:20\nAnswered\nNote: Initial dispute summary and desired outcome.'
-            : 'Duration: 09:10\nAnswered\nNote: Lease renewal requirements and timing.',
-          createdBy: 'Demo Client',
+          date: makeDate(-4, 2),
+          subject: 'Inbound call',
+          content: 'Duration: 14:20\nAnswered\nNote: Initial dispute summary and desired outcome.',
+          createdBy: demoClientName,
           metadata: {
-            duration: isFirstCase ? 860 : 550,
-            direction: isFirstCase ? 'inbound' : 'outbound',
+            duration: 860,
+            direction: 'inbound',
           },
         });
 
-        // ─── RESOURCE TYPES (dashed square container) ───
-        
-        // Document
         timelineItems.push({
-          id: `document-demo-${enquiry.ID}-1`,
+          id: `call-demo-out-${enquiry.ID}`,
+          type: 'call',
+          date: makeDate(-1, -1),
+          subject: 'Outbound call',
+          content: 'Duration: 09:10\nAnswered\nNote: Confirmed next actions and expected documents.',
+          createdBy: ownerName,
+          metadata: {
+            duration: 550,
+            direction: 'outbound',
+          },
+        });
+
+        // ─── RESOURCE TYPES ───
+        timelineItems.push({
+          id: `doc-workspace-${enquiry.ID}`,
           type: 'document',
-          date: makeDate(-2, 1),
+          date: makeDate(-2, 4),
+          subject: 'Secure document workspace',
+          createdBy: ownerName,
+          metadata: {
+            isDocWorkspace: true,
+            workspacePasscode,
+            workspaceUrlPath,
+            workspaceExpiresAt: makeDate(7, 0),
+            workspaceDealId: isFirstCase ? 1769 : 1451,
+            workspaceWorktype: primaryService,
+            workspaceFolders: ['Holding', 'Allocated'],
+          },
+        });
+
+        timelineItems.push({
+          id: `document-demo-${enquiry.ID}-holding`,
+          type: 'document',
+          date: makeDate(-1, 1),
+          subject: 'Passport_Scan.pdf',
+          content: 'Client uploaded into Holding via secure workspace',
+          createdBy: demoClientName,
+          metadata: {
+            documentType: 'ID Verification',
+            filename: 'Passport_Scan.pdf',
+            fileSize: 245678,
+            contentType: 'application/pdf',
+            blobUrl: '/api/demo-documents/Demo_Document_1.pdf',
+            blobName: `demo/${workspacePasscode}/Holding/Passport_Scan.pdf`,
+            stageUploaded: 'instruction',
+          },
+        });
+
+        timelineItems.push({
+          id: `document-demo-${enquiry.ID}-allocated`,
+          type: 'document',
+          date: makeDate(0, -3),
           subject: isFirstCase ? 'Contract_Dispute_Summary.pdf' : 'Lease_Terms_Review.pdf',
-          content: 'Demo document (previewable)',
-          createdBy: 'Demo Client',
+          content: 'Allocated document (previewable)',
+          createdBy: demoClientName,
           metadata: {
             documentType: isFirstCase ? 'Correspondence' : 'Contract',
             filename: isFirstCase ? 'Contract_Dispute_Summary.pdf' : 'Lease_Terms_Review.pdf',
             fileSize: isFirstCase ? 245678 : 189234,
             contentType: 'application/pdf',
-            blobUrl: '/api/demo-documents/Demo_Document_1.pdf',
+            blobUrl: '/api/demo-documents/Demo_Document_2.pdf',
+            blobName: `demo/${workspacePasscode}/Allocated/${isFirstCase ? 'Contract_Dispute_Summary.pdf' : 'Lease_Terms_Review.pdf'}`,
             stageUploaded: 'enquiry',
           },
         });
-        
-        // Second document
+
         timelineItems.push({
-          id: `document-demo-${enquiry.ID}-2`,
-          type: 'document',
-          date: makeDate(-1, -1),
-          subject: isFirstCase ? 'Supporting_Evidence.pdf' : 'Property_Photos.zip',
-          content: 'Additional supporting materials',
-          createdBy: 'Demo Client',
+          id: `link-enabled-demo-${enquiry.ID}`,
+          type: 'link-enabled',
+          date: makeDate(-2, 5),
+          subject: 'Checkout link enabled',
+          content: 'Legacy deal shell created before a full pitch email was drafted.',
+          createdBy: ownerName,
           metadata: {
-            documentType: isFirstCase ? 'Evidence' : 'Property Files',
-            filename: isFirstCase ? 'Supporting_Evidence.pdf' : 'Property_Photos.zip',
-            fileSize: isFirstCase ? 512000 : 2048000,
-            contentType: isFirstCase ? 'application/pdf' : 'application/zip',
-            blobUrl: '/api/demo-documents/Demo_Document_2.pdf',
-            stageUploaded: 'pitch',
+            dealPasscode: linkPitchPasscode,
+            scenarioId: isFirstCase ? 'before-call-no-call' : 'cfa',
+            dealOrigin: 'link',
+            dealOriginLabel: 'Checkout link',
           },
         });
 
-        // Note
         timelineItems.push({
           id: `note-demo-${enquiry.ID}`,
           type: 'note',
-          date: makeDate(0, 1),
+          date: makeDate(0, 2),
           subject: 'Internal note',
-          content: isFirstCase 
+          content: isFirstCase
             ? 'Client prefers email communication. Available afternoons only.'
-            : 'Urgent timeline - lease expires end of month.',
-          createdBy: isFirstCase ? 'Luke Zemanek' : 'Chris Baguley',
+            : 'Urgent timeline — lease expires end of month.',
+          createdBy: ownerName,
         });
 
         timelineItems.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -4695,7 +4843,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             boxShadow: isDarkMode 
               ? '0 20px 60px rgba(0, 0, 0, 0.6)'
               : '0 20px 60px rgba(0, 0, 0, 0.15)',
-            border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(54, 144, 206, 0.15)'}`,
+            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.15)'}`,
           }}
         >
           {/* Existing pitches info */}
@@ -5070,6 +5218,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
           activeEnquiryId={enquiry.ID}
           hoveredCaseId={hoveredCaseId}
           setHoveredCaseId={setHoveredCaseId}
+          showCaseSelector={false}
           onSelectEnquiry={onSelectEnquiry}
           formatCaseAreaLabel={formatCaseAreaLabel}
           onOpenMailto={openMailto}
@@ -5092,11 +5241,73 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
 
         {/* ─── TIER 2: Integrated stage rail + workbench ─── */}
         <div className="prospect-entrance-workbench prospect-detail-workbench-shell">
+        <ProspectCaseChips
+          enquiryWindows={enquiryWindows}
+          activeEnquiryId={enquiry.ID}
+          activeWindowRangeLabel={activeWindowRangeLabel}
+          hoveredCaseId={hoveredCaseId}
+          setHoveredCaseId={setHoveredCaseId}
+          onSelectEnquiry={onSelectEnquiry}
+          isDarkMode={isDarkMode}
+          formatCaseAreaLabel={formatCaseAreaLabel}
+        />
         <div className="prospect-detail-stage-bar">
-        <div className={`prospect-pipeline-rail prospect-detail-rail prospect-detail-stage-bar-tabs ${isCompactPipelineMode ? 'is-compact' : ''}`}>
+        <div className="prospect-detail-stage-meta">
+          <span className="prospect-detail-stage-meta-label">Journey stages</span>
+          <span className="prospect-detail-stage-meta-copy">Within selected case: {activeWindowRangeLabel}</span>
+        </div>
+        <div className={`prospect-detail-stage-bar-tabs ${isCompactPipelineMode ? 'is-compact' : ''}`}>
           {(() => {
               // Determine stage statuses from inlineWorkbenchItem
-              const hasPitch = pitchCount > 0;
+              const workbenchPitch = (inlineWorkbenchItem?.pitch || inlineWorkbenchItem?.Pitch || inlineWorkbenchItem?.pitchData || null) as Record<string, any> | null;
+              const workbenchDeal = (inlineWorkbenchItem?.deal || null) as Record<string, any> | null;
+              const workbenchPitchStatus = String(
+                workbenchPitch?.status
+                  || workbenchPitch?.DealStatus
+                  || workbenchDeal?.status
+                  || workbenchDeal?.DealStatus
+                  || enrichmentPitchData?.status
+                  || ''
+              ).trim().toUpperCase();
+              const workbenchPitchDateRaw = String(
+                workbenchPitch?.pitchedDate
+                  || workbenchPitch?.PitchedDate
+                  || workbenchPitch?.CreatedAt
+                  || workbenchPitch?.createdAt
+                  || workbenchDeal?.PitchedDate
+                  || workbenchDeal?.CreatedAt
+                  || workbenchDeal?.createdAt
+                  || (enrichmentPitchData?.pitchedDate
+                    ? `${enrichmentPitchData.pitchedDate}T${enrichmentPitchData.pitchedTime || '00:00:00'}`
+                    : '')
+              ).trim();
+              const workbenchPitchScenarioId = String(
+                workbenchPitch?.scenarioId
+                  || workbenchPitch?.ScenarioId
+                  || workbenchDeal?.scenarioId
+                  || workbenchDeal?.ScenarioId
+                  || enrichmentPitchData?.scenarioId
+                  || ''
+              ).trim() || undefined;
+              const workbenchPitchContent = String(
+                workbenchPitch?.pitchContent
+                  || workbenchPitch?.PitchContent
+                  || workbenchPitch?.EmailSubject
+                  || workbenchPitch?.EmailBody
+                  || workbenchDeal?.EmailSubject
+                  || workbenchDeal?.EmailBody
+                  || enrichmentPitchData?.pitchContent
+                  || ''
+              ).trim();
+              const hasWorkbenchPitch = workbenchPitchStatus !== 'CHECKOUT_LINK' && Boolean(
+                workbenchPitchDateRaw
+                || workbenchPitchScenarioId
+                || workbenchPitchContent
+                || workbenchPitch?.dealId
+                || workbenchPitch?.DealId
+                || workbenchDeal?.DealId
+                || enrichmentPitchData?.dealId
+              );
               const instruction = inlineWorkbenchItem?.instruction;
               const instructionRef = instruction?.InstructionRef || instruction?.instructionRef || '';
               const instructionStage = (instruction?.Stage || instruction?.stage || '').toLowerCase();
@@ -5104,6 +5315,10 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               const isShellInstruction = Boolean(instructionRef) && (instructionStage === 'initialised' || instructionStage === 'opened' || instructionStage === 'pitched' || instructionStage === '');
               const hasInstruction = Boolean(instructionRef) && (Boolean(instructedDate) || !isShellInstruction);
               const hasInstructionActivity = Boolean(instructionRef);
+              // An instruction can only exist if a pitch was sent first — guarantee the
+              // pitch stage reads as complete whenever instruction evidence is present,
+              // even if the scoped timeline / workbench enrichment didn't surface the pitch row.
+              const hasPitch = pitchCount > 0 || hasWorkbenchPitch || hasInstruction || hasInstructionActivity;
               const stageStatuses = inlineWorkbenchItem?.stageStatuses;
               const payments = Array.isArray(inlineWorkbenchItem?.payments) ? inlineWorkbenchItem?.payments ?? [] : [];
               const risk = inlineWorkbenchItem?.risk;
@@ -5185,13 +5400,18 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               // Get dates for completed stages
               const enquiryDate = enquiry?.Date_Created ? new Date(enquiry.Date_Created) : null;
               const pitchItems = scopedTimeline.filter(t => t.type === 'pitch').sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-              const firstPitchDate = pitchItems.length > 0 ? new Date(pitchItems[0].date) : null;
+              const firstPitchDate = (() => {
+                if (pitchItems.length > 0) return new Date(pitchItems[0].date);
+                if (!workbenchPitchDateRaw) return null;
+                const fallbackDate = new Date(workbenchPitchDateRaw);
+                return Number.isNaN(fallbackDate.getTime()) ? null : fallbackDate;
+              })();
               const instructionDate = instructedDate ? new Date(instructedDate) : null;
               const latestPitchScenarioId = (() => {
-                if (pitchItems.length === 0) return undefined;
+                if (pitchItems.length === 0) return workbenchPitchScenarioId;
                 const latestPitch = pitchItems[pitchItems.length - 1];
                 const scenarioId = latestPitch?.metadata?.scenarioId;
-                return typeof scenarioId === 'string' ? scenarioId : undefined;
+                return typeof scenarioId === 'string' ? scenarioId : workbenchPitchScenarioId;
               })();
 
               const getPitchScenarioIcon = (scenarioId?: string) => {
@@ -5225,7 +5445,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   key: 'enquiry', 
                   label: isEnquiryClaimed ? 'Enquiry Claimed' : 'Enquiry', 
                   shortLabel: isEnquiryClaimed ? 'Claimed' : 'Enquiry',
-                  icon: isEnquiryClaimed ? <BiLogoMicrosoftTeams size={10} /> : <FaUser size={10} />, 
+                  icon: <FiInbox size={14} strokeWidth={1.8} />, 
                   status: 'complete',
                   date: enquiryDate,
                 },
@@ -5233,7 +5453,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   key: 'pitch', 
                   label: 'Pitch Sent', 
                   shortLabel: 'Pitch sent',
-                  icon: getPitchScenarioIcon(latestPitchScenarioId),
+                  icon: <FiSend size={14} strokeWidth={1.8} />,
                   status: hasPitch ? 'complete' : 'current',
                   date: firstPitchDate,
                   detail: hasPitch ? `${pitchCount} pitch${pitchCount > 1 ? 'es' : ''}` : undefined,
@@ -5242,7 +5462,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   key: 'instructed', 
                   label: hasInstructionActivity ? 'Instruction Received' : 'Instruction', 
                   shortLabel: hasInstructionActivity ? 'Instruction received' : 'Instruction',
-                  icon: <FaClipboard size={10} />, 
+                  icon: <FiClipboard size={14} strokeWidth={1.8} />,
                   status: hasInstruction ? 'complete' : (hasInstructionActivity ? 'current' : 'disabled'),
                   date: instructionDate,
                 },
@@ -5250,7 +5470,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   key: 'payment', 
                   label: hasSuccessfulPayment ? 'Paid' : 'Payment',
                   shortLabel: hasSuccessfulPayment ? 'Paid' : 'Payment',
-                  icon: <FaPoundSign size={10} />, 
+                  icon: <FiCreditCard size={14} strokeWidth={1.8} />, 
                   status: !hasInstruction ? 'disabled' : paymentStatus,
                   date: null,
                 },
@@ -5258,7 +5478,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   key: 'id', 
                   label: eidDisplayResult ? `ID: ${eidDisplayResult}` : 'ID Check', 
                   shortLabel: 'ID',
-                  icon: <FaIdCard size={10} />, 
+                  icon: <FiShield size={14} strokeWidth={1.8} />, 
                   status: !hasInstruction ? 'disabled' : identityStatus,
                   date: null,
                 },
@@ -5266,7 +5486,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   key: 'risk', 
                   label: riskLevel ? `Risk: ${riskLevel}` : 'Risk',
                   shortLabel: 'Risk',
-                  icon: <FaShieldAlt size={10} />, 
+                  icon: <FiAlertTriangle size={14} strokeWidth={1.8} />, 
                   status: !hasInstruction ? 'disabled' : riskStatus,
                   date: null,
                 },
@@ -5274,7 +5494,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   key: 'matter', 
                   label: matterDisplayId ? matterDisplayId : 'Matter',
                   shortLabel: 'Matter',
-                  icon: <FaFolderOpen size={10} />, 
+                  icon: <FiFolder size={14} strokeWidth={1.8} />, 
                   status: !hasInstruction ? 'disabled' : matterStageStatus,
                   date: null,
                 },
@@ -5282,7 +5502,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   key: 'documents',
                   label: 'Docs',
                   shortLabel: 'Docs',
-                  icon: <FaFileAlt size={10} />,
+                  icon: <FiFileText size={14} strokeWidth={1.8} />,
                   status: !hasInstruction ? 'disabled' : documentStatus,
                   date: null,
                   detail: docCount > 0 ? String(docCount) : undefined,
@@ -5328,18 +5548,9 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   isActive,
                   statusColor,
                   hasIssue,
+                  toneColor: isActive ? activeCaseAccentColor : undefined,
                 };
               });
-
-              // Touchpoint date cue — subtle link between case box and pipeline start
-              const touchpointRaw = enquiry?.Touchpoint_Date || enquiry?.Date_Created;
-              const touchpointLabel = (() => {
-                if (!touchpointRaw) return null;
-                try {
-                  const d = parseISO(touchpointRaw);
-                  return format(d, 'd MMM yyyy');
-                } catch { return null; }
-              })();
 
               return (
                 <WorkbenchJourneyRail
@@ -5352,31 +5563,12 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                     icon: stage.icon,
                     status: stage.status,
                     isActive: stage.isActive,
+                    toneColor: stage.toneColor,
                     onClick: () => {
-                      const instructionRefForActions = inlineWorkbenchItem?.instruction?.InstructionRef || inlineWorkbenchItem?.instruction?.instructionRef;
-                      const canRunIdFromChip = stage.key === 'id'
-                        && stage.status === 'pending'
-                        && Boolean(instructionRefForActions)
-                        && Boolean(workbenchHandlers?.onTriggerEID);
-
-                      if (canRunIdFromChip) {
+                      if (stage.key === 'id') {
                         setSelectedContextStage(null);
                         setSelectedWorkbenchTab('identity');
                         setIsWorkbenchCollapsed(false);
-
-                        const proceed = window.confirm('Run ID verification now?');
-                        if (!proceed) {
-                          return;
-                        }
-
-                        Promise.resolve(workbenchHandlers!.onTriggerEID!(instructionRefForActions as string))
-                          .then(() => {
-                            showToast('ID verification started', 'success');
-                          })
-                          .catch((error) => {
-                            const message = error instanceof Error ? error.message : 'Failed to start ID verification';
-                            showToast(message, 'error');
-                          });
                         return;
                       }
 
@@ -5399,6 +5591,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   }))}
                   isDarkMode={isDarkMode}
                   compact={isCompactPipelineMode}
+                  hierarchy="secondary"
                   showLeadingArrow={false}
                   railStyle={{ flex: 1, minWidth: 0 }}
                 />
@@ -5406,7 +5599,10 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             })()}
         </div>
           </div>
-          <div className="prospect-detail-workbench-body">
+          <div
+            className={`prospect-detail-workbench-body${isCaseSwitching ? ' is-case-switching' : ''}`}
+            style={{ boxShadow: `inset 0 1px 0 ${activeCaseAccentColor}26` }}
+          >
             <InlineWorkbench
               item={{ ...(inlineWorkbenchItem ?? {}), enquiry, enrichmentTeamsData, pitchData: enrichmentPitchData }}
               isDarkMode={isDarkMode}
@@ -6154,8 +6350,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                           borderRadius: 0,
                                           fontSize: '12px',
                                           fontWeight: 700,
-                                          background: isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(54, 144, 206, 0.1)',
-                                          border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(54, 144, 206, 0.3)'}`,
+                                          background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)',
+                                          border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.4)' : 'rgba(54, 144, 206, 0.3)'}`,
                                           color: isDarkMode ? colours.accent : colours.highlight,
                                           cursor: 'default',
                                           opacity: 0.45,
@@ -6362,8 +6558,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                           fontSize: '10px',
                                           fontWeight: 700,
                                           borderRadius: 0,
-                                          border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(54, 144, 206, 0.18)'}`,
-                                          background: isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.06)',
+                                          border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.18)'}`,
+                                          background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)',
                                           color: isDarkMode ? colours.accent : colours.highlight,
                                           cursor: 'pointer',
                                           whiteSpace: 'nowrap',
@@ -6457,8 +6653,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                           fontSize: '10px',
                                           fontWeight: 700,
                                           borderRadius: 0,
-                                          border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(54, 144, 206, 0.18)'}`,
-                                          background: isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.06)',
+                                          border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.18)'}`,
+                                          background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)',
                                           color: isDarkMode ? colours.accent : colours.highlight,
                                           cursor: 'pointer',
                                         }}
@@ -6541,8 +6737,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                       fontSize: '10px',
                                       fontWeight: 700,
                                       borderRadius: 0,
-                                      border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(54, 144, 206, 0.18)'}`,
-                                      background: isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.06)',
+                                      border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.18)'}`,
+                                      background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)',
                                       color: isDarkMode ? colours.accent : colours.highlight,
                                       cursor: 'pointer',
                                     }}
@@ -6593,7 +6789,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                 <span style={{
                                   padding: '3px 10px',
                                   borderRadius: 0,
-                                  background: isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(135, 243, 243, 0.2)',
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.2)',
                                   color: isDarkMode ? colours.accent : colours.darkBlue,
                                   fontWeight: 500,
                                 }}>
@@ -7635,7 +7831,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               style={{
                 width: 'min(680px, 96vw)',
                 borderRadius: 0,
-                border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.20)' : 'rgba(54, 144, 206, 0.25)'}`,
+                border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.20)' : 'rgba(54, 144, 206, 0.25)'}`,
                 background: isDarkMode ? colours.darkBlue : '#ffffff',
                 padding: '32px',
                 boxShadow: isDarkMode 
@@ -7686,8 +7882,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               marginBottom: '28px',
               padding: '16px',
               borderRadius: 0,
-              background: isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.06)',
-              border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.2)' : 'rgba(54, 144, 206, 0.15)'}`,
+              background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)',
+              border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)'}`,
             }}>
               <div style={{ 
                 fontSize: '11px', 
@@ -7752,8 +7948,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   }}>
                     <span>{prefix}</span>
                     <span style={{
-                      background: isDarkMode ? 'rgba(135, 243, 243, 0.18)' : 'rgba(54, 144, 206, 0.12)',
-                      border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(54, 144, 206, 0.18)'}`,
+                      background: isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.12)',
+                      border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.18)'}`,
                       color: isDarkMode ? colours.accent : colours.highlight,
                       fontWeight: 700,
                       borderRadius: 0,
@@ -7789,7 +7985,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                       width: '100%',
                       padding: '12px 14px',
                       borderRadius: 0,
-                      border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(160, 160, 160, 0.30)'}`,
+                      border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(160, 160, 160, 0.30)'}`,
                       background: isDarkMode ? 'rgba(2, 6, 23, 0.40)' : 'rgba(255, 255, 255, 0.95)',
                       color: isDarkMode ? 'rgb(226, 232, 240)' : 'rgba(6, 23, 51, 0.90)',
                       fontSize: '14px',
@@ -7820,7 +8016,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                       width: '100%',
                       padding: '12px 14px',
                       borderRadius: 0,
-                      border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(160, 160, 160, 0.30)'}`,
+                      border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(160, 160, 160, 0.30)'}`,
                       background: isDarkMode ? 'rgba(2, 6, 23, 0.40)' : 'rgba(255, 255, 255, 0.95)',
                       color: isDarkMode ? 'rgb(226, 232, 240)' : 'rgba(6, 23, 51, 0.90)',
                       fontSize: '14px',
@@ -7894,8 +8090,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   gap: '20px',
                   padding: '20px',
                   borderRadius: 0,
-                  background: isDarkMode ? 'rgba(135, 243, 243, 0.04)' : 'rgba(54, 144, 206, 0.03)',
-                  border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(54, 144, 206, 0.12)'}`,
+                  background: isDarkMode ? 'rgba(54, 144, 206, 0.04)' : 'rgba(54, 144, 206, 0.03)',
+                  border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)'}`,
                 }}>
                   <div style={{ 
                     fontSize: '13px', 
@@ -7923,7 +8119,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                           width: '100%',
                           padding: '12px 14px',
                           borderRadius: 0,
-                          border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(160, 160, 160, 0.30)'}`,
+                          border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(160, 160, 160, 0.30)'}`,
                           background: isDarkMode ? 'rgba(2, 6, 23, 0.40)' : 'rgba(255, 255, 255, 0.95)',
                           color: isDarkMode ? 'rgb(226, 232, 240)' : 'rgba(6, 23, 51, 0.90)',
                           fontSize: '14px',
@@ -7966,7 +8162,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                             width: '100%',
                             padding: '12px 14px 12px 36px',
                             borderRadius: 0,
-                            border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(160, 160, 160, 0.30)'}`,
+                            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(160, 160, 160, 0.30)'}`,
                             background: isDarkMode ? 'rgba(2, 6, 23, 0.40)' : 'rgba(255, 255, 255, 0.95)',
                             color: isDarkMode ? 'rgb(226, 232, 240)' : 'rgba(6, 23, 51, 0.90)',
                             fontSize: '14px',
@@ -7982,8 +8178,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                           style={{
                             flex: 1,
                             padding: '8px 12px',
-                            border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.3)' : 'rgba(54, 144, 206, 0.25)'}`,
-                            background: isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(54, 144, 206, 0.08)',
+                            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.25)'}`,
+                            background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
                             color: isDarkMode ? colours.accent : colours.highlight,
                             borderRadius: 0,
                             cursor: 'pointer',
@@ -7992,10 +8188,10 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                             transition: 'all 0.15s ease',
                           }}
                           onMouseEnter={(e) => {
-                            e.currentTarget.style.background = isDarkMode ? 'rgba(135, 243, 243, 0.20)' : 'rgba(54, 144, 206, 0.15)';
+                            e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.20)' : 'rgba(54, 144, 206, 0.15)';
                           }}
                           onMouseLeave={(e) => {
-                            e.currentTarget.style.background = isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(54, 144, 206, 0.08)';
+                            e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)';
                           }}
                         >
                           +50

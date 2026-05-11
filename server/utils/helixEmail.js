@@ -94,16 +94,90 @@ function toRecipients(emails) {
 }
 
 function wrapSystemSignature(bodyHtml) {
+  // Canonical Helix system signature — matches the pitch-builder / enquiry-processing
+  // "new" signature card used elsewhere in the platform (logo, contact row, socials,
+  // testimonials, awards icon row, cyber disclaimer, full company blurb).
+  // No phone — automations sends from a non-staffed mailbox and we route replies
+  // to support@helix-law.com.
+  const SUPPORT_EMAIL = 'support@helix-law.com';
+  const LARGE_LOGO = 'https://helix-law.co.uk/wp-content/uploads/2025/01/Asset-2@72x.png';
+  const ICON_EMAIL = 'https://www.dropbox.com/scl/fi/0b7htp2ve3t4dsvym6kn7/Asset-11.png?rlkey=ij3s6w0w5esba4hucyk8hasmf&st=heoas7yv&raw=1';
+  const ICON_WEBSITE = 'https://www.dropbox.com/scl/fi/l4deu6aqcl11cczgbetnw/Asset-9.png?rlkey=s6ydc71050au61c0rhi8u29zb&st=pmhkfc54&raw=1';
+  const ICON_LOCATION = 'https://www.dropbox.com/scl/fi/3wmc2rhglrvtk5qli5yig/Asset-10.png?rlkey=xg4sqll4tuzer5f5h4m3t379h&st=y8k29rhq&raw=1';
+  const ICON_FACEBOOK = 'https://www.dropbox.com/scl/fi/gm51h9mjiwne4gtaq4ddd/fbv3.png?rlkey=dla2nlkpzhht7utjc0kpxxo6j&st=ki6fxa48&raw=1';
+  const ICON_INSTAGRAM = 'https://www.dropbox.com/scl/fi/6w0l6vh7romgygpgytqw2/Instagram-new.png?rlkey=8k3t7c11fgyjhsb3nej0tzud3&st=crl4yfft&raw=1';
+  const ICON_LINKEDIN = 'https://www.dropbox.com/scl/fi/g4uyr1yzgisw7w33rqdn5/Asset-12.png?rlkey=4j93s5lmzzon0p28ggj3edheh&st=bxbly9dk&raw=1';
+  const ICONS_ROW = 'https://www.dropbox.com/scl/fi/na9h1lkt08m2ckkg1rlu8/iconsRow.png?rlkey=4aceb5ufknnz9fdige1jobhii&st=ucxnlg4g&raw=1';
+  const CYBER = 'DISCLAIMER: Please be aware of cyber-crime. Our bank account details will NOT change during the course of a transaction. Helix Law Limited will not be liable if you transfer money to an incorrect account. We accept no responsibility or liability for malicious or fraudulent emails purportedly coming from our firm, and it is your responsibility to ensure that any emails coming from us are genuine before relying on anything contained within them.';
+  const BLURB = 'Helix Law Limited is a limited liability company registered in England and Wales. Registration Number 07845461. A list of Directors is available for inspection at the Registered Office: Second Floor, Britannia House, 21 Station Street, Brighton, BN1 4DE. Authorised and regulated by the Solicitors Regulation Authority. The term partner is a reference to a Director or senior solicitor of Helix Law Limited. Helix Law Limited does not accept service by email. This email is sent by and on behalf of Helix Law Limited. It may be confidential and may also be legally privileged. It is intended only for the stated addressee(s) and access to it by any other person is unauthorised. If you are not an addressee, you must not disclose, copy, circulate or in any other way use or rely on the information contained in this email. If you have received it in error, please inform us immediately and delete all copies. All copyright is reserved entirely on behalf of Helix Law Limited. Helix Law and applicable logo are exclusively owned trademarks of Helix Law Limited, registered with the Intellectual Property Office under numbers UK00003984532 and UK00003984535. The trademarks should not be used, copied or replicated without consent first obtained in writing.';
+
   return `<!DOCTYPE html>
-  <html lang="en"><head><meta charset="UTF-8" /><title>Helix Email</title></head>
-  <body style="margin:0; padding:0; font-family: Raleway, Arial, sans-serif; font-size:10pt; line-height:1.4; color:#000;">
-    <div style="margin-bottom:4px;">${bodyHtml}</div>
-    <table cellpadding="0" cellspacing="0" style="border-collapse:collapse; margin:0; padding:0; width:auto;">
-      <tr><td style="padding-bottom:8px;"><img src="https://helix-law.co.uk/wp-content/uploads/2025/01/50px-logo.png" alt="Helix Law Logo" style="height:50px; display:block;" /></td></tr>
-      <tr><td style="padding-top:8px; color:#D65541; font-size:6pt; line-height:1.4;">DISCLAIMER: Please be aware of cyber-crime. Our bank account details will NOT change during the course of a transaction. Helix Law Limited will not be liable if you transfer money to an incorrect account. We accept no responsibility or liability for malicious or fraudulent emails purportedly coming from our firm, and it is your responsibility to ensure that any emails coming from us are genuine before relying on anything contained within them.</td></tr>
-      <tr><td style="padding-top:8px; font-style:italic; font-size:6pt; line-height:1.4; color:#444;">Helix Law Limited is a limited liability company registered in England and Wales. Registration Number 07845461. Authorised and regulated by the Solicitors Regulation Authority. The term partner is a reference to a Director or senior solicitor of Helix Law Limited. Helix Law Limited does not accept service by email.</td></tr>
-    </table>
-  </body></html>`;
+<html lang="en"><head><meta charset="UTF-8" /><title>Helix Email</title></head>
+<body style="margin:0; padding:0; font-family:Raleway,Arial,Helvetica,sans-serif; font-size:10pt; line-height:1.4; color:rgb(0,0,0);">
+<div style="margin-bottom:12px;">${bodyHtml}</div>
+<table cellspacing="0" cellpadding="0" style="background-color:rgb(255,255,255); width:100%; max-width:100%; box-sizing:border-box; border-collapse:collapse; border-spacing:0px">
+<tbody>
+<tr><td style="padding-top:20px; padding-bottom:10px">
+<table cellspacing="0" cellpadding="0" style="width:100%; box-sizing:border-box; border-collapse:collapse; border-spacing:0px"><tbody><tr>
+<td style="text-align:left; vertical-align:top"><a href="https://helix-law.co.uk/" target="_blank" rel="noopener noreferrer" style="text-decoration:none; display:inline-block"><img src="${LARGE_LOGO}" alt="Helix Law" width="260" style="width:260px; height:auto; max-width:100%; display:block; border:0; outline:none; text-decoration:none"></a></td>
+</tr></tbody></table>
+</td></tr>
+<tr><td style="padding-bottom:4px">
+<table cellspacing="0" cellpadding="0" style="box-sizing:border-box; border-collapse:collapse; border-spacing:0px"><tbody>
+<tr><td colspan="3"><table cellspacing="0" cellpadding="0" style="box-sizing:border-box; border-collapse:collapse; border-spacing:0px"><tbody><tr>
+<td style="border-right:1px solid rgb(197,211,224); padding-right:8px"><table cellspacing="0" cellpadding="0" style="box-sizing:border-box; border-collapse:collapse; border-spacing:0px"><tbody><tr>
+<td style="line-height:18px; padding-right:4px; vertical-align:middle; width:15px"><img src="${ICON_EMAIL}" alt="Email" width="16" height="16" style="width:16px; height:16px; margin-top:1px; margin-bottom:3px; display:inline-block"></td>
+<td style="line-height:18px; white-space:nowrap; vertical-align:middle"><div style="line-height:18px; white-space:nowrap; font-family:Raleway,Arial,Helvetica,sans-serif; font-size:10pt"><span style="color:rgb(29,134,226)"><u><a href="mailto:${SUPPORT_EMAIL}" style="color:rgb(29,134,226)">${SUPPORT_EMAIL}</a></u></span></div></td>
+</tr></tbody></table></td>
+<td style="padding-left:9px"><table cellspacing="0" cellpadding="0" style="box-sizing:border-box; border-collapse:collapse; border-spacing:0px"><tbody><tr>
+<td style="line-height:18px; padding-right:4px; vertical-align:middle; width:15px"><img src="${ICON_WEBSITE}" alt="Website" width="16" height="16" style="width:16px; height:16px; margin-top:1px; margin-bottom:3px; display:inline-block"></td>
+<td style="line-height:18px; white-space:nowrap; vertical-align:middle"><div style="line-height:18px; white-space:nowrap; font-family:Raleway,Arial,Helvetica,sans-serif; font-size:10pt"><span style="color:rgb(29,134,226)"><u><a href="https://helix-law.co.uk/" target="_blank" rel="noopener noreferrer" style="color:rgb(29,134,226)">helix-law.com</a></u></span></div></td>
+</tr></tbody></table></td>
+</tr></tbody></table></td></tr>
+<tr><td colspan="3" style="padding-top:2px"><table cellspacing="0" cellpadding="0" style="box-sizing:border-box; border-collapse:collapse; border-spacing:0px"><tbody><tr>
+<td style="line-height:18px; padding-right:6px; vertical-align:middle; width:15px"><img src="${ICON_LOCATION}" alt="Location" width="16" height="16" style="width:16px; height:16px; margin-top:1px; margin-bottom:3px; display:inline-block"></td>
+<td style="line-height:18px; vertical-align:middle"><div style="line-height:18px; font-family:Raleway,Arial,Helvetica,sans-serif; font-size:10pt">Helix Law Ltd. Second Floor, Britannia House, 21 Station Street, Brighton, BN1 4DE</div></td>
+</tr></tbody></table></td></tr>
+<tr><td colspan="3" style="padding-top:2px"><table cellspacing="0" cellpadding="0" style="box-sizing:border-box; border-collapse:collapse; border-spacing:0px"><tbody><tr>
+<td style="border-right:1px solid rgb(197,211,224); padding-right:8px"><table cellspacing="0" cellpadding="0" style="box-sizing:border-box; border-collapse:collapse; border-spacing:0px"><tbody><tr>
+<td style="line-height:18px; padding-right:4px; vertical-align:middle; width:15px"><img src="${ICON_FACEBOOK}" alt="Facebook" width="16" height="16" style="width:16px; height:16px; margin-top:1px; margin-bottom:3px; display:inline-block"></td>
+<td style="line-height:18px; white-space:nowrap; vertical-align:middle"><div style="line-height:18px; white-space:nowrap; font-family:Raleway,Arial,Helvetica,sans-serif; font-size:10pt"><span style="color:rgb(29,134,226)"><u><a href="https://www.facebook.com/litigationsolicitors/" target="_blank" rel="noopener noreferrer" style="color:rgb(29,134,226)">litigationsolicitors</a></u></span></div></td>
+</tr></tbody></table></td>
+<td style="border-right:1px solid rgb(197,211,224); padding-right:8px; padding-left:8px"><table cellspacing="0" cellpadding="0" style="box-sizing:border-box; border-collapse:collapse; border-spacing:0px"><tbody><tr>
+<td style="line-height:18px; padding-right:4px; vertical-align:middle; width:15px"><img src="${ICON_INSTAGRAM}" alt="Instagram" width="16" height="16" style="width:16px; height:16px; margin-top:1px; margin-bottom:3px; display:inline-block"></td>
+<td style="line-height:18px; white-space:nowrap; vertical-align:middle"><div style="line-height:18px; white-space:nowrap; font-family:Raleway,Arial,Helvetica,sans-serif; font-size:10pt"><span style="color:rgb(29,134,226)"><u><a href="https://www.instagram.com/helixlawltd/" target="_blank" rel="noopener noreferrer" style="color:rgb(29,134,226)">helixlawltd</a></u></span></div></td>
+</tr></tbody></table></td>
+<td style="padding-left:8px"><table cellspacing="0" cellpadding="0" style="box-sizing:border-box; border-collapse:collapse; border-spacing:0px"><tbody><tr>
+<td style="line-height:18px; padding-right:4px; vertical-align:middle; width:15px"><img src="${ICON_LINKEDIN}" alt="LinkedIn" width="16" height="16" style="width:16px; height:16px; margin-top:1px; margin-bottom:3px; display:inline-block"></td>
+<td style="line-height:18px; white-space:nowrap; vertical-align:middle"><div style="line-height:18px; white-space:nowrap; font-family:Raleway,Arial,Helvetica,sans-serif; font-size:10pt"><span style="color:rgb(29,134,226)"><u><a href="https://uk.linkedin.com/company/helixlaw" target="_blank" rel="noopener noreferrer" style="color:rgb(29,134,226)">helixlaw</a></u></span></div></td>
+</tr></tbody></table></td>
+</tr></tbody></table></td></tr>
+</tbody></table>
+</td></tr>
+<tr><td style="padding-top:12px">
+<table cellspacing="0" cellpadding="0" style="max-width:600px; box-sizing:border-box; border-collapse:collapse; border-spacing:0px"><tbody><tr>
+<td style="padding-right:8px; padding-bottom:6px; vertical-align:top; width:50%"><table cellspacing="0" cellpadding="0" style="width:100%; box-sizing:border-box; border-collapse:collapse; border-spacing:0px; table-layout:fixed"><tbody><tr>
+<td style="border-left:2px solid rgb(208,212,218); padding-left:8px; white-space:normal">
+<div style="line-height:14px; margin:0 0 4px; font-family:Raleway,Arial,Helvetica,sans-serif; font-size:9pt; color:rgb(74,85,104)"><i>&quot;A dynamic and specialist litigation firm; a key port of call for investors and shareholders with property investment disputes.&quot;</i></div>
+<div style="line-height:12px; margin:0; font-family:Raleway,Arial,Helvetica,sans-serif; font-size:8.5pt; color:rgb(113,128,150); white-space:nowrap">- Legal 500</div>
+</td></tr></tbody></table></td>
+<td style="padding-bottom:6px; padding-left:8px; vertical-align:top; width:50%"><table cellspacing="0" cellpadding="0" style="width:100%; box-sizing:border-box; border-collapse:collapse; border-spacing:0px; table-layout:fixed"><tbody><tr>
+<td style="border-left:2px solid rgb(208,212,218); padding-left:8px; white-space:normal">
+<div style="line-height:14px; margin:0 0 4px; font-family:Raleway,Arial,Helvetica,sans-serif; font-size:9pt; color:rgb(74,85,104)"><i>&quot;They give advice that is good in law and also pragmatic and tailored to the needs of each of their clients.&quot;</i></div>
+<div style="line-height:12px; margin:0; font-family:Raleway,Arial,Helvetica,sans-serif; font-size:8.5pt; color:rgb(113,128,150); white-space:nowrap">- Chambers &amp; Partners</div>
+</td></tr></tbody></table></td>
+</tr></tbody></table>
+</td></tr>
+<tr><td style="padding-top:12px; padding-bottom:8px">
+<table cellspacing="0" cellpadding="0" style="text-align:left; box-sizing:border-box; border-collapse:collapse; border-spacing:0px"><tbody><tr>
+<td style="text-align:left; padding-right:10px"><img src="${ICONS_ROW}" alt="Awards" width="490" height="80" style="width:490px; height:80px; display:block; border:0; outline:none; text-decoration:none"></td>
+</tr></tbody></table>
+</td></tr>
+<tr><td style="padding-top:9px"></td></tr>
+<tr><td><p style="line-height:11px; margin:0; font-family:Raleway,Arial,Helvetica,sans-serif; font-size:8pt; color:rgb(214,85,65)">${CYBER}</p></td></tr>
+<tr><td><p style="line-height:13px; margin:0; font-family:Raleway,Arial,Helvetica,sans-serif; font-size:8pt; color:rgb(0,0,0)"><i>${BLURB}</i></p></td></tr>
+</tbody></table>
+</body></html>`;
 }
 
 function maybeWrapSignature(html) {

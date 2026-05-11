@@ -241,24 +241,28 @@ export function autoFillFromMatter(matter: NormalizedMatter, teamData?: TeamData
   return fields;
 }
 
+// DEMO_FIELDS reflects the Helix Rehearsal Record (HLX-27367-94842 / Helix Demo).
+// All identity-shaped values come from the seed so demo CCL fallback agrees with
+// every other surface (Home to-dos, Matters tab, OperationsQueue). See
+// docs/notes/HELIX_REHEARSAL_RECORD_LUKE_TEST_AS_FIRM_SEED.md.
 export const DEMO_FIELDS: Record<string, string> = {
-  insert_clients_name: 'Mr Luke Test',
-  insert_heading_eg_matter_description: 'Commercial Dispute — Mr Luke Test v Acme Corp',
-  name_of_person_handling_matter: 'Rory McBride',
+  insert_clients_name: 'Mr Helix Demo',
+  insert_heading_eg_matter_description: 'Commercial debt recovery — Helix Demo v Britannia Test Counterparty Ltd',
+  name_of_person_handling_matter: 'Luke Zemanek',
   status: 'Partner',
-  fee_earner_email: 'rory@helix-law.com',
+  fee_earner_email: 'lz@helix-law.com',
   handler_hourly_rate: '425',
-  name: 'Luke Watson',
-  names_and_contact_details_of_other_members_of_staff_who_can_help_with_queries: 'Luke Watson — luke@helix-law.com — Partner',
-  insert_current_position_and_scope_of_retainer: 'You have a commercial dispute with Acme Corp regarding unpaid invoices totalling £45,000. We will review the contractual position, advise on merits and next steps, and correspond with the opponent to seek resolution.',
+  name: 'Alex Cook',
+  names_and_contact_details_of_other_members_of_staff_who_can_help_with_queries: 'Alex Cook — ac@helix-law.com — Partner',
+  insert_current_position_and_scope_of_retainer: 'You have a commercial dispute with Britannia Test Counterparty Ltd regarding an outstanding invoice of £42,500 for completed consultancy services. We will review the contractual terms and invoice trail, examine opponent correspondence, and advise on merits and proportionate next steps including a pre-action protocol letter.',
   charges_estimate_paragraph: ORIGINAL_CHARGES_PARAGRAPH,
   disbursements_paragraph: ORIGINAL_DISBURSEMENTS_PARAGRAPH,
   costs_other_party_paragraph: ORIGINAL_COSTS_OTHER_PARTY_PARAGRAPH,
   figure: '2,500',
   fee_sharing_paragraph: '',
   eid_paragraph: 'We will obtain electronic verification of your identity using a search service. This search has no impact on your credit history.',
-  action_points: '- Provide all relevant contractual documentation\n- Provide all correspondence with Acme Corp\n- Provide supporting invoices and payment records',
-  documents_needed: 'Copy of the contract with Acme Corp, all correspondence with the other party, and any invoices or payment evidence.',
+  action_points: '- Provide all relevant contractual documentation\n- Provide all correspondence with Britannia Test Counterparty Ltd\n- Provide supporting invoices and payment records',
+  documents_needed: 'Copy of the consultancy contract, all correspondence with the other party, and the invoice trail with payment evidence.',
   action_points_next_steps: 'review the documents and prepare a detailed letter of advice on the merits of your position',
 };
 

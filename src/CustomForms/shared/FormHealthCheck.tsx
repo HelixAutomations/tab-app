@@ -8,7 +8,7 @@ import { Spinner, SpinnerSize } from '@fluentui/react/lib/Spinner';
 import { Text } from '@fluentui/react/lib/Text';
 import { TooltipHost } from '@fluentui/react/lib/Tooltip';
 import { useTheme } from '../../app/functionality/ThemeContext';
-import { getProxyBaseUrl } from '../../utils/getProxyBaseUrl';
+import { getApiBase } from '../../utils/getApiUrl';
 import { colours } from '../../app/styles/colours';
 
 interface HealthResult {
@@ -41,7 +41,7 @@ const FormHealthCheck: React.FC = () => {
     setResults(null);
 
     try {
-      const baseUrl = getProxyBaseUrl();
+      const baseUrl = getApiBase();
       const res = await fetch(`${baseUrl}/api/form-health`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },

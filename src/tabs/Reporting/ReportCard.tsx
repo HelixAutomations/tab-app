@@ -17,11 +17,23 @@ type ReportVisualState = 'neutral' | 'warming' | 'ready' | 'disabled';
 
 type ButtonState = 'neutral' | 'warming' | 'ready';
 
+/**
+ * Per-source trust state — layered on top of the existing `status`.
+ * `unsupported` (or `undefined`) renders today's plain dot. Anything else
+ * decorates the dot with a ring/colour so the operator can see whether the
+ * source has been pressure-tested. See `reportTrust.ts`.
+ */
+type DependencyTrust = 'unsupported' | 'checking' | 'passed' | 'stale' | 'failed' | 'repairing';
+
 interface ReportDependency {
   key: string;
   name: string;
   status: DatasetStatusValue;
   range: string;
+  /** Optional trust verdict from `/api/reporting/management-readiness`. */
+  trust?: DependencyTrust;
+  /** Operator-facing reason copy when trust is stale/failed. */
+  trustReason?: string | null;
 }
 
 interface ReportCardData {
@@ -155,6 +167,67 @@ const dependencyDotStyle = (colour: string): CSSProperties => ({
   borderRadius: '50%',
   background: colour,
 });
+
+/**
+ * Trust ring overlay around the collapsed dependency dot. Returns null for
+ * `unsupported`/`undefined` so the dot looks identical to today.
+ *  - passed   → soft accent (mint) ring + tiny outer glow
+ *  - stale    → orange ring
+ *  - failed   → cta (red) ring
+ *  - checking → pulsing brand-blue ring
+ *  - repairing → spinning brand-blue arc (reserved for future Sync action)
+ */
+const trustRingStyle = (
+  trust: DependencyTrust | undefined,
+  isDarkMode: boolean,
+): CSSProperties | null => {
+  if (!trust || trust === 'unsupported') return null;
+  const base: CSSProperties = {
+    position: 'absolute',
+    inset: -3,
+    borderRadius: '50%',
+    pointerEvents: 'none',
+    transition: 'box-shadow 0.3s ease, border-color 0.3s ease',
+  };
+  switch (trust) {
+    case 'passed':
+      return {
+        ...base,
+        border: `1px solid ${colours.accent}`,
+        boxShadow: isDarkMode
+          ? `0 0 0 1px rgba(54, 144, 206, 0.18)`
+          : `0 0 0 1px rgba(54, 144, 206, 0.16)`,
+      };
+    case 'stale':
+      return { ...base, border: `1px solid ${colours.orange}` };
+    case 'failed':
+      return { ...base, border: `1px solid ${colours.cta}` };
+    case 'checking':
+      return {
+        ...base,
+        border: `1px solid ${colours.blue}`,
+        opacity: 0.75,
+        animation: 'pulse 1.6s ease-in-out infinite',
+      };
+    case 'repairing':
+      return {
+        ...base,
+        border: `1px dashed ${colours.blue}`,
+        animation: 'feedDotSpin 1s linear infinite',
+      };
+    default:
+      return null;
+  }
+};
+
+const TRUST_LABELS: Record<DependencyTrust, string> = {
+  unsupported: '',
+  checking: 'Checking…',
+  passed: 'Verified',
+  stale: 'Drift detected',
+  failed: 'Failed pressure test',
+  repairing: 'Repairing…',
+};
 
 const primaryButtonStyles = (isDarkMode: boolean): IButtonStyles => ({
   root: {
@@ -443,12 +516,12 @@ const ReportCard: React.FC<ReportCardProps> = ({
             height: 36,
             borderRadius: 0,
             background: isReportReady
-              ? (isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.06)')
+              ? (isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)')
               : (isDarkMode ? 'rgba(75, 85, 99, 0.15)' : 'rgba(160, 160, 160, 0.08)'),
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            border: `0.5px solid ${isReportReady ? (isDarkMode ? 'rgba(135, 243, 243, 0.2)' : 'rgba(54, 144, 206, 0.18)') : (isDarkMode ? 'rgba(75, 85, 99, 0.25)' : 'rgba(107, 107, 107, 0.12)')}`,
+            border: `0.5px solid ${isReportReady ? (isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.18)') : (isDarkMode ? 'rgba(75, 85, 99, 0.25)' : 'rgba(107, 107, 107, 0.12)')}`,
             color: isReportReady ? stateTokens.accent : (isDarkMode ? colours.subtleGrey : colours.greyText),
             flexShrink: 0,
           }}>
@@ -504,14 +577,14 @@ const ReportCard: React.FC<ReportCardProps> = ({
                   background: reportProgressStates[report.key]?.isLoading
                     ? (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)')
                     : isReportReady
-                    ? (isDarkMode ? 'rgba(135, 243, 243, 0.1)' : `${stateTokens.accent}12`)
+                    ? (isDarkMode ? 'rgba(54, 144, 206, 0.1)' : `${stateTokens.accent}12`)
                     : (isDarkMode ? 'rgba(75, 85, 99, 0.15)' : 'rgba(160, 160, 160, 0.08)'),
                   color: reportProgressStates[report.key]?.isLoading
                     ? colours.blue
                     : isReportReady ? stateTokens.accent : (isDarkMode ? colours.subtleGrey : colours.greyText),
                   border: `0.5px solid ${reportProgressStates[report.key]?.isLoading
                     ? (isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.18)')
-                    : isReportReady ? (isDarkMode ? 'rgba(135, 243, 243, 0.18)' : `${stateTokens.accent}20`) : (isDarkMode ? 'rgba(75, 85, 99, 0.25)' : 'rgba(107, 107, 107, 0.1)')}`,
+                    : isReportReady ? (isDarkMode ? 'rgba(54, 144, 206, 0.18)' : `${stateTokens.accent}20`) : (isDarkMode ? 'rgba(75, 85, 99, 0.25)' : 'rgba(107, 107, 107, 0.1)')}`,
                   whiteSpace: 'nowrap',
                   textTransform: 'uppercase',
                   letterSpacing: '0.06em',
@@ -607,21 +680,41 @@ const ReportCard: React.FC<ReportCardProps> = ({
               {dependencies.slice(0, 8).map((dependency, index) => {
                 const palette = STATUS_BADGE_COLOURS[dependency.status];
                 const dotColour = dependency.status === 'ready' ? colours.green : palette.dot;
+                const ring = trustRingStyle(dependency.trust, isDarkMode);
+                const trustLabel = dependency.trust ? TRUST_LABELS[dependency.trust] : '';
+                const titleParts = [
+                  `${dependency.name}: ${palette.label}`,
+                  dependency.range ? `(${dependency.range})` : '',
+                  trustLabel ? `· ${trustLabel}` : '',
+                  dependency.trustReason ? `— ${dependency.trustReason}` : '',
+                ].filter(Boolean).join(' ');
                 return (
-                  <div
+                  <span
                     key={`${report.key}-dot-${dependency.key}`}
-                    title={`${dependency.name}: ${palette.label}${dependency.range ? ` (${dependency.range})` : ''}`}
+                    title={titleParts}
                     style={{
+                      position: 'relative',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
                       width: 8,
                       height: 8,
-                      borderRadius: '50%',
-                      backgroundColor: dotColour,
                       flexShrink: 0,
-                      opacity: dependency.status === 'ready' ? 1 : 0.7,
                       transform: 'scale(0)',
                       animation: `dotFadeIn 0.3s ease ${0.1 + (index * 0.05)}s forwards`,
                     }}
-                  />
+                  >
+                    <span
+                      style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: '50%',
+                        backgroundColor: dotColour,
+                        opacity: dependency.status === 'ready' ? 1 : 0.7,
+                      }}
+                    />
+                    {ring && <span style={ring} />}
+                  </span>
                 );
               })}
               {dependencies.length > 8 && (

@@ -7,6 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import readline from 'readline/promises';
 import { stdin as input, stdout as output } from 'process';
+import { generatedMarkdownComment } from './lib/generated-marker.mjs';
 
 const ROOT = process.cwd();
 const OUTPUT = path.join(ROOT, '.github', 'instructions', 'REALTIME_CONTEXT.md');
@@ -228,7 +229,7 @@ async function generate() {
   const servers = getServerState();
   const recentFiles = getRecentChanges();
 
-  let md = `# Realtime Context\n\nAuto-generated: ${now}\n\n## Git State\n\n- **Branch**: ${git.branch || 'unknown'}\n- **Uncommitted changes**: ${git.uncommitted}\n- **Last commit**: ${git.lastCommit || 'none'}\n\n## Submodules\n\n| Name | Path | Branch | Last Commit |\n|------|------|--------|-------------|\n`;
+  let md = `${generatedMarkdownComment('node tools/sync-context.mjs')}# Realtime Context\n\nGenerated at: ${now}\n\n## Git State\n\n- **Branch**: ${git.branch || 'unknown'}\n- **Uncommitted changes**: ${git.uncommitted}\n- **Last commit**: ${git.lastCommit || 'none'}\n\n## Submodules\n\n| Name | Path | Branch | Last Commit |\n|------|------|--------|-------------|\n`;
 
   for (const sub of submodules) {
     md += `| ${sub.name} | ${sub.path} | ${sub.branch || '-'} | ${sub.lastCommit || '-'} |\n`;

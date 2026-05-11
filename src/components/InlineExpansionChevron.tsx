@@ -28,9 +28,9 @@ const InlineExpansionChevron: React.FC<InlineExpansionChevronProps> = ({
     ? `Collapse ${count} ${itemLabel}`
     : `Show all ${count} ${itemLabel}`;
   const baseBackground = isDarkMode ? 'rgba(8, 28, 48, 0.42)' : 'rgba(244, 244, 246, 0.78)';
-  const hoverBackground = isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(214, 232, 255, 0.88)';
+  const hoverBackground = isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(214, 232, 255, 0.88)';
   const baseBorder = isDarkMode ? 'rgba(75, 85, 99, 0.48)' : 'rgba(160, 160, 160, 0.22)';
-  const hoverBorder = isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(54, 144, 206, 0.3)';
+  const hoverBorder = isDarkMode ? 'rgba(54, 144, 206, 0.4)' : 'rgba(54, 144, 206, 0.3)';
   const baseIconColor = isDarkMode ? 'rgba(209, 213, 219, 0.92)' : 'rgba(55, 65, 81, 0.78)';
   const hoverIconColor = isDarkMode ? colours.accent : colours.highlight;
 

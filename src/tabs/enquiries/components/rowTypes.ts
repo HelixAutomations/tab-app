@@ -49,21 +49,11 @@ export interface RowDisplayState {
   areActionsEnabled: boolean;
   copiedNameKey: string | null;
   expandedNotesInTable: Set<string>;
-  hoveredRowKey: string | null;
-  hoveredDayKey: string | null;
-  hoveredRowKeyReady: string | null;
-  hoveredDayKeyReady: string | null;
   pipelineNeedsCarousel: boolean;
   visiblePipelineChipCount: number;
   PIPELINE_CHIP_MIN_WIDTH_PX: number;
   collapsedDays: Set<string>;
   currentUserEmail: string;
-}
-
-export interface RowHoverHandlers {
-  setHoveredRowKey: React.Dispatch<React.SetStateAction<string | null>>;
-  setHoveredDayKey: React.Dispatch<React.SetStateAction<string | null>>;
-  toggleDayCollapse: (dayKey: string) => void;
 }
 
 export interface RowDataDeps {
@@ -93,6 +83,5 @@ export interface ProspectTableRowProps {
   pipelineHandlers: RowPipelineHandlers;
   actionHandlers: RowActionHandlers;
   displayState: RowDisplayState;
-  hoverHandlers: RowHoverHandlers;
   dataDeps: RowDataDeps;
 }

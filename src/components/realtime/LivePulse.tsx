@@ -30,7 +30,7 @@ export interface LivePulseProps {
  *  - 'ring'    → stronger 1s outer ring + faint lift (row-level events)
  *  - 'dot'     → render <LivePulse.Dot /> separately for in-place value cues
  *
- * Colour: highlight (#3690CE) in light mode, accent (#87F3F3) in dark mode.
+ * Colour: highlight (#3690CE) across themes.
  * Honours prefers-reduced-motion (fade-only, no transforms).
  */
 export const LivePulse: React.FC<LivePulseProps> = ({

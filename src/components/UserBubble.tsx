@@ -12,6 +12,7 @@ import { CommandCentreTokens, BubbleToastTone } from './command-centre/types';
 import SessionFiltersSection from './command-centre/SessionFiltersSection';
 import TodayStripSection from './command-centre/TodayStripSection';
 import CommsFrameworkSection from './command-centre/CommsFrameworkSection';
+import { checkIsLocalDev } from '../utils/useIsLocalDev';
 
 /*
  * UserBubble — identity + personal context surface.
@@ -396,7 +397,7 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                                     display: 'grid', gap: 2, minWidth: 0,
                                                     borderRadius: 2,
                                                 }}
-                                                onMouseEnter={(e) => { e.currentTarget.style.background = isDarkMode ? 'rgba(135, 243, 243, 0.06)' : 'rgba(54, 144, 206, 0.05)'; }}
+                                                onMouseEnter={(e) => { e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.05)'; }}
                                                 onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
                                                 aria-haspopup="listbox"
                                                 aria-expanded={showUserPicker}
@@ -413,7 +414,7 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                     onClick={() => closePopover()}
                                     style={{
                                         background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : colours.grey,
-                                        border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.34)' : borderMedium}`,
+                                        border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.34)' : borderMedium}`,
                                         borderRadius: '2px', color: textPrimary, cursor: 'pointer',
                                         padding: '6px', minWidth: 28, minHeight: 28,
                                         display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -425,7 +426,7 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                         e.currentTarget.style.background = isDarkMode ? `${colours.accent}18` : bgHover;
                                     }}
                                     onMouseLeave={(e) => {
-                                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(135, 243, 243, 0.34)' : borderMedium;
+                                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.34)' : borderMedium;
                                         e.currentTarget.style.color = textPrimary;
                                         e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.08)' : colours.grey;
                                     }}
@@ -443,7 +444,7 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                 <div style={{
                                     marginTop: 10,
                                     background: isDarkMode ? 'rgba(6, 23, 51, 0.6)' : '#fff',
-                                    border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.18)' : borderMedium}`,
+                                    border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : borderMedium}`,
                                     borderRadius: 2,
                                     overflow: 'hidden',
                                     boxShadow: isDarkMode ? '0 4px 14px rgba(0,3,25,0.5)' : '0 4px 14px rgba(0,0,0,0.08)',
@@ -461,7 +462,7 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                             background: 'transparent',
                                             color: textPrimary,
                                             border: 'none',
-                                            borderBottom: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.12)' : borderLight}`,
+                                            borderBottom: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.12)' : borderLight}`,
                                             outline: 'none',
                                         }}
                                     />
@@ -496,14 +497,14 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                                         style={{
                                                             display: 'flex', alignItems: 'center', gap: 8,
                                                             width: '100%', padding: '8px 12px',
-                                                            background: isCurrent ? (isDarkMode ? 'rgba(135, 243, 243, 0.10)' : 'rgba(54, 144, 206, 0.08)') : 'transparent',
+                                                            background: isCurrent ? (isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(54, 144, 206, 0.08)') : 'transparent',
                                                             border: 'none', textAlign: 'left', cursor: 'pointer',
                                                             color: textPrimary,
                                                             fontSize: 11, fontFamily: 'Raleway, sans-serif',
                                                             transition: 'background 0.12s ease',
                                                         }}
                                                         onMouseEnter={(e) => {
-                                                            if (!isCurrent) e.currentTarget.style.background = isDarkMode ? 'rgba(135, 243, 243, 0.06)' : 'rgba(54, 144, 206, 0.04)';
+                                                            if (!isCurrent) e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.04)';
                                                         }}
                                                         onMouseLeave={(e) => {
                                                             if (!isCurrent) e.currentTarget.style.background = 'transparent';
@@ -621,8 +622,8 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                             {/* Admin box removed 2026-04-22 — Switch User lives in the header name;
                                 the view-as tier override was unused in practice. */}
 
-                            {/* ── Frameworks (dev group only) ── */}
-                            {(tier === 'dev' || tier === 'devGroup') && (
+                            {/* ── Frameworks (local dev only — not ready for wider rollout) ── */}
+                            {checkIsLocalDev(featureToggles) && (tier === 'dev' || tier === 'devGroup') && (
                                 <div className="helix-ai-border" style={{ marginBottom: 16 }}>
                                     <div
                                         className="helix-ai-border__inner"

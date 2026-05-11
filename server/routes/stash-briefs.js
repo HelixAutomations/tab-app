@@ -21,6 +21,7 @@ const {
   TEMPLATE_FILE,
   loadAllBriefs,
   extractMetaBlock,
+  parseMetaBlock,
   daysSince,
   statusFor,
   titleFromContent,
@@ -77,6 +78,49 @@ router.get('/stash-briefs', gate, (req, res) => {
   } catch (err) {
     trackException(err, { operation: 'StashBriefs.List' });
     res.status(500).json({ error: 'failed to load briefs', detail: err.message });
+  }
+});
+
+// ── GET /api/stash-briefs/archived ────────────────────────────────────
+// Titles + minimal metadata only — body never returned. The Activity tab
+// "Briefs" lens renders shipped briefs in a collapsed footer purely for
+// completeness; we don't surface the markdown because the briefs contain
+// raw prompt language that should stay private.
+router.get('/stash-briefs/archived', gate, (req, res) => {
+  try {
+    const archiveDir = path.join(process.cwd(), ARCHIVE_DIR);
+    if (!fs.existsSync(archiveDir)) {
+      return res.json({ items: [], total: 0, generatedAt: Date.now() });
+    }
+    const files = fs.readdirSync(archiveDir)
+      .filter((f) => f.endsWith('.md'))
+      .filter((f) => f !== 'INDEX.md' && !f.startsWith('_'));
+    const items = files.map((filename) => {
+      const full = path.join(archiveDir, filename);
+      const content = fs.readFileSync(full, 'utf8');
+      const yaml = extractMetaBlock(content);
+      let meta = null;
+      if (yaml) {
+        try { meta = parseMetaBlock(yaml); } catch { /* ignore unparseable */ }
+      }
+      // Title only — no rawContent passes through to the response.
+      return {
+        id: meta?.id || null,
+        title: titleFromContent(content, filename),
+        file: path.relative(process.cwd(), full).replace(/\\/g, '/'),
+        shipped_on: meta?.shipped_on || null,
+      };
+    });
+    // Sort newest-shipped first; missing dates last.
+    items.sort((a, b) => {
+      if (!a.shipped_on) return 1;
+      if (!b.shipped_on) return -1;
+      return a.shipped_on < b.shipped_on ? 1 : -1;
+    });
+    res.json({ items, total: items.length, generatedAt: Date.now() });
+  } catch (err) {
+    trackException(err, { operation: 'StashBriefs.ListArchived' });
+    res.status(500).json({ error: 'failed to load archived briefs', detail: err.message });
   }
 });
 

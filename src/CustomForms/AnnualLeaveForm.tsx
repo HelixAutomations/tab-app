@@ -1067,8 +1067,8 @@ function AnnualLeaveForm({
                           marginTop: '12px',
                           padding: '1rem',
                           borderRadius: 0,
-                          background: isDarkMode ? 'rgba(135, 243, 243, 0.04)' : 'rgba(54, 144, 206, 0.04)',
-                          border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(54, 144, 206, 0.1)'}`,
+                          background: isDarkMode ? 'rgba(54, 144, 206, 0.04)' : 'rgba(54, 144, 206, 0.04)',
+                          border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.1)'}`,
                         }}>
                           <Stack tokens={{ childrenGap: 10 }}>
                             <Text 
@@ -1102,10 +1102,10 @@ function AnnualLeaveForm({
                                     padding: '10px',
                                     borderRadius: 0,
                                     background: range.halfDayEnd && !range.halfDayStart
-                                      ? (isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.06)')
+                                      ? (isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)')
                                       : (isDarkMode ? 'rgba(6, 23, 51, 0.3)' : '#ffffff'),
                                     border: `1px solid ${range.halfDayEnd && !range.halfDayStart
-                                      ? (isDarkMode ? 'rgba(135, 243, 243, 0.2)' : 'rgba(54, 144, 206, 0.15)')
+                                      ? (isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)')
                                       : (isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 0, 0, 0.05)')}`,
                                     borderLeft: range.halfDayEnd && !range.halfDayStart
                                       ? `3px solid ${isDarkMode ? colours.accent : colours.highlight}`
@@ -1177,10 +1177,10 @@ function AnnualLeaveForm({
                                     padding: '10px',
                                     borderRadius: 0,
                                     background: range.halfDayStart && !range.halfDayEnd
-                                      ? (isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.06)')
+                                      ? (isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)')
                                       : (isDarkMode ? 'rgba(6, 23, 51, 0.3)' : '#ffffff'),
                                     border: `1px solid ${range.halfDayStart && !range.halfDayEnd
-                                      ? (isDarkMode ? 'rgba(135, 243, 243, 0.2)' : 'rgba(54, 144, 206, 0.15)')
+                                      ? (isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)')
                                       : (isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 0, 0, 0.05)')}`,
                                     borderLeft: range.halfDayStart && !range.halfDayEnd
                                       ? `3px solid ${isDarkMode ? colours.accent : colours.highlight}`
@@ -1247,10 +1247,10 @@ function AnnualLeaveForm({
                                   padding: '10px',
                                   borderRadius: 0,
                                   background: range.halfDayStart 
-                                    ? (isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.06)')
+                                    ? (isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)')
                                     : (isDarkMode ? 'rgba(6, 23, 51, 0.3)' : '#ffffff'),
                                   border: `1px solid ${range.halfDayStart
-                                    ? (isDarkMode ? 'rgba(135, 243, 243, 0.2)' : 'rgba(54, 144, 206, 0.15)')
+                                    ? (isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)')
                                     : (isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 0, 0, 0.05)')}`,
                                   borderLeft: range.halfDayStart 
                                     ? `3px solid ${isDarkMode ? colours.accent : colours.highlight}`
@@ -1312,10 +1312,10 @@ function AnnualLeaveForm({
                                   padding: '10px',
                                   borderRadius: 0,
                                   background: range.halfDayEnd 
-                                    ? (isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.06)')
+                                    ? (isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)')
                                     : (isDarkMode ? 'rgba(6, 23, 51, 0.3)' : '#ffffff'),
                                   border: `1px solid ${range.halfDayEnd
-                                    ? (isDarkMode ? 'rgba(135, 243, 243, 0.2)' : 'rgba(54, 144, 206, 0.15)')
+                                    ? (isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)')
                                     : (isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 0, 0, 0.05)')}`,
                                   borderLeft: range.halfDayEnd 
                                     ? `3px solid ${isDarkMode ? colours.accent : colours.highlight}`
@@ -1389,7 +1389,7 @@ function AnnualLeaveForm({
                 ))}
                 <div
                   style={{
-                    border: `1.5px dashed ${isDarkMode ? 'rgba(135, 243, 243, 0.3)' : 'rgba(54, 144, 206, 0.3)'}`,
+                    border: `1.5px dashed ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.3)'}`,
                     borderRadius: 0,
                     height: '52px',
                     display: 'flex',
@@ -1401,12 +1401,12 @@ function AnnualLeaveForm({
                   }}
                   onClick={handleAddDateRange}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(135, 243, 243, 0.04)' : 'rgba(54, 144, 206, 0.04)';
-                    e.currentTarget.style.borderColor = isDarkMode ? 'rgba(135, 243, 243, 0.5)' : 'rgba(54, 144, 206, 0.5)';
+                    e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(54, 144, 206, 0.04)' : 'rgba(54, 144, 206, 0.04)';
+                    e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.5)' : 'rgba(54, 144, 206, 0.5)';
                   }}
                   onMouseLeave={(e) => {
                     e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(6, 23, 51, 0.3)' : '#ffffff';
-                    e.currentTarget.style.borderColor = isDarkMode ? 'rgba(135, 243, 243, 0.3)' : 'rgba(54, 144, 206, 0.3)';
+                    e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.3)';
                   }}
                 >
                   <Icon iconName="Add" style={{ 
@@ -1589,7 +1589,26 @@ function AnnualLeaveForm({
                 style={{ position: 'absolute', right: 10, top: 10, fontSize: 40, opacity: 0.1, color: isDarkMode ? colours.dark.text : colours.light.text }}
               />
               <Stack tokens={{ childrenGap: 10 }}>
-                <Text style={labelStyle}>Team Leave Conflicts</Text>
+                <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
+                  <Text style={labelStyle}>Team Leave Conflicts</Text>
+                  {isDemoMode && (
+                    <span
+                      title="Decorative-by-design: demo leave records are mocked. No bookings will be made."
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 700,
+                        letterSpacing: '0.4px',
+                        textTransform: 'uppercase',
+                        padding: '2px 6px',
+                        border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.18)' : 'rgba(13,47,96,0.18)'}`,
+                        color: isDarkMode ? 'rgba(255,255,255,0.7)' : 'rgba(13,47,96,0.7)',
+                        lineHeight: 1.1,
+                      }}
+                    >
+                      Demo numbers
+                    </span>
+                  )}
+                </Stack>
               </Stack>
               {renderTeamLeaveConflicts()}
             </div>
@@ -1673,7 +1692,7 @@ function AnnualLeaveForm({
                       borderBottom: 'none'
                     },
                     '.ms-DetailsRow:hover': {
-                      backgroundColor: isDarkMode ? 'rgba(135, 243, 243, 0.06)' : 'rgba(54, 144, 206, 0.04)',
+                      backgroundColor: isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.04)',
                     },
                     '.ms-DetailsRow-cell': {
                       paddingTop: '12px',

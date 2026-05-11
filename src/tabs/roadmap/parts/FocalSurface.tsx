@@ -1,12 +1,16 @@
 // src/tabs/roadmap/parts/FocalSurface.tsx — lens-driven primary surface for the Activity tab
 
 import React from 'react';
-import { colours } from '../../../app/styles/colours';
 import UnifiedStream from './UnifiedStream';
 import SyncTimelineSection from './SyncTimelineSection';
 import ErrorStreamSection from './ErrorStreamSection';
+import DoubledApiSection from './DoubledApiSection';
 import SessionTraceSection from './SessionTraceSection';
-import StashedBriefsPanel from './StashedBriefsPanel';
+import StashedBriefsTitlesPanel from './StashedBriefsTitlesPanel';
+import RouteChecksPanel from './RouteChecksPanel';
+import DevConsolePanel from './DevConsolePanel';
+import OperatorActionsPanel from './OperatorActionsPanel';
+import SignalsInboxPanel from './SignalsInboxPanel';
 import type { ActivityFeedItem } from './types';
 import type { OpsPulseState } from './ops-pulse-types';
 import type { ActivityLens } from './ActivityHero';
@@ -18,6 +22,11 @@ interface FocalSurfaceProps {
   opsPulse: OpsPulseState;
   initials: string | null;
   isDevOwner: boolean;
+  forgeViewMode: 'dev' | 'roadmap';
+  forgeCanToggle: boolean;
+  onForgeViewModeChange?: (next: 'dev' | 'roadmap') => void;
+  canSeeSignals: boolean;
+  onSignalsCountChange?: (count: number) => void;
   selectedSessionId?: string | null;
   selectedErrorTs?: number | null;
 }
@@ -29,6 +38,11 @@ const FocalSurface: React.FC<FocalSurfaceProps> = ({
   opsPulse,
   initials,
   isDevOwner,
+  forgeViewMode,
+  forgeCanToggle,
+  onForgeViewModeChange,
+  canSeeSignals,
+  onSignalsCountChange,
   selectedSessionId,
   selectedErrorTs,
 }) => {
@@ -48,30 +62,54 @@ const FocalSurface: React.FC<FocalSurfaceProps> = ({
   }
 
   if (lens === 'errors') {
-    return <ErrorStreamSection errors={opsPulse.errors} isDarkMode={isDarkMode} highlightedTs={selectedErrorTs ?? null} />;
+    // Failures lens — both classes side by side. ErrorStreamSection on top
+    // (5xx + handler exceptions); DoubledApiSection below (proxy regressions).
+    // Doubled-api panel only renders if the buffer is non-empty so the lens
+    // stays calm when nothing's wrong.
+    const doubledApi = opsPulse.doubledApi || [];
+    return (
+      <>
+        <ErrorStreamSection errors={opsPulse.errors} isDarkMode={isDarkMode} highlightedTs={selectedErrorTs ?? null} />
+        {doubledApi.length > 0 && <DoubledApiSection hits={doubledApi} isDarkMode={isDarkMode} />}
+      </>
+    );
+  }
+
+  if (lens === 'checks') {
+    return <RouteChecksPanel />;
+  }
+
+  if (lens === 'actions') {
+    // Operator Actions surface (B1, Phase A) — dev-owner only at the chip
+    // level upstream. Panel is self-contained: catalog, run, recent runs.
+    return <OperatorActionsPanel />;
   }
 
   if (lens === 'trace') {
     return <SessionTraceSection traces={opsPulse.sessionTraces} isDarkMode={isDarkMode} initialSessionId={selectedSessionId ?? null} />;
   }
 
+  if (lens === 'signals') {
+    return <SignalsInboxPanel initials={initials} isAllowed={canSeeSignals} onCountChange={onSignalsCountChange} />;
+  }
+
   if (lens === 'briefs') {
-    if (!isDevOwner) {
-      return (
-        <div
-          style={{
-            padding: 20,
-            border: `1px dashed ${isDarkMode ? colours.dark.border : colours.light.border}`,
-            color: isDarkMode ? colours.subtleGrey : colours.greyText,
-            fontSize: 13,
-            fontFamily: 'Raleway, sans-serif',
-          }}
-        >
-          Briefs are visible to dev-owner only.
-        </div>
-      );
-    }
-    return <StashedBriefsPanel isDarkMode={isDarkMode} initials={initials} />;
+    // Defensive: if we're somehow on the briefs lens without dev-owner,
+    // the titles panel renders a locked-out message. The lens chip itself
+    // is also dev-owner-gated upstream.
+    return <StashedBriefsTitlesPanel isDarkMode={isDarkMode} initials={initials} isDevOwner={isDevOwner} />;
+  }
+
+  if (lens === 'forge') {
+    return (
+      <DevConsolePanel
+        initials={initials}
+        isDevOwner={isDevOwner}
+        viewMode={forgeViewMode}
+        canToggle={forgeCanToggle}
+        onToggleViewMode={onForgeViewModeChange}
+      />
+    );
   }
 
   if (lens === 'matters') {

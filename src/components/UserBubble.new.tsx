@@ -11,7 +11,6 @@ import { CommandCentreTokens, BubbleToastTone } from './command-centre/types';
 import SessionFiltersSection from './command-centre/SessionFiltersSection';
 import TodayStripSection from './command-centre/TodayStripSection';
 import MyAttentionSection from './command-centre/MyAttentionSection';
-import QuickLinksSection from './command-centre/QuickLinksSection';
 
 interface UserBubbleProps {
     user: UserData;
@@ -19,7 +18,6 @@ interface UserBubbleProps {
     onAreasChange?: (areas: string[]) => void;
     onFeatureToggle?: (feature: string, enabled: boolean) => void;
     featureToggles?: Record<string, boolean>;
-    onOpenReleaseNotesModal?: () => void;
 }
 
 const UserBubble: React.FC<UserBubbleProps> = ({
@@ -28,7 +26,6 @@ const UserBubble: React.FC<UserBubbleProps> = ({
     onAreasChange,
     onFeatureToggle,
     featureToggles = {},
-    onOpenReleaseNotesModal,
 }) => {
     // ── State ──
     const [open, setOpen] = useState(false);
@@ -359,7 +356,7 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                     onClick={toggleTheme}
                                     style={{
                                         background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : colours.grey,
-                                        border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.20)' : borderMedium}`,
+                                        border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.20)' : borderMedium}`,
                                         borderRadius: '2px', color: textMuted, cursor: 'pointer',
                                         padding: '5px', minWidth: 28, minHeight: 28,
                                         display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -370,7 +367,7 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                         e.currentTarget.style.color = textPrimary;
                                     }}
                                     onMouseLeave={(e) => {
-                                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(135, 243, 243, 0.20)' : borderMedium;
+                                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.20)' : borderMedium;
                                         e.currentTarget.style.color = textMuted;
                                     }}
                                     aria-label={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
@@ -394,7 +391,7 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                     onClick={() => closePopover()}
                                     style={{
                                         background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : colours.grey,
-                                        border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.34)' : borderMedium}`,
+                                        border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.34)' : borderMedium}`,
                                         borderRadius: '2px', color: textPrimary, cursor: 'pointer',
                                         padding: '6px', minWidth: 28, minHeight: 28,
                                         display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -405,7 +402,7 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                         e.currentTarget.style.background = isDarkMode ? `${colours.accent}18` : bgHover;
                                     }}
                                     onMouseLeave={(e) => {
-                                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(135, 243, 243, 0.34)' : borderMedium;
+                                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.34)' : borderMedium;
                                         e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.08)' : colours.grey;
                                     }}
                                     aria-label="Close"
@@ -432,14 +429,6 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                 tokens={tokens}
                                 userInitials={initials}
                             />
-
-                            {/* Quick Links */}
-                            <QuickLinksSection
-                                tokens={tokens}
-                                onOpenReleaseNotes={onOpenReleaseNotesModal}
-                                closePopover={() => closePopover()}
-                            />
-
                             {/* Area of Work filters */}
                             {hasSessionFilters && (
                                 <SessionFiltersSection
@@ -455,8 +444,8 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                 <div style={{
                                     display: 'flex', alignItems: 'center', gap: 6,
                                     padding: '6px 10px', marginTop: 4,
-                                    background: isDarkMode ? 'rgba(135, 243, 243, 0.04)' : 'rgba(54, 144, 206, 0.03)',
-                                    border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(54, 144, 206, 0.08)'}`,
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.04)' : 'rgba(54, 144, 206, 0.03)',
+                                    border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)'}`,
                                     borderRadius: 0,
                                     fontSize: 8, fontWeight: 600, color: textMuted,
                                     textTransform: 'uppercase', letterSpacing: '0.5px',

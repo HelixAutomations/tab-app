@@ -192,6 +192,8 @@ router.post('/', async (req, res) => {
     res.status(201).json({
       message: "Booking created successfully.",
       insertedId,
+      submissionId,
+      streamUrl: submissionId ? `forms?focusSubmission=${submissionId}` : null,
     });
 
     // Clear future bookings cache and notify other clients

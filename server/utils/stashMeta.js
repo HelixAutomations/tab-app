@@ -20,6 +20,13 @@ const STATUS = {
   READY: '▶️',
 };
 
+const GENERATED_MARKER = 'AUTO-GENERATED - do not edit.';
+
+function generatedMarkdownComment(regenerateCommand) {
+  const commandText = regenerateCommand ? ` Regenerate with \`${regenerateCommand}\`.` : '';
+  return `<!-- ${GENERATED_MARKER}${commandText} -->\n\n`;
+}
+
 function stripInlineComment(s) {
   s = String(s).trim();
   if (s.startsWith('"') || s.startsWith("'")) return s;
@@ -193,7 +200,7 @@ function renderIndex(briefs) {
       return (b.verified || '').localeCompare(a.verified || '');
     });
 
-  const header = `# Stashed projects — index\n\nSingle source of truth for parked work. **This file is auto-generated** by \`tools/stash-status.mjs\` from the YAML metadata block in each brief. Edit the brief, not this file.\n\n**Status legend:** ${STATUS.OPEN} Open · ${STATUS.READY} Ready (newly unblocked, re-run dependency check) · ${STATUS.STALE} Stale (>30 days since \`verified\` — re-verify file/line refs) · ${STATUS.DONE} Done\n\n`;
+  const header = `${generatedMarkdownComment('node tools/stash-status.mjs')}# Stashed projects — index\n\nSingle source of truth for parked work. **This file is auto-generated** by \`tools/stash-status.mjs\` from the YAML metadata block in each brief. Edit the brief, not this file.\n\n**Status legend:** ${STATUS.OPEN} Open · ${STATUS.READY} Ready (newly unblocked, re-run dependency check) · ${STATUS.STALE} Stale (>30 days since \`verified\` — re-verify file/line refs) · ${STATUS.DONE} Done\n\n`;
   const tableHeader = `| Status | Title | id | Last verified | Coordinates / depends | Next action |\n|--------|-------|----|---------------|----------------------|-------------|\n`;
   const tableBody = rows.map((r) => {
     const ageNote = r.age !== null ? ` (${r.age}d)` : '';

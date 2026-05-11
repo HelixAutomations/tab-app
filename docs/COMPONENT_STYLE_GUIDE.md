@@ -17,7 +17,7 @@ Brand rules: `.github/copilot-instructions.md` → Brand Colour Palette.
 | Border radius | `0` everywhere | `999` for pills/dots, `'50%'` for circular indicators only |
 | Font | **Raleway** | All headings and UI text |
 | CTA colour | `colours.cta` (#D65541) | One pop per view — never compete with multiple warm colours |
-| Accent | `colours.accent` (#87F3F3) | Sparingly at structural anchor points only |
+| Accent | `colours.accent` (#3690CE) | Alias for Helix Highlight; sparingly at structural anchor points only |
 | Dark text | `colours.dark.text` primary, `subtleGrey` secondary, `greyText` tertiary | |
 | Minimum body text | **13px** | Readability for all users. Labels: 12px+. Section titles: 11px uppercase. |
 
@@ -32,7 +32,7 @@ Body text inside panels and modals MUST use **neutral colours**, not brand blue.
 | **labelText** | `colours.dark.text` | `#f3f4f6` | Headings, active option labels, input values |
 | **bodyText** | `#d1d5db` (warm grey) | n/a | Paragraphs, descriptions, sublabels — high contrast on navy |
 | **helpText** | `colours.subtleGrey` | `#A0A0A0` | Tertiary guidance, inactive sublabels, timestamps |
-| **sectionAccent** | `colours.accent` | `#87F3F3` | Section titles (uppercase), radio dots, active borders — anchor points only |
+| **sectionAccent** | `colours.accent` | `#3690CE` | Section titles (uppercase), radio dots, active borders — anchor points only |
 | **errorColour** | `colours.cta` | `#D65541` | Validation messages, required asterisks |
 | **successColour** | `colours.green` | `#20b26c` | Confirmation toggles, copied states |
 
@@ -313,12 +313,12 @@ Centre-screen modal with backdrop blur. Used by UserBubble command centre.
 
 Two accent tokens provide emphasis without introducing new colours:
 
-### `accent` (#87F3F3) — dark-mode interactive highlight
+### `accent` (#3690CE) — highlight alias
 
-The dark-mode counterpart of `highlight` (#3690CE). Pair them:
+`accent` now aliases `highlight` (#3690CE). The old teal/cyan accent is retired. Use the same brand highlight across themes:
 
 ```ts
-const activeColour = isDarkMode ? colours.accent : colours.highlight;
+const activeColour = colours.accent;
 ```
 
 **Where to use:**

@@ -26,6 +26,153 @@ const animations = `
   }
 `;
 
+const sharedBannerChromeCss = `
+  .enq-filter-cluster,
+  .enq-filter-secondary-cluster {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 0;
+    border-radius: 0;
+    overflow: visible;
+    background: transparent;
+    border: none;
+  }
+  .enq-filter-constellation {
+    position: relative;
+    isolation: isolate;
+  }
+  .enq-status-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .enq-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 30px;
+    padding: 0 12px;
+    border-radius: 0;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 500;
+    font-family: Raleway, sans-serif;
+    letter-spacing: 0.02em;
+    outline: none;
+    white-space: nowrap;
+    user-select: none;
+    box-sizing: border-box;
+  }
+  .enq-scope-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 26px;
+    padding: 0 10px;
+    border-radius: 0;
+    cursor: pointer;
+    font-size: 10px;
+    font-weight: 600;
+    font-family: Raleway, sans-serif;
+    letter-spacing: 0.04em;
+    outline: none;
+    user-select: none;
+    box-sizing: border-box;
+  }
+  .enq-chip,
+  .enq-scope-chip {
+    position: relative;
+    overflow: hidden;
+    transform: scale(1);
+    border: none;
+    transform-origin: center 60%;
+    will-change: transform, background-color, color, box-shadow;
+    transition:
+      background 180ms cubic-bezier(0.32, 0.72, 0, 1),
+      color 180ms cubic-bezier(0.32, 0.72, 0, 1),
+      box-shadow 180ms cubic-bezier(0.32, 0.72, 0, 1),
+      transform 90ms cubic-bezier(0.4, 0, 0.2, 1),
+      opacity 90ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .enq-chip:hover,
+  .enq-scope-chip:hover {
+    background: var(--enq-chip-hover-bg) !important;
+    box-shadow: inset 0 0 0 1px var(--enq-chip-hover-border) !important;
+  }
+  .enq-chip:active:not(:disabled),
+  .enq-scope-chip:active:not(:disabled) {
+    transform: scale(0.97);
+    opacity: 0.85;
+  }
+  [data-theme="dark"] .enq-chip,
+  [data-theme="dark"] .enq-scope-chip {
+    --enq-chip-hover-bg: rgba(255,255,255,0.04);
+    --enq-chip-hover-border: rgba(135,243,243,0.35);
+  }
+  [data-theme="light"] .enq-chip,
+  [data-theme="light"] .enq-scope-chip {
+    --enq-chip-hover-bg: rgba(54,144,206,0.05);
+    --enq-chip-hover-border: rgba(54,144,206,0.3);
+  }
+  .enq-action-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 30px;
+    padding: 0 12px;
+    border-radius: 0;
+    cursor: pointer;
+    font-size: 11px;
+    font-family: Raleway, sans-serif;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    transition: background 120ms ease, color 120ms ease, box-shadow 120ms ease;
+    user-select: none;
+    border: none;
+    box-sizing: border-box;
+  }
+  .enq-action-btn:active {
+    transform: scale(0.97);
+  }
+  [data-theme="dark"] .enq-action-btn {
+    color: #d1d5db;
+    background: rgba(255,255,255,0.02);
+    box-shadow: inset 0 0 0 1px rgba(75,85,99,0.24);
+  }
+  [data-theme="dark"] .enq-action-btn:hover {
+    background: rgba(135,243,243,0.07);
+    color: #3690CE;
+    box-shadow: inset 0 0 0 1px rgba(135,243,243,0.28);
+  }
+  [data-theme="light"] .enq-action-btn {
+    color: #6B6B6B;
+    background: rgba(255,255,255,0.7);
+    box-shadow: inset 0 0 0 1px rgba(0,0,0,0.08);
+  }
+  [data-theme="light"] .enq-action-btn:hover {
+    background: rgba(54,144,206,0.05);
+    color: #3690CE;
+    box-shadow: inset 0 0 0 1px rgba(54,144,206,0.22);
+  }
+  .enq-badge {
+    min-width: 18px;
+    padding: 1px 5px;
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1.2;
+    border-radius: 0;
+    transition: background 120ms ease, transform 160ms ease, opacity 160ms ease;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.04);
+    text-align: center;
+  }
+`;
+
 
 
 // Inject CSS into head if not already present
@@ -33,6 +180,13 @@ if (typeof document !== 'undefined' && !document.querySelector('#filter-banner-a
   const style = document.createElement('style');
   style.id = 'filter-banner-animations';
   style.textContent = animations;
+  document.head.appendChild(style);
+}
+
+if (typeof document !== 'undefined' && !document.querySelector('#filter-banner-shared-chrome')) {
+  const style = document.createElement('style');
+  style.id = 'filter-banner-shared-chrome';
+  style.textContent = sharedBannerChromeCss;
   document.head.appendChild(style);
 }
 

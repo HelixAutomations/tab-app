@@ -26,6 +26,13 @@ Import from `../utils/appInsights`.
 - Secrets come from env vars or Key Vault (`DefaultAzureCredential`). Never hardcode.
 - CORS headers and OPTIONS preflight must be handled when adding new API routes.
 
+## Local dev CORS (critical)
+
+- In dev, do not assume the browser always comes from `http://localhost:3000`. Teams/local shells and ad-hoc localhost hosts can call Express on `:8080` directly.
+- If a local browser flow can hit Express cross-origin, allow `http(s)://localhost:*` and `http(s)://127.0.0.1:*` in dev CORS.
+- If the route relies on `userContextMiddleware`, include `x-user-email`, `x-helix-initials`, and `x-helix-entra-id` in `allowedHeaders` or the browser flow can fail while `curl` still succeeds.
+- When debugging a "route works in curl but hangs in UI" report, validate from the browser origin before changing route internals.
+
 ## Deployment & Dependencies (CRITICAL — read before adding require())
 
 ### Two separate dependency trees
@@ -65,6 +72,7 @@ routes/            (from server/routes/)
 utils/             (from server/utils/)
 middleware/        (from server/middleware/)
 activity-card-lab/ (from server/activity-card-lab/)
+operatorActions/  (from server/operatorActions/)
 prompts/           (from server/prompts/)
 index.html         (CRA build output)
 static/            (CRA build output)

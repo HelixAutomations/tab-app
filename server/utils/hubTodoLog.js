@@ -31,6 +31,22 @@
 
 const { withRequest } = require('./db');
 const { trackEvent, trackException, trackMetric } = require('./appInsights');
+const { broadcastTodoChanged } = require('./todoStream');
+
+function safeBroadcast(payload) {
+  // Best-effort: a broadcast failure must NEVER affect the underlying DB write.
+  try {
+    broadcastTodoChanged({ ts: new Date().toISOString(), ...payload });
+  } catch (err) {
+    try {
+      trackException(err, { phase: 'hubTodoLog.safeBroadcast' });
+      trackEvent('Hub.Todo.Broadcast.Failed', {
+        error: err?.message || String(err),
+        changeType: String(payload?.changeType || ''),
+      });
+    } catch { /* ignore */ }
+  }
+}
 
 const HUB_TODO_TABLE_CHECK_TTL_MS = 5 * 60 * 1000;
 const hubTodoTableCache = new Map();
@@ -202,6 +218,15 @@ async function createCard({
       id: id ? String(id) : '',
     });
     trackMetric('Todo.Card.Created.Count', 1, { kind });
+    if (id) {
+      safeBroadcast({
+        changeType: 'created',
+        kind,
+        ownerInitials,
+        id: String(id),
+        matterRef: matterRef ? String(matterRef) : null,
+      });
+    }
     return { id, deduplicated: false };
   } catch (err) {
     trackException(err, { phase: 'createCard', kind, ownerInitials });
@@ -315,6 +340,14 @@ async function reconcileCard({
         completedVia: String(completedVia),
       });
       trackMetric('Todo.Card.Completed.Count', 1, { kind: String(kind || '') });
+      safeBroadcast({
+        changeType: 'reconciled',
+        kind: kind ? String(kind) : null,
+        ownerInitials: ownerInitials ? String(ownerInitials) : null,
+        id: String(targetId),
+        matterRef: matterRef ? String(matterRef) : null,
+        completedVia: String(completedVia),
+      });
     }
     return { id: targetId, alreadyComplete };
   } catch (err) {
@@ -373,6 +406,16 @@ async function reconcileAllByRef({ kind, matterRef, completedVia, lastEvent = nu
         mode: 'bulk',
       });
       trackMetric('Todo.Card.Completed.Count', count, { kind });
+      // Emit one event per closed card so subscribers see each change distinctly.
+      for (let i = 0; i < count; i += 1) {
+        safeBroadcast({
+          changeType: 'reconciled',
+          kind: String(kind),
+          matterRef: String(matterRef),
+          completedVia: String(completedVia),
+          mode: 'bulk',
+        });
+      }
     }
     return { count };
   } catch (err) {

@@ -57,11 +57,15 @@ const datasetFetchers = {
     const key = generateCacheKey('rpt', 'recoveredFees');
     return cachedFetch(key, () => fetchRecoveredFees({ connectionString }), 120, bypassCache);
   },
-  // 2 min - per-user summary; include user in key (kept short for near-realtime Home card)
+  // 10 min - per-user/firm summary; bumped 2026-04-27 (Phase 2B.1) from 120s.
+  // The Home Recovered Fees card is fed by SSE deltas via dataOps.synced + a
+  // 30-min safety-net interval, so a tighter TTL only forces cold SQL on every
+  // tab focus / nodemon restart with no freshness benefit. Underlying data is
+  // monthly aggregates that update with the daily collected-time sync.
   recoveredFeesSummary: ({ connectionString, entraId, clioId, bypassCache, firm }) => {
     const who = firm ? 'firm' : (entraId || (typeof clioId === 'number' ? `clio:${clioId}` : 'anon'));
     const key = generateCacheKey('rpt', 'recoveredFeesSummary', who);
-    return cachedFetch(key, () => fetchRecoveredFeesSummary({ connectionString, entraId, clioId, firm }), 120, bypassCache);
+    return cachedFetch(key, () => fetchRecoveredFeesSummary({ connectionString, entraId, clioId, firm }), 600, bypassCache);
   },
   // 5 min - current week WIP from Clio; user-specific when entraId provided
   wipClioCurrentWeek: ({ connectionString, entraId, bypassCache }) => {

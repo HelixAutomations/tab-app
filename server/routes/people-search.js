@@ -179,6 +179,52 @@ async function searchInstructions(query, queryType, limit) {
   return (rows.recordset || []).map(mapInstructionRow);
 }
 
+function normaliseLookupKey(value) {
+  const raw = String(value || '').trim();
+  return raw ? raw.toLowerCase() : '';
+}
+
+function getCurrentContactKey(row) {
+  const acId = normaliseLookupKey(row?.acid);
+  if (acId && acId !== '0' && acId !== 'null' && acId !== 'undefined') return `acid:${acId}`;
+  const email = normaliseLookupKey(row?.email);
+  if (email) return `email:${email}`;
+  const name = normaliseLookupKey(`${row?.first || ''} ${row?.last || ''}`);
+  const phone = normalisePhone(row?.phone || '');
+  return `identity:${name}|${phone}`;
+}
+
+function dedupeCurrentContactResults(rows) {
+  const grouped = new Map();
+
+  rows.forEach((row) => {
+    const key = getCurrentContactKey(row);
+    const existing = grouped.get(key);
+    if (!existing) {
+      grouped.set(key, { ...row, duplicateCount: 1, matchedIds: row?.id ? [String(row.id)] : [] });
+      return;
+    }
+
+    existing.duplicateCount += 1;
+    if (row?.id) existing.matchedIds.push(String(row.id));
+    const existingTs = existing.date ? new Date(existing.date).getTime() : 0;
+    const rowTs = row?.date ? new Date(row.date).getTime() : 0;
+    if (rowTs > existingTs) {
+      grouped.set(key, {
+        ...row,
+        duplicateCount: existing.duplicateCount,
+        matchedIds: existing.matchedIds,
+      });
+    }
+  });
+
+  return Array.from(grouped.values()).sort((left, right) => {
+    const leftTs = left.date ? new Date(left.date).getTime() : 0;
+    const rightTs = right.date ? new Date(right.date).getTime() : 0;
+    return rightTs - leftTs;
+  });
+}
+
 async function searchLegacy(query, queryType, limit) {
   const mainConnStr = process.env.SQL_CONNECTION_STRING;
   if (!mainConnStr) return [];
@@ -257,11 +303,12 @@ router.get('/', async (req, res) => {
 
     if (stagedMode) {
       if (instructionResults.length > 0) {
+        const currentContactResults = dedupeCurrentContactResults(instructionResults);
         return complete({
           query,
           queryType,
-          count: instructionResults.length,
-          results: instructionResults,
+          count: currentContactResults.length,
+          results: currentContactResults,
           stage: 'current',
           legacyAvailable: false,
           warnings: warnings.length > 0 ? warnings : undefined,

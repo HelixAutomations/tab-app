@@ -814,7 +814,7 @@ const StashedBriefsPanel: React.FC<StashedBriefsPanelProps> = ({ isDarkMode, ini
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <span style={{ fontSize: 11, color: muted }}>
-              {counts.open} open · {counts.stale} stale{counts.ready ? ` · ${counts.ready} ready` : ''}
+              {counts.open} open - {counts.stale} stale{counts.ready ? ` - ${counts.ready} ready` : ''}
             </span>
             <button
               onClick={() => setNewOpen(true)}

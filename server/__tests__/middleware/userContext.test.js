@@ -24,8 +24,10 @@ function mockRes() {
 }
 
 function primeUserLookup(row) {
+  let requestMock = null;
+
   withRequest.mockImplementation(async (_connectionString, callback) => {
-    const request = {
+    requestMock = {
       input: jest.fn().mockReturnThis(),
       query: jest.fn().mockResolvedValue({ recordset: row ? [row] : [] }),
     };
@@ -35,8 +37,10 @@ function primeUserLookup(row) {
       VarChar: jest.fn(() => 'VarChar'),
     };
 
-    return callback(request, sqlClient);
+    return callback(requestMock, sqlClient);
   });
+
+  return () => requestMock;
 }
 
 beforeEach(() => {
@@ -87,6 +91,36 @@ describe('userContextMiddleware', () => {
       entraId,
       initials: 'LZ',
       email,
+    }));
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+
+  test('hydrates req.user from userObjectId body used by /api/user-data', async () => {
+    const entraId = '22222222-3333-4444-5555-666666666666';
+    const getRequestMock = primeUserLookup({
+      entraId,
+      fullName: 'Alex Carter',
+      initials: 'AC',
+      email: 'ac@helix-law.com',
+      clioId: '141741',
+      role: 'Admin',
+    });
+
+    const req = mockReq({
+      method: 'POST',
+      path: '/api/user-data',
+      body: { userObjectId: entraId },
+    });
+    const res = mockRes();
+    const next = jest.fn();
+
+    await userContextMiddleware(req, res, next);
+
+    expect(getRequestMock().input).toHaveBeenCalledWith('entraId', 'NVarChar', entraId);
+    expect(req.user).toEqual(expect.objectContaining({
+      entraId,
+      initials: 'AC',
+      email: 'ac@helix-law.com',
     }));
     expect(next).toHaveBeenCalledTimes(1);
   });

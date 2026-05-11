@@ -18,7 +18,17 @@ interface ServiceHealthOptions {
 
 const DEFAULT_MONITORED_STATUSES = [502, 503, 504];
 const DEFAULT_RESET_DELAY_MS = 8000;
-const DEFAULT_IGNORED_URL_PATTERNS = ['/api/cache/clear-cache'];
+const DEFAULT_IGNORED_URL_PATTERNS: Array<string | RegExp> = [
+  '/api/cache/clear-cache',
+  // Route-health probes intentionally hit upstreams that may be slow/unhealthy.
+  // A 502 from production probes is data, not a session outage — don't show
+  // "Reconnecting…" because of them.
+  '/api/route-health',
+  '/route-health',
+  // Dev server boot-id poll fires every 3s; a transient failure here is not
+  // user-facing.
+  '/api/dev/health',
+];
 
 export function useServiceHealthMonitor(options: ServiceHealthOptions = {}) {
   const {

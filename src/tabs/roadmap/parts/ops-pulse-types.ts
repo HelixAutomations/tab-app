@@ -122,6 +122,63 @@ export interface PresenceData {
   list: PresenceEntry[];
 }
 
+/**
+ * Doubled-API hit — emitted whenever a request reaches `/api/api/*`. Caught by
+ * the guard middleware in `server/index.js` (set up after Phase 1b retired the
+ * helix-keys-proxy hop). Surfaced in the Activity tab alerts strip so dev-group
+ * eyeballs see regressions in real time instead of relying on App Insights KQL.
+ */
+export interface DoubledApiHit {
+  ts: number;
+  method: string;
+  originalPath: string;
+  suggestedPath: string;
+  referer: string;
+  userAgent: string;
+}
+
+export type OpsCheckStatus = 'pass' | 'warn' | 'fail';
+export type OpsCheckGroup = 'route' | 'workflow' | 'dependency';
+export type OpsCheckRisk = 'safe' | 'observe' | 'mutation';
+export type OpsCheckSeverity = 'blocking' | 'degraded' | 'noise';
+
+export interface OpsCheckIssueSummary {
+  name: string;
+  status: OpsCheckStatus;
+  severity: OpsCheckSeverity;
+  statusCode: number | null;
+  detail: string;
+}
+
+export interface OpsCheckSummaryItem {
+  id: string;
+  label: string;
+  group: OpsCheckGroup;
+  risk: OpsCheckRisk;
+  status: OpsCheckStatus;
+  durationMs: number;
+  checkedAt: string;
+  ts: number;
+  triggeredBy: string;
+  dependencyCount: number;
+  failingBlockingCount: number;
+  degradedIssueCount: number;
+  noiseIssueCount: number;
+  issues: OpsCheckIssueSummary[];
+}
+
+export interface OpsCheckRunSummary {
+  totalTracked: number;
+  failingCount: number;
+  warningCount: number;
+  passCount: number;
+  checkedAt: string | null;
+  ts: number | null;
+  lastRun: OpsCheckSummaryItem | null;
+  latest: OpsCheckSummaryItem[];
+  recent: OpsCheckSummaryItem[];
+}
+
 export interface OpsPulseState {
   connected: boolean;
   pulse: PulseData | null;
@@ -131,4 +188,6 @@ export interface OpsPulseState {
   sessionTraces: SessionTraceData | null;
   requests: RequestEntry[];
   presence: PresenceData | null;
+  doubledApi: DoubledApiHit[];
+  opsChecks: OpsCheckRunSummary | null;
 }

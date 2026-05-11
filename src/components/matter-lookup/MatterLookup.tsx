@@ -314,13 +314,13 @@ export default function MatterLookup({
 
   const accent = isDarkMode ? colours.accent : colours.highlight;
   const bg = isDarkMode ? colours.dark.cardBackground : '#ffffff';
-  const border = isDarkMode ? `rgba(135, 243, 243, 0.22)` : `rgba(13, 47, 96, 0.22)`;
+  const border = isDarkMode ? `rgba(54, 144, 206, 0.22)` : `rgba(13, 47, 96, 0.22)`;
   const text = isDarkMode ? colours.dark.text : colours.light.text;
   const muted = isDarkMode ? colours.subtleGrey : colours.greyText;
-  const rowHover = isDarkMode ? `rgba(135, 243, 243, 0.10)` : colours.highlightBlue;
-  const sourceChipBorder = isDarkMode ? `rgba(135, 243, 243, 0.20)` : `rgba(13, 47, 96, 0.18)`;
-  const sourceChipBg = isDarkMode ? `rgba(135, 243, 243, 0.06)` : `rgba(13, 47, 96, 0.04)`;
-  const dividerColor = isDarkMode ? `rgba(135, 243, 243, 0.14)` : `rgba(13, 47, 96, 0.10)`;
+  const rowHover = isDarkMode ? `rgba(54, 144, 206, 0.10)` : colours.highlightBlue;
+  const sourceChipBorder = isDarkMode ? `rgba(54, 144, 206, 0.20)` : `rgba(13, 47, 96, 0.18)`;
+  const sourceChipBg = isDarkMode ? `rgba(54, 144, 206, 0.06)` : `rgba(13, 47, 96, 0.04)`;
+  const dividerColor = isDarkMode ? `rgba(54, 144, 206, 0.14)` : `rgba(13, 47, 96, 0.10)`;
   const eyebrowBg = isDarkMode ? colours.darkBlue : colours.grey;
   const recentsList = useMemo<MatterLookupOption[]>(() => {
     if (!recents || recents.length === 0) return [];
@@ -372,7 +372,7 @@ export default function MatterLookup({
           padding: '8px 12px',
           cursor: 'pointer',
           background: isActive ? rowHover : 'transparent',
-          borderTop: idx === 0 ? 'none' : `1px solid ${isDarkMode ? `rgba(135, 243, 243, 0.08)` : `rgba(13, 47, 96, 0.06)`}`,
+          borderTop: idx === 0 ? 'none' : `1px solid ${isDarkMode ? `rgba(54, 144, 206, 0.08)` : `rgba(13, 47, 96, 0.06)`}`,
           fontSize: 12,
           color: text,
           ...rowStyle,

@@ -86,8 +86,8 @@ const ASANA_BASE_URL = 'https://app.asana.com/api/1.0';
 const KV_URI = 'https://helix-keys.vault.azure.net/';
 const ASANA_WORKSPACE_ID = '1203336030510557';
 
-// Tech team project ID
-const TECH_PROJECT_ID = '1204962032378888';
+// Tech team project ID — shared with the Forge dev-console mirror.
+const { ASANA_TECH_AUTOMATIONS_PROJECT_ID: TECH_PROJECT_ID } = require('../utils/asana');
 
 // Connection string for helix_projects database (falls back to core SQL)
 const getConnectionString = () => {
@@ -722,6 +722,8 @@ router.post('/idea', async (req, res) => {
           recordId: ideaRecord?.id ?? null,
           warning: 'Idea recorded but Asana credentials were not found for the submitter.',
           code: 'ASANA_CREDENTIALS_MISSING',
+          submissionId,
+          streamUrl: submissionId ? `forms?focusSubmission=${submissionId}` : null,
         });
       }
 
@@ -741,6 +743,8 @@ router.post('/idea', async (req, res) => {
       success: true,
       taskId: task.gid,
       taskUrl: `https://app.asana.com/0/${TECH_PROJECT_ID}/${task.gid}`,
+      submissionId,
+      streamUrl: submissionId ? `forms?focusSubmission=${submissionId}` : null,
     });
 
   } catch (error) {
@@ -903,6 +907,8 @@ router.post('/problem', async (req, res) => {
           recordId: problemRecord?.id ?? null,
           warning: 'Problem recorded but Asana credentials were not found for the submitter.',
           code: 'ASANA_CREDENTIALS_MISSING',
+          submissionId,
+          streamUrl: submissionId ? `forms?focusSubmission=${submissionId}` : null,
         });
       }
 
@@ -922,6 +928,8 @@ router.post('/problem', async (req, res) => {
       success: true,
       taskId: task.gid,
       taskUrl: `https://app.asana.com/0/${TECH_PROJECT_ID}/${task.gid}`,
+      submissionId,
+      streamUrl: submissionId ? `forms?focusSubmission=${submissionId}` : null,
     });
 
   } catch (error) {

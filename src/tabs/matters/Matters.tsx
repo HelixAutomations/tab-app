@@ -1,14 +1,10 @@
 import React, { useMemo, useState, useEffect, useLayoutEffect, useDeferredValue, useRef } from 'react';
-import { SpinnerSize } from '@fluentui/react/lib/Spinner';
 import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
-import { Icon } from '@fluentui/react/lib/Icon';
 import { mergeStyles } from '@fluentui/react/lib/Styling';
 import NavigatorDetailBar from '../../components/NavigatorDetailBar';
-import ThemedSpinner from '../../components/ThemedSpinner';
-import SegmentedControl from '../../components/filter/SegmentedControl';
 import FilterBanner from '../../components/filter/FilterBanner';
 import EmptyState from '../../components/states/EmptyState';
-import { FiFolder, FiArchive, FiUser, FiTrendingUp, FiFilter, FiLayers, FiDatabase } from 'react-icons/fi';
+import { FiArchive, FiFilter, FiLayers, FiDatabase } from 'react-icons/fi';
 import { Enquiry, NormalizedMatter, TeamData, UserData } from '../../app/functionality/types';
 import {
   filterMattersByStatus,
@@ -21,11 +17,13 @@ import {
 import { isAdminUser, isCclUser, isDevOwner } from '../../app/admin';
 import { buildCclApiUrl } from './ccl/cclAiService';
 import MatterOverview from './MatterOverview';
-import MatterTableView from './MatterTableView';
+import MatterTableView, { MatterTableLoadingSkeleton } from './MatterTableView';
+import './Matters.css';
 import { colours } from '../../app/styles/colours';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { useNavigatorActions } from '../../app/functionality/NavigatorContext';
 import { useToast } from '../../components/feedback/ToastProvider';
+import MatterStatusFilterWithScope, { MatterRoleFilter } from './MatterFilterControls';
 // Debugger removed: MatterApiDebugger was deleted
 
 type MatterSourceFilter = 'new' | 'all' | 'legacy';
@@ -265,10 +263,20 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
     return legacyAugmentedMatters || matters;
   }, [dataSourceFilter, legacyAugmentedMatters, matters]);
 
-  // Inject demo matter into list when demo mode is on
+  // Inject demo matter into list when demo mode is on.
+  // Prefer the Helix Rehearsal Record's real matter (instructionRef = 'HLX-27367-94842')
+  // if one has been opened — that way demo surfaces agree with every other surface
+  // anchored on the seed. Only fall back to the synthetic DEMO_MATTER if no real
+  // rehearsal matter exists yet. See HELIX_REHEARSAL_RECORD_LUKE_TEST_AS_FIRM_SEED.md.
   const effectiveMatters = useMemo(() => {
     if (!demoModeEnabled) return sourceMatters;
-    // Avoid duplicating if somehow already present
+    const REHEARSAL_REF = 'HLX-27367-94842';
+    const hasRehearsalMatter = sourceMatters.some(m => {
+      const ref = String(m.instructionRef || '').toUpperCase();
+      return ref === REHEARSAL_REF;
+    });
+    if (hasRehearsalMatter) return sourceMatters;
+    // Avoid duplicating the synthetic if somehow already present
     if (sourceMatters.some(m => m.matterId === DEMO_MATTER.matterId)) return sourceMatters;
     return [DEMO_MATTER, ...sourceMatters];
   }, [sourceMatters, demoModeEnabled]);
@@ -639,6 +647,30 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
 
   // No auto-toggle for admins; let Luke/Alex choose when to see everyone's matters.
 
+  useLayoutEffect(() => {
+    if (!isActive) {
+      return;
+    }
+
+    const region = document.querySelector('.app-scroll-region') as HTMLElement | null;
+    if (!region) {
+      return;
+    }
+
+    const previousOverflowY = region.style.overflowY;
+    const previousScrollbarGutter = region.style.scrollbarGutter;
+
+    region.classList.add('matters-scroll-region');
+    region.style.overflowY = 'auto';
+    region.style.scrollbarGutter = 'auto';
+
+    return () => {
+      region.classList.remove('matters-scroll-region');
+      region.style.overflowY = previousOverflowY;
+      region.style.scrollbarGutter = previousScrollbarGutter;
+    };
+  }, [isActive]);
+
   // Write navigator content before paint so tab switches do not briefly
   // drop the shared filter bar to an empty state.
   useLayoutEffect(() => {
@@ -649,72 +681,32 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
     }
 
     if (!selected) {
-      const StatusFilter = () => {
-        const statusValue = activeFilter === 'Closed' ? 'archived' : 'open';
-
-        // Feather icons at strokeWidth 1.8 — matches nav bar + prospects chips
-        const iconOpen = <FiFolder size={12} strokeWidth={1.8} />;
-        const iconArchived = <FiArchive size={12} strokeWidth={1.8} />;
-
-        return (
-          <SegmentedControl
-            id="matters-status-seg"
-            ariaLabel="Matter status"
-            value={statusValue}
-            onChange={(key) => setActiveFilter(key === 'archived' ? 'Closed' : 'Active')}
-            options={[
-              { key: 'open', label: 'Open', icon: iconOpen },
-              { key: 'archived', label: 'Archived', icon: iconArchived },
-            ]}
-          />
-        );
-      };
-
-      const RoleFilter = () => {
-        const roleValue = activeRoleFilter === 'Originating' ? 'originating' : 'responsible';
-
-        const iconResponsible = <FiUser size={12} strokeWidth={1.8} />;
-        const iconOriginating = <FiTrendingUp size={12} strokeWidth={1.8} />;
-
-        return (
-          <SegmentedControl
-            id="matters-role-seg"
-            ariaLabel="Matter role"
-            value={roleValue}
-            onChange={(key) => setActiveRoleFilter(key === 'originating' ? 'Originating' : 'Responsible')}
-            options={[
-              { key: 'responsible', label: 'Responsible', icon: iconResponsible },
-              { key: 'originating', label: 'Originating', icon: iconOriginating },
-            ]}
-          />
-        );
-      };
-
       setContent(
         <FilterBanner
           dense
           collapsibleSearch
+          sticky={false}
           primaryFilter={(
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <SegmentedControl
-                id="matters-scope-seg"
-                ariaLabel="Scope mine or all"
-                value={scope}
-                onChange={(k) => setScope(k as 'mine' | 'all')}
-                options={[
-                  { key: 'mine', label: 'Mine', badge: scopeCounts.mine },
-                      { key: 'all', label: 'All', badge: scopeCounts.all }
-                ]}
-              />
-              <StatusFilter />
-            </div>
+            <MatterStatusFilterWithScope
+              isDarkMode={isDarkMode}
+              scope={scope}
+              activeFilter={activeFilter === 'Closed' ? 'Closed' : 'Active'}
+              scopeCounts={scopeCounts}
+              isBusy={isLoading || isLoadingLegacyAugmentedMatters}
+              onSetScope={setScope}
+              onSetActiveFilter={setActiveFilter}
+            />
           )}
           secondaryFilter={(
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <RoleFilter />
+            <div className="enq-filter-secondary-cluster" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap', minWidth: 0, overflow: 'hidden' }}>
+              <MatterRoleFilter
+                isDarkMode={isDarkMode}
+                activeRoleFilter={activeRoleFilter === 'Originating' ? 'Originating' : 'Responsible'}
+                onSetActiveRoleFilter={setActiveRoleFilter}
+              />
               {availableAreas.length > 1 && (
                 areaExpanded || activeAreaFilter !== 'All' ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
                     <span style={{ fontSize: 11, fontWeight: 500, color: isDarkMode ? colours.dark.text : colours.light.text }}>Area:</span>
                     <select
                       value={activeAreaFilter}
@@ -725,17 +717,19 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
                       onBlur={() => { if (activeAreaFilter === 'All') setAreaExpanded(false); }}
                       autoFocus={areaExpanded && activeAreaFilter === 'All'}
                       style={{
-                        height: 24,
+                        height: 30,
                         padding: '0 28px 0 10px',
                         appearance: 'none',
-                        backgroundColor: isDarkMode ? colours.darkBlue : colours.light.cardBackground,
+                        backgroundColor: isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.72)',
                         backgroundImage: `url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='${isDarkMode ? '%23f3f4f6' : '%23061733'}' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
                         backgroundRepeat: 'no-repeat',
                         backgroundPosition: 'right 8px center',
                         borderRadius: 0,
-                        border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : colours.light.border}`,
-                        color: isDarkMode ? colours.dark.text : colours.light.text,
+                        border: 'none',
+                        boxShadow: `inset 0 0 0 1px ${isDarkMode ? 'rgba(75,85,99,0.24)' : 'rgba(0,0,0,0.08)'}`,
+                        color: isDarkMode ? '#d1d5db' : colours.greyText,
                         fontSize: 11,
+                        fontWeight: 500,
                         fontFamily: 'Raleway, sans-serif',
                         cursor: 'pointer'
                       }}
@@ -752,19 +746,17 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
                     aria-label="Filter by area"
                     title="Filter by area of work"
                     onClick={() => setAreaExpanded(true)}
+                    className="enq-action-btn"
                     style={{
                       display: 'inline-flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      width: 24,
-                      height: 24,
+                      width: 30,
+                      height: 30,
                       borderRadius: 0,
-                      border: `1px solid ${isDarkMode ? 'rgba(55,65,81,0.4)' : 'rgba(0,0,0,0.10)'}`,
-                      background: 'transparent',
+                      border: 'none',
                       cursor: 'pointer',
-                      color: isDarkMode ? colours.subtleGrey : colours.greyText,
                       padding: 0,
-                      transition: 'all 150ms ease',
                     }}
                   >
                     <FiFilter size={12} strokeWidth={1.8} />
@@ -778,26 +770,29 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
             onChange: setSearchTerm,
             placeholder: "Search…"
           }}
+          searchPlacement="filters"
           middleActions={(
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '8px' }}>
               {canUseLegacyMattersSwitch && (
               <button
                 type="button"
+                className="enq-action-btn"
                 onClick={() => setDataSourceFilter((previous) => getNextMatterSourceFilter(previous))}
                 disabled={isLoadingLegacyAugmentedMatters}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
                   gap: 8,
-                  padding: '4px 10px',
-                  height: 28,
+                  padding: '0 12px',
+                  height: 30,
                   borderRadius: 0,
                   background: dataSourceFilter === 'all'
                     ? (isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.12)')
                     : dataSourceFilter === 'new'
                       ? (isDarkMode ? 'rgba(32, 178, 108, 0.2)' : 'rgba(32, 178, 108, 0.12)')
                       : 'transparent',
-                  border: `1px solid ${dataSourceFilter === 'all'
+                  border: 'none',
+                  boxShadow: `inset 0 0 0 1px ${dataSourceFilter === 'all'
                     ? (isDarkMode ? 'rgba(54, 144, 206, 0.5)' : 'rgba(54, 144, 206, 0.32)')
                     : dataSourceFilter === 'new'
                       ? (isDarkMode ? 'rgba(32, 178, 108, 0.5)' : 'rgba(32, 178, 108, 0.3)')
@@ -811,7 +806,6 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
                       : colours.orange,
                   cursor: isLoadingLegacyAugmentedMatters ? 'default' : 'pointer',
                   opacity: isLoadingLegacyAugmentedMatters ? 0.7 : 1,
-                  transition: 'all 0.15s ease',
                 }}
                 title={
                   isLoadingLegacyAugmentedMatters
@@ -889,6 +883,7 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
     datasetCount,
     dataSourceFilter,
     canUseLegacyMattersSwitch,
+    isLoading,
     isLoadingLegacyAugmentedMatters,
     activeDetailTab,
     disableFutureTabs,
@@ -1379,12 +1374,17 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
     return (
       <div className={containerStyle(isDarkMode)}>
         <div style={{
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          height: '200px'
+          width: '100%',
+          maxWidth: 1440,
+          margin: '0 auto',
+          paddingTop: 24,
+          boxSizing: 'border-box',
         }}>
-          <ThemedSpinner label="Loading matters..." size={SpinnerSize.medium} />
+          <MatterTableLoadingSkeleton
+            isDarkMode={isDarkMode}
+            showCclColumns={showCclColumns}
+            variant="blocking"
+          />
         </div>
       </div>
     );
@@ -1448,11 +1448,16 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
                           activeRoleFilter !== deferredActiveRoleFilter || searchTerm !== deferredSearchTerm;
 
   const showOverlayCue = isLoading || isTransitioning || isLoadingLegacyAugmentedMatters;
-  const overlayCueText = isLoading
-    ? 'Switching user…'
-    : isLoadingLegacyAugmentedMatters
-      ? 'Loading legacy matters…'
-      : 'Updating view...';
+  const arrivalTrackingKey = [
+    userEmail.toLowerCase(),
+    scope,
+    activeFilter,
+    activeAreaFilter,
+    activeRoleFilter,
+    dataSourceFilter,
+    searchTerm.trim().toLowerCase(),
+    demoModeEnabled ? 'demo' : 'live',
+  ].join('|');
 
   return (
     <div className={containerStyle(isDarkMode)}>
@@ -1464,13 +1469,6 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
         </div>
       )}
       {/* Processing overlay when transitioning between filter states */}
-      {/* Spin animation for loading indicator */}
-      <style>{`
-        @keyframes spin {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
-        }
-      `}</style>
       {showOverlayCue && (
         <div style={{
           position: 'absolute',
@@ -1482,36 +1480,24 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
           backdropFilter: 'blur(1px)',
           zIndex: 100,
           display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
+          flexDirection: 'column',
+          justifyContent: 'flex-start',
+          paddingTop: 92,
           pointerEvents: 'none',
         }}>
           <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            padding: '12px 20px',
-            borderRadius: 8,
-            background: isDarkMode ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
-            boxShadow: isDarkMode ? '0 4px 20px rgba(0, 0, 0, 0.4)' : '0 4px 20px rgba(0, 0, 0, 0.15)',
-            border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'}`,
+            width: '100%',
+            maxWidth: 1440,
+            margin: '0 auto',
+            padding: '0 20px',
+            boxSizing: 'border-box',
           }}>
-            <div style={{
-              width: 16,
-              height: 16,
-              border: `2px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)'}`,
-              borderTopColor: colours.highlight,
-              borderRadius: '50%',
-              animation: 'spin 0.7s linear infinite',
-            }} />
-            <span style={{
-              fontSize: 13,
-              fontWeight: 500,
-              color: isDarkMode ? 'rgba(255, 255, 255, 0.85)' : 'rgba(0, 0, 0, 0.7)',
-              fontFamily: 'Raleway, sans-serif',
-            }}>
-              {overlayCueText}
-            </span>
+            <MatterTableLoadingSkeleton
+              isDarkMode={isDarkMode}
+              showCclColumns={showCclColumns}
+              variant="blocking"
+              rowCount={6}
+            />
           </div>
         </div>
       )}
@@ -1520,6 +1506,8 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
         isDarkMode={isDarkMode}
         showCclColumns={showCclColumns}
         cclStatusByMatterId={effectiveCclStatusByMatterId}
+        arrivalTrackingKey={arrivalTrackingKey}
+        suppressArrivalAnimations={isTransitioning || isLoadingLegacyAugmentedMatters}
         onOpenCclReview={(matterId) => {
           // Delegates to the Home CCL review modal via the canonical
           // `openHomeCclReview` CustomEvent. OperationsDashboard hosts the

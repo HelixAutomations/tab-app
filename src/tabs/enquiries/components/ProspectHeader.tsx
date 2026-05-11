@@ -3,6 +3,7 @@ import { Icon } from '@fluentui/react/lib/Icon';
 import { Enquiry, UserData } from '../../../app/functionality/types';
 import { useTheme } from '../../../app/functionality/ThemeContext';
 import { colours } from '../../../app/styles/colours';
+import { formatValueForDisplay } from './prospectDisplayUtils';
 import '../../../app/styles/animations.css';
 
 /**
@@ -167,12 +168,20 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
 
   const valueDisplay = (() => {
     const raw = enquiry?.Value;
-    if (!raw) return '—';
+    if (raw === null || raw === undefined || String(raw).trim() === '') return '—';
     const str = String(raw).trim();
-    if (str.toLowerCase().includes(' to ') || (str.match(/£/g) || []).length > 1) return str;
-    const num = Number(str.replace(/[^0-9.]/g, ''));
-    if (!Number.isFinite(num) || Number.isNaN(num)) return str;
-    return formatPounds(num);
+
+    // Pure numeric (operator-entered exact figure) — keep as formatted pounds.
+    if (/^£?\s*\d+(?:[.,]\d+)*\s*$/.test(str)) {
+      const num = Number(str.replace(/[^0-9.]/g, ''));
+      if (Number.isFinite(num) && !Number.isNaN(num)) return formatPounds(num);
+    }
+
+    // Anything else (band strings like "£500k+", "100,001 to 500,000", "Over £500,000",
+    // "Non-monetary", "Unsure", etc.) goes through the canonical band formatter so we
+    // never strip non-digits and pretend the remainder is the value.
+    const compact = formatValueForDisplay(str);
+    return compact === '-' ? '—' : compact;
   })();
 
   // Area of Work colour (canonical mapping)

@@ -4,7 +4,7 @@ import React from 'react';
 import { colours } from '../../../app/styles/colours';
 import KpiTile from './KpiTile';
 
-export type ActivityLens = 'all' | 'forms' | 'matters' | 'sync' | 'errors' | 'trace' | 'briefs';
+export type ActivityLens = 'all' | 'forms' | 'matters' | 'sync' | 'checks' | 'errors' | 'trace' | 'signals' | 'briefs' | 'forge' | 'actions';
 
 export type KpiGroup = 'health' | 'workload' | 'performance';
 
@@ -188,7 +188,7 @@ const ActivityHero: React.FC<ActivityHeroProps> = ({
           )}
           {syncLabel && (
             <span style={{ fontSize: 11, color: muted, fontFamily: 'Raleway, sans-serif' }}>
-              · synced {syncLabel}
+              - synced {syncLabel}
             </span>
           )}
         </div>

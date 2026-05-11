@@ -198,12 +198,15 @@ router.get('/sources', async (req, res) => {
     // Current instructions: search if q present, otherwise return TOP 10 recent.
     const instructionsPromise = (mode === 'current' && instructionsConn)
       ? withRequest(instructionsConn, async (request) => {
+          // Instructions table has no ProspectId column; derive it from InstructionRef (HLX-{ProspectId}-{Passcode}).
           if (hasQuery) {
             request.input('like', sql.NVarChar, like);
             request.input('exact', sql.NVarChar, q);
             const rs = await request.query(`
               SELECT TOP 25
-                InstructionRef, ProspectId, ClientId, Stage, ClientType,
+                InstructionRef,
+                TRY_CONVERT(int, PARSENAME(REPLACE(InstructionRef, '-', '.'), 2)) AS ProspectId,
+                ClientId, Stage, ClientType,
                 FirstName, LastName, Email, CompanyName, HelixContact, SubmissionDate
               FROM Instructions
               WHERE InstructionRef = @exact
@@ -218,7 +221,9 @@ router.get('/sources', async (req, res) => {
           }
           const rs = await request.query(`
             SELECT TOP 10
-              InstructionRef, ProspectId, ClientId, Stage, ClientType,
+              InstructionRef,
+              TRY_CONVERT(int, PARSENAME(REPLACE(InstructionRef, '-', '.'), 2)) AS ProspectId,
+              ClientId, Stage, ClientType,
               FirstName, LastName, Email, CompanyName, HelixContact, SubmissionDate
             FROM Instructions
             ORDER BY SubmissionDate DESC

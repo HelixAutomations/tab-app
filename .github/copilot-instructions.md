@@ -98,6 +98,18 @@ Every long-running server operation should surface its state to connected client
 - `dev:fast` remains the default local loop for UI work, but critical flows should have an explicit on-demand smoke path that can be run in a prod-like way and report what was checked, skipped, simulated, or failed.
 - Release-readiness work should produce both passive telemetry and an active answer to "will this route or workflow work right now?".
 
+## Stuck Local Loader Ladder (CRITICAL)
+
+When the operator reports a local UI stuck on loading, debug in this order:
+
+1. Reproduce from the operator's actual browser origin first (port + host matter).
+2. Check the browser request path/host/port/status before assuming relative `/api` is reaching Express.
+3. Compare that browser result with a direct route probe (`curl`, temp script, or browser fixture) to split origin/proxy issues from route failures.
+4. If browser and direct route differ, inspect local API base selection, `src/setupProxy.js`, auth-context augmentation, and dev CORS before touching SQL or business logic.
+5. Only once the request path is proven correct should you move inward to route logic, DB calls, or schema assumptions.
+
+Rule of thumb: a `200` from `http://localhost:8080/...` does not prove the operator's active page can hit the same route.
+
 ## Cross-App Execution Contract
 
 Before implementing, identify where the requested outcome sits in the 3-stage system:
@@ -125,6 +137,14 @@ Before touching code on any task that involves more than a single-file edit:
 
 Single-file fixes (typo, one-liner bug, style tweak) skip the plan step. Multi-file refactors, new features, and infrastructure changes always plan first.
 
+### Auto-stash on multi-phase plans (CRITICAL — do not wait to be told)
+
+When a plan you propose has **2+ phases**, **spans more than one session of work**, or includes language like "phase 1", "first instalment", "start with", or "then" between distinct deliverables: proactively offer to stash the brief in the same response that proposes the plan. Do not wait for the user to say "stash this."
+
+Format: after presenting the plan, add one line — *"This is multi-phase; I'll stash it as a brief so phases stay locked. OK?"* If the user agrees, run the stash routine before starting Phase 1. The locked plan in the brief becomes the source of truth — refer back to it between phases instead of redesigning from memory.
+
+Why: the user has repeatedly observed that implementations get diluted by phase 2 because the plan exists only in chat. The brief is the anti-dilution mechanism. Forgetting to offer it forces the user to re-prompt and burns the compounding loop.
+
 ## Continuous Health Observations (CRITICAL)
 
 While working on any file, silently note codebase health issues. At the end of every response that modifies code, append a **Health Observations** footer if you spotted any of these:
@@ -136,28 +156,31 @@ While working on any file, silently note codebase health issues. At the end of e
 - Security concerns (unsanitised input, exposed secrets, missing auth checks)
 - Files approaching the 3,000-line threshold (run `npm run check-sizes` mentally)
 
-**Format** (only include observations you actually found — never fabricate):
+**Compact format** (one line per item; only include observations you actually found — never fabricate). Cap at 3. Skip the footer entirely if there are zero items — do NOT print an empty header.
+
 ```
 ---
-**Health Observations** (from files touched this task):
-- [ ] `src/components/Foo.tsx`: 3 dead imports (X, Y, Z) — safe to remove
-- [ ] `server/routes/bar.js`: duplicated date-formatting logic — same as `server/utils/dates.js`
+**Health:** `src/components/Foo.tsx` 3 dead imports (X, Y, Z) · `server/routes/bar.js` duplicated date helper (vs `server/utils/dates.js`)
 ```
 
-These are observations, not actions. The user decides whether to act on them. Park non-trivial ones in ROADMAP.md.
+These are observations, not actions. Non-trivial ones become stash candidates (next section), not ROADMAP entries.
 
 ### Stash candidates (paired with Health Observations)
 
-While working on *unrelated* tasks, silently note opportunities that would make good standalone stash briefs (architectural shifts, duplicated subsystems worth consolidating, missing affordances). At the end of a response, if you spotted any, append a second footer:
+While working on *unrelated* tasks, silently note opportunities that would make good standalone stash briefs (architectural shifts, duplicated subsystems worth consolidating, missing affordances). At the end of a response, if you spotted any, append a second compact footer. Cap at 3. Skip if zero.
 
 ```
 ---
-**Stash candidates** (spotted, not actioned):
-- `src/tabs/finance/PaymentApprovals.tsx`: approval queue lacks bulk-action affordance — worth a stash brief.
-- `server/routes/clio.js`: token refresh logic duplicated 3 times — worth a stash brief for consolidation.
+**Stash:** `src/tabs/finance/PaymentApprovals.tsx` no bulk-action affordance · `server/routes/clio.js` token refresh duplicated x3
 ```
 
-Rules: cap at 3 candidates per response, never auto-write a brief without an explicit `stash this` trigger, observations only. Full protocol: [.github/instructions/STASHED_PROJECTS.md](.github/instructions/STASHED_PROJECTS.md).
+Machine-readable envelope (always emit when at least one Health or Stash item exists, on its own line after the visible footers — invisible in rendered markdown, parsed by the suggestions inbox capture tool):
+
+```
+<!-- helix-suggestions {"health":[{"file":"…","summary":"…"}],"stash":[{"file":"…","summary":"…"}]} -->
+```
+
+Rules: never auto-write a stash brief without an explicit `stash this` trigger. Observations only. Full protocol: [.github/instructions/STASHED_PROJECTS.md](.github/instructions/STASHED_PROJECTS.md). Suggestions inbox brief: [docs/notes/AGENT_SUGGESTIONS_INBOX_IN_MY_HELIX.md](docs/notes/AGENT_SUGGESTIONS_INBOX_IN_MY_HELIX.md).
 
 ## Precedence (Conflict Resolver)
 
@@ -178,16 +201,17 @@ Five distinct access concepts exist in the codebase. They serve **different purp
 | **Admin** | `isAdminUser()` | LZ, AC, KW, JW, LA, EA | Feature-access tier — unlocks UI features (instructions tab, admin controls, user switching, hub controls). Does **not** change what data is loaded. |
 | **Reports** | `canAccessReports()` | LZ, AC, KW, JW, EA | Admins who can access the Reports tab. LA is admin but has no reports access. |
 | **Operations User** | `isOperationsUser()` | All admins + anyone with 'operations'/'tech' in AOW | Cross-cutting check for ops-level tools. |
-| **Dev Owner** | `isDevOwner()` | LZ only | Data-scope override — sees all team data by default (all enquiries, all matters, team-aggregated time). This is "god mode". |
+| **Dev Owner** | `isDevOwner()` | LZ only | Primary dev-owner tier — cross-surface dev/system access and data-scope override where explicitly wired. |
 
 **Rules:**
 - When gating a **feature** (show/hide UI, enable a button), use `isAdminUser()`.
 - When gating **Reports tab** access, use `canAccessReports()` (LA is admin but no reports).
-- When deciding **what data to load** (fetch all vs fetch mine), use `isDevOwner()`.
+- When deciding **what data to load** (fetch all vs fetch mine), use `isDevOwner()` by default.
+- Home is the current exception: `canSeeFirmWideHomeData()` grants firm-wide Home datasets to LZ, KW, and EA without widening non-Home dev-owner access.
 - When a feature is **not ready for wider rollout** but should be in prod for dev testing, gate it behind `isLzOrAc` (inline `['LZ', 'AC'].includes(initials)` check). This is a temporary lock — remove it and promote to `isAdminUser()` or wider when the feature is ready.
 - Never use `isAdminUser()` for data-scope decisions — other admins should not wait for team-wide queries or see everyone's data by default.
 - All tier functions live in `src/app/admin.ts`. Dev preview checks are inline at the call site.
-- This distinction should compound: as new data-scope or god-mode features are added, always reach for `isDevOwner()`. As new feature gates are added, use `isAdminUser()`. As features are being developed, use dev preview until ready.
+- This distinction should compound: as new cross-surface data-scope or god-mode features are added, reach for `isDevOwner()` unless the brief explicitly calls for a narrower surface-scoped exception like Home. As new feature gates are added, use `isAdminUser()`. As features are being developed, use dev preview until ready.
 
 **Rollout ladder** (features should progress through these tiers):
 1. **Dev Preview** (LZ + AC only) → build and test in prod without impacting other users
@@ -342,6 +366,74 @@ This generates `.github/instructions/REALTIME_CONTEXT.md` with current branch, s
 
 Full session init (slower, more thorough): `node tools/session-start.mjs`
 
+## Local Browser Snappiness Reset (CRITICAL — recognise the triggers)
+
+The user can ask an agent to refresh the local Simple Browser/webview session without re-explaining the routine.
+
+**Recognise these triggers:**
+- `refresh local browser session`
+- `refresh the local browser session`
+- `make local browser snappier`
+- `make the local browser snappier`
+- `make Simple Browser snappier`
+- `reset Simple Browser`
+- `refresh Simple Browser`
+- `local browser is lagging`
+- `Simple Browser is laggy`
+
+When triggered, run the local-browser reset ladder from [.github/instructions/dev-experience.instructions.md](.github/instructions/dev-experience.instructions.md) (`Local browser snappiness reset`). Do not change app code. Do not add a changelog entry for cleanup-only work.
+
+Default intent: make the current local dev/browser loop feel snappier by clearing dev clutter, resetting the embedded browser/webview state, and avoiding duplicate dev servers.
+
+## Production Deploy Guard (CRITICAL)
+
+**Never run a production deploy or production runtime mutation without an explicit confirmation menu first.** This includes `build-and-deploy.ps1`, raw `az webapp deploy` against production, and runtime/config changes such as `az webapp config set` or `az webapp restart` for the production app.
+
+Only run the prod-mutation flow when the user uses one of these trigger phrases:
+- `deploy prod`
+- `deploy production`
+- `ship prod`
+- `push prod`
+- `run production deploy`
+- `cut over production runtime`
+- `switch production to node 22`
+
+When triggered, ask exactly this menu before doing anything mutable:
+
+`Pick one:`
+`0) No prod action`
+`1) Check prod/staging status only`
+`2) Deploy staging only`
+`3) Deploy production code`
+`4) Production runtime cutover only`
+
+After user picks, run exactly one:
+- `0` → do nothing
+- `1` → read-only prod/staging checks only; no deploy, no restart, no config mutation
+- `2` → `./build-and-deploy-staging.ps1`
+- `3` → **two-step passcode flow** (see below). Never invoke `build-and-deploy.ps1` from a single confirmation.
+- `4` → only the explicitly requested production runtime mutation after confirming the user picked runtime cutover AND the passcode step below has succeeded
+
+### Two-step passcode flow for production deploys (option 3 / option 4)
+
+The production deploy script (`build-and-deploy.ps1`) requires three arguments and will refuse to run otherwise: `-ConfirmedByChat`, `-ConfirmationPhrase "DEPLOY PROD"`, and `-Passcode <value>`. The agent does NOT know the passcode and MUST NOT guess, hard-code, store, or re-use it. The operator (the user) is the only source.
+
+After the user picks option 3 or 4 from the menu, the agent MUST do this — in this exact order — every single time, with no shortcuts:
+
+1. Ask the user once more in chat: *"Confirm: run the production deploy now? (yes / no)"*. If anything other than an affirmative reply, stop.
+2. Then ask in chat: *"Please paste the production deploy passcode. I will pass it straight to the script and not store it."* Wait for the user to paste the value.
+3. Only then run: `./build-and-deploy.ps1 -ConfirmedByChat -ConfirmationPhrase "DEPLOY PROD" -Passcode "<value the user just supplied>"`.
+4. Never echo the passcode back to the user. Never log it. Never write it to a file, instruction, changelog, or stash brief. Never reuse it on a later run — always re-ask.
+
+The passcode itself is a number known to the operator; its SHA256 hash is the only representation in source. Do NOT attempt to derive, infer, or document the literal value anywhere in the repo or in chat replies.
+
+Rules:
+- If the user says "deploy" casually or as part of a broader sentence, do not treat that as enough. The menu is still required before any prod mutation, and option 3/4 still require the two-step passcode flow above.
+- Never bypass the menu by running raw Azure CLI against production when the script path exists.
+- Never invoke `build-and-deploy.ps1` without all three arguments. The script will reject it, but the agent should not even attempt it.
+- Read-only status/smoke checks are allowed without the menu, but the moment the action would mutate production, the menu + passcode flow is mandatory.
+- If a future script introduces a different production deploy entry point, give it the same two-layer guard (chat phrase + operator passcode).
+
 ## Stashing work for later (CRITICAL — recognise the triggers)
 
 The user runs a "stash" routine to park scoped work as a self-contained brief that any future agent can execute cold. Full protocol: [.github/instructions/STASHED_PROJECTS.md](.github/instructions/STASHED_PROJECTS.md).
@@ -373,6 +465,7 @@ This is the compounding mechanism. Each session should leave the instruction sur
 - Time: Europe/London
 - Language: British English
 - Git commits: concise, imperative
+- **Never use em dashes (—) or en dashes (–) in chat replies, generated content, demo notes, changelog entries, comments, commit messages, or any other output.** Use a full stop, comma, colon, or parentheses instead. The user finds em dashes a strong "AI tell" and they are out of voice. This applies to every artefact the agent writes, not just user-facing text. The only exception is when modifying an existing file that already contains em dashes and the change does not touch them.
 
 ## Logging (CRITICAL — agents MUST do this)
 
@@ -480,7 +573,7 @@ Key pillars:
 - Toast feedback for every state change
 - `borderRadius: 0` everywhere (999 pills, 50% dots only)
 - Brand tokens only — no invented hex values
-- Accent (`#87F3F3`) sparingly at anchor points; highlightBlue (`#d6e8ff`) for light-mode highlights
+- Accent aliases Helix Highlight (`#3690CE`) for anchor points; highlightBlue (`#d6e8ff`) remains a light-mode surface tint
 - Area of Work colours and icons from the canonical table below
 
 ### Text hierarchy inside panels (CRITICAL — prevents blue-on-blue)
@@ -492,7 +585,7 @@ Body text in dark-mode panels MUST use **neutral greys**, never brand blue. `col
 | **labelText** | `colours.dark.text` (#f3f4f6) | `colours.light.text` (#061733) | Headings, active labels, input values |
 | **bodyText** | `#d1d5db` (warm grey) | `#374151` (warm dark grey) | Paragraphs, descriptions — always neutral |
 | **helpText** | `colours.subtleGrey` (#A0A0A0) | `colours.greyText` (#6B6B6B) | Tertiary guidance, timestamps |
-| **sectionAccent** | `colours.accent` (#87F3F3) | `colours.highlight` (#3690CE) | Section titles only — anchor points |
+| **sectionAccent** | `colours.accent` / `colours.highlight` (#3690CE) | `colours.highlight` (#3690CE) | Section titles only — anchor points |
 
 > If you're writing more than ~3 words, use `bodyText` or `labelText`. Brand colours are for _structure_ (titles, dots, icons), not prose.
 
@@ -523,7 +616,7 @@ Body text in dark-mode panels MUST use **neutral greys**, never brand blue. `col
 | Token | Hex | Role |
 |-------|-----|------|
 | `highlightBlue` | `#d6e8ff` | Lightest blue tint — light-mode surface fill only (hover rows, selected backgrounds). **Not** the primary highlight colour. |
-| `accent` | `#87F3F3` | Teal accent — dark-mode interactive highlights, sort headers, active borders. Sparingly at structural anchor points. |
+| `accent` | `#3690CE` | Alias for Helix Highlight — active states, sort headers, selected borders. The old teal accent is retired. |
 | `green` | `#20b26c` | Success, ready, connected, Property AoW |
 | `orange` | `#FF8C00` | Warnings, Construction AoW. **The only orange.** Never use `#FFB74D`, `#E65100`, `#f59e0b`, `#FF9800`. |
 | `yellow` | `#ffd54f` | Employment AoW |
@@ -567,7 +660,7 @@ Every Area of Work indicator across the app MUST use these exact tokens. No RGB 
 - **borderRadius: 0** everywhere. Only exceptions: `999` for pills/dots, `'50%'` for circular status indicators.
 - **Font: Raleway** for all headings and UI text.
 - **One CTA pop per view** — `cta` (#D65541) is the sole warm colour. Don't compete with multiple strong colours.
-- **Accent for dark-mode highlights** — `accent` (#87F3F3) is the dark-mode equivalent of `highlight` (#3690CE). Use for active sort headers, selected borders, filter chips, tab underlines. Pair: `isDarkMode ? colours.accent : colours.highlight`.
+- **Accent for highlights** — `accent` and `highlight` both resolve to `#3690CE`. Use for active sort headers, selected borders, filter chips, and tab underlines. Do not reintroduce the old teal/cyan accent.
 - **Accent sparingly at anchor points** — section title bars, key structural elements. Never for widespread decoration or body text.
 - **highlightBlue for light-mode surfaces** — `highlightBlue` (#d6e8ff) for hover backgrounds, selected rows, badge fills in light mode.
 - **True highlight naming rule (critical)** — when specs/UX say “highlight blue”, use `colours.blue` / `colours.highlight` (`#3690CE`). Do **not** substitute `highlightBlue` (`#d6e8ff`), which is a light surface tint only.

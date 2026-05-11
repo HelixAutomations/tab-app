@@ -9,7 +9,7 @@ import { TextField } from '@fluentui/react/lib/TextField';
 import { Dropdown } from '@fluentui/react/lib/Dropdown';
 import type { IDropdownOption } from '@fluentui/react/lib/Dropdown';
 import { mergeStyles } from '@fluentui/react/lib/Styling';
-import { getProxyBaseUrl } from '../../utils/getProxyBaseUrl';
+import { getApiBase } from '../../utils/getApiUrl';
 import {
   getFormSectionHeaderStyle,
   getFormSectionStyle,
@@ -153,7 +153,7 @@ export default function TechTicketsLedger(props: TechTicketsLedgerProps) {
     if (!editingItem) return;
     setIsSaving(true);
     try {
-      const baseUrl = getProxyBaseUrl();
+      const baseUrl = getApiBase();
       const response = await fetch(`${baseUrl}/api/tech-tickets/item/${editingItem.type}/${editingItem.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -186,7 +186,7 @@ export default function TechTicketsLedger(props: TechTicketsLedgerProps) {
     if (!deletingItem) return;
     setIsDeleting(true);
     try {
-      const baseUrl = getProxyBaseUrl();
+      const baseUrl = getApiBase();
       const response = await fetch(`${baseUrl}/api/tech-tickets/item/${deletingItem.type}/${deletingItem.id}`, {
         method: 'DELETE',
       });
@@ -212,8 +212,8 @@ export default function TechTicketsLedger(props: TechTicketsLedgerProps) {
       setError(null);
 
       try {
-        const baseUrl = getProxyBaseUrl();
-        const response = await fetch(`${baseUrl}/tech-tickets/ledger?limit=20&type=${encodeURIComponent(type)}`);
+        const baseUrl = getApiBase();
+        const response = await fetch(`${baseUrl}/api/tech-tickets/ledger?limit=20&type=${encodeURIComponent(type)}`);
         if (!response.ok) {
           throw new Error(`Failed to load ledger (${response.status})`);
         }

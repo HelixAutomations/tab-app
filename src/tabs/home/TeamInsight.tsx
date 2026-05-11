@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useCallback } from 'react';
 import { FiUsers, FiMonitor, FiChevronRight, FiCheck, FiX } from 'react-icons/fi';
 import type { AnnualLeaveRecord } from '../../app/functionality/types';
-import { colours } from '../../app/styles/colours';
+import { colours, withAlpha } from '../../app/styles/colours';
 import { TeamInsightSectionSkeleton } from './HomeSkeletons';
 import './home-tokens.css';
 
@@ -331,12 +331,20 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
   const skeletonTileBorder = 'var(--home-tile-border)';
   // Section hover — brand navy lift, not teal wash
   const sectionHoverBg = isDarkMode ? 'rgba(12, 36, 64, 0.72)' : 'rgba(54, 144, 206, 0.04)';
-  const sectionHoverRing = isDarkMode ? 'rgba(135, 243, 243, 0.18)' : 'rgba(13, 47, 96, 0.14)';
+  const sectionHoverRing = isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(13, 47, 96, 0.14)';
   const sectionHoverShadow = isDarkMode
-    ? 'inset 0 0 0 1px rgba(135, 243, 243, 0.08), 0 4px 16px rgba(0, 0, 0, 0.3)'
+    ? 'inset 0 0 0 1px rgba(54, 144, 206, 0.08), 0 4px 16px rgba(0, 0, 0, 0.3)'
     : 'inset 0 0 0 1px rgba(13, 47, 96, 0.08), 0 1px 4px rgba(13, 47, 96, 0.04)';
   const selectedBorder = isDarkMode ? 'rgba(54, 144, 206, 0.6)' : 'rgba(54, 144, 206, 0.5)';
   const selectedBg     = isDarkMode ? 'rgba(12, 36, 64, 0.82)' : 'rgba(54, 144, 206, 0.08)';
+  const teamSectionToggleChrome = useMemo(() => ({
+    shellBorder: isDarkMode ? withAlpha(colours.highlight, 0.2) : withAlpha(colours.helixBlue, 0.14),
+    shellBackground: isDarkMode ? withAlpha(colours.dark.sectionBackground, 0.78) : withAlpha(colours.grey, 0.72),
+    activeBorder: isDarkMode ? withAlpha(colours.highlight, 0.22) : withAlpha(colours.highlight, 0.18),
+    activeBackground: isDarkMode ? withAlpha(colours.highlight, 0.16) : withAlpha(colours.highlight, 0.12),
+    activeText: isDarkMode ? colours.dark.text : colours.highlight,
+    inactiveText: isDarkMode ? colours.subtleGrey : colours.greyText,
+  }), [isDarkMode]);
 
   /* ═══════════════════════════════════════════════════════
    * SECTION 1: ATTENDANCE DATA
@@ -699,12 +707,16 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
           <span className="team-toggle home-team-toggle" style={{
             display: 'inline-flex',
             alignItems: 'center',
-            gap: '3px',
+            gap: '5px',
+            minHeight: 24,
+            padding: '0 8px',
+            border: `1px solid ${attendanceExpanded ? teamSectionToggleChrome.activeBorder : teamSectionToggleChrome.shellBorder}`,
+            background: attendanceExpanded ? teamSectionToggleChrome.activeBackground : teamSectionToggleChrome.shellBackground,
             fontSize: 'var(--text-xs)',
             fontWeight: 600,
-            color: attendanceExpanded ? accentColor : textMuted,
-            transition: 'color var(--transition-fast)',
-            ['--home-team-toggle-active' as string]: accentColor,
+            color: attendanceExpanded ? teamSectionToggleChrome.activeText : teamSectionToggleChrome.inactiveText,
+            transition: 'background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast)',
+            ['--home-team-toggle-active' as string]: teamSectionToggleChrome.activeText,
           } as React.CSSProperties}>
             {attendanceExpanded ? 'Collapse' : todayLabel}
             <FiChevronRight style={{
@@ -825,8 +837,8 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
                   color: accentColor,
                   cursor: 'pointer',
                   padding: '2px 6px',
-                  background: isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.06)',
-                  border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.2)' : 'rgba(54, 144, 206, 0.15)'}`,
+                  background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)',
+                  border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)'}`,
                   borderRadius: 999,
                   letterSpacing: '0.3px',
                   transition: 'opacity var(--transition-fast)',
@@ -938,7 +950,7 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
                             gap: 2,
                             padding: '2px 3px',
                             borderLeft: isToday
-                              ? `2px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.35)' : 'rgba(54, 144, 206, 0.25)'}`
+                              ? `2px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.25)'}`
                               : '2px solid transparent',
                             minHeight: 16,
                             alignItems: 'center',
@@ -1044,12 +1056,16 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
           <span className="team-toggle home-team-toggle" style={{
             display: 'inline-flex',
             alignItems: 'center',
-            gap: '3px',
+            gap: '5px',
+            minHeight: 24,
+            padding: '0 8px',
+            border: `1px solid ${leaveExpanded ? teamSectionToggleChrome.activeBorder : teamSectionToggleChrome.shellBorder}`,
+            background: leaveExpanded ? teamSectionToggleChrome.activeBackground : teamSectionToggleChrome.shellBackground,
             fontSize: 'var(--text-xs)',
             fontWeight: 600,
-            color: leaveExpanded ? accentColor : textMuted,
-            transition: 'color var(--transition-fast)',
-            ['--home-team-toggle-active' as string]: accentColor,
+            color: leaveExpanded ? teamSectionToggleChrome.activeText : teamSectionToggleChrome.inactiveText,
+            transition: 'background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast)',
+            ['--home-team-toggle-active' as string]: teamSectionToggleChrome.activeText,
           } as React.CSSProperties}>
             {leaveExpanded ? 'Collapse' : 'Upcoming leave'}
             <FiChevronRight style={{
@@ -1194,7 +1210,7 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
                       alignItems: 'center',
                       gap: 0,
                       borderLeft: d.isMonday && i > 0
-                        ? `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(75, 85, 99, 0.15)'}`
+                        ? `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(75, 85, 99, 0.15)'}`
                         : 'none',
                       paddingLeft: d.isMonday && i > 0 ? 1 : 0,
                     }}
@@ -1231,7 +1247,7 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
                       minHeight: 22,
                       background: 'transparent',
                       transition: 'background var(--transition-fast)',
-                      ['--home-team-row-hover-bg' as string]: isDarkMode ? 'rgba(135, 243, 243, 0.04)' : 'rgba(54, 144, 206, 0.04)',
+                      ['--home-team-row-hover-bg' as string]: isDarkMode ? 'rgba(54, 144, 206, 0.04)' : 'rgba(54, 144, 206, 0.04)',
                     } as React.CSSProperties}
                   >
                     <div style={{
@@ -1265,7 +1281,7 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
                             display: 'flex',
                             alignItems: 'center',
                             borderLeft: weekBreak
-                              ? `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(75, 85, 99, 0.15)'}`
+                              ? `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(75, 85, 99, 0.15)'}`
                               : 'none',
                             paddingLeft: weekBreak ? 1 : 0,
                           }}
@@ -1275,13 +1291,13 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
                               width: '100%',
                               height: 10,
                               background: isDarkMode
-                                ? 'rgba(135, 243, 243, 0.18)'
+                                ? 'rgba(54, 144, 206, 0.18)'
                                 : 'rgba(54, 144, 206, 0.14)',
                               borderLeft: (!prevOff || weekBreak)
-                                ? `2px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.5)' : 'rgba(54, 144, 206, 0.4)'}`
+                                ? `2px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.5)' : 'rgba(54, 144, 206, 0.4)'}`
                                 : 'none',
                               borderRight: (!nextOff || (i < dayKeys.length - 1 && calendarData.days[i + 1]?.isMonday))
-                                ? `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(54, 144, 206, 0.2)'}`
+                                ? `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)'}`
                                 : 'none',
                               marginLeft: prevOff && !weekBreak ? 0 : 1,
                               marginRight: nextOff && !(i < dayKeys.length - 1 && calendarData.days[i + 1]?.isMonday) ? 0 : 1,

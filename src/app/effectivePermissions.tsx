@@ -121,7 +121,12 @@ export function useEffectivePermissionsContext(): EffectivePermissionsContextVal
 }
 
 export interface EffectivePermissions {
-  /** True when the real user is LZ or AC (the dev preview group). */
+  /**
+   * True when the real user is the dev-preview owner (LZ).
+   * Name retained for compatibility — AC was previously included but is now
+   * a plain admin. Anything that needs broader admin visibility should use
+   * `isAdminUser` instead of this flag.
+   */
   isLzOrAc: boolean;
   isAdminUser: boolean;
   canAccessReports: boolean;
@@ -134,7 +139,7 @@ export interface EffectivePermissions {
 function computePassthrough(user?: UserData | null): Omit<EffectivePermissions, 'overrideTier'> {
   const initials = (user?.Initials || '').toUpperCase().trim();
   return {
-    isLzOrAc: initials === 'LZ' || initials === 'AC',
+    isLzOrAc: initials === 'LZ',
     isAdminUser: rawIsAdminUser(user),
     canAccessReports: rawCanAccessReports(user),
     isDevOwner: rawIsDevOwner(user),

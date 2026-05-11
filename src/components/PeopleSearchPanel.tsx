@@ -206,7 +206,7 @@ const PeopleSearchPanel: React.FC<PeopleSearchPanelProps> = ({ isOpen, onDismiss
       {/* Header */}
       <div style={headerStyle}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Icon iconName="Search" style={{ fontSize: 16, color: colours.highlight }} />
+          <Icon iconName="Contact" style={{ fontSize: 16, color: colours.highlight }} />
           <Text variant="large" styles={{
             root: {
               fontWeight: 600,
@@ -214,7 +214,7 @@ const PeopleSearchPanel: React.FC<PeopleSearchPanelProps> = ({ isOpen, onDismiss
               fontFamily: 'Raleway, sans-serif',
             }
           }}>
-            People Search
+            Person Lookup
           </Text>
         </div>
         <IconButton
@@ -262,7 +262,7 @@ const PeopleSearchPanel: React.FC<PeopleSearchPanelProps> = ({ isOpen, onDismiss
           )}
         </div>
         <div style={{ fontSize: 11, color: textSecondary, marginTop: 6, paddingLeft: 2, opacity: 0.7, fontFamily: 'Raleway, sans-serif' }}>
-          Search across all enquiry records
+          Cross-record person lookup across all enquiry records
         </div>
       </div>
 

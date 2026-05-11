@@ -1,5 +1,5 @@
-/* ═══════════════════════════════════════════════════════════
-   Prospects.css — Table-view classes for the Enquiries list
+/* ÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚Â
+   Prospects.css ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Table-view classes for the Enquiries list
    Imported by Enquiries.tsx.  Uses design-tokens.css vars.
 
    Design language: UserBubble > Compositions
@@ -7,9 +7,9 @@
    - Lift on hover (translateY, box-shadow)
    - Small accent dots for timeline markers
    - Raleway, tight type, uppercase kickers
-   ═══════════════════════════════════════════════════════════ */
+   ÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚Â */
 
-/* ─── Motion tokens (coordinated timing) ─── */
+/* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Motion tokens (coordinated timing) ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ */
 :root {
   --motion-row-stagger: 18ms;        /* delay between consecutive rows       */
   --motion-row-duration: 0.24s;      /* individual row entrance duration     */
@@ -19,7 +19,258 @@
   --motion-fade-base: 0.16s;         /* default fade                         */
 }
 
-/* ─── Row entrance cascade ─── */
+/* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Queue skeletons ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ */
+@keyframes prospect-skeleton-shell-enter {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes prospect-skeleton-shell-exit {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes prospect-skeleton-row-enter {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: var(--enq-skeleton-row-opacity, 1);
+    transform: translateY(0);
+  }
+}
+
+.enq-queue-skeleton {
+  contain: layout paint style;
+  animation: prospect-skeleton-shell-enter 180ms ease-out both;
+}
+
+.enq-queue-skeleton[data-exiting="true"] {
+  animation: prospect-skeleton-shell-exit 220ms ease-out both;
+}
+
+.enq-queue-skeleton__header,
+.enq-queue-skeleton__row {
+  display: grid;
+  grid-template-columns: var(--enq-skeleton-grid);
+  gap: clamp(4px, 0.8vw, 8px);
+  align-items: center;
+}
+
+.enq-queue-skeleton__header {
+  padding: 0 16px;
+  height: 44px;
+}
+
+.enq-queue-skeleton__row {
+  padding: clamp(6px, 0.8vw, 8px) clamp(8px, 1.2vw, 14px);
+  background: rgba(13, 47, 96, 0.024);
+  opacity: var(--enq-skeleton-row-opacity, 1);
+  animation: prospect-skeleton-row-enter 220ms ease-out both;
+  animation-delay: var(--enq-skeleton-row-delay, 0s);
+}
+
+[data-theme="dark"] .enq-queue-skeleton__row {
+  background: color-mix(in srgb, var(--surface-section) 72%, var(--surface-card) 28%);
+}
+
+.enq-queue-skeleton__timeline,
+.enq-queue-skeleton__actions {
+  display: flex;
+  justify-content: center;
+}
+
+.enq-queue-skeleton__timeline {
+  height: 100%;
+  min-height: 36px;
+}
+
+.enq-queue-skeleton__timeline-line {
+  width: 1px;
+  height: 100%;
+  background: linear-gradient(180deg, transparent 0%, var(--enq-skeleton-line) 18%, var(--enq-skeleton-line) 82%, transparent 100%);
+}
+
+.enq-queue-skeleton__stack {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  justify-content: center;
+  min-width: 0;
+}
+
+.enq-queue-skeleton__stack--contact {
+  gap: 4px;
+}
+
+.enq-queue-skeleton__meta,
+.enq-queue-skeleton__chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.enq-queue-skeleton__block {
+  flex: 0 0 auto;
+  border-radius: 0;
+  box-sizing: border-box;
+  background: linear-gradient(180deg, var(--enq-skeleton-strong) 0%, var(--enq-skeleton-base) 100%);
+  border: 1px solid var(--enq-skeleton-block-border);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.enq-queue-skeleton__block--base {
+  opacity: 0.88;
+}
+
+.enq-queue-skeleton__block--strong {
+  opacity: 1;
+}
+
+.enq-queue-skeleton__dot {
+  border-radius: 50%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .enq-queue-skeleton,
+  .enq-queue-skeleton__row {
+    animation: none;
+  }
+}
+
+/* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Matters table skeletons ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ */
+.matter-table-skeleton {
+  contain: layout paint style;
+  animation: prospect-skeleton-shell-enter 180ms ease-out both;
+}
+
+.matter-table-skeleton[data-exiting="true"] {
+  animation: prospect-skeleton-shell-exit 220ms ease-out both;
+}
+
+.matter-table-skeleton__header,
+.matter-table-skeleton__row {
+  display: grid;
+  grid-template-columns: var(--matter-skeleton-grid);
+  gap: 4px;
+  align-items: center;
+}
+
+.matter-table-skeleton__header {
+  padding: 0 14px;
+  height: 44px;
+  box-sizing: border-box;
+}
+
+.matter-table-skeleton__row {
+  padding: clamp(8px, 0.9vw, 10px) 14px;
+  box-sizing: border-box;
+  background: rgba(13, 47, 96, 0.024);
+  opacity: var(--matter-skeleton-row-opacity, 1);
+  animation: prospect-skeleton-row-enter 220ms ease-out both;
+  animation-delay: var(--matter-skeleton-row-delay, 0s);
+}
+
+[data-theme="dark"] .matter-table-skeleton__row {
+  background: color-mix(in srgb, var(--surface-section) 72%, var(--surface-card) 28%);
+}
+
+.matter-table-skeleton__timeline,
+.matter-table-skeleton__timeline-head,
+.matter-table-skeleton__ccl,
+.matter-table-skeleton__fee {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.matter-table-skeleton__timeline {
+  height: 100%;
+  min-height: 40px;
+}
+
+.matter-table-skeleton__timeline-line,
+.matter-table-skeleton__line-head {
+  width: 1px;
+  background: linear-gradient(180deg, transparent 0%, var(--matter-skeleton-line) 18%, var(--matter-skeleton-line) 82%, transparent 100%);
+}
+
+.matter-table-skeleton__timeline-line {
+  height: 100%;
+}
+
+.matter-table-skeleton__line-head {
+  height: 14px;
+  opacity: 0.48;
+}
+
+.matter-table-skeleton__stack,
+.matter-table-skeleton__summary {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  justify-content: center;
+  min-width: 0;
+}
+
+.matter-table-skeleton__stack--date {
+  gap: 3px;
+}
+
+.matter-table-skeleton__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.matter-table-skeleton__block {
+  flex: 0 0 auto;
+  border-radius: 0;
+  box-sizing: border-box;
+  background: linear-gradient(180deg, var(--matter-skeleton-strong) 0%, var(--matter-skeleton-base) 100%);
+  border: 1px solid var(--matter-skeleton-block-border);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.matter-table-skeleton__block--base {
+  opacity: 0.88;
+}
+
+.matter-table-skeleton__block--strong {
+  opacity: 1;
+}
+
+.matter-table-skeleton__dot {
+  border-radius: 50%;
+}
+
+.matter-table-skeleton__icon {
+  opacity: 0.72;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .matter-table-skeleton,
+  .matter-table-skeleton__row {
+    animation: none;
+  }
+}
+
+/* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Row entrance cascade ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ */
 @keyframes prospect-row-enter {
   from {
     opacity: 0;
@@ -47,7 +298,7 @@
 }
 
 .prospect-row {
-  /* Row entrance removed — prospect-content-fade handles crossfade.
+  /* Row entrance removed ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â prospect-content-fade handles crossfade.
      Replay on every filter switch caused border flash + double-opacity. */
   animation: none;
   content-visibility: auto;
@@ -71,7 +322,7 @@
 .prospect-content-cascade .enquiry-row--enter > :nth-child(5) { animation-delay: calc(var(--row-index, 0) * var(--motion-row-stagger) + 40ms); }
 .prospect-content-cascade .enquiry-row--enter > :nth-child(6) { animation-delay: calc(var(--row-index, 0) * var(--motion-row-stagger) + 50ms); }
 
-/* Day separator entrance — same cascade, slightly offset timing */
+/* Day separator entrance ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â same cascade, slightly offset timing */
 @keyframes prospect-sep-enter {
   from {
     opacity: 0;
@@ -84,11 +335,11 @@
 }
 
 .prospect-day-sep {
-  /* Sep entrance removed — same reason as prospect-row above. */
+  /* Sep entrance removed ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â same reason as prospect-row above. */
   animation: none;
 }
 
-/* ─── Content crossfade (filter/tab changes) ─── */
+/* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Content crossfade (filter/tab changes) ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ */
 @keyframes prospect-content-enter {
   from {
     opacity: 0;
@@ -111,7 +362,7 @@
   }
 }
 
-/* ─── Badge count settle ─── */
+/* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Badge count settle ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ */
 @keyframes badge-count-pop {
   0%   { transform: scale(0.7); opacity: 0; }
   60%  { transform: scale(1.08); }
@@ -122,28 +373,103 @@
   transition: background var(--motion-fade-fast) ease, color var(--motion-fade-fast) ease;
 }
 
-/* Pop plays on mount — use key={count} in JSX to replay on change */
+/* Pop plays on mount ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â use key={count} in JSX to replay on change */
 .enq-badge[data-animate] {
   animation: badge-count-pop 0.32s var(--motion-ease-out) both;
 }
 
-/* ─── New-arrival animation (realtime incoming enquiries) ─── */
-@keyframes prospect-new-arrival {
-  0%   { opacity: 0; transform: translateY(-6px) scale(0.98); box-shadow: 0 0 0 0 rgba(135, 243, 243, 0); }
-  40%  { opacity: 1; transform: translateY(0) scale(1); }
-  55%  { box-shadow: 0 0 0 3px rgba(135, 243, 243, 0.35); }
-  100% { opacity: 1; transform: translateY(0) scale(1); box-shadow: 0 0 0 0 rgba(135, 243, 243, 0); }
+/* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Realtime arrival / update sweep ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+  Canonical "freshly inserted" pulse for any row-style surface
+  (prospects, matters, future feeds). Uses a subtle 1px inner-edge
+  border with a billing-rail-style blue ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ accent ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ green gradient
+  wash. No radial flare, no outer glow, no layout shift.
+
+   To trigger:
+     ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ Append `prospect-row--new-arrival` for ~1.7s on the row, OR
+     ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ Set `data-fresh="true"` on the row (handled by useFreshIds)
+   Then remove the class/attr after `animationend`.
+*/
+@keyframes helix-fresh-sweep {
+  0% {
+    opacity: 0;
+    box-shadow: inset 0 0 0 1px rgba(var(--highlight-rgb), 0);
+    filter: saturate(0.96);
+  }
+  18% {
+    opacity: 0.88;
+    box-shadow: inset 0 0 0 1px rgba(var(--highlight-rgb), 0.28);
+    filter: saturate(1);
+  }
+  52% {
+    opacity: 1;
+    box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), 0.34);
+    filter: saturate(1.04);
+  }
+  82% {
+    opacity: 0.82;
+    box-shadow: inset 0 0 0 1px rgba(var(--green-rgb), 0.3);
+    filter: saturate(1);
+  }
+  100% {
+    opacity: 0;
+    box-shadow: inset 0 0 0 1px rgba(var(--green-rgb), 0);
+    filter: saturate(0.96);
+  }
 }
 
-.prospect-row--new-arrival {
-  animation: prospect-new-arrival 0.55s var(--motion-ease-out) both !important;
-  z-index: 2;
+.prospect-row--new-arrival,
+.prospect-row[data-fresh="true"] {
   position: relative;
+  z-index: 2;
 }
 
-/* ═══════════════════════════════════════════════════════════
-   Workbench motion — coordinated entrance for InlineWorkbench
-   ═══════════════════════════════════════════════════════════
+.prospect-row--new-arrival::after,
+.prospect-row[data-fresh="true"]::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background:
+    linear-gradient(90deg,
+      rgba(var(--highlight-rgb), 0) 0%,
+      rgba(var(--highlight-rgb), 0.22) 18%,
+      rgba(var(--accent-rgb), 0.32) 52%,
+      rgba(var(--green-rgb), 0.24) 84%,
+      rgba(var(--green-rgb), 0) 100%) top / 100% 1px no-repeat,
+    linear-gradient(180deg,
+      rgba(var(--highlight-rgb), 0) 0%,
+      rgba(var(--highlight-rgb), 0.18) 18%,
+      rgba(var(--accent-rgb), 0.28) 52%,
+      rgba(var(--green-rgb), 0.22) 84%,
+      rgba(var(--green-rgb), 0) 100%) right / 1px 100% no-repeat,
+    linear-gradient(270deg,
+      rgba(var(--highlight-rgb), 0) 0%,
+      rgba(var(--highlight-rgb), 0.22) 18%,
+      rgba(var(--accent-rgb), 0.32) 52%,
+      rgba(var(--green-rgb), 0.24) 84%,
+      rgba(var(--green-rgb), 0) 100%) bottom / 100% 1px no-repeat,
+    linear-gradient(0deg,
+      rgba(var(--highlight-rgb), 0) 0%,
+      rgba(var(--highlight-rgb), 0.18) 18%,
+      rgba(var(--accent-rgb), 0.28) 52%,
+      rgba(var(--green-rgb), 0.22) 84%,
+      rgba(var(--green-rgb), 0) 100%) left / 1px 100% no-repeat;
+  will-change: opacity, box-shadow, filter;
+  animation: helix-fresh-sweep 1.55s ease-out 1 both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .prospect-row--new-arrival::after,
+  .prospect-row[data-fresh="true"]::after {
+    animation: none;
+    opacity: 0;
+  }
+}
+
+/* ÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚Â
+   Workbench motion ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â coordinated entrance for InlineWorkbench
+   ÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚Â
    
    RULE: On initial entry (wb-motion-enter), ONLY the parent
    panel does an opacity fade. All children use translateY-only
@@ -151,9 +477,9 @@
    
    On tab-switch (wb-tab-transition), children can do a quick
    opacity crossfade since the parent is already fully visible.
-   ═══════════════════════════════════════════════════════════ */
+   ÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚Â */
 
-/* ─── Parent panel: the ONE opacity source on entry ─── */
+/* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Parent panel: the ONE opacity source on entry ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ */
 @keyframes wb-panel-enter {
   from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: translateY(0); }
@@ -163,7 +489,7 @@
   animation: wb-panel-enter 0.24s var(--motion-ease-out) both;
 }
 
-/* ─── Children: translateY-only on initial entry (no opacity) ─── */
+/* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Children: translateY-only on initial entry (no opacity) ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ */
 @keyframes wb-slide-up {
   from { transform: translateY(6px); }
   to   { transform: translateY(0); }
@@ -174,13 +500,13 @@
   to   { transform: scaleX(1); }
 }
 
-/* Pipeline chips — subtle staggered lift */
+/* Pipeline chips ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â subtle staggered lift */
 .inline-workbench.wb-motion-enter .wb-chip {
   animation: wb-slide-up 0.20s var(--motion-ease-out) both;
   animation-delay: calc(var(--chip-index, 0) * 18ms + 30ms);
 }
 
-/* Connectors — grow left-to-right */
+/* Connectors ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â grow left-to-right */
 .inline-workbench.wb-motion-enter .wb-connector {
   transform-origin: left center;
   animation: wb-slide-right 0.12s var(--motion-ease-out) both;
@@ -199,7 +525,7 @@
   animation-delay: 20ms;
 }
 
-/* Enquiry header / meta row / pills — gentle stagger */
+/* Enquiry header / meta row / pills ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â gentle stagger */
 .inline-workbench.wb-motion-enter .wb-enquiry-header {
   animation: wb-slide-up 0.18s var(--motion-ease-out) both;
   animation-delay: 30ms;
@@ -236,7 +562,7 @@
   animation-delay: calc(var(--section-index, 0) * 18ms + 40ms);
 }
 
-/* ─── Tab-switch crossfade (parent visible, children can use opacity) ─── */
+/* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Tab-switch crossfade (parent visible, children can use opacity) ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ */
 @keyframes wb-tab-enter {
   from { opacity: 0; transform: translateY(14px) scale(0.985); }
   to   { opacity: 1; transform: translateY(0); }
@@ -248,19 +574,277 @@
   to   { transform: translateY(0); }
 }
 
-/* Parent container: NO opacity animation (mount-fade on children handles it) */
-.wb-tab-content.wb-tab-transition {
-  /* marker class only — children animate, not the parent */
+@keyframes wb-tab-forward-enter {
+  from { opacity: 0; transform: translateX(6px) translateY(2px); }
+  to   { opacity: 1; transform: translateX(0) translateY(0); }
 }
 
-.wb-tab-content.wb-tab-transition .wb-tab-stack > * {
+@keyframes wb-tab-back-enter {
+  from { opacity: 0; transform: translateX(-6px) translateY(2px); }
+  to   { opacity: 1; transform: translateX(0) translateY(0); }
+}
+
+/* Inner-row fade ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â used at the third nesting level so a row inside an already
+   animating wrapper card doesn't double-translate. Opacity only. */
+@keyframes wb-tab-inner-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes wb-chip-current-pulse {
+  0%   { box-shadow: inset 0 -2px 0 var(--helix-highlight), 0 0 0 0 rgba(var(--accent-rgb), 0); }
+  42%  { box-shadow: inset 0 -2px 0 var(--helix-highlight), 0 0 0 3px rgba(var(--accent-rgb), 0.18); }
+  100% { box-shadow: inset 0 -2px 0 var(--helix-highlight), 0 0 0 0 rgba(var(--accent-rgb), 0); }
+}
+
+/* Parent container: NO opacity animation (mount-fade on children handles it) */
+.wb-tab-content.wb-tab-transition {
+  /* marker class only ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â children animate, not the parent */
+}
+
+/* Default (no direction known): subtle vertical lift per child */
+.wb-tab-content.wb-tab-transition .wb-tab-stack > *,
+.wb-tab-content.wb-tab-transition .wb-tab-stack > * > div,
+.wb-tab-content.wb-tab-transition .wb-tab-stack .wb-data-bar,
+.wb-tab-content.wb-tab-transition .wb-tab-stack .wb-data-shell,
+.wb-tab-content.wb-tab-transition .wb-tab-stack .wb-stage-frame,
+.wb-tab-content.wb-tab-transition .wb-tab-stack .wb-notes-block,
+.wb-tab-content.wb-tab-transition .wb-tab-stack .wb-section,
+.wb-tab-content.wb-tab-transition .wb-tab-stack .wb-enquiry-stack > * {
   animation: wb-tab-lift 0.22s var(--motion-ease-out) both;
 }
 
-.wb-tab-content.wb-tab-transition .wb-tab-stack > :nth-child(1) { animation-delay: 22ms; }
-.wb-tab-content.wb-tab-transition .wb-tab-stack > :nth-child(2) { animation-delay: 44ms; }
-.wb-tab-content.wb-tab-transition .wb-tab-stack > :nth-child(3) { animation-delay: 66ms; }
-.wb-tab-content.wb-tab-transition .wb-tab-stack > :nth-child(4) { animation-delay: 88ms; }
+/* Direction-aware cascade: each box slides in from the same side, staggered.
+   Covers (a) direct children of .wb-tab-stack, (b) the named card classes used
+   by Details/Pitch (data bar, data shell, stage frame, notes, section,
+   enquiry-stack children), and (c) grandchild divs of stack children ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â this
+   last bucket covers tabs (Risk, Identity, Matter, Payment) where the visible
+   rows live inside an unclassed wrapper and would otherwise arrive as a single
+   block. */
+.wb-tab-content.wb-tab-transition.wb-tab-forward .wb-tab-stack > *,
+.wb-tab-content.wb-tab-transition.wb-tab-forward .wb-tab-stack > * > div,
+.wb-tab-content.wb-tab-transition.wb-tab-forward .wb-tab-stack .wb-data-bar,
+.wb-tab-content.wb-tab-transition.wb-tab-forward .wb-tab-stack .wb-data-shell,
+.wb-tab-content.wb-tab-transition.wb-tab-forward .wb-tab-stack .wb-stage-frame,
+.wb-tab-content.wb-tab-transition.wb-tab-forward .wb-tab-stack .wb-notes-block,
+.wb-tab-content.wb-tab-transition.wb-tab-forward .wb-tab-stack .wb-section,
+.wb-tab-content.wb-tab-transition.wb-tab-forward .wb-tab-stack .wb-enquiry-stack > * {
+  animation: wb-tab-forward-enter 0.24s var(--motion-ease-out) both;
+}
+
+.wb-tab-content.wb-tab-transition.wb-tab-back .wb-tab-stack > *,
+.wb-tab-content.wb-tab-transition.wb-tab-back .wb-tab-stack > * > div,
+.wb-tab-content.wb-tab-transition.wb-tab-back .wb-tab-stack .wb-data-bar,
+.wb-tab-content.wb-tab-transition.wb-tab-back .wb-tab-stack .wb-data-shell,
+.wb-tab-content.wb-tab-transition.wb-tab-back .wb-tab-stack .wb-stage-frame,
+.wb-tab-content.wb-tab-transition.wb-tab-back .wb-tab-stack .wb-notes-block,
+.wb-tab-content.wb-tab-transition.wb-tab-back .wb-tab-stack .wb-section,
+.wb-tab-content.wb-tab-transition.wb-tab-back .wb-tab-stack .wb-enquiry-stack > * {
+  animation: wb-tab-back-enter 0.24s var(--motion-ease-out) both;
+}/* When a stack child contains its own grandchild divs (a wrapper card), the
+   grandchildren also cascade ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the small composed translate keeps the
+   sequence reading top-to-bottom without feeling laggy. */
+
+/* Third-level rows (e.g. Risk's summary panel rows nested two divs deep) get
+   an opacity-only cascade so they don't double-translate inside their already
+   moving wrapper. */
+.wb-tab-content.wb-tab-transition .wb-tab-stack > * > * > div {
+  animation: wb-tab-inner-fade 0.22s var(--motion-ease-out) both;
+}
+
+/* Structural delays ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â every visible row is positioned by its depth/index, not
+   by class name. Class-based delays were causing collisions: e.g. the Docs
+   tab's two cards both carry .wb-section, so the per-class delay overwrote
+   the nth-child delay and they animated together. nth-child gives every
+   sibling its own slot regardless of class. */
+.wb-tab-content.wb-tab-transition .wb-tab-stack > :nth-child(1) { animation-delay: 0ms; }
+.wb-tab-content.wb-tab-transition .wb-tab-stack > :nth-child(2) { animation-delay: 40ms; }
+.wb-tab-content.wb-tab-transition .wb-tab-stack > :nth-child(3) { animation-delay: 80ms; }
+.wb-tab-content.wb-tab-transition .wb-tab-stack > :nth-child(4) { animation-delay: 120ms; }
+.wb-tab-content.wb-tab-transition .wb-tab-stack > :nth-child(n+5) { animation-delay: 160ms; }
+
+/* Grandchild rows inside a single wrapper card cascade with a smaller stride
+   relative to their wrapper's slot. Delays compose: a wrapper at slot 2
+   (40ms) means its first grandchild starts at 40+30=70ms. */
+.wb-tab-content.wb-tab-transition .wb-tab-stack > * > div:nth-of-type(1) { animation-delay: 30ms; }
+.wb-tab-content.wb-tab-transition .wb-tab-stack > * > div:nth-of-type(2) { animation-delay: 60ms; }
+.wb-tab-content.wb-tab-transition .wb-tab-stack > * > div:nth-of-type(3) { animation-delay: 90ms; }
+.wb-tab-content.wb-tab-transition .wb-tab-stack > * > div:nth-of-type(4) { animation-delay: 120ms; }
+.wb-tab-content.wb-tab-transition .wb-tab-stack > * > div:nth-of-type(n+5) { animation-delay: 150ms; }
+
+/* One level deeper ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â covers Risk's summary strip whose rows live inside
+   `wb-tab-stack > div(panel) > div(flex column) > rows`. Without this the
+   rows would all share their wrapper's single delay. */
+.wb-tab-content.wb-tab-transition .wb-tab-stack > * > * > div:nth-of-type(1) { animation-delay: 60ms; }
+.wb-tab-content.wb-tab-transition .wb-tab-stack > * > * > div:nth-of-type(2) { animation-delay: 90ms; }
+.wb-tab-content.wb-tab-transition .wb-tab-stack > * > * > div:nth-of-type(3) { animation-delay: 120ms; }
+.wb-tab-content.wb-tab-transition .wb-tab-stack > * > * > div:nth-of-type(4) { animation-delay: 150ms; }
+.wb-tab-content.wb-tab-transition .wb-tab-stack > * > * > div:nth-of-type(n+5) { animation-delay: 180ms; }
+
+/* Stage-frames inside the enquiry stack cascade among themselves */
+.wb-tab-content.wb-tab-transition .wb-tab-stack .wb-enquiry-stack > :nth-child(1) { animation-delay: 90ms; }
+.wb-tab-content.wb-tab-transition .wb-tab-stack .wb-enquiry-stack > :nth-child(2) { animation-delay: 120ms; }
+.wb-tab-content.wb-tab-transition .wb-tab-stack .wb-enquiry-stack > :nth-child(3) { animation-delay: 150ms; }
+.wb-tab-content.wb-tab-transition .wb-tab-stack .wb-enquiry-stack > :nth-child(n+4) { animation-delay: 180ms; }
+
+/* Sub-stack: rows already cascade via the .wb-enquiry-stack > * rule above.
+   Layered substack-internal fades (formerly > *, > * > *, > * > * > *) caused
+   the same DOM nodes to receive overlapping opacity animations with offset
+   delays, reading as a post-settle flicker. Intentionally no rules here. */
+
+.wb-chip.wb-chip-active-pulse {
+  animation: wb-chip-current-pulse 0.34s var(--motion-ease-out) both;
+}
+
+@keyframes wb-timeline-next-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(var(--green-rgb), 0.18);
+  }
+  58% {
+    box-shadow: 0 0 0 5px rgba(var(--green-rgb), 0.08);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(var(--green-rgb), 0);
+  }
+}
+
+.wb-timeline-rail {
+  scroll-padding-inline: 2px;
+}
+
+.wb-timeline-link {
+  flex: 0 0 40px;
+  min-width: 34px;
+  display: flex;
+  align-items: flex-start;
+  padding-top: 12px;
+}
+
+.wb-timeline-link-track {
+  position: relative;
+  width: 100%;
+  height: 2px;
+  margin-top: 1px;
+  overflow: hidden;
+  background: rgba(var(--accent-rgb), 0.12);
+}
+
+.wb-timeline-link-fill {
+  height: 100%;
+  transition: width 0.26s var(--motion-ease-out);
+}
+
+.wb-timeline-stage {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 82px;
+  max-width: 102px;
+  min-height: 54px;
+  padding: 2px 5px 5px;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 0;
+  font-family: inherit;
+  cursor: pointer;
+  position: relative;
+  transition: transform 0.16s var(--motion-ease-smooth),
+              background 0.16s ease,
+              border-color 0.16s ease,
+              opacity 0.16s ease;
+}
+
+.wb-timeline-stage:hover,
+.wb-timeline-stage:focus-visible,
+.wb-timeline-stage--active {
+  transform: translateY(-1px);
+  background: var(--wb-stage-bg);
+  border-color: var(--wb-stage-border);
+  outline: none;
+}
+
+.wb-timeline-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 1px solid var(--wb-stage-border);
+  background: rgba(var(--accent-rgb), 0.035);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  z-index: 1;
+}
+
+.wb-timeline-dot-core {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  display: block;
+}
+
+.wb-timeline-stage--next .wb-timeline-dot::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--green-rgb), 0.3);
+  animation: wb-timeline-next-pulse 1.35s var(--motion-ease-out) infinite;
+}
+
+.wb-timeline-stage--issue .wb-timeline-dot::after {
+  border-color: rgba(var(--cta-rgb), 0.32);
+}
+
+.wb-timeline-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  max-width: 100%;
+  line-height: 1.1;
+}
+
+.wb-timeline-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  max-width: 100%;
+  font-size: 10.5px;
+  font-weight: 800;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wb-timeline-meta {
+  max-width: 100%;
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.18px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.86;
+}
+
+.wb-timeline-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(var(--accent-rgb), 0.12);
+  color: var(--text-body);
+  font-size: 8px;
+  font-weight: 800;
+}
 
 .wb-tab-content.wb-tab-transition .wb-status-banner {
   animation: wb-tab-lift 0.20s var(--motion-ease-out) both;
@@ -310,6 +894,8 @@
   }
   .inline-workbench.wb-motion-enter,
   .inline-workbench.wb-motion-enter .wb-chip,
+  .wb-chip.wb-chip-active-pulse,
+  .wb-timeline-stage--next .wb-timeline-dot::after,
   .inline-workbench.wb-motion-enter .wb-connector,
   .inline-workbench.wb-motion-enter .wb-status-banner,
   .inline-workbench.wb-motion-enter .wb-tab-content,
@@ -319,7 +905,20 @@
   .inline-workbench.wb-motion-enter .wb-meta-link,
   .inline-workbench.wb-motion-enter .wb-meta-rail > *,
   .wb-tab-content.wb-tab-transition,
+  .wb-tab-content.wb-tab-transition.wb-tab-forward .wb-tab-stack,
+  .wb-tab-content.wb-tab-transition.wb-tab-back .wb-tab-stack,
   .wb-tab-content.wb-tab-transition .wb-tab-stack > *,
+  .wb-tab-content.wb-tab-transition .wb-tab-stack > * > div,
+  .wb-tab-content.wb-tab-transition .wb-tab-stack > * > * > div,
+  .wb-tab-content.wb-tab-transition .wb-tab-stack .wb-data-bar,
+  .wb-tab-content.wb-tab-transition .wb-tab-stack .wb-data-shell,
+  .wb-tab-content.wb-tab-transition .wb-tab-stack .wb-stage-frame,
+  .wb-tab-content.wb-tab-transition .wb-tab-stack .wb-notes-block,
+  .wb-tab-content.wb-tab-transition .wb-tab-stack .wb-section,
+  .wb-tab-content.wb-tab-transition .wb-tab-stack .wb-enquiry-stack > *,
+  .wb-tab-content.wb-tab-transition .wb-tab-substack > *,
+  .wb-tab-content.wb-tab-transition .wb-tab-substack > * > *,
+  .wb-tab-content.wb-tab-transition .wb-tab-substack > * > * > *,
   .wb-tab-content.wb-tab-transition .wb-status-banner,
   .wb-tab-content.wb-tab-transition .wb-enquiry-header,
   .wb-tab-content.wb-tab-transition .wb-meta-row,
@@ -347,7 +946,7 @@
   }
 }
 
-/* ─── No animation on containers/data/notes (parent handles it) ─── */
+/* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ No animation on containers/data/notes (parent handles it) ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ */
 .inline-workbench.wb-motion-enter .wb-data-shell,
 .wb-tab-content.wb-tab-transition .wb-data-shell,
 .inline-workbench.wb-motion-enter .wb-data-bar,
@@ -361,7 +960,7 @@
   animation: none;
 }
 
-/* ─── Mount-based fade (plays on every fresh DOM insertion) ─── */
+/* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Mount-based fade (plays on every fresh DOM insertion) ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ */
 @keyframes wb-mount-fade {
   from { opacity: 0; transform: translateY(4px); }
   to   { opacity: 1; transform: translateY(0); }
@@ -375,7 +974,13 @@
   animation: wb-mount-fade 0.20s var(--motion-ease-out) both;
 }
 
-/* ─── Ambient transitions (smooth state changes, always active) ─── */
+.wb-stage-frame {
+  box-sizing: border-box;
+  margin-left: 14px;
+  margin-right: 14px;
+}
+
+/* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Ambient transitions (smooth state changes, always active) ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ */
 .wb-tab-content {
   transition: opacity 0.18s ease;
 }
@@ -425,7 +1030,7 @@
   transition: opacity 0.14s ease;
 }
 
-/* ─── Interactive transitions (always active, not entry-only) ─── */
+/* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Interactive transitions (always active, not entry-only) ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ */
 .wb-meta-pill {
   transition: transform var(--motion-fade-fast) var(--motion-ease-smooth),
               background var(--motion-fade-fast) ease,
@@ -459,7 +1064,7 @@
   animation: wb-refresh-pulse 2.4s ease-in-out infinite;
 }
 
-/* ─── Day separator row ─── */
+/* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Day separator row ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ */
 .prospect-day-sep {
   display: grid;
   align-items: center;
@@ -571,7 +1176,20 @@
   background: none;
 }
 
-/* ─── Table row (prospect-row) ─── 
+/* Table-owned scrollbar: keep the Prospects body scrollable, but hide the
+   scrollbar chrome entirely. The operator still gets wheel, trackpad, touch,
+   keyboard, and programmatic scrolling without the bar cutting into the page. */
+.prospect-table-scroll {
+  scrollbar-width: none;
+}
+
+.prospect-table-scroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+/* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Table row (prospect-row) ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ 
    Follows UserBubble composition: accent-tinted idle, lift on hover */
 .prospect-row {
   display: grid;
@@ -584,40 +1202,165 @@
   /* gridTemplateColumns and borderBottom set inline */
 }
 
-/* Subtle column separators — faint vertical lines between key columns */
+/* Subtle column separators ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â faint vertical lines between key columns */
 .prospect-row > :nth-child(3),
 .prospect-row > :nth-child(4) {
-  border-left: 1px solid rgba(128, 128, 128, 0.08);
+  border-left: 1px solid rgba(var(--subtle-grey-rgb), 0.12);
   padding-left: 2px;
 }
 .prospect-row > :nth-child(5) {
-  border-left: 1px solid rgba(128, 128, 128, 0.10);
+  border-left: 1px solid rgba(var(--subtle-grey-rgb), 0.14);
 }
 .prospect-row > :nth-child(6) {
-  border-left: 1px solid rgba(128, 128, 128, 0.08);
+  border-left: 1px solid rgba(var(--subtle-grey-rgb), 0.12);
 }
 
-/* Row parity — no alternating fill; clean flat surface */
+/* Row parity ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â subtle entries sitting on a brighter table canvas */
 .prospect-row[data-row-parity="even"],
 .prospect-row[data-row-parity="odd"] {
-  background: transparent;
+  background: rgba(13, 47, 96, 0.024);
 }
 
-/* Hover — accent-tinted bg + lift (composition pattern) */
+[data-theme="dark"] .prospect-row[data-row-parity="even"],
+[data-theme="dark"] .prospect-row[data-row-parity="odd"] {
+  background: color-mix(in srgb, var(--surface-section) 72%, var(--surface-card) 28%);
+}
+
+/* Hover ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â accent-tinted bg + lift (composition pattern) */
 .prospect-row:hover {
-  background: rgba(var(--highlight-rgb), 0.16);
+  background: rgba(var(--highlight-rgb), 0.08);
 }
 [data-theme="dark"] .prospect-row:hover {
-  background: rgba(var(--highlight-rgb), 0.16);
+  background: var(--surface-card);
 }
 
-/* enquiry-row — semantic hook for single (non-grouped) enquiry rows */
+/* enquiry-row ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â semantic hook for single (non-grouped) enquiry rows */
 .enquiry-row {
   /* inherits prospect-row styles; no extra overrides needed */
 }
 
-/* ─── Converted / matter-opened row ─── */
-/* Subtle dim — rows read as "graduated" without background tint */
+.prospect-group-row {
+  position: relative;
+  gap: 2px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  font-family: var(--font-primary);
+}
+
+.prospect-group-row--expanded {
+  background: rgba(var(--accent-rgb), 0.05) !important;
+}
+
+[data-theme="dark"] .prospect-group-row--expanded {
+  background: var(--surface-card) !important;
+}
+
+.prospect-group-identity {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.prospect-group-identity__line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  width: 100%;
+}
+
+.prospect-group-identity__title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 0 1 auto;
+}
+
+.prospect-group-identity__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+  min-width: 0;
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1 1 auto;
+}
+
+.prospect-group-identity__meta-sep {
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(var(--accent-rgb), 0.62);
+  flex-shrink: 0;
+}
+
+.prospect-group-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.prospect-group-summary-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  padding: 0 6px;
+  border: 1px solid rgba(var(--accent-rgb), 0.14);
+  border-radius: 0;
+  background: rgba(var(--accent-rgb), 0.05);
+  color: var(--text-body);
+  font-family: var(--font-primary);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.15px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  flex: 0 1 auto;
+}
+
+.prospect-group-summary-chip--strong {
+  border-color: rgba(var(--accent-rgb), 0.28);
+  background: rgba(var(--accent-rgb), 0.12);
+  color: var(--text-primary);
+}
+
+.prospect-group-summary-chip--quiet {
+  border-color: rgba(var(--subtle-grey-rgb), 0.18);
+  background: rgba(var(--subtle-grey-rgb), 0.06);
+  color: var(--text-muted);
+}
+
+[data-theme="dark"] .prospect-group-summary-chip--quiet {
+  border-color: rgba(var(--subtle-grey-rgb), 0.24);
+  background: rgba(var(--subtle-grey-rgb), 0.08);
+}
+
+.prospect-group-actions {
+  min-height: 100%;
+}
+
+.enquiry-row--group-child {
+  background: transparent;
+}
+
+/* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Converted / matter-opened row ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ */
+/* Subtle dim ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â rows read as "graduated" without background tint */
 .prospect-row--converted {
   opacity: 0.42;
   transition: opacity 0.22s ease, background 0.18s cubic-bezier(0.4, 0, 0.2, 1);
@@ -629,7 +1372,7 @@
   opacity: 0.35 !important;
 }
 
-/* ─── Area of Work icon ─── */
+/* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Area of Work icon ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ */
 /* Muted at rest, lights up with its AoW colour on row hover */
 .prospect-aow-icon {
   opacity: 0.38;
@@ -639,7 +1382,7 @@
   opacity: 0.92;
 }
 
-/* ─── Copy name button ─── */
+/* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Copy name button ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ */
 /* Hidden until row hover to reduce visual noise */
 .prospect-copy-btn {
   opacity: 0 !important;
@@ -654,7 +1397,7 @@
   opacity: 0.9 !important;
 }
 
-/* ─── Smooth responsive transitions ───
+/* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Smooth responsive transitions ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
    Base rules for elements that change at breakpoints.
    Transitions on these properties let values ease between states. */
 
@@ -694,7 +1437,7 @@
   transition: font-size 0.2s ease, min-width 0.2s ease, height 0.2s ease, padding 0.2s ease;
 }
 
-/* ─── Timeline cell inside a row ─── */
+/* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Timeline cell inside a row ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ */
 .prospect-timeline-cell {
   display: flex;
   align-items: center;
@@ -716,7 +1459,7 @@
   opacity: 1 !important;
 }
 
-/* ─── Stacked date display ─── */
+/* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Stacked date display ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ */
 .prospect-date {
   display: flex;
   flex-direction: column;
@@ -760,30 +1503,81 @@
   opacity: 0.6;
 }
 
+.enquiry-row__identity-base {
+  opacity: 1;
+}
+
+.enquiry-row__identity-value {
+  opacity: 0;
+}
+
+.enquiry-row__contact-header {
+  transform: translateY(0);
+}
+
+.enquiry-row__email {
+  opacity: 0;
+  transform: translateY(3px);
+}
+
+.enquiry-row__quick-actions {
+  opacity: 0;
+  transform: translateX(6px);
+  transition: opacity 140ms ease, transform 160ms ease;
+  pointer-events: none;
+}
+
+.enquiry-row--css-hover:hover .enquiry-row__identity[data-has-value="true"] .enquiry-row__identity-base {
+  opacity: 0;
+}
+
+.enquiry-row--css-hover:hover .enquiry-row__identity[data-has-value="true"] .enquiry-row__identity-value {
+  opacity: 1;
+}
+
+.enquiry-row--css-hover:hover .enquiry-row__contact-header {
+  transform: translateY(-4px);
+}
+
+.enquiry-row--css-hover:hover .enquiry-row__email {
+  opacity: 1;
+  transform: translateY(6px);
+}
+
+.enquiry-row--css-hover:hover .enquiry-row__quick-actions {
+  opacity: 1;
+  transform: translateX(0);
+  pointer-events: auto;
+}
+
 .prospect-date__bottom:empty {
   display: none;
 }
 
-/* ─── Pipeline row hover (composition interactive pattern) ───
+/* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Pipeline row hover (composition interactive pattern) ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
    Accent-tinted background + lift + shadow, matching
    UserBubble > Compositions interactive row behaviour */
+.enquiry-row--css-hover:hover,
 .pipeline-row-hover {
   background: rgba(var(--highlight-rgb), 0.06) !important;
   transition: background 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
 }
+[data-theme="dark"] .enquiry-row--css-hover:hover,
 [data-theme="dark"] .pipeline-row-hover {
-  background: rgba(var(--highlight-rgb), 0.04) !important;
+  background: var(--surface-card) !important;
 }
 
+.enquiry-row--css-hover:hover,
 .pipeline-row-hover.pipeline-row-hover-ready {
   transform: translateY(-0.5px);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
+[data-theme="dark"] .enquiry-row--css-hover:hover,
 [data-theme="dark"] .pipeline-row-hover.pipeline-row-hover-ready {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
 }
 
-/* ─── Pipeline carousel (migrated from inline JS style injection) ───────── */
+/* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Pipeline carousel (migrated from inline JS style injection) ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ */
 
 .pipeline-carousel {
   position: relative;
@@ -813,7 +1607,7 @@
   opacity: 1;
 }
 
-/* ─── Pipeline chip (migrated from inline `pipelineCarouselStyle`) ──────── */
+/* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Pipeline chip (migrated from inline `pipelineCarouselStyle`) ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ */
 
 .pipeline-chip:hover {
   filter: brightness(1.15);
@@ -829,7 +1623,7 @@
 .pipeline-connector {
   display: none;
 }
-/* Completed connector – solid green */
+/* Completed connector ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“ solid green */
 .pipeline-connector.connector-done {
   display: none;
 }
@@ -843,12 +1637,12 @@
   display: none;
 }
 
-/* Pipeline chip button — full-cell fills for blocky look */
+/* Pipeline chip button ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â full-cell fills for blocky look */
 .pipeline-chip {
   background: transparent;
   transition: filter 0.1s ease, background-color 0.15s ease;
 }
-/* Completed chip — subtle resting fill across the full cell */
+/* Completed chip ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â subtle resting fill across the full cell */
 .pipeline-chip--done {
   background: rgba(var(--accent-rgb), 0.04);
 }
@@ -856,17 +1650,21 @@
   background: rgba(var(--accent-rgb), 0.06);
 }
 
-/* Row hover — all chips get a subtle cell fill */
+/* Row hover ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â all chips get a subtle cell fill */
+.enquiry-row--css-hover:hover .pipeline-chip,
 .pipeline-row-hover .pipeline-chip {
   background: rgba(var(--accent-rgb), 0.05);
 }
+[data-theme="dark"] .enquiry-row--css-hover:hover .pipeline-chip,
 [data-theme="dark"] .pipeline-row-hover .pipeline-chip {
   background: rgba(var(--accent-rgb), 0.07);
 }
 /* Completed chips get a stronger cell fill on row hover */
+.enquiry-row--css-hover:hover .pipeline-chip--done,
 .pipeline-row-hover .pipeline-chip--done {
   background: rgba(var(--accent-rgb), 0.10);
 }
+[data-theme="dark"] .enquiry-row--css-hover:hover .pipeline-chip--done,
 [data-theme="dark"] .pipeline-row-hover .pipeline-chip--done {
   background: rgba(var(--accent-rgb), 0.12);
 }
@@ -890,7 +1688,7 @@
   border-color: rgba(var(--accent-rgb), 0.18);
 }
 
-/* Chip label – max-width expand on hover */
+/* Chip label ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“ max-width expand on hover */
 .pipeline-chip-label {
   display: inline-flex;
   gap: 4px;
@@ -913,7 +1711,7 @@
   opacity: 0.9 !important;
 }
 
-/* Next-action breathe animation — disabled (distracting) */
+/* Next-action breathe animation ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â disabled (distracting) */
 .next-action-subtle-pulse,
 .next-action-subtle-pulse .pipeline-chip-box,
 .next-action-subtle-pulse > button,
@@ -938,11 +1736,41 @@
   animation: shimmer 1.5s infinite;
 }
 
-/* ═══════════════════════════════════════════════════════════
-   Responsive — fluid adaptations for narrow viewports.
+/* Workbench pitch-row skeleton ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â mirrors the data-row layout while async pitch
+   data resolves so the panel doesn't read as a flat "Loading..." string. */
+.wb-pitch-skel {
+  animation: wb-tab-inner-fade 0.18s var(--motion-ease-out) both;
+}
+.wb-pitch-skel__label,
+.wb-pitch-skel__value {
+  display: block;
+  border-radius: 0;
+  background: linear-gradient(90deg,
+    rgba(54, 144, 206, 0.06),
+    rgba(54, 144, 206, 0.18),
+    rgba(54, 144, 206, 0.06));
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+[data-theme="light"] .wb-pitch-skel__label,
+[data-theme="light"] .wb-pitch-skel__value {
+  background: linear-gradient(90deg,
+    rgba(13, 47, 96, 0.05),
+    rgba(13, 47, 96, 0.13),
+    rgba(13, 47, 96, 0.05));
+  background-size: 200% 100%;
+}
+@media (prefers-reduced-motion: reduce) {
+  .wb-pitch-skel,
+  .wb-pitch-skel__label,
+  .wb-pitch-skel__value { animation: none !important; }
+}
+
+/* ÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚Â
+   Responsive ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â fluid adaptations for narrow viewports.
    Grid columns use clamp() so they compress naturally.
    These rules tighten chrome and handle overflow.
-   ═══════════════════════════════════════════════════════════ */
+   ÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚Â */
 
 @media (max-width: 900px) {
   .prospect-table-header {
@@ -1012,10 +1840,10 @@
   }
 }
 
-/* ═══════════════════════════════════════════════════════════
-   Responsive — filter chips compact mode.
+/* ÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚Â
+   Responsive ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â filter chips compact mode.
    Single-row horizontal scroll instead of multi-line wrapping.
-   ═══════════════════════════════════════════════════════════ */
+   ÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚Â */
 
 @media (max-width: 900px) {
   .enq-status-primary {

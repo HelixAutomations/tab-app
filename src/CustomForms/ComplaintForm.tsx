@@ -7,19 +7,16 @@ import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
 import { Dropdown } from '@fluentui/react/lib/Dropdown';
 import type { IDropdownOption } from '@fluentui/react/lib/Dropdown';
 import { Icon } from '@fluentui/react/lib/Icon';
-import { getProxyBaseUrl } from '../utils/getProxyBaseUrl';
+import { getApiBase } from '../utils/getApiUrl';
 import type { TeamData, UserData } from '../app/functionality/types';
 import {
   getFormScrollContainerStyle,
   getFormCardStyle,
   getFormHeaderStyle,
   getFormHeaderTitleStyle,
-  getFormHeaderSubtitleStyle,
   getFormContentStyle,
   getFormSectionStyle,
   getFormSectionHeaderStyle,
-  getInfoBoxStyle,
-  getInfoBoxTextStyle,
   getInputStyles,
   getDropdownStyles,
   getFormPrimaryButtonStyles,
@@ -30,6 +27,7 @@ import {
 } from './shared/formStyles';
 import { useFormReadinessPulse } from './shared/useFormReadinessPulse';
 import { FormReadinessCue } from './shared/FormReadinessCue';
+import FormsStreamLanded from './shared/FormsStreamLanded';
 import { colours } from '../app/styles/colours';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { isAdminUser } from '../app/admin';
@@ -88,6 +86,8 @@ const ComplaintForm: React.FC<ComplaintFormProps> = ({ userData, teamData, onBac
   const [formData, setFormData] = useState<ComplaintFormState>(emptyState);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [streamSubmissionId, setStreamSubmissionId] = useState<string | null>(null);
+  const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [recentItems, setRecentItems] = useState<any[]>([]);
   const [isLoadingRecent, setIsLoadingRecent] = useState(isAdmin);
   const [totalCount, setTotalCount] = useState(0);
@@ -104,7 +104,7 @@ const ComplaintForm: React.FC<ComplaintFormProps> = ({ userData, teamData, onBac
     const ac = new AbortController();
     (async () => {
       try {
-        const baseUrl = getProxyBaseUrl();
+        const baseUrl = getApiBase();
         const res = await fetch(`${baseUrl}/api/registers/complaints`, { headers: requestHeaders, signal: ac.signal });
         if (res.ok) {
           const data = await res.json();
@@ -155,7 +155,7 @@ const ComplaintForm: React.FC<ComplaintFormProps> = ({ userData, teamData, onBac
     setSubmitMessage(null);
 
     try {
-      const baseUrl = getProxyBaseUrl();
+      const baseUrl = getApiBase();
       const response = await fetch(`${baseUrl}/api/registers/complaints`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...requestHeaders },
@@ -172,8 +172,13 @@ const ComplaintForm: React.FC<ComplaintFormProps> = ({ userData, teamData, onBac
 
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.ok) {
+        setStreamSubmissionId(payload?.submissionId ?? null);
+        setStreamUrl(null);
         throw new Error(payload.error || 'Failed to record complaint');
       }
+
+      setStreamSubmissionId(payload?.submissionId ?? null);
+      setStreamUrl(payload?.streamUrl ?? null);
 
       if (payload.complaint) {
         setRecentItems((prev) => [payload.complaint, ...prev].slice(0, 10));
@@ -195,7 +200,7 @@ const ComplaintForm: React.FC<ComplaintFormProps> = ({ userData, teamData, onBac
 
   return (
     <div style={getFormScrollContainerStyle(isDarkMode)}>
-      <div style={getFormCardStyle(isDarkMode, accentColor)}>
+      <div style={getFormCardStyle(isDarkMode)}>
         <div style={getFormHeaderStyle(isDarkMode, accentColor)}>
           <Stack horizontal horizontalAlign="space-between" verticalAlign="center">
             <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 12 }}>
@@ -203,9 +208,6 @@ const ComplaintForm: React.FC<ComplaintFormProps> = ({ userData, teamData, onBac
               <div>
                 <Text variant="xLarge" style={getFormHeaderTitleStyle(isDarkMode)}>
                   New Complaint
-                </Text>
-                <Text style={getFormHeaderSubtitleStyle(isDarkMode)}>
-                  Formal complaints start here, then move into controlled status management and closure review.
                 </Text>
               </div>
             </Stack>
@@ -231,20 +233,19 @@ const ComplaintForm: React.FC<ComplaintFormProps> = ({ userData, teamData, onBac
             </MessageBar>
           )}
 
+          {streamSubmissionId && submitMessage && (
+            <FormsStreamLanded
+              submissionId={streamSubmissionId}
+              streamUrl={streamUrl}
+              isDarkMode={isDarkMode}
+            />
+          )}
+
           {!isAdmin && (
             <MessageBar messageBarType={MessageBarType.blocked} style={getMessageBarStyle(isDarkMode)}>
               Complaint intake is restricted to administrators. You can still review the compliance workspace, but you cannot submit this form.
             </MessageBar>
           )}
-
-          <div style={getInfoBoxStyle(isDarkMode, 'warning')}>
-            <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
-              <Icon iconName="Warning" style={{ color: accentColor, flexShrink: 0 }} />
-              <Text style={getInfoBoxTextStyle(isDarkMode)}>
-                This is a controlled intake path. Capture the formal complaint here, then manage investigation, outcome, and lessons learned in the compliance workspace.
-              </Text>
-            </Stack>
-          </div>
 
           <div style={getFormSectionStyle(isDarkMode, accentColor)}>
             <div style={getFormSectionHeaderStyle(isDarkMode, accentColor)}>

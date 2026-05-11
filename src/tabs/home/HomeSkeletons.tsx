@@ -111,24 +111,24 @@ export const TeamInsightSectionSkeleton: React.FC<TeamInsightSectionSkeletonProp
 );
 
 /* ── SVG chart skeleton: paired bars (matters) + two line paths (enquiries) ── */
-const CHART_W = 240;
-const CHART_H = 160;
+const CHART_W = 320;
+const CHART_H = 168;
 const CHART_PAD_TOP = 10;
 const CHART_PAD_BOT = 22;
-const CHART_PAD_LR = 5;
-const CHART_BUCKETS = 6;
+const CHART_PAD_LR = 9;
+const CHART_BUCKETS = 9;
 const CHART_DRAW_W = CHART_W - CHART_PAD_LR * 2;
 const CHART_BUCKET_W = CHART_DRAW_W / CHART_BUCKETS;
-const CHART_BAR_W = 8;
+const CHART_BAR_W = 6;
 const CHART_BAR_GAP = 2;
 const xAtChart = (i: number) => CHART_PAD_LR + CHART_BUCKET_W * i + CHART_BUCKET_W / 2;
 const yAtChart = (pct: number) => CHART_H - CHART_PAD_BOT - pct * (CHART_H - CHART_PAD_TOP - CHART_PAD_BOT);
 
 /* Plausible placeholder data — gives a recognisable shape */
-const barCurrent = [0.28, 0.52, 0.38, 0.68, 0.46, 0.74];
-const barPrevious = [0.22, 0.36, 0.44, 0.30, 0.56, 0.48];
-const lineCurrent = [0.62, 0.48, 0.70, 0.56, 0.82, 0.78];
-const linePrevious = [0.50, 0.58, 0.42, 0.64, 0.52, 0.60];
+const barCurrent = [0.28, 0.52, 0.38, 0.68, 0.46, 0.74, 0.58, 0.82, 0.64];
+const barPrevious = [0.22, 0.36, 0.44, 0.30, 0.56, 0.48, 0.42, 0.62, 0.50];
+const lineCurrent = [0.62, 0.48, 0.70, 0.56, 0.82, 0.74, 0.88, 0.76, 0.84];
+const linePrevious = [0.50, 0.58, 0.42, 0.64, 0.52, 0.60, 0.54, 0.68, 0.58];
 
 const buildSkelPath = (values: number[]) => {
   if (values.length === 0) return '';
@@ -151,11 +151,11 @@ const ConversionChartSkeleton: React.FC<{ isDarkMode: boolean }> = ({ isDarkMode
   const tickYs = [0, 0.5, 1].map(yAtChart);
   const currentLinePath = buildSkelPath(lineCurrent);
   const previousLinePath = buildSkelPath(linePrevious);
-  const axisLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const axisLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun', 'Mon', 'Tue'];
 
   return (
-    <div style={{ width: '100%', flex: 1 }}>
-      <svg viewBox={`0 0 ${CHART_W} ${CHART_H}`} role="img" aria-hidden="true" style={{ display: 'block', width: '100%', height: 'auto' }}>
+    <div className="home-conversion-chart-skeleton">
+      <svg viewBox={`0 0 ${CHART_W} ${CHART_H}`} preserveAspectRatio="xMidYMid meet" role="img" aria-hidden="true">
         {/* Horizontal grid lines */}
         {tickYs.map((y, i) => (
           <line key={i} x1={CHART_PAD_LR} y1={y} x2={CHART_W - CHART_PAD_LR} y2={y} stroke={gridLine} strokeWidth="1" strokeDasharray={i < 2 ? '3 3' : undefined} />
@@ -378,20 +378,52 @@ export const HomeDashboardSkeleton: React.FC<{ isDarkMode: boolean; billingTileC
                   {skeletonBlock(52, 8, 'var(--home-skel-fill-faint)')}
                   {skeletonBlock(44, 8, 'var(--home-skel-fill-faint)')}
                 </div>
-                <div style={{ width: '100%', height: 58, background: 'var(--home-skel-fill-faint)', position: 'relative', overflow: 'hidden', animation: pulse(0.12) }}>
-                  {[0.25, 0.5, 0.75].map((ratio) => (
-                    <span key={ratio} style={{ position: 'absolute', left: 8, right: 8, top: Math.round(58 * ratio), height: 1, background: 'var(--home-skel-fill-weak)', opacity: 0.55 }} />
-                  ))}
-                  <span style={{ position: 'absolute', left: 8, right: 8, bottom: 8, height: 1, background: 'var(--home-skel-fill)', opacity: 0.65 }} />
-                  {[14, 34, 54, 74, 90].map((left, index) => (
-                    <span key={`stem-${left}`} style={{ position: 'absolute', left: `${left}%`, bottom: 8, width: 1, height: index % 2 === 0 ? 22 : 14, background: 'var(--home-skel-fill)', opacity: 0.34, transform: 'translateX(-50%)' }} />
-                  ))}
-                  {[16, 36, 56, 76, 92].map((left, index) => (
-                    <span key={`bar-${left}`} style={{ position: 'absolute', left: `${left}%`, bottom: 8, display: 'inline-flex', gap: 2, transform: 'translateX(-50%)' }}>
-                      <span style={{ width: 3, height: index % 2 === 0 ? 9 : 6, background: 'var(--home-skel-fill-weak)', opacity: 0.7 }} />
-                      <span style={{ width: 3, height: index % 2 === 0 ? 12 : 8, background: 'var(--home-skel-fill)', opacity: 0.85 }} />
-                    </span>
-                  ))}
+                <div style={{ width: '100%', border: '1px solid var(--home-card-border)', background: 'linear-gradient(180deg, var(--home-skel-fill-faint) 0%, transparent 100%)', padding: '8px 10px 8px', display: 'grid', gap: 8 }}>
+                  <div className="home-conversion-chart-skeleton home-conversion-chart-skeleton--paired">
+                    <svg viewBox="0 0 320 150" width="100%" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+                    {[28, 58, 88, 126].map((y, index) => (
+                      <line
+                        key={y}
+                        x1="10"
+                        y1={y}
+                        x2="310"
+                        y2={y}
+                        stroke={index === 3 ? 'var(--home-skel-fill)' : 'var(--home-skel-fill-faint)'}
+                        strokeWidth="1"
+                        strokeDasharray={index === 3 ? undefined : '3 4'}
+                      />
+                    ))}
+                    {[
+                      { x: 26, currentTop: 84, previousTop: 96 },
+                      { x: 59, currentTop: 64, previousTop: 78 },
+                      { x: 92, currentTop: 72, previousTop: 86 },
+                      { x: 125, currentTop: 48, previousTop: 62 },
+                      { x: 158, currentTop: 60, previousTop: 76 },
+                      { x: 191, currentTop: 38, previousTop: 54 },
+                      { x: 224, currentTop: 46, previousTop: 66 },
+                      { x: 257, currentTop: 30, previousTop: 48 },
+                      { x: 290, currentTop: 40, previousTop: 62 },
+                    ].map((bar, index) => (
+                      <g key={bar.x}>
+                        <rect x={bar.x - 8} y={bar.previousTop} width="5" height={126 - bar.previousTop} fill="var(--home-skel-fill-weak)" opacity="0.78" />
+                        <rect x={bar.x + 1} y={bar.currentTop} width="5" height={126 - bar.currentTop} fill="var(--home-skel-fill)" opacity="0.92" style={{ animation: pulse(index * 0.05) }} />
+                      </g>
+                    ))}
+                    <polyline points="16,96 50,78 84,86 118,62 152,76 186,54 220,66 254,48 304,62" fill="none" stroke="var(--home-skel-fill-weak)" strokeWidth="1.55" strokeDasharray="4 4" strokeLinecap="round" strokeLinejoin="round" />
+                    <polyline points="16,82 50,62 84,72 118,48 152,60 186,38 220,46 254,30 304,40" fill="none" stroke="var(--home-skel-fill)" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+                    {['16,82', '50,62', '84,72', '118,48', '152,60', '186,38', '220,46', '254,30', '304,40'].map((point, index) => {
+                      const [cx, cy] = point.split(',');
+                      return <circle key={point} cx={cx} cy={cy} r={index === 8 ? '2.4' : '1.8'} fill="var(--home-skel-fill)" />;
+                    })}
+                    </svg>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(9, minmax(0, 1fr))', gap: 4 }}>
+                    {[16, 12, 18, 12, 16, 14, 18, 12, 16].map((width, index) => (
+                      <div key={`${width}-${index}`} style={{ display: 'grid', justifyItems: 'center' }}>
+                        {skeletonBlock(width, 7, 'var(--home-skel-fill-faint)')}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
 

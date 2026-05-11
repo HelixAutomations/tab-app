@@ -223,6 +223,29 @@ Each phase should ship independently with its own changelog entry.
 
 ---
 
+## 5a. Implementation status - 2026-05-03
+
+Shipped in the first implementation pass:
+
+- Phase A curated checks lens inside Activity.
+- Phase B dependency severity semantics for `blocking`, `degraded`, and `noise` dependency outcomes.
+- Phase B latest check-run summaries in `ops-pulse`, surfaced through the Checks lens, Activity health KPI, and alerts strip.
+- Phase B input-aware scenario plumbing with explicit `runMode`, optional `inputSchema`, required-input validation, and the dry-run-only `home-core-bootstrap` workflow.
+
+Validated locally on 2026-05-03:
+
+- `GET /api/ops-checks/catalog` exposes seven curated checks, including the workflow check.
+- Missing required workflow input returns `400` with `fields: ["initials"]` and does not record a false route failure.
+- Running the full catalog with `home-core-bootstrap` input `LZ` returned `7/7` pass and an `ops-pulse` summary of `pass: 7`, `warn: 0`, `fail: 0`.
+- `npm run build` completed with exit code `0`; existing unrelated warnings/TypeScript diagnostics remain in the build output.
+
+Still open:
+
+- Phase C persisted run history.
+- Phase C named release-readiness packs.
+
+---
+
 ## 6. Open decisions (defaults proposed)
 
 1. **Catalog location** - Default: **server-side manifest file**. Rationale: one curated source of truth, no client/server drift.

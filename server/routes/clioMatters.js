@@ -6,6 +6,7 @@ const teamLookup = require('../utils/teamLookup');
 const createOrUpdate = require('../utils/createOrUpdate');
 const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
 const { emitEvent } = require('../utils/eventEmitter');
+const { shouldDryRunClio, syntheticClioMatter } = require('../utils/rehearsalGuard');
 
 const { PRACTICE_AREAS } = require('../utils/clioConstants');
 
@@ -177,6 +178,22 @@ router.post('/', async (req, res) => {
         trackEvent('MatterOpening.ClioMatter.ValidationFailed', { instructionRef, reason: 'Missing formData or initials' });
         return res.status(400).json({ error: 'Missing data' });
     }
+
+    // Phase C1 — short-circuit Clio writes for rehearsal/demo refs when the
+    // CLIO_DRY_RUN_FOR_REHEARSAL_REFS flag is on. Returns a synthetic matter
+    // payload so the wizard completes end-to-end without touching live Clio.
+    if (shouldDryRunClio(instructionRef)) {
+        const matter = syntheticClioMatter({ instructionRef });
+        trackEvent('Demo.Clio.WriteSkipped', {
+            instructionRef,
+            initials,
+            route: '/api/clio-matters',
+            seed: 'rehearsal',
+            displayNumber: matter.display_number,
+        });
+        return res.json({ ok: true, matter, dryRun: true });
+    }
+
     trackEvent('MatterOpening.ClioMatter.Started', { instructionRef, initials, practiceArea: formData?.matter_details?.practice_area || '', hasContactIds: String(Array.isArray(contactIds) && contactIds.length > 0) });
     try {
         // 1. Refresh token (normalize initials to lower-case to match secret naming convention)

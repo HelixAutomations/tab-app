@@ -518,8 +518,8 @@ const getLeaveTypeTone = (isDarkMode: boolean, leaveType: LeaveTypeKey): { color
   if (leaveType === 'purchase') {
     return {
       color: isDarkMode ? colours.accent : colours.highlight,
-      background: isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(54, 144, 206, 0.08)',
-      border: isDarkMode ? 'rgba(135, 243, 243, 0.3)' : 'rgba(54, 144, 206, 0.22)',
+      background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
+      border: isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.22)',
     };
   }
   if (leaveType === 'unpaid') {
@@ -654,7 +654,7 @@ const AnnualLeaveReport: React.FC<Props> = ({
 
   const normalizedEntries = useMemo<LeaveEntryModel[]>(() => {
     return (data || [])
-      .map((entry) => {
+      .map<LeaveEntryModel | null>((entry) => {
         const initials = String(entry.fe || '').trim().toUpperCase();
         if (!initials) return null;
 
@@ -668,7 +668,7 @@ const AnnualLeaveReport: React.FC<Props> = ({
           return null;
         }
 
-        return {
+        const normalizedEntry: LeaveEntryModel = {
           id: `${entry.request_id}-${initials}`,
           requestId: entry.request_id,
           initials,
@@ -689,9 +689,11 @@ const AnnualLeaveReport: React.FC<Props> = ({
           approvedAt: entry.approved_at,
           bookedAt: entry.booked_at,
           updatedAt: entry.updated_at,
-        } satisfies LeaveEntryModel;
+        };
+
+        return normalizedEntry;
       })
-      .filter((entry): entry is LeaveEntryModel => Boolean(entry));
+      .filter((entry): entry is LeaveEntryModel => entry !== null);
   }, [currentRange, data, teamLookup]);
 
   const availableMembers = useMemo<TeamMember[]>(() => {

@@ -26,6 +26,12 @@ export function useDevServerBoot(intervalMs: number = 3000): void {
 
     const poll = async () => {
       if (cancelled) return;
+      // 2026-04-27: skip polling while the tab is hidden. Browsers throttle
+      // setInterval in background tabs which produces queued fetches that
+      // surface as 30s+ "slow" telemetry the instant the tab is restored.
+      // The only consumer of this poll is SSE bounce-recovery, which only
+      // matters when the user is actively looking.
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
       try {
         const res = await fetch('/api/dev/health', { cache: 'no-store' });
         if (!res.ok) return;
@@ -53,9 +59,17 @@ export function useDevServerBoot(intervalMs: number = 3000): void {
     void poll();
     timer = window.setInterval(poll, intervalMs);
 
+    // Re-probe immediately when the tab regains focus so we catch any
+    // server bounce that happened while we were hidden.
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void poll();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+
     return () => {
       cancelled = true;
       if (timer !== null) window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
     };
   }, [intervalMs]);
 }

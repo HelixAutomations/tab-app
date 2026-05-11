@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { Icon } from '@fluentui/react/lib/Icon';
 import { TooltipHost } from '@fluentui/react/lib/Tooltip';
-import { colours } from '../../app/styles/colours';
+import { colours, withAlpha } from '../../app/styles/colours';
 import { NormalizedMatter } from '../../app/functionality/types';
 import {
   formatFullDateTime,
@@ -26,12 +26,14 @@ interface MatterTableViewProps {
    */
   onOpenCclReview?: (matterId: string) => void;
   loading?: boolean;
+  arrivalTrackingKey?: string;
+  suppressArrivalAnimations?: boolean;
 }
 
 type SortColumn = 'openDate' | 'matterRef' | 'clientName' | 'practiceArea' | 'feeEarner' | 'description';
 type SortDirection = 'asc' | 'desc';
 
-function getMatterGridTemplateColumns(showCclColumns: boolean): string {
+export function getMatterGridTemplateColumns(showCclColumns: boolean): string {
   const baseColumns = [
     'clamp(20px, 4vw, 36px)',                            // timeline
     'minmax(clamp(28px, 5vw, 60px), 0.45fr)',             // date
@@ -52,6 +54,142 @@ function getMatterGridTemplateColumns(showCclColumns: boolean): string {
   return baseColumns.join(' ');
 }
 
+interface MatterTableLoadingSkeletonProps {
+  isDarkMode: boolean;
+  showCclColumns?: boolean;
+  variant?: 'blocking' | 'inline';
+  exiting?: boolean;
+  rowCount?: number;
+}
+
+export const MatterTableLoadingSkeleton: React.FC<MatterTableLoadingSkeletonProps> = ({
+  isDarkMode,
+  showCclColumns = false,
+  variant = 'inline',
+  exiting = false,
+  rowCount,
+}) => {
+  const resolvedRowCount = rowCount ?? (variant === 'blocking' ? 8 : 6);
+  const skeletonBase = isDarkMode ? withAlpha(colours.subtleGrey, 0.12) : withAlpha(colours.darkBlue, 0.06);
+  const skeletonStrong = isDarkMode ? withAlpha(colours.subtleGrey, 0.22) : withAlpha(colours.darkBlue, 0.12);
+  const lineColor = isDarkMode ? withAlpha(colours.subtleGrey, 0.24) : withAlpha(colours.greyText, 0.18);
+  const rowBorderColor = isDarkMode ? withAlpha(colours.subtleGrey, 0.16) : withAlpha(colours.subtleGrey, 0.12);
+  const blockBorder = isDarkMode ? withAlpha(colours.subtleGrey, 0.18) : withAlpha(colours.darkBlue, 0.08);
+  const headerSurface = isDarkMode ? colours.darkBlue : colours.light.cardBackground;
+  const gridTemplateColumns = getMatterGridTemplateColumns(showCclColumns);
+
+  const block = (width: number | string, height: number, strong = false): React.CSSProperties => ({
+    width,
+    height,
+    background: strong ? skeletonStrong : skeletonBase,
+    border: `1px solid ${blockBorder}`,
+  });
+
+  const matterWidths = ['34%', '42%', '30%', '38%', '28%', '46%', '36%', '32%'];
+  const matterLinkChipWidths = [30, 34, 28, 32, 26, 36, 30, 28];
+  const clientWidths = ['72%', '64%', '58%', '76%', '61%', '69%', '66%', '54%'];
+  const summaryPrimaryWidths = ['78%', '64%', '71%', '83%', '68%', '75%', '62%', '70%'];
+  const worktypeWidths = ['58%', '46%', '62%', '54%', '48%', '60%', '52%', '44%'];
+  const feeWidths = [28, 34, 30, 36, 32, 26, 34, 30];
+
+  return (
+    <div
+      className="matter-table-skeleton"
+      style={{
+        '--matter-skeleton-grid': gridTemplateColumns,
+        '--matter-skeleton-base': skeletonBase,
+        '--matter-skeleton-strong': skeletonStrong,
+        '--matter-skeleton-line': lineColor,
+        '--matter-skeleton-row-border': rowBorderColor,
+        '--matter-skeleton-block-border': blockBorder,
+        padding: variant === 'blocking' ? '0 14px' : '0',
+      } as React.CSSProperties}
+      data-variant={variant}
+      data-exiting={exiting ? 'true' : 'false'}
+      aria-hidden="true"
+    >
+      <div
+        className="matter-table-skeleton__header"
+        style={{
+          background: headerSurface,
+          borderTop: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)'}`,
+          borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)'}`,
+        }}
+      >
+        <div className="matter-table-skeleton__timeline-head">
+          <div className="matter-table-skeleton__line-head" />
+        </div>
+        <div className="matter-table-skeleton__block matter-table-skeleton__block--base" style={block(30, 8)} />
+        <div className="matter-table-skeleton__block matter-table-skeleton__block--base" style={block(44, 8)} />
+        <div className="matter-table-skeleton__block matter-table-skeleton__block--base" style={block(52, 8)} />
+        <div className="matter-table-skeleton__block matter-table-skeleton__block--base" style={block(22, 8)} />
+        {showCclColumns && <div className="matter-table-skeleton__block matter-table-skeleton__block--base" style={block(54, 8)} />}
+        {showCclColumns && <div className="matter-table-skeleton__block matter-table-skeleton__block--base" style={block(42, 8)} />}
+        <div className="matter-table-skeleton__block matter-table-skeleton__block--base" style={block(56, 8)} />
+      </div>
+
+      {Array.from({ length: resolvedRowCount }, (_, idx) => {
+        const rowDelay = idx * 0.05;
+        return (
+          <div
+            key={`${variant}-matter-skel-${idx}`}
+            className="matter-table-skeleton__row"
+            style={{
+              borderBottom: `0.5px solid ${rowBorderColor}`,
+              '--matter-skeleton-row-opacity': Math.max(0.56, 1 - idx * 0.07),
+              '--matter-skeleton-row-delay': `${rowDelay}s`,
+              padding: '5px 14px',
+            } as React.CSSProperties}
+          >
+            <div className="matter-table-skeleton__timeline">
+              <div className="matter-table-skeleton__timeline-line" style={{ opacity: 0.72 + (idx % 3) * 0.08 }} />
+            </div>
+
+            <div className="matter-table-skeleton__stack">
+              <div className="matter-table-skeleton__block matter-table-skeleton__block--strong" style={block(idx % 2 === 0 ? 28 : 24, 11, true)} />
+              <div className="matter-table-skeleton__block matter-table-skeleton__block--base" style={block(idx % 2 === 0 ? 32 : 26, 9)} />
+            </div>
+
+            <div className="matter-table-skeleton__stack matter-table-skeleton__stack--matter">
+              <div className="matter-table-skeleton__meta" style={{ gap: 4 }}>
+                <div className="matter-table-skeleton__block matter-table-skeleton__block--strong" style={block(matterWidths[idx % matterWidths.length], 11, true)} />
+                <div className="matter-table-skeleton__block matter-table-skeleton__block--base" style={block(matterLinkChipWidths[idx % matterLinkChipWidths.length], 14)} />
+              </div>
+              <div className="matter-table-skeleton__block matter-table-skeleton__block--base" style={block(clientWidths[idx % clientWidths.length], 9)} />
+            </div>
+
+            <div className="matter-table-skeleton__meta">
+              <div className="matter-table-skeleton__block matter-table-skeleton__dot" style={block(14, 14)} />
+              <div className="matter-table-skeleton__block matter-table-skeleton__block--base" style={block(worktypeWidths[idx % worktypeWidths.length], 10)} />
+            </div>
+
+            <div className="matter-table-skeleton__fee">
+              <div className="matter-table-skeleton__block matter-table-skeleton__block--base" style={block(feeWidths[idx % feeWidths.length], 20)} />
+            </div>
+
+            {showCclColumns && (
+              <div className="matter-table-skeleton__ccl">
+                <div className="matter-table-skeleton__block matter-table-skeleton__block--base" style={block(72, 22)} />
+              </div>
+            )}
+
+            {showCclColumns && (
+              <div className="matter-table-skeleton__stack matter-table-skeleton__stack--date">
+                <div className="matter-table-skeleton__block matter-table-skeleton__block--strong" style={block(idx % 2 === 0 ? 24 : 20, 11, true)} />
+                <div className="matter-table-skeleton__block matter-table-skeleton__block--base" style={block(idx % 2 === 0 ? 28 : 24, 9)} />
+              </div>
+            )}
+
+            <div className="matter-table-skeleton__summary">
+              <div className="matter-table-skeleton__block matter-table-skeleton__block--base" style={block(summaryPrimaryWidths[idx % summaryPrimaryWidths.length], 10)} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 function getPersonInitials(name: string): string {
   const parts = String(name || '')
     .trim()
@@ -69,40 +207,13 @@ function getPersonInitials(name: string): string {
   return `${parts[0][0] || ''}${parts[parts.length - 1][0] || ''}`.toUpperCase();
 }
 
-// 2026-04-24: subtle "just-arrived" highlight for matters that appear via
-// realtime SSE updates (matters/stream → helix:mattersChanged → refresh).
-// Kept lightweight: a single injected stylesheet (idempotent), animation
-// is opt-out under prefers-reduced-motion. The class auto-clears after
-// 1800ms so it never piles up state. First-render ids are NOT highlighted.
-const JUST_ARRIVED_CLASS = 'prospect-row--just-arrived';
-const JUST_ARRIVED_STYLE_ID = 'matter-row-just-arrived-style';
+// 2026-04-24+: subtle "just-arrived" highlight for matters that appear via
+// realtime refresh while the operator is already looking at the SAME table.
+// First render, scope/search/user/view switches and other dataset reshapes
+// are reseeded silently; only true live insertions get the pulse.
+const JUST_ARRIVED_CLASS = 'prospect-row--new-arrival';
 const JUST_ARRIVED_DURATION_MS = 1800;
-
-function ensureJustArrivedStyle() {
-  if (typeof document === 'undefined') return;
-  if (document.getElementById(JUST_ARRIVED_STYLE_ID)) return;
-  const style = document.createElement('style');
-  style.id = JUST_ARRIVED_STYLE_ID;
-  style.textContent = [
-    '@keyframes matterRowJustArrivedFade {',
-    '  0% { opacity: 0; transform: translateY(-2px); }',
-    '  100% { opacity: 1; transform: translateY(0); }',
-    '}',
-    '@keyframes matterRowJustArrivedPulse {',
-    '  0% { box-shadow: inset 0 0 0 1.5px rgba(135,243,243,0.0), inset 3px 0 0 0 rgba(135,243,243,0.0); }',
-    '  18% { box-shadow: inset 0 0 0 1.5px rgba(135,243,243,0.55), inset 3px 0 0 0 rgba(135,243,243,0.95); }',
-    '  100% { box-shadow: inset 0 0 0 1.5px rgba(135,243,243,0.0), inset 3px 0 0 0 rgba(135,243,243,0.0); }',
-    '}',
-    `.${JUST_ARRIVED_CLASS} {`,
-    '  animation: matterRowJustArrivedFade 220ms ease-out, matterRowJustArrivedPulse 1800ms ease-out;',
-    '  position: relative;',
-    '}',
-    '@media (prefers-reduced-motion: reduce) {',
-    `  .${JUST_ARRIVED_CLASS} { animation: none; }`,
-    '}',
-  ].join('\n');
-  document.head.appendChild(style);
-}
+const MAX_JUST_ARRIVED_COUNT = 3;
 
 const MatterTableView: React.FC<MatterTableViewProps> = ({
   matters,
@@ -112,37 +223,75 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
   onRowClick,
   onOpenCclReview,
   loading = false,
+  arrivalTrackingKey = 'default',
+  suppressArrivalAnimations = false,
 }) => {
   const [sortColumn, setSortColumn] = useState<SortColumn>('openDate');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
   // Track ids we've already rendered so we can highlight any new ones the
   // server pushed in via SSE. seedRef guards the very first render so we
-  // don't flash every row when the table mounts.
-  useEffect(() => { ensureJustArrivedStyle(); }, []);
+  // don't flash every row when the table mounts. `arrivalTrackingKey`
+  // reseeds silently whenever the visible dataset identity changes.
   const seenIdsRef = useRef<Set<string>>(new Set());
   const seededRef = useRef(false);
+  const lastArrivalTrackingKeyRef = useRef<string>(arrivalTrackingKey);
   const [justArrivedIds, setJustArrivedIds] = useState<Set<string>>(() => new Set());
   const arrivalTimersRef = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
-    if (!matters || matters.length === 0) return;
+    const shouldSuppressArrivalAnimations = loading || suppressArrivalAnimations;
+    const clearArrivalPulseState = () => {
+      arrivalTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
+      arrivalTimersRef.current.clear();
+      setJustArrivedIds((prev) => (prev.size === 0 ? prev : new Set()));
+    };
+
+    if (!matters || matters.length === 0) {
+      lastArrivalTrackingKeyRef.current = arrivalTrackingKey;
+      seenIdsRef.current = new Set();
+      seededRef.current = false;
+      clearArrivalPulseState();
+      return;
+    }
+
     const currentIds = new Set<string>();
     for (const m of matters) {
       const id = m.matterId || m.displayNumber || '';
       if (id) currentIds.add(id);
     }
+
+    if (lastArrivalTrackingKeyRef.current !== arrivalTrackingKey) {
+      lastArrivalTrackingKeyRef.current = arrivalTrackingKey;
+      seenIdsRef.current = currentIds;
+      seededRef.current = true;
+      clearArrivalPulseState();
+      return;
+    }
+
+    if (shouldSuppressArrivalAnimations) {
+      seenIdsRef.current = currentIds;
+      seededRef.current = true;
+      clearArrivalPulseState();
+      return;
+    }
+
     if (!seededRef.current) {
       seenIdsRef.current = currentIds;
       seededRef.current = true;
       return;
     }
+
     const newcomers: string[] = [];
     currentIds.forEach((id) => {
       if (!seenIdsRef.current.has(id)) newcomers.push(id);
     });
     seenIdsRef.current = currentIds;
     if (newcomers.length === 0) return;
+    if (newcomers.length > MAX_JUST_ARRIVED_COUNT) {
+      clearArrivalPulseState();
+      return;
+    }
     setJustArrivedIds((prev) => {
       const next = new Set(prev);
       newcomers.forEach((id) => next.add(id));
@@ -162,7 +311,7 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
       }, JUST_ARRIVED_DURATION_MS);
       arrivalTimersRef.current.set(id, timer);
     });
-  }, [matters]);
+  }, [arrivalTrackingKey, loading, matters, suppressArrivalAnimations]);
 
   useEffect(() => () => {
     arrivalTimersRef.current.forEach((t) => window.clearTimeout(t));
@@ -242,26 +391,13 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
 
   const headerTextColor = isDarkMode ? colours.dark.text : colours.light.text;
   const headerSurface = isDarkMode ? colours.darkBlue : colours.light.cardBackground;
-  const rowBorder = isDarkMode ? 'rgba(75, 85, 99, 0.18)' : 'rgba(160, 160, 160, 0.12)';
+  const rowBorder = isDarkMode ? 'rgba(var(--subtle-grey-rgb), 0.18)' : 'rgba(var(--subtle-grey-rgb), 0.12)';
   const bodyText = isDarkMode ? '#d1d5db' : '#374151';
   const mutedText = isDarkMode ? colours.subtleGrey : colours.greyText;
   const gridTemplateColumns = useMemo(() => getMatterGridTemplateColumns(showCclColumns), [showCclColumns]);
 
   if (loading && matters.length === 0) {
-    return (
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '48px',
-          color: mutedText,
-          fontFamily: 'Raleway, sans-serif',
-        }}
-      >
-        Loading matters...
-      </div>
-    );
+    return <MatterTableLoadingSkeleton isDarkMode={isDarkMode} showCclColumns={showCclColumns} variant="inline" />;
   }
 
   if (matters.length === 0) {
@@ -307,22 +443,21 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
           gridTemplateColumns,
           gap: 4,
           padding: '0 14px',
-          height: 44,
+          height: 40,
           boxSizing: 'border-box',
           alignItems: 'center',
           flexShrink: 0,
           background: headerSurface,
-          backdropFilter: 'blur(12px)',
-          borderTop: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
-          borderBottom: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)'}`,
+          backdropFilter: 'none',
+          borderTop: 'none',
+          borderBottom: `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.24)' : 'rgba(13, 47, 96, 0.06)'}`,
           fontSize: '11px',
-          fontWeight: 500,
+          fontWeight: 600,
           color: headerTextColor,
           textTransform: 'uppercase',
           letterSpacing: '0.5px',
-          boxShadow: isDarkMode
-            ? '0 2px 8px rgba(0, 0, 0, 0.3)'
-            : '0 2px 8px rgba(0, 0, 0, 0.08)',
+          lineHeight: 1.05,
+          boxShadow: 'none',
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Timeline">
@@ -384,6 +519,7 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
               onClick={() => onRowClick?.(matter)}
               style={{
                 gridTemplateColumns,
+                padding: '5px 14px',
                 borderBottom: `0.5px solid ${rowBorder}`,
                 '--row-index': Math.min(idx, 15),
               } as React.CSSProperties}
@@ -409,7 +545,18 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
                 </div>
               </TooltipHost>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'flex-start',
+                  justifyContent: 'center',
+                  gap: 2,
+                  lineHeight: 1.3,
+                  minWidth: 0,
+                  paddingInline: 2,
+                }}
+              >
                 {matter.matterId ? (
                   <a
                     href={`https://eu.app.clio.com/nc/#/matters/${matter.matterId}`}
@@ -418,49 +565,66 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
                     onClick={(event) => event.stopPropagation()}
                     style={{
                       display: 'inline-flex',
+                      alignSelf: 'flex-start',
                       alignItems: 'center',
-                      gap: 5,
+                      gap: 6,
                       minWidth: 0,
-                      color: isDarkMode ? colours.accent : colours.highlight,
+                      maxWidth: '100%',
+                      color: colours.highlight,
                       textDecoration: 'none',
                       fontSize: 12,
                       fontWeight: 500,
+                      lineHeight: 1.2,
                     }}
                     title="Open matter in Clio"
                   >
-                    <img src={clioIcon} alt="" style={{ width: 12, height: 12, opacity: 0.75, flexShrink: 0, filter: isDarkMode ? 'brightness(0) invert(1)' : undefined }} />
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{matterLabel}</span>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{matterLabel}</span>
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        minHeight: 16,
+                        padding: '0 4px',
+                        border: `1px solid ${withAlpha(colours.highlight, isDarkMode ? 0.28 : 0.18)}` ,
+                        background: withAlpha(colours.highlight, isDarkMode ? 0.1 : 0.06),
+                        color: isDarkMode ? `${colours.subtleGrey}d9` : `${colours.greyText}d9`,
+                        fontSize: 9,
+                        fontWeight: 600,
+                        letterSpacing: '0.04em',
+                        lineHeight: 1,
+                        whiteSpace: 'nowrap',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <img
+                        src={clioIcon}
+                        alt=""
+                        style={{ width: 9, height: 9, opacity: 0.72, flexShrink: 0, filter: isDarkMode ? 'brightness(0) invert(1)' : undefined }}
+                      />
+                      <span>Clio</span>
+                      <Icon iconName="NavigateExternalInline" style={{ fontSize: 9, opacity: 0.7 }} />
+                    </span>
                   </a>
                 ) : (
                   <span style={{ fontSize: 12, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {matterLabel}
                   </span>
                 )}
-                {matter.clientId ? (
-                  <a
-                    href={`https://eu.app.clio.com/nc/#/contacts/${matter.clientId}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={(event) => event.stopPropagation()}
-                    style={{
-                      color: bodyText,
-                      textDecoration: 'none',
-                      fontSize: 11,
-                      fontWeight: 400,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                      lineHeight: 1.2,
-                    }}
-                    title="Open client in Clio"
-                  >
-                    {clientName}
-                  </a>
-                ) : (
-                  <span style={{ fontSize: 11, fontWeight: 400, color: bodyText, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.2 }}>
-                    {clientName}
-                  </span>
-                )}
+                <span
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 400,
+                    color: bodyText,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    lineHeight: 1.15,
+                    maxWidth: '100%',
+                  }}
+                >
+                  {clientName}
+                </span>
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
@@ -558,7 +722,7 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
                           ? 'Generated and awaiting review'
                           : 'Not started yet';
                     // Actionable when a draft exists OR after review; `sent` reopens
-                    // the sealed view. `pending` is not clickable — nothing to open.
+                    // the sealed view. `pending` is not clickable ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â nothing to open.
                     const canOpenReview = !!onOpenCclReview && !!matter.matterId
                       && (cclStatusStage === 'draft'
                         || cclStatusStage === 'generated'
@@ -588,7 +752,7 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
                             e.stopPropagation();
                             if (matter.matterId) onOpenCclReview!(matter.matterId);
                           }}
-                          title={`${pillTitle} — click to open review`}
+                          title={`${pillTitle} ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â click to open review`}
                           style={{
                             ...pillSharedStyle,
                             cursor: 'pointer',
@@ -622,18 +786,17 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
                 </TooltipHost>
               )}
 
-              <div style={{ minWidth: 0 }}>
+              <div style={{ minWidth: 0, paddingInline: 2 }}>
                 <span
+                  title={description}
                   style={{
-                    display: '-webkit-box',
-                    WebkitBoxOrient: 'vertical',
-                    WebkitLineClamp: 2,
+                    display: 'block',
                     overflow: 'hidden',
+                    textOverflow: 'ellipsis',
                     fontSize: 11,
-                    lineHeight: 1.35,
+                    lineHeight: 1.2,
                     color: bodyText,
-                    whiteSpace: 'normal',
-                    wordBreak: 'break-word',
+                    whiteSpace: 'nowrap',
                   }}
                 >
                   {description}
@@ -648,7 +811,21 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
 };
 
 const HeaderLabel: React.FC<{ label: string }> = ({ label }) => {
-  return <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>;
+  return (
+    <span
+      style={{
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+        fontSize: 'inherit',
+        fontWeight: 'inherit',
+        letterSpacing: 'inherit',
+        lineHeight: 1.05,
+      }}
+    >
+      {label}
+    </span>
+  );
 };
 
 const SortableHeader: React.FC<{
@@ -671,11 +848,24 @@ const SortableHeader: React.FC<{
         color: 'inherit',
         textTransform: 'inherit',
         font: 'inherit',
+        lineHeight: 1.05,
         cursor: 'pointer',
         minWidth: 0,
       }}
     >
-      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+      <span
+        style={{
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          fontSize: 'inherit',
+          fontWeight: 'inherit',
+          letterSpacing: 'inherit',
+          lineHeight: 1.05,
+        }}
+      >
+        {label}
+      </span>
       {renderSortIndicator(column)}
     </button>
   );

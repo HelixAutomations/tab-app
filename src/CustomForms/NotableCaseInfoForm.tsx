@@ -8,7 +8,7 @@ import { PrimaryButton, DefaultButton } from '@fluentui/react/lib/Button';
 import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
 import { Toggle } from '@fluentui/react/lib/Toggle';
 import { Icon } from '@fluentui/react/lib/Icon';
-import { getProxyBaseUrl } from '../utils/getProxyBaseUrl';
+import { getApiBase } from '../utils/getApiUrl';
 import { NormalizedMatter, UserData } from '../app/functionality/types';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { colours } from '../app/styles/colours';
@@ -275,7 +275,7 @@ const NotableCaseInfoForm: React.FC<NotableCaseInfoFormProps> = ({
         counsel_name: formData.context_type === 'C' && formData.counsel_instructed ? formData.counsel_name : null,
       };
 
-      const base = getProxyBaseUrl();
+      const base = getApiBase();
       // Route through /api/notable-case-info proxy so the submission is
       // recorded in form_submissions + appears in FormsHub. The proxy forwards
       // to the same downstream Azure Function.

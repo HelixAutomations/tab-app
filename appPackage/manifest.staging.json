@@ -1,0 +1,57 @@
+{
+    "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.15/MicrosoftTeams.schema.json",
+    "manifestVersion": "1.15",
+    "version": "1.0.9",
+    "id": "027dd04d-7435-4526-8f7a-7fb00bf59903",
+    "packageName": "com.helixlaw.teamhub.staging",
+    "developer": {
+        "name": "Helix Law",
+        "websiteUrl": "https://helix-law.co.uk/",
+        "privacyUrl": "https://helix-law.co.uk/privacy-policy/",
+        "termsOfUseUrl": "https://helix-law.co.uk/terms-and-conditions/"
+    },
+    "icons": {
+        "color": "mark192colour.png",
+        "outline": "mark32.png"
+    },
+    "name": {
+        "short": "Team Hub (Staging)",
+        "full": "Helix Resource Centre for Team Access (Staging)"
+    },
+    "description": {
+        "short": "Team Resource Hub - Staging",
+        "full": "Staging build of the Helix Law team resource hub. Points at the staging slot for pre-release testing."
+    },
+    "accentColor": "#D65541",
+    "bots": [
+        {
+            "botId": "3d935d23-349e-4502-a9c0-6f5ca48d5d33",
+            "scopes": ["personal"],
+            "supportsFiles": false,
+            "isNotificationOnly": false
+        }
+    ],
+    "composeExtensions": [],
+    "staticTabs": [
+        {
+            "entityId": "hubTab",
+            "name": "Hub",
+            "contentUrl": "https://link-hub-v1-staging-etd3hhg9fhb7fsdv.uksouth-01.azurewebsites.net/",
+            "websiteUrl": "https://link-hub-v1-staging-etd3hhg9fhb7fsdv.uksouth-01.azurewebsites.net/",
+            "scopes": ["personal"]
+        }
+    ],
+    "permissions": [
+        "identity",
+        "messageTeamMembers"
+    ],
+    "validDomains": [
+        "link-hub-v1-staging-etd3hhg9fhb7fsdv.uksouth-01.azurewebsites.net",
+        "view.officeapps.live.com",
+        "*.blob.core.windows.net"
+    ],
+    "webApplicationInfo": {
+        "id": "3d935d23-349e-4502-a9c0-6f5ca48d5d33",
+        "resource": "api://3d935d23-349e-4502-a9c0-6f5ca48d5d33"
+    }
+}

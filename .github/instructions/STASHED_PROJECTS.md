@@ -92,6 +92,12 @@ node tools/stash-lint.mjs
 node tools/stash-status.mjs
 ```
 
+**Precheck gotchas (learned the hard way):**
+
+- Precheck reports two classes — `COORDINATES` (same directory, no shared file) is informational and can be ignored; **`POTENTIAL CONFLICTS — shared file, NOT declared` is must-fix**. Add every shared-file id to `coordinates_with` (or `conflicts_with` if you'll actually mutate the same region) and re-run until precheck exits 0.
+- Mount-surface files have many coordinations by nature. Expect ~8 entries any time `src/app/App.tsx` is in `touches.client`, and several any time you touch `server/routes/ccl-ai.js` or `server/utils/cclPersistence.js`. Listing them is the contract — it's how future briefs find yours.
+- `create_file` cannot overwrite the skeleton produced by `stash-new.mjs` ("File already exists"). Either use `replace_string_in_file` to swap the template body, or `Remove-Item` the skeleton and re-create. Don't waste cycles retrying `create_file`.
+
 **Standard close-out workflow:**
 
 ```bash

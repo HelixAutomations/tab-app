@@ -23,6 +23,9 @@ export interface ConversionPocketChartMatterDetail {
   displayNumber: string;
   feeEarner?: string;
   feeEarnerInitials?: string;
+  responsibleLabel?: string;
+  originatingLabel?: string;
+  supervisingLabel?: string;
   occurredAt?: string;
 }
 
@@ -113,8 +116,16 @@ const escapeXml = (value: string): string =>
 
 const formatMatterDetailLabel = (detail: ConversionPocketChartMatterDetail): string => {
   const displayNumber = String(detail?.displayNumber || '').trim() || 'Matter';
-  const feeEarner = String(detail?.feeEarner || detail?.feeEarnerInitials || '').trim();
-  return feeEarner ? `${displayNumber} · ${feeEarner}` : displayNumber;
+  const originating = String(detail?.originatingLabel || '').trim();
+  const responsible = String(detail?.responsibleLabel || detail?.feeEarnerInitials || '').trim();
+  const supervising = String(detail?.supervisingLabel || '').trim();
+  const normalize = (value: string) => value.trim().toUpperCase();
+  const roles = [
+    originating ? `OS ${originating}` : null,
+    responsible && normalize(responsible) !== normalize(originating) ? `RS ${responsible}` : null,
+    supervising ? `SP ${supervising}` : null,
+  ].filter(Boolean) as string[];
+  return roles.length > 0 ? `${displayNumber} · ${roles.join(' · ')}` : displayNumber;
 };
 
 const buildMatterDetailLines = (

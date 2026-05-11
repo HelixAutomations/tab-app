@@ -1989,7 +1989,7 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
                                           bottom: 0,
                                           width: '1px',
                                           transform: 'translateX(-50%)',
-                                          background: isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(54, 144, 206, 0.15)',
+                                          background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.15)',
                                         }} />
                                         {/* Horizontal connector */}
                                         <div style={{
@@ -1998,7 +1998,7 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
                                           top: '50%',
                                           width: '12px',
                                           height: '1px',
-                                          background: isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(54, 144, 206, 0.15)',
+                                          background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.15)',
                                         }} />
                                       </div>
                                     )}

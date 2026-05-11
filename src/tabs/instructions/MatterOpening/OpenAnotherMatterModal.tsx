@@ -3,12 +3,16 @@
  *
  * Shared modal used by both:
  *   1. InlineWorkbench matter chip → "+ Open another matter" (preset source instruction)
- *   2. Home quick action          → "Open Matter for Existing Client" (no preset)
+ *   2. Home quick action          → "New Matter" (no preset; existing-client only)
  *
- * Single page, three sections:
- *   1. Source (collapsed if presetSourceInstructionRef supplied)
- *   2. New case brief (description, area, capacity, optional new deal)
- *   3. Team + risk
+ * Focused tool for opening another matter against an *existing* client / instruction.
+ * Not a replacement for the full new-client wizard (CompactMatterWizard).
+ *
+ * Source-first progressive disclosure:
+ *   1. Source picker (current instruction or legacy POID) — always visible
+ *   2. Once a source is picked, capacity is **derived** from it (Individual / Company);
+ *      brief (description, area, optional new deal), team & risk reveal below.
+ *   3. Ambiguous legacy sources surface an inline two-button override.
  *
  * Submit → POST /api/matters/open-another → poll → progress strip.
  * On Clio token failure: shows "Retry with service account" button.
@@ -17,10 +21,9 @@
  * so the modal can be unit-tested + reused later when promoted.
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Icon } from '@fluentui/react/lib/Icon';
-import { FaUser, FaBuilding, FaUserTie } from 'react-icons/fa';
 import { useTheme } from '../../../app/functionality/ThemeContext';
 import { colours } from '../../../app/styles/colours';
 import '../../forms/forms-tokens.css';
@@ -38,7 +41,7 @@ import {
 const AREA_OPTIONS = ['Commercial', 'Property', 'Construction', 'Employment', 'Misc'];
 const RISK_OPTIONS = ['Low Risk', 'Medium Risk', 'High Risk'];
 
-type ClientType = 'Individual' | 'Company' | 'Multiple Individuals';
+type ClientType = 'Individual' | 'Company';
 
 export interface OpenAnotherMatterModalProps {
   open: boolean;
@@ -74,6 +77,9 @@ const OpenAnotherMatterModal: React.FC<OpenAnotherMatterModalProps> = ({
   const [sourceLoading, setSourceLoading] = useState(false);
   const [sourceErr, setSourceErr] = useState<string | null>(null);
   const [currentHits, setCurrentHits] = useState<CurrentInstructionHit[]>([]);
+  const [recentHits, setRecentHits] = useState<CurrentInstructionHit[]>([]);
+  const [recentLoading, setRecentLoading] = useState(false);
+  const [recentErr, setRecentErr] = useState<string | null>(null);
   const [legacyHits, setLegacyHits] = useState<LegacyPoidHit[]>([]);
   const [legacySearched, setLegacySearched] = useState(false);
   const [pickedInstruction, setPickedInstruction] = useState<CurrentInstructionHit | null>(null);
@@ -93,6 +99,28 @@ const OpenAnotherMatterModal: React.FC<OpenAnotherMatterModalProps> = ({
       setLegacyHits([]);
       setLegacySearched(false);
     }
+  }, [open, presetSourceInstructionRef]);
+
+  // Fetch a small "recent" tray once on open (current instructions, top by SubmissionDate).
+  // Surfaces below the search bar as a quick-pick; fades when the user focuses the search.
+  useEffect(() => {
+    if (!open || presetSourceInstructionRef) return;
+    let cancelled = false;
+    setRecentLoading(true);
+    setRecentErr(null);
+    (async () => {
+      try {
+        const r = await searchSources('', 'current');
+        if (cancelled) return;
+        setRecentHits((r.instructions || []).slice(0, 5));
+      } catch (err) {
+        if (cancelled) return;
+        setRecentErr(err instanceof Error ? err.message : String(err));
+      } finally {
+        if (!cancelled) setRecentLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
   }, [open, presetSourceInstructionRef]);
 
   // Debounced current-instruction search. Quiet on focus; only fires when
@@ -144,7 +172,10 @@ const OpenAnotherMatterModal: React.FC<OpenAnotherMatterModalProps> = ({
   const [serviceDescription, setServiceDescription] = useState('');
   const [areaOfWork, setAreaOfWork] = useState(presetDefaults?.areaOfWork || '');
   const [typeOfWork, setTypeOfWork] = useState('');
-  const [capacity, setCapacity] = useState<ClientType | null>(presetDefaults?.capacity ?? null);
+  // Capacity is *derived* from the picked source — see `derivedCapacity` below.
+  // We keep an override slot for the rare case where the source is genuinely
+  // ambiguous (legacy POID with no company_name + no clear individual signal).
+  const [capacityOverride, setCapacityOverride] = useState<ClientType | null>(null);
   const [companyName, setCompanyName] = useState('');
   const [companyNumber, setCompanyNumber] = useState('');
 
@@ -178,12 +209,51 @@ const OpenAnotherMatterModal: React.FC<OpenAnotherMatterModalProps> = ({
 
   useEffect(() => () => { cancelledRef.current = true; }, []);
 
-  if (!open) return null;
+  // Seed company fields from the picked source whenever the source changes,
+  // so the user doesn't retype what we already know.
+  useEffect(() => {
+    if (pickedInstruction) {
+      const cn = (pickedInstruction as any).CompanyName || '';
+      const cnum = (pickedInstruction as any).CompanyNumber || '';
+      if (cn) setCompanyName(cn);
+      if (cnum) setCompanyNumber(cnum);
+    } else if (pickedLegacy) {
+      if (pickedLegacy.company_name) setCompanyName(pickedLegacy.company_name);
+      if ((pickedLegacy as any).company_number) setCompanyNumber((pickedLegacy as any).company_number);
+    }
+  }, [pickedInstruction, pickedLegacy]);
 
   // ── derived ───────────────────────────────────────────────────────────────────────────────
   const isPreset = Boolean(presetSourceInstructionRef);
   const sourcePicked = Boolean(pickedInstruction || pickedLegacy);
   const legacyGaps = pickedLegacy?._gaps || [];
+
+  // Derive capacity from the picked source. Current instructions carry
+  // ClientType explicitly; legacy POIDs are inferred from `company_name`.
+  // If neither side gives a clear signal, `derivedCapacity` is null and we
+  // surface a small inline override.
+  const derivedCapacity = useMemo<ClientType | null>(() => {
+    if (capacityOverride) return capacityOverride;
+    if (pickedInstruction) {
+      const ct = (pickedInstruction as any).ClientType || (pickedInstruction as any).clientType;
+      if (ct === 'Company') return 'Company';
+      // Anything else with a current instruction is treated as Individual.
+      return 'Individual';
+    }
+    if (pickedLegacy) {
+      if (pickedLegacy.company_name && pickedLegacy.company_name.trim()) return 'Company';
+      if (pickedLegacy.first || pickedLegacy.last) return 'Individual';
+      return null; // genuinely ambiguous → ask
+    }
+    if (presetDefaults?.capacity) return presetDefaults.capacity;
+    return null;
+  }, [pickedInstruction, pickedLegacy, capacityOverride, presetDefaults?.capacity]);
+
+  if (!open) return null;
+
+  const capacity = derivedCapacity;
+  const capacityAmbiguous = sourcePicked && !derivedCapacity;
+
   const formValid =
     !!capacity &&
     sourcePicked &&
@@ -341,15 +411,15 @@ const OpenAnotherMatterModal: React.FC<OpenAnotherMatterModalProps> = ({
       <div style={{
         background: isDarkMode ? colours.dark.background : '#f6f7fb',
         border: `1px solid ${sectionBorder}`,
-        borderRadius: 2,
-        width: '100%', maxWidth: 720, maxHeight: '90vh', overflowY: 'auto',
+        borderRadius: 0,
+        width: '100%', maxWidth: 880, maxHeight: '96vh', overflowY: 'auto',
         boxShadow: '0 20px 60px rgba(0,0,0,0.4)',
         padding: 20,
       }}>
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
           <div style={{ fontSize: 16, fontWeight: 700, color: headingColor }}>
-            New matter
+            Open a New Matter for an Existing Client
           </div>
           <button
             type="button"
@@ -365,48 +435,6 @@ const OpenAnotherMatterModal: React.FC<OpenAnotherMatterModalProps> = ({
           </button>
         </div>
 
-        {/* Section 0 — Client setup chooser (gates everything else) */}
-        <div style={{ ...sectionStyle, marginBottom: capacity ? 10 : 0 }}>
-          <div style={sectionTitleStyle}>Client setup</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 6 }}>
-            {([
-              { key: 'Individual' as ClientType, label: 'Individual', icon: <FaUser size={10} />, note: 'Single person client' },
-              { key: 'Company' as ClientType, label: 'Company', icon: <FaBuilding size={10} />, note: 'Company with directors' },
-              { key: 'Multiple Individuals' as ClientType, label: 'Multiple', icon: <FaUserTie size={10} />, note: 'Two or more people' },
-            ]).map((option) => {
-              const isSelected = capacity === option.key;
-              return (
-                <button
-                  key={option.key}
-                  type="button"
-                  onClick={() => setCapacity(option.key)}
-                  disabled={submitting}
-                  style={{
-                    display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4,
-                    padding: '9px 10px', borderRadius: 0,
-                    border: `1px solid ${isSelected ? colours.highlight : (isDarkMode ? `${colours.dark.border}99` : 'rgba(6, 23, 51, 0.1)')}`,
-                    background: isSelected
-                      ? (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)')
-                      : (isDarkMode ? 'rgba(6, 23, 51, 0.35)' : 'rgba(244, 244, 246, 0.45)'),
-                    color: isSelected ? colours.highlight : bodyColor,
-                    cursor: submitting ? 'not-allowed' : 'pointer', textAlign: 'left',
-                  }}
-                >
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700 }}>
-                    {option.icon}
-                    {option.label}
-                  </span>
-                  <span style={{ fontSize: 9, fontWeight: 500, color: isSelected ? colours.highlight : labelColor }}>
-                    {option.note}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {capacity && (<>
-
         {/* Section 1 — Source picker */}
         <div style={{ marginBottom: 12 }}>
           {isPreset ? (
@@ -417,6 +445,11 @@ const OpenAnotherMatterModal: React.FC<OpenAnotherMatterModalProps> = ({
                 color: accent, borderRadius: 0,
               }}>Current</span>
               <span style={{ fontSize: 13, color: bodyColor, fontFamily: 'monospace' }}>{pickedInstruction?.InstructionRef}</span>
+              {capacity && (
+                <span style={{ fontSize: 11, color: labelColor }}>
+                  · {capacity}
+                </span>
+              )}
             </div>
           ) : sourcePicked ? (
             // Picked summary chip + (legacy only) gap strip
@@ -460,104 +493,205 @@ const OpenAnotherMatterModal: React.FC<OpenAnotherMatterModalProps> = ({
                   Missing in legacy record: <span style={{ fontWeight: 600 }}>{legacyGaps.join(', ')}</span>
                 </div>
               )}
+              {sourcePicked && capacity && !capacityAmbiguous && (
+                <div style={{ marginTop: 8, fontSize: 11, color: labelColor }}>
+                  Client type: <span style={{ color: bodyColor, fontWeight: 600 }}>{capacity}</span>
+                  <span style={{ marginLeft: 6, color: labelColor }}>(from source)</span>
+                </div>
+              )}
+              {capacityAmbiguous && (
+                <div style={{ marginTop: 8, padding: '8px 10px', border: '1px dashed rgba(255,140,0,0.45)', background: 'rgba(255,140,0,0.06)' }}>
+                  <div style={{ fontSize: 11, color: labelColor, marginBottom: 6 }}>
+                    Source has no clear individual or company signal — pick one to continue:
+                  </div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    {(['Individual', 'Company'] as ClientType[]).map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => setCapacityOverride(c)}
+                        disabled={submitting}
+                        style={{
+                          padding: '6px 12px', borderRadius: 0,
+                          border: `1px solid ${capacityOverride === c ? colours.highlight : inputBorder}`,
+                          background: capacityOverride === c
+                            ? (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)')
+                            : inputBg,
+                          color: capacityOverride === c ? colours.highlight : bodyColor,
+                          fontSize: 11, fontWeight: 600,
+                          cursor: submitting ? 'not-allowed' : 'pointer',
+                        }}
+                      >
+                        {c}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
-            <div className="forms-hub__search-shell" style={{ position: 'relative' }}>
-              <span className="forms-hub__search-leading-icon" aria-hidden="true">
-                <Icon iconName="Search" />
-              </span>
-              <input
-                className="forms-hub__search"
-                style={{ minHeight: 56, fontSize: 18, padding: '0 18px 0 48px' }}
-                value={sourceQuery}
-                onChange={(e) => setSourceQuery(e.target.value)}
-                onFocus={() => setSourceFocused(true)}
-                onBlur={() => { window.setTimeout(() => setSourceFocused(false), 150); }}
-                placeholder="Search instructions — name, email, company, or HLX-…"
-                disabled={submitting}
-                autoFocus
-                type="search"
-                aria-label="Search instructions"
-              />
-              {sourceFocused && sourceQuery.trim().length >= 2 && (
-                <div className="forms-hub__search-dropdown" style={{ maxHeight: 320 }}>
-                  {sourceLoading && currentHits.length === 0 && legacyHits.length === 0 && (
-                    <div className="forms-hub__search-empty">Searching…</div>
-                  )}
-                  {currentHits.map((h) => (
-                    <button
-                      key={h.InstructionRef}
-                      type="button"
-                      className="forms-hub__search-option"
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => { setPickedInstruction(h); setPickedLegacy(null); setSourceFocused(false); }}
-                    >
-                      <span className="forms-hub__search-option-icon" style={{ color: accent }}>
-                        <Icon iconName="ContactInfo" />
-                      </span>
-                      <span className="forms-hub__search-option-text">
-                        <span className="forms-hub__search-option-title">
-                          {[h.FirstName, h.LastName].filter(Boolean).join(' ') || h.CompanyName || h.Email || h.InstructionRef}
+            <div>
+              <div style={{ fontSize: 12, color: bodyColor, marginBottom: 10, lineHeight: 1.45 }}>
+                Search by enquiry id, name, email, company or instruction reference.
+              </div>
+              <div className="forms-hub__search-shell" style={{ position: 'relative' }}>
+                <span className="forms-hub__search-leading-icon" aria-hidden="true">
+                  <Icon iconName="Search" />
+                </span>
+                <input
+                  className="forms-hub__search"
+                  style={{ minHeight: 56, fontSize: 18, padding: '0 18px 0 48px' }}
+                  value={sourceQuery}
+                  onChange={(e) => setSourceQuery(e.target.value)}
+                  onFocus={() => setSourceFocused(true)}
+                  onBlur={() => { window.setTimeout(() => setSourceFocused(false), 150); }}
+                  placeholder="Search instructions — name, email, company, or HLX-…"
+                  disabled={submitting}
+                  type="search"
+                  aria-label="Search instructions"
+                />
+              </div>
+              {sourceQuery.trim().length >= 2 && (sourceFocused || sourceLoading || currentHits.length > 0 || legacyHits.length > 0 || sourceErr) && (
+                <div
+                  className="forms-hub__search-dropdown"
+                  style={{
+                    // Sibling block under the search shell — flows inline so the
+                    // modal grows with the result list rather than overlaying.
+                    position: 'static',
+                    marginTop: 8,
+                    maxHeight: 'none',
+                    overflow: 'visible',
+                  }}
+                >
+                    {sourceLoading && currentHits.length === 0 && legacyHits.length === 0 && (
+                      <div className="forms-hub__search-empty">Searching…</div>
+                    )}
+                    {currentHits.map((h) => (
+                      <button
+                        key={h.InstructionRef}
+                        type="button"
+                        className="forms-hub__search-option"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => { setPickedInstruction(h); setPickedLegacy(null); setSourceFocused(false); }}
+                      >
+                        <span className="forms-hub__search-option-icon" style={{ color: accent }}>
+                          <Icon iconName="ContactInfo" />
                         </span>
-                        <span className="forms-hub__search-option-meta">
-                          {h.InstructionRef}{h.Stage ? ` · ${h.Stage}` : ''}{h.CompanyName ? ` · ${h.CompanyName}` : ''}
+                        <span className="forms-hub__search-option-text">
+                          <span className="forms-hub__search-option-title">
+                            {[h.FirstName, h.LastName].filter(Boolean).join(' ') || h.CompanyName || h.Email || h.InstructionRef}
+                          </span>
+                          <span className="forms-hub__search-option-meta">
+                            {h.InstructionRef}{h.Stage ? ` · ${h.Stage}` : ''}{h.CompanyName ? ` · ${h.CompanyName}` : ''}
+                          </span>
                         </span>
-                      </span>
-                    </button>
-                  ))}
+                      </button>
+                    ))}
 
-                  {/* Zero current hits → offer legacy */}
-                  {!sourceLoading && currentHits.length === 0 && !legacySearched && (
-                    <button
-                      type="button"
-                      className="forms-hub__search-option"
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => { void searchLegacy(); }}
-                    >
-                      <span className="forms-hub__search-option-icon" style={{ color: colours.orange }}>
-                        <Icon iconName="History" />
-                      </span>
-                      <span className="forms-hub__search-option-text">
-                        <span className="forms-hub__search-option-title">Search legacy POID records</span>
-                        <span className="forms-hub__search-option-meta">No current instructions match</span>
-                      </span>
-                    </button>
-                  )}
-
-                  {/* Legacy results */}
-                  {legacySearched && legacyHits.length === 0 && !sourceLoading && (
-                    <div className="forms-hub__search-empty">No legacy records match either.</div>
-                  )}
-                  {legacyHits.map((h) => (
-                    <button
-                      key={`legacy-${h.poid_id}`}
-                      type="button"
-                      className="forms-hub__search-option"
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => { setPickedLegacy(h); setPickedInstruction(null); setSourceFocused(false); }}
-                    >
-                      <span className="forms-hub__search-option-icon" style={{ color: colours.orange }}>
-                        <Icon iconName="History" />
-                      </span>
-                      <span className="forms-hub__search-option-text">
-                        <span className="forms-hub__search-option-title">
-                          {[h.prefix, h.first, h.last].filter(Boolean).join(' ') || h.company_name || h.email || h.poid_id}
+                    {/* Zero current hits → offer legacy */}
+                    {!sourceLoading && currentHits.length === 0 && !legacySearched && (
+                      <button
+                        type="button"
+                        className="forms-hub__search-option"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => { void searchLegacy(); }}
+                      >
+                        <span className="forms-hub__search-option-icon" style={{ color: colours.orange }}>
+                          <Icon iconName="History" />
                         </span>
-                        <span className="forms-hub__search-option-meta">
-                          Legacy · {h.poid_id}{h.company_name ? ` · ${h.company_name}` : ''} · {h._gaps.length ? `${h._gaps.length} gap${h._gaps.length === 1 ? '' : 's'}` : 'complete'}
+                        <span className="forms-hub__search-option-text">
+                          <span className="forms-hub__search-option-title">Search legacy POID records</span>
+                          <span className="forms-hub__search-option-meta">No current instructions match</span>
                         </span>
-                      </span>
-                    </button>
-                  ))}
+                      </button>
+                    )}
 
-                  {sourceErr && (
-                    <div className="forms-hub__search-empty" style={{ color: colours.cta }}>{sourceErr}</div>
+                    {/* Legacy results */}
+                    {legacySearched && legacyHits.length === 0 && !sourceLoading && (
+                      <div className="forms-hub__search-empty">No legacy records match either.</div>
+                    )}
+                    {legacyHits.map((h) => (
+                      <button
+                        key={`legacy-${h.poid_id}`}
+                        type="button"
+                        className="forms-hub__search-option"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => { setPickedLegacy(h); setPickedInstruction(null); setSourceFocused(false); }}
+                      >
+                        <span className="forms-hub__search-option-icon" style={{ color: colours.orange }}>
+                          <Icon iconName="History" />
+                        </span>
+                        <span className="forms-hub__search-option-text">
+                          <span className="forms-hub__search-option-title">
+                            {[h.prefix, h.first, h.last].filter(Boolean).join(' ') || h.company_name || h.email || h.poid_id}
+                          </span>
+                          <span className="forms-hub__search-option-meta">
+                            Legacy · {h.poid_id}{h.company_name ? ` · ${h.company_name}` : ''} · {h._gaps.length ? `${h._gaps.length} gap${h._gaps.length === 1 ? '' : 's'}` : 'complete'}
+                          </span>
+                        </span>
+                      </button>
+                    ))}
+
+                    {sourceErr && (
+                      <div className="forms-hub__search-empty" style={{ color: colours.cta }}>{sourceErr}</div>
+                    )}
+                  </div>
+                )}
+
+              {/* Recent tray — always rendered while no source is picked.
+                  Surfaces loading + error states so it never silently goes empty. */}
+              {(recentLoading || recentErr || recentHits.length > 0) && (
+                <div style={{ marginTop: 12 }}>
+                  {recentLoading && (
+                    <div style={{ fontSize: 11, color: labelColor, padding: '4px 2px' }}>Loading recent…</div>
+                  )}
+                  {recentErr && !recentLoading && (
+                    <div style={{ fontSize: 11, color: colours.cta, padding: '4px 2px' }}>
+                      Couldn't load recents: {recentErr}
+                    </div>
+                  )}
+                  {!recentLoading && !recentErr && recentHits.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {recentHits.map((h) => (
+                        <button
+                          key={`recent-${h.InstructionRef}`}
+                          type="button"
+                          onClick={() => { setPickedInstruction(h); setPickedLegacy(null); }}
+                          disabled={submitting}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 10,
+                            padding: '8px 10px',
+                            background: inputBg,
+                            border: `1px solid ${inputBorder}`,
+                            borderRadius: 0,
+                            textAlign: 'left',
+                            cursor: submitting ? 'not-allowed' : 'pointer',
+                            color: bodyColor,
+                            fontFamily: 'inherit',
+                          }}
+                        >
+                          <span style={{ color: accent, display: 'inline-flex' }}>
+                            <Icon iconName="ContactInfo" />
+                          </span>
+                          <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                            <span style={{ fontSize: 12.5, fontWeight: 600, color: headingColor, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {[h.FirstName, h.LastName].filter(Boolean).join(' ') || h.CompanyName || h.Email || h.InstructionRef}
+                            </span>
+                            <span style={{ fontSize: 10.5, color: labelColor, fontFamily: 'monospace' }}>
+                              {h.InstructionRef}{h.Stage ? ` · ${h.Stage}` : ''}{h.CompanyName ? ` · ${h.CompanyName}` : ''}
+                            </span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
                   )}
                 </div>
               )}
             </div>
           )}
         </div>
+
+        {sourcePicked && (<>
 
         {/* Section 2 — New case brief */}
         <div style={sectionStyle}>
@@ -690,7 +824,7 @@ const OpenAnotherMatterModal: React.FC<OpenAnotherMatterModalProps> = ({
             onClick={onClose}
             disabled={submitting}
             style={{
-              padding: '8px 16px', borderRadius: 2, fontSize: 12, fontWeight: 600,
+              padding: '8px 16px', borderRadius: 0, fontSize: 12, fontWeight: 600,
               background: 'transparent', border: `1px solid ${inputBorder}`, color: bodyColor,
               cursor: submitting ? 'not-allowed' : 'pointer',
             }}

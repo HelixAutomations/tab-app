@@ -2,6 +2,38 @@
 
 Operational reference for the Client Care Letter AI generation and Safety Net (pressure test) scoring system.
 
+## Production readiness — stage by stage
+
+Use this table to answer "is CCL safe to use in prod?" without reassembling from changelog + briefs. Update when stages change state.
+
+| Stage | State | Covered by |
+|-------|-------|-----------|
+| AI generate (`runCclAiFill` + Safety Net) | ✅ Live in prod | `server/routes/ccl-ai.js`, traces persisted to `CclAiTrace` |
+| Inline review rail + flagged-field highlights | ✅ Live | `useCclReviewApprovalFlow`, W1 ceremony shipped 2026-04-27 |
+| Three-click approval (Approve → Upload to ND → Done) | ✅ Live | Discrete handlers, retry toasts, `hub_todo` reconcile, telemetry `CCL.Approve.*` + `CCL.Upload.ND.*` |
+| Upload to NetDocuments | ✅ Live | `server/routes/ccl-ops.js` L796, `triggeredBy: 'manual-after-approval'` |
+| **Send to client** | ❌ Feature-flagged off | Pending firm-wide guard lift; `CCL.SendToClient.Guarded.*` events fire but path is gated |
+| Docx fidelity (template + wordGenerator) | ⚠️ Open | Brief: `ccl-first-wrap-upload-confirmation-docx-fidelity-prompt-and-model-refresh` (W2A) + `ccl-review-wrap-up-...-docx-fidelity-audit` |
+| Prompt fidelity + model refresh | ⚠️ Open | Same brief (W2C); use dry-run harness (W2D, shipped) to A/B safely |
+| Non-flagged Pressure Test bug | ⚠️ Open | `ccl-review-wrap-up-...` brief — fields >7 sometimes still surface as flagged |
+| Colleague feedback loop on dry-runs | 🟡 TBD | `ccl-dev-diff-harness-colleague-feedback-loop-tbd` |
+| Self-driving prompt iteration | 🟡 Stashed | `ccl-prompt-feedback-loop-self-driving-template-improvement` |
+
+**Internal use:** safe end-to-end up to ND upload. **External client send:** do not unflag until docx fidelity (W2A) and the non-flagged PT bug are closed.
+
+## Improvement-layer taxonomy
+
+Four CCL improvement concepts that look identical from the outside but operate on different inputs. Future agents (and me) will conflate these — don't.
+
+| Layer | Acts on | Driven by | Output |
+|-------|---------|-----------|--------|
+| **Docx fidelity** | `templates/cclTemplate.docx` + wordGenerator (placeholder mismatches, broken merges, formatting drift) | LZ, manually; dry-run harness used for comparison | Cleaner template + generator |
+| **Prompt fidelity / model refresh** | `server/prompts/ccl*` system & field prompts; model variant | LZ, manually; dry-run harness for A/B of prompt A vs prompt B on same matter | Better prompt text, possibly different model |
+| **Feedback loop on dry-runs** | A *specific dry-run* artefact, optionally annotated | Dev-group + small triage circle (LZ + AC) | A triage queue — the *channel* observations reach you through, not a prompt change |
+| **Self-driving prompt iteration** | Aggregate production data (`CclFieldEdits`, Pressure Test scores, multi-week drift) | Automated digest → eventually AI-proposed prompt revisions | Data-driven prompt revisions, low manual effort |
+
+**How they chain:** feedback loop is the *inbox*; docx + prompt fidelity are the two *workbenches* observations get carried to (template problem → fidelity audit, wrong content → prompt refinement); self-driving iteration is the long-term replacement for manual prompt-tweaking once production signal is dense enough. The dry-run harness shipped 2026-04-27 (W2D) is the shared workbench all four use.
+
 ## Architecture Overview
 
 ```
