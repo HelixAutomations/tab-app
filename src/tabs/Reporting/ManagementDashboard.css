@@ -179,6 +179,23 @@
   font-family: 'Raleway', sans-serif;
 }
 
+.management-dashboard-container .filter-toolbar {
+  order: 1;
+}
+
+.management-dashboard-container .metrics-table {
+  order: 2;
+}
+
+.dashboard-kpi-summary {
+  order: 3;
+  margin-top: 4px;
+}
+
+.dashboard-yoy-section {
+  order: 4;
+}
+
 .animate-dashboard {
   animation: fadeInUp 0.8s ease-out forwards;
 }
@@ -329,8 +346,9 @@
 .filter-section-label {
   display: block;
   width: 100%;
-  font-size: 10px;
-  font-weight: 700;
+  font-size: 11px;
+  line-height: 1.2;
+  font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   user-select: none;
@@ -339,11 +357,73 @@
 }
 
 .management-dashboard-container.light-theme .filter-section-label {
-  color: #6B6B6B;
+  color: #061733;
 }
 
 .management-dashboard-container.dark-theme .filter-section-label {
+  color: #f3f4f6;
+}
+
+.filter-section-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 0 0 auto;
+  min-width: 96px;
+  padding: 1px 2px 0;
+}
+
+.filter-section-heading .filter-section-label {
+  width: auto;
+  margin-bottom: 0;
+  padding: 0;
+}
+
+.filter-section-heading--primary {
+  flex: 0 0 100%;
+  width: 100%;
+  min-width: 100%;
+  padding-bottom: 2px;
+}
+
+.filter-section-heading--topline {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.filter-section-heading--primary .filter-section-label {
+  font-size: 12px;
+}
+
+.filter-section-heading--members {
+  min-width: 118px;
+}
+
+.filter-section-hint {
+  display: block;
+  max-width: 240px;
+  font-size: 11px;
+  line-height: 1.35;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.management-dashboard-container.light-theme .filter-section-hint {
+  color: #6B6B6B;
+}
+
+.management-dashboard-container.dark-theme .filter-section-hint {
   color: #A0A0A0;
+}
+
+@keyframes teamGroupSheen {
+  0% {
+    background-position: 120% 0;
+  }
+  100% {
+    background-position: -120% 0;
+  }
 }
 
 .toolbar-control {
@@ -357,8 +437,7 @@
 .filter-toolbar__middle,
 .filter-toolbar__presets,
 .filter-toolbar__team,
-.filter-toolbar__bottom,
-.filter-toolbar__roles {
+.filter-toolbar__bottom {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
@@ -474,6 +553,26 @@
   margin-top: 0;
 }
 
+.filter-toolbar__actions-label {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 2px;
+  font-size: 10px;
+  line-height: 1.2;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.management-dashboard-container.light-theme .filter-toolbar__actions-label {
+  color: #6B6B6B;
+}
+
+.management-dashboard-container.dark-theme .filter-toolbar__actions-label {
+  color: #A0A0A0;
+}
+
 /* ─── Dashboard toolbar strip — removed, controls now inline ─── */
 
 .filter-status-chip {
@@ -546,6 +645,26 @@
   font-weight: 400;
 }
 
+.filter-status-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  line-height: 1.1;
+}
+
+.filter-status-title {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.filter-status-detail {
+  font-size: 10px;
+  font-weight: 500;
+  opacity: 0.72;
+}
+
 .filter-status-indicator {
   width: 6px;
   height: 6px;
@@ -584,6 +703,20 @@
               color 0.18s cubic-bezier(0.4, 0, 0.2, 1);
   font-size: 14px;
   font-weight: 600;
+}
+
+.filter-tool-button {
+  width: auto;
+  min-width: 32px;
+  padding: 0 10px;
+  gap: 6px;
+}
+
+.filter-tool-button__label {
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: 0;
 }
 
 .filter-icon-button i {
@@ -649,6 +782,50 @@
   border-radius: 0;
 }
 
+.filter-dataset-tooltip__title {
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.management-dashboard-container.light-theme .filter-dataset-tooltip__title,
+.management-dashboard-container.dark-theme .filter-dataset-tooltip__title {
+  color: #3690CE;
+}
+
+.filter-dataset-tooltip__rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.filter-dataset-tooltip__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.filter-dataset-tooltip__row span:first-child {
+  opacity: 0.78;
+}
+
+.filter-dataset-tooltip__row span:last-child {
+  font-weight: 700;
+  text-align: right;
+}
+
+.filter-dataset-tooltip__note {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 0.5px solid rgba(54, 144, 206, 0.12);
+  font-size: 11px;
+  opacity: 0.72;
+}
+
+.management-dashboard-container.dark-theme .filter-dataset-tooltip__note {
+  border-top-color: rgba(54, 144, 206, 0.08);
+}
+
 .date-stamp-button {
   border: none;
   background: none;
@@ -693,24 +870,12 @@
   background: transparent;
 }
 
-.management-dashboard-container.dark-theme .icon-button--role {
-  color: #A0A0A0;
-}
-
-.management-dashboard-container.dark-theme .icon-button--role.is-active,
-.management-dashboard-container.dark-theme .icon-button--role:hover,
 .management-dashboard-container.dark-theme .icon-button--info,
 .management-dashboard-container.dark-theme .icon-button--info:hover,
 .management-dashboard-container.dark-theme .icon-button--info.is-active {
   color: #3690CE;
 }
 
-.management-dashboard-container.light-theme .icon-button--role {
-  color: rgba(13, 47, 96, 0.6);
-}
-
-.management-dashboard-container.light-theme .icon-button--role.is-active,
-.management-dashboard-container.light-theme .icon-button--role:hover,
 .management-dashboard-container.light-theme .icon-button--info,
 .management-dashboard-container.light-theme .icon-button--info:hover,
 .management-dashboard-container.light-theme .icon-button--info.is-active {
@@ -724,7 +889,250 @@
 .team-slicer-buttons {
   display: flex;
   flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.team-slicer-count-badge {
+  position: absolute;
+  top: -2px;
+  right: 0;
+  pointer-events: none;
+  min-height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: 0;
+  z-index: 1;
+}
+
+.management-dashboard-container.light-theme .team-slicer-count-badge {
+  color: #0D2F60;
+  background: rgba(214, 232, 255, 0.78);
+  border: 1px solid rgba(13, 47, 96, 0.14);
+}
+
+.management-dashboard-container.dark-theme .team-slicer-count-badge {
+  color: #f3f4f6;
+  background: rgba(54, 144, 206, 0.18);
+  border: 1px solid rgba(54, 144, 206, 0.34);
+}
+
+.team-slicer-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 4px;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  border: 1px solid transparent;
+  transition: background 0.22s cubic-bezier(0.4, 0, 0.2, 1),
+              border-color 0.22s cubic-bezier(0.4, 0, 0.2, 1),
+              box-shadow 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.team-slicer-group.is-active-group {
+  background-size: 220% 100%;
+  animation: teamGroupSheen 4.8s ease-in-out infinite;
+}
+
+.team-slicer-group-select {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  font-family: 'Raleway', sans-serif;
+  transition: background 0.18s cubic-bezier(0.4, 0, 0.2, 1),
+              border-color 0.18s cubic-bezier(0.4, 0, 0.2, 1),
+              box-shadow 0.18s cubic-bezier(0.4, 0, 0.2, 1),
+              color 0.18s cubic-bezier(0.4, 0, 0.2, 1),
+              transform 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.team-slicer-group-select .ms-Icon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.team-slicer-group-select:hover {
+  transform: translateY(-1px);
+}
+
+.team-slicer-group-select:active {
+  transform: translateY(0);
+}
+
+.team-slicer-group-select:focus-visible {
+  outline: 2px solid rgba(54, 144, 206, 0.55);
+  outline-offset: 1px;
+}
+
+.team-slicer-more-toggle {
+  flex: 0 0 auto;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border-radius: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  padding: 0 9px;
+  font-family: 'Raleway', sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+  transition: background 0.18s cubic-bezier(0.4, 0, 0.2, 1),
+              border-color 0.18s cubic-bezier(0.4, 0, 0.2, 1),
+              box-shadow 0.18s cubic-bezier(0.4, 0, 0.2, 1),
+              color 0.18s cubic-bezier(0.4, 0, 0.2, 1),
+              transform 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.team-slicer-more-toggle .ms-Icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.team-slicer-more-toggle:hover {
+  transform: translateY(-1px);
+}
+
+.team-slicer-more-toggle:active {
+  transform: translateY(0);
+}
+
+.team-slicer-more-toggle:focus-visible {
+  outline: 2px solid rgba(54, 144, 206, 0.55);
+  outline-offset: 1px;
+}
+
+.team-slicer-more-count {
+  min-width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0 5px;
+  font-size: 9px;
+  line-height: 1;
+  font-weight: 700;
+}
+
+.management-dashboard-container.light-theme .team-slicer-group-select {
+  color: #6B6B6B;
+  background: rgba(255, 255, 255, 0.56);
+  border-color: rgba(6, 23, 51, 0.10);
+}
+
+.management-dashboard-container.light-theme .team-slicer-group-select:hover {
+  color: #0D2F60;
+  background: rgba(214, 232, 255, 0.72);
+  border-color: rgba(54, 144, 206, 0.30);
+}
+
+.management-dashboard-container.light-theme .team-slicer-group-select.is-selected {
+  color: #061733;
+  background: rgba(214, 232, 255, 0.82);
+  border-color: rgba(13, 47, 96, 0.34);
+  box-shadow: inset 0 -2px 0 rgba(13, 47, 96, 0.42);
+}
+
+.management-dashboard-container.light-theme .team-slicer-more-toggle {
+  color: #6B6B6B;
+  background: rgba(255, 255, 255, 0.56);
+  border-color: rgba(6, 23, 51, 0.10);
+}
+
+.management-dashboard-container.light-theme .team-slicer-more-toggle:hover,
+.management-dashboard-container.light-theme .team-slicer-more-toggle.is-active {
+  color: #0D2F60;
+  background: rgba(214, 232, 255, 0.72);
+  border-color: rgba(54, 144, 206, 0.30);
+}
+
+.management-dashboard-container.light-theme .team-slicer-more-count {
+  color: #061733;
+  background: rgba(54, 144, 206, 0.16);
+}
+
+.management-dashboard-container.dark-theme .team-slicer-group-select {
+  color: #A0A0A0;
+  background: rgba(0, 3, 25, 0.72);
+  border-color: rgba(75, 85, 99, 0.38);
+}
+
+.management-dashboard-container.dark-theme .team-slicer-group-select:hover {
+  color: #f3f4f6;
+  background: rgba(54, 144, 206, 0.14);
+  border-color: rgba(54, 144, 206, 0.42);
+}
+
+.management-dashboard-container.dark-theme .team-slicer-group-select.is-selected {
+  color: #f3f4f6;
+  background: rgba(54, 144, 206, 0.24);
+  border-color: rgba(54, 144, 206, 0.78);
+  box-shadow: inset 0 -2px 0 rgba(54, 144, 206, 0.85);
+}
+
+.management-dashboard-container.dark-theme .team-slicer-more-toggle {
+  color: #A0A0A0;
+  background: rgba(0, 3, 25, 0.72);
+  border-color: rgba(75, 85, 99, 0.38);
+}
+
+.management-dashboard-container.dark-theme .team-slicer-more-toggle:hover,
+.management-dashboard-container.dark-theme .team-slicer-more-toggle.is-active {
+  color: #f3f4f6;
+  background: rgba(54, 144, 206, 0.14);
+  border-color: rgba(54, 144, 206, 0.42);
+}
+
+.management-dashboard-container.dark-theme .team-slicer-more-count {
+  color: #f3f4f6;
+  background: rgba(54, 144, 206, 0.22);
+}
+
+.management-dashboard-container.light-theme .team-slicer-group.is-active-group {
+  background-image: linear-gradient(90deg, rgba(54, 144, 206, 0.03), rgba(54, 144, 206, 0.10), rgba(54, 144, 206, 0.03));
+  border-color: rgba(54, 144, 206, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(54, 144, 206, 0.04);
+}
+
+.management-dashboard-container.dark-theme .team-slicer-group.is-active-group {
+  background-image: linear-gradient(90deg, rgba(54, 144, 206, 0.04), rgba(54, 144, 206, 0.13), rgba(54, 144, 206, 0.04));
+  border-color: rgba(54, 144, 206, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(54, 144, 206, 0.05);
+}
+
+.team-slicer-separator {
+  flex: 0 0 auto;
+  align-self: stretch;
+  width: 1px;
+  margin: 4px 6px;
+  user-select: none;
+}
+
+.management-dashboard-container.light-theme .team-slicer-separator {
+  background: rgba(6, 23, 51, 0.10);
+}
+
+.management-dashboard-container.dark-theme .team-slicer-separator {
+  background: rgba(255, 255, 255, 0.10);
 }
 
 .team-slicer-buttons .ms-Button {
@@ -739,49 +1147,25 @@
   flex: 0 0 auto;
 }
 
-.management-dashboard-container.light-theme .team-slicer-buttons .ms-Button {
-  background: transparent;
-  color: #0d2f60;
+.team-slicer-buttons .ms-Button:hover,
+.filter-toolbar__presets .ms-Button:hover {
+  transform: translateY(-1px);
+}
+
+.team-slicer-buttons .ms-Button:active,
+.filter-toolbar__presets .ms-Button:active {
+  transform: translateY(0);
+}
+
+.team-slicer-buttons .ms-Button:focus-visible,
+.filter-toolbar__presets .ms-Button:focus-visible {
+  outline: 2px solid rgba(54, 144, 206, 0.55);
+  outline-offset: 1px;
 }
 
 .management-dashboard-container.light-theme .team-slicer-buttons .ms-Button:disabled {
   opacity: 0.55;
   color: #6B6B6B;
-}
-
-.management-dashboard-container.dark-theme .team-slicer-buttons .ms-Button {
-  background: #000319;
-  color: #f3f4f6;
-  border-radius: 0;
-}
-
-.role-slicer-buttons {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.role-slicer-buttons .ms-Button {
-  min-width: 0;
-  padding: 0 10px;
-  transition: background 0.18s cubic-bezier(0.4, 0, 0.2, 1),
-              border-color 0.18s cubic-bezier(0.4, 0, 0.2, 1),
-              box-shadow 0.18s cubic-bezier(0.4, 0, 0.2, 1),
-              transform 0.18s cubic-bezier(0.4, 0, 0.2, 1),
-              color 0.18s cubic-bezier(0.4, 0, 0.2, 1),
-              opacity 0.18s cubic-bezier(0.4, 0, 0.2, 1);
-  flex: 0 0 auto;
-}
-
-.management-dashboard-container.light-theme .role-slicer-buttons .ms-Button {
-  background: transparent;
-  color: #0d2f60;
-}
-
-.management-dashboard-container.dark-theme .role-slicer-buttons .ms-Button {
-  background: #000319;
-  color: #f3f4f6;
-  border-radius: 0;
 }
 
 /* DatePicker label + field dark-mode fixes */
@@ -996,7 +1380,7 @@
   .metrics-table,
   .metrics-table-row,
   .team-slicer-buttons .ms-Button,
-  .role-slicer-buttons .ms-Button,
+  .team-slicer-more-toggle,
   .date-stamp-button,
   .management-dashboard-container {
     transition: none !important;
@@ -1223,8 +1607,7 @@
   .filter-toolbar__presets,
   .filter-toolbar__date-inputs,
   .filter-toolbar__team,
-  .filter-toolbar__bottom,
-  .filter-toolbar__roles {
+  .filter-toolbar__bottom {
     width: 100%;
   }
 
@@ -1242,8 +1625,7 @@
   .filter-toolbar__top,
   .filter-toolbar__middle,
   .filter-toolbar__team,
-  .filter-toolbar__bottom,
-  .filter-toolbar__roles {
+  .filter-toolbar__bottom {
     gap: 8px;
   }
 
@@ -1381,4 +1763,8 @@
   width: auto !important;
   height: auto !important;
   min-height: 180px !important;
+}
+
+.filter-toolbar__team {
+  position: relative;
 }

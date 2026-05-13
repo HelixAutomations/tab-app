@@ -128,6 +128,40 @@ Every user request is filtered through this, in order:
 3) **Avoid scope creep**. If an improvement is not directly adjacent, park it in `.github/instructions/ROADMAP.md` instead of doing it now.
 4) **Log the work** (mandatory). After completing any task that changes behaviour, UI, or server logic, add an entry to `logs/changelog.md`. See the Logging section below. If you skip this, the work is invisible in the release notes UI.
 
+## Brief Refinement Protocol (CRITICAL — runs BEFORE Plan-First)
+
+When the operator pastes a **rough brief** (anything beyond a one-line direct command — i.e. a description of an outcome rather than a specific instruction like "fix this typo" or "rename X to Y"), do **not** start implementing and do **not** jump straight to a plan. First, refine the brief against the actual repo so the plan that follows is sharp.
+
+Procedure:
+
+1. **Read before refining.** Open the files the brief most likely touches (use grep / explore_subagent / read_file). Cite real paths and line numbers in step 2 — never hedge with "if a component like X exists".
+2. **Reply with a refined brief** using the 9-section template below. Omit any section that genuinely doesn't apply, but err on the side of including them.
+3. **Score it** (specificity / boundedness / repo-fit, each 0-10) so the operator sees confidence before approving.
+4. **Wait for confirmation or amendment.** Then move into the normal Plan-First Default with the refined brief as the source of truth.
+
+### 9-section refined-brief template
+
+1. **Goal** — one crisp sentence stating the outcome.
+2. **In scope** — bullet list of concrete deliverables with cited file paths.
+3. **Out of scope** — what NOT to touch this pass (prevents drift).
+4. **Repo context loaded** — files / lines / instruction docs you actually read while refining (e.g. `src/components/UserBubble.tsx#L660`, `.github/instructions/dev-experience.instructions.md`).
+5. **Conventions to honour** — only the ones that apply (borderRadius 0, brand tokens, dev tier check, no em dashes, structural loading, log to changelog, etc.).
+6. **Expected output shape** — files created/modified, UX behaviour, API surface (if any).
+7. **Verification** — how you'll know it worked (manual click path, route smoke, telemetry event to expect, `npm run check-sizes`).
+8. **Mechanisms to invoke** — changelog entry yes/no; stash if multi-phase; telemetry events to add; health observations to surface; sync needed first.
+9. **Open questions** — at most 2, only if a real ambiguity blocks the first pass. Otherwise omit.
+
+### Skip the protocol when:
+
+- The operator gives a direct one-line command ("fix this typo", "rename Foo to Bar", "delete that import").
+- The operator says "just do it", "skip refinement", "no plan", or similar.
+- The work is purely conversational / informational.
+- The brief is a follow-up tweak inside a previously refined and approved scope.
+
+### Why
+
+Refining against the real repo before planning is the single biggest first-pass quality lever. The UserBubble Prompt Coach exists for the operator-alone case. In the agent loop, **the agent is the better refiner** because it can read the repo. Doing this inline replaces silent guesses with cited facts and surfaces missing context the operator can fill before code starts moving.
+
 ## Plan-First Default (CRITICAL)
 
 Before touching code on any task that involves more than a single-file edit:
@@ -147,7 +181,7 @@ Why: the user has repeatedly observed that implementations get diluted by phase 
 
 ## Continuous Health Observations (CRITICAL)
 
-While working on any file, silently note codebase health issues. At the end of every response that modifies code, append a **Health Observations** footer if you spotted any of these:
+While working on any file, silently note codebase health issues. At the end of every response that modifies code, append a **single combined footer line** if you spotted any of these:
 - Dead imports or unused variables
 - Functions longer than ~80 lines that could be extracted
 - Duplicated logic across files (same helper written twice)
@@ -156,29 +190,29 @@ While working on any file, silently note codebase health issues. At the end of e
 - Security concerns (unsanitised input, exposed secrets, missing auth checks)
 - Files approaching the 3,000-line threshold (run `npm run check-sizes` mentally)
 
-**Compact format** (one line per item; only include observations you actually found — never fabricate). Cap at 3. Skip the footer entirely if there are zero items — do NOT print an empty header.
+**Footer format rules:**
+- One footer block total per response. Combine Health and Stash into the same block. Never emit two `---` separators.
+- One bullet per item, max 3 total across both categories combined. Skip the footer entirely if zero items. Never print an empty header.
+- Use proper workspace-relative markdown links with `#L<line>` for line references (e.g. `[server/index.js](server/index.js#L378)`). Never write `file.js:378` plain text.
+- Never use em dashes or en dashes inside the footer. Use commas, colons, or parentheses. The global no-dash rule applies here too.
+- Drop the closing summary sentence ("Logged in changelog.md", "No prod surfaces touched") when the footer plus the body already convey completion. Don't pad.
+- Do NOT emit the `<!-- helix-suggestions ... -->` HTML envelope. The suggestions inbox capture tool is not wired yet, and the comment renders as visible noise in the chat client.
+
+**Combined format:**
 
 ```
 ---
-**Health:** `src/components/Foo.tsx` 3 dead imports (X, Y, Z) · `server/routes/bar.js` duplicated date helper (vs `server/utils/dates.js`)
+**Health:** [src/components/Foo.tsx](src/components/Foo.tsx) 3 dead imports (X, Y, Z); [server/routes/bar.js](server/routes/bar.js) duplicated date helper (vs `server/utils/dates.js`)
+**Stash:** [src/tabs/finance/PaymentApprovals.tsx](src/tabs/finance/PaymentApprovals.tsx) no bulk-action affordance
 ```
+
+Either label can be omitted if its category has no items. If only Health items exist, only the `**Health:**` line appears. Same for Stash. The `---` separator and bold labels are the only chrome.
 
 These are observations, not actions. Non-trivial ones become stash candidates (next section), not ROADMAP entries.
 
 ### Stash candidates (paired with Health Observations)
 
-While working on *unrelated* tasks, silently note opportunities that would make good standalone stash briefs (architectural shifts, duplicated subsystems worth consolidating, missing affordances). At the end of a response, if you spotted any, append a second compact footer. Cap at 3. Skip if zero.
-
-```
----
-**Stash:** `src/tabs/finance/PaymentApprovals.tsx` no bulk-action affordance · `server/routes/clio.js` token refresh duplicated x3
-```
-
-Machine-readable envelope (always emit when at least one Health or Stash item exists, on its own line after the visible footers — invisible in rendered markdown, parsed by the suggestions inbox capture tool):
-
-```
-<!-- helix-suggestions {"health":[{"file":"…","summary":"…"}],"stash":[{"file":"…","summary":"…"}]} -->
-```
+While working on *unrelated* tasks, silently note opportunities that would make good standalone stash briefs (architectural shifts, duplicated subsystems worth consolidating, missing affordances). Surface them via the **Stash:** line in the combined footer above. Cap at 3 across both categories.
 
 Rules: never auto-write a stash brief without an explicit `stash this` trigger. Observations only. Full protocol: [.github/instructions/STASHED_PROJECTS.md](.github/instructions/STASHED_PROJECTS.md). Suggestions inbox brief: [docs/notes/AGENT_SUGGESTIONS_INBOX_IN_MY_HELIX.md](docs/notes/AGENT_SUGGESTIONS_INBOX_IN_MY_HELIX.md).
 

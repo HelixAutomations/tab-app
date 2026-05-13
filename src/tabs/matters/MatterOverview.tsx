@@ -27,6 +27,9 @@ import { appendDefaultEnquiryProcessingParams } from '../../app/functionality/en
 import { fmt, fmtDate, fmtCurrency, safeNumber, get, formatLongDate, formatAddress, parseInstructionRef } from './utils/formatters';
 import clioLogo from '../../assets/clio.svg';
 import netdocumentsLogo from '../../assets/netdocuments.svg';
+import { ContactModule, IdentifiersDisclosure } from '../../components/overview';
+import type { ContactRow } from '../../components/overview';
+import EnquiryTimeline from '../enquiries/EnquiryTimeline';
 import {
   containerStyle, entryStyle, headerStyle, headerLeftStyle,
   statusBadgeStyle, mainLayoutStyle, leftColumnStyle, rightColumnStyle,
@@ -41,7 +44,6 @@ import {
   backendSystemTitleStyle,
   backendTreeListStyle, backendTreePathStyle, backendTreeItemStyle,
   backendTreeMainStyle, backendTreeTextStyle, backendTreeTitleStyle, backendTreeMetaStyle,
-  clientActionButtonStyle, contactRowStyle, copyChipStyle,
   clientFieldStackStyle, progressBarStyle, progressFillStyle,
   metricSubSkeletonStyle, BADGE_RADIUS,
   tabPanelContainerStyle, tabPanelHeaderStyle, cclStatusStyle,
@@ -54,7 +56,7 @@ import {
 
 interface MatterOverviewProps {
   matter: NormalizedMatter;
-  activeTab?: 'overview' | 'activities' | 'documents' | 'communications' | 'billing';
+  activeTab?: 'overview' | 'enquiry';
   userInitials?: string;
   overviewData?: any;
   outstandingData?: any;
@@ -687,10 +689,10 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
   onCclOpened,
 }) => {
   const { isDarkMode } = useTheme();
-  const [copiedContact, setCopiedContact] = React.useState<'email' | 'phone' | null>(null);
   const [clioClientStatus, setClioClientStatus] = React.useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [clioClient, setClioClient] = React.useState<any | null>(null);
   const [showCCLEditor, setShowCCLEditor] = React.useState(false);
+  const [requestOpsPanel, setRequestOpsPanel] = React.useState(false);
   const cclSectionRef = React.useRef<HTMLDivElement | null>(null);
   const [hasCclDraft, setHasCclDraft] = React.useState(false);
   const [cclDraftPreview, setCclDraftPreview] = React.useState('');
@@ -833,7 +835,7 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
           setHasCclDraft(hasDraft);
           setCclDraftPreview(preview);
           setCclDraftFields(hasDraft ? draft : {});
-          setShowCclDraftPreview(hasDraft);
+          setShowCclDraftPreview(false);
         }
       } catch {
         if (!cancelled) {
@@ -1022,31 +1024,6 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
   const isWipReady = wipStatus === 'ready';
   const isFundsLoading = fundsStatus === 'loading';
   const isOutstandingLoading = outstandingStatus === 'loading';
-
-  const handleCopy = React.useCallback(async (value: string, key: 'email' | 'phone') => {
-    if (!value) return;
-    try {
-      if (navigator?.clipboard?.writeText) {
-        await navigator.clipboard.writeText(value);
-      } else {
-        const textarea = document.createElement('textarea');
-        textarea.value = value;
-        textarea.style.position = 'fixed';
-        textarea.style.left = '-1000px';
-        textarea.style.top = '-1000px';
-        document.body.appendChild(textarea);
-        textarea.select();
-        document.execCommand('copy');
-        document.body.removeChild(textarea);
-      }
-      setCopiedContact(key);
-      window.setTimeout(() => {
-        setCopiedContact((prev) => (prev === key ? null : prev));
-      }, 1500);
-    } catch {
-      // silent fail
-    }
-  }, []);
 
   const getPipelineValue = (fields: string[], fallback = ''): string => {
     const sources = [pipelineInstruction, pipelinePrimaryClient, pipelineDeal];
@@ -1564,6 +1541,38 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
   const cclIsGenerated = cclStage === 'generated';
   const cclIsReviewed = cclStage === 'reviewed';
   const cclIsSent = cclStage === 'sent';
+
+  const humanCclAttention = (raw?: string | null, fields?: Record<string, string>): string | null => {
+    if (!raw) return null;
+    const key = String(raw).trim().toLowerCase();
+    if (key === 'missing_fields' || key === 'missing-fields' || key === 'missing fields') {
+      const total = fields ? Object.keys(fields).length : 0;
+      const filled = fields ? Object.values(fields).filter((v) => String(v ?? '').trim()).length : 0;
+      const remaining = Math.max(0, total - filled);
+      return total > 0
+        ? `${remaining} field${remaining === 1 ? '' : 's'} still need review before delivery.`
+        : 'Some fields still need review before delivery.';
+    }
+    if (key === 'low_confidence' || key === 'low-confidence') return 'AI confidence is low — review the draft before sending.';
+    if (key === 'pressure_test_failed' || key === 'safety_net_failed') return 'Safety Net flagged answers that need a fee earner check.';
+    if (key === 'no_draft' || key === 'no-draft') return 'No draft has been generated yet.';
+    return raw;
+  };
+
+  const humanCclConfidence = (raw?: string | null): string | null => {
+    if (!raw) return null;
+    const key = String(raw).trim().toLowerCase();
+    if (key === 'full') return 'All required answers verified';
+    if (key === 'partial') return 'Some answers need review';
+    if (key === 'fallback') return 'Defaults used — review recommended';
+    return raw;
+  };
+
+  const cclDestinationLine: string | null = (() => {
+    if (cclIsSent) return matter.cclDate ? `Filed in NetDocuments • ${fmtDate(matter.cclDate)}` : 'Filed in NetDocuments';
+    if (hasCclDraft) return 'Draft saved on workbench';
+    return null;
+  })();
   const riskAssessmentResult = derivedWorkbenchItem?.risk?.RiskAssessmentResult || '';
   const normalizedRiskResult = String(riskAssessmentResult).trim().toLowerCase();
   const riskLabel = hasMeaningfulValue(riskAssessmentResult) ? fmt(riskAssessmentResult) : 'Not assessed';
@@ -1911,7 +1920,8 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
           demoModeEnabled={demoModeEnabled}
           userInitials={userInitials}
           instructionPaymentReceived={instructionPaymentReceived}
-          onClose={() => setShowCCLEditor(false)}
+          initialShowOpsPanel={requestOpsPanel}
+          onClose={() => { setShowCCLEditor(false); setRequestOpsPanel(false); }}
         />
         </div>
       )}
@@ -1974,37 +1984,7 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
             </div>
           )}
 
-          {/* Pill rail + expand toggle */}
-          {derivedWorkbenchItem ? (
-            <>
-              <PipelineSection
-                derivedWorkbenchItem={derivedWorkbenchItem}
-                isDarkMode={isDarkMode}
-                teamData={teamData}
-                demoModeEnabled={demoModeEnabled}
-                matchedEnquiry={matchedEnquiry}
-                selectedWorkbenchTab={selectedWorkbenchTab}
-                setSelectedWorkbenchTab={setSelectedWorkbenchTab}
-                selectedContextStage={selectedContextStage}
-                setSelectedContextStage={setSelectedContextStage}
-                selectedMatterStage={selectedMatterStage}
-                setSelectedMatterStage={setSelectedMatterStage}
-                onSelectCclStage={() => setShowCCLEditor(true)}
-                canSeeCcl={canSeeCcl}
-                collapsed={!workbenchExpanded}
-                expanded={workbenchExpanded}
-                onToggleCollapsed={() => setWorkbenchExpanded((prev) => !prev)}
-              />
-            </>
-          ) : (
-            <div style={{
-              padding: '10px 24px',
-              fontSize: 12,
-              color: isDarkMode ? colours.subtleGrey : colours.greyText,
-            }}>
-              Pipeline details will appear once an Instruction is linked.
-            </div>
-          )}
+          {/* Pipeline rail removed: originating enquiry now lives in its own navigator tab. */}
         </div>
       )}
       <div style={{
@@ -2587,38 +2567,67 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
                       {cclIsSent
                         ? 'Client care letter is recorded for this matter.'
                         : cclServiceSummary.needsAttention
-                          ? (cclServiceSummary.attentionReason || 'Review required before the service can complete delivery.')
+                          ? (humanCclAttention(cclServiceSummary.attentionReason, cclDraftFields) || 'Review required before the service can complete delivery.')
                           : cclIsReviewed
                             ? 'The service has completed review and is ready for delivery.'
                             : cclIsGenerated
-                              ? 'The service has generated the draft and is waiting for review.'
+                              ? (humanCclConfidence(cclServiceSummary.confidence) || 'The service has generated the draft and is waiting for review.')
                               : 'The CCL service will run automatically after matter opening.'}
                     </span>
+                    {cclDestinationLine && (
+                      <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: cclIsSent ? colours.green : colours.highlight, marginTop: 2 }}>
+                        {cclDestinationLine}
+                      </span>
+                    )}
                   </div>
                 </div>
 
                 {isAdmin && (
-                  <button
-                    type="button"
-                    onClick={() => setShowCCLEditor(true)}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 6,
-                      padding: '6px 10px',
-                      background: isDarkMode ? colours.darkBlue : '#ffffff',
-                      border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
-                      borderRadius: 0,
-                      color: isDarkMode ? colours.dark.text : colours.light.text,
-                      fontSize: 11,
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      fontFamily: 'inherit',
-                    }}
-                  >
-                    <Icon iconName="OpenInNewWindow" styles={{ root: { fontSize: 11, color: colours.highlight } }} />
-                    {cclServiceSummary.needsAttention || hasCclDraft ? 'Open CCL Editor' : 'View CCL Editor'}
-                  </button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                    <button
+                      type="button"
+                      onClick={() => { setRequestOpsPanel(true); setShowCCLEditor(true); }}
+                      title="Open editor and jump to version history, prompt traces, and Safety Net assessments"
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        padding: '6px 10px',
+                        background: 'transparent',
+                        border: `1px solid ${isDarkMode ? `${colours.dark.borderColor}88` : 'rgba(6, 23, 51, 0.15)'}`,
+                        borderRadius: 0,
+                        color: isDarkMode ? colours.dark.text : colours.light.text,
+                        fontSize: 11,
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        fontFamily: 'inherit',
+                      }}
+                    >
+                      <Icon iconName="History" styles={{ root: { fontSize: 11, color: colours.highlight } }} />
+                      Audit & prompts
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setRequestOpsPanel(false); setShowCCLEditor(true); }}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        padding: '6px 10px',
+                        background: isDarkMode ? colours.darkBlue : '#ffffff',
+                        border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
+                        borderRadius: 0,
+                        color: isDarkMode ? colours.dark.text : colours.light.text,
+                        fontSize: 11,
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        fontFamily: 'inherit',
+                      }}
+                    >
+                      <Icon iconName="OpenInNewWindow" styles={{ root: { fontSize: 11, color: colours.highlight } }} />
+                      {cclServiceSummary.needsAttention || hasCclDraft ? 'Open CCL Editor' : 'View CCL Editor'}
+                    </button>
+                  </div>
                 )}
               </div>
 
@@ -2813,96 +2822,12 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
                   </span>
                 )}
                 {(displayClientEmail || displayClientPhone) && (
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'stretch',
-                      gap: 6,
-                      fontSize: 12,
-                      color: isDarkMode ? colours.dark.subText : colours.greyText,
-                      lineHeight: '16px',
-                    }}
-                  >
-                    {displayClientEmail && (
-                      <div className={contactRowStyle}>
-                        <a
-                          href={`mailto:${displayClientEmail}`}
-                          style={{
-                            color: isDarkMode ? colours.dark.text : colours.light.text,
-                            opacity: isDarkMode ? 0.78 : 0.8,
-                            textDecoration: 'none',
-                            fontWeight: 500,
-                            minWidth: 0,
-                            flex: 1,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                          onMouseEnter={(e) => (e.currentTarget.style.textDecoration = 'underline')}
-                          onMouseLeave={(e) => (e.currentTarget.style.textDecoration = 'none')}
-                        >
-                          {displayClientEmail}
-                        </a>
-                        <button
-                          type="button"
-                          className={copyChipStyle(copiedContact === 'email', isDarkMode)}
-                          onClick={() => handleCopy(displayClientEmail, 'email')}
-                          aria-label={copiedContact === 'email' ? 'Copied email' : 'Copy email'}
-                          title={copiedContact === 'email' ? 'Copied' : 'Copy email'}
-                        >
-                          <Icon
-                            iconName={copiedContact === 'email' ? 'CompletedSolid' : 'Copy'}
-                            styles={{
-                              root: {
-                                fontSize: 10,
-                                color: copiedContact === 'email' ? colours.highlight : undefined,
-                              },
-                            }}
-                          />
-                        </button>
-                      </div>
-                    )}
-                    {displayClientPhone && (
-                      <div className={contactRowStyle}>
-                        <a
-                          href={`tel:${displayClientPhone}`}
-                          style={{
-                            color: isDarkMode ? colours.dark.text : colours.light.text,
-                            opacity: isDarkMode ? 0.78 : 0.8,
-                            textDecoration: 'none',
-                            fontWeight: 500,
-                            minWidth: 0,
-                            flex: 1,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                          onMouseEnter={(e) => (e.currentTarget.style.textDecoration = 'underline')}
-                          onMouseLeave={(e) => (e.currentTarget.style.textDecoration = 'none')}
-                        >
-                          {displayClientPhone}
-                        </a>
-                        <button
-                          type="button"
-                          className={copyChipStyle(copiedContact === 'phone', isDarkMode)}
-                          onClick={() => handleCopy(displayClientPhone, 'phone')}
-                          aria-label={copiedContact === 'phone' ? 'Copied phone' : 'Copy phone'}
-                          title={copiedContact === 'phone' ? 'Copied' : 'Copy phone'}
-                        >
-                          <Icon
-                            iconName={copiedContact === 'phone' ? 'CompletedSolid' : 'Copy'}
-                            styles={{
-                              root: {
-                                fontSize: 10,
-                                color: copiedContact === 'phone' ? colours.highlight : undefined,
-                              },
-                            }}
-                          />
-                        </button>
-                      </div>
-                    )}
-                  </div>
+                  <ContactModule
+                    rows={[
+                      ...(displayClientEmail ? [{ kind: 'email' as const, label: 'Email', value: displayClientEmail }] : []),
+                      ...(displayClientPhone ? [{ kind: 'phone' as const, label: 'Phone', value: displayClientPhone }] : []),
+                    ] as ContactRow[]}
+                  />
                 )}
               </div>
 
@@ -2989,50 +2914,9 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
                 </div>
               )}
 
-              {/* Quick Actions */}
-              <div
-                style={{
-                  display: 'flex',
-                  gap: 8,
-                  paddingTop: 12,
-                  borderTop: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-                }}
-              >
-                {displayClientPhone && (
-                  <TooltipHost content={`Call ${displayClientPhone}`}>
-                    <a
-                      href={`tel:${displayClientPhone}`}
-                      className={clientActionButtonStyle(isDarkMode)}
-                      aria-label="Call Client"
-                    >
-                      <Icon
-                        iconName="Phone"
-                        styles={{
-                          root: { color: isDarkMode ? colours.dark.text : colours.light.text },
-                        }}
-                      />
-                    </a>
-                  </TooltipHost>
-                )}
-                {displayClientEmail && (
-                  <TooltipHost content={`Email ${displayClientEmail}`}>
-                    <a
-                      href={`mailto:${displayClientEmail}`}
-                      className={clientActionButtonStyle(isDarkMode)}
-                      aria-label="Email Client"
-                    >
-                      <Icon
-                        iconName="Mail"
-                        styles={{
-                          root: { color: isDarkMode ? colours.dark.text : colours.light.text },
-                        }}
-                      />
-                    </a>
-                  </TooltipHost>
-                )}
-              </div>
+              {/* Quick Actions removed: phone/email links live inline in the ContactModule above. */}
 
-              {/* Contact is shown inline under the client name; quick actions remain above. */}
+              {/* Contact is shown inline under the client name. */}
             </div>
           </div>
 
@@ -3055,34 +2939,16 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
                   <span className={clientFieldValueStyle(isDarkMode)}>{fmt(matter.instructionRef)}</span>
                 </div>
               )}
-              <div className={fieldRowStyle} style={{ gridTemplateColumns: '80px 1fr' }}>
-                <span className={fieldLabelStyle(isDarkMode)}>Matter ID</span>
-                <span className={clientFieldValueStyle(isDarkMode)}>{formatDetailText(matter.matterId)}</span>
-              </div>
-              <div className={fieldRowStyle} style={{ gridTemplateColumns: '80px 1fr' }}>
-                <span className={fieldLabelStyle(isDarkMode)}>Client ID</span>
-                <span className={clientFieldValueStyle(isDarkMode)}>{formatDetailText(matter.clientId)}</span>
-              </div>
-              <div className={fieldRowStyle} style={{ gridTemplateColumns: '80px 1fr' }}>
-                <span className={fieldLabelStyle(isDarkMode)}>Clio Contact</span>
-                <span className={clientFieldValueStyle(isDarkMode)}>{formatDetailText(clioClient?.id || matter.clientId)}</span>
-              </div>
-              {enquiryAcid && (
-                <div className={fieldRowStyle} style={{ gridTemplateColumns: '80px 1fr' }}>
-                  <span className={fieldLabelStyle(isDarkMode)}>ACID</span>
-                  <span className={clientFieldValueStyle(isDarkMode)}>{formatDetailText(enquiryAcid)}</span>
-                </div>
-              )}
-              {enquiryInternalId && (
-                <div className={fieldRowStyle} style={{ gridTemplateColumns: '80px 1fr' }}>
-                  <span className={fieldLabelStyle(isDarkMode)}>Enquiry ID</span>
-                  <span className={clientFieldValueStyle(isDarkMode)}>{formatDetailText(enquiryInternalId)}</span>
-                </div>
-              )}
-              <div className={fieldRowStyle} style={{ gridTemplateColumns: '80px 1fr' }}>
-                <span className={fieldLabelStyle(isDarkMode)}>Passcode</span>
-                <span className={clientFieldValueStyle(isDarkMode)}>{formatDetailText(pipelineLink.passcode)}</span>
-              </div>
+              <IdentifiersDisclosure
+                rows={[
+                  { label: 'Matter ID', value: matter.matterId ? String(matter.matterId) : null },
+                  { label: 'Client ID', value: matter.clientId ? String(matter.clientId) : null },
+                  { label: 'Clio Contact', value: clioClient?.id ? String(clioClient.id) : (matter.clientId ? String(matter.clientId) : null) },
+                  { label: 'ACID', value: enquiryAcid ? String(enquiryAcid) : null },
+                  { label: 'Enquiry ID', value: enquiryInternalId ? String(enquiryInternalId) : null },
+                  { label: 'Passcode', value: pipelineLink.passcode ? String(pipelineLink.passcode) : null },
+                ]}
+              />
               {portalUrl && (
                 <div className={fieldRowStyle} style={{ gridTemplateColumns: '80px 1fr' }}>
                   <span className={fieldLabelStyle(isDarkMode)}>Portal</span>
@@ -3243,233 +3109,29 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
       </>
       )}
 
-      {/* ─── Activities Panel ─── */}
-      {activeTab === 'activities' && (
-        <div className={tabPanelContainerStyle(isDarkMode)}>
-          <div className={tabPanelHeaderStyle(isDarkMode)}>
-            <Icon iconName="Clock" styles={{ root: { color: colours.highlight, fontSize: 18 } }} />
-            Activities
-          </div>
-
-          <div className={kpiStripStyle(isDarkMode)} style={{ borderBottom: 'none', paddingTop: 0 }}>
-            <div className={kpiItemStyle(isDarkMode, true)}>
-              <span className="kpi-label">Billable</span>
-              <span className="kpi-value">{wipStatus === 'loading' ? '…' : fmtCurrency(billableAmount)}</span>
-              <span className="kpi-sub">{wipStatus === 'loading' ? '' : `${billableHours.toFixed(1)}h`}</span>
-            </div>
-            <div className={kpiItemStyle(isDarkMode)}>
-              <span className="kpi-label">Non-Billable</span>
-              <span className="kpi-value">{wipStatus === 'loading' ? '…' : fmtCurrency(nonBillableAmount)}</span>
-              <span className="kpi-sub">{wipStatus === 'loading' ? '' : `${nonBillableHours.toFixed(1)}h`}</span>
-            </div>
-            <div className={kpiItemStyle(isDarkMode)}>
-              <span className="kpi-label">Total</span>
-              <span className="kpi-value">{wipStatus === 'loading' ? '…' : `${totalHours.toFixed(1)}h`}</span>
-              <span className="kpi-sub">{wipStatus === 'loading' ? '' : `${billablePct}% billable`}</span>
-            </div>
-          </div>
-
-          <span className={tabEmptyStateStyle(isDarkMode)}>
-            No activities loaded yet
-          </span>
+      {/* ─── Originating Enquiry Panel ─── */}
+      {activeTab === 'enquiry' && matchedEnquiry && (
+        <div style={{ display: 'flex', flexDirection: 'column' as const, minHeight: 0, flex: 1 }}>
+          <EnquiryTimeline
+            enquiry={matchedEnquiry}
+            userInitials={userInitials}
+            teamData={teamData}
+            demoModeEnabled={demoModeEnabled}
+            allEnquiries={Array.isArray(enquiries) ? enquiries : undefined}
+          />
         </div>
       )}
-
-      {/* ─── Documents Panel ─── */}
-      {activeTab === 'documents' && (
-        <div className={tabPanelContainerStyle(isDarkMode)}>
-          <div className={tabPanelHeaderStyle(isDarkMode)}>
-            <Icon iconName="TextDocument" styles={{ root: { color: colours.highlight, fontSize: 18 } }} />
-            Documents
-          </div>
-
-          {/* CCL — inline status, not a hero card */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
-            <Icon
-              iconName={hasCcl ? 'CompletedSolid' : 'Clock'}
-              styles={{ root: { fontSize: 12, color: hasCcl ? colours.highlight : (isDarkMode ? colours.subtleGrey : colours.greyText) } }}
-            />
-            <span style={{ color: isDarkMode ? '#d1d5db' : '#374151' }}>
-              Client Care Letter: {hasCcl ? `Tracked ${fmtDate(matter.cclDate)}` : hasCclDraft ? 'Draft saved — ready for workbench review' : 'Not started yet'}
-            </span>
-            {isAdmin && (
-              <button
-                type="button"
-                onClick={() => setShowCCLEditor(true)}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 4,
-                  padding: '3px 8px',
-                  background: 'transparent',
-                  border: `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}66` : 'rgba(6, 23, 51, 0.1)'}`,
-                  borderRadius: 0,
-                  color: colours.highlight,
-                  fontSize: 11,
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  fontFamily: 'inherit',
-                }}
-              >
-                Open workbench
-              </button>
-            )}
-          </div>
-
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 6,
-              marginTop: 8,
-              paddingTop: 8,
-              borderTop: `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}55` : 'rgba(6, 23, 51, 0.08)'}`,
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <span style={{ fontSize: 12, fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                  Latest saved draft
-                </span>
-                <span style={{ fontSize: 11, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
-                  {isCclDraftLoading
-                    ? 'Checking draft status…'
-                    : hasCclDraft
-                    ? 'Draft detected — use the workbench for source trace and review actions'
-                    : 'No saved draft yet'}
-                </span>
-              </div>
-
-              <button
-                type="button"
-                role="switch"
-                aria-checked={showCclDraftPreview && hasCclDraft}
-                aria-label="Toggle CCL draft preview"
-                onClick={() => {
-                  if (!hasCclDraft) return;
-                  setShowCclDraftPreview((prev) => !prev);
-                }}
-                disabled={!hasCclDraft}
-                style={{
-                  width: 40,
-                  height: 20,
-                  borderRadius: 999,
-                  border: `1px solid ${isDarkMode ? `${colours.dark.borderColor}88` : 'rgba(6, 23, 51, 0.15)'}`,
-                  background: showCclDraftPreview && hasCclDraft
-                    ? colours.highlight
-                    : (isDarkMode ? colours.dark.cardHover : colours.light.border),
-                  padding: 2,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: showCclDraftPreview && hasCclDraft ? 'flex-end' : 'flex-start',
-                  cursor: hasCclDraft ? 'pointer' : 'not-allowed',
-                  opacity: hasCclDraft ? 1 : 0.6,
-                  transition: 'all 0.2s ease',
-                }}
-              >
-                <span
-                  style={{
-                    width: 16,
-                    height: 16,
-                    borderRadius: '50%',
-                    background: '#ffffff',
-                    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.25)',
-                  }}
-                />
-              </button>
-            </div>
-
-            {showCclDraftPreview && hasCclDraft && (
-              <div
-                style={{
-                  padding: '8px 10px',
-                  borderRadius: 0,
-                  border: `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}66` : 'rgba(6, 23, 51, 0.1)'}`,
-                  background: isDarkMode ? colours.dark.cardBackground : colours.grey,
-                  fontSize: 12,
-                  lineHeight: 1.4,
-                  color: isDarkMode ? '#d1d5db' : '#374151',
-                }}
-              >
-                {cclDraftPreview
-                  ? `${cclDraftPreview.slice(0, 220)}${cclDraftPreview.length > 220 ? '…' : ''}`
-                  : 'Draft is saved. Open the workbench to inspect the full backend context and latest output.'}
-              </div>
-            )}
-          </div>
-
-          <span className={tabEmptyStateStyle(isDarkMode)}>
-            No documents loaded yet
-          </span>
+      {activeTab === 'enquiry' && !matchedEnquiry && (
+        <div style={{
+          padding: '24px',
+          fontSize: 13,
+          color: isDarkMode ? colours.subtleGrey : colours.greyText,
+        }}>
+          No originating enquiry linked to this matter yet.
         </div>
       )}
 
       {/* ─── Communications Panel ─── */}
-      {activeTab === 'communications' && (
-        <div className={tabPanelContainerStyle(isDarkMode)}>
-          <div className={tabPanelHeaderStyle(isDarkMode)}>
-            <Icon iconName="Chat" styles={{ root: { color: colours.highlight, fontSize: 18 } }} />
-            Communications
-          </div>
-
-          {(displayClientEmail || displayClientPhone) && (
-            <div style={{ display: 'flex', gap: 16, fontSize: 13, flexWrap: 'wrap' }}>
-              {displayClientEmail && (
-                <a href={`mailto:${displayClientEmail}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: colours.highlight, textDecoration: 'none' }}>
-                  <Icon iconName="Mail" styles={{ root: { fontSize: 12 } }} />
-                  {displayClientEmail}
-                </a>
-              )}
-              {displayClientPhone && (
-                <a href={`tel:${displayClientPhone}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: isDarkMode ? colours.dark.text : colours.light.text, textDecoration: 'none' }}>
-                  <Icon iconName="Phone" styles={{ root: { fontSize: 12 } }} />
-                  {displayClientPhone}
-                </a>
-              )}
-            </div>
-          )}
-
-          <span className={tabEmptyStateStyle(isDarkMode)}>
-            No communications loaded yet
-          </span>
-        </div>
-      )}
-
-      {/* ─── Billing Panel ─── */}
-      {activeTab === 'billing' && (
-        <div className={tabPanelContainerStyle(isDarkMode)}>
-          <div className={tabPanelHeaderStyle(isDarkMode)}>
-            <Icon iconName="Money" styles={{ root: { color: colours.highlight, fontSize: 18 } }} />
-            Billing
-          </div>
-
-          <div className={kpiStripStyle(isDarkMode)} style={{ borderBottom: 'none', paddingTop: 0 }}>
-            <div className={kpiItemStyle(isDarkMode, true)}>
-              <span className="kpi-label">WIP</span>
-              <span className="kpi-value">{wipStatus === 'loading' ? '…' : fmtCurrency(billableAmount)}</span>
-              <span className="kpi-sub">Unbilled time</span>
-            </div>
-            <div className={kpiItemStyle(isDarkMode)}>
-              <span className="kpi-label">Outstanding</span>
-              <span className="kpi-value" style={outstandingBalance > 0 ? { color: colours.cta } : undefined}>
-                {outstandingStatus === 'loading' ? '…' : fmtCurrency(outstandingBalance)}
-              </span>
-              <span className="kpi-sub">Balance due</span>
-            </div>
-            <div className={kpiItemStyle(isDarkMode)}>
-              <span className="kpi-label">Funds</span>
-              <span className="kpi-value" style={clientFunds > 0 ? { color: colours.highlight } : undefined}>
-                {fundsStatus === 'loading' ? '…' : fmtCurrency(clientFunds)}
-              </span>
-              <span className="kpi-sub">On account</span>
-            </div>
-          </div>
-
-          <span className={tabEmptyStateStyle(isDarkMode)}>
-            No transaction history loaded yet
-          </span>
-        </div>
-      )}
 
       </>
       )}

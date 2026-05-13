@@ -28,9 +28,9 @@ const UNLOCKED_ACTIONS_COLUMN_WIDTH_PX = 188;
 const LOCKED_ACTIONS_COLUMN_WIDTH = `clamp(32px, 4vw, ${LOCKED_ACTIONS_COLUMN_WIDTH_PX}px)`;
 const UNLOCKED_ACTIONS_COLUMN_WIDTH = `clamp(80px, 14vw, ${UNLOCKED_ACTIONS_COLUMN_WIDTH_PX}px)`;
 
-/** Grid template used by every row â€” must match the live Enquiries table. */
+/** Grid template used by every row; must match the live Enquiries table. */
 const getTableGridTemplateColumns = (areActionsEnabled: boolean) => (
-  `minmax(clamp(56px, 9vw, 112px), 0.82fr) minmax(clamp(34px, 5vw, 64px), 0.48fr) minmax(clamp(50px, 9vw, 140px), 1.1fr) minmax(clamp(60px, 15vw, 260px), 3.4fr) ${areActionsEnabled ? UNLOCKED_ACTIONS_COLUMN_WIDTH : LOCKED_ACTIONS_COLUMN_WIDTH}`
+  `clamp(20px, 4vw, 36px) minmax(clamp(28px, 5vw, 60px), 0.45fr) minmax(clamp(44px, 7vw, 88px), 0.6fr) minmax(clamp(50px, 9vw, 140px), 1.1fr) minmax(clamp(60px, 15vw, 260px), 3.4fr) ${areActionsEnabled ? UNLOCKED_ACTIONS_COLUMN_WIDTH : LOCKED_ACTIONS_COLUMN_WIDTH}`
 );
 
 const ProspectTableRow: React.FC<ProspectTableRowProps> = ({
@@ -143,6 +143,32 @@ const ProspectTableRow: React.FC<ProspectTableRowProps> = ({
         className={`prospect-row enquiry-row enquiry-row--enter enquiry-row--css-hover${isConverted ? ' prospect-row--converted' : ''}`}
         onClick={() => !isUnclaimed && handleSelectEnquiry(item)}
       >
+        <div className="prospect-timeline-cell">
+          <div
+            className="prospect-timeline-cell__line"
+            style={{
+              background: identityAccentColor,
+              opacity: 0.9,
+            }}
+          />
+        </div>
+
+        <TooltipHost
+          content={fullDateTooltip}
+          styles={{ root: { display: 'flex', alignItems: 'center', height: '100%', paddingInline: 2 } }}
+          calloutProps={{ gapSpace: 6 }}
+        >
+          {(() => {
+            const { top, bottom } = getStackedDateDisplay(dateReceived);
+            return (
+              <div className="prospect-date">
+                <span className="prospect-date__top">{top}</span>
+                <span className="prospect-date__bottom">{bottom}</span>
+              </div>
+            );
+          })()}
+        </TooltipHost>
+
         <div
           className="enquiry-row__identity"
           data-has-value={formatValueForDisplay(value) ? 'true' : 'false'}
@@ -152,9 +178,8 @@ const ProspectTableRow: React.FC<ProspectTableRowProps> = ({
             alignItems: 'center',
             minHeight: '100%',
             lineHeight: 1.3,
-            padding: '0 2px 0 6px',
+            padding: '0 2px',
             overflow: 'hidden',
-            borderLeft: `2px solid ${identityAccentColor}`,
             boxSizing: 'border-box',
           }}>
           {/* ID row visible by default, fades out on hover when value exists */}
@@ -193,7 +218,7 @@ const ProspectTableRow: React.FC<ProspectTableRowProps> = ({
                     className="enquiry-row__identity-value"
                     style={{
                       position: 'absolute',
-                      left: 8,
+                      left: 2,
                       top: 0,
                       bottom: 0,
                       display: 'flex',
@@ -223,22 +248,6 @@ const ProspectTableRow: React.FC<ProspectTableRowProps> = ({
             );
           })()}
         </div>
-
-        <TooltipHost
-          content={fullDateTooltip}
-          styles={{ root: { display: 'flex', alignItems: 'center', height: '100%', paddingInline: 2 } }}
-          calloutProps={{ gapSpace: 6 }}
-        >
-          {(() => {
-            const { top, bottom } = getStackedDateDisplay(dateReceived);
-            return (
-              <div className="prospect-date">
-                <span className="prospect-date__top">{top}</span>
-                <span className="prospect-date__bottom">{bottom}</span>
-              </div>
-            );
-          })()}
-        </TooltipHost>
 
         <div style={{
           position: 'relative',

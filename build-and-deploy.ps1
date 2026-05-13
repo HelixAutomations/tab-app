@@ -133,6 +133,14 @@ $schemaDir = Join-Path $deployDir 'src\app\functionality'
 New-Item -ItemType Directory -Path $schemaDir -Force | Out-Null
 Copy-Item -Path "src\app\functionality\cclSchema.js" -Destination $schemaDir -Force
 
+# Include canonical CCL template source required by server-side DOCX generation
+$cclTemplateSrc = Join-Path $PSScriptRoot 'src\tabs\instructions\templates\cclTemplate.ts'
+if (Test-Path $cclTemplateSrc) {
+    $cclTemplateDest = Join-Path $deployDir 'src\tabs\instructions\templates'
+    New-Item -ItemType Directory -Path $cclTemplateDest -Force | Out-Null
+    Copy-Item -Path $cclTemplateSrc -Destination (Join-Path $cclTemplateDest 'cclTemplate.ts') -Force
+}
+
 # Include per-user email signatures for Pitch Builder (server-side injection)
 $sigSrc = Join-Path $PSScriptRoot 'src\assets\signatures'
 if (Test-Path $sigSrc) {

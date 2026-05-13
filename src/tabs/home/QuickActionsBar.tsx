@@ -244,9 +244,9 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: isCompact ? 6 : 10,
-          padding: isCompact ? '4px 10px' : '4px 12px',
-          minHeight: isCompact ? 30 : 32,
+          gap: isCompact ? 8 : 12,
+          padding: isCompact ? '8px 12px' : '8px 16px',
+          minHeight: 48,
           fontFamily: 'var(--font-primary)',
           background: 'var(--home-strip-bg)',
           borderTop: 'none',
@@ -279,9 +279,9 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: isCompact ? 6 : 10,
-        padding: isCompact ? '4px 10px' : '4px 12px',
-        minHeight: isCompact ? 30 : 32,
+        gap: isCompact ? 8 : 12,
+        padding: isCompact ? '8px 12px' : '8px 16px',
+        minHeight: 48,
         fontFamily: "var(--font-primary)",
         background: 'var(--home-strip-bg)',
         borderBottom: '1px solid var(--home-strip-border)',
@@ -302,9 +302,9 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
         style={{
           display: isCompact ? 'none' : 'flex',
           alignItems: 'center',
-          gap: 5,
-          height: 22,
-          padding: '0 7px 0 5px',
+          gap: 6,
+          height: 32,
+          padding: '0 12px 0 10px',
           background: expanded
             ? interactiveHoverBg
             : 'transparent',
@@ -314,8 +314,8 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
           flexShrink: 0,
           transition: 'all 0.2s ease',
           color: expanded ? interactiveAccent : textSecondary,
-          fontSize: 11,
-          fontWeight: 600,
+          fontSize: 12,
+          fontWeight: 700,
           whiteSpace: 'nowrap',
           letterSpacing: '0.04em',
           textTransform: 'none' as const,
@@ -324,7 +324,7 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
       >
         <FaChevronRight
           style={{
-            fontSize: 8,
+            fontSize: 10,
             color: expanded ? interactiveAccent : textSecondary,
             transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)',
             transition: 'transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), color 0.2s ease',
@@ -338,7 +338,7 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
         <div style={{
           width: 1,
           alignSelf: 'stretch',
-          margin: '4px 2px',
+          margin: '8px 4px',
           background: 'var(--home-tab-divider)',
           flexShrink: 0,
           transition: 'opacity 0.2s ease',
@@ -352,13 +352,13 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: isCompact ? 4 : 6,
+          gap: isCompact ? 6 : 8,
           ...(isCompact
             ? { maxWidth: 'none', opacity: 1, overflow: 'visible', pointerEvents: 'auto' as const }
             : {
-                maxWidth: expanded ? 800 : 0,
+                maxWidth: expanded ? 1200 : 0,
                 opacity: expanded ? 1 : 0,
-                overflow: 'hidden' as const,
+                overflow: expanded ? 'visible' as const : 'hidden' as const,
                 transition: 'max-width 0.3s ease, opacity 0.2s ease',
                 pointerEvents: (expanded ? 'auto' : 'none') as React.CSSProperties['pointerEvents'],
               }),
@@ -380,8 +380,10 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: isCompact ? 0 : 5,
-                padding: isCompact ? '3px 6px' : '3px 8px',
+                justifyContent: 'center',
+                gap: isCompact ? 0 : 7,
+                minHeight: 32,
+                padding: isCompact ? '0 9px' : '0 12px',
                 background: isActive
                   ? (isDarkMode
                     ? 'linear-gradient(0deg, rgba(54, 144, 206, 0.12), rgba(54, 144, 206, 0.12)), #061733'
@@ -393,7 +395,7 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
                 borderLeft: `2px solid ${isActive ? interactiveAccent : (isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.25)')}`,
                 borderRadius: 2,
                 color: isActive ? interactiveAccent : textPrimary,
-                fontSize: 11,
+                fontSize: 12,
                 fontWeight: 600,
                 cursor: isLoading && !isSelected ? 'not-allowed' : 'pointer',
                 opacity: isLoading && !isSelected ? 0.5 : 1,
@@ -415,7 +417,7 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
               <IconComponent
                 className="qa-chip-icon"
                 style={{
-                  fontSize: 10,
+                  fontSize: isCompact ? 16 : 13,
                   transition: 'color 0.2s ease',
                 }}
               />
@@ -458,8 +460,8 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
               transform: greetingVisible ? 'translateX(0)' : 'translateX(12px)',
               transition: 'opacity 0.35s ease, transform 0.35s ease',
               fontFamily: 'Raleway, sans-serif',
-              fontSize: 12,
-              fontWeight: 500,
+              fontSize: 14,
+              fontWeight: 600,
               letterSpacing: '0.01em',
               color: greetingAccent,
               whiteSpace: 'nowrap',
@@ -478,7 +480,7 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
             <div
               style={{
                 width: 1,
-                height: 16,
+                height: 22,
                 background: 'var(--home-tab-divider)',
                 marginRight: 8,
                 animation: iconsMounted ? 'qaIconDropIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both' : 'none',
@@ -498,8 +500,8 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
                   display: 'inline-flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  width: 28,
-                  height: 28,
+                  width: 32,
+                  height: 32,
                   padding: 0,
                   border: 'none',
                   borderRadius: 2,
@@ -520,7 +522,7 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
                   e.currentTarget.style.color = textSecondary;
                 }}
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
                   <polyline points="14 2 14 8 20 8" />
                   <line x1="16" y1="13" x2="8" y2="13" />
@@ -549,8 +551,8 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
                   display: 'inline-flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  width: 28,
-                  height: 28,
+                  width: 32,
+                  height: 32,
                   padding: 0,
                   border: 'none',
                   borderRadius: 2,
@@ -571,7 +573,7 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
                   e.currentTarget.style.color = textSecondary;
                 }}
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transition: 'transform 300ms ease' }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transition: 'transform 300ms ease' }}>
                   {isDarkMode ? (
                     <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
                   ) : (

@@ -238,47 +238,60 @@ conflicts_with: []
 
 > Every section below corresponds to a separate action point from the same 2026-05-11 call. Each is intentionally a placeholder for another agent. If you are picking up one of these threads, **edit this section in place** with your verified findings and plan. Do NOT open a new top-level stash brief for any of these — the user has explicitly asked to keep the call's action points consolidated under this single brief so that nothing overlaps.
 
-## 10. RESERVED — Attendance note: hide Topics + Destinations sections
+## 10. DONE — Attendance note: hide Topics + Destinations sections, read-only saved-note view, per-attendee Clio time entries
 
-- **Source in transcript:** L168–L177, L230–L234. The fee-earner-facing attendance note view should hide the "topics" and "destinations" blocks; they are noisy and only useful for the next iteration (Asana task generation off topics, L178–L180).
-- **Status:** RESERVED for separate agent. NOT actioned by this brief.
-- **Next agent should populate:** current state findings (which component renders the note, which fields are emitted by the AI summariser), proposed gate (likely a dev-preview / `isLzOrAc` lock so devs still see the data, fee earners do not), changelog entry plan.
+- **Source in transcript:** L168–L177, L230–L234, plus the 2026-05-11 follow-up: *"if note exists we dont let users make another, related can record their own time but they cant reupload the same note."*
+- **Status:** DONE 2026-05-11 (both legs).
+- **Topics (DONE earlier 2026-05-11):** Topic chips hidden in [src/components/modern/CallsAndNotes.tsx](../../src/components/modern/CallsAndNotes.tsx) (live generated note and saved-note view) behind `['LZ','AC'].includes(userInitials)`. Topics are also stripped from the save payload so they are never persisted to the real attendance note.
+- **Destinations (DONE):** the `Destinations` header in [src/components/modern/AttendanceNoteBox.tsx](../../src/components/modern/AttendanceNoteBox.tsx) is now wrapped in the LZ/AC dev gate on both the matter and prospect branches. The toggle rows below (Save to File, Record Clio time entry, prospect Hub SQL / ActiveCampaign indicators) still render for everyone, so the fee earner save flow is unchanged. Devs see a small dashed `Admin label` badge next to the header so it is obvious which copy fee earners do not see.
+- **Saved-note read-only view (DONE):** once a note is filed, the call workspace renders a new [src/components/modern/SavedAttendanceNoteCard.tsx](../../src/components/modern/SavedAttendanceNoteCard.tsx) instead of the form. The card shows the filed note (summary, body, action points), pills for `Filed` / `ND` / `n time entries`, and a system-stamp footer with: who filed the note + when, NetDocuments filename + matter ref, and a per-attendee list of Clio time entries already recorded. NetDocs re-upload is no longer reachable from the saved view (the server already gates this with the `alreadyFiled` short-circuit, but the UI now matches that contract).
+- **Per-attendee Clio time entries (DONE):** new table `dbo.call_attendance_clio_entries` keyed `(recording_id, user_initials)` records per-attendee Clio activity ids (one row per attendee that has booked their time against a given call). Created idempotently by `ensureCallAttendanceClioEntriesTable()` in [server/routes/dubberCalls.js](../../server/routes/dubberCalls.js); MERGE-upsert helper `recordCallAttendanceClioEntry()` is invoked on each successful `/clio-time-entry` write so legacy single-row state in `call_attendance_notes` is preserved while the new table tracks every attendee. `GET /saved-note` returns the rows in `meta.clio_time_entries` (source-table path; legacy blob fallback intentionally untouched). On the client, co-attendees who were on the call but have not yet booked their own Clio time see a focused `Record your Clio time entry` affordance inside the saved-note card (units input defaulting to the call duration / 6, narrative reused from the saved note, no NetDocs re-upload). Cache is refreshed after a successful write so the new entry appears immediately on the system stamp.
+- **Dev escape hatch:** LZ/AC see an `Edit` button in the saved-note card header. Clicking it flips the workspace back to the original `AttendanceNoteBox` form so admins can correct errors. The edit form now shows a compact `Back to filed note` control so admins can return to the read-only card without closing the call panel.
 
-## 11. RESERVED — Attendance note: primary/secondary attendee detection bug
+## 11. DONE — Attendance note: primary/secondary attendee detection bug
 
 - **Source in transcript:** L128–L131. The transcript classifier currently labelled Alex as external on a call where he is internal. Need a fix to the attendee inference so internal team members are not auto-tagged as primary external.
-- **Status:** RESERVED for separate agent.
-- **Likely area:** the Dubber/transcript attendee extractor (see `/memories/repo/dubber-attendee-extraction-gotchas.md`). Verify directory before assuming.
+- **Status:** DONE 2026-05-11.
+- **Root cause:** the attendance-note classifier in [server/routes/dubberCalls.js](../../server/routes/dubberCalls.js) only knew the call owner via `matched_team_initials`. Any other Helix person heard in the transcript fell through to `kind: 'external'`.
+- **Implementation:**
+  1. Server now passes the active Helix roster (initials, full name, nickname) into the classifier system prompt via a new `getActiveTeamRoster()` helper backed by the cached `getTeamData()` lookup. The prompt instructs the model to tag any matching speaker as `kind: 'internal'` even when only a first name is heard.
+  2. After the AI responds, a `reclassifyExternalAttendeesAgainstRoster()` post-pass flips any external attendee whose name matches the roster (full name, first+last, unambiguous first name, or nickname) to `kind: 'internal', role: 'supporting'` and sets the correct initials. Reclassified entries bypass the supporting-evidence filter because the roster match is itself strong evidence.
+  3. The home-journey filter already unions attendance-note `attendees` JSON for `kind === 'internal'`, so supporting attendees now see the call in their Mine view automatically.
+  4. `canControl` in [src/components/modern/CallsAndNotes.tsx](../../src/components/modern/CallsAndNotes.tsx) now includes `userIsSecondary`, so any internal attendee can drive the workspace. The save handler is intentionally unchanged: it runs save-note + upload-nd + clio-time-entry + todo-reconcile as before.
+  5. NetDocs is single-shot: a guard at the top of `POST /upload-note-nd` returns `{ ok: true, alreadyFiled: true, ndDocId, fileName, filedBy, filedAt }` if a `nd_doc_id` already exists for the recording. The save-note SQL upserts (`upsertLegacyAttendanceNoteIndex`, `upsertCallAttendanceNoteSubmission`) preserve the original `saved_by`/`submitted_by_*` columns so the original filer keeps the credit. The Clio time-entry route already accepts `userInitials` per request, so each attendee posts under their own Clio user id.
+  6. `AttendanceNoteBox` got an optional `attribution` prop. When a saved note already exists, a calm strip above the form reads "Filed by LZ on 11 May 2026. Also on the call: AC. Saving again here records your own Clio time entry; the NetDocuments file is not re-uploaded." This makes the supporting-attendee flow self-explanatory without changing the save UX for the primary.
 
-## 12. RESERVED — Attendance note: action-points checkbox should be display-only for now
+## 12. DONE — Attendance note: action-points checkbox is display-only for now
 
-- **Source in transcript:** L189–L201. Right now ticking/unticking action points is academic (it does not change anything downstream). Either remove the tick affordance or make it explicitly read-only with a tooltip until the downstream consumer (Asana / hub To Do task generation) lands.
-- **Status:** RESERVED for separate agent.
+- **Source in transcript:** L189–L201.
+- **Status:** DONE 2026-05-11.
+- **Implementation:** in [src/components/modern/AttendanceNoteBox.tsx](../../src/components/modern/AttendanceNoteBox.tsx) the action-point checkbox row now reads `interactive = ['LZ','AC'].includes(userInitials)`. Non-dev fee earners see every action point ticked-on, the click/keyboard toggle is suppressed, the cursor stays default, and a `title` tooltip explains: *"Action-point routing arrives in the next iteration. All points are saved with the note for now."* LZ/AC keep the full toggle for QA, and the section header now carries a small dashed "Admin · live toggle" badge so admins remember fee earners see the read-only version. The downstream save still receives the full action-point list because `on` is forced to `true` in display-only mode.
 
-## 13. RESERVED — Conversion: drag prospect call notes into the new matter
+## 13. PARKED — Conversion: drag prospect call notes into the new matter
 
-- **Source in transcript:** L235–L242. When a prospect is converted into a matter, the prospect-call attendance notes should follow the conversion into the matter file (NetDocs upload + Clio note + the matter's own pinned notes). Today they live only against the prospect contact in ActiveCampaign.
-- **Status:** RESERVED for separate agent. Cross-app touchpoint (`enquiry-processing-v2` ↔ `tab-app`) — capture both sides.
+- **Source in transcript:** L235–L242.
+- **Status:** PARKED 2026-05-11 by LZ. Real project (cross-app `enquiry-processing-v2` ↔ `tab-app`); not a small change. Resume only when scoped as a standalone phase.
 
-## 14. RESERVED — CCL safety-net: copy and traffic-light refinements
+## 14. FOLDED — CCL safety-net: copy and traffic-light refinements
 
-- **Source in transcript:** L289–L311. The "17 fields needs confirmation" copy is alarming when most CCLs flag 4-5. Refine the orange/amber traffic-light thresholds, the count phrasing, and the per-field reason text. Out of scope for the realtime brief.
-- **Status:** RESERVED for separate agent.
+- **Source in transcript:** L289–L311. Original concern: "17 fields needs confirmation" reads alarming.
+- **Status:** FOLDED into the parallel CCL document-production hardening + demo prospect parity work. The 17-field count was a side effect of running the demo prospect through the CCL while the staging template path was broken; the underlying fix is the other agent's CCL template/access work. Once the demo prospect flows through the CCL like any real prospect, the per-field reasoning will be representative and the copy revisit can be assessed against real numbers.
+- **Action:** do NOT re-open as a standalone copy task. If real fee-earner CCLs still produce alarming counts after the template/demo-parity work lands, revisit then.
 
-## 15. RESERVED — In-app help notes panel cleanup
+## 15. FOLDED into §18 — In-app help notes panel cleanup
 
-- **Source in transcript:** L78–L101, L112–L115. The in-app help notes (bottom-right of staging Home) are settling; refine and trim per OneNote feedback.
-- **Status:** RESERVED for separate agent.
+- **Source in transcript:** L78–L101, L112–L115.
+- **Status:** FOLDED into §18. Per LZ 2026-05-11: there is no separate OneNote feedback list — the in-app "Report a technical problem" form IS the feedback loop. Treat any panel cleanup as a follow-on once §18 ships.
 
-## 16. RESERVED — Receptionist KPI strip on Home
+## 16. PARKED — Receptionist KPI strip on Home
 
-- **Source in transcript:** L557–L565. Receptionist users should see call-handling KPIs (calls picked up, average call time, etc.) instead of fee earner / firm time figures. Tier the Home metrics strip by role.
-- **Status:** RESERVED for separate agent. Cross-references the Hub / receptionist tier work — verify against `src/app/admin.ts` user-tier helpers before designing.
+- **Source in transcript:** L557–L565.
+- **Status:** PARKED 2026-05-11 by LZ. Real role-tiered project; not a small change. Verify against `src/app/admin.ts` user-tier helpers when picked up.
 
-## 17. RESERVED — Hub Operations expansion (transactions / aged debt visibility)
+## 17. PARKED — Hub Operations expansion (transactions / aged debt visibility)
 
-- **Source in transcript:** L591–L596. Tease-up scope to bring transactions and aged-debt tickets into Home so fee earners stop using Asana forms for money-transfer requests. Long-horizon "stickier hub" item.
-- **Status:** RESERVED for separate agent. Treat as next-iteration; do NOT start without a roadmap entry.
+- **Source in transcript:** L591–L596.
+- **Status:** PARKED 2026-05-11 by LZ. Real project; long-horizon "stickier hub" item. Do NOT start without a roadmap entry.
 
 ## 18. RESERVED — Feedback channel: process the staging "Report a technical problem" form
 

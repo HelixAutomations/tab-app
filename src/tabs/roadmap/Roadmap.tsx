@@ -534,6 +534,13 @@ const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, 
                     tone: 'success' as const,
                   }]
                 : []),
+              ...(isDevOwner
+                ? [{
+                    key: 'mechanisms' as ActivityLens,
+                    label: 'Mechanisms',
+                    tone: 'neutral' as const,
+                  }]
+                : []),
             ]
           : [];
 

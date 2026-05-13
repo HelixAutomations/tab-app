@@ -95,7 +95,7 @@ interface MattersProps {
   demoModeEnabled?: boolean;
 }
 
-type MatterDetailTabKey = 'overview' | 'activities' | 'documents' | 'communications' | 'billing';
+type MatterDetailTabKey = 'overview' | 'enquiry';
 
 type MatterCclStatusSummary = {
   stage: string;
@@ -671,6 +671,11 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
     };
   }, [isActive]);
 
+  const selectedWorkbenchItem = useMemo(() => {
+    if (!selected?.instructionRef || !workbenchByInstructionRef) return undefined;
+    return workbenchByInstructionRef.get(selected.instructionRef);
+  }, [selected, workbenchByInstructionRef]);
+
   // Write navigator content before paint so tab switches do not briefly
   // drop the shared filter bar to an empty state.
   useLayoutEffect(() => {
@@ -853,15 +858,17 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
           }}
           backLabel="Back"
           tabs={[
-            { key: 'overview', label: 'Overview' },
-            { key: 'activities', label: 'Activities', disabled: disableFutureTabs, disabledMessage: disabledTabMessage },
-            { key: 'documents', label: 'Documents', disabled: disableFutureTabs, disabledMessage: disabledTabMessage },
-            { key: 'communications', label: 'Comms', disabled: disableFutureTabs, disabledMessage: disabledTabMessage },
-            { key: 'billing', label: 'Billing', disabled: disableFutureTabs, disabledMessage: disabledTabMessage },
+            { key: 'overview', label: 'Matter Overview' },
+            {
+              key: 'enquiry',
+              label: 'Originating Enquiry',
+              disabled: !selectedWorkbenchItem?.enquiry,
+              disabledMessage: 'No originating enquiry linked to this matter yet.',
+            },
           ]}
           activeTab={activeDetailTab}
           onTabChange={(key) => {
-            if (disableFutureTabs && key !== 'overview') return;
+            if (key === 'enquiry' && !selectedWorkbenchItem?.enquiry) return;
             setActiveDetailTab(key as MatterDetailTabKey);
           }}
         />,
@@ -886,7 +893,7 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
     isLoading,
     isLoadingLegacyAugmentedMatters,
     activeDetailTab,
-    disableFutureTabs,
+    selectedWorkbenchItem,
     scopeCounts,
     sourceCounts,
   ]);
@@ -1058,11 +1065,6 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
       </div>
     );
   }
-
-  const selectedWorkbenchItem = useMemo(() => {
-    if (!selected?.instructionRef || !workbenchByInstructionRef) return undefined;
-    return workbenchByInstructionRef.get(selected.instructionRef);
-  }, [selected, workbenchByInstructionRef]);
 
   useEffect(() => {
     if (!auditEnabled || !selected) {
@@ -1373,13 +1375,7 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
   if (isLoading && effectiveMatters.length === 0) {
     return (
       <div className={containerStyle(isDarkMode)}>
-        <div style={{
-          width: '100%',
-          maxWidth: 1440,
-          margin: '0 auto',
-          paddingTop: 24,
-          boxSizing: 'border-box',
-        }}>
+        <div style={{ paddingTop: 0, boxSizing: 'border-box' }}>
           <MatterTableLoadingSkeleton
             isDarkMode={isDarkMode}
             showCclColumns={showCclColumns}
@@ -1447,7 +1443,10 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
                           activeFilter !== deferredActiveFilter || activeAreaFilter !== deferredActiveAreaFilter ||
                           activeRoleFilter !== deferredActiveRoleFilter || searchTerm !== deferredSearchTerm;
 
-  const showOverlayCue = isLoading || isTransitioning || isLoadingLegacyAugmentedMatters;
+  // Only mask the live table when we're actually waiting on data. Pure
+  // client-side filter/scope transitions resolve in a single frame, so
+  // overlaying a skeleton on already-rendered rows just flashes noise.
+  const showOverlayCue = isLoading || isLoadingLegacyAugmentedMatters;
   const arrivalTrackingKey = [
     userEmail.toLowerCase(),
     scope,
@@ -1485,20 +1484,12 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
           paddingTop: 92,
           pointerEvents: 'none',
         }}>
-          <div style={{
-            width: '100%',
-            maxWidth: 1440,
-            margin: '0 auto',
-            padding: '0 20px',
-            boxSizing: 'border-box',
-          }}>
-            <MatterTableLoadingSkeleton
-              isDarkMode={isDarkMode}
-              showCclColumns={showCclColumns}
-              variant="blocking"
-              rowCount={6}
-            />
-          </div>
+          <MatterTableLoadingSkeleton
+            isDarkMode={isDarkMode}
+            showCclColumns={showCclColumns}
+            variant="blocking"
+            rowCount={6}
+          />
         </div>
       )}
       <MatterTableView

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { fetchPipelineContactBatch, ContactVisibilityEntry } from '../../../app/functionality/pipelineContactData';
 
 /**
- * Incrementally fetches pipeline contact visibility data for visible enquiries.
+ * Incrementally fetches pipeline contact visibility data for currently visible enquiries.
  * Fires when new IDs appear in `visibleIds` that haven't been fetched yet.
  */
 export function usePipelineContactData(

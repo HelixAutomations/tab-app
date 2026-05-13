@@ -748,4 +748,5 @@ module.exports = {
   getGraphAccessToken: getGraphToken,
   sendHelixEmail,
   normalizeEmails,
+  loadPersonalSignatureHtml,
 };

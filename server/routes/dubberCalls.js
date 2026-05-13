@@ -8,6 +8,7 @@ const opLog = require('../utils/opLog');
 const { getPool, withRequest } = require('../utils/db');
 const { getClioAccessToken, CLIO_API_BASE } = require('../utils/clioAuth');
 const { getClioId } = require('../utils/teamLookup');
+const { getTeamData } = require('../utils/teamData');
 const { chatCompletion } = require('../utils/aiClient');
 const { getSecret } = require('../utils/getSecret');
 const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
@@ -430,6 +431,7 @@ const CALL_NOTE_LANE = 'Log';
 const CALL_NOTE_TARGETS = new Set(['matter', 'prospect', 'internal', 'unknown']);
 
 let ensureCallAttendanceNoteSubmissionsPromise = null;
+let ensureCallAttendanceClioEntriesPromise = null;
 
 function truncate(value, max) {
   if (value == null) return null;
@@ -550,6 +552,96 @@ function dedupeAttendanceNoteAttendees(attendees) {
     compact.push(attendee);
   }
   return compact;
+}
+
+// Build a minimal Helix roster for the attendance-note classifier so an AI
+// hearing only a first name like "Alex" can confidently tag them as internal
+// rather than dropping them to external.
+async function getActiveTeamRoster() {
+  try {
+    const team = await getTeamData();
+    if (!Array.isArray(team)) return [];
+    return team
+      .filter((row) => {
+        const status = String(row?.status || '').trim().toLowerCase();
+        const initials = String(row?.Initials || '').trim();
+        if (!initials) return false;
+        return !status || status === 'active' || status === 'employee' || status === 'partner';
+      })
+      .map((row) => ({
+        initials: String(row.Initials || '').trim().toUpperCase(),
+        first: String(row.First || '').trim(),
+        last: String(row.Last || '').trim(),
+        nickname: String(row.Nickname || '').trim(),
+        fullName: String(row['Full Name'] || `${row.First || ''} ${row.Last || ''}`).trim(),
+        email: String(row.Email || '').trim().toLowerCase(),
+      }))
+      .filter((row) => row.first || row.fullName);
+  } catch (err) {
+    console.warn('[dubber] roster fetch failed (classifier will run without it):', err?.message || err);
+    return [];
+  }
+}
+
+function matchAttendeeToRoster(attendee, roster) {
+  if (!attendee || !Array.isArray(roster) || roster.length === 0) return null;
+  const initialsRaw = String(attendee.initials || '').trim().toUpperCase();
+  if (initialsRaw) {
+    const byInitials = roster.find((row) => row.initials === initialsRaw);
+    if (byInitials) return byInitials;
+  }
+  const emailRaw = String(attendee.email || '').trim().toLowerCase();
+  if (emailRaw) {
+    const byEmail = roster.find((row) => row.email && row.email === emailRaw);
+    if (byEmail) return byEmail;
+  }
+  const nameRaw = cleanEvidenceText(attendee.name).toLowerCase();
+  if (!nameRaw) return null;
+  const tokens = nameRaw.split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return null;
+  const first = tokens[0];
+  const last = tokens.length > 1 ? tokens[tokens.length - 1] : '';
+  // Try strongest signal first: full-name exact match.
+  const byFull = roster.find((row) => {
+    const candidates = [row.fullName, `${row.first} ${row.last}`.trim(), `${row.nickname} ${row.last}`.trim()]
+      .map((value) => value.toLowerCase().trim())
+      .filter(Boolean);
+    return candidates.includes(nameRaw);
+  });
+  if (byFull) return byFull;
+  // First+last pair.
+  if (first && last) {
+    const byPair = roster.find((row) => row.first.toLowerCase() === first && row.last.toLowerCase() === last);
+    if (byPair) return byPair;
+  }
+  // Single-token (e.g. "Alex") only resolves when unambiguous in the roster.
+  if (tokens.length === 1) {
+    const matches = roster.filter((row) => row.first.toLowerCase() === first || row.nickname.toLowerCase() === first);
+    if (matches.length === 1) return matches[0];
+  }
+  return null;
+}
+
+// Reclassify any AI-tagged external attendee whose name matches the Helix
+// roster as internal. Runs after the AI returns; idempotent.
+function reclassifyExternalAttendeesAgainstRoster(attendees, roster) {
+  if (!Array.isArray(attendees) || attendees.length === 0) return attendees;
+  if (!Array.isArray(roster) || roster.length === 0) return attendees;
+  return attendees.map((attendee) => {
+    if (!attendee || attendee.kind === 'internal') return attendee;
+    const match = matchAttendeeToRoster(attendee, roster);
+    if (!match) return attendee;
+    return {
+      ...attendee,
+      kind: 'internal',
+      role: 'supporting',
+      initials: match.initials,
+      email: attendee.email || match.email || null,
+      name: match.fullName || attendee.name,
+      id: `internal:${match.initials}`,
+      reclassifiedFromExternal: true,
+    };
+  });
 }
 
 function normalizeTargetType(targetType, fallback = 'unknown') {
@@ -820,10 +912,12 @@ async function upsertCallAttendanceNoteSubmission({
         passcode = COALESCE(@passcode, target.passcode),
         contact_name = COALESCE(@contact_name, target.contact_name),
         ac_contact_id = COALESCE(@ac_contact_id, target.ac_contact_id),
-        submitted_by_initials = @submitted_by_initials,
-        submitted_by_email = @submitted_by_email,
-        submitted_by_entra_id = @submitted_by_entra_id,
-        submitted_by_name = @submitted_by_name,
+        -- Preserve the original filer audit; later resaves by co-attendees do not
+        -- claim the filing credit (their per-user time entry is recorded separately).
+        submitted_by_initials = COALESCE(target.submitted_by_initials, @submitted_by_initials),
+        submitted_by_email = COALESCE(target.submitted_by_email, @submitted_by_email),
+        submitted_by_entra_id = COALESCE(target.submitted_by_entra_id, @submitted_by_entra_id),
+        submitted_by_name = COALESCE(target.submitted_by_name, @submitted_by_name),
         updated_at = SYSDATETIMEOFFSET(),
         call_date = @call_date,
         call_started_at = @call_started_at,
@@ -1070,6 +1164,117 @@ async function updateCallAttendanceClioResult(recordingId, {
     `);
 }
 
+async function ensureCallAttendanceClioEntriesTable() {
+  if (!ensureCallAttendanceClioEntriesPromise) {
+    ensureCallAttendanceClioEntriesPromise = (async () => {
+      const pool = await instrPool();
+      await pool.request().query(`
+        IF NOT EXISTS (
+          SELECT 1 FROM sys.tables WHERE name = 'call_attendance_clio_entries' AND schema_id = SCHEMA_ID('dbo')
+        )
+        BEGIN
+          CREATE TABLE dbo.call_attendance_clio_entries (
+            id                              UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
+            recording_id                    NVARCHAR(100)    NOT NULL,
+            user_initials                   NVARCHAR(16)     NOT NULL,
+            clio_user_id                    NVARCHAR(100)    NULL,
+            clio_matter_id                  NVARCHAR(100)    NULL,
+            clio_communication_id           NVARCHAR(100)    NULL,
+            clio_activity_id                NVARCHAR(100)    NULL,
+            quantity_seconds                INT              NULL,
+            recorded_by_email               NVARCHAR(320)    NULL,
+            recorded_by_name                NVARCHAR(200)    NULL,
+            recorded_at                     DATETIMEOFFSET(3) NOT NULL DEFAULT SYSDATETIMEOFFSET(),
+            CONSTRAINT PK_call_attendance_clio_entries PRIMARY KEY (id),
+            CONSTRAINT UQ_call_attendance_clio_entries_recording_user UNIQUE (recording_id, user_initials)
+          );
+        END;
+
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID('dbo.call_attendance_clio_entries') AND name = 'IX_call_attendance_clio_entries_recording')
+          CREATE INDEX IX_call_attendance_clio_entries_recording
+            ON dbo.call_attendance_clio_entries (recording_id, recorded_at DESC);
+      `);
+    })().catch((err) => {
+      ensureCallAttendanceClioEntriesPromise = null;
+      throw err;
+    });
+  }
+  return ensureCallAttendanceClioEntriesPromise;
+}
+
+async function recordCallAttendanceClioEntry(recordingId, {
+  userInitials,
+  clioUserId,
+  clioMatterId,
+  communicationId,
+  activityId,
+  quantitySeconds,
+  recordedByEmail = null,
+  recordedByName = null,
+}) {
+  const initials = String(userInitials || '').trim().toUpperCase();
+  if (!recordingId || !initials) return;
+  await ensureCallAttendanceClioEntriesTable();
+  const pool = await instrPool();
+  await pool.request()
+    .input('recording_id', sql.NVarChar, recordingId)
+    .input('user_initials', sql.NVarChar, initials)
+    .input('clio_user_id', sql.NVarChar, truncate(clioUserId, 100))
+    .input('clio_matter_id', sql.NVarChar, truncate(clioMatterId, 100))
+    .input('clio_communication_id', sql.NVarChar, truncate(communicationId, 100))
+    .input('clio_activity_id', sql.NVarChar, truncate(activityId, 100))
+    .input('quantity_seconds', sql.Int, Number.isFinite(Number(quantitySeconds)) ? Number(quantitySeconds) : null)
+    .input('recorded_by_email', sql.NVarChar, truncate(recordedByEmail, 320))
+    .input('recorded_by_name', sql.NVarChar, truncate(recordedByName, 200))
+    .query(`
+      MERGE dbo.call_attendance_clio_entries AS target
+      USING (SELECT @recording_id AS recording_id, @user_initials AS user_initials) AS src
+      ON target.recording_id = src.recording_id AND target.user_initials = src.user_initials
+      WHEN MATCHED THEN UPDATE SET
+        clio_user_id = COALESCE(@clio_user_id, target.clio_user_id),
+        clio_matter_id = COALESCE(@clio_matter_id, target.clio_matter_id),
+        clio_communication_id = COALESCE(@clio_communication_id, target.clio_communication_id),
+        clio_activity_id = COALESCE(@clio_activity_id, target.clio_activity_id),
+        quantity_seconds = COALESCE(@quantity_seconds, target.quantity_seconds),
+        recorded_by_email = COALESCE(@recorded_by_email, target.recorded_by_email),
+        recorded_by_name = COALESCE(@recorded_by_name, target.recorded_by_name),
+        recorded_at = SYSDATETIMEOFFSET()
+      WHEN NOT MATCHED THEN INSERT (recording_id, user_initials, clio_user_id, clio_matter_id, clio_communication_id, clio_activity_id, quantity_seconds, recorded_by_email, recorded_by_name)
+        VALUES (@recording_id, @user_initials, @clio_user_id, @clio_matter_id, @clio_communication_id, @clio_activity_id, @quantity_seconds, @recorded_by_email, @recorded_by_name);
+    `);
+}
+
+async function listCallAttendanceClioEntries(recordingId) {
+  if (!recordingId) return [];
+  try {
+    await ensureCallAttendanceClioEntriesTable();
+    const pool = await instrPool();
+    const result = await pool.request()
+      .input('recording_id', sql.NVarChar, recordingId)
+      .query(`
+        SELECT user_initials, clio_user_id, clio_matter_id, clio_communication_id, clio_activity_id,
+               quantity_seconds, recorded_by_email, recorded_by_name, recorded_at
+        FROM dbo.call_attendance_clio_entries
+        WHERE recording_id = @recording_id
+        ORDER BY recorded_at ASC
+      `);
+    return result.recordset.map((row) => ({
+      userInitials: row.user_initials,
+      clioUserId: row.clio_user_id,
+      clioMatterId: row.clio_matter_id,
+      clioCommunicationId: row.clio_communication_id,
+      clioActivityId: row.clio_activity_id,
+      quantitySeconds: row.quantity_seconds,
+      recordedByEmail: row.recorded_by_email,
+      recordedByName: row.recorded_by_name,
+      recordedAt: row.recorded_at,
+    }));
+  } catch (err) {
+    console.warn(`[dubber] listCallAttendanceClioEntries(${recordingId}) failed:`, err.message);
+    return [];
+  }
+}
+
 async function updateCallAttendanceAcResult(recordingId, { acContactId, acNoteId = null, synced, error = null }) {
   await ensureCallAttendanceNoteSubmissionsTable();
   const pool = await instrPool();
@@ -1121,8 +1326,10 @@ async function upsertLegacyAttendanceNoteIndex({ recordingId, note, matterRef = 
       ON target.recording_id = source.recording_id
       WHEN MATCHED THEN UPDATE SET
         matter_ref = @matter_ref,
-        saved_by = @saved_by,
-        saved_at = SYSDATETIMEOFFSET(),
+        -- Preserve the original filer; co-attendees can resave content/time entries
+        -- without changing who is credited as the person who filed the note.
+        saved_by = COALESCE(target.saved_by, @saved_by),
+        saved_at = CASE WHEN target.saved_by IS NULL THEN SYSDATETIMEOFFSET() ELSE target.saved_at END,
         call_date = @call_date,
         call_duration_seconds = @call_duration_seconds,
         parties_from = @parties_from,
@@ -1175,6 +1382,28 @@ async function resolveClioMatterIdFromDisplayNumber(displayNumber) {
     return id != null ? String(id) : null;
   } catch (err) {
     console.warn('[dubber] matter id lookup failed:', err.message);
+    return null;
+  }
+}
+
+async function resolveClioClientIdByMatterId(matterId) {
+  const matterIdText = String(matterId || '').trim();
+  if (!matterIdText) return null;
+  try {
+    const pool = await instrPool();
+    const result = await pool.request()
+      .input('matterId', sql.NVarChar, matterIdText)
+      .query(`
+        SELECT TOP 1 ClientId
+        FROM Instructions
+        WHERE CONVERT(NVARCHAR(100), MatterId) = @matterId
+          AND ClientId IS NOT NULL
+        ORDER BY InstructionRef DESC
+      `);
+    const clientId = result.recordset[0]?.ClientId;
+    return clientId != null ? String(clientId).trim() : null;
+  } catch (err) {
+    console.warn('[dubber] matter client lookup failed:', err.message);
     return null;
   }
 }
@@ -1328,7 +1557,18 @@ async function resolveNdWorkspaceRef(rawMatterRef) {
   const requestedRef = String(rawMatterRef || '').trim();
   if (!requestedRef) return { requestedRef, resolvedRef: '', source: 'missing' };
   if (!/^HLX-/i.test(requestedRef)) {
-    return { requestedRef, resolvedRef: requestedRef, source: 'provided' };
+    const clioMatterId = await resolveClioMatterIdFromDisplayNumber(requestedRef);
+    if (!clioMatterId) {
+      return { requestedRef, resolvedRef: requestedRef, source: 'provided' };
+    }
+    const clioClientId = await resolveClioClientIdByMatterId(clioMatterId);
+    return {
+      requestedRef,
+      resolvedRef: requestedRef,
+      source: clioClientId ? 'matter-display-resolved' : 'matter-display-no-client',
+      clioMatterId: String(clioMatterId),
+      clioClientId: clioClientId || null,
+    };
   }
 
   try {
@@ -1336,12 +1576,13 @@ async function resolveNdWorkspaceRef(rawMatterRef) {
     const instructionResult = await pool.request()
       .input('instructionRef', sql.NVarChar, requestedRef)
       .query(`
-        SELECT TOP 1 MatterId
+        SELECT TOP 1 MatterId, ClientId
         FROM Instructions
         WHERE InstructionRef = @instructionRef
       `);
 
-    const clioMatterId = instructionResult.recordset[0]?.MatterId;
+    const instruction = instructionResult.recordset[0];
+    const clioMatterId = instruction?.MatterId;
     if (!clioMatterId) {
       return { requestedRef, resolvedRef: requestedRef, source: 'instruction-ref-no-matter' };
     }
@@ -1356,6 +1597,7 @@ async function resolveNdWorkspaceRef(rawMatterRef) {
       resolvedRef: String(displayNumber).trim(),
       source: 'instruction-ref-resolved',
       clioMatterId: String(clioMatterId),
+      clioClientId: instruction?.ClientId ? String(instruction.ClientId).trim() : await resolveClioClientIdByMatterId(clioMatterId),
     };
   } catch (err) {
     console.warn('[dubber] ND workspace ref resolution failed:', err.message);
@@ -2014,6 +2256,12 @@ router.post('/dubberCalls/:recordingId/attendance-note', async (req, res) => {
     const callDate = recording.start_time_utc ? new Date(recording.start_time_utc).toISOString().slice(0, 10) : 'Unknown';
     const durationMins = recording.duration_seconds ? Math.ceil(recording.duration_seconds / 60) : 0;
 
+    const teamRoster = await getActiveTeamRoster();
+    const rosterPromptLines = teamRoster
+      .slice(0, 80)
+      .map((row) => `- ${row.fullName || `${row.first} ${row.last}`.trim()} (${row.initials})${row.nickname && row.nickname !== row.first ? `, also known as ${row.nickname}` : ''}`)
+      .join('\n');
+
     const systemPrompt = `You are a legal attendance note writer for Helix Law, a specialist litigation firm regulated by the SRA. Helix Law acts across four core practice areas: commercial disputes, property disputes, construction disputes, and employment law. Generate a professional attendance note from the following telephone call transcript. The note should be suitable for filing in the client matter.
 
 Return JSON with this structure:
@@ -2035,7 +2283,10 @@ Attendee rules:
 - Only include secondary Helix attendees when there is a clear presence signal: they have a speaker turn, they are introduced as being on the call, they are described as sitting in/listening in/observing, or they directly contribute advice during the call. There can be multiple secondary attendees, but each needs its own presence evidence.
 - Use role "primary" for the person mainly responsible for the call, "supporting" for other internal contributors, and "learning" only where someone is clearly sitting in or observing for learning/support.
 - Use kind "internal" for Helix people and include initials where the transcript or metadata gives them. Use kind "external" and role "external" for clients, prospects, opponents, or other non-Helix participants.
-- Use source "transcript" for transcript-derived attendees. Every transcript-derived attendee must include an "evidence" value with the exact speaker label or short quote proving attendance.`;
+- Use source "transcript" for transcript-derived attendees. Every transcript-derived attendee must include an "evidence" value with the exact speaker label or short quote proving attendance.
+
+Helix team roster (treat any speaker whose name matches an entry below as kind="internal" with the listed initials, even if only a first name like "Alex" is used in the transcript):
+${rosterPromptLines || '- (roster unavailable, fall back to call metadata only)'}`;
 
     const userPrompt = `Call details:
 - Date: ${callDate}
@@ -2105,8 +2356,11 @@ ${transcriptText}`;
       : [];
 
     const metadataPrimaryInitials = String(recording.matched_team_initials || '').trim().toUpperCase();
-    let attendees = aiAttendees.filter((attendee) => {
+    const aiAttendeesAfterRoster = reclassifyExternalAttendeesAgainstRoster(aiAttendees, teamRoster);
+    let attendees = aiAttendeesAfterRoster.filter((attendee) => {
       if (attendee.kind !== 'internal') return true;
+      // Roster-confirmed reclassifications are presence-evidence enough on their own.
+      if (attendee.reclassifiedFromExternal) return true;
       if (metadataPrimaryInitials && String(attendee.initials || '').toUpperCase() === metadataPrimaryInitials) return true;
       if (Number.isFinite(Number(attendee.confidence)) && Number(attendee.confidence) < 0.65) return false;
       return hasStrongInternalAttendeeEvidence(attendee, sentences);
@@ -3054,19 +3308,82 @@ router.post('/dubberCalls/:recordingId/upload-note-nd', async (req, res) => {
     if (!note || !note.attendanceNote) return res.status(400).json({ error: 'Missing attendance note content' });
     if (!matterRef) return res.status(400).json({ error: 'Missing matterRef for ND upload' });
 
+    // ── Single-shot guard ──
+    // The note is filed to NetDocuments once, by whoever saves first. If a
+    // co-attendee opens the workspace and resaves (typically to record their
+    // own Clio time entry), don't re-upload the docx — return the existing
+    // ND record so the client can show "already filed" attribution and skip
+    // the upload leg.
+    try {
+      const pool = await instrPool();
+      const existing = await pool.request()
+        .input('recording_id', sql.NVarChar, recordingId)
+        .query(`
+          SELECT TOP 1 nd_doc_id, nd_file_name, saved_by, saved_at, matter_ref
+          FROM dbo.dubber_attendance_notes
+          WHERE recording_id = @recording_id AND nd_doc_id IS NOT NULL
+        `);
+      const existingRow = existing.recordset?.[0];
+      if (existingRow?.nd_doc_id) {
+        trackEvent('Dubber.AttendanceNote.UploadND.Skipped.AlreadyFiled', {
+          reqId, recordingId,
+          ndDocId: String(existingRow.nd_doc_id),
+          filedBy: String(existingRow.saved_by || ''),
+        });
+        return res.json({
+          ok: true,
+          alreadyFiled: true,
+          ndDocId: existingRow.nd_doc_id,
+          fileName: existingRow.nd_file_name,
+          matterRef: existingRow.matter_ref || String(matterRef).trim(),
+          filedBy: existingRow.saved_by || null,
+          filedAt: existingRow.saved_at || null,
+        });
+      }
+    } catch (dedupeErr) {
+      console.warn(`[dubber ${reqId}] ND single-shot dedupe check failed (continuing with upload):`, dedupeErr?.message || dedupeErr);
+    }
+
     // Parse matterRef into clientId / matterKey for ND workspace lookup
     // Standard Clio display numbers: "00123-45678" → clientId=00123, matterKey=45678
     // Non-standard (admin, custom): "HELIX01-01" → need Clio lookup to find real clientId
     const workspaceRefResolution = await resolveNdWorkspaceRef(matterRef);
     const refStr = workspaceRefResolution.resolvedRef;
-    let clientId, matterKey;
-    // Try splitting on last hyphen (clientId-matterKey pattern)
-    const hyphenIdx = refStr.lastIndexOf('-');
-    if (hyphenIdx > 0) {
-      clientId = refStr.slice(0, hyphenIdx);
-      matterKey = refStr.slice(hyphenIdx + 1);
-    } else {
+    if (!refStr) return res.status(400).json({ error: `Cannot resolve matterRef (${String(matterRef).trim()})` });
+
+    const workspaceCandidates = [];
+    const addWorkspaceCandidate = (clientIdCandidate, matterKeyCandidate, source) => {
+      const normalizedClientId = String(clientIdCandidate || '').trim();
+      const normalizedMatterKey = String(matterKeyCandidate || '').trim();
+      if (!normalizedClientId || !normalizedMatterKey) return;
+      const candidateKey = `${normalizedClientId}\n${normalizedMatterKey}`.toLowerCase();
+      if (workspaceCandidates.some((candidate) => candidate.key === candidateKey)) return;
+      workspaceCandidates.push({
+        clientId: normalizedClientId,
+        matterKey: normalizedMatterKey,
+        source,
+        key: candidateKey,
+      });
+    };
+
+    const explicitParts = refStr.includes('/') ? refStr.split('/').map((part) => part.trim()).filter(Boolean) : [];
+    const hasExplicitWorkspaceRef = explicitParts.length > 0;
+    if (hasExplicitWorkspaceRef && explicitParts.length !== 2) {
       return res.status(400).json({ error: `Cannot parse matterRef into clientId/matterKey (${String(matterRef).trim()})` });
+    }
+
+    const hyphenIdx = refStr.lastIndexOf('-');
+    const splitClientId = hyphenIdx > 0 ? refStr.slice(0, hyphenIdx).trim() : '';
+    const splitMatterKey = hyphenIdx > 0 ? refStr.slice(hyphenIdx + 1).trim() : '';
+    const splitClientHasLetters = /[a-z]/i.test(splitClientId);
+
+    if (hasExplicitWorkspaceRef) {
+      addWorkspaceCandidate(explicitParts[0], explicitParts[1], 'explicit-client-matter');
+    } else {
+      addWorkspaceCandidate(workspaceRefResolution.clioClientId, refStr, `${workspaceRefResolution.source}-client-display`);
+      if (hyphenIdx > 0 && !splitClientHasLetters) {
+        addWorkspaceCandidate(splitClientId, splitMatterKey, 'hyphen-split');
+      }
     }
 
     // Step 1: Generate docx
@@ -3075,17 +3392,42 @@ router.post('/dubberCalls/:recordingId/upload-note-nd', async (req, res) => {
     const from = (note.parties?.from || 'Unknown').replace(/[^a-zA-Z0-9 ]/g, '').trim().replace(/\s+/g, '-');
     const fileName = `Attendance Note - ${dateStr} - ${from}.docx`;
 
-    // Step 2: Resolve ND workspace — try hyphen-split first, fall back to Clio lookup
+    // Step 2: Resolve ND workspace. Prefer the Clio/Instructions client id
+    // with the full display number; legacy-looking refs like KENSI10933-00001
+    // are not validly resolved by splitting them into KENSI10933/00001.
     const accessToken = await getNdAccessToken();
     const cabinet = await getSecret('nd-cabinet');
-    let workspacePath = `/v1/Workspace/${encodeURIComponent(cabinet)}/${encodeURIComponent(clientId)}/${encodeURIComponent(matterKey)}`;
+    const buildWorkspacePath = (clientIdForPath, matterKeyForPath) => `/v1/Workspace/${encodeURIComponent(cabinet)}/${encodeURIComponent(clientIdForPath)}/${encodeURIComponent(matterKeyForPath)}`;
+    let clientId = '';
+    let matterKey = '';
+    let workspaceResolutionSource = '';
     let workspacePayload;
-    try {
-      workspacePayload = await ndApiRequest(`${workspacePath}/info`, accessToken);
-    } catch (wsErr) {
-      // Hyphen-split failed — try resolving via Clio to get real client ID
-      // e.g. "HELIX01-01" → Clio client 5257922 → ND path 5257922/HELIX01-01
-      console.log(`[dubber ${reqId}] ND workspace not found at ${clientId}/${matterKey}, trying Clio lookup for "${refStr}"`);
+
+    const tryWorkspaceCandidates = async (candidates) => {
+      let lastError = null;
+      for (const candidate of candidates) {
+        const candidatePath = buildWorkspacePath(candidate.clientId, candidate.matterKey);
+        try {
+          const payload = await ndApiRequest(`${candidatePath}/info`, accessToken);
+          return { payload, candidate, path: candidatePath, lastError: null };
+        } catch (candidateErr) {
+          lastError = candidateErr;
+          console.log(`[dubber ${reqId}] ND workspace not found at ${candidate.clientId}/${candidate.matterKey} (${candidate.source})`);
+        }
+      }
+      return { payload: null, candidate: null, path: '', lastError };
+    };
+
+    let workspaceAttempt = await tryWorkspaceCandidates(workspaceCandidates);
+    if (workspaceAttempt.payload) {
+      workspacePayload = workspaceAttempt.payload;
+      clientId = workspaceAttempt.candidate.clientId;
+      matterKey = workspaceAttempt.candidate.matterKey;
+      workspaceResolutionSource = workspaceAttempt.candidate.source;
+    }
+
+    if (!workspacePayload && !hasExplicitWorkspaceRef) {
+      console.log(`[dubber ${reqId}] ND workspace not found for "${refStr}" via local refs, trying Clio lookup`);
       try {
         const clioToken = await getClioAccessToken();
         const clioRes = await fetch(`${CLIO_API_BASE}/matters.json?fields=id,display_number,client{id}&query=${encodeURIComponent(refStr)}&limit=5`, {
@@ -3095,37 +3437,53 @@ router.post('/dubberCalls/:recordingId/upload-note-nd', async (req, res) => {
           const clioData = await clioRes.json();
           const match = (clioData.data || []).find(m => String(m.display_number || '').toLowerCase() === refStr.toLowerCase());
           if (match?.client?.id) {
-            clientId = String(match.client.id);
-            matterKey = match.display_number || refStr;
-            workspacePath = `/v1/Workspace/${encodeURIComponent(cabinet)}/${encodeURIComponent(clientId)}/${encodeURIComponent(matterKey)}`;
-            console.log(`[dubber ${reqId}] Clio resolved: clientId=${clientId}, matterKey=${matterKey}`);
-            workspacePayload = await ndApiRequest(`${workspacePath}/info`, accessToken);
+            const clioClientId = String(match.client.id).trim();
+            const clioMatterKey = String(match.display_number || refStr).trim();
+            workspaceAttempt = await tryWorkspaceCandidates([{ clientId: clioClientId, matterKey: clioMatterKey, source: 'clio-lookup', key: `${clioClientId}\n${clioMatterKey}`.toLowerCase() }]);
+            if (workspaceAttempt.payload) {
+              workspacePayload = workspaceAttempt.payload;
+              clientId = workspaceAttempt.candidate.clientId;
+              matterKey = workspaceAttempt.candidate.matterKey;
+              workspaceResolutionSource = workspaceAttempt.candidate.source;
+              console.log(`[dubber ${reqId}] Clio resolved ND workspace: clientId=${clientId}, matterKey=${matterKey}`);
+            }
           } else {
             return res.status(404).json({ error: `ND workspace not found for ${refStr} (Clio lookup found no matching matter)` });
           }
         } else {
-          return res.status(404).json({ error: `ND workspace not found for ${refStr}: ${wsErr.message}` });
+          return res.status(404).json({ error: `ND workspace not found for ${refStr}: ${workspaceAttempt.lastError?.message || 'workspace lookup failed'}` });
         }
       } catch (fallbackErr) {
         console.warn(`[dubber ${reqId}] ND Clio-fallback also failed:`, fallbackErr.message || fallbackErr);
-        return res.status(404).json({ error: `ND workspace not found for ${refStr}: ${fallbackErr.message || wsErr.message}` });
+        return res.status(404).json({ error: `ND workspace not found for ${refStr}: ${fallbackErr.message || workspaceAttempt.lastError?.message || 'workspace lookup failed'}` });
       }
     }
+
+    if (!workspacePayload && hyphenIdx > 0 && splitClientHasLetters && !hasExplicitWorkspaceRef) {
+      workspaceAttempt = await tryWorkspaceCandidates([{ clientId: splitClientId, matterKey: splitMatterKey, source: 'hyphen-split-fallback', key: `${splitClientId}\n${splitMatterKey}`.toLowerCase() }]);
+      if (workspaceAttempt.payload) {
+        workspacePayload = workspaceAttempt.payload;
+        clientId = workspaceAttempt.candidate.clientId;
+        matterKey = workspaceAttempt.candidate.matterKey;
+        workspaceResolutionSource = workspaceAttempt.candidate.source;
+      }
+    }
+
+    if (!workspacePayload) {
+      return res.status(404).json({ error: `ND workspace not found for ${refStr}: ${workspaceAttempt.lastError?.message || 'workspace lookup failed'}` });
+    }
+
     const workspaceId = workspacePayload?.standardAttributes?.envId || workspacePayload?.standardAttributes?.id || workspacePayload?.id || workspacePayload?.EnvId;
     if (!workspaceId) return res.status(404).json({ error: `No workspace ID resolved for ${refStr}`, workspaceKeys: Object.keys(workspacePayload || {}), stdKeys: Object.keys(workspacePayload?.standardAttributes || {}) });
-    console.log(`[dubber ${reqId}] Workspace envId resolved: ${workspaceId}`);
+    console.log(`[dubber ${reqId}] Workspace envId resolved: ${workspaceId} (${workspaceResolutionSource || `${clientId}/${matterKey}`})`);
 
     // Step 3: Find target folder in the ND workspace
     // The container summary returns top-level folders under Results. Each has a DocId or envId
     // that can be used as a destination. The workspace .nev is NOT a valid folder — only use
     // folder DocIds from the summary or its sub-containers.
     //
-    // DEV OVERRIDE: While testing, all uploads go to "luke-sandbox" in HELIX01-01.
-    // TODO: Remove this override when ready for production — search for attendanceFolderNames.
-    const DEV_SANDBOX_OVERRIDE = true; // flip to false to use real attendance folder matching
-    const attendanceFolderNames = ['attendance', 'file note']; // production folder name matches
-    const sandboxFolderNames = ['luke-sandbox'];               // dev testing folder
-    const targetFolderNames = DEV_SANDBOX_OVERRIDE ? sandboxFolderNames : attendanceFolderNames;
+    const attendanceFolderNames = ['telephone attendance notes', 'telephone attendance', 'attendance', 'file note'];
+    const targetFolderNames = attendanceFolderNames;
 
     let attendanceFolderId = null;
     try {
@@ -3260,6 +3618,7 @@ router.post('/dubberCalls/:recordingId/upload-note-nd', async (req, res) => {
       reqId, recordingId, matterRef: refStr, requestedMatterRef: workspaceRefResolution.requestedRef, workspaceRefSource: workspaceRefResolution.source, fileName,
       ndDocId,
       attendanceFolderId: attendanceFolderId || 'workspace-root',
+      workspaceResolutionSource: workspaceResolutionSource || '',
       durationMs: String(durationMs),
     });
     trackMetric('Dubber.AttendanceNote.UploadDuration', durationMs, { recordingId });
@@ -3314,10 +3673,11 @@ router.post('/dubberCalls/:recordingId/upload-note-nd', async (req, res) => {
       ok: true,
       fileName,
       ndDocId,
-      uploadedTo: attendanceFolderId ? 'Attendance Notes folder' : 'Workspace root',
+      uploadedTo: attendanceFolderId ? 'Telephone Attendance Notes folder' : 'Workspace root',
       matterRef: refStr,
       requestedMatterRef: workspaceRefResolution.requestedRef,
       workspaceRefSource: workspaceRefResolution.source,
+      workspaceResolutionSource,
       folderId: attendanceFolderId,
     });
   } catch (err) {
@@ -3642,6 +4002,22 @@ router.post('/dubberCalls/:recordingId/clio-time-entry', async (req, res) => {
       trackException(auditErr, { operation: 'CallCentre.TimeEntry.ActivityAudit', reqId, recordingId });
     }
 
+    try {
+      await recordCallAttendanceClioEntry(recordingId, {
+        userInitials,
+        clioUserId,
+        clioMatterId,
+        communicationId,
+        activityId,
+        quantitySeconds,
+        recordedByEmail: String(body.userEmail || '').trim() || null,
+        recordedByName: String(body.userName || '').trim() || null,
+      });
+    } catch (entryErr) {
+      console.warn(`[dubber ${reqId}] per-attendee clio entry write failed:`, entryErr.message);
+      trackException(entryErr, { operation: 'CallCentre.TimeEntry.PerAttendeeWrite', reqId, recordingId, userInitials });
+    }
+
     return res.json({
       activityId,
       communicationId,
@@ -3774,6 +4150,7 @@ router.get('/dubberCalls/:recordingId/saved-note', async (req, res) => {
           date: sourceRow.call_date ? String(sourceRow.call_date).slice(0, 10) : null,
           parties: { from: sourceRow.parties_from || '', to: sourceRow.parties_to || '' },
         };
+        const clioEntries = await listCallAttendanceClioEntries(recordingId);
         return res.json({
           note: fullNote,
           meta: {
@@ -3801,6 +4178,7 @@ router.get('/dubberCalls/:recordingId/saved-note', async (req, res) => {
             ac_contact_id: sourceRow.ac_contact_id,
             ac_note_id: sourceRow.ac_note_id,
             steps: parseJsonArray(sourceRow.processing_steps_json),
+            clio_time_entries: clioEntries,
           },
         });
       }

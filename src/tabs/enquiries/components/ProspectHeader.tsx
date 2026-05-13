@@ -52,6 +52,7 @@ export interface ProspectHeaderProps {
   dealCreationInProgress?: boolean;
   onCaptureDealForLink?: () => Promise<string | null>;
   showFeeEarnerToggle?: boolean;
+  showPasscodeLink?: boolean;
   noAmountMode?: boolean;
   onNoAmountModeChange?: (value: boolean) => void;
 }
@@ -90,6 +91,7 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
   dealCreationInProgress = false,
   onCaptureDealForLink,
   showFeeEarnerToggle = false,
+  showPasscodeLink = false,
   noAmountMode: noAmountModeProp,
   onNoAmountModeChange,
 }) => {
@@ -1092,7 +1094,7 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
       }}
     >
       <div style={{
-        padding: '16px 24px 16px',
+        padding: '16px 16px 16px',
         animation: hasAnimated ? 'none' : 'contentReveal 220ms ease-out both'
       }}>
         {isLoading ? (
@@ -1151,11 +1153,11 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
             {/* Content */}
             <div style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(2, 1fr)',
+              gridTemplateColumns: (showFeeEarnerToggle || showPasscodeLink) ? 'repeat(2, 1fr)' : '1fr',
               gap: '14px',
               animation: hasAnimated ? 'none' : 'contentReveal 220ms ease-out 90ms both',
             }}>
-              {/* Left - Prospect + Contact + Fee Earner */}
+              {/* Left - Prospect + Contact */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 <Section title="Prospect" animationDelay={120}>
                   <DataRow label="Name" value={clientName} copyable fieldKey="name" />
@@ -1208,160 +1210,236 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
                     </>
                   )}
                 </Section>
-                {showFeeEarnerToggle && (fullName !== '—' || initials !== '—') && (
-                  <Section title="Fee Earner" animationDelay={180} accentColor={isDarkMode ? colours.subtleGrey : colours.greyText}>
-                    <DataRow label="Name" value={fullName} fieldKey="fe-name" />
-                    <DataRow label="Initials" value={initials} fieldKey="fe-initials" />
-                    <DataRow label="Role" value={role} fieldKey="fe-role" />
-                    <DataRow label="Rate" value={rate} fieldKey="fe-rate" />
-                  </Section>
-                )}
               </div>
 
-              {/* Right - Passcode Link */}
-              <Section title="Passcode Link" animationDelay={160} accentColor={isDealLinkReady ? colours.green : accent}>
-                {PasscodeLinkRow()}
-              </Section>
+              {/* Right - Fee Earner (preferred) or Passcode Link */}
+              {showFeeEarnerToggle && (fullName !== '—' || initials !== '—') ? (
+                <Section title="Fee Earner" animationDelay={160} accentColor={isDarkMode ? colours.subtleGrey : colours.greyText}>
+                  <DataRow label="Name" value={fullName} fieldKey="fe-name" />
+                  <DataRow label="Initials" value={initials} fieldKey="fe-initials" />
+                  <DataRow label="Role" value={role} fieldKey="fe-role" />
+                  <DataRow label="Rate" value={rate} fieldKey="fe-rate" />
+                </Section>
+              ) : showPasscodeLink ? (
+                <Section title="Passcode Link" animationDelay={160} accentColor={isDealLinkReady ? colours.green : accent}>
+                  {PasscodeLinkRow()}
+                </Section>
+              ) : null}
             </div>
 
             {notesDisplay && (
-              <div style={{
-                marginTop: 14,
-                animation: hasAnimated ? 'none' : 'contentReveal 220ms ease-out 200ms both'
-              }}>
-                <Section
-                  title="Notes"
-                  animationDelay={200}
-                  accentColor={isDarkMode ? colours.subtleGrey : colours.greyText}
-                  headerRight={
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div
+                style={{
+                  marginTop: 14,
+                  background: surfaceBg,
+                  borderLeft: `3px solid ${isDarkMode ? colours.subtleGrey : colours.greyText}`,
+                  borderTop: `1px solid ${innerBorder}`,
+                  borderRight: `1px solid ${innerBorder}`,
+                  borderBottom: `1px solid ${innerBorder}`,
+                  borderRadius: 0,
+                  padding: '10px 14px',
+                  animation: hasAnimated ? 'none' : 'contentReveal 220ms ease-out 200ms both',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                    marginBottom: 8,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      fontSize: 10,
+                      fontWeight: 700,
+                      letterSpacing: '0.6px',
+                      textTransform: 'uppercase',
+                      color: textMuted,
+                    }}
+                  >
+                    <Icon iconName="QuickNote" styles={{ root: { fontSize: 11, color: textMuted } }} />
+                    Notes
+                  </div>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    {shouldTruncateNotes && (
                       <button
                         type="button"
-                        onClick={() => setWhiteboardEnabled((v) => !v)}
-                        style={{
-                          background: whiteboardEnabled
-                            ? (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.10)')
-                            : 'transparent',
-                          border: `1px solid ${whiteboardEnabled ? borderColor : innerBorder}`,
-                          padding: '2px 8px',
-                          borderRadius: 2,
-                          cursor: 'pointer',
-                          fontSize: 10,
-                          fontWeight: 600,
-                          color: whiteboardEnabled ? accent : textSecondary,
-                          transition: 'border-color 160ms ease, color 160ms ease, background 160ms ease',
-                        }}
-                        title="Toggle temporary whiteboard"
-                      >
-                        {whiteboardEnabled ? 'Hide whiteboard' : 'Whiteboard'}
-                      </button>
-                      {shouldTruncateNotes && (
-                        <button
-                          type="button"
-                          onClick={() => setNotesExpanded((v) => !v)}
-                          style={{
-                            background: 'transparent',
-                            border: 'none',
-                            padding: 0,
-                            cursor: 'pointer',
-                            fontSize: 10,
-                            fontWeight: 600,
-                            color: textSecondary,
-                          }}
-                        >
-                          {notesExpanded ? 'Hide' : 'Show'}
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={handleCopyNotes}
+                        onClick={() => setNotesExpanded((v) => !v)}
+                        title={notesExpanded ? 'Show less' : 'Show full note'}
+                        aria-label={notesExpanded ? 'Show less' : 'Show full note'}
                         style={{
                           background: 'transparent',
                           border: 'none',
-                          padding: 0,
+                          padding: '4px 6px',
                           cursor: 'pointer',
+                          color: textMuted,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 5,
                           fontSize: 10,
                           fontWeight: 600,
-                          color: notesCopied ? colours.green : textSecondary,
+                          letterSpacing: '0.4px',
+                          textTransform: 'uppercase',
+                          transition: 'color 160ms ease',
                         }}
+                        onMouseEnter={(e) => { e.currentTarget.style.color = accent; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.color = textMuted; }}
                       >
-                        {notesCopied ? '✓ Copied' : 'Copy'}
+                        <Icon iconName={notesExpanded ? 'Hide3' : 'View'} styles={{ root: { fontSize: 12 } }} />
+                        {notesExpanded ? 'Less' : 'More'}
                       </button>
-                    </div>
-                  }
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleCopyNotes}
+                      title={notesCopied ? 'Copied' : 'Copy notes'}
+                      aria-label={notesCopied ? 'Copied' : 'Copy notes'}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        padding: '4px 6px',
+                        cursor: 'pointer',
+                        color: notesCopied ? colours.green : textMuted,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 5,
+                        fontSize: 10,
+                        fontWeight: 600,
+                        letterSpacing: '0.4px',
+                        textTransform: 'uppercase',
+                        transition: 'color 160ms ease',
+                      }}
+                      onMouseEnter={(e) => { if (!notesCopied) e.currentTarget.style.color = accent; }}
+                      onMouseLeave={(e) => { if (!notesCopied) e.currentTarget.style.color = textMuted; }}
+                    >
+                      <Icon iconName={notesCopied ? 'CheckMark' : 'Copy'} styles={{ root: { fontSize: 12 } }} />
+                      {notesCopied ? 'Copied' : 'Copy'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setWhiteboardEnabled((v) => !v)}
+                      title={whiteboardEnabled ? 'Hide whiteboard' : 'Open temporary whiteboard'}
+                      aria-pressed={whiteboardEnabled}
+                      style={{
+                        background: whiteboardEnabled
+                          ? (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.10)')
+                          : 'transparent',
+                        border: `1px solid ${whiteboardEnabled ? accent : innerBorder}`,
+                        padding: '3px 8px',
+                        cursor: 'pointer',
+                        color: whiteboardEnabled ? accent : textMuted,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 5,
+                        fontSize: 10,
+                        fontWeight: 700,
+                        letterSpacing: '0.5px',
+                        textTransform: 'uppercase',
+                        transition: 'color 160ms ease, border-color 160ms ease, background 160ms ease',
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!whiteboardEnabled) {
+                          e.currentTarget.style.color = accent;
+                          e.currentTarget.style.borderColor = accent;
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!whiteboardEnabled) {
+                          e.currentTarget.style.color = textMuted;
+                          e.currentTarget.style.borderColor = innerBorder;
+                        }
+                      }}
+                    >
+                      <Icon iconName="EditNote" styles={{ root: { fontSize: 12 } }} />
+                      Whiteboard
+                    </button>
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    fontSize: 12.5,
+                    color: textSecondary,
+                    lineHeight: 1.55,
+                    whiteSpace: 'pre-wrap',
+                  }}
                 >
-                  {whiteboardEnabled ? (
+                  {notesExpanded ? notesDisplay : notesPreview}
+                </div>
+
+                {whiteboardEnabled && (
+                  <div
+                    style={{
+                      marginTop: 12,
+                      paddingTop: 10,
+                      borderTop: `1px dashed ${innerBorder}`,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 6,
+                    }}
+                  >
                     <div
-                      ref={whiteboardContainerRef}
                       style={{
                         display: 'flex',
-                        alignItems: 'stretch',
-                        gap: 10,
-                        minHeight: 140,
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 12,
                       }}
                     >
                       <div
                         style={{
-                          flex: `0 0 ${Math.round(whiteboardSplit * 100)}%`,
-                          minWidth: 220,
-                          fontSize: 12,
-                          color: textPrimary,
-                          lineHeight: 1.5,
-                          whiteSpace: 'pre-wrap',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 8,
+                          fontSize: 10,
+                          fontWeight: 700,
+                          letterSpacing: '0.6px',
+                          textTransform: 'uppercase',
+                          color: accent,
                         }}
                       >
-                        {notesExpanded ? notesDisplay : notesPreview}
+                        <Icon iconName="EditNote" styles={{ root: { fontSize: 11, color: accent } }} />
+                        Whiteboard
                       </div>
-
-                      <div
-                        onMouseDown={handleWhiteboardResizeStart}
-                        role="separator"
-                        aria-label="Resize notes and whiteboard"
-                        style={{
-                          width: 6,
-                          cursor: 'col-resize',
-                          borderRadius: 6,
-                          background: isDarkMode ? 'rgba(148, 163, 184, 0.22)' : 'rgba(148, 163, 184, 0.18)',
-                          boxShadow: isDarkMode
-                            ? 'inset 0 0 0 1px rgba(148, 163, 184, 0.25)'
-                            : 'inset 0 0 0 1px rgba(148, 163, 184, 0.2)',
-                          transition: 'background 160ms ease',
-                        }}
-                      />
-
-                      <div style={{ flex: 1, minWidth: 200, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        <div style={{ fontSize: 10, color: textSecondary, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase' }}>
-                          Whiteboard (temporary)
-                        </div>
-                        <div style={{ fontSize: 10, color: textSecondary, lineHeight: 1.4 }}>
-                          Session-only notes for calls. Not saved anywhere and cleared when the app reloads.
-                        </div>
-                        <textarea
-                          value={whiteboardText}
-                          onChange={(event) => setWhiteboardText(event.target.value)}
-                          placeholder="Jot down temporary call notes here…"
-                          style={{
-                            flex: 1,
-                            minHeight: 90,
-                            resize: 'none',
-                            padding: '8px 10px',
-                            borderRadius: 6,
-                            border: `1px solid ${innerBorder}`,
-                            background: isDarkMode ? 'rgba(15, 23, 42, 0.6)' : '#FFFFFF',
-                            color: textPrimary,
-                            fontSize: 12,
-                            lineHeight: 1.4,
-                            outline: 'none',
-                          }}
-                        />
-                      </div>
+                      <span style={{ fontSize: 10, color: textMuted, letterSpacing: '0.3px' }}>
+                        Session only. Not saved.
+                      </span>
                     </div>
-                  ) : (
-                    <div style={{ fontSize: 12, color: textPrimary, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
-                      {notesExpanded ? notesDisplay : notesPreview}
-                    </div>
-                  )}
-                </Section>
+                    <textarea
+                      value={whiteboardText}
+                      onChange={(event) => setWhiteboardText(event.target.value)}
+                      placeholder="Jot down temporary call notes…"
+                      style={{
+                        width: '100%',
+                        minHeight: 96,
+                        resize: 'vertical',
+                        padding: '8px 10px',
+                        borderRadius: 0,
+                        border: `1px solid ${innerBorder}`,
+                        background: cardBg,
+                        color: textPrimary,
+                        fontSize: 12.5,
+                        lineHeight: 1.5,
+                        fontFamily: 'inherit',
+                        outline: 'none',
+                        transition: 'border-color 160ms ease, box-shadow 160ms ease',
+                      }}
+                      onFocus={(e) => {
+                        e.currentTarget.style.borderColor = accent;
+                        e.currentTarget.style.boxShadow = `0 0 0 1px ${accent}33`;
+                      }}
+                      onBlur={(e) => {
+                        e.currentTarget.style.borderColor = innerBorder;
+                        e.currentTarget.style.boxShadow = 'none';
+                      }}
+                    />
+                  </div>
+                )}
               </div>
             )}
           </>

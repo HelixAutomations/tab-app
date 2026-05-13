@@ -13,6 +13,7 @@ import {
   FaCheckCircle,
   FaCopy,
   FaEnvelope,
+  FaPaperPlane,
   FaPhone,
   FaStar,
   FaUserPlus,
@@ -45,6 +46,7 @@ interface ProspectHeroHeaderProps {
   currentRating?: string | null;
   onOpenEnquiryRating?: () => void;
   onShareEnquiry?: () => void;
+  onOpenPitchBuilder?: () => void;
   inlineWorkbenchItem?: any;
 }
 
@@ -91,6 +93,7 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
   currentRating,
   onOpenEnquiryRating,
   onShareEnquiry,
+  onOpenPitchBuilder,
   inlineWorkbenchItem,
 }) => {
   const areaColour = getAreaColour(displayAreaOfWork);
@@ -131,16 +134,6 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
     : normalisedRating === 'Poor'
       ? colours.cta
       : (isDarkMode ? colours.subtleGrey : colours.greyText);
-  const ratingBackground = normalisedRating === 'Good'
-    ? (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)')
-    : normalisedRating === 'Poor'
-      ? (isDarkMode ? 'rgba(214, 85, 65, 0.12)' : 'rgba(214, 85, 65, 0.08)')
-      : (isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.03)');
-  const ratingBorder = normalisedRating === 'Good'
-    ? (isDarkMode ? 'rgba(54, 144, 206, 0.28)' : 'rgba(54, 144, 206, 0.18)')
-    : normalisedRating === 'Poor'
-      ? (isDarkMode ? 'rgba(214, 85, 65, 0.28)' : 'rgba(214, 85, 65, 0.18)')
-      : (isDarkMode ? 'rgba(148, 163, 184, 0.16)' : 'rgba(0, 0, 0, 0.06)');
   const shellDivider = isDarkMode ? 'rgba(75, 85, 99, 0.28)' : 'rgba(6, 23, 51, 0.08)';
   const caseStripBorder = isDarkMode ? 'rgba(75, 85, 99, 0.32)' : 'rgba(13, 47, 96, 0.08)';
   const caseStripBackground = isDarkMode ? 'rgba(255, 255, 255, 0.02)' : 'rgba(13, 47, 96, 0.025)';
@@ -207,7 +200,8 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
         boxShadow: 'none',
       }}
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {/* Row 1: identity + primary CTA */}
         <div style={{
           display: 'flex',
           alignItems: 'flex-start',
@@ -232,7 +226,7 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
               boxShadow: `0 0 0 3px ${isDarkMode ? `${areaColour}1c` : `${areaColour}12`}`,
             }} />
             <div style={{ display: 'flex', flexDirection: 'column', gap: 5, minWidth: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', minWidth: 0 }}>
                 <h2 style={{
                   fontSize: 19,
                   fontWeight: 700,
@@ -261,6 +255,29 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
                   <span style={{ width: 5, height: 5, borderRadius: '50%', background: areaColour, flexShrink: 0 }} />
                   <span>{displayAreaOfWork || 'General'}</span>
                 </span>
+                {onOpenPitchBuilder && (
+                  <button
+                    type="button"
+                    onClick={onOpenPitchBuilder}
+                    title="Open the pitch builder for this enquiry"
+                    style={{
+                      ...compactActionButtonBase,
+                      minHeight: 26,
+                      padding: '0 10px',
+                      fontSize: 11,
+                      background: colours.highlight,
+                      border: `1px solid ${colours.highlight}`,
+                      color: '#ffffff',
+                      flexShrink: 0,
+                      marginLeft: 4,
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.9'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
+                  >
+                    <FaPaperPlane size={10} />
+                    <span>Send pitch</span>
+                  </button>
+                )}
               </div>
 
               <div style={{
@@ -283,167 +300,146 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
             </div>
           </div>
 
-          <div style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'flex-end',
-            gap: 8,
-            flex: '0 1 520px',
-            minWidth: 0,
-            marginLeft: 'auto',
-          }}>
-            <div style={{
-              display: 'flex',
+          {/* (Send pitch CTA moved up beside the name) */}
+        </div>
+
+        {/* Row 2: contact chips + quiet meta actions */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 14,
+          rowGap: 6,
+          flexWrap: 'wrap',
+          color: textBody,
+        }}>
+          {displayId && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onCopyToClipboard(displayId, 'ID'); }}
+              title={copiedField === 'ID' ? 'Copied' : `Copy ID: ${displayId}`}
+              style={{ ...contactActionStyle, color: textBody }}
+              onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.72'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
+            >
+              <span style={iconBoxStyle}>
+                <img src={activecampaignIcon} alt="AC" style={{ width: 12, height: 12, filter: activeCampaignIconFilter }} />
+              </span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: textPrimary, whiteSpace: 'nowrap' }}>{displayId}</span>
+              {copiedField === 'ID' && (
+                <FaCheckCircle size={9} style={{ color: colours.green, marginLeft: 2 }} />
+              )}
+            </button>
+          )}
+
+          {enquiry.Email && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
+              <button
+                type="button"
+                onClick={() => onOpenMailto(enquiry.Email!)}
+                title={`Email ${enquiry.Email}`}
+                style={{ ...contactActionStyle, color: colours.highlight }}
+                onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.72'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
+              >
+                <span style={iconBoxStyle}>
+                  <FaEnvelope size={9} />
+                </span>
+                <span style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{enquiry.Email}</span>
+              </button>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onCopyToClipboard(enquiry.Email!, 'Email'); }}
+                title={copiedField === 'Email' ? 'Copied' : 'Copy email'}
+                style={{ ...copyButtonStyle, color: copiedField === 'Email' ? colours.green : textMuted, opacity: copiedField === 'Email' ? 1 : 0.55 }}
+                onMouseEnter={(e) => {
+                  if (copiedField !== 'Email') { e.currentTarget.style.color = colours.highlight; e.currentTarget.style.opacity = '1'; }
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = copiedField === 'Email' ? colours.green : textMuted;
+                  e.currentTarget.style.opacity = copiedField === 'Email' ? '1' : '0.55';
+                }}
+              >
+                {copiedField === 'Email' ? <FaCheckCircle size={8} /> : <FaCopy size={8} />}
+              </button>
+            </span>
+          )}
+
+          {enquiry.Phone_Number && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
+              <button
+                type="button"
+                onClick={() => onOpenTel(enquiry.Phone_Number!)}
+                title={`Call ${enquiry.Phone_Number}`}
+                style={{ ...contactActionStyle, color: textBody }}
+                onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.72'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
+              >
+                <span style={iconBoxStyle}>
+                  <FaPhone size={9} />
+                </span>
+                <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{enquiry.Phone_Number}</span>
+              </button>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onCopyToClipboard(enquiry.Phone_Number!, 'Phone'); }}
+                title={copiedField === 'Phone' ? 'Copied' : 'Copy phone'}
+                style={{ ...copyButtonStyle, color: copiedField === 'Phone' ? colours.green : textMuted, opacity: copiedField === 'Phone' ? 1 : 0.55 }}
+                onMouseEnter={(e) => {
+                  if (copiedField !== 'Phone') { e.currentTarget.style.color = colours.highlight; e.currentTarget.style.opacity = '1'; }
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = copiedField === 'Phone' ? colours.green : textMuted;
+                  e.currentTarget.style.opacity = copiedField === 'Phone' ? '1' : '0.55';
+                }}
+              >
+                {copiedField === 'Phone' ? <FaCheckCircle size={8} /> : <FaCopy size={8} />}
+              </button>
+            </span>
+          )}
+
+          {(onOpenEnquiryRating || onShareEnquiry) && (
+            <span style={{
+              display: 'inline-flex',
               alignItems: 'center',
-              justifyContent: 'flex-end',
-              gap: 14,
-              rowGap: 8,
-              flexWrap: 'wrap',
-              maxWidth: '100%',
-              color: textBody,
+              gap: 12,
+              marginLeft: 'auto',
             }}>
-              {displayId && (
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0, maxWidth: '100%' }}>
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); onCopyToClipboard(displayId, 'ID'); }}
-                    title={`Copy ID: ${displayId}`}
-                    style={{ ...contactActionStyle, color: textBody }}
-                    onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.72'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
-                  >
-                    <span style={iconBoxStyle}>
-                      <img src={activecampaignIcon} alt="AC" style={{ width: 12, height: 12, filter: activeCampaignIconFilter }} />
-                    </span>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: textPrimary, whiteSpace: 'nowrap' }}>{displayId}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); onCopyToClipboard(displayId, 'ID'); }}
-                    title="Copy ID"
-                    style={{ ...copyButtonStyle, color: copiedField === 'ID' ? colours.green : textMuted }}
-                    onMouseEnter={(e) => {
-                      if (copiedField !== 'ID') e.currentTarget.style.color = colours.highlight;
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.color = copiedField === 'ID' ? colours.green : textMuted;
-                    }}
-                  >
-                    {copiedField === 'ID' ? <FaCheckCircle size={8} /> : <FaCopy size={8} />}
-                  </button>
-                </div>
-              )}
-
-              {enquiry.Email && (
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0, maxWidth: '100%' }}>
-                  <button
-                    type="button"
-                    onClick={() => onOpenMailto(enquiry.Email!)}
-                    title={`Email: ${enquiry.Email}`}
-                    style={{ ...contactActionStyle, color: colours.highlight }}
-                    onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.72'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
-                  >
-                    <span style={iconBoxStyle}>
-                      <FaEnvelope size={9} />
-                    </span>
-                    <span style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{enquiry.Email}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); onCopyToClipboard(enquiry.Email!, 'Email'); }}
-                    title="Copy email"
-                    style={{ ...copyButtonStyle, color: copiedField === 'Email' ? colours.green : textMuted }}
-                    onMouseEnter={(e) => {
-                      if (copiedField !== 'Email') e.currentTarget.style.color = colours.highlight;
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.color = copiedField === 'Email' ? colours.green : textMuted;
-                    }}
-                  >
-                    {copiedField === 'Email' ? <FaCheckCircle size={8} /> : <FaCopy size={8} />}
-                  </button>
-                </div>
-              )}
-
-              {enquiry.Phone_Number && (
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0, maxWidth: '100%' }}>
-                  <button
-                    type="button"
-                    onClick={() => onOpenTel(enquiry.Phone_Number!)}
-                    title={`Call: ${enquiry.Phone_Number}`}
-                    style={{ ...contactActionStyle, color: textBody }}
-                    onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.72'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
-                  >
-                    <span style={iconBoxStyle}>
-                      <FaPhone size={9} />
-                    </span>
-                    <span style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{enquiry.Phone_Number}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); onCopyToClipboard(enquiry.Phone_Number!, 'Phone'); }}
-                    title="Copy phone"
-                    style={{ ...copyButtonStyle, color: copiedField === 'Phone' ? colours.green : textMuted }}
-                    onMouseEnter={(e) => {
-                      if (copiedField !== 'Phone') e.currentTarget.style.color = colours.highlight;
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.color = copiedField === 'Phone' ? colours.green : textMuted;
-                    }}
-                  >
-                    {copiedField === 'Phone' ? <FaCheckCircle size={8} /> : <FaCopy size={8} />}
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {(onOpenEnquiryRating || onShareEnquiry) && (
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'flex-end',
-                gap: 8,
-                flexWrap: 'wrap',
-                maxWidth: '100%',
-              }}>
-                {onOpenEnquiryRating && (
-                  <button
-                    type="button"
-                    onClick={onOpenEnquiryRating}
-                    title={normalisedRating ? `Rating: ${normalisedRating} · Click to change` : 'Rate this enquiry'}
-                    style={{
-                      ...compactActionButtonBase,
-                      background: ratingBackground,
-                      border: `1px solid ${ratingBorder}`,
-                      color: ratingColor,
-                    }}
-                  >
+              {onOpenEnquiryRating && (
+                <button
+                  type="button"
+                  onClick={onOpenEnquiryRating}
+                  title={normalisedRating ? `Rating: ${normalisedRating} · Click to change` : 'Rate this enquiry'}
+                  style={{
+                    ...contactActionStyle,
+                    color: normalisedRating ? ratingColor : textMuted,
+                    fontWeight: 600,
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.72'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
+                >
+                  <span style={iconBoxStyle}>
                     {normalisedRating === 'Good' ? <FaCheckCircle size={10} /> : <FaStar size={10} />}
-                    <span>{normalisedRating || 'Rate'}</span>
-                  </button>
-                )}
-
-                {onShareEnquiry && (
-                  <button
-                    type="button"
-                    onClick={onShareEnquiry}
-                    title="Share access to this enquiry"
-                    style={{
-                      ...compactActionButtonBase,
-                      color: isDarkMode ? colours.accent : colours.highlight,
-                      border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.22)' : 'rgba(54, 144, 206, 0.18)'}`,
-                      background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.07)',
-                    }}
-                  >
+                  </span>
+                  <span>{normalisedRating || 'Rate'}</span>
+                </button>
+              )}
+              {onShareEnquiry && (
+                <button
+                  type="button"
+                  onClick={onShareEnquiry}
+                  title="Share access to this enquiry"
+                  style={{ ...contactActionStyle, color: textMuted, fontWeight: 600 }}
+                  onMouseEnter={(e) => { e.currentTarget.style.color = colours.highlight; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.color = textMuted; }}
+                >
+                  <span style={iconBoxStyle}>
                     <FaUserPlus size={10} />
-                    <span>Share</span>
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
+                  </span>
+                  <span>Share</span>
+                </button>
+              )}
+            </span>
+          )}
         </div>
 
         {showCaseSelectorRow && (

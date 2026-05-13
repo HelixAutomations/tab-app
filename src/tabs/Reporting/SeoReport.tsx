@@ -176,6 +176,7 @@ const getRangeButtonStyles = (isDarkMode: boolean, active: boolean, disabled: bo
         : active
           ? '#2f7cb3'
           : (isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(54, 144, 206, 0.12)'),
+      color: textColor,
     },
     rootPressed: {
       background: disabled
@@ -183,6 +184,10 @@ const getRangeButtonStyles = (isDarkMode: boolean, active: boolean, disabled: bo
         : active
           ? '#266795'
           : (isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(54, 144, 206, 0.16)'),
+      color: textColor,
+    },
+    label: {
+      color: 'inherit',
     },
   };
 };

@@ -8,6 +8,7 @@ import { disposeOnHmr, onServerBounced } from '../../utils/devHmr';
 import { useRealtimeChannel } from '../../hooks/useRealtimeChannel';
 import { buildRequestAuthHeaders } from '../../utils/requestAuthContext';
 import AttendanceNoteBox, { type AttendanceNoteAttendee, type AttendanceNoteBoxPayload, type AttendanceNoteBoxSaveLegStatus, type AttendanceNoteTeamOption, type AttendanceNoteTarget } from './AttendanceNoteBox';
+import SavedAttendanceNoteCard from './SavedAttendanceNoteCard';
 import type { ProspectLookupOption } from '../matter-lookup/ProspectLookup';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -124,6 +125,14 @@ type SavedNoteCacheMeta = {
   nd_file_name?: string | null;
   processing_status?: string | null;
   target_type?: string | null;
+  clio_time_entries?: Array<{
+    userInitials: string;
+    clioActivityId?: string | null;
+    clioCommunicationId?: string | null;
+    quantitySeconds?: number | null;
+    recordedByName?: string | null;
+    recordedAt?: string | null;
+  }>;
 };
 
 interface EmailJourneyEvent {
@@ -390,7 +399,10 @@ function resolveCallAttendanceContext(
   const userIsPrimary = Boolean(primaryInitials && normalizeInitials(userInitials) === primaryInitials)
     || attendees.some((attendee) => attendee.kind === 'internal' && attendee.role === 'primary' && attendeeMatchesUser(attendee, userInitials, userEmail));
   const userIsSecondary = !userIsPrimary && secondaryAttendees.some((attendee) => attendeeMatchesUser(attendee, userInitials, userEmail));
-  const canControl = !normalizeInitials(userInitials) || !primaryInitials || userIsPrimary;
+  // Supporting attendees can also drive the workspace: their save will skip
+  // the NetDocs upload (handled server-side as alreadyFiled) but still records
+  // their own Clio time entry against the matter.
+  const canControl = !normalizeInitials(userInitials) || !primaryInitials || userIsPrimary || userIsSecondary;
   return {
     attendees,
     primaryAttendee,
@@ -809,6 +821,12 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
     if (['staging', 'uat', 'dev', 'preview'].some((s) => hostname.includes(s))) return true;
     return false;
   }, [viewAsProd]);
+  const showAttendanceDestinations = React.useMemo(() => {
+    if (viewAsProd) return false;
+    if (typeof window === 'undefined') return false;
+    const hostname = window.location.hostname;
+    return hostname === 'localhost' || hostname === '127.0.0.1';
+  }, [viewAsProd]);
   const demoModeActive = React.useMemo(() => {
     if (demoModeEnabled) return true;
     try {
@@ -899,6 +917,9 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
   const [isDocumentVisible, setIsDocumentVisible] = useState(() => (typeof document === 'undefined' ? true : !document.hidden));
   const [savedNoteCache, setSavedNoteCache] = useState<Record<string, { note: AttendanceNote; meta: SavedNoteCacheMeta }>>({});
   const [loadingSavedNote, setLoadingSavedNote] = useState<string | null>(null);
+  const [editingSavedNote, setEditingSavedNote] = useState(false);
+  const [recordingOwnTimeFor, setRecordingOwnTimeFor] = useState<string | null>(null);
+  const [recordOwnTimeError, setRecordOwnTimeError] = useState<string | null>(null);
   const demoJourneySeed = React.useMemo(() => buildDemoJourneySeed(userInitials, userEmail), [userEmail, userInitials]);
   const resolvedJourneyScope = canUseAllView ? selectedJourneyScope : 'user';
   const canToggleJourneyScope = canUseAllView && !useDemoJourneySeed;
@@ -1014,6 +1035,8 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
     setMatterDropdownOpen(false);
     setMatterLegacyAvailable(false);
     setMatterIncludeLegacy(false);
+    setEditingSavedNote(false);
+    setRecordOwnTimeError(null);
     setPipeline({
       saving: false,
       saved: false,
@@ -1399,7 +1422,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
       const attendanceContext = resolveCallAttendanceContext(callForRecording, noteSummaryForRecording, savedNoteCache[recordingId], null, userInitials, userEmail);
       if (!attendanceContext.canControl) {
         setGeneratedNote(null);
-        setNoteGenError('Only the primary call owner can craft this note.');
+        setNoteGenError('Only the call owner or someone on the call can craft this note.');
         return;
       }
     }
@@ -1622,10 +1645,13 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
     setPipeline(prev => ({ ...prev, saving: true }));
     setSaveError(null);
     try {
+      // Topics are admin-only AI metadata (visible to LZ/AC in the UI for QA)
+      // and are intentionally NOT persisted to the saved attendance note.
+      const persistedNote = { ...noteToSave, topics: [] as string[] };
       const res = await fetchWithTimeout(`${dubberApiBaseUrl}/api/dubberCalls/${encodeURIComponent(recordingId)}/save-note`, {
         method: 'POST',
         headers: buildRequestAuthHeaders({ 'Content-Type': 'application/json', 'x-user-initials': userInitials }),
-        body: JSON.stringify({ note: noteToSave, matterRef, targetType: matterRef ? 'matter' : 'unknown' }),
+        body: JSON.stringify({ note: persistedNote, matterRef, targetType: matterRef ? 'matter' : 'unknown' }),
       }, 30000);
       if (res?.ok) {
         const data = await res.json();
@@ -1731,7 +1757,16 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
         });
         setUploadError(null);
         if (options?.refreshJourney !== false) void fetchJourney('full');
-        return { ok: true, message: 'Uploaded to NetDocuments', fileName: data.fileName, uploadedTo: data.uploadedTo };
+        const filedBy = data.filedBy ? String(data.filedBy).toUpperCase() : null;
+        const alreadyFiledMessage = filedBy ? `Already filed by ${filedBy}` : 'Already filed';
+        return {
+          ok: true,
+          message: data.alreadyFiled ? alreadyFiledMessage : 'Uploaded to NetDocuments',
+          fileName: data.fileName,
+          uploadedTo: data.uploadedTo,
+          alreadyFiled: Boolean(data.alreadyFiled),
+          filedBy,
+        };
       } else {
         setPipeline(prev => ({ ...prev, uploading: false }));
         setUploadError('Failed to upload to NetDocuments. Try again.');
@@ -1851,6 +1886,58 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
     return [...map.values()].sort((left, right) => parseJourneyTimestamp(right.start_time_utc) - parseJourneyTimestamp(left.start_time_utc));
   }, [journeyItems]);
 
+  const recordOwnClioTimeEntry = useCallback(async (recordingId: string, units: number) => {
+    if (!recordingId) return;
+    const cached = savedNoteCache[recordingId];
+    if (!cached?.note) {
+      setRecordOwnTimeError('Saved note not loaded yet.');
+      return;
+    }
+    const matterRef = cached.meta?.matter_ref;
+    if (!matterRef) {
+      setRecordOwnTimeError('No matter linked to this note.');
+      return;
+    }
+    const safeUnits = Math.max(1, Math.min(50, Math.round(units)));
+    const chargeableMinutes = safeUnits * 6;
+    const callRecord = calls.find((c) => c.recording_id === recordingId) || null;
+    setRecordOwnTimeError(null);
+    setRecordingOwnTimeFor(recordingId);
+    try {
+      const payload: AttendanceNoteBoxPayload = {
+        recordingId,
+        target: 'matter',
+        matterDisplayNumber: matterRef,
+        matterClientName: cached.note.parties?.from || cached.note.parties?.to || '',
+        date: cached.note.date || (callRecord?.start_time_utc || new Date().toISOString()),
+        callStartedAt: callRecord?.start_time_utc || cached.note.date || null,
+        durationSec: callRecord?.duration_seconds || 0,
+        chargeableMinutes,
+        narrative: cached.note.attendanceNote || cached.note.summary || 'Attendance note',
+        actionPoints: cached.note.actionItems || [],
+        attendees: cached.note.attendees || [],
+        uploadToNd: false,
+        recordClioTimeEntry: true,
+      };
+      const result = await recordClioTimeEntry(payload, { refreshJourney: false });
+      if (!result?.ok) {
+        setRecordOwnTimeError(result?.message || 'Failed to record Clio time entry.');
+        return;
+      }
+      try {
+        const res = await fetch(`${dubberApiBaseUrl}/api/dubberCalls/${encodeURIComponent(recordingId)}/saved-note`);
+        if (res?.ok) {
+          const data = await res.json();
+          if (data?.note) {
+            setSavedNoteCache((prev) => ({ ...prev, [recordingId]: { note: data.note, meta: data.meta || {} } }));
+          }
+        }
+      } catch { /* silent, UI will refresh on next selection */ }
+    } finally {
+      setRecordingOwnTimeFor(null);
+    }
+  }, [calls, dubberApiBaseUrl, recordClioTimeEntry, savedNoteCache]);
+
   const handleAttendanceWorkspaceSave = useCallback(async (payload: AttendanceNoteBoxPayload) => {
     const callForPayload = calls.find((entry) => entry.recording_id === payload.recordingId) || null;
     if (callForPayload) {
@@ -1859,7 +1946,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
       const inlineGeneratedNote = generatedNote && selectedCallId === payload.recordingId ? generatedNote : null;
       const attendanceContext = resolveCallAttendanceContext(callForPayload, noteSummaryForPayload, cachedNoteForPayload, inlineGeneratedNote, userInitials, userEmail);
       if (!attendanceContext.canControl) {
-        setAttendanceSaveLegs([{ leg: 'save-note', status: 'failed', message: 'Only the primary call owner can file this note.' }]);
+        setAttendanceSaveLegs([{ leg: 'save-note', status: 'failed', message: 'Only the call owner or someone on the call can file this note.' }]);
         return;
       }
     }
@@ -2026,7 +2113,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
         { refreshJourney: false },
       );
       patchLeg('upload-nd', uploadResult.ok
-        ? { status: 'success', message: uploadResult.fileName || uploadResult.message }
+        ? { status: 'success', message: uploadResult.alreadyFiled ? uploadResult.message : (uploadResult.fileName || uploadResult.message) }
         : { status: 'failed', message: uploadResult.message, retriable: true });
     }
 
@@ -2172,23 +2259,6 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
       : null
   ), [generatedNote, selectedCachedSavedNote, selectedCall, selectedSavedNoteSummary, userEmail, userInitials]);
   const selectedCallReadOnly = Boolean(selectedCall && selectedAttendanceContext && !selectedAttendanceContext.canControl);
-  const selectedTranscriptText = React.useMemo(() => {
-    if (!selectedCallId) return '';
-    if (loadingTranscript === selectedCallId) return 'Loading transcript…';
-    const transcriptError = transcriptErrors[selectedCallId];
-    if (transcriptError) return transcriptError;
-    const transcript = transcriptCache[selectedCallId];
-    if (!transcript) return '';
-    const summaryText = transcript.summaries?.find((summary) => summary.summary_type === 'overall')?.summary_text || '';
-    const hasSentences = Array.isArray(transcript.sentences) && transcript.sentences.length > 0;
-    if (!hasSentences && !summaryText) {
-      return 'No transcript available for this call yet. The recording may still be processing.';
-    }
-    const sentenceText = transcript.sentences
-      .map((sentence, index) => `${index + 1}. ${sentence.speaker ? `${sentence.speaker}: ` : ''}${sentence.content}`)
-      .join('\n');
-    return [summaryText ? `AI summary\n${summaryText}` : '', sentenceText].filter(Boolean).join('\n\n');
-  }, [loadingTranscript, selectedCallId, transcriptCache, transcriptErrors]);
   const workspaceSaving = React.useMemo(
     () => attendanceSaveLegs.some((leg) => leg.status === 'running') || pipeline.saving || pipeline.uploading,
     [attendanceSaveLegs, pipeline.saving, pipeline.uploading],
@@ -2486,11 +2556,24 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                 <div style={{ fontSize: 11, color: isDarkMode ? '#d1d5db' : '#374151', lineHeight: 1.55 }}>
                   {generatedNote.summary}
                 </div>
-                {generatedNote.topics.length > 0 && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginTop: 5 }}>
-                    {generatedNote.topics.map((t, i) => (
-                      <span key={i} style={{ fontSize: 7, padding: '1px 5px', background: isDarkMode ? 'rgba(135,243,243,0.06)' : 'rgba(54,144,206,0.04)', color: isDarkMode ? 'rgba(135,243,243,0.7)' : accent, fontWeight: 600, letterSpacing: '0.2px', textTransform: 'uppercase' }}>{t}</span>
-                    ))}
+                {generatedNote.topics.length > 0 && ['LZ', 'AC'].includes(String(userInitials || '').toUpperCase()) && (
+                  <div
+                    title="Admin only. Not visible to fee earners. Topics are AI-extracted and not saved with the note."
+                    style={{
+                      marginTop: 5,
+                      padding: '4px 6px 5px',
+                      border: `1px dashed ${isDarkMode ? 'rgba(160,160,160,0.28)' : 'rgba(107,107,107,0.28)'}`,
+                      background: isDarkMode ? 'rgba(160,160,160,0.04)' : 'rgba(107,107,107,0.03)',
+                    }}
+                  >
+                    <div style={{ fontSize: 7, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: muted, marginBottom: 3 }}>
+                      Admin · not shown to fee earners
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+                      {generatedNote.topics.map((t, i) => (
+                        <span key={i} style={{ fontSize: 7, padding: '1px 5px', background: isDarkMode ? 'rgba(135,243,243,0.06)' : 'rgba(54,144,206,0.04)', color: isDarkMode ? 'rgba(135,243,243,0.7)' : accent, fontWeight: 600, letterSpacing: '0.2px', textTransform: 'uppercase' }}>{t}</span>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
@@ -3444,7 +3527,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                                           await generateNote(call.recording_id);
                                         }}
                                         disabled={!attendanceContext.canControl || isGeneratingInline || hasPersistedCraft}
-                                        title={!attendanceContext.canControl ? 'Only the primary call owner can craft this note' : hasPersistedCraft ? 'Attendance note already saved' : 'Craft attendance note'}
+                                        title={!attendanceContext.canControl ? 'Only call attendees can craft this note' : hasPersistedCraft ? 'Attendance note already saved' : 'Craft attendance note'}
                                         style={{
                                           ...actionBoxBaseStyle,
                                           border: `1px solid ${hasPersistedCraft
@@ -3493,7 +3576,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                                           }
                                         }}
                                         disabled={!canInlineUpload}
-                                        title={!attendanceContext.canControl ? 'Only the primary call owner can upload this note' : hasNdCue ? 'Attendance note already uploaded to NetDocuments' : (canInlineUpload ? 'Upload attendance note to NetDocuments' : 'Generate or load a linked matter before uploading to NetDocuments')}
+                                        title={!attendanceContext.canControl ? 'Only call attendees can upload this note' : hasNdCue ? 'Attendance note already uploaded to NetDocuments' : (canInlineUpload ? 'Upload attendance note to NetDocuments' : 'Generate or load a linked matter before uploading to NetDocuments')}
                                         style={{
                                           ...actionBoxBaseStyle,
                                           border: `1px solid ${hasNdCue
@@ -3688,11 +3771,24 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                                   </span>
                                 </div>
                                 <div style={{ fontSize: 10, color: text, lineHeight: 1.5 }}>{sn.summary}</div>
-                                {sn.topics?.length > 0 && (
-                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginTop: 4 }}>
-                                    {sn.topics.map((t: string, ti: number) => (
-                                      <span key={ti} style={{ fontSize: 8, padding: '1px 5px', background: isDarkMode ? 'rgba(32,178,108,0.08)' : 'rgba(32,178,108,0.04)', color: colours.green }}>{t}</span>
-                                    ))}
+                                {sn.topics?.length > 0 && ['LZ', 'AC'].includes(String(userInitials || '').toUpperCase()) && (
+                                  <div
+                                    title="Admin only. Not visible to fee earners. Topics are AI-extracted and not saved with the note."
+                                    style={{
+                                      marginTop: 4,
+                                      padding: '3px 5px 4px',
+                                      border: `1px dashed ${isDarkMode ? 'rgba(160,160,160,0.28)' : 'rgba(107,107,107,0.28)'}`,
+                                      background: isDarkMode ? 'rgba(160,160,160,0.04)' : 'rgba(107,107,107,0.03)',
+                                    }}
+                                  >
+                                    <div style={{ fontSize: 7, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: muted, marginBottom: 3 }}>
+                                      Admin · not shown to fee earners
+                                    </div>
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+                                      {sn.topics.map((t: string, ti: number) => (
+                                        <span key={ti} style={{ fontSize: 8, padding: '1px 5px', background: isDarkMode ? 'rgba(32,178,108,0.08)' : 'rgba(32,178,108,0.04)', color: colours.green }}>{t}</span>
+                                      ))}
+                                    </div>
                                   </div>
                                 )}
                                 {sn.actionItems?.length > 0 && (
@@ -3925,6 +4021,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                       recordingId={manualRecordingId}
                       initialTarget={filingTarget}
                       showTargetTabs={false}
+                      showDestinations={showAttendanceDestinations}
                       callDate={new Date().toISOString()}
                       durationSec={0}
                       isBlankDraft
@@ -3932,7 +4029,6 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                       generatedSummary=""
                       generatedBody=""
                       actionItems={[]}
-                      transcriptText=""
                       prefillMatter={demoWorkspaceMatterPrefill}
                       matterOptions={localMatterLookupOptions}
                       recentMatters={localMatterLookupOptions}
@@ -3991,6 +4087,78 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                   )}
 
                   <div style={{ minHeight: 0, flex: 1, display: 'flex' }}>
+                    {(() => {
+                      const hasFiledNote = Boolean(
+                        selectedCachedSavedNote?.meta?.saved_by
+                          || selectedSavedNoteSummary?.saved_by
+                          || selectedSavedNoteSummary
+                      );
+                      const isLzOrAc = ['LZ', 'AC'].includes(String(userInitials || '').toUpperCase());
+                      const showSavedView = hasFiledNote && !editingSavedNote && selectedCachedSavedNote?.note;
+                      if (showSavedView && selectedCachedSavedNote) {
+                        const initialsUpper = String(userInitials || '').trim().toUpperCase();
+                        const entries = selectedCachedSavedNote.meta?.clio_time_entries || [];
+                        const userOnCall = Boolean(selectedAttendanceContext?.userIsPrimary || selectedAttendanceContext?.userIsSecondary);
+                        const userAlreadyRecorded = entries.some((e) => String(e.userInitials || '').trim().toUpperCase() === initialsUpper);
+                        const canRecordOwn = Boolean(initialsUpper) && userOnCall && !userAlreadyRecorded && Boolean(selectedCachedSavedNote.meta?.matter_ref);
+                        return (
+                          <SavedAttendanceNoteCard
+                            isDarkMode={isDarkMode}
+                            userInitials={userInitials}
+                            note={{
+                              summary: selectedCachedSavedNote.note.summary,
+                              attendanceNote: selectedCachedSavedNote.note.attendanceNote,
+                              actionItems: selectedCachedSavedNote.note.actionItems,
+                              duration: selectedCachedSavedNote.note.duration,
+                              date: selectedCachedSavedNote.note.date,
+                            }}
+                            meta={{
+                              saved_by: selectedCachedSavedNote.meta?.saved_by ?? selectedSavedNoteSummary?.saved_by ?? null,
+                              saved_at: selectedCachedSavedNote.meta?.saved_at ?? selectedSavedNoteSummary?.saved_at ?? null,
+                              matter_ref: selectedCachedSavedNote.meta?.matter_ref ?? selectedSavedNoteSummary?.matter_ref ?? null,
+                              uploaded_nd: selectedCachedSavedNote.meta?.uploaded_nd ?? selectedSavedNoteSummary?.uploaded_nd ?? false,
+                              nd_file_name: selectedCachedSavedNote.meta?.nd_file_name ?? selectedSavedNoteSummary?.nd_file_name ?? null,
+                              clio_time_entries: entries,
+                            }}
+                            attendees={selectedAttendanceContext?.attendees || selectedCachedSavedNote.note.attendees || EMPTY_ATTENDEES}
+                            callDurationSec={selectedCall.duration_seconds || 0}
+                            hourlyRate={parsedUserRate}
+                            canEdit={isLzOrAc}
+                            canRecordOwnTime={canRecordOwn}
+                            recordingOwnTime={recordingOwnTimeFor === selectedCall.recording_id}
+                            recordTimeError={recordOwnTimeError}
+                            onRecordMyTime={(units) => recordOwnClioTimeEntry(selectedCall.recording_id, units)}
+                            onEdit={isLzOrAc ? () => setEditingSavedNote(true) : undefined}
+                            onClose={() => {
+                              setSelectedCallId(null);
+                              resetSelectedWorkspace();
+                            }}
+                          />
+                        );
+                      }
+                      return (
+                        <div style={{ minHeight: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          {editingSavedNote && (
+                            <button
+                              type="button"
+                              onClick={() => setEditingSavedNote(false)}
+                              style={{
+                                alignSelf: 'flex-end',
+                                background: 'transparent',
+                                border: `1px dashed ${isDarkMode ? 'rgba(75,85,99,0.45)' : 'rgba(6,23,51,0.16)'}`,
+                                color: muted,
+                                padding: '5px 9px',
+                                fontSize: 10,
+                                letterSpacing: '0.06em',
+                                textTransform: 'uppercase',
+                                cursor: 'pointer',
+                                fontFamily: 'Raleway, sans-serif',
+                                borderRadius: 0,
+                              }}
+                            >
+                              Back to filed note
+                            </button>
+                          )}
                     <AttendanceNoteBox
                       variant="embedded"
                       isDarkMode={isDarkMode}
@@ -3998,12 +4166,12 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                       recordingId={selectedCall.recording_id}
                       initialTarget={filingTarget}
                       showTargetTabs={false}
+                      showDestinations={showAttendanceDestinations}
                       callDate={selectedCall.start_time_utc}
                       durationSec={selectedCall.duration_seconds || 0}
                       generatedSummary={selectedWorkspaceNote?.summary || ''}
                       generatedBody={selectedWorkspaceNote?.attendanceNote || ''}
                       actionItems={selectedWorkspaceNote?.actionItems || []}
-                      transcriptText={selectedTranscriptText}
                       prefillMatter={selectedWorkspaceMatter || demoWorkspaceMatterPrefill}
                       matterOptions={localMatterLookupOptions}
                       recentMatters={localMatterLookupOptions}
@@ -4015,15 +4183,29 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                       saving={workspaceSaving}
                       hourlyRate={parsedUserRate}
                       readOnly={selectedCallReadOnly}
-                      readOnlyMessage="Only the primary call owner can file this note."
+                      readOnlyMessage="Only the call owner or someone on this call can file this note."
+                      attribution={(selectedSavedNoteSummary || selectedCachedSavedNote?.meta?.saved_by) ? {
+                        filedBy: selectedSavedNoteSummary?.saved_by || selectedCachedSavedNote?.meta?.saved_by || null,
+                        filedAt: selectedSavedNoteSummary?.saved_at || selectedCachedSavedNote?.meta?.saved_at || null,
+                        coAttendees: (selectedAttendanceContext?.secondaryAttendees || [])
+                          .map((attendee) => normalizeInitials(attendee.initials) || attendee.name)
+                          .filter((value): value is string => Boolean(value)),
+                      } : null}
                       onGenerateNote={() => { if (!selectedCallReadOnly) void generateNote(selectedCall.recording_id); }}
                       generating={generatingNoteFor === selectedCall.recording_id}
                       onClose={() => {
+                        if (editingSavedNote) {
+                          setEditingSavedNote(false);
+                          return;
+                        }
                         setSelectedCallId(null);
                         resetSelectedWorkspace();
                       }}
                       onSave={handleAttendanceWorkspaceSave}
                     />
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
               )}

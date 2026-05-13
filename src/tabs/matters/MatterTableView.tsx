@@ -75,7 +75,7 @@ export const MatterTableLoadingSkeleton: React.FC<MatterTableLoadingSkeletonProp
   const lineColor = isDarkMode ? withAlpha(colours.subtleGrey, 0.24) : withAlpha(colours.greyText, 0.18);
   const rowBorderColor = isDarkMode ? withAlpha(colours.subtleGrey, 0.16) : withAlpha(colours.subtleGrey, 0.12);
   const blockBorder = isDarkMode ? withAlpha(colours.subtleGrey, 0.18) : withAlpha(colours.darkBlue, 0.08);
-  const headerSurface = isDarkMode ? colours.darkBlue : colours.light.cardBackground;
+  const headerSurface = isDarkMode ? 'transparent' : colours.light.cardBackground;
   const gridTemplateColumns = getMatterGridTemplateColumns(showCclColumns);
 
   const block = (width: number | string, height: number, strong = false): React.CSSProperties => ({
@@ -85,12 +85,21 @@ export const MatterTableLoadingSkeleton: React.FC<MatterTableLoadingSkeletonProp
     border: `1px solid ${blockBorder}`,
   });
 
-  const matterWidths = ['34%', '42%', '30%', '38%', '28%', '46%', '36%', '32%'];
-  const matterLinkChipWidths = [30, 34, 28, 32, 26, 36, 30, 28];
+  // Real matter-row geometry (sampled from .prospect-row inside MatterTableView):
+  //   col1 ~36px timeline strip
+  //   col2 date stack: top "DD MMM" (11px bold) + bottom "HH:MM" (9px)
+  //   col3 matter ref (12px link) + Clio chip (~52x16 with icon) + client name (10px) below
+  //   col4 AOW glyph 17x17 + practice area text (12px)
+  //   col5 FE rectangular badge (min 26 wide x 20 tall, monospace)
+  //   col6/7 (CCL) status pill 72x22 + CCL date stack
+  //   last  summary single line (11px) ~70-83% wide
+  const aowAccents = [colours.blue, colours.orange, colours.green, colours.yellow, colours.greyText, colours.blue];
+  const matterRefWidths = [56, 64, 48, 60, 52, 68, 56, 50];
   const clientWidths = ['72%', '64%', '58%', '76%', '61%', '69%', '66%', '54%'];
-  const summaryPrimaryWidths = ['78%', '64%', '71%', '83%', '68%', '75%', '62%', '70%'];
   const worktypeWidths = ['58%', '46%', '62%', '54%', '48%', '60%', '52%', '44%'];
-  const feeWidths = [28, 34, 30, 36, 32, 26, 34, 30];
+  const summaryPrimaryWidths = ['78%', '64%', '71%', '83%', '68%', '75%', '62%', '70%'];
+  const dateTopWidths = [30, 28, 32, 26, 30, 28, 32, 26];
+  const dateBottomWidths = [22, 24, 22, 26, 22, 24, 22, 26];
 
   return (
     <div
@@ -102,7 +111,7 @@ export const MatterTableLoadingSkeleton: React.FC<MatterTableLoadingSkeletonProp
         '--matter-skeleton-line': lineColor,
         '--matter-skeleton-row-border': rowBorderColor,
         '--matter-skeleton-block-border': blockBorder,
-        padding: variant === 'blocking' ? '0 14px' : '0',
+        padding: 0,
       } as React.CSSProperties}
       data-variant={variant}
       data-exiting={exiting ? 'true' : 'false'}
@@ -116,20 +125,39 @@ export const MatterTableLoadingSkeleton: React.FC<MatterTableLoadingSkeletonProp
           borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)'}`,
         }}
       >
-        <div className="matter-table-skeleton__timeline-head">
+        <div className="matter-table-skeleton__head-cell matter-table-skeleton__head-cell--center">
           <div className="matter-table-skeleton__line-head" />
         </div>
-        <div className="matter-table-skeleton__block matter-table-skeleton__block--base" style={block(30, 8)} />
-        <div className="matter-table-skeleton__block matter-table-skeleton__block--base" style={block(44, 8)} />
-        <div className="matter-table-skeleton__block matter-table-skeleton__block--base" style={block(52, 8)} />
-        <div className="matter-table-skeleton__block matter-table-skeleton__block--base" style={block(22, 8)} />
-        {showCclColumns && <div className="matter-table-skeleton__block matter-table-skeleton__block--base" style={block(54, 8)} />}
-        {showCclColumns && <div className="matter-table-skeleton__block matter-table-skeleton__block--base" style={block(42, 8)} />}
-        <div className="matter-table-skeleton__block matter-table-skeleton__block--base" style={block(56, 8)} />
+        <div className="matter-table-skeleton__head-cell">
+          <div className="matter-table-skeleton__block matter-table-skeleton__block--base" style={block(30, 8)} />
+        </div>
+        <div className="matter-table-skeleton__head-cell">
+          <div className="matter-table-skeleton__block matter-table-skeleton__block--base" style={block(44, 8)} />
+        </div>
+        <div className="matter-table-skeleton__head-cell">
+          <div className="matter-table-skeleton__block matter-table-skeleton__block--base" style={block(52, 8)} />
+        </div>
+        <div className="matter-table-skeleton__head-cell matter-table-skeleton__head-cell--center">
+          <div className="matter-table-skeleton__block matter-table-skeleton__block--base" style={block(22, 8)} />
+        </div>
+        {showCclColumns && (
+          <div className="matter-table-skeleton__head-cell">
+            <div className="matter-table-skeleton__block matter-table-skeleton__block--base" style={block(54, 8)} />
+          </div>
+        )}
+        {showCclColumns && (
+          <div className="matter-table-skeleton__head-cell">
+            <div className="matter-table-skeleton__block matter-table-skeleton__block--base" style={block(42, 8)} />
+          </div>
+        )}
+        <div className="matter-table-skeleton__head-cell">
+          <div className="matter-table-skeleton__block matter-table-skeleton__block--base" style={block(56, 8)} />
+        </div>
       </div>
 
       {Array.from({ length: resolvedRowCount }, (_, idx) => {
         const rowDelay = idx * 0.05;
+        const aowColor = aowAccents[idx % aowAccents.length];
         return (
           <div
             key={`${variant}-matter-skel-${idx}`}
@@ -141,30 +169,53 @@ export const MatterTableLoadingSkeleton: React.FC<MatterTableLoadingSkeletonProp
               padding: '5px 14px',
             } as React.CSSProperties}
           >
+            {/* Col 1: Timeline strip */}
             <div className="matter-table-skeleton__timeline">
               <div className="matter-table-skeleton__timeline-line" style={{ opacity: 0.72 + (idx % 3) * 0.08 }} />
             </div>
 
-            <div className="matter-table-skeleton__stack">
-              <div className="matter-table-skeleton__block matter-table-skeleton__block--strong" style={block(idx % 2 === 0 ? 28 : 24, 11, true)} />
-              <div className="matter-table-skeleton__block matter-table-skeleton__block--base" style={block(idx % 2 === 0 ? 32 : 26, 9)} />
+            {/* Col 2: Date stack */}
+            <div className="matter-table-skeleton__date">
+              <div className="matter-table-skeleton__block matter-table-skeleton__block--strong" style={block(dateTopWidths[idx % dateTopWidths.length], 11, true)} />
+              <div className="matter-table-skeleton__block matter-table-skeleton__block--base" style={block(dateBottomWidths[idx % dateBottomWidths.length], 9)} />
             </div>
 
-            <div className="matter-table-skeleton__stack matter-table-skeleton__stack--matter">
-              <div className="matter-table-skeleton__meta" style={{ gap: 4 }}>
-                <div className="matter-table-skeleton__block matter-table-skeleton__block--strong" style={block(matterWidths[idx % matterWidths.length], 11, true)} />
-                <div className="matter-table-skeleton__block matter-table-skeleton__block--base" style={block(matterLinkChipWidths[idx % matterLinkChipWidths.length], 14)} />
+            {/* Col 3: Matter ref + Clio chip on top, client name below */}
+            <div className="matter-table-skeleton__matter">
+              <div className="matter-table-skeleton__matter-head">
+                <div className="matter-table-skeleton__block matter-table-skeleton__block--strong" style={block(matterRefWidths[idx % matterRefWidths.length], 12, true)} />
+                <div
+                  className="matter-table-skeleton__clio-chip"
+                  style={{
+                    border: `1px solid ${withAlpha(colours.highlight, isDarkMode ? 0.28 : 0.22)}`,
+                    background: withAlpha(colours.highlight, isDarkMode ? 0.10 : 0.06),
+                  }}
+                />
               </div>
               <div className="matter-table-skeleton__block matter-table-skeleton__block--base" style={block(clientWidths[idx % clientWidths.length], 9)} />
             </div>
 
-            <div className="matter-table-skeleton__meta">
-              <div className="matter-table-skeleton__block matter-table-skeleton__dot" style={block(14, 14)} />
+            {/* Col 4: AOW glyph 17x17 + practice area text */}
+            <div className="matter-table-skeleton__worktype">
+              <div
+                className="matter-table-skeleton__aow-glyph"
+                style={{
+                  background: withAlpha(aowColor, isDarkMode ? 0.20 : 0.16),
+                  border: `1px solid ${withAlpha(aowColor, isDarkMode ? 0.45 : 0.32)}`,
+                }}
+              />
               <div className="matter-table-skeleton__block matter-table-skeleton__block--base" style={block(worktypeWidths[idx % worktypeWidths.length], 10)} />
             </div>
 
+            {/* Col 5: Fee earner badge (rectangle 26+ x 20) */}
             <div className="matter-table-skeleton__fee">
-              <div className="matter-table-skeleton__block matter-table-skeleton__block--base" style={block(feeWidths[idx % feeWidths.length], 20)} />
+              <div
+                className="matter-table-skeleton__fe-badge"
+                style={{
+                  border: `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.35)' : 'rgba(160, 160, 160, 0.22)'}`,
+                  background: 'transparent',
+                }}
+              />
             </div>
 
             {showCclColumns && (
@@ -174,14 +225,15 @@ export const MatterTableLoadingSkeleton: React.FC<MatterTableLoadingSkeletonProp
             )}
 
             {showCclColumns && (
-              <div className="matter-table-skeleton__stack matter-table-skeleton__stack--date">
+              <div className="matter-table-skeleton__date">
                 <div className="matter-table-skeleton__block matter-table-skeleton__block--strong" style={block(idx % 2 === 0 ? 24 : 20, 11, true)} />
                 <div className="matter-table-skeleton__block matter-table-skeleton__block--base" style={block(idx % 2 === 0 ? 28 : 24, 9)} />
               </div>
             )}
 
+            {/* Last col: Summary single line */}
             <div className="matter-table-skeleton__summary">
-              <div className="matter-table-skeleton__block matter-table-skeleton__block--base" style={block(summaryPrimaryWidths[idx % summaryPrimaryWidths.length], 10)} />
+              <div className="matter-table-skeleton__block matter-table-skeleton__block--base" style={block(summaryPrimaryWidths[idx % summaryPrimaryWidths.length], 11)} />
             </div>
           </div>
         );
@@ -564,12 +616,13 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
                     rel="noopener noreferrer"
                     onClick={(event) => event.stopPropagation()}
                     style={{
-                      display: 'inline-flex',
-                      alignSelf: 'flex-start',
+                      display: 'flex',
+                      alignSelf: 'stretch',
                       alignItems: 'center',
+                      justifyContent: 'space-between',
                       gap: 6,
+                      width: '100%',
                       minWidth: 0,
-                      maxWidth: '100%',
                       color: colours.highlight,
                       textDecoration: 'none',
                       fontSize: 12,

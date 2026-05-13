@@ -161,20 +161,20 @@ const getDatePickerStyles = (isDarkMode: boolean): Partial<IDatePickerStyles> =>
 const getRangeButtonStyles = (isDarkMode: boolean, active: boolean, disabled: boolean = false): IButtonStyles => {
   const inactiveColor = isDarkMode ? colours.dark.text : colours.helixBlue;
   const disabledColor = isDarkMode ? colours.subtleGrey : colours.greyText;
+  const activeTextColor = isDarkMode ? colours.dark.text : colours.helixBlue;
+  const activeShadow = isDarkMode ? 'inset 0 -2px 0 rgba(54, 144, 206, 0.85)' : 'inset 0 -2px 0 rgba(13, 47, 96, 0.45)';
 
   const resolvedBackground = disabled
     ? (isDarkMode ? colours.websiteBlue : 'transparent')
     : active
-      ? (isDarkMode ? `${colours.blue}18` : `${colours.blue}12`)
+      ? (isDarkMode ? 'rgba(54, 144, 206, 0.22)' : 'rgba(214, 232, 255, 0.72)')
       : (isDarkMode ? colours.websiteBlue : 'transparent');
 
   const resolvedBorder = disabled
     ? `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}40` : 'rgba(6, 23, 51, 0.12)'}`
     : active
-      ? `1px solid ${isDarkMode ? `${colours.blue}33` : `${colours.blue}25`}`
+      ? `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.78)' : 'rgba(13, 47, 96, 0.34)'}`
       : `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}40` : 'rgba(6, 23, 51, 0.12)'}`;
-
-  const activeTextColor = isDarkMode ? colours.highlight : colours.helixBlue;
 
   return {
     root: {
@@ -192,7 +192,7 @@ const getRangeButtonStyles = (isDarkMode: boolean, active: boolean, disabled: bo
       fontSize: 12,
       color: disabled ? disabledColor : active ? activeTextColor : inactiveColor,
       background: resolvedBackground,
-      boxShadow: 'none',
+      boxShadow: active && !disabled ? activeShadow : 'none',
       fontFamily: 'Raleway, sans-serif',
       cursor: disabled ? 'default' : 'pointer',
       transition: 'background 0.18s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.18s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.18s cubic-bezier(0.4, 0, 0.2, 1), color 0.18s cubic-bezier(0.4, 0, 0.2, 1)',
@@ -204,14 +204,16 @@ const getRangeButtonStyles = (isDarkMode: boolean, active: boolean, disabled: bo
           ? (isDarkMode ? `${colours.blue}24` : `${colours.blue}1a`)
           : (isDarkMode ? colours.dark.cardBackground : 'rgba(54, 144, 206, 0.06)'),
       color: disabled ? disabledColor : active ? activeTextColor : (isDarkMode ? colours.highlight : colours.highlight),
-      boxShadow: 'none',
+      boxShadow: active && !disabled ? activeShadow : 'none',
     },
     rootPressed: {
       background: disabled
         ? resolvedBackground
         : active
-          ? (isDarkMode ? `${colours.blue}30` : `${colours.blue}22`)
+          ? (isDarkMode ? 'rgba(54, 144, 206, 0.30)' : 'rgba(214, 232, 255, 0.88)')
           : (isDarkMode ? colours.dark.cardHover : 'rgba(54, 144, 206, 0.1)'),
+      color: disabled ? disabledColor : active ? activeTextColor : (isDarkMode ? colours.dark.text : colours.helixBlue),
+      boxShadow: active && !disabled ? activeShadow : 'none',
     },
     label: {
       color: 'inherit',
@@ -232,15 +234,15 @@ const getTeamButtonStyles = (isDarkMode: boolean, active: boolean, hasWorked: bo
   // Solo/active: stronger brand border + 50% opacity tint fill
   // Excluded: no fill, faint border — clearly "off"
   const activeBackground = active
-    ? (isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.08)')
+    ? (isDarkMode ? 'rgba(54, 144, 206, 0.22)' : 'rgba(214, 232, 255, 0.74)')
     : included
-      ? (isDarkMode ? 'rgba(54, 144, 206, 0.05)' : 'rgba(54, 144, 206, 0.05)')
+      ? (isDarkMode ? colours.websiteBlue : 'rgba(255, 255, 255, 0.72)')
       : 'transparent';
 
   const activeBorder = active
-    ? `1.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.55)' : 'rgba(54, 144, 206, 0.50)'}`
+    ? `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.82)' : 'rgba(13, 47, 96, 0.36)'}`
     : included
-      ? `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.28)' : 'rgba(54, 144, 206, 0.22)'}`
+      ? `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.42)' : 'rgba(6, 23, 51, 0.12)'}`
       : `0.5px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.30)' : 'rgba(6, 23, 51, 0.10)'}`;
 
   // Greyed out styling when member hasn't worked
@@ -248,12 +250,14 @@ const getTeamButtonStyles = (isDarkMode: boolean, active: boolean, hasWorked: bo
   const opacity = greyedOut ? 0.4 : 1;
 
   const textColor = active
-    ? (isDarkMode ? colours.accent : colours.highlight)
+    ? (isDarkMode ? colours.dark.text : colours.helixBlue)
     : included
       ? (isDarkMode ? colours.dark.text : colours.helixBlue)
       : excluded
         ? (isDarkMode ? colours.subtleGrey : colours.greyText)
         : (isDarkMode ? '#f3f4f6' : colours.helixBlue);
+
+  const activeSelectionShadow = isDarkMode ? 'inset 0 -2px 0 rgba(54, 144, 206, 0.85)' : 'inset 0 -2px 0 rgba(13, 47, 96, 0.42)';
 
   return {
     root: {
@@ -268,69 +272,29 @@ const getTeamButtonStyles = (isDarkMode: boolean, active: boolean, hasWorked: bo
       background: activeBackground,
       color: textColor,
       opacity: isInactive ? opacity * 0.78 : opacity,
-      boxShadow: 'none',
+      boxShadow: active ? activeSelectionShadow : 'none',
       fontFamily: 'Raleway, sans-serif',
       fontStyle: isInactive ? 'italic' : 'normal',
       transition: 'background 0.18s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.18s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.18s cubic-bezier(0.4, 0, 0.2, 1), color 0.18s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.18s cubic-bezier(0.4, 0, 0.2, 1)',
     },
     rootHovered: {
       background: active 
-        ? (isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(54, 144, 206, 0.14)')
+        ? (isDarkMode ? 'rgba(54, 144, 206, 0.28)' : 'rgba(214, 232, 255, 0.86)')
         : included
-          ? (isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(54, 144, 206, 0.10)')
+          ? (isDarkMode ? colours.dark.cardBackground : 'rgba(54, 144, 206, 0.08)')
           : (isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.06)'),
-      boxShadow: 'none',
+      color: active ? (isDarkMode ? colours.dark.text : colours.helixBlue) : textColor,
+      boxShadow: active ? activeSelectionShadow : 'none',
     },
     rootPressed: {
       background: active 
-        ? (isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.18)')
+        ? (isDarkMode ? 'rgba(54, 144, 206, 0.34)' : 'rgba(214, 232, 255, 0.94)')
         : (isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(54, 144, 206, 0.10)'),
+      color: active ? (isDarkMode ? colours.dark.text : colours.helixBlue) : textColor,
+      boxShadow: active ? activeSelectionShadow : 'none',
     },
-  };
-};
-
-const getRoleButtonStyles = (isDarkMode: boolean, active: boolean, allIncluded?: boolean): IButtonStyles => {
-  const included = allIncluded && !active;
-
-  const activeBackground = active 
-    ? (isDarkMode ? `${colours.blue}18` : `${colours.blue}12`)
-    : included
-      ? (isDarkMode ? colours.dark.cardBackground : 'rgba(54, 144, 206, 0.06)')
-      : (isDarkMode ? colours.websiteBlue : 'transparent');
-  
-  const activeBorder = active
-    ? `1px solid ${isDarkMode ? `${colours.blue}33` : `${colours.blue}25`}`
-    : included
-      ? `1px solid ${isDarkMode ? `${colours.highlight}40` : 'rgba(54, 144, 206, 0.25)'}`
-      : `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}40` : 'rgba(6, 23, 51, 0.12)'}`;
-
-  const textColor = active ? (isDarkMode ? colours.highlight : colours.helixBlue) : (isDarkMode ? '#f3f4f6' : colours.helixBlue);
-
-  return {
-    root: {
-      borderRadius: 0,
-      minHeight: 32,
-      height: 32,
-      padding: '0 10px',
-      fontWeight: active ? 700 : 600,
-      fontSize: 12,
-      border: activeBorder,
-      background: activeBackground,
-      color: textColor,
-      boxShadow: 'none',
-      fontFamily: 'Raleway, sans-serif',
-      transition: 'background 0.18s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.18s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.18s cubic-bezier(0.4, 0, 0.2, 1), color 0.18s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.18s cubic-bezier(0.4, 0, 0.2, 1)',
-    },
-    rootHovered: {
-      background: active 
-        ? (isDarkMode ? `${colours.blue}24` : `${colours.blue}1a`) 
-        : (isDarkMode ? colours.dark.cardBackground : 'rgba(54, 144, 206, 0.06)'),
-      boxShadow: 'none',
-    },
-    rootPressed: {
-      background: active 
-        ? (isDarkMode ? `${colours.blue}30` : `${colours.blue}22`) 
-        : (isDarkMode ? colours.dark.cardHover : 'rgba(54, 144, 206, 0.1)'),
+    label: {
+      color: 'inherit',
     },
   };
 };
@@ -449,6 +413,12 @@ const getDisbursementButtonStyles = (isDarkMode: boolean, active: boolean): IBut
     background: active
       ? (isDarkMode ? `${colours.blue}30` : `${colours.blue}22`)
       : (isDarkMode ? colours.dark.cardHover : colours.grey),
+    color: active
+      ? (isDarkMode ? colours.highlight : colours.helixBlue)
+      : (isDarkMode ? colours.dark.text : colours.darkBlue),
+  },
+  label: {
+    color: 'inherit',
   },
 });
 
@@ -981,6 +951,25 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     typeof dataWindowDays === 'number' && dataWindowDays > 0 ? dataWindowDays : null
   ), [dataWindowDays]);
 
+  const dashboardSourceWindowLabel = useMemo(() => {
+    if (!effectiveDataWindowDays) {
+      return 'All available source data';
+    }
+    if (effectiveDataWindowDays >= 700) {
+      return '2 years loaded';
+    }
+    if (effectiveDataWindowDays >= 360) {
+      return '1 year loaded';
+    }
+    if (effectiveDataWindowDays >= 170) {
+      return '6 months loaded';
+    }
+    if (effectiveDataWindowDays >= 80) {
+      return '90 days loaded';
+    }
+    return `${effectiveDataWindowDays} days loaded`;
+  }, [effectiveDataWindowDays]);
+
   const getRangeDurationDays = (key: RangeKey): number | null => {
     if (key === 'all' || key === 'custom') {
       return null;
@@ -1156,21 +1145,47 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     return targetHours;
   };
 
-  // Role options - "Ops" combines Non-solicitor and Operations 1
-  // "Inactive" includes all inactive team members
-  const ROLE_OPTIONS = [
-    { key: 'Partner', label: 'Partner' },
-    { key: 'Senior Partner', label: 'Senior Partner' },
-    { key: 'Associate Solicitor', label: 'Associate' },
-    { key: 'Solicitor', label: 'Solicitor' },
-    { key: 'Paralegal', label: 'Paralegal' },
-    { key: 'Ops', label: 'Ops' },
-    { key: 'Inactive', label: 'Inactive' },
+  const MEMBER_FILTER_GROUPS = [
+    { key: 'seniorPartners', label: 'Senior & partners', iconName: 'Shield', concealed: false },
+    { key: 'solicitors', label: 'Solicitors', iconName: 'WorkItem', concealed: false },
+    { key: 'paralegals', label: 'Paralegals', iconName: 'ContactCard', concealed: false },
+    { key: 'supportTech', label: 'Support & tech', iconName: 'Settings', concealed: false },
+    { key: 'inactive', label: 'Inactive', iconName: 'History', concealed: true },
   ] as const;
 
+  const MEMBER_ROLE_OVERRIDES: Record<string, string> = {
+    EA: 'Ops',
+    KW: 'Ops',
+    LZ: 'Tech',
+    TR: 'Paralegal',
+  };
+
+  type MemberFilterGroupKey = typeof MEMBER_FILTER_GROUPS[number]['key'];
+  type TeamSelectionMode = 'all' | 'custom';
+
+  const getMemberFilterGroupKey = (role?: string): MemberFilterGroupKey => {
+    switch (role) {
+      case 'Senior Partner':
+      case 'Partner':
+        return 'seniorPartners';
+      case 'Associate Solicitor':
+      case 'Solicitor':
+        return 'solicitors';
+      case 'Paralegal':
+        return 'paralegals';
+      case 'Inactive':
+        return 'inactive';
+      case 'Ops':
+      case 'Support':
+      case 'Tech':
+      default:
+        return 'supportTech';
+    }
+  };
+
   const [selectedTeams, setSelectedTeams] = useState<string[]>([]);
-  const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
-  const [showRoleFilter, setShowRoleFilter] = useState<boolean>(false);
+  const [teamSelectionMode, setTeamSelectionMode] = useState<TeamSelectionMode>('all');
+  const [showAdditionalMemberGroups, setShowAdditionalMemberGroups] = useState<boolean>(false);
   const [includeDisbursements, setIncludeDisbursements] = useState<boolean>(false);
   const [sortColumn, setSortColumn] = useState<SortColumn>('displayName');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
@@ -1321,6 +1336,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
         return Boolean(member['Initials']); // Include all team members with initials
       })
       .map((member) => {
+        const memberInitials = String(member['Initials'] ?? '').trim();
         const statusValueRaw = typeof member.status === 'string'
           ? member.status
           : typeof (member as Record<string, unknown>)['Status'] === 'string'
@@ -1335,7 +1351,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
         // If inactive, role becomes "Inactive" regardless of original role
         if (!isActive) {
           return {
-            initials: member['Initials'] ?? '',
+            initials: memberInitials,
             record: member,
             display: displayName(member),
             clioId: member['Clio ID'] ? String(member['Clio ID']) : undefined,
@@ -1349,9 +1365,10 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
         if (roleValueRaw === 'Non-solicitor' || roleValueRaw === 'Operations 1') {
           normalizedRole = 'Ops';
         }
+        normalizedRole = MEMBER_ROLE_OVERRIDES[memberInitials.toUpperCase()] ?? normalizedRole;
         
         return {
-          initials: member['Initials'] ?? '',
+          initials: memberInitials,
           record: member,
           display: displayName(member),
           clioId: member['Clio ID'] ? String(member['Clio ID']) : undefined,
@@ -1362,54 +1379,54 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
       .sort((a, b) => a.display.localeCompare(b.display))
   ), [team]);
 
-  // Filter displayable team members: hide Ops and Inactive unless their filters are selected
-  const displayableTeamMembers = useMemo(() => {
-    const showOps = selectedRoles.includes('Ops');
-    const showInactive = selectedRoles.includes('Inactive');
-    
-    return teamMembers.filter((member) => {
-      // Always show standard fee-earning roles
-      if (member.role !== 'Ops' && member.role !== 'Inactive') {
-        return true;
-      }
-      // Show Ops only if Ops filter is active
-      if (member.role === 'Ops' && showOps) {
-        return true;
-      }
-      // Show Inactive if Inactive role is enabled OR the specific inactive person is selected
-      if (member.role === 'Inactive' && (showInactive || selectedTeams.includes(member.initials))) {
-        return true;
-      }
-      return false;
-    });
-  }, [teamMembers, selectedRoles, selectedTeams]);
-
-  const inactiveTeamMembers = useMemo(
-    () => teamMembers.filter((member) => member.role === 'Inactive'),
+  const activeTeamMembers = useMemo(
+    () => teamMembers.filter((member) => member.role !== 'Inactive'),
     [teamMembers]
   );
 
+  const activeTeamInitials = useMemo(
+    () => activeTeamMembers.map((member) => member.initials),
+    [activeTeamMembers]
+  );
+
+  const displayableTeamMembers = useMemo(() => teamMembers, [teamMembers]);
+
+  const groupedDisplayableTeamMembers = useMemo(() => (
+    MEMBER_FILTER_GROUPS
+      .map((group) => ({
+        ...group,
+        members: displayableTeamMembers
+          .filter((member) => getMemberFilterGroupKey(member.role) === group.key)
+          .sort((a, b) => a.display.localeCompare(b.display)),
+      }))
+      .filter((group) => group.members.length > 0)
+  ), [displayableTeamMembers]);
+
+  const primaryMemberGroups = useMemo(
+    () => groupedDisplayableTeamMembers.filter((group) => !group.concealed),
+    [groupedDisplayableTeamMembers]
+  );
+
+  const additionalMemberGroups = useMemo(
+    () => groupedDisplayableTeamMembers.filter((group) => group.concealed),
+    [groupedDisplayableTeamMembers]
+  );
+
+  const selectedAdditionalMemberCount = useMemo(
+    () => selectedTeams.filter((initials) => {
+      const member = teamMembers.find((candidate) => candidate.initials === initials);
+      return member ? getMemberFilterGroupKey(member.role) === 'inactive' : false;
+    }).length,
+    [selectedTeams, teamMembers]
+  );
+
   const visibleMembers = useMemo(() => {
-    // Start with displayable members (excludes Ops and Inactive unless their filters are active)
-    let filtered = displayableTeamMembers;
-    
-    // Filter by selected team members
-    if (selectedTeams.length > 0) {
-      filtered = filtered.filter((member) => selectedTeams.includes(member.initials));
+    if (teamSelectionMode === 'custom') {
+      return teamMembers.filter((member) => selectedTeams.includes(member.initials));
     }
-    
-    // Filter by selected roles
-    if (selectedRoles.length > 0) {
-      filtered = filtered.filter((member) => {
-        const role = member.role ?? '';
-        if (selectedRoles.includes(role)) return true;
-        if (role === 'Senior Partner' && selectedRoles.includes('Partner')) return true;
-        return false;
-      });
-    }
-    
-    return filtered;
-  }, [displayableTeamMembers, selectedTeams, selectedRoles]);
+
+    return activeTeamMembers;
+  }, [activeTeamMembers, selectedTeams, teamMembers, teamSelectionMode]);
 
   // OPTIMIZATION: Pre-index all large datasets to avoid repeated filtering
   
@@ -1482,22 +1499,19 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   }, [fees, visibleMembers, activeStart, activeEnd]);
 
   const collectedTooltipDetails = useMemo(() => {
-    const showOps = selectedRoles.includes('Ops');
-    const showInactive = selectedRoles.includes('Inactive');
-    const hiddenOpsCount = teamMembers.filter((m) => m.role === 'Ops' && !showOps).length;
-    const hiddenInactiveCount = teamMembers.filter((m) => m.role === 'Inactive' && !showInactive).length;
+    const concealedMembersCount = teamMembers.filter((member) => {
+      const groupKey = getMemberFilterGroupKey(member.role);
+      return groupKey === 'inactive';
+    }).length;
 
     return {
-      selectedTeamsLabel: selectedTeams.length > 0 ? selectedTeams.join(', ') : 'All',
-      selectedRolesLabel: selectedRoles.length > 0 ? selectedRoles.join(', ') : 'All',
-      showOps,
-      showInactive,
-      hiddenOpsCount,
-      hiddenInactiveCount,
+      selectedTeamsLabel: teamSelectionMode === 'all' ? 'All' : selectedTeams.length > 0 ? selectedTeams.join(', ') : 'None',
+      inactiveGroupLabel: showAdditionalMemberGroups ? 'Shown' : 'Hidden',
+      concealedMembersCount,
       totalTeamMembers: teamMembers.length,
       visibleMembers: visibleMembers.length,
     };
-  }, [selectedTeams, selectedRoles, teamMembers, visibleMembers]);
+  }, [selectedTeams, showAdditionalMemberGroups, teamMembers, visibleMembers, teamSelectionMode]);
 
   // Index Enquiries by email and initials (1172 enquiries)
   const enquiriesByContact = useMemo(() => {
@@ -2022,101 +2036,37 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   };
 
   const toggleTeamSelection = (initials: string) => {
-    setSelectedTeams((prev) => {
-      const allInitials = displayableTeamMembers.map(m => m.initials);
-
-      if (prev.length === 0) {
-        // Phase 1 → 2: "all" → solo this person
-        return [initials];
-      }
-
-      if (prev.length === 1 && prev[0] === initials) {
-        // Phase 2 → 3: solo → exclude (everyone except this person)
-        return allInitials.filter(i => i !== initials);
-      }
-
-      if (prev.includes(initials)) {
-        // Deselect this person
-        const next = prev.filter(i => i !== initials);
-        // If everyone remaining equals full roster, collapse to []
-        if (next.length >= allInitials.length) return [];
-        return next.length === 0 ? [] : next;
-      } else {
-        // Select this person
-        const next = [...prev, initials];
-        // If adding completes the full roster, collapse to []
-        return next.length >= allInitials.length ? [] : next;
-      }
-    });
-  };
-
-  const toggleInactiveTeamSelection = (initials: string) => {
-    setSelectedTeams((prev) => {
-      const baseSelection = prev.length === 0
-        ? displayableTeamMembers.map((m) => m.initials)
-        : prev;
-
-      return baseSelection.includes(initials)
-        ? baseSelection.filter((item) => item !== initials)
-        : [...baseSelection, initials];
-    });
-  };
-
-  const toggleRoleSelection = (role: string) => {
-    const isRoleCurrentlySelected = selectedRoles.includes(role);
-
-    const roleGroup = (roleKey: string): string[] => {
-      if (roleKey === 'Partner') return ['Partner', 'Senior Partner'];
-      return [roleKey];
-    };
-
-    const roleMatchesSelection = (memberRole: string | undefined, roles: string[]): boolean => {
-      if (!memberRole) return false;
-      if (roles.includes(memberRole)) return true;
-      if (memberRole === 'Senior Partner' && roles.includes('Partner')) return true;
-      return false;
-    };
-    
-    // Update role selection
-    setSelectedRoles((prev) => (
-      isRoleCurrentlySelected
-        ? prev.filter((item) => item !== role)
-        : [...prev, role]
-    ));
-    
-    // Auto-select team members with this role (use teamMembers, not displayableTeamMembers)
-    if (!isRoleCurrentlySelected) {
-      // Adding role - select all members with this role
-      const membersWithRole = teamMembers
-        .filter(member => roleGroup(role).includes(member.role ?? ''))
-        .map(member => member.initials);
-      
-      setSelectedTeams(prev => {
-        const newSet = new Set([...prev, ...membersWithRole]);
-        return Array.from(newSet);
-      });
-    } else {
-      // Removing role - deselect members with ONLY this role
-      // (keep members who also match other selected roles)
-      const remainingRoles = selectedRoles.filter(r => r !== role);
-      
-      if (remainingRoles.length > 0) {
-        // Keep members who have any of the remaining selected roles
-        setSelectedTeams(prev => 
-          prev.filter(initials => {
-            const member = teamMembers.find(m => m.initials === initials);
-            return member && roleMatchesSelection(member.role, remainingRoles);
-          })
-        );
-      } else {
-        // No other roles selected, clear team selection
-        const membersWithRole = teamMembers
-          .filter(member => roleGroup(role).includes(member.role ?? ''))
-          .map(member => member.initials);
-        
-        setSelectedTeams(prev => prev.filter(initials => !membersWithRole.includes(initials)));
-      }
+    if (teamSelectionMode === 'all') {
+      setTeamSelectionMode('custom');
+      setSelectedTeams([initials]);
+      return;
     }
+
+    const next = selectedTeams.includes(initials)
+      ? selectedTeams.filter((item) => item !== initials)
+      : [...selectedTeams, initials];
+
+    if (activeTeamInitials.length > 0 && activeTeamInitials.every((memberInitials) => next.includes(memberInitials))) {
+      setTeamSelectionMode('all');
+      setSelectedTeams([]);
+      return;
+    }
+
+    setTeamSelectionMode('custom');
+    setSelectedTeams(next);
+  };
+
+  const selectMemberGroup = (groupKey: MemberFilterGroupKey) => {
+    const groupInitials = displayableTeamMembers
+      .filter((member) => getMemberFilterGroupKey(member.role) === groupKey)
+      .map((member) => member.initials);
+
+    if (groupInitials.length === 0) {
+      return;
+    }
+
+    setTeamSelectionMode('custom');
+    setSelectedTeams(groupInitials);
   };
 
   // Check if a team member has worked (has WIP hours) in the current date range
@@ -2169,22 +2119,16 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   };
 
   const dashboardThemeClass = isDarkMode ? 'dark-theme' : 'light-theme';
-  const allTeamsSelected = selectedTeams.length === 0 || selectedTeams.length === displayableTeamMembers.length;
-  const allRolesSelected = selectedRoles.length === 0 || selectedRoles.length === ROLE_OPTIONS.length;
+  const allTeamsSelected = teamSelectionMode === 'all';
+  const selectedTeamsBadgeLabel = !allTeamsSelected && selectedTeams.length > 0
+    ? `${selectedTeams.length} selected`
+    : null;
 
   const handleSelectAllTeams = () => {
     if (allTeamsSelected) {
       return;
     }
-    setSelectedTeams([]);
-  };
-
-  const handleSelectAllRoles = () => {
-    if (allRolesSelected) {
-      return;
-    }
-    setSelectedRoles([]);
-    // Also clear team selections that were auto-selected by roles
+    setTeamSelectionMode('all');
     setSelectedTeams([]);
   };
 
@@ -2195,6 +2139,10 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   const isAllPresetActive = rangeKey === 'all';
   const formattedFromLabel = rangeKey === 'all' ? 'All Time' : formatDateTag(activeStart);
   const formattedToLabel = formatDateTag(activeEnd);
+  const activeWindowSummary = rangeKey === 'all'
+    ? dashboardSourceWindowLabel
+    : `${formattedFromLabel} to ${formattedToLabel}`;
+  const activeFilterCoverageLabel = rangeKey === 'all' ? 'All loaded dates' : activeWindowSummary;
 
   const handleClearAllTime = () => {
     handleRangeSelect('all');
@@ -2211,6 +2159,15 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   const showRefreshSkeleton = isFetching && hasRenderableData; // Refresh while data exists
   const refreshCountdown = Math.max(0, 15 * 60 - timeElapsed);
   const statusStateClass = isFetching ? 'is-refreshing' : 'is-idle';
+  const refreshCountdownLabel = `${Math.floor(refreshCountdown / 60)}m ${refreshCountdown % 60}s`;
+  const syncTitle = isFetching ? 'Refreshing sources' : 'Source data';
+  const syncDetail = isFetching
+    ? dashboardSourceWindowLabel
+    : `Synced ${formatTimeAgo(lastRefreshTimestamp)} | Next ${refreshCountdownLabel}`;
+  const disbursementToggleLabel = includeDisbursements ? 'Fees + disbursements' : 'Fees only';
+  const disbursementToggleTitle = includeDisbursements
+    ? 'Collected totals include disbursements. Click to show fees only.'
+    : 'Collected totals show fees only. Click to include disbursements.';
 
   // Helper: render metric value with skeleton/animation states
   const renderMetricValue = (formattedValue: string, width?: number) => {
@@ -2236,7 +2193,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   return (
     <div className={`management-dashboard-container animate-dashboard ${dashboardThemeClass}`}>
       {showInitialSkeleton ? (
-          <div className="summary-skeleton-grid">
+          <div className="summary-skeleton-grid dashboard-kpi-summary">
             {Array.from({ length: 5 }).map((_, index) => (
               <div key={`summary-skeleton-${index}`} className="summary-skeleton-card">
                 <div className="summary-skeleton-label skeleton-shimmer" />
@@ -2245,7 +2202,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
             ))}
           </div>
       ) : (
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
+      <div className="dashboard-kpi-summary" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
         <div className="summary-chip" style={summaryChipStyle(isDarkMode)}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%' }}>
             <span style={summaryChipLabelStyle()}>Enquiries</span>
@@ -2456,17 +2413,12 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                   Teams: <span style={{ fontWeight: 600 }}>{collectedTooltipDetails.selectedTeamsLabel}</span>
                 </div>
                 <div style={{ opacity: 0.8 }}>
-                  Roles: <span style={{ fontWeight: 600 }}>{collectedTooltipDetails.selectedRolesLabel}</span>
-                </div>
-                <div style={{ opacity: 0.8 }}>
                   Visible members: <span style={{ fontWeight: 600 }}>{collectedTooltipDetails.visibleMembers.toLocaleString('en-GB')}</span>
                   {' '} / {collectedTooltipDetails.totalTeamMembers.toLocaleString('en-GB')}
                 </div>
                 <div style={{ opacity: 0.75, marginTop: 4, fontSize: 10 }}>
-                  Ops shown: {collectedTooltipDetails.showOps ? 'Yes' : 'No'}
-                  {collectedTooltipDetails.hiddenOpsCount > 0 ? ` (${collectedTooltipDetails.hiddenOpsCount} hidden)` : ''}
-                  {' · '}Inactive shown: {collectedTooltipDetails.showInactive ? 'Yes' : 'No'}
-                  {collectedTooltipDetails.hiddenInactiveCount > 0 ? ` (${collectedTooltipDetails.hiddenInactiveCount} hidden)` : ''}
+                  Inactive group: {collectedTooltipDetails.inactiveGroupLabel}
+                  {collectedTooltipDetails.concealedMembersCount > 0 ? ` (${collectedTooltipDetails.concealedMembersCount} members)` : ''}
                 </div>
               </div>
 
@@ -2492,7 +2444,10 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
 
       <div className="filter-toolbar">
         <div className="filter-toolbar__top">
-          <span className="filter-section-label">Date range</span>
+          <span className="filter-section-heading filter-section-heading--primary filter-section-heading--topline">
+            <span className="filter-section-label">Date range</span>
+            <span className="filter-toolbar__actions-label">Tools</span>
+          </span>
           <div className="filter-toolbar__date-inputs">
             {isCustomRange ? (
               <div className="date-pickers">
@@ -2558,14 +2513,17 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
               }}
               title={
                 isFetching 
-                  ? 'Refreshing data…' 
-                  : `Last sync ${formatTimeAgo(lastRefreshTimestamp)} · Next auto-refresh in ${Math.floor(refreshCountdown / 60)}m ${refreshCountdown % 60}s`
+                  ? `Refreshing ${dashboardSourceWindowLabel}`
+                  : `Synced ${formatTimeAgo(lastRefreshTimestamp)} | Next auto-refresh in ${refreshCountdownLabel}`
               }
             >
               {isFetching ? (
                 <>
                   <div className="filter-status-indicator" />
-                  <span>Refreshing…</span>
+                  <span className="filter-status-copy">
+                    <span className="filter-status-title">{syncTitle}</span>
+                    <span className="filter-status-detail">{syncDetail}</span>
+                  </span>
                 </>
               ) : (
                 <>
@@ -2576,22 +2534,19 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                       transition: 'background 1s ease',
                     }}
                   />
-                  <span>Last sync {formatTimeAgo(lastRefreshTimestamp)}</span>
-                  <span className="filter-status-separator">·</span>
-                  <span className="filter-status-countdown">Next in {Math.floor(refreshCountdown / 60)}m {refreshCountdown % 60}s</span>
+                  <span className="filter-status-copy">
+                    <span className="filter-status-title">{syncTitle}</span>
+                    <span className="filter-status-detail">{syncDetail}</span>
+                  </span>
                 </>
               )}
             </div>
 
             <DefaultButton
-              text={includeDisbursements ? 'Disbursements: Included' : 'Disbursements: Excluded'}
+              text={disbursementToggleLabel}
               onClick={() => setIncludeDisbursements((v) => !v)}
               styles={getDisbursementButtonStyles(isDarkMode, includeDisbursements)}
-              title={
-                includeDisbursements
-                  ? 'Currently including disbursements in Collected totals'
-                  : 'Currently excluding disbursements from Collected totals'
-              }
+              title={disbursementToggleTitle}
             />
 
             {triggerRefresh && (
@@ -2601,16 +2556,16 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                   setProcessingModal({
                     visible: true,
                     title: 'Refreshing',
-                    message: 'Fetching latest data from all sources…',
+                    message: 'Fetching latest data from all sources...',
                   });
-                  showToast({ type: 'loading', message: 'Refreshing dashboard data…' });
+                  showToast({ type: 'loading', message: 'Refreshing dashboard data...' });
                   triggerRefresh();
                   setTimeElapsed(0);
                 }}
                 disabled={isFetching}
-                className="filter-icon-button toolbar-control"
-                title={isFetching ? 'Refreshing data...' : 'Refresh datasets (auto-refreshes every 15 min)'}
-                aria-label={isFetching ? 'Refreshing data' : 'Refresh datasets'}
+                className="filter-icon-button filter-tool-button toolbar-control"
+                title={isFetching ? 'Refresh already running' : 'Refresh now'}
+                aria-label={isFetching ? 'Refresh already running' : 'Refresh now'}
               >
                 <Icon 
                   iconName="Refresh" 
@@ -2619,6 +2574,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                     animation: isFetching ? 'spin 1s linear infinite' : 'none'
                   }} 
                 />
+                <span className="filter-tool-button__label">Refresh</span>
               </button>
             )}
 
@@ -2627,49 +2583,39 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                 type="button"
                 onMouseEnter={() => setShowDatasetInfo(true)}
                 onMouseLeave={() => setShowDatasetInfo(false)}
-                className={`filter-icon-button toolbar-control icon-button--info ${showDatasetInfo ? 'is-active' : ''}`}
-                title="Dataset information"
-                aria-label="Dataset information"
+                className={`filter-icon-button filter-tool-button toolbar-control icon-button--info ${showDatasetInfo ? 'is-active' : ''}`}
+                title="Dataset coverage"
+                aria-label="Dataset coverage"
               >
                 <Icon iconName="Info" style={{ fontSize: 16 }} />
+                <span className="filter-tool-button__label">Coverage</span>
               </button>
 
               {showDatasetInfo && (
                 <div className="filter-dataset-tooltip">
-                  <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 13, color: isDarkMode ? colours.accent : colours.highlight }}>
-                    Dataset Date Ranges
+                  <div className="filter-dataset-tooltip__title">
+                    Dataset coverage
                   </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                      <span style={{ opacity: 0.8 }}>Enquiries:</span>
-                      <span style={{ fontWeight: 600 }}>Last 24 months</span>
+                  <div className="filter-dataset-tooltip__rows">
+                    <div className="filter-dataset-tooltip__row">
+                      <span>Source pull:</span>
+                      <span>{dashboardSourceWindowLabel}</span>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                      <span style={{ opacity: 0.8 }}>Matters:</span>
-                      <span style={{ fontWeight: 600 }}>Last 24 months</span>
+                    <div className="filter-dataset-tooltip__row">
+                      <span>Active filter:</span>
+                      <span>{activeFilterCoverageLabel}</span>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                      <span style={{ opacity: 0.8 }}>WIP:</span>
-                      <span style={{ fontWeight: 600 }}>Last 12 months</span>
+                    <div className="filter-dataset-tooltip__row">
+                      <span>Metrics:</span>
+                      <span>Enquiries, matters, WIP, fees</span>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                      <span style={{ opacity: 0.8 }}>Recovered Fees:</span>
-                      <span style={{ fontWeight: 600 }}>Last 12 months</span>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                      <span style={{ opacity: 0.8 }}>Annual Leave:</span>
-                      <span style={{ fontWeight: 600 }}>Current year</span>
+                    <div className="filter-dataset-tooltip__row">
+                      <span>Annual leave:</span>
+                      <span>Current leave year</span>
                     </div>
                   </div>
-                  <div style={{
-                    marginTop: 10,
-                    paddingTop: 8,
-                    borderTop: `0.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.12)'}`,
-                    fontSize: 11,
-                    opacity: 0.7,
-                    fontStyle: 'italic'
-                  }}>
-                    Data outside these ranges won't appear in metrics
+                  <div className="filter-dataset-tooltip__note">
+                    Loaded source data is pulled first, then the date filter above is applied to the dashboard.
                   </div>
                 </div>
               )}
@@ -2687,6 +2633,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                     text={label}
                     onClick={() => handleRangeSelect(key)}
                     disabled={presetDisabled}
+                    title={presetDisabled ? `Outside ${dashboardSourceWindowLabel}` : `Filter dashboard to ${label}`}
                     styles={getRangeButtonStyles(isDarkMode, activePresetKey === key, presetDisabled)}
                   />
                 );
@@ -2700,6 +2647,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                     text={label}
                     onClick={() => handleRangeSelect(key)}
                     disabled={presetDisabled}
+                    title={presetDisabled ? `Outside ${dashboardSourceWindowLabel}` : `Filter dashboard to ${label}`}
                     styles={getRangeButtonStyles(isDarkMode, activePresetKey === key, presetDisabled)}
                   />
                 );
@@ -2713,6 +2661,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                     text={label}
                     onClick={() => handleRangeSelect(key)}
                     disabled={presetDisabled}
+                    title={presetDisabled ? `Outside ${dashboardSourceWindowLabel}` : `Filter dashboard to ${label}`}
                     styles={getRangeButtonStyles(isDarkMode, activePresetKey === key, presetDisabled)}
                   />
                 );
@@ -2726,6 +2675,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                     text={label}
                     onClick={() => handleRangeSelect(key)}
                     disabled={presetDisabled}
+                    title={presetDisabled ? `Outside ${dashboardSourceWindowLabel}` : `Filter dashboard to ${label}`}
                     styles={getRangeButtonStyles(isDarkMode, activePresetKey === key, presetDisabled)}
                   />
                 );
@@ -2739,6 +2689,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                     text={label}
                     onClick={() => handleRangeSelect(key)}
                     disabled={presetDisabled}
+                    title={presetDisabled ? `Outside ${dashboardSourceWindowLabel}` : `Filter dashboard to ${label}`}
                     styles={getRangeButtonStyles(isDarkMode, activePresetKey === key, presetDisabled)}
                   />
                 );
@@ -2747,7 +2698,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                 <button
                   onClick={handleClearAllTime}
                   style={clearFilterButtonStyle(isDarkMode)}
-                  title="Clear date range filter"
+                  title="Reset date range filter"
                 >
                   <span style={{ fontSize: 16 }}>×</span>
                   Clear
@@ -2757,89 +2708,118 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
         </div>
 
         <div className="filter-toolbar__team">
-          <span className="filter-section-label">Active members</span>
+          {selectedTeamsBadgeLabel && (
+            <span className="team-slicer-count-badge" aria-live="polite">
+              {selectedTeamsBadgeLabel}
+            </span>
+          )}
+          <span className="filter-section-heading filter-section-heading--members">
+            <span className="filter-section-label">Active members</span>
+          </span>
           <div className="team-slicer-buttons">
-              {displayableTeamMembers.map((member) => (
-                <DefaultButton
-                  key={member.initials}
-                  text={member.initials}
-                  onClick={() => toggleTeamSelection(member.initials)}
-                  title={memberHasWorked(member.initials) ? undefined : `${member.display || member.initials} has no WIP hours in this period`}
-                  styles={getTeamButtonStyles(isDarkMode, selectedTeams.includes(member.initials), memberHasWorked(member.initials), member.role === 'Inactive', allTeamsSelected)}
-                />
-              ))}
+              {primaryMemberGroups.map((group, groupIndex) => {
+                const groupIsActive = !allTeamsSelected && group.members.some((member) => selectedTeams.includes(member.initials));
+                const groupIsSelected = !allTeamsSelected
+                  && group.members.length > 0
+                  && group.members.every((member) => selectedTeams.includes(member.initials));
+                return (
+                <React.Fragment key={group.key}>
+                  {groupIndex > 0 && (
+                    <span className="team-slicer-separator" aria-hidden="true" />
+                  )}
+                  <span className={`team-slicer-group ${groupIsActive ? 'is-active-group' : ''}`}>
+                    <button
+                      type="button"
+                      className={`team-slicer-group-select ${groupIsSelected ? 'is-selected' : ''}`}
+                      onClick={() => selectMemberGroup(group.key)}
+                      title={`Select ${group.label}`}
+                      aria-label={`Select ${group.label}`}
+                    >
+                      <Icon iconName={group.iconName} />
+                    </button>
+                    {group.members.map((member) => (
+                      <DefaultButton
+                        key={member.initials}
+                        text={member.initials}
+                        onClick={() => toggleTeamSelection(member.initials)}
+                        title={memberHasWorked(member.initials) ? `${member.display || member.initials} (${group.label})` : `${member.display || member.initials} has no WIP hours in this period`}
+                        styles={getTeamButtonStyles(isDarkMode, selectedTeams.includes(member.initials), memberHasWorked(member.initials), member.role === 'Inactive', allTeamsSelected)}
+                      />
+                    ))}
+                  </span>
+                </React.Fragment>
+              );
+              })}
+              {additionalMemberGroups.length > 0 && (
+                <>
+                  {primaryMemberGroups.length > 0 && (
+                    <span className="team-slicer-separator" aria-hidden="true" />
+                  )}
+                  <button
+                    type="button"
+                    className={`team-slicer-more-toggle ${showAdditionalMemberGroups || selectedAdditionalMemberCount > 0 ? 'is-active' : ''}`}
+                    onClick={() => setShowAdditionalMemberGroups((current) => !current)}
+                    title={showAdditionalMemberGroups ? 'Hide inactive group' : 'Show inactive group'}
+                    aria-label={showAdditionalMemberGroups ? 'Hide inactive group' : 'Show inactive group'}
+                    aria-expanded={showAdditionalMemberGroups}
+                  >
+                    <Icon iconName={showAdditionalMemberGroups ? 'ChevronUpSmall' : 'ChevronDownSmall'} />
+                    <span>More</span>
+                    {!showAdditionalMemberGroups && selectedAdditionalMemberCount > 0 && (
+                      <span className="team-slicer-more-count">{selectedAdditionalMemberCount}</span>
+                    )}
+                  </button>
+                </>
+              )}
+              {showAdditionalMemberGroups && additionalMemberGroups.map((group) => {
+                const groupIsActive = !allTeamsSelected && group.members.some((member) => selectedTeams.includes(member.initials));
+                const groupIsSelected = !allTeamsSelected
+                  && group.members.length > 0
+                  && group.members.every((member) => selectedTeams.includes(member.initials));
+                return (
+                <React.Fragment key={group.key}>
+                  <span className="team-slicer-separator" aria-hidden="true" />
+                  <span className={`team-slicer-group team-slicer-group--concealed ${groupIsActive ? 'is-active-group' : ''}`}>
+                    <button
+                      type="button"
+                      className={`team-slicer-group-select ${groupIsSelected ? 'is-selected' : ''}`}
+                      onClick={() => selectMemberGroup(group.key)}
+                      title={`Select ${group.label}`}
+                      aria-label={`Select ${group.label}`}
+                    >
+                      <Icon iconName={group.iconName} />
+                    </button>
+                    {group.members.map((member) => (
+                      <DefaultButton
+                        key={member.initials}
+                        text={member.initials}
+                        onClick={() => toggleTeamSelection(member.initials)}
+                        title={memberHasWorked(member.initials) ? `${member.display || member.initials} (${group.label})` : `${member.display || member.initials} has no WIP hours in this period`}
+                        styles={getTeamButtonStyles(isDarkMode, selectedTeams.includes(member.initials), memberHasWorked(member.initials), member.role === 'Inactive', allTeamsSelected)}
+                      />
+                    ))}
+                  </span>
+                </React.Fragment>
+              );
+              })}
               {!allTeamsSelected && (
                 <button
                   onClick={handleSelectAllTeams}
                   style={clearFilterButtonStyle(isDarkMode)}
-                  title="Clear team filter"
+                  title={selectedTeams.length === 0 ? 'Show all active members' : 'Clear team filter'}
                 >
-                  <span style={{ fontSize: 16 }}>×</span>
-                  Clear
+                  {selectedTeams.length === 0 ? (
+                    'All'
+                  ) : (
+                    <>
+                      <span style={{ fontSize: 16 }}>×</span>
+                      Clear
+                    </>
+                  )}
                 </button>
               )}
           </div>
-
-          <button
-            type="button"
-            onClick={() => setShowRoleFilter(!showRoleFilter)}
-            className={`filter-icon-button toolbar-control icon-button--role ${showRoleFilter ? 'is-active' : ''}`}
-            title={showRoleFilter ? 'Hide role filter' : 'Show role filter'}
-            aria-label={showRoleFilter ? 'Hide role filter' : 'Show role filter'}
-            style={{ marginLeft: 4 }}
-          >
-            <Icon iconName="People" style={{ fontSize: 16 }} />
-          </button>
         </div>
-
-        {showRoleFilter && (
-          <div className="filter-toolbar__roles">
-            <span className="filter-section-label">Filter by role</span>
-            <div className="role-slicer-buttons">
-                {ROLE_OPTIONS.map(({ key, label }) => (
-                  <DefaultButton
-                    key={key}
-                    text={label}
-                    onClick={() => toggleRoleSelection(key)}
-                    styles={getRoleButtonStyles(isDarkMode, selectedRoles.includes(key), allRolesSelected)}
-                  />
-                ))}
-                {!allRolesSelected && (
-                  <button
-                    onClick={handleSelectAllRoles}
-                    style={clearFilterButtonStyle(isDarkMode)}
-                    title="Clear role filter"
-                  >
-                    <span style={{ fontSize: 16 }}>×</span>
-                    Clear
-                  </button>
-                )}
-              </div>
-
-                {inactiveTeamMembers.length > 0 && (
-                  <div style={{ marginTop: 10 }}>
-                    <span className="filter-section-label">Inactive members</span>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                      {inactiveTeamMembers.map((member) => (
-                        <DefaultButton
-                          key={`inactive-${member.initials}`}
-                          text={member.initials}
-                          onClick={() => toggleInactiveTeamSelection(member.initials)}
-                          title={`${member.display || member.initials} (Inactive)`}
-                          styles={getTeamButtonStyles(
-                            isDarkMode,
-                            selectedTeams.includes(member.initials),
-                            memberHasWorked(member.initials),
-                            true,
-                            allTeamsSelected
-                          )}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                )}
-          </div>
-        )}
       </div>
 
       {(showInitialSkeleton || showRefreshSkeleton) ? (
@@ -3200,11 +3180,9 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
       )}
 
       {/* Year-over-Year Comparison — LOCAL DEV ONLY */}
-      {typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') && (
-        <div style={{ marginTop: 24 }}>
-          <YearOverYearComparison />
-        </div>
-      )}
+      <div className="dashboard-yoy-section" style={{ marginTop: 24 }}>
+        <YearOverYearComparison />
+      </div>
 
       {/* Processing Modal Overlay */}
       {processingModal.visible && (

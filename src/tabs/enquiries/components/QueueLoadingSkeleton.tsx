@@ -6,6 +6,8 @@ interface QueueLoadingSkeletonProps {
   isDarkMode: boolean;
   /** Set when the skeleton is about to unmount - triggers a fade-out so the swap to live data feels smooth. */
   exiting?: boolean;
+  /** Mirror the real table's actions column width (locked by default). */
+  actionsEnabled?: boolean;
 }
 
 type QueueSkeletonStyle = React.CSSProperties & {
@@ -20,9 +22,10 @@ type QueueSkeletonStyle = React.CSSProperties & {
 type QueueSkeletonRowStyle = React.CSSProperties & {
   '--enq-skeleton-row-opacity': number;
   '--enq-skeleton-row-delay': string;
+  '--enq-skeleton-aow-color': string;
 };
 
-const QueueLoadingSkeleton: React.FC<QueueLoadingSkeletonProps> = ({ variant, isDarkMode, exiting = false }) => {
+const QueueLoadingSkeleton: React.FC<QueueLoadingSkeletonProps> = ({ variant, isDarkMode, exiting = false, actionsEnabled = false }) => {
   const rowCount = variant === 'blocking' ? 8 : 6;
   const skeletonBase = isDarkMode ? withAlpha(colours.subtleGrey, 0.12) : withAlpha(colours.darkBlue, 0.06);
   const skeletonStrong = isDarkMode ? withAlpha(colours.subtleGrey, 0.22) : withAlpha(colours.darkBlue, 0.12);
@@ -31,8 +34,15 @@ const QueueLoadingSkeleton: React.FC<QueueLoadingSkeletonProps> = ({ variant, is
   const rowBorderStrong = isDarkMode ? withAlpha(colours.subtleGrey, 0.28) : withAlpha(colours.subtleGrey, 0.18);
   const blockBorder = isDarkMode ? withAlpha(colours.subtleGrey, 0.18) : withAlpha(colours.darkBlue, 0.08);
   const headerBorder = isDarkMode ? withAlpha(colours.subtleGrey, 0.24) : withAlpha(colours.helixBlue, 0.08);
-  // Match the real grid: ID/Area | Date | Contact | Pipeline | Actions
-  const skeletonGridColumns = `minmax(clamp(56px, 9vw, 112px), 0.82fr) minmax(clamp(34px, 5vw, 64px), 0.48fr) minmax(clamp(50px, 9vw, 140px), 1.1fr) minmax(clamp(60px, 15vw, 260px), 3.4fr) clamp(32px, 4vw, 56px)`;
+  const ghostBorder = withAlpha(colours.subtleGrey, isDarkMode ? 0.18 : 0.16);
+
+  // Mirror getTableGridTemplateColumns() in Enquiries.tsx exactly:
+  //   timeline | date | identity (AOW + ID) | contact | pipeline | actions
+  const actionsTrack = actionsEnabled
+    ? 'clamp(80px, 14vw, 188px)'
+    : 'clamp(32px, 4vw, 56px)';
+  const skeletonGridColumns =
+    `clamp(20px, 4vw, 36px) minmax(clamp(28px, 5vw, 60px), 0.45fr) minmax(clamp(44px, 7vw, 88px), 0.6fr) minmax(clamp(50px, 9vw, 140px), 1.1fr) minmax(clamp(60px, 15vw, 260px), 3.4fr) ${actionsTrack}`;
 
   const sBlock = (w: number | string, h: number, strong?: boolean): React.CSSProperties => ({
     width: w,
@@ -42,14 +52,26 @@ const QueueLoadingSkeleton: React.FC<QueueLoadingSkeletonProps> = ({ variant, is
     boxShadow: 'none',
   });
 
-  const nameWidths = ['74%', '62%', '68%', '82%', '56%', '70%', '64%', '50%'];
-  const emailWidths = ['44%', '36%', '48%', '40%', '34%', '46%', '38%', '32%'];
-  const idWidths = [50, 44, 48, 40, 46, 52, 42, 54];
-  const pipelineLayouts = [
-    { top: [64, 52, 44], bottom: [40, 48] },
-    { top: [72, 44], bottom: [34, 42, 38] },
-    { top: [56, 48, 40, 34], bottom: [44, 36] },
-    { top: [68, 46, 38], bottom: [52, 40] },
+  // Real-row geometry the skeleton mirrors (sampled from .prospect-row in Prospects):
+  //   col1 ~36px timeline strip
+  //   col2 date stack: top "DD MMM" (11px bold) + bottom "HH:MM" (9px)
+  //   col3 identity: 17x17 AoW glyph + 30-44px ID text
+  //   col4 contact: name 12px + email 9px stacked, left-aligned
+  //   col5 pipeline: 7-track grid, chip pills ~22px tall, varied fill state
+  //   col6 actions: 22x22 chevron square, right-aligned
+  const aowAccents = [colours.blue, colours.orange, colours.green, colours.yellow, colours.greyText, colours.blue];
+  const idWidths = [38, 32, 42, 36, 30, 44, 34, 40];
+  const dateTopWidths = [30, 28, 32, 26, 30, 28, 32, 26];
+  const dateBottomWidths = [22, 24, 22, 26, 22, 24, 22, 26];
+  const nameWidths = ['72%', '60%', '68%', '82%', '54%', '70%', '64%', '50%'];
+  const emailWidths = ['56%', '48%', '62%', '52%', '46%', '60%', '50%', '44%'];
+  const chipPatterns: Array<Array<'strong' | 'base' | 'ghost'>> = [
+    ['strong', 'base',  'ghost', 'ghost', 'ghost', 'ghost', 'ghost'],
+    ['strong', 'strong','base',  'ghost', 'ghost', 'ghost', 'ghost'],
+    ['strong', 'strong','strong','base',  'ghost', 'ghost', 'ghost'],
+    ['strong', 'strong','strong','strong','base',  'ghost', 'ghost'],
+    ['strong', 'strong','strong','strong','strong','base',  'ghost'],
+    ['strong', 'strong','strong','strong','strong','strong','base'],
   ];
 
   return (
@@ -59,7 +81,7 @@ const QueueLoadingSkeleton: React.FC<QueueLoadingSkeletonProps> = ({ variant, is
         width: '100%',
         display: 'flex',
         flexDirection: 'column',
-        padding: variant === 'blocking' ? '0 16px' : '0',
+        padding: 0,
         '--enq-skeleton-grid': skeletonGridColumns,
         '--enq-skeleton-base': skeletonBase,
         '--enq-skeleton-strong': skeletonStrong,
@@ -69,49 +91,41 @@ const QueueLoadingSkeleton: React.FC<QueueLoadingSkeletonProps> = ({ variant, is
       } as QueueSkeletonStyle}
       data-variant={variant}
       data-exiting={exiting ? 'true' : 'false'}
+      aria-hidden="true"
     >
-      {/* Skeleton header - mirrors the real sticky header */}
+      {/* Header — mirrors the sticky 6-track header (timeline | Date | #ID | Prospect | Pipeline | actions) */}
       <div
         className="enq-queue-skeleton__header"
         style={{
           background: isDarkMode ? colours.darkBlue : colours.light.cardBackground,
           borderBottom: `1px solid ${headerBorder}`,
-          padding: '0 14px',
-          height: 40,
-          gap: 4,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0, minHeight: '100%', padding: '0 2px 0 6px', borderLeft: `2px solid ${lineColor}`, boxSizing: 'border-box' }}>
-          <div className="enq-queue-skeleton__block enq-queue-skeleton__dot" style={sBlock(10, 10)} />
-          <div className="enq-queue-skeleton__block enq-queue-skeleton__block--base" style={sBlock(24, 8)} />
+        <div className="enq-queue-skeleton__head-cell enq-queue-skeleton__head-cell--center">
+          <div style={{ width: 1, height: 14, background: lineColor, opacity: 0.48 }} />
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
-          <div className="enq-queue-skeleton__block enq-queue-skeleton__block--strong" style={sBlock(26, 8, true)} />
-          <div className="enq-queue-skeleton__block enq-queue-skeleton__block--base" style={sBlock(8, 8)} />
+        <div className="enq-queue-skeleton__head-cell">
+          <div className="enq-queue-skeleton__block enq-queue-skeleton__block--base" style={sBlock(28, 8)} />
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
-          <div className="enq-queue-skeleton__block enq-queue-skeleton__block--strong" style={sBlock(54, 8, true)} />
-          <div className="enq-queue-skeleton__block enq-queue-skeleton__block--base" style={sBlock(8, 8)} />
+        <div className="enq-queue-skeleton__head-cell">
+          <div className="enq-queue-skeleton__block enq-queue-skeleton__block--base" style={sBlock(20, 8)} />
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, overflow: 'hidden' }}>
-          {[38, 44, 34, 42, 36].map((width, idx) => (
-            <div
-              key={`header-pipeline-${idx}`}
-              className={`enq-queue-skeleton__block ${idx < 2 ? 'enq-queue-skeleton__block--strong' : 'enq-queue-skeleton__block--base'}`}
-              style={sBlock(width, 16, idx < 2)}
-            />
-          ))}
+        <div className="enq-queue-skeleton__head-cell">
+          <div className="enq-queue-skeleton__block enq-queue-skeleton__block--base" style={sBlock(48, 8)} />
         </div>
-        <div className="enq-queue-skeleton__actions">
-          <div className="enq-queue-skeleton__block enq-queue-skeleton__block--base" style={sBlock(16, 16)} />
+        <div className="enq-queue-skeleton__head-cell">
+          <div className="enq-queue-skeleton__block enq-queue-skeleton__block--base" style={sBlock(48, 8)} />
+        </div>
+        <div className="enq-queue-skeleton__head-cell enq-queue-skeleton__head-cell--center">
+          <div className="enq-queue-skeleton__block enq-queue-skeleton__block--base" style={sBlock(14, 8)} />
         </div>
       </div>
 
-      {/* Skeleton rows - same grid, padding, height as real prospect-row */}
       {Array.from({ length: rowCount }, (_, idx) => {
         const isLastInGroup = idx === 2 || idx === 5;
         const rowDelay = idx * 0.06;
-        const pipelineLayout = pipelineLayouts[idx % pipelineLayouts.length];
+        const aowColor = aowAccents[idx % aowAccents.length];
+        const chipRow = chipPatterns[idx % chipPatterns.length];
         return (
           <div
             key={`${variant}-skel-${idx}`}
@@ -122,53 +136,63 @@ const QueueLoadingSkeleton: React.FC<QueueLoadingSkeletonProps> = ({ variant, is
                 : `0.5px solid ${rowBorderColor}`,
               '--enq-skeleton-row-opacity': Math.max(0.52, 1 - idx * 0.07),
               '--enq-skeleton-row-delay': `${rowDelay}s`,
-              padding: '8px 14px',
-              gap: 4,
+              '--enq-skeleton-aow-color': aowColor,
             } as QueueSkeletonRowStyle}
           >
-            {/* Col 1: ID + AoW icon */}
-            <div className="enq-queue-skeleton__meta" style={{ minHeight: '100%', padding: '0 2px 0 6px', borderLeft: `2px solid ${lineColor}`, boxSizing: 'border-box' }}>
-              <div className="enq-queue-skeleton__block enq-queue-skeleton__dot" style={sBlock(14, 14)} />
+            {/* Col 1: Timeline strip */}
+            <div className="enq-queue-skeleton__timeline">
+              <div className="enq-queue-skeleton__timeline-line" style={{ opacity: 0.72 + (idx % 3) * 0.08 }} />
+            </div>
+
+            {/* Col 2: Date stack */}
+            <div className="enq-queue-skeleton__date">
+              <div className="enq-queue-skeleton__block enq-queue-skeleton__block--strong" style={sBlock(dateTopWidths[idx % dateTopWidths.length], 11, true)} />
+              <div className="enq-queue-skeleton__block enq-queue-skeleton__block--base" style={sBlock(dateBottomWidths[idx % dateBottomWidths.length], 9)} />
+            </div>
+
+            {/* Col 3: Identity (AOW glyph 17x17 + ID text), with brand left border like real .enquiry-row__identity */}
+            <div
+              className="enq-queue-skeleton__identity"
+              style={{
+                borderLeft: `2px solid ${withAlpha(colours.highlight, isDarkMode ? 0.45 : 0.55)}`,
+              }}
+            >
+              <div
+                className="enq-queue-skeleton__aow-glyph"
+                style={{
+                  background: withAlpha(aowColor, isDarkMode ? 0.20 : 0.16),
+                  border: `1px solid ${withAlpha(aowColor, isDarkMode ? 0.45 : 0.32)}`,
+                }}
+              />
               <div className="enq-queue-skeleton__block enq-queue-skeleton__block--base" style={sBlock(idWidths[idx % idWidths.length], 10)} />
             </div>
 
-            {/* Col 2: Date */}
-            <div className="enq-queue-skeleton__stack">
-              <div className="enq-queue-skeleton__block enq-queue-skeleton__block--strong" style={sBlock(idx % 2 === 0 ? 28 : 24, 11, true)} />
-              <div className="enq-queue-skeleton__block enq-queue-skeleton__block--base" style={sBlock(idx % 2 === 0 ? 32 : 26, 9)} />
-            </div>
-
-            {/* Col 3: Contact name + email */}
-            <div className="enq-queue-skeleton__stack enq-queue-skeleton__stack--contact">
-              <div className="enq-queue-skeleton__block enq-queue-skeleton__block--strong" style={sBlock(nameWidths[idx % nameWidths.length], 13, true)} />
+            {/* Col 4: Contact stack */}
+            <div className="enq-queue-skeleton__contact">
+              <div className="enq-queue-skeleton__block enq-queue-skeleton__block--strong" style={sBlock(nameWidths[idx % nameWidths.length], 12, true)} />
               <div className="enq-queue-skeleton__block enq-queue-skeleton__block--base" style={sBlock(emailWidths[idx % emailWidths.length], 9)} />
             </div>
 
-            {/* Col 4: Pipeline stages */}
-            <div className="enq-queue-skeleton__stack" style={{ gap: 6 }}>
-              <div className="enq-queue-skeleton__chips" style={{ flexWrap: 'wrap', rowGap: 6 }}>
-                {pipelineLayout.top.map((width, chipIdx) => (
+            {/* Col 5: Pipeline 7-track grid */}
+            <div className="enq-queue-skeleton__pipeline">
+              {chipRow.map((tone, chipIdx) => (
+                <div key={`pipe-${chipIdx}`} className="enq-queue-skeleton__pipe-cell">
                   <div
-                    key={`top-${chipIdx}`}
-                    className={`enq-queue-skeleton__block ${chipIdx === 0 ? 'enq-queue-skeleton__block--strong' : 'enq-queue-skeleton__block--base'}`}
-                    style={sBlock(width, 18, chipIdx === 0)}
+                    className={`enq-queue-skeleton__chip enq-queue-skeleton__chip--${tone}`}
+                    style={{
+                      background: tone === 'ghost'
+                        ? 'transparent'
+                        : (tone === 'strong' ? skeletonStrong : skeletonBase),
+                      border: `1px solid ${tone === 'ghost' ? ghostBorder : blockBorder}`,
+                    }}
                   />
-                ))}
-              </div>
-              <div className="enq-queue-skeleton__chips" style={{ flexWrap: 'wrap', rowGap: 6 }}>
-                {pipelineLayout.bottom.map((width, chipIdx) => (
-                  <div
-                    key={`bottom-${chipIdx}`}
-                    className="enq-queue-skeleton__block enq-queue-skeleton__block--base"
-                    style={sBlock(width, 16)}
-                  />
-                ))}
-              </div>
+                </div>
+              ))}
             </div>
 
-            {/* Col 5: Row actions */}
+            {/* Col 6: Actions chevron */}
             <div className="enq-queue-skeleton__actions">
-              <div className="enq-queue-skeleton__block enq-queue-skeleton__block--base" style={sBlock(18, 18)} />
+              <div className="enq-queue-skeleton__block enq-queue-skeleton__block--base" style={sBlock(22, 22)} />
             </div>
           </div>
         );

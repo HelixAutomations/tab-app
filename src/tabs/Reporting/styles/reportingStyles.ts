@@ -113,18 +113,19 @@ export function getRangeButtonStyles(
 ): IButtonStyles {
   const inactiveColor = isDarkMode ? colours.dark.text : colours.helixBlue;
   const disabledColor = isDarkMode ? colours.subtleGrey : colours.greyText;
-  const activeTextColor = isDarkMode ? colours.highlight : colours.helixBlue;
+  const activeTextColor = isDarkMode ? colours.dark.text : colours.helixBlue;
+  const activeShadow = isDarkMode ? 'inset 0 -2px 0 rgba(54, 144, 206, 0.85)' : 'inset 0 -2px 0 rgba(13, 47, 96, 0.45)';
 
   const resolvedBackground = disabled
     ? (isDarkMode ? colours.websiteBlue : 'transparent')
     : active
-      ? (isDarkMode ? `${colours.blue}18` : `${colours.blue}12`)
+      ? (isDarkMode ? 'rgba(54, 144, 206, 0.22)' : 'rgba(214, 232, 255, 0.72)')
       : (isDarkMode ? colours.websiteBlue : 'transparent');
 
   const resolvedBorder = disabled
     ? `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}40` : 'rgba(6, 23, 51, 0.12)'}`
     : active
-      ? `1px solid ${isDarkMode ? `${colours.blue}33` : `${colours.blue}25`}`
+      ? `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.78)' : 'rgba(13, 47, 96, 0.34)'}`
       : `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}40` : 'rgba(6, 23, 51, 0.12)'}`;
 
   return {
@@ -143,7 +144,7 @@ export function getRangeButtonStyles(
       fontSize: 12,
       color: disabled ? disabledColor : active ? activeTextColor : inactiveColor,
       background: resolvedBackground,
-      boxShadow: 'none',
+      boxShadow: active && !disabled ? activeShadow : 'none',
       fontFamily: 'Raleway, sans-serif',
       cursor: disabled ? 'default' : 'pointer',
       transition:
@@ -156,14 +157,16 @@ export function getRangeButtonStyles(
           ? (isDarkMode ? `${colours.blue}24` : `${colours.blue}1a`)
           : (isDarkMode ? colours.dark.cardBackground : 'rgba(54, 144, 206, 0.06)'),
       color: disabled ? disabledColor : active ? activeTextColor : (isDarkMode ? colours.highlight : colours.highlight),
-      boxShadow: 'none',
+      boxShadow: active && !disabled ? activeShadow : 'none',
     },
     rootPressed: {
       background: disabled
         ? resolvedBackground
         : active
-          ? (isDarkMode ? `${colours.blue}30` : `${colours.blue}22`)
+          ? (isDarkMode ? 'rgba(54, 144, 206, 0.30)' : 'rgba(214, 232, 255, 0.88)')
           : (isDarkMode ? colours.dark.cardHover : 'rgba(54, 144, 206, 0.1)'),
+      color: disabled ? disabledColor : active ? activeTextColor : inactiveColor,
+      boxShadow: active && !disabled ? activeShadow : 'none',
     },
     label: { color: 'inherit' },
   };

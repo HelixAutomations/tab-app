@@ -7,6 +7,7 @@ interface InlineExpansionChevronProps {
   onClick: (e: React.MouseEvent) => void;
   isDarkMode: boolean;
   count?: number;
+  showCountBadge?: boolean;
   itemType: 'prospect' | 'client' | 'enquiry';
 }
 
@@ -19,6 +20,7 @@ const InlineExpansionChevron: React.FC<InlineExpansionChevronProps> = ({
   onClick,
   isDarkMode,
   count,
+  showCountBadge = true,
   itemType
 }) => {
   const itemLabel = itemType === 'enquiry'
@@ -77,7 +79,7 @@ const InlineExpansionChevron: React.FC<InlineExpansionChevronProps> = ({
       />
       
       {/* Count badge if provided */}
-      {count && count > 1 && (
+      {showCountBadge && count && count > 1 && (
         <div style={{
           position: 'absolute',
           top: -6,

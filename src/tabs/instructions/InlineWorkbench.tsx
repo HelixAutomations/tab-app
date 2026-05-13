@@ -5053,7 +5053,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                       <Icon iconName="Edit" styles={{ root: { fontSize: 10, color: textMuted } }} />
                                     </span>
                                   </div>
-                                  <div className="wb-notes-body" style={{
+                                  <div className="wb-notes-body enquiry-detail-scroll" style={{
                                     fontSize: 12, lineHeight: 1.6, color: textBody,
                                     whiteSpace: 'pre-wrap', maxHeight: 180, overflowY: 'auto',
                                     padding: '8px 14px',

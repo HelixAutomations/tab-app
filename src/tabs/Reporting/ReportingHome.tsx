@@ -1,5 +1,6 @@
-﻿import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
+﻿import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState, useRef } from 'react';
 import type { CSSProperties } from 'react';
+import './ReportingScroll.css';
 import { ActionButton, DefaultButton, PrimaryButton, IconButton } from '@fluentui/react/lib/Button';
 import { Modal } from '@fluentui/react/lib/Modal';
 import { Spinner, SpinnerSize } from '@fluentui/react/lib/Spinner';
@@ -45,9 +46,10 @@ import {
   deriveTrustState,
   findTrustCheck,
 } from './reportTrust';
+import { useReadinessRemediate } from './useReadinessRemediate';
 import { useStreamingDatasets } from '../../hooks/useStreamingDatasets';
 import { fetchWithRetry, fetchJSON } from '../../utils/fetchUtils';
-import { canSeePrivateHubControls, isAdminUser } from '../../app/admin';
+import { canSeePrivateHubControls, isAdminUser, isDevOwner } from '../../app/admin';
 import { useEffectivePermissions } from '../../app/effectivePermissions';
 import markWhite from '../../assets/markwhite.svg';
 import type { PpcIncomeMetrics, PpcMatchKind } from './types/ppc';
@@ -170,8 +172,8 @@ type MattersWipRangeKey = ReportRangeKey;
 const REPORT_RANGE_OPTIONS: Array<{ key: ReportRangeKey; label: string; months: number }> = [
   { key: '3m', label: '90 days', months: 3 },
   { key: '6m', label: '6 months', months: 6 },
-  { key: '12m', label: '12 months', months: 12 },
-  { key: '24m', label: '24 months', months: 24 },
+  { key: '12m', label: '1 year', months: 12 },
+  { key: '24m', label: '2 years', months: 24 },
 ];
 
 const MATTERS_WIP_RANGE_OPTIONS = REPORT_RANGE_OPTIONS;
@@ -190,6 +192,7 @@ type ReportingRangeDatasetInfo = {
 };
 
 const formatDateForQuery = (date: Date) => format(date, 'yyyy-MM-dd');
+const formatDateForRangeLabel = (date: Date) => format(date, 'd MMM yyyy');
 
 const describeRangeKey = (key: ReportRangeKey) => {
   const option = REPORT_RANGE_OPTIONS.find((entry) => entry.key === key);
@@ -206,6 +209,11 @@ const computeRangeWindowForMonths = (months: number) => {
 };
 
 const computeRangeWindowByKey = (key: ReportRangeKey) => computeRangeWindowForMonths(RANGE_MONTH_LOOKUP[key]);
+
+const describeRangeWindowByKey = (key: ReportRangeKey) => {
+  const range = computeRangeWindowByKey(key);
+  return `${formatDateForRangeLabel(range.start)} to ${formatDateForRangeLabel(range.end)}`;
+};
 
 const buildDateRangeParams = (prefix: string, range: { start: Date; end: Date }) => {
   const startStr = formatDateForQuery(range.start);
@@ -1501,6 +1509,17 @@ const conditionalButtonStyles = (isDarkMode: boolean, state: ButtonState): IButt
           return isDarkMode ? colours.dark.borderColor : colours.highlightNeutral;
       }
     })(),
+    color: (() => {
+      switch (state) {
+        case 'ready':
+          return isDarkMode ? colours.green : colours.helixBlue;
+        case 'warming':
+          return isDarkMode ? colours.blue : colours.helixBlue;
+        case 'neutral':
+        default:
+          return isDarkMode ? colours.subtleGrey : colours.greyText;
+      }
+    })(),
   },
   rootDisabled: {
     background: isDarkMode ? `${colours.dark.border}1A` : `${colours.subtleGrey}0D`,
@@ -1529,6 +1548,7 @@ const primaryButtonStyles = (isDarkMode: boolean): IButtonStyles => ({
   },
   rootPressed: {
     background: '#9e3e30',
+    color: '#ffffff',
   },
   rootDisabled: {
     background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
@@ -1561,6 +1581,7 @@ const subtleButtonStyles = (isDarkMode: boolean): IButtonStyles => ({
   },
   rootPressed: {
     background: isDarkMode ? 'rgba(75, 85, 99, 0.2)' : 'rgba(75, 85, 99, 0.1)',
+    color: isDarkMode ? colours.dark.text : colours.greyText,
   },
   icon: {
     color: isDarkMode ? colours.subtleGrey : colours.greyText,
@@ -1704,13 +1725,29 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
   const { setContent } = useNavigatorActions();
   const { showToast, hideToast, updateToast } = useToast();
   const loadingToastIdRef = useRef<string | null>(null);
+  const slimDashboardRangeToastLabelRef = useRef<string | null>(null);
   const [currentTime, setCurrentTime] = useState(() => new Date());
   const [activeView, setActiveView] = useState<ActiveViewType>('overview');
   const [mattersWipRangeKey, setMattersWipRangeKey] = useState<MattersWipRangeKey>('12m');
   const [pendingMattersRangeKey, setPendingMattersRangeKey] = useState<MattersWipRangeKey>(mattersWipRangeKey);
   const [enquiriesRangeKey, setEnquiriesRangeKey] = useState<ReportRangeKey>('12m');
   const [pendingEnquiriesRangeKey, setPendingEnquiriesRangeKey] = useState<ReportRangeKey>(enquiriesRangeKey);
+  const [slimSelectedRangeKey, setSlimSelectedRangeKey] = useState<ReportRangeKey | null>(null);
+  const [slimRangeInvoked, setSlimRangeInvoked] = useState(false);
   const refreshRangeButtonRef = useRef<HTMLSpanElement | null>(null);
+
+  // Reports rides the shared .app-scroll-region. Hide its scrollbar chrome
+  // while Reports is mounted, mirroring Matters/Home, and let the UserBubble
+  // "Show scrollbars" toggle (data-show-scrollbars="1" on <html>) reveal it
+  // on demand.
+  useLayoutEffect(() => {
+    const region = document.querySelector('.app-scroll-region') as HTMLElement | null;
+    if (!region) return;
+    region.classList.add('reporting-scroll-region');
+    return () => {
+      region.classList.remove('reporting-scroll-region');
+    };
+  }, []);
   const [isRefreshRangeCalloutOpen, setRefreshRangeCalloutOpen] = useState(false);
   const mattersRangeWindow = useMemo(() => computeMattersRangeWindow(mattersWipRangeKey), [mattersWipRangeKey]);
   const enquiriesRangeWindow = useMemo(() => computeRangeWindowByKey(enquiriesRangeKey), [enquiriesRangeKey]);
@@ -1978,10 +2015,13 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       if (loadingToastIdRef.current) {
         hideToast(loadingToastIdRef.current);
       }
+      const slimRangeLabel = slimDashboardRangeToastLabelRef.current;
       const toastId = showToast({
         type: 'loading',
-        title: 'Loading Reporting Data',
-        message: 'Fetching latest data. You can continue browsing - we\'ll notify you when it\'s ready.',
+        title: slimRangeLabel ? 'Preparing dashboard' : 'Loading Reporting Data',
+        message: slimRangeLabel
+          ? `Pulling ${slimRangeLabel} of reporting data. The dashboard CTA will unlock when the feeds are ready.`
+          : 'Fetching latest data. You can continue browsing - we\'ll notify you when it\'s ready.',
       });
       loadingToastIdRef.current = toastId;
     } else if (!isFetching && wasFetching) {
@@ -1990,15 +2030,19 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
         hideToast(loadingToastIdRef.current);
         loadingToastIdRef.current = null;
       }
+      const slimRangeLabel = slimDashboardRangeToastLabelRef.current;
       showToast({
         type: 'success',
-        title: 'Data Ready',
-        message: 'Reporting data has been refreshed.',
-        action: {
+        title: slimRangeLabel ? 'Dashboard data ready' : 'Data Ready',
+        message: slimRangeLabel
+          ? `The dashboard feeds are ready for ${slimRangeLabel}.`
+          : 'Reporting data has been refreshed.',
+        action: slimRangeLabel ? undefined : {
           label: 'View Reports',
           onClick: () => setActiveView('overview'),
         },
       });
+      slimDashboardRangeToastLabelRef.current = null;
     }
 
     // Cleanup when unmounting - only hide toast if fetching completed
@@ -2081,11 +2125,10 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
   const googleAdsRequestIdRef = useRef(0);
   const googleAnalyticsRequestIdRef = useRef(0);
 
-  useEffect(() => {
-    if (demoModeEnabled) {
-      applyDemoDatasets();
-    }
-  }, [demoModeEnabled, applyDemoDatasets]);
+  // Demo mode used to seed Reports with empty stub datasets. Reports now
+  // sources live data even in demo so the Management Dashboard renders real
+  // figures during walkthroughs. The period range stays a deliberate user
+  // invoke; we only apply a fallback at open-dashboard click time.
   const ppcIncomeMetrics = useMemo<PpcIncomeMetrics | null>(() => {
     const enquiries = datasetData.enquiries;
     const matters = datasetData.allMatters;
@@ -2912,13 +2955,23 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
 
   useEffect(() => {
     if (activeView === 'overview') {
-      setContent(null);
-      return () => { setContent(null); };
+      setContent(
+        <NavigatorDetailBar
+          onBack={handleBackToOverview}
+          showBackButton={false}
+          staticLabel="Reporting workspace"
+        />,
+      );
+      // Intentionally no cleanup that calls setContent(null): when this tab
+      // unmounts (e.g. switching to Matters), the next active tab's
+      // useLayoutEffect has already written its own navigator content. A
+      // cleanup here would race with that write and blank the shared bar.
+      return;
     }
 
     // dataCentre manages its own NavigatorDetailBar internally
     if (activeView === 'dataCentre') {
-      return () => { setContent(null); };
+      return;
     }
 
     // Utility views (logMonitor, etc.) that sit outside the main report tabs
@@ -2956,9 +3009,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       />,
     );
 
-    return () => {
-      setContent(null);
-    };
+    // No cleanup: see comment above about avoiding the navigator-clear race
+    // when this tab unmounts during a tab switch.
   }, [activeView, canViewEnquiryLedger, handleBackToOverview, isDarkMode, setContent, propUserData, featureToggles]);
 
   const fetchAnnualLeaveDataset = useCallback(async (forceRefresh: boolean): Promise<AnnualLeaveFetchResult> => {
@@ -3025,7 +3077,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
   const annualLeaveBootstrappedRef = useRef(false);
   useEffect(() => {
     if (annualLeaveBootstrappedRef.current) return;
-    if (testMode || demoModeEnabled) return;
+    if (testMode && !demoModeEnabled) return;
     if (datasetStatus.annualLeave?.status === 'ready' || datasetStatus.annualLeave?.status === 'loading') return;
     annualLeaveBootstrappedRef.current = true;
     setDatasetStatus(prev => ({
@@ -3086,14 +3138,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
 
   // Enhanced refresh function with streaming support and better throttling
   const performStreamingRefresh = useCallback(async (forceRefresh: boolean, options?: RefreshOptions) => {
-    if (demoModeEnabled) {
-      showToast({
-        message: 'Demo mode: reporting refresh disabled. Using cached/sample data.',
-        type: 'info',
-        duration: 4000,
-      });
-      return;
-    }
     // Prevent triggering if already actively loading
     if (isFetching && (isStreamingConnected || refreshStartedAt !== null)) {
       debugLog('Refresh already in progress, skipping');
@@ -3313,7 +3357,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     datasetStatus,
     propUserData,
     showToast,
-    demoModeEnabled,
   ]);
 
   // Data is NOT auto-fetched on entry. Users trigger loads via:
@@ -3327,14 +3370,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
   const lastRefreshRef = useRef<number>(0);
   
   const refreshDatasetsWithStreaming = useCallback(async () => {
-    if (demoModeEnabled) {
-      showToast({
-        message: 'Demo mode: reporting refresh disabled. Open reports without hitting live data.',
-        type: 'info',
-        duration: 4000,
-      });
-      return;
-    }
     const now = Date.now();
     const timeSinceLastRefresh = now - lastRefreshRef.current;
     const timeSinceGlobalRefresh = now - globalLastRefresh;
@@ -3381,18 +3416,10 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     globalLastRefresh = now; // Update global refresh timestamp
     // Use cached server data by default for speed; full fresh is available via the global Refresh Data modal
     return performStreamingRefresh(false);
-  }, [performStreamingRefresh, showToast, demoModeEnabled]);
+  }, [performStreamingRefresh, showToast]);
 
   // Scoped refreshers for specific reports with enhanced throttling
   const refreshCollectedFeesOnly = useCallback(async () => {
-    if (demoModeEnabled) {
-      showToast({
-        message: 'Demo mode: collected time refresh skipped. Live ingestion stays idle.',
-        type: 'info',
-        duration: 4000,
-      });
-      return;
-    }
     if (isFetching) {
       showToast({
         message: 'A refresh is already running. Please wait for it to finish.',
@@ -3411,17 +3438,9 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       streamTargets: ['recoveredFees'],
       statusTargets: ['recoveredFees'],
     });
-  }, [demoModeEnabled, isFetching, performStreamingRefresh, showToast]);
+  }, [isFetching, performStreamingRefresh, showToast]);
 
   const refreshAnnualLeaveOnly = useCallback(async () => {
-    if (demoModeEnabled) {
-      showToast({
-        message: 'Demo mode: annual leave refresh skipped. Live attendance endpoints stay idle.',
-        type: 'info',
-        duration: 4000,
-      });
-      return;
-    }
     // Prevent retriggering if already loading or recently completed
     if (isFetching || (datasetStatus.annualLeave?.status === 'loading')) {
       showToast({
@@ -3484,17 +3503,9 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       setIsFetching(false);
       setRefreshStartedAt(null);
     }
-  }, [fetchAnnualLeaveDataset, setStatusesFor, isFetching, datasetStatus.annualLeave, showToast, demoModeEnabled]);
+  }, [fetchAnnualLeaveDataset, setStatusesFor, isFetching, datasetStatus.annualLeave, showToast]);
 
   const refreshMetaMetricsOnly = useCallback(async () => {
-    if (demoModeEnabled) {
-      showToast({
-        message: 'Demo mode: Meta metrics refresh skipped. Marketing API calls are disabled.',
-        type: 'info',
-        duration: 4000,
-      });
-      return;
-    }
     // Prevent retriggering if already loading or recently completed
     if (isFetching || (datasetStatus.metaMetrics?.status === 'loading')) {
       showToast({
@@ -3546,17 +3557,9 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       setIsFetching(false);
       setRefreshStartedAt(null);
     }
-  }, [fetchMetaMetrics, setStatusesFor, isFetching, datasetStatus.metaMetrics, showToast, metaDaysBack, demoModeEnabled]);
+  }, [fetchMetaMetrics, setStatusesFor, isFetching, datasetStatus.metaMetrics, showToast, metaDaysBack]);
 
   const refreshGoogleAnalyticsOnly = useCallback(async () => {
-    if (demoModeEnabled) {
-      showToast({
-        message: 'Demo mode: SEO analytics refresh skipped. GA4 pulls are disabled.',
-        type: 'info',
-        duration: 4000,
-      });
-      return;
-    }
     if (datasetStatus.googleAnalytics?.status === 'loading') {
       showToast({
         message: 'SEO analytics refresh already running. We are still pulling the latest GA4 data.',
@@ -3611,7 +3614,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
         duration: 7000,
       });
     }
-  }, [datasetStatus.googleAnalytics?.status, fetchGoogleAnalyticsData, showToast, demoModeEnabled]);
+  }, [datasetStatus.googleAnalytics?.status, fetchGoogleAnalyticsData, showToast]);
 
   const refreshGoogleAdsOnly = useCallback(async () => {
     if (datasetStatus.googleAds?.status === 'loading') {
@@ -4352,12 +4355,51 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     });
   }, [showToast]);
   const trustGateBlocksEntry = trustGateEnabled && !trustGateOverridden && trustGateOverall === 'blocked';
+  // Trust gate has not yet returned a 'ready' verdict — used to keep the slim
+  // CTA visually disabled until backend signals are confirmed green.
+  const trustGateNotReady = trustGateEnabled && !trustGateOverridden && trustGateOverall !== 'ready';
+
+  // Slim Reports surface: everyone except the dev owner (LZ) sees a
+  // stripped-back workspace — page header (title + gear/refresh + Open
+  // Dashboard CTA) and a single Management Dashboard hero card. Per the
+  // 2026-05-12 follow-up: AC also sees slim, only Luke sees the full
+  // workspace. If blocked, we auto-fire remediation and let the existing
+  // teamsEscalation helper DM Luke after the attempt ceiling.
+  const isSlimReports = !isDevOwner(primaryUser) || Boolean(featureToggles?.viewAsProd);
+
+  useEffect(() => {
+    if (!isSlimReports || activeView !== 'overview') {
+      return;
+    }
+    setSlimSelectedRangeKey(null);
+    setSlimRangeInvoked(false);
+    slimDashboardRangeToastLabelRef.current = null;
+  }, [activeView, isSlimReports]);
+
+  const { state: slimRemediateState, remediate: slimRemediate } = useReadinessRemediate('collectedMtd');
+  const slimRemediateFiredForRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isSlimReports) return;
+    if (!trustGateBlocksEntry) {
+      slimRemediateFiredForRef.current = null;
+      return;
+    }
+    // Fire once per blocked transition. Server-side teamsEscalation handles
+    // the Luke DM after attempts hit the ceiling.
+    const stamp = trustReadinessPayload?.generatedAt || 'blocked';
+    if (slimRemediateFiredForRef.current === stamp) return;
+    if (slimRemediateState.status === 'running') return;
+    slimRemediateFiredForRef.current = stamp;
+    void slimRemediate();
+  }, [isSlimReports, trustGateBlocksEntry, trustReadinessPayload?.generatedAt, slimRemediate, slimRemediateState.status]);
+  const slimNotifiedLuke = slimRemediateState.status === 'escalated' || slimRemediateState.status === 'persisted';
 
   // More conservative auto-refresh logic to prevent excessive refreshing
   const handleOpenDashboard = useCallback(() => {
     // Trust gate (Phase B): block entry if dev preview user has unresolved blocking checks.
-    if (trustGateBlocksEntry) {
-      debugLog('Trust gate blocked — refusing to open Management Dashboard');
+    // Demo mode bypasses the gate so walkthroughs always open into live data.
+    if (trustGateBlocksEntry && !demoModeEnabled) {
+      debugLog('Trust gate blocked - refusing to open Management Dashboard');
       showToast({
         type: 'error',
         title: 'Reports access paused',
@@ -4366,11 +4408,19 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       return;
     }
 
+    // Demo mode bypasses the slim period gate. If the operator opens the
+    // dashboard without picking a range first, fall back to 12 months at
+    // click-time so the dashboard has a window to fetch against, without
+    // pre-empting the period invoke before the user has touched it.
+    if (demoModeEnabled && slimSelectedRangeKey === null) {
+      setSlimSelectedRangeKey('12m');
+    }
+
     // Immediately show loading state for better UX
     setActiveView('dashboard');
     
-    // In test mode, skip data refresh entirely
-    if (testMode) {
+    // In test mode, skip data refresh entirely (demo mode still pulls live data).
+    if (testMode && !demoModeEnabled) {
       debugLog('Test mode active: skipping dashboard data refresh');
       return;
     }
@@ -4390,7 +4440,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     } else {
       debugLog('Dashboard using cached data (fresh enough)');
     }
-  }, [hasFetchedOnce, isFetching, isStreamingConnected, refreshDatasetsWithStreaming, testMode, trustGateBlocksEntry, showToast]);
+  }, [hasFetchedOnce, isFetching, isStreamingConnected, refreshDatasetsWithStreaming, testMode, trustGateBlocksEntry, showToast, demoModeEnabled, slimSelectedRangeKey]);
 
   // Helper to navigate to reports in test mode without triggering refreshes
   const navigateToReport = useCallback((view: typeof activeView) => {
@@ -4898,6 +4948,421 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       </>
     ) : null;
     
+    // Slim Reports surface: render only the Management Dashboard entry path.
+    // Active, development, and disabled report sections are dropped so the
+    // workspace reduces to one clear operational affordance.
+    if (isSlimReports) {
+      if (!heroCard) return null;
+      const slimNeedsRange = !slimRangeInvoked || slimSelectedRangeKey === null;
+      const slimSelectedRangeLabel = slimSelectedRangeKey ? describeRangeKey(slimSelectedRangeKey) : null;
+      const slimRangeRefreshing = enquiriesRangeIsRefreshing || isActivelyLoading;
+      const slimDashboardFeedCues = MANAGEMENT_DASHBOARD_STATUS_TARGETS.map((datasetKey) => {
+        const summary = datasetSummaries.find((entry) => entry.definition.key === datasetKey);
+        const definition = DATASETS.find((entry) => entry.key === datasetKey);
+        const status = summary?.status ?? datasetStatus[datasetKey]?.status ?? 'idle';
+        const badge = STATUS_BADGE_COLOURS[status];
+        return {
+          key: datasetKey,
+          name: definition?.name ?? datasetKey,
+          status,
+          label: badge.label,
+          dot: badge.dot,
+          backgroundColor: isDarkMode ? badge.darkBg : badge.lightBg,
+        };
+      });
+      const slimShowFeedState = slimRangeInvoked && !slimNeedsRange;
+      const slimDashboardFeedsReady = slimShowFeedState && slimDashboardFeedCues.length > 0 && slimDashboardFeedCues.every((cue) => cue.status === 'ready');
+      const slimDashboardFeedsFailed = slimShowFeedState && slimDashboardFeedCues.some((cue) => cue.status === 'error');
+      const slimDashboardFeedsLoading = slimShowFeedState && slimDashboardFeedCues.some((cue) => cue.status === 'loading');
+      const slimReadyFeedCount = slimDashboardFeedCues.filter((cue) => cue.status === 'ready').length;
+      const slimRefreshingFeedCount = slimDashboardFeedCues.filter((cue) => cue.status === 'loading').length;
+      const slimIssueFeedCount = slimDashboardFeedCues.filter((cue) => cue.status === 'error').length;
+      const slimFeedSummary = slimDashboardFeedsReady
+        ? `Feeds ready (${slimDashboardFeedCues.length})`
+        : [
+          `${slimReadyFeedCount}/${slimDashboardFeedCues.length} ready`,
+          slimRefreshingFeedCount > 0 ? `${slimRefreshingFeedCount} refreshing` : null,
+          slimIssueFeedCount > 0 ? `${slimIssueFeedCount} issue${slimIssueFeedCount === 1 ? '' : 's'}` : null,
+        ].filter(Boolean).join(', ');
+      const slimOpenDisabled = slimNeedsRange || !slimShowFeedState || !slimDashboardFeedsReady || isActivelyLoading || (!demoModeEnabled && trustGateNotReady);
+      const slimStatusColour = !slimShowFeedState
+        ? colours.orange
+        : slimDashboardFeedsFailed
+          ? colours.cta
+        : isActivelyLoading
+          ? colours.highlight
+        : slimDashboardFeedsLoading || !slimDashboardFeedsReady || trustGateNotReady
+          ? colours.orange
+        : trustGateBlocksEntry
+          ? colours.cta
+          : colours.green;
+      const slimCtaDetail = slimNeedsRange
+        ? 'Choose a period above to start pulling live dashboard data.'
+        : slimDashboardFeedsFailed
+          ? 'One or more required feeds did not complete.'
+        : isActivelyLoading || slimDashboardFeedsLoading
+          ? null
+        : !slimDashboardFeedsReady
+          ? null
+        : trustGateBlocksEntry
+          ? 'The data gate has not cleared yet.'
+          : trustGateNotReady
+          ? 'The dashboard opens as soon as the feeds are ready.'
+          : null;
+      const slimSelectedRangeText = slimSelectedRangeLabel?.toLowerCase() ?? 'selected period';
+      const slimHeroTitle = 'Management dashboard';
+      const slimHeroDescription = slimNeedsRange
+        ? 'Choose a reporting period to start the dashboard pull.'
+        : slimDashboardFeedsFailed
+          ? 'The dashboard will unlock after all required feeds complete successfully.'
+        : slimRangeRefreshing
+          ? `Pulling the last ${slimSelectedRangeText} so the dashboard opens cleanly.`
+        : !slimDashboardFeedsReady
+          ? `The dashboard will open using the last ${slimSelectedRangeText} once feeds are ready.`
+        : `The dashboard will open using the last ${slimSelectedRangeText} of reporting data.`;
+      const slimTrayTitle = !slimShowFeedState
+        ? 'Waiting for period'
+        : slimDashboardFeedsFailed
+          ? 'Feed attention needed'
+        : slimRangeRefreshing || slimDashboardFeedsLoading
+          ? `Pulling ${slimSelectedRangeText}`
+        : slimDashboardFeedsReady
+          ? `Ready for ${slimSelectedRangeText}`
+          : `Preparing ${slimSelectedRangeText}`;
+      const slimTrayDetail = !slimShowFeedState
+        ? 'Pick 90 days, 6 months, 12 months, or 24 months to invoke the live pull.'
+        : slimDashboardFeedsFailed
+          ? 'Review the feed dots before opening the dashboard.'
+        : slimRangeRefreshing || slimDashboardFeedsLoading
+          ? slimFeedSummary
+        : slimDashboardFeedsReady
+          ? 'All required feeds are ready. Open the dashboard when you are ready.'
+          : slimFeedSummary;
+      const slimCtaLabel = slimNeedsRange
+        ? 'Choose period first'
+        : slimRangeRefreshing || slimDashboardFeedsLoading
+          ? 'Preparing dashboard'
+          : 'Open dashboard';
+      const handleSlimRangeSelect = (nextKey: ReportRangeKey) => {
+        const nextMattersKey = nextKey as MattersWipRangeKey;
+        const nextLabel = describeRangeKey(nextKey).toLowerCase();
+        slimDashboardRangeToastLabelRef.current = nextLabel;
+        setSlimRangeInvoked(true);
+        setSlimSelectedRangeKey(nextKey);
+        applyManagementRangeAndRefresh(nextKey, nextMattersKey, true);
+      };
+      return (
+        <div
+          data-helix-region="reports/slim-management"
+          style={{
+            width: '100%',
+            margin: '0 0 22px',
+          }}
+        >
+          <div
+            style={{
+              padding: '18px 24px',
+              backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.grey,
+              border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
+              borderRadius: 0,
+            }}
+          >
+            <div style={{ marginBottom: 12 }}>
+              <span style={{
+                display: 'block',
+                fontSize: 11,
+                fontWeight: 800,
+                textTransform: 'uppercase' as const,
+                letterSpacing: '0.08em',
+                color: isDarkMode ? colours.dark.text : colours.light.text,
+              }}>
+                Choose reporting period
+              </span>
+              <span style={{
+                display: 'block',
+                marginTop: 4,
+                fontSize: 12,
+                lineHeight: 1.45,
+                color: isDarkMode ? '#d1d5db' : '#374151',
+              }}>
+                This sets the date window used when the dashboard opens.
+              </span>
+            </div>
+
+            <div
+              role="radiogroup"
+              aria-label="Dashboard data window"
+              style={{
+                display: 'grid',
+                gridTemplateColumns: `repeat(${REPORT_RANGE_OPTIONS.length}, minmax(0, 1fr))`,
+                overflow: 'hidden',
+                border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
+                borderRadius: 0,
+              }}
+            >
+              {REPORT_RANGE_OPTIONS.map((option, index) => {
+                const selected = slimRangeInvoked && slimSelectedRangeKey === option.key;
+                const showPulse = selected && slimRangeRefreshing;
+                const rangeLabel = describeRangeWindowByKey(option.key);
+                return (
+                  <button
+                    key={option.key}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    aria-busy={showPulse || undefined}
+                    onClick={() => handleSlimRangeSelect(option.key)}
+                    disabled={slimRangeRefreshing}
+                    style={{
+                      appearance: 'none',
+                      position: 'relative',
+                      minHeight: 66,
+                      cursor: slimRangeRefreshing ? 'wait' : 'pointer',
+                      padding: '11px 10px',
+                      fontFamily: 'Raleway, sans-serif',
+                      fontSize: 13,
+                      fontWeight: selected ? 800 : 600,
+                      letterSpacing: 0.1,
+                      borderStyle: 'solid',
+                      borderWidth: index === 0 ? 0 : '0 0 0 1px',
+                      borderColor: isDarkMode ? colours.dark.borderColor : colours.highlightNeutral,
+                      borderRadius: 0,
+                      backgroundColor: selected
+                        ? (isDarkMode ? colours.dark.cardHover : colours.highlightBlue)
+                        : (isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground),
+                      color: selected
+                        ? colours.highlight
+                        : (isDarkMode ? colours.dark.text : colours.light.text),
+                      boxShadow: selected ? `inset 0 -3px 0 ${colours.highlight}` : 'none',
+                      transition: 'background-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease',
+                    }}
+                  >
+                    <span style={{ display: 'block' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                        {option.label}
+                        {showPulse && (
+                          <span
+                            aria-hidden="true"
+                            style={{
+                              display: 'inline-block',
+                              width: 10,
+                              height: 10,
+                              borderRadius: '50%',
+                              border: `2px solid ${colours.highlight}`,
+                              borderTopColor: 'transparent',
+                              animation: 'helix-period-spin 0.8s linear infinite',
+                            }}
+                          />
+                        )}
+                      </span>
+                      <span style={{
+                        display: 'block',
+                        marginTop: 5,
+                        fontSize: 10,
+                        lineHeight: 1.25,
+                        fontWeight: 600,
+                        color: selected
+                          ? (isDarkMode ? '#d1d5db' : '#374151')
+                          : (isDarkMode ? colours.subtleGrey : colours.greyText),
+                      }}>
+                        {rangeLabel}
+                      </span>
+                    </span>
+                    {showPulse && (
+                      <span
+                        aria-hidden="true"
+                        style={{
+                          position: 'absolute',
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          height: 2,
+                          overflow: 'hidden',
+                          backgroundColor: 'rgba(54, 144, 206, 0.18)',
+                        }}
+                      >
+                        <span
+                          style={{
+                            position: 'absolute',
+                            inset: 0,
+                            width: '40%',
+                            background: `linear-gradient(90deg, transparent, ${colours.highlight}, transparent)`,
+                            animation: 'helix-period-progress 1.1s ease-in-out infinite',
+                          }}
+                        />
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div
+            style={{
+              marginTop: 14,
+              backgroundColor: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
+              border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
+              borderRadius: 0,
+              boxShadow: isDarkMode ? '0 14px 34px rgba(0, 3, 25, 0.35)' : '0 18px 42px rgba(6, 23, 51, 0.10)',
+              overflow: 'hidden',
+            }}
+          >
+            <div style={{
+              display: 'block',
+              padding: '28px 24px',
+              opacity: trustGateNotReady ? 0.68 : 1,
+              transition: 'opacity 0.25s ease',
+            }}>
+              <div>
+                <h2 style={{
+                  margin: '0 0 10px',
+                  fontFamily: 'Raleway, sans-serif',
+                  fontSize: 28,
+                  lineHeight: 1.16,
+                  fontWeight: 800,
+                  color: isDarkMode ? colours.dark.text : colours.light.text,
+                }}>
+                  {slimHeroTitle}
+                </h2>
+                <p style={{
+                  margin: 0,
+                  maxWidth: 560,
+                  fontSize: 14,
+                  lineHeight: 1.55,
+                  color: isDarkMode ? '#d1d5db' : '#374151',
+                }}>
+                  {slimHeroDescription}
+                </p>
+              </div>
+            </div>
+
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 18,
+              padding: '16px 18px 16px 24px',
+              backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.grey,
+              borderTop: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
+            }}>
+              <div
+                role="status"
+                aria-live="polite"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  minHeight: 44,
+                  minWidth: 0,
+                  flex: '1 1 auto',
+                  opacity: 1,
+                  transition: 'opacity 0.22s ease, transform 0.22s ease',
+                }}
+              >
+                <span
+                  aria-hidden="true"
+                  style={{
+                    width: 3,
+                    height: 34,
+                    flex: '0 0 auto',
+                    backgroundColor: slimStatusColour,
+                    boxShadow: slimShowFeedState ? `0 0 16px ${slimStatusColour}44` : 'none',
+                  }}
+                />
+                <span style={{ display: 'block', minWidth: 0 }}>
+                  <span style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    fontSize: 12,
+                    fontWeight: 800,
+                    color: isDarkMode ? colours.dark.text : colours.light.text,
+                  }}>
+                    {(slimRangeRefreshing || slimDashboardFeedsLoading) && (
+                      <span
+                        aria-hidden="true"
+                        style={{
+                          display: 'inline-block',
+                          width: 10,
+                          height: 10,
+                          borderRadius: '50%',
+                          border: `2px solid ${colours.highlight}`,
+                          borderTopColor: 'transparent',
+                          animation: 'helix-period-spin 0.8s linear infinite',
+                        }}
+                      />
+                    )}
+                    {slimTrayTitle}
+                    {slimShowFeedState && (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                        {slimDashboardFeedCues.map((cue) => (
+                          <span
+                            key={cue.key}
+                            aria-label={`${cue.name}: ${cue.label}`}
+                            title={`${cue.name}: ${cue.label}`}
+                            style={{
+                              width: 8,
+                              height: 8,
+                              borderRadius: '50%',
+                              backgroundColor: cue.dot,
+                              boxShadow: `0 0 0 2px ${cue.backgroundColor}`,
+                            }}
+                          />
+                        ))}
+                      </span>
+                    )}
+                  </span>
+                  <span style={{
+                    display: 'block',
+                    marginTop: 4,
+                    fontSize: 12,
+                    color: isDarkMode ? '#d1d5db' : '#374151',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}>
+                    {slimCtaDetail ?? slimTrayDetail}
+                  </span>
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={handleLaunchDashboard}
+                disabled={slimOpenDisabled}
+                style={{
+                  appearance: 'none',
+                  flex: '0 0 auto',
+                  minWidth: 190,
+                  minHeight: 44,
+                  cursor: slimOpenDisabled ? 'not-allowed' : 'pointer',
+                  padding: '0 18px',
+                  fontFamily: 'Raleway, sans-serif',
+                  fontSize: 13,
+                  fontWeight: 800,
+                  color: slimOpenDisabled
+                    ? (isDarkMode ? colours.subtleGrey : colours.greyText)
+                    : colours.dark.text,
+                  backgroundColor: slimOpenDisabled
+                    ? (isDarkMode ? colours.dark.border : colours.light.disabledBackground)
+                    : colours.cta,
+                  borderStyle: 'solid',
+                  borderWidth: 1,
+                  borderColor: slimOpenDisabled
+                    ? (isDarkMode ? colours.dark.borderColor : colours.highlightNeutral)
+                    : colours.cta,
+                  borderRadius: 0,
+                  transition: 'background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease',
+                }}
+              >
+                {slimCtaLabel}
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <>
         {/* â”€â”€ Hero: Management Dashboard â”€â”€ */}
@@ -5231,8 +5696,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     });
   }, [enquiriesRangeKey, mattersWipRangeKey, performStreamingRefresh]);
 
-  const applyManagementRangeAndRefresh = useCallback((nextEnquiriesKey: ReportRangeKey, nextMattersKey: MattersWipRangeKey) => {
-    if (nextEnquiriesKey === enquiriesRangeKey && nextMattersKey === mattersWipRangeKey) {
+  const applyManagementRangeAndRefresh = useCallback((nextEnquiriesKey: ReportRangeKey, nextMattersKey: MattersWipRangeKey, forceRefresh = false) => {
+    if (!forceRefresh && nextEnquiriesKey === enquiriesRangeKey && nextMattersKey === mattersWipRangeKey) {
       return;
     }
     setEnquiriesRangeKey(nextEnquiriesKey);
@@ -5648,16 +6113,12 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
           border: 'none',
           borderRadius: 0,
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22, paddingBottom: 18, borderBottom: `0.5px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.18)' : 'rgba(6, 23, 51, 0.04)'}` }}>
-            <div>
-              <h1 style={{ margin: '0 0 6px 0', fontSize: 20, fontWeight: 600, fontFamily: 'Raleway, sans-serif', color: isDarkMode ? colours.dark.text : colours.light.text, letterSpacing: '-0.01em' }}>
-                Reporting workspace
-              </h1>
-              <p style={{ margin: 0, fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151', letterSpacing: 0.1 }}>
-                {isActivelyLoading ? 'Refreshing data feeds...' : (readyCount > 0 ? 'All systems ready' : 'Click a report or refresh to load data')}
-              </p>
-            </div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginBottom: 18 }}>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              {/* Slim users get the big preset row + joined Open Dashboard
+                  button below the header instead of the small toolbar. */}
+              {!isSlimReports && (
+              <>
               {/* Primary CTA */}
               <PrimaryButton
                 text='Open dashboard'
@@ -5749,7 +6210,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
                     />
                   </span>
                 </TooltipHost>
-                {canAccessReportingOps && (
+                {canAccessReportingOps && !isSlimReports && (
                   <TooltipHost content="View reporting activity feed">
                     <IconButton
                       ariaLabel="Open reporting activity"
@@ -5775,10 +6236,12 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
                   </TooltipHost>
                 )}
               </div>
+              </>
+              )}
             </div>
           </div>
 
-          <ReportingPulseStrip isDarkMode={isDarkMode} />
+          {!isSlimReports && <ReportingPulseStrip isDarkMode={isDarkMode} />}
 
           {isRefreshRangeCalloutOpen && refreshRangeButtonRef.current && (
             <Callout
@@ -5987,6 +6450,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
             </div>
           )}
 
+          {!isSlimReports && (
+          <>
           {/* â”€â”€ Data Hub status strip â”€â”€ */}
           <div
             onClick={() => navigateToReport('dataCentre')}
@@ -6251,11 +6716,13 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
               })}
             </div>
           )}
+          </>
+          )}
 
           {renderAvailableReportCards()}
 
-          {/* â”€â”€ Activity Monitor â€” not a report, a utility tool â”€â”€ */}
-          {canAccessReportingOps && (
+          {/* ── Activity Monitor — not a report, a utility tool ── */}
+          {canAccessReportingOps && !isSlimReports && (
             <div
               onClick={() => navigateToReport('logMonitor')}
               style={{
@@ -6319,7 +6786,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
           )}
 
           {/* â”€â”€ Sync History â€” scheduler tier timeline â”€â”€ */}
-          {canAccessReportingOps && (
+          {canAccessReportingOps && !isSlimReports && (
             <div
               onClick={() => navigateToReport('syncHistory')}
               style={{
@@ -6385,7 +6852,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
           {/* â”€â”€ Cache Monitor â€” only for LZ/AC in prod, everyone locally â”€â”€ */}
           {(() => {
             const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-            const canSeeCacheMonitor = isLocal || canSeePrivateHubControls(primaryUser);
+            const canSeeCacheMonitor = (isLocal || canSeePrivateHubControls(primaryUser)) && !isSlimReports;
             if (!canSeeCacheMonitor) return null;
             return (
               <div

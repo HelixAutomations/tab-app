@@ -483,62 +483,8 @@ export const workbenchShellBodyStyle = mergeStyles({
 });
 
 
-export const clientActionButtonStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    width: 32,
-    height: 32,
-    borderRadius: BADGE_RADIUS,
-    backgroundColor: isDarkMode ? colours.darkBlue : '#ffffff',
-    border: `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}66` : 'rgba(6, 23, 51, 0.06)'}`,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    cursor: 'pointer',
-    transition: 'background-color 0.15s, border-color 0.15s',
-    textDecoration: 'none',
-    ':hover': {
-      backgroundColor: isDarkMode ? colours.dark.cardHover : colours.light.cardHover,
-    },
-  });
-
-
-export const contactRowStyle = mergeStyles({
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  gap: 8,
-});
-
-
-export const copyChipStyle = (isCopied: boolean, isDarkMode: boolean) =>
-  mergeStyles({
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: 18,
-    height: 18,
-    flexShrink: 0,
-    borderRadius: 5,
-    border: isCopied
-      ? `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.5)' : 'rgba(54, 144, 206, 0.38)'}`
-      : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(100, 116, 139, 0.12)'}`,
-    background: isCopied
-      ? (isDarkMode ? 'rgba(54, 144, 206, 0.16)' : 'rgba(54, 144, 206, 0.12)')
-      : 'transparent',
-    color: isCopied
-      ? colours.highlight
-      : (isDarkMode ? 'rgba(203, 213, 225, 0.5)' : 'rgba(71, 85, 105, 0.55)'),
-    cursor: 'pointer',
-    padding: 0,
-    opacity: isCopied ? 1 : 0.6,
-    transition: 'opacity 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 160ms ease, background 160ms ease',
-    ':hover': {
-      opacity: isCopied ? 1 : 0.9,
-      borderColor: isCopied
-        ? (isDarkMode ? 'rgba(54, 144, 206, 0.6)' : 'rgba(54, 144, 206, 0.5)')
-        : (isDarkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(100, 116, 139, 0.3)'),
-    },
-  });
+// clientActionButtonStyle / contactRowStyle / copyChipStyle removed: replaced
+// by ContactModule from src/components/overview (Phase A unified Overview surface).
 
 
 export const clientFieldStackStyle = mergeStyles({

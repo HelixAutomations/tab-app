@@ -1,87 +1,207 @@
-﻿/**
- * YearOverYearComparison - Demand-loaded bar chart comparison of WIP,
- * Collected, Matters across up to 5 financial years (Apr->Mar), YTD-scoped.
- *
- * Modes: split (3 separate charts) or combined (grouped bars on one chart).
- * Click a bar -> monthly drill-down. Dormant until user triggers load.
- */
-
-import React, { useCallback, useMemo, useState } from 'react';
-import {
-  BarChart, Bar, CartesianGrid, Tooltip, XAxis, YAxis,
-  ResponsiveContainer, Cell,
-} from 'recharts';
+import React, { CSSProperties, useCallback, useMemo, useState } from 'react';
 import { Spinner } from '@fluentui/react/lib/Spinner';
 import { Icon } from '@fluentui/react/lib/Icon';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';
 import {
-  reportingPanelBackground, reportingPanelBorder, reportingPanelShadow,
+  reportingPanelBackground,
+  reportingPanelBorder,
+  reportingPanelShadow,
 } from './styles/reportingFoundation';
 
-// -- Types --
-
 interface YoYYearData {
-  fy: number; label: string; startDate: string; endDate: string;
-  wip: number; wipHours: number; wipRowCount: number;
-  collected: number; collectedRowCount: number; mattersOpened: number;
-  dataAvailability: { wip: boolean; collected: boolean; matters: boolean;
-    wipMinDate: string | null; wipMaxDate: string | null;
-    collectedMinDate: string | null; collectedMaxDate: string | null; };
+  fy: number;
+  label: string;
+  startDate: string;
+  endDate: string;
+  wip: number;
+  wipHours: number;
+  wipRowCount: number;
+  collected: number;
+  collectedRowCount: number;
+  mattersOpened: number;
+  dataAvailability: {
+    wip: boolean;
+    collected: boolean;
+    matters: boolean;
+    wipMinDate: string | null;
+    wipMaxDate: string | null;
+    collectedMinDate: string | null;
+    collectedMaxDate: string | null;
+  };
 }
-interface YoYResponse { generatedAt: string; anchorDate: string | null; ytd: boolean; years: YoYYearData[]; }
+
+interface YoYResponse {
+  generatedAt: string;
+  anchorDate: string | null;
+  ytd: boolean;
+  years: YoYYearData[];
+}
+
 type MetricKey = 'wip' | 'collected' | 'mattersOpened';
-interface MonthlyPoint { label: string; value: number; rowCount: number; }
-interface DrillYearData { fy: number; fyLabel: string; months: MonthlyPoint[]; }
-interface DrillDown { metric: MetricKey; years: DrillYearData[]; }
 type Phase = 'idle' | 'loading' | 'loaded' | 'error';
-type ChartMode = 'combined' | 'split';
+type MonthlyPhase = 'idle' | 'loading' | 'loaded' | 'error';
 
-// -- Brand constants (Helix palette only — no generic green/orange) --
+interface MetricConfig {
+  label: string;
+  detail: string;
+  iconName: string;
+  colour: string;
+  value: (year: YoYYearData) => number;
+  available: (year: YoYYearData) => boolean;
+  format: (value: number) => string;
+  compact: (value: number) => string;
+}
 
-const METRIC_CFG: Record<MetricKey, { label: string; shortLabel: string; darkColour: string; lightColour: string; format: (v: number) => string }> = {
-  wip:            { label: 'WIP',       shortLabel: 'WIP',       darkColour: colours.highlight, lightColour: colours.helixBlue,  format: v => v >= 1000 ? `${'\u00A3'}${(v/1000).toFixed(0)}k` : `${'\u00A3'}${v.toFixed(0)}` },
-  collected:      { label: 'Collected', shortLabel: 'Collected', darkColour: colours.accent,    lightColour: colours.highlight, format: v => v >= 1000 ? `${'\u00A3'}${(v/1000).toFixed(0)}k` : `${'\u00A3'}${v.toFixed(0)}` },
-  mattersOpened:  { label: 'Matters',   shortLabel: 'Matters',   darkColour: colours.cta,       lightColour: colours.cta,       format: v => v.toFixed(0) },
+interface MonthlyPoint {
+  label: string;
+  value: number;
+  rowCount: number;
+}
+
+interface DrillYearData {
+  fy: number;
+  fyLabel: string;
+  months: MonthlyPoint[];
+}
+
+const METRIC_KEYS: MetricKey[] = ['wip', 'collected', 'mattersOpened'];
+const MONTH_LABELS = ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar'];
+
+const formatCurrency = (value: number): string => `${'\u00A3'}${value.toLocaleString('en-GB', { maximumFractionDigits: 0 })}`;
+
+const formatCompactCurrency = (value: number): string => {
+  const absValue = Math.abs(value);
+  if (absValue >= 1_000_000) return `${'\u00A3'}${(value / 1_000_000).toFixed(2)}m`;
+  if (absValue >= 100_000) return `${'\u00A3'}${(value / 1_000).toFixed(0)}k`;
+  if (absValue >= 10_000) return `${'\u00A3'}${(value / 1_000).toFixed(1)}k`;
+  return formatCurrency(value);
 };
 
-const fmtCurrency = (v: number) => `${'\u00A3'}${v.toLocaleString('en-GB', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
-const fmtCount = (v: number) => v.toLocaleString('en-GB');
+const formatCount = (value: number): string => value.toLocaleString('en-GB', { maximumFractionDigits: 0 });
 
-// -- Component --
+const formatHours = (value: number): string => `${Math.round(value).toLocaleString('en-GB')}h`;
+
+const formatDate = (value: string | null | undefined): string => {
+  if (!value) return 'Unknown';
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return 'Unknown';
+  return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+};
+
+const clampPercent = (value: number): number => Math.max(0, Math.min(100, value));
+
+const deltaPercent = (current: number, previous: number | null): number | null => {
+  if (!previous) return null;
+  return ((current - previous) / previous) * 100;
+};
+
+const yearRangeLabel = (year: YoYYearData): string => `${formatDate(year.startDate)} to ${formatDate(year.endDate)}`;
 
 const YearOverYearComparison: React.FC = () => {
   const { isDarkMode } = useTheme();
-  const dm = isDarkMode;
-
-  // Resolve mode-aware metric colours from Helix palette
-  const metrics = useMemo(() => {
-    const resolve = (mk: MetricKey) => {
-      const cfg = METRIC_CFG[mk];
-      return { ...cfg, colour: dm ? cfg.darkColour : cfg.lightColour };
-    };
-    return { wip: resolve('wip'), collected: resolve('collected'), mattersOpened: resolve('mattersOpened') } as Record<MetricKey, { label: string; shortLabel: string; colour: string; format: (v: number) => string }>;
-  }, [dm]);
-
   const [phase, setPhase] = useState<Phase>('idle');
+  const [yearsBack, setYearsBack] = useState(3);
+  const [activeMetric, setActiveMetric] = useState<MetricKey>('wip');
   const [data, setData] = useState<YoYResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [yearsBack, setYearsBack] = useState(3);
-  const [chartMode, setChartMode] = useState<ChartMode>('split');
-  const [drillDown, setDrillDown] = useState<DrillDown | null>(null);
-  const [drillLoading, setDrillLoading] = useState(false);
+  const [monthlyPhase, setMonthlyPhase] = useState<MonthlyPhase>('idle');
+  const [monthlyError, setMonthlyError] = useState<string | null>(null);
+  const [monthlyCache, setMonthlyCache] = useState<Partial<Record<MetricKey, DrillYearData[]>>>({});
 
-  // -- Fetchers --
+  const accent = colours.highlight;
+  const bodyText = isDarkMode ? '#d1d5db' : '#374151';
+  const labelText = isDarkMode ? colours.dark.text : colours.darkBlue;
+  const muted = isDarkMode ? colours.subtleGrey : colours.greyText;
+  const cardBackground = isDarkMode ? 'rgba(6, 23, 51, 0.58)' : 'rgba(255, 255, 255, 0.72)';
+  const elevatedBackground = isDarkMode ? 'rgba(13, 47, 96, 0.48)' : 'rgba(244, 244, 246, 0.72)';
+  const border = isDarkMode ? 'rgba(75, 85, 99, 0.34)' : 'rgba(6, 23, 51, 0.10)';
+  const softBorder = isDarkMode ? 'rgba(75, 85, 99, 0.22)' : 'rgba(6, 23, 51, 0.07)';
 
-  const fetchData = useCallback(async (years?: number) => {
-    const yb = years ?? yearsBack;
+  const metricConfig = useMemo<Record<MetricKey, MetricConfig>>(() => ({
+    wip: {
+      label: 'WIP',
+      detail: 'Open value',
+      iconName: 'Money',
+      colour: colours.highlight,
+      value: (year) => year.wip,
+      available: (year) => year.dataAvailability.wip,
+      format: formatCurrency,
+      compact: formatCompactCurrency,
+    },
+    collected: {
+      label: 'Collected',
+      detail: 'Paid fees',
+      iconName: 'PaymentCard',
+      colour: colours.green,
+      value: (year) => year.collected,
+      available: (year) => year.dataAvailability.collected,
+      format: formatCurrency,
+      compact: formatCompactCurrency,
+    },
+    mattersOpened: {
+      label: 'Matters',
+      detail: 'Opened',
+      iconName: 'WorkItem',
+      colour: colours.cta,
+      value: (year) => year.mattersOpened,
+      available: (year) => year.dataAvailability.matters,
+      format: formatCount,
+      compact: formatCount,
+    },
+  }), []);
+
+  const panelStyle: CSSProperties = {
+    background: reportingPanelBackground(isDarkMode),
+    border: `0.5px solid ${reportingPanelBorder(isDarkMode)}`,
+    boxShadow: reportingPanelShadow(isDarkMode),
+    borderRadius: 0,
+    padding: 20,
+    fontFamily: 'Raleway, sans-serif',
+    color: labelText,
+  };
+
+  const tertiaryButtonStyle = (active: boolean): CSSProperties => ({
+    height: 30,
+    borderRadius: 0,
+    border: `1px solid ${active ? 'rgba(54, 144, 206, 0.48)' : border}`,
+    background: active ? (isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(214, 232, 255, 0.82)') : cardBackground,
+    color: active ? labelText : muted,
+    cursor: 'pointer',
+    padding: '0 10px',
+    fontFamily: 'Raleway, sans-serif',
+    fontSize: 11,
+    fontWeight: active ? 800 : 700,
+    letterSpacing: 0,
+  });
+
+  const primaryButtonStyle: CSSProperties = {
+    height: 32,
+    borderRadius: 0,
+    border: '1px solid rgba(54, 144, 206, 0.42)',
+    background: isDarkMode ? colours.highlight : colours.helixBlue,
+    color: '#ffffff',
+    cursor: 'pointer',
+    padding: '0 14px',
+    fontFamily: 'Raleway, sans-serif',
+    fontSize: 11,
+    fontWeight: 800,
+    letterSpacing: 0,
+  };
+
+  const loadComparison = useCallback(async (nextYearsBack?: number) => {
+    const requestedYears = nextYearsBack ?? yearsBack;
     setPhase('loading');
     setError(null);
-    setDrillDown(null);
+    setMonthlyError(null);
+    setMonthlyPhase('idle');
+    setMonthlyCache({});
+
     try {
-      const res = await fetch(`/api/yoy-comparison?yearsBack=${yb}&ytd=true`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setData(await res.json());
+      const response = await fetch(`/api/yoy-comparison?yearsBack=${requestedYears}&ytd=true`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const nextData = await response.json() as YoYResponse;
+      setData(nextData);
       setPhase('loaded');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -89,369 +209,409 @@ const YearOverYearComparison: React.FC = () => {
     }
   }, [yearsBack]);
 
-  const fetchMonthly = useCallback(async (fy: number, metric: MetricKey) => {
-    if (drillDown?.metric === metric) { setDrillDown(null); return; }
-    if (!data?.years?.length) return;
-    setDrillLoading(true);
+  const loadMonthly = useCallback(async (metric: MetricKey = activeMetric) => {
+    if (!data?.years.length) return;
+    if (monthlyCache[metric]) {
+      setMonthlyPhase('loaded');
+      return;
+    }
+
+    setMonthlyPhase('loading');
+    setMonthlyError(null);
+
     try {
-      const results = await Promise.all(
-        data.years.map(async (yr) => {
-          const res = await fetch(`/api/yoy-comparison/monthly?fy=${yr.fy}&metric=${metric}`);
-          if (!res.ok) return null;
-          const json = await res.json();
-          return { fy: json.fy as number, fyLabel: json.fyLabel as string, months: json.months as MonthlyPoint[] };
-        })
-      );
-      const valid = results.filter((r): r is DrillYearData => r !== null);
-      if (valid.length) setDrillDown({ metric, years: valid });
-      else setDrillDown(null);
-    } catch { setDrillDown(null); }
-    finally { setDrillLoading(false); }
-  }, [drillDown, data]);
+      const results = await Promise.all(data.years.map(async (year) => {
+        const response = await fetch(`/api/yoy-comparison/monthly?fy=${year.fy}&metric=${metric}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const json = await response.json() as DrillYearData;
+        return json;
+      }));
 
-  // -- Derived data --
+      setMonthlyCache((current) => ({ ...current, [metric]: results }));
+      setMonthlyPhase('loaded');
+    } catch (err) {
+      setMonthlyError(err instanceof Error ? err.message : String(err));
+      setMonthlyPhase('error');
+    }
+  }, [activeMetric, data, monthlyCache]);
 
-  const hasGaps = useMemo(() => {
-    if (!data?.years) return false;
-    return data.years.some(yr => !yr.dataAvailability.wip || !yr.dataAvailability.collected || !yr.dataAvailability.matters);
-  }, [data]);
+  const years = data?.years ?? [];
+  const latestYear = years[years.length - 1] ?? null;
+  const previousYear = years[years.length - 2] ?? null;
+  const activeConfig = metricConfig[activeMetric];
+  const anchorLabel = data?.anchorDate ? formatDate(data.anchorDate) : formatDate(new Date().toISOString().slice(0, 10));
+  const generatedLabel = data?.generatedAt
+    ? new Date(data.generatedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+    : null;
 
-  const combinedChartData = useMemo(() => {
-    if (!data?.years) return [];
-    return data.years.map(yr => ({
-      label: yr.label, fy: yr.fy,
-      wip: yr.wip, collected: yr.collected, mattersOpened: yr.mattersOpened,
-      hasWip: yr.dataAvailability.wip, hasCollected: yr.dataAvailability.collected,
-      hasMatters: yr.dataAvailability.matters,
-    }));
-  }, [data]);
+  const metricSummaries = useMemo(() => METRIC_KEYS.map((metric) => {
+    const config = metricConfig[metric];
+    const current = latestYear ? config.value(latestYear) : 0;
+    const previous = previousYear ? config.value(previousYear) : null;
+    const delta = deltaPercent(current, previous);
+    return { metric, config, current, delta };
+  }), [latestYear, metricConfig, previousYear]);
 
-  // -- Shared styles --
+  const activeMetricMax = useMemo(() => {
+    const maxValue = Math.max(...years.map((year) => activeConfig.value(year)), 0);
+    return maxValue || 1;
+  }, [activeConfig, years]);
 
-  const panel: React.CSSProperties = {
-    background: reportingPanelBackground(dm),
-    border: `0.5px solid ${reportingPanelBorder(dm)}`,
-    boxShadow: reportingPanelShadow(dm),
-    borderRadius: 0, padding: '20px 24px', fontFamily: 'Raleway, sans-serif',
-  };
-  const accent   = dm ? colours.accent : colours.highlight;
-  const muted    = dm ? colours.subtleGrey : colours.greyText;
-  const bodyText = dm ? '#d1d5db' : '#374151';
-  const gridLine = dm ? 'rgba(75, 85, 99, 0.2)' : 'rgba(107, 107, 107, 0.08)';
-  const axisLine = dm ? 'rgba(75, 85, 99, 0.3)' : 'rgba(107, 107, 107, 0.15)';
-  const cardBg   = dm ? 'rgba(6, 23, 51, 0.5)' : 'rgba(244, 244, 246, 0.6)';
-  const cardBdr  = dm ? 'rgba(75, 85, 99, 0.25)' : 'rgba(107, 107, 107, 0.1)';
+  const availabilitySummary = useMemo(() => {
+    const total = years.length * METRIC_KEYS.length;
+    if (!total) return { ready: 0, total: 0 };
+    const ready = years.reduce((count, year) => (
+      count + METRIC_KEYS.filter((metric) => metricConfig[metric].available(year)).length
+    ), 0);
+    return { ready, total };
+  }, [metricConfig, years]);
 
-  const pill = (active: boolean): React.CSSProperties => ({
-    fontSize: 10, fontWeight: active ? 700 : 500, padding: '3px 10px', cursor: 'pointer',
-    borderRadius: 0, transition: 'all 0.15s ease',
-    border: `0.5px solid ${active ? (dm ? `${colours.highlight}40` : `${colours.highlight}30`) : (dm ? 'rgba(75,85,99,0.3)' : 'rgba(107,107,107,0.15)')}`,
-    background: active ? (dm ? `${colours.highlight}12` : `${colours.highlight}0a`) : 'transparent',
-    color: active ? (dm ? colours.highlight : colours.helixBlue) : muted,
-  });
+  const monthlyData = monthlyCache[activeMetric] ?? null;
+  const monthlyPeak = useMemo(() => {
+    if (!monthlyData) return 1;
+    const peak = Math.max(...monthlyData.flatMap((year) => year.months.map((month) => month.value)), 0);
+    return peak || 1;
+  }, [monthlyData]);
 
-  const tooltipStyle = {
-    background: dm ? 'rgba(6, 23, 51, 0.95)' : 'rgba(255, 255, 255, 0.96)',
-    border: `0.5px solid ${dm ? 'rgba(75, 85, 99, 0.4)' : 'rgba(107, 107, 107, 0.15)'}`,
-    borderRadius: 0, fontSize: 11, fontFamily: 'Raleway, sans-serif',
-    color: dm ? '#f3f4f6' : '#061733',
-    boxShadow: dm ? '0 4px 12px rgba(0,0,0,0.4)' : '0 3px 8px rgba(6,23,51,0.08)',
-    padding: '6px 10px',
-  };
+  const renderDelta = (delta: number | null): JSX.Element => {
+    if (delta === null) {
+      return <span style={{ color: muted, fontSize: 10, fontWeight: 700 }}>baseline</span>;
+    }
 
-  const tickStyle = { fontSize: 9, fill: muted, fontFamily: 'Raleway, sans-serif' };
-
-  // -- Change indicator --
-
-  const changeTag = (current: number, previous: number) => {
-    if (!previous) return null;
-    const pct = ((current - previous) / previous) * 100;
-    const up = pct >= 0;
+    const isPositive = delta >= 0;
     return (
-      <span style={{ fontSize: 10, fontWeight: 600, color: up ? colours.green : colours.cta, marginLeft: 6 }}>
-        {up ? '\u25B2' : '\u25BC'} {Math.abs(pct).toFixed(1)}%
+      <span style={{ color: isPositive ? colours.green : colours.cta, fontSize: 10, fontWeight: 800 }}>
+        {isPositive ? '+' : ''}{delta.toFixed(1)}%
       </span>
     );
   };
 
-  // ===========================================================
-  // IDLE
-  // ===========================================================
-
-  if (phase === 'idle') {
-    return (
-      <div style={panel}>
-        <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '1.2px', color: accent, marginBottom: 12 }}>
-          Year-over-Year Comparison
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' as const }}>
-          {[3, 4, 5].map(n => (
-            <span key={n} style={pill(yearsBack === n)} onClick={() => setYearsBack(n)}>{n}y</span>
-          ))}
+  const renderAvailabilityPills = (year: YoYYearData): JSX.Element => (
+    <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+      {METRIC_KEYS.map((metric) => {
+        const config = metricConfig[metric];
+        const available = config.available(year);
+        return (
           <span
-            onClick={() => fetchData()}
+            key={metric}
             style={{
-              fontSize: 11, fontWeight: 700, padding: '4px 16px', cursor: 'pointer',
-              borderRadius: 0, background: dm ? colours.highlight : colours.helixBlue,
-              color: '#fff', border: 'none', marginLeft: 4,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              height: 18,
+              padding: '0 6px',
+              borderRadius: 999,
+              border: `1px solid ${available ? `${config.colour}44` : softBorder}`,
+              color: available ? labelText : muted,
+              background: available ? `${config.colour}16` : 'transparent',
+              fontSize: 9,
+              fontWeight: 800,
             }}
           >
-            Load
+            <span
+              style={{
+                width: 5,
+                height: 5,
+                borderRadius: '50%',
+                background: available ? config.colour : muted,
+                opacity: available ? 1 : 0.45,
+              }}
+            />
+            {config.label}
           </span>
-          <span style={{ fontSize: 10, color: muted, marginLeft: 4 }}>
-            WIP {'\u00B7'} Collected {'\u00B7'} Matters {'\u2014'} {yearsBack} financial years, YTD to {new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
-          </span>
+        );
+      })}
+    </div>
+  );
+
+  const renderIdle = (): JSX.Element => (
+    <div style={panelStyle}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 18, alignItems: 'center' }}>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+            <Icon iconName="LineChart" style={{ color: accent, fontSize: 16 }} />
+            <span style={{ color: accent, fontSize: 11, fontWeight: 900, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+              Year on year
+            </span>
+          </div>
+          <div style={{ color: bodyText, fontSize: 13, lineHeight: 1.45 }}>
+            Load a YTD comparison across WIP, collected fees and matters for the current financial-year window.
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          {[3, 4, 5].map((option) => (
+            <button key={option} type="button" style={tertiaryButtonStyle(yearsBack === option)} onClick={() => setYearsBack(option)}>
+              {option}y
+            </button>
+          ))}
+          <button type="button" style={primaryButtonStyle} onClick={() => loadComparison()}>
+            Load comparison
+          </button>
         </div>
       </div>
-    );
-  }
+    </div>
+  );
 
-  // ===========================================================
-  // LOADING
-  // ===========================================================
+  if (phase === 'idle') return renderIdle();
 
   if (phase === 'loading') {
     return (
-      <div style={panel}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '32px 0' }}>
-          <Spinner size={1} label="Querying comparison data..." />
+      <div style={panelStyle}>
+        <div style={{ minHeight: 120, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Spinner size={1} label="Querying year-on-year data..." />
         </div>
       </div>
     );
   }
-
-  // ===========================================================
-  // ERROR
-  // ===========================================================
 
   if (phase === 'error') {
     return (
-      <div style={panel}>
-        <div style={{ fontSize: 12, color: colours.cta }}>{error}</div>
-        <span style={{ fontSize: 10, color: muted, cursor: 'pointer', marginTop: 8, display: 'inline-block' }} onClick={() => fetchData()}>Retry</span>
+      <div style={panelStyle}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: colours.cta, fontSize: 13, fontWeight: 800 }}>
+          <Icon iconName="Warning" />
+          Year-on-year comparison failed
+        </div>
+        <div style={{ color: bodyText, fontSize: 12, marginTop: 8 }}>{error}</div>
+        <button type="button" style={{ ...primaryButtonStyle, marginTop: 14 }} onClick={() => loadComparison()}>
+          Retry
+        </button>
       </div>
     );
   }
 
-  if (!data) return null;
-  const years = data.years;
-  const anchorLabel = data.anchorDate ? new Date(data.anchorDate + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : null;
-  const currentFY = years[years.length - 1];
-  const prevFY = years.length > 1 ? years[years.length - 2] : null;
-
-  // ===========================================================
-  // LOADED
-  // ===========================================================
+  if (!data || !latestYear) return renderIdle();
 
   return (
-    <div style={panel}>
-      {/* Header row */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '1.2px', color: accent }}>
-          Year-over-Year{data.ytd && anchorLabel ? ` ${'\u00B7'} YTD to ${anchorLabel}` : ''}
+    <div style={panelStyle}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 18, alignItems: 'start', marginBottom: 16 }}>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+            <Icon iconName="LineChart" style={{ color: accent, fontSize: 16 }} />
+            <span style={{ color: accent, fontSize: 11, fontWeight: 900, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+              Year on year performance
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', color: bodyText, fontSize: 12 }}>
+            <span>{years.length} financial years</span>
+            <span style={{ color: muted }}>YTD to {anchorLabel}</span>
+            <span style={{ color: muted }}>{availabilitySummary.ready}/{availabilitySummary.total} feeds available</span>
+            {generatedLabel && <span style={{ color: muted }}>Updated {generatedLabel}</span>}
+          </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          {[3, 4, 5].map(n => (
-            <span key={n} style={pill(yearsBack === n)} onClick={() => { setYearsBack(n); fetchData(n); }}>{n}y</span>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+          {[3, 4, 5].map((option) => (
+            <button
+              key={option}
+              type="button"
+              style={tertiaryButtonStyle(yearsBack === option)}
+              onClick={() => {
+                setYearsBack(option);
+                void loadComparison(option);
+              }}
+            >
+              {option}y
+            </button>
           ))}
-          <span style={{ width: 1, height: 14, background: dm ? 'rgba(75,85,99,0.3)' : 'rgba(107,107,107,0.15)', margin: '0 2px' }} />
-          <span style={pill(chartMode === 'combined')} onClick={() => setChartMode('combined')}>
-            <Icon iconName="BarChart4" style={{ fontSize: 10, marginRight: 2 }} />Combined
-          </span>
-          <span style={pill(chartMode === 'split')} onClick={() => setChartMode('split')}>
-            <Icon iconName="TripleColumn" style={{ fontSize: 10, marginRight: 2 }} />Split
-          </span>
-          <span style={{ width: 1, height: 14, background: dm ? 'rgba(75,85,99,0.3)' : 'rgba(107,107,107,0.15)', margin: '0 2px' }} />
-          <span style={{ fontSize: 10, color: muted, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }} onClick={() => fetchData()} title="Refresh">
-            <Icon iconName="Refresh" style={{ fontSize: 10 }} />
-          </span>
+          <button type="button" style={tertiaryButtonStyle(false)} onClick={() => loadComparison()}>
+            <Icon iconName="Refresh" style={{ marginRight: 6 }} />
+            Refresh
+          </button>
         </div>
       </div>
 
-      {/* Summary strip */}
-      <div style={{ display: 'flex', gap: 20, marginBottom: 14, flexWrap: 'wrap' as const }}>
-        {(['wip', 'collected', 'mattersOpened'] as MetricKey[]).map(mk => {
-          const cfg = metrics[mk];
-          const cur = mk === 'wip' ? currentFY.wip : mk === 'collected' ? currentFY.collected : currentFY.mattersOpened;
-          const prev = prevFY ? (mk === 'wip' ? prevFY.wip : mk === 'collected' ? prevFY.collected : prevFY.mattersOpened) : 0;
-          return (
-            <div key={mk} style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-              <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.6px', color: cfg.colour }}>{cfg.shortLabel}</span>
-              <span style={{ fontSize: 16, fontWeight: 700, color: dm ? colours.dark.text : colours.light.text }}>
-                {mk === 'mattersOpened' ? fmtCount(cur) : fmtCurrency(cur)}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10, marginBottom: 14 }}>
+        <div style={{ background: elevatedBackground, border: `1px solid ${border}`, padding: 12, borderRadius: 0 }}>
+          <div style={{ color: muted, fontSize: 10, fontWeight: 900, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 8 }}>Latest FY</div>
+          <div style={{ color: labelText, fontSize: 18, fontWeight: 900 }}>{latestYear.label}</div>
+          <div style={{ color: bodyText, fontSize: 11, marginTop: 4 }}>{yearRangeLabel(latestYear)}</div>
+          <div style={{ marginTop: 10 }}>{renderAvailabilityPills(latestYear)}</div>
+        </div>
+        {metricSummaries.map(({ metric, config, current, delta }) => (
+          <button
+            key={metric}
+            type="button"
+            onClick={() => setActiveMetric(metric)}
+            style={{
+              background: activeMetric === metric ? `${config.colour}14` : cardBackground,
+              border: `1px solid ${activeMetric === metric ? `${config.colour}66` : border}`,
+              borderRadius: 0,
+              padding: 12,
+              textAlign: 'left',
+              cursor: 'pointer',
+              fontFamily: 'Raleway, sans-serif',
+              color: labelText,
+              boxShadow: activeMetric === metric ? `inset 0 -2px 0 ${config.colour}` : 'none',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: muted, fontSize: 10, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                <Icon iconName={config.iconName} style={{ color: config.colour }} />
+                {config.label}
               </span>
-              {prevFY && changeTag(cur, prev)}
+              {renderDelta(delta)}
             </div>
+            <div style={{ color: labelText, fontSize: 20, fontWeight: 900, marginTop: 8 }}>{config.compact(current)}</div>
+            <div style={{ color: bodyText, fontSize: 11, marginTop: 3 }}>{config.detail}</div>
+          </button>
+        ))}
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+        {METRIC_KEYS.map((metric) => {
+          const config = metricConfig[metric];
+          return (
+            <button
+              key={metric}
+              type="button"
+              onClick={() => setActiveMetric(metric)}
+              style={{
+                ...tertiaryButtonStyle(activeMetric === metric),
+                borderColor: activeMetric === metric ? `${config.colour}66` : border,
+                color: activeMetric === metric ? labelText : muted,
+              }}
+            >
+              <Icon iconName={config.iconName} style={{ marginRight: 6, color: config.colour }} />
+              {config.label}
+            </button>
           );
         })}
-        {hasGaps && (
-          <span style={{ fontSize: 9, color: colours.orange, display: 'flex', alignItems: 'center', gap: 3 }}>
-            <Icon iconName="Warning" style={{ fontSize: 10 }} /> Some years have data gaps
-          </span>
-        )}
       </div>
 
-      {/* Combined chart */}
-      {chartMode === 'combined' && (
-        <div style={{ background: cardBg, border: `0.5px solid ${cardBdr}`, borderRadius: 0, padding: '16px 12px 8px' }}>
-          <div style={{ width: '100%', height: 240 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={combinedChartData} margin={{ top: 5, right: 12, left: 8, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={gridLine} vertical={false} />
-                <XAxis dataKey="label" tick={{ ...tickStyle, fontWeight: 600, fontSize: 10 }} axisLine={{ stroke: axisLine }} tickLine={false} />
-                <YAxis yAxisId="money" tick={tickStyle} axisLine={false} tickLine={false} tickFormatter={metrics.wip.format} width={55} />
-                <YAxis yAxisId="count" orientation="right" tick={tickStyle} axisLine={false} tickLine={false} width={35} />
-                <Tooltip contentStyle={tooltipStyle} labelStyle={{ fontWeight: 700, marginBottom: 3 }}
-                  formatter={(value: number, name: string) => {
-                    if (name === 'mattersOpened') return [fmtCount(value), 'Matters'];
-                    return [`${'\u00A3'}${value.toLocaleString('en-GB', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`, name === 'wip' ? 'WIP' : 'Collected'];
-                  }}
-                  cursor={{ fill: dm ? 'rgba(54,144,206,0.04)' : 'rgba(54,144,206,0.03)' }}
-                />
-                <Bar yAxisId="money" dataKey="wip" name="wip" fill={metrics.wip.colour} maxBarSize={28} cursor="pointer"
-                  onClick={(_d: Record<string, unknown>, idx: number) => { const yr = years[idx]; if (yr) fetchMonthly(yr.fy, 'wip'); }} />
-                <Bar yAxisId="money" dataKey="collected" name="collected" fill={metrics.collected.colour} maxBarSize={28} cursor="pointer"
-                  onClick={(_d: Record<string, unknown>, idx: number) => { const yr = years[idx]; if (yr) fetchMonthly(yr.fy, 'collected'); }} />
-                <Bar yAxisId="count" dataKey="mattersOpened" name="mattersOpened" fill={metrics.mattersOpened.colour} maxBarSize={28} cursor="pointer"
-                  onClick={(_d: Record<string, unknown>, idx: number) => { const yr = years[idx]; if (yr) fetchMonthly(yr.fy, 'mattersOpened'); }} />
-              </BarChart>
-            </ResponsiveContainer>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12, alignItems: 'stretch' }}>
+        <div style={{ background: cardBackground, border: `1px solid ${border}`, borderRadius: 0, padding: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, marginBottom: 12 }}>
+            <div>
+              <div style={{ color: activeConfig.colour, fontSize: 11, fontWeight: 900, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                {activeConfig.label} trend
+              </div>
+              <div style={{ color: bodyText, fontSize: 11, marginTop: 3 }}>Relative scale across the loaded financial years.</div>
+            </div>
+            <div style={{ color: muted, fontSize: 10, fontWeight: 700 }}>{activeConfig.detail}</div>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginTop: 4 }}>
-            {(['wip', 'collected', 'mattersOpened'] as MetricKey[]).map(mk => (
-              <span key={mk} style={{ fontSize: 9, color: muted, display: 'flex', alignItems: 'center', gap: 4 }}>
-                <span style={{ width: 8, height: 8, background: metrics[mk].colour, display: 'inline-block' }} />
-                {metrics[mk].shortLabel}
-              </span>
-            ))}
-            <span style={{ fontSize: 9, color: muted }}>{'\u00B7'} Click a bar for monthly detail</span>
+
+          <div style={{ display: 'grid', gap: 9 }}>
+            {years.map((year, index) => {
+              const value = activeConfig.value(year);
+              const previous = index > 0 ? activeConfig.value(years[index - 1]) : null;
+              const delta = deltaPercent(value, previous);
+              const width = clampPercent((value / activeMetricMax) * 100);
+              const isLatest = year.fy === latestYear.fy;
+              const available = activeConfig.available(year);
+
+              return (
+                <div key={year.fy} style={{ display: 'grid', gridTemplateColumns: '96px minmax(0, 1fr) 92px 64px', gap: 10, alignItems: 'center' }}>
+                  <div>
+                    <div style={{ color: isLatest ? labelText : bodyText, fontSize: 12, fontWeight: isLatest ? 900 : 800 }}>{year.label}</div>
+                    <div style={{ color: muted, fontSize: 9, marginTop: 2 }}>{available ? 'Ready' : 'Partial'}</div>
+                  </div>
+                  <div style={{ height: 30, background: isDarkMode ? 'rgba(0, 3, 25, 0.62)' : 'rgba(6, 23, 51, 0.05)', border: `1px solid ${softBorder}`, borderRadius: 0, overflow: 'hidden' }}>
+                    <div
+                      style={{
+                        width: `${width}%`,
+                        height: '100%',
+                        background: available ? `linear-gradient(90deg, ${activeConfig.colour}55, ${activeConfig.colour})` : `linear-gradient(90deg, ${muted}33, ${muted}66)`,
+                        opacity: isLatest ? 1 : 0.62 + (index / Math.max(years.length, 1)) * 0.24,
+                      }}
+                    />
+                  </div>
+                  <div style={{ color: labelText, fontSize: 12, fontWeight: 900, textAlign: 'right' }}>{activeConfig.compact(value)}</div>
+                  <div style={{ textAlign: 'right' }}>{renderDelta(delta)}</div>
+                </div>
+              );
+            })}
           </div>
         </div>
-      )}
 
-      {/* Split charts */}
-      {chartMode === 'split' && (
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' as const }}>
-          {(['wip', 'collected', 'mattersOpened'] as MetricKey[]).map(metric => {
-            const cfg = metrics[metric];
-            const mData = years.map(yr => ({
-              label: yr.label, fy: yr.fy,
-              value: metric === 'wip' ? yr.wip : metric === 'collected' ? yr.collected : yr.mattersOpened,
-              hasData: metric === 'wip' ? yr.dataAvailability.wip : metric === 'collected' ? yr.dataAvailability.collected : yr.dataAvailability.matters,
-            }));
-            return (
-              <div key={metric} style={{ background: cardBg, border: `0.5px solid ${cardBdr}`, borderRadius: 0, padding: '14px 12px 8px', flex: 1, minWidth: 240 }}>
-                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.6px', color: cfg.colour, marginBottom: 10 }}>{cfg.label}</div>
-                <div style={{ width: '100%', height: 180 }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={mData} margin={{ top: 5, right: 8, left: 4, bottom: 5 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={gridLine} vertical={false} />
-                      <XAxis dataKey="label" tick={{ ...tickStyle, fontWeight: 600 }} axisLine={{ stroke: axisLine }} tickLine={false} />
-                      <YAxis tick={tickStyle} axisLine={false} tickLine={false} tickFormatter={cfg.format} width={50} />
-                      <Tooltip contentStyle={tooltipStyle} labelStyle={{ fontWeight: 700, marginBottom: 3 }}
-                        formatter={(v: number) => metric === 'mattersOpened' ? [fmtCount(v), 'Matters'] : [`${'\u00A3'}${v.toLocaleString('en-GB', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`, cfg.label]}
-                        cursor={{ fill: dm ? 'rgba(54,144,206,0.04)' : 'rgba(54,144,206,0.03)' }}
-                      />
-                      <Bar dataKey="value" maxBarSize={36} cursor="pointer"
-                        onClick={(_d: Record<string, unknown>, idx: number) => { const yr = years[idx]; if (yr) fetchMonthly(yr.fy, metric); }}
-                      >
-                        {mData.map((entry, idx) => {
-                          const isSelected = drillDown?.metric === metric;
-                          return (
-                            <Cell key={idx}
-                              fill={entry.hasData ? cfg.colour : (dm ? 'rgba(75,85,99,0.15)' : 'rgba(107,107,107,0.08)')}
-                              opacity={entry.hasData ? (0.5 + ((idx + 1) / mData.length) * 0.5) : 0.3}
-                              stroke={isSelected ? accent : 'none'}
-                              strokeWidth={isSelected ? 2 : 0}
-                            />
-                          );
-                        })}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
+        <div style={{ background: cardBackground, border: `1px solid ${border}`, borderRadius: 0, padding: 14 }}>
+          <div style={{ color: muted, fontSize: 10, fontWeight: 900, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 10 }}>
+            Financial year detail
+          </div>
+          <div style={{ display: 'grid', gap: 8 }}>
+            {years.slice().reverse().map((year) => (
+              <div key={year.fy} style={{ background: elevatedBackground, border: `1px solid ${year.fy === latestYear.fy ? 'rgba(54, 144, 206, 0.42)' : softBorder}`, borderRadius: 0, padding: 10 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+                  <span style={{ color: labelText, fontSize: 12, fontWeight: 900 }}>{year.label}</span>
+                  <span style={{ color: muted, fontSize: 10, fontWeight: 700 }}>{yearRangeLabel(year)}</span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
+                  {METRIC_KEYS.map((metric) => {
+                    const config = metricConfig[metric];
+                    return (
+                      <div key={metric}>
+                        <div style={{ color: muted, fontSize: 9, fontWeight: 800 }}>{config.label}</div>
+                        <div style={{ color: labelText, fontSize: 12, fontWeight: 900, marginTop: 2 }}>{config.compact(config.value(year))}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginTop: 8 }}>
+                  <span style={{ color: muted, fontSize: 9, fontWeight: 700 }}>{formatHours(year.wipHours)}</span>
+                  {renderAvailabilityPills(year)}
                 </div>
               </div>
-            );
-          })}
+            ))}
+          </div>
         </div>
-      )}
+      </div>
 
-      {/* Drill-down */}
-      {drillLoading && (
-        <div style={{ marginTop: 12, padding: '20px 0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <Spinner size={1} label="Loading monthly..." />
-        </div>
-      )}
-      {drillDown && !drillLoading && (() => {
-        const { metric, years: ddYears } = drillDown;
-        const cfg = metrics[metric];
-        // Build grouped data: one row per month, one key per FY year
-        const MONTH_LABELS = ['Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar'];
-        const grouped = MONTH_LABELS.map((label, mi) => {
-          const row: Record<string, unknown> = { label };
-          ddYears.forEach(yr => {
-            const pt = yr.months[mi];
-            row[yr.fyLabel] = pt ? pt.value : 0;
-          });
-          return row;
-        });
-        // Opacity graduation: oldest year lightest, newest boldest
-        const opacities = ddYears.map((_, i) => 0.35 + ((i + 1) / ddYears.length) * 0.65);
-
-        return (
-          <div style={{ marginTop: 12, background: cardBg, border: `0.5px solid ${cardBdr}`, borderRadius: 0, padding: '16px 20px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-              <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.6px', color: cfg.colour }}>
-                {cfg.label}
-                <span style={{ fontWeight: 600, color: bodyText, marginLeft: 6, textTransform: 'none' as const, letterSpacing: 0 }}>
-                  Monthly comparison
-                </span>
-              </span>
-              <span onClick={() => setDrillDown(null)} style={{ fontSize: 9, color: muted, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}>
-                <Icon iconName="ChromeClose" style={{ fontSize: 9 }} /> Close
-              </span>
+      <div style={{ marginTop: 12, background: cardBackground, border: `1px solid ${border}`, borderRadius: 0, padding: 14 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: monthlyData ? 12 : 0 }}>
+          <div>
+            <div style={{ color: activeConfig.colour, fontSize: 11, fontWeight: 900, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+              Monthly profile
             </div>
-            <div style={{ width: '100%', height: 220 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={grouped} margin={{ top: 5, right: 12, left: 8, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={gridLine} vertical={false} />
-                  <XAxis dataKey="label" tick={{ ...tickStyle, fontWeight: 600 }} axisLine={{ stroke: axisLine }} tickLine={false} />
-                  <YAxis tick={tickStyle} axisLine={false} tickLine={false} tickFormatter={cfg.format} width={50} />
-                  <Tooltip contentStyle={tooltipStyle} labelStyle={{ fontWeight: 700, marginBottom: 3 }}
-                    formatter={(v: number, name: string) => {
-                      const formatted = metric === 'mattersOpened' ? fmtCount(v) : fmtCurrency(v);
-                      return [formatted, name];
-                    }}
-                    cursor={{ fill: dm ? 'rgba(54,144,206,0.04)' : 'rgba(54,144,206,0.03)' }}
-                  />
-                  {ddYears.map((yr, yi) => (
-                    <Bar key={yr.fy} dataKey={yr.fyLabel} fill={cfg.colour} opacity={opacities[yi]} maxBarSize={24} />
-                  ))}
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-            {/* Legend + totals */}
-            <div style={{ display: 'flex', justifyContent: 'center', gap: 14, marginTop: 6, flexWrap: 'wrap' as const }}>
-              {ddYears.map((yr, yi) => {
-                const total = yr.months.reduce((s, m) => s + m.value, 0);
-                return (
-                  <span key={yr.fy} style={{ fontSize: 9, color: bodyText, display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <span style={{ width: 8, height: 8, background: cfg.colour, opacity: opacities[yi], display: 'inline-block' }} />
-                    {yr.fyLabel}
-                    <span style={{ fontWeight: 700, marginLeft: 2 }}>
-                      {metric === 'mattersOpened' ? fmtCount(total) : fmtCurrency(total)}
-                    </span>
-                  </span>
-                );
-              })}
+            <div style={{ color: bodyText, fontSize: 11, marginTop: 3 }}>
+              Fiscal-month shape for {activeConfig.label.toLowerCase()}. Current FY stops at the anchor month.
             </div>
           </div>
-        );
-      })()}
+          <button type="button" style={tertiaryButtonStyle(false)} onClick={() => loadMonthly(activeMetric)} disabled={monthlyPhase === 'loading'}>
+            {monthlyPhase === 'loading' ? 'Loading...' : monthlyData ? 'Refresh monthly' : 'Load monthly'}
+          </button>
+        </div>
 
-      {/* Footer */}
-      <div style={{ fontSize: 8, color: muted, marginTop: 10, textAlign: 'right' as const }}>
-        {data.generatedAt ? new Date(data.generatedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : ''}
+        {monthlyPhase === 'loading' && (
+          <div style={{ padding: '20px 0', display: 'flex', justifyContent: 'center' }}>
+            <Spinner size={1} label="Loading monthly profile..." />
+          </div>
+        )}
+
+        {monthlyPhase === 'error' && monthlyError && (
+          <div style={{ color: colours.cta, fontSize: 12, fontWeight: 700, marginTop: 10 }}>{monthlyError}</div>
+        )}
+
+        {!monthlyData && monthlyPhase !== 'loading' && (
+          <div style={{ color: muted, fontSize: 11, marginTop: 10 }}>
+            Monthly data is kept on demand so the dashboard stays quick on first load.
+          </div>
+        )}
+
+        {monthlyData && (
+          <div style={{ display: 'grid', gap: 8, overflowX: 'auto', paddingBottom: 2 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '82px repeat(12, minmax(26px, 1fr)) 82px', gap: 5, color: muted, fontSize: 9, fontWeight: 800, minWidth: 560 }}>
+              <span>FY</span>
+              {MONTH_LABELS.map((month) => <span key={month} style={{ textAlign: 'center' }}>{month}</span>)}
+              <span style={{ textAlign: 'right' }}>Profile</span>
+            </div>
+            {monthlyData.map((year) => {
+              const total = year.months.reduce((sum, month) => sum + month.value, 0);
+              return (
+                <div key={year.fy} style={{ display: 'grid', gridTemplateColumns: '82px repeat(12, minmax(26px, 1fr)) 82px', gap: 5, alignItems: 'end', minWidth: 560 }}>
+                  <span style={{ color: labelText, fontSize: 11, fontWeight: 900, paddingBottom: 4 }}>{year.fyLabel}</span>
+                  {MONTH_LABELS.map((label, index) => {
+                    const point = year.months[index] ?? { label, value: 0, rowCount: 0 };
+                    const height = clampPercent((point.value / monthlyPeak) * 100);
+                    return (
+                      <div key={`${year.fy}-${label}`} title={`${year.fyLabel} ${label}: ${activeConfig.format(point.value)}`} style={{ height: 42, display: 'flex', alignItems: 'end', justifyContent: 'center', background: isDarkMode ? 'rgba(0, 3, 25, 0.34)' : 'rgba(6, 23, 51, 0.035)', border: `1px solid ${softBorder}` }}>
+                        <span style={{ width: '100%', height: `${Math.max(6, height)}%`, background: activeConfig.colour, opacity: point.value > 0 ? 0.28 + (height / 100) * 0.62 : 0.12 }} />
+                      </div>
+                    );
+                  })}
+                  <span style={{ color: labelText, fontSize: 11, fontWeight: 900, textAlign: 'right', paddingBottom: 4 }}>{activeConfig.compact(total)}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );

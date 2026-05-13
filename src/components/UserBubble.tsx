@@ -12,6 +12,7 @@ import { CommandCentreTokens, BubbleToastTone } from './command-centre/types';
 import SessionFiltersSection from './command-centre/SessionFiltersSection';
 import TodayStripSection from './command-centre/TodayStripSection';
 import CommsFrameworkSection from './command-centre/CommsFrameworkSection';
+import PromptCoachSection from './command-centre/PromptCoachSection';
 import { checkIsLocalDev } from '../utils/useIsLocalDev';
 
 /*
@@ -70,6 +71,24 @@ const UserBubble: React.FC<UserBubbleProps> = ({
     // ── Theme ──
     const { isDarkMode, toggleTheme } = useTheme();
     const popoverId = useId();
+
+    // ── Show scrollbars (accessibility / click-to-scroll preference) ──
+    // Persisted in localStorage; applied to <html> as data-show-scrollbars="1".
+    // CSS (Prospects.css `.enquiry-detail-scroll`) honours this attribute.
+    const [showScrollbars, setShowScrollbars] = useState<boolean>(() => {
+        if (typeof window === 'undefined') return false;
+        try { return localStorage.getItem('helix:showScrollbars') === '1'; } catch { return false; }
+    });
+    useEffect(() => {
+        if (typeof document === 'undefined') return;
+        const html = document.documentElement;
+        if (showScrollbars) {
+            html.setAttribute('data-show-scrollbars', '1');
+        } else {
+            html.removeAttribute('data-show-scrollbars');
+        }
+        try { localStorage.setItem('helix:showScrollbars', showScrollbars ? '1' : '0'); } catch {}
+    }, [showScrollbars]);
 
     // ── Tokens — derived from colours.ts brand values ──
     const bg = isDarkMode ? colours.websiteBlue : '#ffffff';
@@ -209,8 +228,18 @@ const UserBubble: React.FC<UserBubbleProps> = ({
         toggleRow: {
             display: 'flex' as const, alignItems: 'center' as const, justifyContent: 'space-between' as const,
             padding: '10px 12px', background: rowBaseBackground,
-            border: `1px solid ${borderLight}`,
-            borderLeft: '3px solid transparent',
+            borderTopWidth: 1,
+            borderRightWidth: 1,
+            borderBottomWidth: 1,
+            borderLeftWidth: 3,
+            borderTopStyle: 'solid',
+            borderRightStyle: 'solid',
+            borderBottomStyle: 'solid',
+            borderLeftStyle: 'solid',
+            borderTopColor: borderLight,
+            borderRightColor: borderLight,
+            borderBottomColor: borderLight,
+            borderLeftColor: 'transparent',
             borderRadius: '2px',
             cursor: 'pointer' as const, boxShadow: rowBaseShadow,
             transform: 'translateY(0)',
@@ -230,14 +259,18 @@ const UserBubble: React.FC<UserBubbleProps> = ({
             transition: 'background 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.18s ease, box-shadow 0.18s ease'
         },
         applyRowHover: (el: HTMLElement) => {
-            el.style.borderColor = borderMedium;
+            el.style.borderTopColor = borderMedium;
+            el.style.borderRightColor = borderMedium;
+            el.style.borderBottomColor = borderMedium;
             el.style.borderLeftColor = isDarkMode ? colours.accent : colours.blue;
             el.style.background = rowHoverBackground;
             el.style.transform = 'translateX(2px)';
             el.style.boxShadow = rowHoverShadow;
         },
         resetRowHover: (el: HTMLElement) => {
-            el.style.borderColor = borderLight;
+            el.style.borderTopColor = borderLight;
+            el.style.borderRightColor = borderLight;
+            el.style.borderBottomColor = borderLight;
             el.style.borderLeftColor = 'transparent';
             el.style.background = rowBaseBackground;
             el.style.transform = 'translateX(0)';
@@ -633,6 +666,7 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                         }}
                                     >
                                         <CommsFrameworkSection tokens={tokens} />
+                                        <PromptCoachSection tokens={tokens} />
                                     </div>
                                 </div>
                             )}
@@ -665,6 +699,36 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                     </div>
                                     <div style={toggleSwitch(!isDarkMode)}>
                                         <div style={toggleKnob(!isDarkMode)} />
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* ── Show scrollbars (accessibility / click-to-scroll) ── */}
+                            <div style={{ marginBottom: 4 }}>
+                                <div
+                                    style={{
+                                        ...toggleRow,
+                                        justifyContent: 'space-between',
+                                    }}
+                                    onMouseEnter={(e) => applyRowHover(e.currentTarget)}
+                                    onMouseLeave={(e) => resetRowHover(e.currentTarget)}
+                                    onClick={() => setShowScrollbars((v) => !v)}
+                                    role="switch"
+                                    aria-checked={showScrollbars}
+                                >
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={textMuted} strokeWidth="1.8" style={{ flexShrink: 0 }}>
+                                            <rect x="3" y="3" width="18" height="18" rx="2" />
+                                            <line x1="17" y1="5" x2="17" y2="19" />
+                                            <rect x="15.5" y="8" width="3" height="6" rx="1.2" fill={textMuted} stroke="none" />
+                                        </svg>
+                                        <div>
+                                            <div style={{ fontSize: 12, fontWeight: 500, color: textPrimary }}>Show scrollbars</div>
+                                            <div style={{ fontSize: 10, color: textMuted, marginTop: 2 }}>Always visible — useful if you prefer click-to-scroll</div>
+                                        </div>
+                                    </div>
+                                    <div style={toggleSwitch(showScrollbars)}>
+                                        <div style={toggleKnob(showScrollbars)} />
                                     </div>
                                 </div>
                             </div>

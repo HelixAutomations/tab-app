@@ -10,3 +10,22 @@
   height: 0;
   display: none;
 }
+
+/* UserBubble opt-in: restore visible scrollbar for click-to-scroll users. */
+html[data-show-scrollbars="1"] .app-scroll-region.matters-scroll-region {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(54, 144, 206, 0.55) transparent;
+  scrollbar-gutter: stable;
+}
+html[data-show-scrollbars="1"] .app-scroll-region.matters-scroll-region::-webkit-scrollbar {
+  width: 10px !important;
+  height: 10px !important;
+  display: block;
+}
+html[data-show-scrollbars="1"] .app-scroll-region.matters-scroll-region::-webkit-scrollbar-thumb {
+  background-color: rgba(54, 144, 206, 0.55);
+  border-radius: 999px;
+}
+html[data-show-scrollbars="1"] .app-scroll-region.matters-scroll-region::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(54, 144, 206, 0.8);
+}

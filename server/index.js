@@ -376,6 +376,7 @@ const bundleRouter = require('./routes/bundle');
 const { router: cclRouter, CCL_DIR } = require('./routes/ccl');
 const cclAiRouter = require('./routes/ccl-ai');
 const commsFrameworkRouter = require('./routes/comms-framework');
+const promptCoachRouter = require('./routes/prompt-coach');
 const cclAdminRouter = require('./routes/ccl-admin');
 const formsAiRouter = require('./routes/formsAi');
 
@@ -405,6 +406,7 @@ const stripeWebhookRouter = require('./routes/stripeWebhook');
 const clioWebhookRouter = require('./routes/clio-webhook');
 const opsRouter = require('./routes/ops');
 const sendEmailRouter = require('./routes/sendEmail');
+const emailSignatureRouter = require('./routes/emailSignature');
 const demoCheatSheetRouter = require('./routes/demoCheatSheet');
 const createDraftRouter = require('./routes/createDraft');
 const forwardEmailRouter = require('./routes/forwardEmail');
@@ -741,6 +743,7 @@ app.use('/api/getAllMatters', (req, res) => {
 app.use('/api/ccl', cclRouter);
 app.use('/api/ccl-ai', cclAiRouter);
 app.use('/api/ai', commsFrameworkRouter);
+app.use('/api/ai', promptCoachRouter);
 app.use('/api/forms-ai', formsAiRouter);
 app.use('/api/ccl-admin', cclAdminRouter);
 app.use('/api/ccl-ops', cclOpsRouter);
@@ -758,6 +761,7 @@ app.use('/api/matters-unified', mattersUnifiedRouter);
 app.use('/api/ops', opsRouter);
 // Email route (server-based). Expose under both /api and / to match existing callers.
 app.use('/api', sendEmailRouter);
+app.use('/api', emailSignatureRouter);
 app.use('/api', demoCheatSheetRouter);
 app.use('/api', createDraftRouter);
 app.use('/', sendEmailRouter);

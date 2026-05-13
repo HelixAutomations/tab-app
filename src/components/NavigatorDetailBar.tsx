@@ -44,6 +44,8 @@ export interface NavigatorTab {
 export interface NavigatorDetailBarProps {
   /** Called when the back button is clicked */
   onBack: () => void;
+  /** Hide the back button and separator for title-only navigator states */
+  showBackButton?: boolean;
   /** Label for back button (default: "Back") */
   backLabel?: string;
   /** Sub-tabs to render after the separator */
@@ -88,6 +90,7 @@ const getBackButtonStyles = (isDarkMode: boolean): IButtonStyles => ({
 
 const NavigatorDetailBar: React.FC<NavigatorDetailBarProps> = ({
   onBack,
+  showBackButton = true,
   backLabel = 'Back',
   tabs,
   activeTab,
@@ -170,32 +173,36 @@ const NavigatorDetailBar: React.FC<NavigatorDetailBarProps> = ({
           transition: 'box-shadow 140ms ease',
         }}
       >
-      {/* Back button — vertically centred */}
-      <div style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-        <ActionButton
-          iconProps={{ iconName: 'ChevronLeft' }}
-          onClick={onBack}
-          title={backLabel}
-          aria-label={backLabel}
-          styles={getBackButtonStyles(isDarkMode)}
-        >
-          {backLabel}
-        </ActionButton>
-      </div>
+      {showBackButton && (
+        <>
+          {/* Back button — vertically centred */}
+          <div style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+            <ActionButton
+              iconProps={{ iconName: 'ChevronLeft' }}
+              onClick={onBack}
+              title={backLabel}
+              aria-label={backLabel}
+              styles={getBackButtonStyles(isDarkMode)}
+            >
+              {backLabel}
+            </ActionButton>
+          </div>
 
-      {/* Separator */}
-      <div
-        style={{
-          width: 1,
-          alignSelf: 'center',
-          height: 24,
-          backgroundColor: isDarkMode
-            ? 'rgba(255, 255, 255, 0.15)'
-            : 'rgba(0, 0, 0, 0.06)',
-          flexShrink: 0,
-          margin: '0 8px',
-        }}
-      />
+          {/* Separator */}
+          <div
+            style={{
+              width: 1,
+              alignSelf: 'center',
+              height: 24,
+              backgroundColor: isDarkMode
+                ? 'rgba(255, 255, 255, 0.15)'
+                : 'rgba(0, 0, 0, 0.06)',
+              flexShrink: 0,
+              margin: '0 8px',
+            }}
+          />
+        </>
+      )}
 
       {/* Tabs or static label */}
       {tabs && tabs.length > 0 ? (

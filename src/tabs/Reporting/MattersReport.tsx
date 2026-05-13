@@ -351,6 +351,7 @@ const getTeamButtonStyles = (isDarkMode: boolean, active: boolean): IButtonStyle
             background: active 
                 ? `linear-gradient(135deg, #2f7cb3 0%, #266795 100%)` 
                 : (isDarkMode ? 'rgba(15, 23, 42, 0.86)' : 'rgba(54, 144, 206, 0.1)'),
+            color: textColor,
             transform: 'translateY(-1px)',
             boxShadow: active 
                 ? (isDarkMode ? '0 4px 12px rgba(54, 144, 206, 0.4)' : '0 4px 12px rgba(54, 144, 206, 0.35)')
@@ -360,7 +361,11 @@ const getTeamButtonStyles = (isDarkMode: boolean, active: boolean): IButtonStyle
             background: active 
                 ? `linear-gradient(135deg, #266795 0%, #1e5a7a 100%)` 
                 : (isDarkMode ? 'rgba(15, 23, 42, 0.9)' : 'rgba(54, 144, 206, 0.14)'),
+            color: textColor,
             transform: 'translateY(0)',
+        },
+        label: {
+            color: 'inherit',
         },
     };
 };
@@ -398,6 +403,7 @@ const getRoleButtonStyles = (isDarkMode: boolean, active: boolean): IButtonStyle
             background: active 
                 ? `linear-gradient(135deg, #2f7cb3 0%, #266795 100%)` 
                 : (isDarkMode ? 'rgba(15, 23, 42, 0.86)' : 'rgba(54, 144, 206, 0.1)'),
+            color: textColor,
             transform: 'translateY(-1px)',
             boxShadow: active 
                 ? (isDarkMode ? '0 4px 12px rgba(54, 144, 206, 0.4)' : '0 4px 12px rgba(54, 144, 206, 0.35)')
@@ -407,7 +413,11 @@ const getRoleButtonStyles = (isDarkMode: boolean, active: boolean): IButtonStyle
             background: active 
                 ? `linear-gradient(135deg, #266795 0%, #1e5a7a 100%)` 
                 : (isDarkMode ? 'rgba(15, 23, 42, 0.9)' : 'rgba(54, 144, 206, 0.14)'),
+            color: textColor,
             transform: 'translateY(0)',
+        },
+        label: {
+            color: 'inherit',
         },
     };
 };
@@ -2970,7 +2980,11 @@ const MattersReport: React.FC<MattersReportProps> = ({
                 background: disabled
                     ? resolvedBackground
                     : (active ? colours.highlight : (isDarkMode ? 'rgba(148, 163, 184, 0.32)' : 'rgba(241, 245, 249, 1)')),
+                color: resolvedColor,
                 transform: disabled ? 'none' : 'translateY(0)',
+            },
+            label: {
+                color: 'inherit',
             },
         };
     };

@@ -355,56 +355,71 @@ const FilterBanner: React.FC<FilterBannerProps> = React.memo(({
     }
   }, className);
 
+  // Dynamic width based on search state - collapsed search takes minimal space
+  const isSearchCollapsed = collapsibleSearch && !searchOpen && !resolvedSearchValue;
+  const showSearchInFilters = Boolean(search) && searchPlacement === 'filters';
+  const showSearchInRightCluster = Boolean(search) && searchPlacement !== 'filters';
+
   const filtersContainerStyle = mergeStyles({
     display: 'flex',
     alignItems: 'center',
     flexWrap: 'nowrap',
-    gap: 6,
-    flex: '0 1 auto',
+    gap: 8,
+    // When the search lives in the filters cluster, let this section absorb leftover space
+    // so the search bar can grow into available room without crowding the right-side actions.
+    flex: showSearchInFilters ? '1 1 auto' : '0 1 auto',
     minWidth: 0,
     overflow: 'hidden',
     alignContent: 'center',
   });
 
-  // Dynamic width based on search state - collapsed search takes minimal space
-  const isSearchCollapsed = collapsibleSearch && !searchOpen && !resolvedSearchValue;
-  const showSearchInFilters = Boolean(search) && searchPlacement === 'filters';
-  const showSearchInRightCluster = Boolean(search) && searchPlacement !== 'filters';
-  
   const searchContainerStyle = mergeStyles({
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'flex-end',
-    flex: '0 1 auto',
-    minWidth: isSearchCollapsed ? 'auto' : 'clamp(120px, 20vw, 240px)',
-    width: isSearchCollapsed ? 'auto' : 'clamp(120px, 20vw, 240px)',
-    transition: 'none',
+    justifyContent: showSearchInFilters && !isSearchCollapsed ? 'stretch' : 'flex-end',
+    // Grow into whatever room is left in the cluster only when actually expanded;
+    // when collapsed to an icon, hold a tight footprint so we don't push other actions around.
+    flex: isSearchCollapsed
+      ? '0 0 auto'
+      : (showSearchInFilters ? '1 1 auto' : '0 1 auto'),
+    minWidth: isSearchCollapsed ? 'auto' : (showSearchInFilters ? 180 : 'clamp(120px, 20vw, 240px)'),
+    maxWidth: isSearchCollapsed ? 'auto' : (showSearchInFilters ? 520 : 'clamp(120px, 20vw, 240px)'),
+    width: isSearchCollapsed ? 'auto' : (showSearchInFilters ? 'auto' : 'clamp(120px, 20vw, 240px)'),
+    marginLeft: showSearchInFilters && !isSearchCollapsed ? 4 : 0,
+    transition: 'flex 0.18s ease, max-width 0.18s ease, min-width 0.18s ease',
   });
 
   const searchBoxStyles = React.useMemo(() => {
     const baseStyles = sharedSearchBoxStyle(isDarkMode);
-    const stroke = isDarkMode ? 'rgba(75,85,99,0.24)' : 'rgba(0,0,0,0.08)';
-    const focusStroke = isDarkMode ? 'rgba(135,243,243,0.3)' : 'rgba(54,144,206,0.22)';
+    const stroke = isDarkMode ? 'rgba(75,85,99,0.32)' : 'rgba(0,0,0,0.10)';
+    const hoverStroke = isDarkMode ? 'rgba(54,144,206,0.42)' : 'rgba(54,144,206,0.32)';
+    const focusStroke = isDarkMode ? 'rgba(54,144,206,0.65)' : 'rgba(54,144,206,0.55)';
+    const focusGlow = isDarkMode
+      ? '0 0 0 3px rgba(54,144,206,0.18)'
+      : '0 0 0 3px rgba(54,144,206,0.14)';
 
     return {
       ...baseStyles,
       root: {
         ...baseStyles.root,
-        backgroundColor: isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.72)',
+        backgroundColor: isDarkMode ? 'rgba(255,255,255,0.025)' : 'rgba(255,255,255,0.85)',
         border: 'none',
         borderRadius: 0,
-        height: '30px',
+        height: 32,
+        width: '100%',
         boxShadow: `inset 0 0 0 1px ${stroke}`,
+        transition: 'box-shadow 0.18s ease, background-color 0.18s ease',
         selectors: {
           ...baseStyles.root.selectors,
           ':hover': {
             borderColor: 'transparent',
-            boxShadow: `inset 0 0 0 1px ${focusStroke}`,
+            boxShadow: `inset 0 0 0 1px ${hoverStroke}`,
+            backgroundColor: isDarkMode ? 'rgba(255,255,255,0.035)' : 'rgba(255,255,255,0.95)',
           },
           ':focus-within': {
             borderColor: 'transparent',
-            boxShadow: `inset 0 0 0 1px ${focusStroke}`,
-            backgroundColor: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.9)',
+            boxShadow: `inset 0 0 0 1px ${focusStroke}, ${focusGlow}`,
+            backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : '#ffffff',
           },
         },
       },
@@ -412,22 +427,35 @@ const FilterBanner: React.FC<FilterBannerProps> = React.memo(({
         ...baseStyles.field,
         borderRadius: 0,
         padding: '0 10px',
-        lineHeight: '30px',
-        fontSize: '11px',
+        lineHeight: '32px',
+        fontSize: 12,
+        fontFamily: 'Raleway, sans-serif',
+        color: isDarkMode ? colours.dark.text : colours.light.text,
         selectors: {
           ...(baseStyles.field?.selectors || {}),
           '::placeholder': {
-            color: isDarkMode ? 'rgba(209, 213, 219, 0.54)' : 'rgba(55, 65, 81, 0.5)',
+            color: isDarkMode ? 'rgba(209, 213, 219, 0.5)' : 'rgba(55, 65, 81, 0.48)',
             opacity: 1,
-            fontSize: '10px',
+            fontSize: 11,
             letterSpacing: '0.01em',
           },
         },
       },
       icon: {
         ...baseStyles.icon,
-        fontSize: '14px',
-        marginLeft: '8px',
+        fontSize: 13,
+        marginLeft: 10,
+        color: isDarkMode ? 'rgba(209,213,219,0.6)' : 'rgba(55,65,81,0.55)',
+      },
+      clearButton: {
+        ...((baseStyles as any).clearButton || {}),
+        selectors: {
+          '& .ms-Button': {
+            borderRadius: 0,
+            height: 28,
+            width: 28,
+          },
+        },
       },
     };
   }, [isDarkMode]);

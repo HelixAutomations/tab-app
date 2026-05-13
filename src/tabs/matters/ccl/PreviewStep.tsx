@@ -47,13 +47,14 @@ export interface PreviewStepProps {
   draftLoaded?: boolean;
   loadInfo?: CclLoadInfo | null;
   isDarkMode: boolean;
+  initialShowOpsPanel?: boolean;
   onBack: () => void;
   onClose?: () => void;
   onAdvancedMode?: () => void;
   onTriggerAiFill?: () => void;
 }
 
-const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, matter, fields, updateField, userEditedKeys, userInitials, aiStatus, aiLoadingKeys, aiSource, aiDurationMs, aiDataSources, aiContextSummary, aiUserPrompt, aiFallbackReason, aiDebugTrace, aiGeneratedKeys, draftLoaded = true, loadInfo = null, isDarkMode, onBack: _onBack, onClose, onAdvancedMode, onTriggerAiFill }) => {
+const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, matter, fields, updateField, userEditedKeys, userInitials, aiStatus, aiLoadingKeys, aiSource, aiDurationMs, aiDataSources, aiContextSummary, aiUserPrompt, aiFallbackReason, aiDebugTrace, aiGeneratedKeys, draftLoaded = true, loadInfo = null, isDarkMode, initialShowOpsPanel = false, onBack: _onBack, onClose, onAdvancedMode, onTriggerAiFill }) => {
   const text = isDarkMode ? '#f1f5f9' : '#1e293b';
   const textMuted = isDarkMode ? '#94a3b8' : '#64748b';
   const cardBorder = isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(148, 163, 184, 0.15)';
@@ -70,7 +71,7 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
   const [generating, setGenerating] = useState(false);
   const [sending, setSending] = useState(false);
   const [status, setStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
-  const [showOpsPanel, setShowOpsPanel] = useState(false);
+  const [showOpsPanel, setShowOpsPanel] = useState(initialShowOpsPanel);
   const isOpsAdmin = useMemo(() => {
     if (!userInitials) return false;
     return (ADMIN_USERS as readonly string[]).includes(userInitials.toUpperCase());

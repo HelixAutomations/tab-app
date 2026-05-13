@@ -1,5 +1,6 @@
 const path = require('path');
 const { readFileSync, writeFileSync } = require('fs');
+const { runCclDocumentQa } = require('./cclDocumentQa');
 const {
     AlignmentType,
     BorderStyle,
@@ -194,6 +195,9 @@ function paragraph(text, options = {}) {
         },
         border: options.border,
         indent: options.indent,
+        keepNext: options.keepNext,
+        keepLines: options.keepLines,
+        pageBreakBefore: options.pageBreakBefore,
     });
 }
 
@@ -339,6 +343,8 @@ function buildSectionHeading(text) {
     return new Paragraph({
         children: [bodyRun(text, { bold: true, color: HELIX.helixBlue, size: HEADING_SIZE })],
         heading: HeadingLevel.HEADING_2,
+        keepNext: true,
+        keepLines: true,
         spacing: { before: 220, after: 90 },
         border: {
             bottom: {
@@ -412,12 +418,14 @@ function buildActionTable(rows) {
         rows: [
             new TableRow({
                 tableHeader: true,
+                cantSplit: true,
                 children: [
                     headerCell('Action required by you'),
                     headerCell('Additional information'),
                 ],
             }),
             ...rows.map((row) => new TableRow({
+                cantSplit: true,
                 children: [
                     bodyCell(`☐ ${row.action}`),
                     bodyCell(row.info),
@@ -491,18 +499,94 @@ function buildBodyChildren(bodyText) {
     return children;
 }
 
+function extractLetterBodyText(resolvedText) {
+    const lines = String(resolvedText || '').replace(/\r\n/g, '\n').split('\n');
+    let index = lines.findIndex((line) => line.trim());
+    if (index < 0) return '';
+
+    if (!/^Dear\b/i.test(lines[index].trim())) {
+        return lines.slice(index).join('\n').trim();
+    }
+
+    index += 1;
+    while (index < lines.length && !lines[index].trim()) index += 1;
+    if (index < lines.length && !/^\d+(?:\.\d+)?\s+/.test(lines[index].trim())) {
+        index += 1;
+    }
+    while (index < lines.length && !lines[index].trim()) index += 1;
+    return lines.slice(index).join('\n').trim();
+}
+
+function buildFirmFooter() {
+    return new Footer({
+        children: [
+            new Paragraph({
+                alignment: AlignmentType.CENTER,
+                spacing: { before: 0, after: 20, line: 240 },
+                border: {
+                    top: { style: BorderStyle.SINGLE, size: 4, color: 'D5DBE3', space: 6 },
+                },
+                children: [
+                    new TextRun({ text: 'Helix Law Ltd, Second Floor, Britannia House', font: FONT_FAMILY, size: 16, color: HELIX.greyText }),
+                ],
+            }),
+            new Paragraph({
+                alignment: AlignmentType.CENTER,
+                spacing: { before: 0, after: 140, line: 240 },
+                children: [
+                    new TextRun({ text: '21 Station Street, Brighton BN1 4DE', font: FONT_FAMILY, size: 16, color: HELIX.greyText }),
+                ],
+            }),
+            new Paragraph({
+                alignment: AlignmentType.CENTER,
+                spacing: { before: 0, after: 20, line: 240 },
+                children: [
+                    new TextRun({ text: 'Phone: ', font: FONT_FAMILY, size: 16, color: HELIX.highlight, bold: true }),
+                    new TextRun({ text: '0345 314 2044', font: FONT_FAMILY, size: 16, color: HELIX.greyText }),
+                ],
+            }),
+            new Paragraph({
+                alignment: AlignmentType.CENTER,
+                spacing: { before: 0, after: 20, line: 240 },
+                children: [
+                    new TextRun({ text: 'Email: ', font: FONT_FAMILY, size: 16, color: HELIX.highlight, bold: true }),
+                    new TextRun({ text: 'info@helix-law.com', font: FONT_FAMILY, size: 16, color: HELIX.greyText }),
+                ],
+            }),
+            new Paragraph({
+                alignment: AlignmentType.CENTER,
+                spacing: { before: 0, after: 140, line: 240 },
+                children: [
+                    new TextRun({ text: 'Website: ', font: FONT_FAMILY, size: 16, color: HELIX.highlight, bold: true }),
+                    new TextRun({ text: 'www.helix-law.com', font: FONT_FAMILY, size: 16, color: HELIX.greyText }),
+                ],
+            }),
+            new Paragraph({
+                alignment: AlignmentType.JUSTIFIED,
+                spacing: { before: 0, after: 0, line: 220 },
+                children: [
+                    new TextRun({ text: FIRM_REGULATORY_PARAGRAPH, font: FONT_FAMILY, size: 13, color: HELIX.greyText, italics: true }),
+                ],
+            }),
+        ],
+    });
+}
+
 function buildDocument(data) {
     const templateText = getCanonicalTemplate();
     const unresolvedPlaceholders = extractPlaceholders(templateText)
         .filter((key) => !String(data[key] || '').trim());
     const resolvedText = resolveTemplateText(templateText, data);
-    const bodyStart = resolvedText.indexOf('Thank you for your instructions');
-    const bodyText = bodyStart >= 0 ? resolvedText.slice(bodyStart).trim() : resolvedText;
+    const bodyText = extractLetterBodyText(resolvedText);
 
     const doc = new Document({
         creator: 'Helix Hub',
+        lastModifiedBy: 'Helix Hub',
         title: `Client Care Letter ${data.matter_number || ''}`.trim(),
+        subject: 'Client Care Letter',
+        keywords: 'client care letter; legal services; Helix Law',
         description: 'Helix Law Client Care Letter',
+        revision: 1,
         styles: {
             default: {
                 document: {
@@ -592,6 +676,7 @@ function buildDocument(data) {
                         }),
                     ],
                 }),
+                default: buildFirmFooter(),
             },
             children: [
                 ...buildHeaderChildren(data),
@@ -607,11 +692,14 @@ async function generateWordFromJson(json, outPath) {
     const data = buildTemplateData(json);
     const { doc, unresolvedPlaceholders } = buildDocument(data);
     const buffer = await Packer.toBuffer(doc);
+    const documentQa = runCclDocumentQa(buffer, unresolvedPlaceholders, outPath);
+
     writeFileSync(outPath, buffer);
 
     return {
         unresolvedPlaceholders,
         unresolvedCount: unresolvedPlaceholders.length,
+        documentQa,
     };
 }
 

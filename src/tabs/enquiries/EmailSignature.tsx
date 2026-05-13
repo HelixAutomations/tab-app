@@ -1,99 +1,166 @@
-import React from 'react';
-import { colours } from '../../app/styles/colours';
+import React, { useEffect, useMemo, useState } from 'react';
+import { getApiBase } from '../../utils/getApiUrl';
 
 interface EmailSignatureProps {
   bodyHtml: string;
   userData: any;
-  experimentalLayout?: boolean; // Deprecated: kept for compatibility but ignored (always uses clean layout)
-  isDarkMode?: boolean; // For preview modal styling
+  experimentalLayout?: boolean; // Deprecated: kept for compatibility but ignored.
+  isDarkMode?: boolean;
+  /**
+   * Left/right padding inside the white "paper" surface that wraps the canonical
+   * signature HTML. Callers should pass the same horizontal padding their body
+   * editor uses so the first line of the signature visually aligns with the
+   * first character of the body text above it.
+   */
+  paperPaddingX?: number;
 }
 
-const EmailSignature: React.FC<EmailSignatureProps> = ({ bodyHtml, userData, isDarkMode = false }) => {
-  const userFullName = userData?.[0]?.FullName || userData?.[0]?.['Full Name'] || '';
-  const userFirstName = userData?.[0]?.['First'] || '';
-  const userRole = userData?.[0]?.['Role'] || '';
-  const userInitials = userFullName
-    ? userFullName
-        .split(' ')
-        .map((name: string) => name[0].toLowerCase())
-        .join('')
-    : 'fe'; // fallback
-  const userEmail = `${userInitials}@helix-law.com`;
+// Cache resolved signatures across mounts so the editor peek and the inline
+// preview don't both fetch the same HTML on every render.
+const sigCache = new Map<string, string>();
+const inflight = new Map<string, Promise<string | null>>();
 
-  // Color scheme based on dark mode (for preview modal)
-  const baseTextColor = isDarkMode ? colours.dark.text : '#000';
-  const disclaimerColor = colours.cta;
-  const locationColor = isDarkMode ? colours.subtleGrey : colours.helixBlue;
-  const regularTextColor = isDarkMode ? colours.subtleGrey : '#444';
-  const forceTextColor = isDarkMode ? `color:${colours.dark.text} !important;` : '';
+function deriveInitialsAndEmail(userData: any): { initials: string; email: string } {
+  const row = userData?.[0] || {};
+  const explicitInitials = String(row.Initials || row.initials || '').trim().toUpperCase();
+  const fullName: string = row.FullName || row['Full Name'] || '';
+  const fallbackInitials = fullName
+    ? fullName.split(' ').filter(Boolean).map((n: string) => n[0]).join('').toUpperCase()
+    : '';
+  const initials = explicitInitials || fallbackInitials;
+  const email = String(row.Email || row.email || (initials ? `${initials.toLowerCase()}@helix-law.com` : '')).trim();
+  return { initials, email };
+}
 
-  const signatureHtml = `
-<div style="margin:0; padding:0; font-family: Raleway, Arial, sans-serif; font-size:10pt; line-height:1.4; color:${baseTextColor};">
-  <div style="margin-bottom:4px;">${bodyHtml}</div>
-  <p style="margin:16px 0 8px; color:${baseTextColor};">${userFirstName}</p>
-  <table border="0" cellpadding="0" cellspacing="0" style="border-collapse:collapse; margin:0; padding:0; width:auto; font-size:10pt; ${forceTextColor}">
-    <tr>
-      <td style="padding-bottom:8px; font-size:10pt; font-family:Raleway, Arial, sans-serif; ${forceTextColor}">
-        ${userFullName}<br />${userRole}
-      </td>
-    </tr>
-    <tr>
-      <td style="padding-bottom:8px;">
-        <img src="https://helix-law.co.uk/wp-content/uploads/2025/01/50px-logo.png" alt="Helix Law Logo" style="height:56px; display:block;" />
-      </td>
-    </tr>
-    <tr>
-      <td style="padding-top:8px; padding-bottom:0;">
-        <table border="0" cellpadding="0" cellspacing="0" style="border-collapse:collapse; font-size:10pt; line-height:1.5;">
-          <tr>
-            <td style="padding-right:6px; vertical-align:middle;">
-              <img src="https://helix-law.co.uk/wp-content/uploads/2025/01/email.png" alt="Email" style="height:14px; vertical-align:middle;" />
-            </td>
-            <td style="padding-right:14px; vertical-align:middle;">
-              <a href="mailto:${userEmail}" style="color:#3690CE; text-decoration:none;">${userEmail}</a>
-            </td>
-            <td style="padding-right:6px; vertical-align:middle;">
-              <img src="https://helix-law.co.uk/wp-content/uploads/2025/01/website.png" alt="Website" style="height:14px; vertical-align:middle;" />
-            </td>
-            <td style="padding-right:0; vertical-align:middle;">
-              <a href="https://www.helix-law.com/" style="color:#3690CE; text-decoration:none;">www.helix-law.com</a>
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-    <tr>
-      <td style="padding-top:6px; padding-bottom:8px;">
-        <table border="0" cellpadding="0" cellspacing="0" style="border-collapse:collapse; font-size:10pt; line-height:1.5;">
-          <tr>
-            <td style="padding-right:6px; vertical-align:middle;">
-              <img src="https://helix-law.co.uk/wp-content/uploads/2025/01/location.png" alt="Address" style="height:14px; vertical-align:middle;" />
-            </td>
-            <td style="vertical-align:middle; color:${locationColor};">
-              Helix Law Ltd, Second Floor, Britannia House, 21 Station Street, Brighton, BN1 4DE
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-    <tr>
-      <td style="padding-top:8px; color:${disclaimerColor}; font-size:7pt; line-height:1.5;">
-        DISCLAIMER: Please be aware of cyber-crime. Our bank account details will NOT change during the course of a transaction.
-        Helix Law Limited will not be liable if you transfer money to an incorrect account.
-        We accept no responsibility or liability for malicious or fraudulent emails purportedly coming from our firm,
-        and it is your responsibility to ensure that any emails coming from us are genuine before relying on anything contained within them.
-      </td>
-    </tr>
-    <tr>
-      <td style="padding-top:8px; font-style:italic; font-size:7pt; line-height:1.5; color:${regularTextColor};">
-        Helix Law Limited is a limited liability company registered in England and Wales. Registration Number 07845461. A list of Directors is available for inspection at the Registered Office: Second Floor, Britannia House, 21 Station Street, Brighton, BN1 4DE. Authorised and regulated by the Solicitors Regulation Authority. The term partner is a reference to a Director or senior solicitor of Helix Law Limited. Helix Law Limited does not accept service by email. This email is sent by and on behalf of Helix Law Limited. It may be confidential and may also be legally privileged. It is intended only for the stated addressee(s) and access to it by any other person is unauthorised. If you are not an addressee, you must not disclose, copy, circulate or in any other way use or rely on the information contained in this email. If you have received it in error, please inform us immediately and delete all copies. All copyright is reserved entirely on behalf of Helix Law Limited. Helix Law and applicable logo are exclusively owned trademarks of Helix Law Limited, registered with the Intellectual Property Office under numbers UK00003984532 and UK00003984535. The trademarks should not be used, copied or replicated without consent first obtained in writing.
-      </td>
-    </tr>
-  </table>
-</div>
-`;
+async function fetchSignature(initials: string, email: string): Promise<string | null> {
+  const key = `${initials}|${email}`.toLowerCase();
+  if (sigCache.has(key)) return sigCache.get(key) || null;
+  const existing = inflight.get(key);
+  if (existing) return existing;
 
-  return <div dangerouslySetInnerHTML={{ __html: signatureHtml }} />;
+  const promise = (async () => {
+    try {
+      const base = getApiBase();
+      const url = `${base}/api/email-signature?initials=${encodeURIComponent(initials)}&email=${encodeURIComponent(email)}`;
+      const res = await fetch(url, { credentials: 'include' });
+      if (!res.ok) return null;
+      const html = await res.text();
+      if (!html || !html.trim()) return null;
+      sigCache.set(key, html);
+      return html;
+    } catch {
+      return null;
+    } finally {
+      inflight.delete(key);
+    }
+  })();
+  inflight.set(key, promise);
+  return promise;
+}
+
+// Strip the canonical signature's inline white `background-color: rgb(255,255,255)`
+// (and the white `#ffffff` variant) from any wrapper tables/cells so the dark
+// preview shows the signature contents directly against the dark canvas
+// instead of inside a full-width white slab. Only the preview render path is
+// affected; the send-path HTML (loadPersonalSignatureHtml) is never mutated.
+function stripWhiteBackgrounds(html: string): string {
+  return html
+    .replace(/background-color\s*:\s*rgb\(\s*255\s*,\s*255\s*,\s*255\s*\)\s*;?/gi, '')
+    .replace(/background-color\s*:\s*#fff(?:fff)?\s*;?/gi, '')
+    .replace(/background\s*:\s*#fff(?:fff)?\s*;?/gi, '');
+}
+
+// Bump the signature's body-text font-size (10pt in the canonical HTML) up
+// to 14px so it matches the pitch body editor above. Smaller print used by
+// the firm quotes, Legal500 caption and the disclaimer (9pt / 8.5pt / 8pt)
+// is intentionally left at its original size so it still reads as small print.
+function normalisePreviewFontSize(html: string): string {
+  return html.replace(/font-size\s*:\s*10pt/gi, 'font-size:14px');
+}
+
+// Dark-mode preview only: recolour the small-print blocks. The canonical HTML
+// uses rgb(176,0,0) for the cyber-crime disclaimer and rgb(0,0,0) for the
+// italic registration block; on a navy canvas the dark red reads as mud and
+// black text is near-invisible. Remap to the brand CTA red and a high-contrast
+// off-white so both remain readable. Send path is untouched.
+function recolourDarkSmallPrint(html: string): string {
+  return html
+    .replace(/color\s*:\s*rgb\(\s*176\s*,\s*0\s*,\s*0\s*\)/gi, 'color:#D65541')
+    .replace(/color\s*:\s*rgb\(\s*0\s*,\s*0\s*,\s*0\s*\)/gi, 'color:#f3f4f6');
+}
+
+// Preview only: shrink the legal/cyber-crime/registration small print one notch
+// further so it reads as background fine print rather than competing with the
+// body. Canonical sizes are 9pt (disclaimer heading), 8.5pt (cyber crime
+// paragraph), and 8pt (registration italics). Send path untouched.
+function shrinkPreviewSmallPrint(html: string): string {
+  return html
+    .replace(/font-size\s*:\s*9pt/gi, 'font-size:8px')
+    .replace(/font-size\s*:\s*8\.5pt/gi, 'font-size:8px')
+    .replace(/font-size\s*:\s*8pt/gi, 'font-size:7.5px');
+}
+
+const EmailSignature: React.FC<EmailSignatureProps> = ({ bodyHtml, userData, isDarkMode, paperPaddingX = 12 }) => {
+  const { initials, email } = useMemo(() => deriveInitialsAndEmail(userData), [userData]);
+  const cacheKey = `${initials}|${email}`.toLowerCase();
+  const [sigHtml, setSigHtml] = useState<string | null>(() => sigCache.get(cacheKey) || null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!initials && !email) return;
+    if (sigCache.has(cacheKey)) {
+      setSigHtml(sigCache.get(cacheKey) || null);
+      return;
+    }
+    fetchSignature(initials, email).then((html) => {
+      if (!cancelled) setSigHtml(html);
+    });
+    return () => { cancelled = true; };
+  }, [cacheKey, initials, email]);
+
+  const body = String(bodyHtml || '');
+  // Light mode: render the signature on a white paper surface so the hardcoded
+  // black text (the signature HTML targets recipient inboxes) stays legible and
+  // aligns with the body editor's white surface above it.
+  // Dark mode: skip the outer white wrapper. The signature's internal table
+  // already paints its own white cells where the text + brand assets live, so
+  // it reads as a contained card on the dark canvas instead of a jarring white
+  // slab spanning the whole strip.
+  if (sigHtml) {
+    let previewSig = normalisePreviewFontSize(sigHtml);
+    previewSig = shrinkPreviewSmallPrint(previewSig);
+    if (isDarkMode) {
+      previewSig = stripWhiteBackgrounds(previewSig);
+      previewSig = recolourDarkSmallPrint(previewSig);
+    }
+    const combined = `${body}${body ? '<br />' : ''}${previewSig}`;
+    return (
+      <div
+        // `signature-preview-card` exempts this subtree from the parent
+        // `.email-preview.dark-mode div:not([class*="signature"])` color
+        // override so the canonical inline colours (red disclaimer, blue
+        // links, brand navy contact lines) survive in dark mode.
+        className="signature-preview-card"
+        style={{
+          padding: 0,
+          background: 'transparent',
+        }}
+      >
+        <div
+          dangerouslySetInnerHTML={{ __html: body }}
+        />
+        {body && <br />}
+        <div
+          // Dimmed signature subtree: a low opacity wrapper makes the
+          // signature read as appended chrome rather than competing with the
+          // body. Send-path output is unchanged.
+          style={{ opacity: 0.6 }}
+          dangerouslySetInnerHTML={{ __html: previewSig }}
+        />
+      </div>
+    );
+  }
+  return <div dangerouslySetInnerHTML={{ __html: body }} />;
 };
 
 export default EmailSignature;

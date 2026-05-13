@@ -650,6 +650,40 @@ function buildFieldSummary(fields) {
     };
 }
 
+function buildDocumentQaRecord(documentQa, unresolvedPlaceholders = []) {
+    if (!documentQa) return null;
+    return {
+        ok: Boolean(documentQa.ok),
+        generatedAt: documentQa.generatedAt || null,
+        durationMs: documentQa.durationMs || null,
+        errorCount: documentQa.errorCount || 0,
+        warningCount: documentQa.warningCount || 0,
+        issueCodes: Array.isArray(documentQa.errors) ? documentQa.errors.map((issue) => issue.code).filter(Boolean) : [],
+        warningCodes: Array.isArray(documentQa.warnings) ? documentQa.warnings.map((issue) => issue.code).filter(Boolean) : [],
+        checks: documentQa.checks || {},
+        unresolvedCount: unresolvedPlaceholders.length,
+    };
+}
+
+function buildDocumentQaProvenance(primaryProvenance, fallbackProvenance, documentQa, unresolvedPlaceholders) {
+    const primary = parseJsonObject(primaryProvenance);
+    const fallback = parseJsonObject(fallbackProvenance);
+    const base = (primary && !Array.isArray(primary))
+        ? { ...primary }
+        : (fallback && !Array.isArray(fallback))
+            ? { ...fallback }
+            : {};
+
+    if (!primary && typeof primaryProvenance === 'string' && primaryProvenance.trim()) {
+        base.sourceProvenance = primaryProvenance;
+    } else if (!fallback && typeof fallbackProvenance === 'string' && fallbackProvenance.trim()) {
+        base.sourceProvenance = fallbackProvenance;
+    }
+
+    const documentQaRecord = buildDocumentQaRecord(documentQa, unresolvedPlaceholders);
+    return documentQaRecord ? { ...base, documentQa: documentQaRecord } : base;
+}
+
 function mergeDraftWithAiFields(baseDraft = {}, aiFields = {}, options = {}) {
     const overrideMode = options?.overrideMode === 'replace-ai-fields';
     const merged = { ...baseDraft };
@@ -901,6 +935,17 @@ async function persistCclSnapshot({
 }) {
     const merged = await mergeMatterFields(matterId, draftJson);
 
+    const docxFile = filePath(matterId);
+    const generationMeta = await generateWordFromJson(merged, docxFile);
+    const unresolvedPlaceholders = generationMeta?.unresolvedPlaceholders || [];
+    const documentQa = generationMeta?.documentQa || null;
+    const persistedProvenance = buildDocumentQaProvenance(
+        provenanceJson,
+        draftJson?._provenance,
+        documentQa,
+        unresolvedPlaceholders,
+    );
+
     let cclContentId = null;
     let cclContentVersion = null;
     try {
@@ -916,7 +961,7 @@ async function persistCclSnapshot({
             supervisingPartner: merged.team_assignments?.supervising_partner || null,
             practiceArea: merged.team_assignments?.practice_area || null,
             fieldsJson: merged,
-            provenanceJson: provenanceJson || draftJson._provenance || null,
+            provenanceJson: persistedProvenance,
             templateVersion,
             aiTraceId,
             status: 'draft',
@@ -948,10 +993,6 @@ async function persistCclSnapshot({
     };
     try { await saveDraftToDb(matterId, merged, draftMeta); } catch (dbErr) { console.warn('[ccl] Draft DB save failed (non-blocking):', dbErr.message); }
     saveDraftToFileCache(matterId, merged);
-
-    const docxFile = filePath(matterId);
-    const generationMeta = await generateWordFromJson(merged, docxFile);
-    const unresolvedPlaceholders = generationMeta?.unresolvedPlaceholders || [];
     fs.writeFileSync(jsonPath(matterId), JSON.stringify(merged, null, 2));
 
     const blobUrl = await uploadCclToBlob(matterId, docxFile).catch(err => {
@@ -968,6 +1009,7 @@ async function persistCclSnapshot({
         blobUrl: blobUrl || undefined,
         unresolvedPlaceholders,
         unresolvedCount: unresolvedPlaceholders.length,
+        documentQa,
         fieldSummary,
         fieldCount: fieldSummary.populated,
     };
@@ -1093,6 +1135,9 @@ router.post('/', async (req, res) => {
             feeEarner: result.merged.name_of_person_handling_matter || '',
             practiceArea: result.merged.team_assignments?.practice_area || '',
             blobUrl: result.blobUrl || 'none',
+            documentQaOk: String(result.documentQa?.ok ?? false),
+            documentQaErrors: String(result.documentQa?.errorCount ?? 0),
+            documentQaWarnings: String(result.documentQa?.warningCount ?? 0),
         });
         if (result.unresolvedPlaceholders.length > 0) {
             trackEvent('CCL.Generate.UnresolvedPlaceholders', {
@@ -1110,6 +1155,7 @@ router.post('/', async (req, res) => {
             blobUrl: result.blobUrl,
             unresolvedPlaceholders: result.unresolvedPlaceholders,
             unresolvedCount: result.unresolvedCount,
+            documentQa: result.documentQa,
         });
     } catch (err) {
         console.error('CCL generation failed', err);
@@ -1185,6 +1231,9 @@ router.patch('/:matterId', async (req, res) => {
             feeEarner: result.merged.name_of_person_handling_matter || '',
             practiceArea: result.merged.team_assignments?.practice_area || '',
             blobUrl: result.blobUrl || 'none',
+            documentQaOk: String(result.documentQa?.ok ?? false),
+            documentQaErrors: String(result.documentQa?.errorCount ?? 0),
+            documentQaWarnings: String(result.documentQa?.warningCount ?? 0),
         });
         if (result.unresolvedPlaceholders.length > 0) {
             trackEvent('CCL.Save.UnresolvedPlaceholders', {
@@ -1201,6 +1250,7 @@ router.patch('/:matterId', async (req, res) => {
             blobUrl: result.blobUrl,
             unresolvedPlaceholders: result.unresolvedPlaceholders,
             unresolvedCount: result.unresolvedCount,
+            documentQa: result.documentQa,
         });
     } catch (err) {
         console.error('CCL regeneration failed', err);
@@ -1540,6 +1590,9 @@ router.post('/service/run', async (req, res) => {
             sourceCount: String((preview.dataSources || []).length),
             fieldCount: String(result.fieldCount),
             unresolvedCount: String(result.unresolvedCount),
+            documentQaOk: String(result.documentQa?.ok ?? false),
+            documentQaErrors: String(result.documentQa?.errorCount ?? 0),
+            documentQaWarnings: String(result.documentQa?.warningCount ?? 0),
         });
         trackMetric('CCL.Service.Run.Duration', durationMs, { matterId: String(matterId) });
 
@@ -1555,6 +1608,7 @@ router.post('/service/run', async (req, res) => {
             fieldSummary: result.fieldSummary,
             unresolvedPlaceholders: result.unresolvedPlaceholders,
             unresolvedCount: result.unresolvedCount,
+            documentQa: result.documentQa,
             promptVersion: aiResult.promptVersion || CCL_PROMPT_VERSION,
             templateVersion: CCL_TEMPLATE_VERSION,
             preview: safePreview2,

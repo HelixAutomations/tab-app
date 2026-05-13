@@ -5236,6 +5236,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
           onShareEnquiry={() => {
             void handleShareEnquiry();
           }}
+          onOpenPitchBuilder={onOpenPitchBuilder ? () => onOpenPitchBuilder() : undefined}
         />
         </div>
 

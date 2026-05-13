@@ -8,6 +8,8 @@ import { useTheme } from '../../app/functionality/ThemeContext';
 import { isAdminUser } from '../../app/admin';
 import PipelineActivityTimeline from './components/PipelineActivityTimeline';
 import AdminOverridePanel from './components/AdminOverridePanel';
+import { ContactModule } from '../../components/overview';
+import type { ContactRow } from '../../components/overview';
 import './styles/ProspectOverview.css';
 
 interface EnquiryOverviewProps {
@@ -158,13 +160,6 @@ const EnquiryOverview: React.FC<EnquiryOverviewProps> = ({
     { label: 'Enquiry ID', value: enquiry.ID || 'Unknown', icon: 'NumberSymbol' },
   ];
 
-  const contactDetails = [
-    { label: 'Email', value: enquiry.Email || 'Not captured', icon: 'Mail' },
-    { label: 'Phone', value: enquiry.Phone_Number || 'Not captured', icon: 'Phone' },
-    { label: 'Company', value: enquiry.Company || 'Individual enquiry', icon: 'Building' },
-    { label: 'Client type', value: enquiry.Type_of_Work || 'Not categorised', icon: 'People' },
-  ];
-
   const showCallAction = Boolean(enquiry.Phone_Number);
   const showMailAction = Boolean(enquiry.Email);
 
@@ -300,17 +295,14 @@ const EnquiryOverview: React.FC<EnquiryOverviewProps> = ({
               <h3 className="prospect-overview-panel-title">Client snapshot</h3>
             </div>
           </div>
-          <div className="prospect-overview-detail-list">
-            {contactDetails.map((detail) => (
-              <div key={detail.label} className="prospect-overview-detail-item">
-                <div className="prospect-overview-detail-label">
-                  <Icon iconName={detail.icon} />
-                  <span>{detail.label}</span>
-                </div>
-                <div className="prospect-overview-detail-value">{detail.value}</div>
-              </div>
-            ))}
-          </div>
+          <ContactModule
+            rows={[
+              ...(enquiry.Email ? [{ kind: 'email' as const, label: 'Email', value: enquiry.Email }] : []),
+              ...(enquiry.Phone_Number ? [{ kind: 'phone' as const, label: 'Phone', value: enquiry.Phone_Number }] : []),
+              ...(enquiry.Company ? [{ kind: 'company' as const, label: 'Company', value: enquiry.Company, copyable: true }] : []),
+              ...(enquiry.Type_of_Work ? [{ kind: 'person' as const, label: 'Client type', value: enquiry.Type_of_Work, copyable: false }] : []),
+            ] as ContactRow[]}
+          />
         </section>
       </div>
 

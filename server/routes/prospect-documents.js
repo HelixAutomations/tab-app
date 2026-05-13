@@ -133,20 +133,40 @@ router.post('/counts', async (req, res) => {
 
     // Cap to prevent abuse
     const ids = enquiryIds.slice(0, 200).map(String);
+    const counts = {};
+    for (const id of ids) {
+      counts[id] = 0;
+    }
+
+    const sqlEligibleIds = [...new Set(ids.map((id) => id.trim()).filter((id) => /^\d+$/.test(id)))];
+
+    trackEvent('ProspectDocuments.Counts.Started', {
+      count: String(ids.length),
+      sqlEligibleCount: String(sqlEligibleIds.length),
+      skippedCount: String(ids.length - sqlEligibleIds.length),
+    });
+
+    if (sqlEligibleIds.length === 0) {
+      const durationMs = Date.now() - start;
+      trackEvent('ProspectDocuments.Counts.Completed', {
+        count: String(ids.length),
+        sqlEligibleCount: '0',
+        skippedCount: String(ids.length),
+        durationMs: String(durationMs),
+      });
+      trackMetric('ProspectDocuments.Counts.Duration', durationMs);
+      return res.json({ counts });
+    }
 
     const connectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
     if (!connectionString) {
       return res.status(503).json({ error: 'Instructions DB not configured' });
     }
 
-    trackEvent('ProspectDocuments.Counts.Started', { count: String(ids.length) });
-
-    const counts = {};
-
     await withRequest(connectionString, async (request) => {
       // Build parameterised IN clause for ProspectId lookup
-      const idParams = ids.map((_, i) => `@eid${i}`);
-      ids.forEach((id, i) => {
+      const idParams = sqlEligibleIds.map((_, i) => `@eid${i}`);
+      sqlEligibleIds.forEach((id, i) => {
         request.input(`eid${i}`, sql.NVarChar(50), id);
       });
 
@@ -165,17 +185,11 @@ router.post('/counts', async (req, res) => {
         }
       }
 
-      // Initialise all requested IDs with 0
-      for (const id of ids) {
-        counts[id] = 0;
-      }
-
       if (refToEnquiryId.size === 0) {
         return;
       }
 
       // Step 2: Count documents by InstructionRef
-      const request2 = request; // reuse same connection
       const refs = [...refToEnquiryId.keys()];
       // New request needed for fresh inputs
       const countResult = await withRequest(connectionString, async (req2) => {
@@ -200,7 +214,12 @@ router.post('/counts', async (req, res) => {
     }, 2);
 
     const durationMs = Date.now() - start;
-    trackEvent('ProspectDocuments.Counts.Completed', { count: String(ids.length), durationMs: String(durationMs) });
+    trackEvent('ProspectDocuments.Counts.Completed', {
+      count: String(ids.length),
+      sqlEligibleCount: String(sqlEligibleIds.length),
+      skippedCount: String(ids.length - sqlEligibleIds.length),
+      durationMs: String(durationMs),
+    });
     trackMetric('ProspectDocuments.Counts.Duration', durationMs);
 
     return res.json({ counts });

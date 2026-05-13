@@ -41,10 +41,11 @@ interface CCLEditorProps {
   demoModeEnabled?: boolean;
   userInitials?: string;
   instructionPaymentReceived?: boolean;
+  initialShowOpsPanel?: boolean;
   onClose: () => void;
 }
 
-const CCLEditor: React.FC<CCLEditorProps> = ({ matter, teamData, demoModeEnabled = false, userInitials, instructionPaymentReceived = false, onClose }) => {
+const CCLEditor: React.FC<CCLEditorProps> = ({ matter, teamData, demoModeEnabled = false, userInitials, instructionPaymentReceived = false, initialShowOpsPanel = false, onClose }) => {
   const { isDarkMode } = useTheme();
 
   // Only use demo fields for the synthetic demo matter — real matters always get real data
@@ -448,6 +449,7 @@ const CCLEditor: React.FC<CCLEditorProps> = ({ matter, teamData, demoModeEnabled
           draftLoaded={draftLoaded}
           loadInfo={loadInfo}
           isDarkMode={isDarkMode}
+          initialShowOpsPanel={initialShowOpsPanel}
           onBack={() => setCurrentStep('editor')}
           onClose={onClose}
           onAdvancedMode={() => setCurrentStep('questionnaire')}

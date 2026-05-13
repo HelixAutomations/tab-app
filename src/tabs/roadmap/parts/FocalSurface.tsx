@@ -11,6 +11,7 @@ import RouteChecksPanel from './RouteChecksPanel';
 import DevConsolePanel from './DevConsolePanel';
 import OperatorActionsPanel from './OperatorActionsPanel';
 import SignalsInboxPanel from './SignalsInboxPanel';
+import MechanismsPanel from './MechanismsPanel';
 import type { ActivityFeedItem } from './types';
 import type { OpsPulseState } from './ops-pulse-types';
 import type { ActivityLens } from './ActivityHero';
@@ -83,6 +84,13 @@ const FocalSurface: React.FC<FocalSurfaceProps> = ({
     // Operator Actions surface (B1, Phase A) — dev-owner only at the chip
     // level upstream. Panel is self-contained: catalog, run, recent runs.
     return <OperatorActionsPanel />;
+  }
+
+  if (lens === 'mechanisms') {
+    // Static register of agent-side mechanisms so they aren't silently
+    // forgotten (stash, sync, health, changelog, telemetry, frameworks,
+    // prompt coach). Dev-owner gated upstream at the chip level.
+    return <MechanismsPanel />;
   }
 
   if (lens === 'trace') {

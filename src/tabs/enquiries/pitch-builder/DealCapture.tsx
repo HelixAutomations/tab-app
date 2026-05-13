@@ -1,24 +1,46 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { TextField } from '@fluentui/react/lib/TextField';
+import { Icon } from '@fluentui/react/lib/Icon';
 import { colours } from '../../../app/styles/colours';
+import './PitchBuilderRefresh.css';
 
-/** Props for DealCapture component */
+const GBP_SYMBOL = '\u00a3';
+
 export interface DealCaptureProps {
   isDarkMode: boolean;
   scopeDescription: string;
   onScopeChange: (value: string) => void;
-  amount: string; // raw numeric string
+  amount: string;
   onAmountChange: (value: string) => void;
   amountError?: string | null;
-  showScopeOnly?: boolean; // If true, only show scope section
-  showAmountOnly?: boolean; // If true, only show amount section
-  scopeConnectorColor?: string; // Optional override for the scope left connector
-  amountConnectorColor?: string; // Optional override for the amount left connector
-  includeVat?: boolean; // Optional, defaults to true
-  onIncludeVatChange?: (includeVat: boolean) => void; // Callback for VAT toggle
+  showScopeOnly?: boolean;
+  showAmountOnly?: boolean;
+  scopeConnectorColor?: string;
+  amountConnectorColor?: string;
+  includeVat?: boolean;
+  onIncludeVatChange?: (includeVat: boolean) => void;
+  scopePlaceholder?: string;
+  scopeSubject?: string;
 }
 
-/** Compact, theme‑aware deal capture (scope + fee + VAT breakdown). */
+function parseAmount(value: string): number | null {
+  const parsed = Number(String(value || '').replace(/[^0-9.]/g, ''));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formatCurrency(value: number): string {
+  return `${GBP_SYMBOL}${value.toLocaleString('en-GB', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+function normalizeAmountInput(value: string): string {
+  const cleaned = value.replace(/[^0-9.]/g, '');
+  const [whole, ...decimalParts] = cleaned.split('.');
+  if (decimalParts.length === 0) return whole;
+  return `${whole}.${decimalParts.join('').slice(0, 2)}`;
+}
+
 export const DealCapture: React.FC<DealCaptureProps> = ({
   isDarkMode,
   scopeDescription,
@@ -32,361 +54,129 @@ export const DealCapture: React.FC<DealCaptureProps> = ({
   amountConnectorColor,
   includeVat = true,
   onIncludeVatChange,
+  scopePlaceholder,
+  scopeSubject,
 }) => {
-  // Use brand highlight in light mode, accent in dark mode (except for signature/email links)
-  const accent = isDarkMode ? colours.accent : colours.highlight;
   const [isAmountFocused, setIsAmountFocused] = useState(false);
+  const hasScope = scopeDescription.trim().length > 0;
+  const parsedAmount = parseAmount(amount);
+  const hasAmount = parsedAmount !== null && parsedAmount > 0;
+  const accent = isDarkMode ? colours.accent : colours.highlight;
 
-  const handleScope = useCallback((ev: React.FormEvent<HTMLInputElement | HTMLTextAreaElement>, v?: string) => {
-    onScopeChange(v || '');
-  }, [onScopeChange]);
-
-  const handleAmount = useCallback((ev: React.FormEvent<HTMLInputElement | HTMLTextAreaElement>, v?: string) => {
-    const raw = (v || '').replace(/[^0-9.]/g, '');
-    onAmountChange(raw);
-  }, [onAmountChange]);
+  const scopeAccent = scopeConnectorColor || (hasScope ? colours.green : accent);
+  const amountAccent = amountConnectorColor || (hasAmount ? colours.green : accent);
 
   const vatInfo = useMemo(() => {
-    const n = parseFloat(amount);
-    if (!amount || isNaN(n)) return null;
-    const vat = includeVat ? +(n * 0.2).toFixed(2) : 0;
-    const total = +(n + vat).toFixed(2);
-    const fmt = (x: number) => `£${x.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    return { base: fmt(n), vat: fmt(vat), total: fmt(total) };
-  }, [amount, includeVat]);
+    if (!hasAmount || parsedAmount === null) return null;
+    const vat = includeVat ? parsedAmount * 0.2 : 0;
+    const total = parsedAmount + vat;
+    return {
+      base: formatCurrency(parsedAmount),
+      vat: formatCurrency(vat),
+      total: formatCurrency(total),
+    };
+  }, [hasAmount, includeVat, parsedAmount]);
 
-  const formattedAmount = useMemo(() => {
-    if (!amount) return '';
-    const n = parseFloat(amount.replace(/,/g, ''));
-    if (!Number.isFinite(n)) return amount;
-    return n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  }, [amount]);
+  const amountDisplay = useMemo(() => {
+    if (isAmountFocused) return amount;
+    if (parsedAmount === null) return amount;
+    return parsedAmount.toLocaleString('en-GB', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  }, [amount, isAmountFocused, parsedAmount]);
 
-  const adjust = (delta: number) => {
-    const n = parseFloat(amount) || 0;
-    const next = Math.max(0, n + delta);
-    onAmountChange(next.toString());
-  };
+  const handleAmountInput = useCallback((value: string) => {
+    onAmountChange(normalizeAmountInput(value));
+  }, [onAmountChange]);
 
-  // Determine connector border color based on completion and which section
-  const getScopeConnectorColor = () => {
-    if (scopeConnectorColor) return scopeConnectorColor;
-    if (scopeDescription && scopeDescription.trim()) {
-      return isDarkMode ? 'rgba(32, 178, 108, 0.35)' : 'rgba(32, 178, 108, 0.3)';
-    }
-    return isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)';
-  };
+  const adjustAmount = useCallback((delta: number) => {
+    const current = parseAmount(amount) || 0;
+    const next = Math.max(0, current + delta);
+    onAmountChange(String(next));
+  }, [amount, onAmountChange]);
 
-  const getAmountConnectorColor = () => {
-    if (amountConnectorColor) return amountConnectorColor;
-    if (amount && parseFloat(amount) > 0) {
-      return isDarkMode ? 'rgba(32, 178, 108, 0.35)' : 'rgba(32, 178, 108, 0.3)';
-    }
-    return isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)';
-  };
+  const scopeStyle = {
+    '--pitch-capture-accent': scopeAccent,
+  } as React.CSSProperties;
+
+  const amountStyle = {
+    '--pitch-capture-accent': amountAccent,
+  } as React.CSSProperties;
 
   return (
-    <div style={{
-      background: 'transparent',
-      border: 'none',
-      borderRadius: 0,
-      padding: 0,
-      display: 'flex',
-      flexDirection: 'column',
-      gap: 0
-    }}>
-      {/* Section header with visual emphasis */}
-      {(!showAmountOnly && !showScopeOnly) && (
-        <div style={{
-          marginBottom: 20,
-          paddingBottom: 16,
-          borderBottom: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.1)'}`,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10
-        }}>
-          <div style={{
-            width: 4,
-            height: 24,
-            borderRadius: 2,
-            background: 'linear-gradient(180deg, #3690CE, #2563EB)',
-            boxShadow: '0 0 12px #3690CE40'
-          }} />
-          <h3 style={{
-            margin: 0,
-            fontSize: 16,
-            fontWeight: 700,
-            color: isDarkMode ? '#E2E8F0' : '#1F2937',
-            letterSpacing: '-0.5px'
-          }}>
-            Deal Details
-          </h3>
-          <span style={{
-            fontSize: 12,
-            color: isDarkMode ? '#94A3B8' : '#64748B',
-            fontWeight: 500
-          }}>
-            Required to create the deal
-          </span>
-        </div>
-      )}
-
-      {/* Scope Section */}
+    <div
+      className={`pitch-capture ${showScopeOnly || showAmountOnly ? 'pitch-capture--single' : ''}`}
+      data-helix-region="pitch-builder/instruction-fields"
+    >
       {!showAmountOnly && (
-        <div style={{
-          marginLeft: 11,
-          paddingLeft: 23,
-          borderLeft: `2px solid ${getScopeConnectorColor()}`,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 12,
-          paddingTop: 12,
-          marginBottom: 24
-        }}>
-          <TextField
-            multiline
-            rows={3}
+        <section className="pitch-capture__section" style={scopeStyle}>
+          <textarea
+            className="pitch-capture__textarea"
             value={scopeDescription}
-            onChange={handleScope}
-            placeholder="What will you do? E.g., 'Draft a letter of claim and provide initial advice call'"
-            styles={{
-              field:{
-                fontSize:14,
-                lineHeight:1.6,
-                background: 'transparent',
-                color: isDarkMode ? '#E0F2FE' : '#0F172A',
-                fontFamily:'inherit',
-                padding:'12px 14px',
-                border: 'none',
-                selectors:{
-                  '::placeholder':{ color: isDarkMode ? '#475569' : '#A0AEC0' }
-                }
-              },
-              fieldGroup:{
-                border:`1.5px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.25)' : 'rgba(148, 163, 184, 0.3)'}`,
-                borderRadius:8,
-                background: isDarkMode
-                  ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.6) 0%, rgba(11, 30, 55, 0.4) 100%)'
-                  : 'linear-gradient(135deg, rgba(248, 250, 252, 0.95) 0%, rgba(255, 255, 255, 0.85) 100%)',
-                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                boxShadow: isDarkMode
-                  ? '0 2px 6px rgba(0, 0, 0, 0.1)'
-                  : '0 1px 3px rgba(0, 0, 0, 0.05)',
-                selectors:{
-                  ':hover':{ 
-                    borderColor: isDarkMode ? 'rgba(125, 211, 252, 0.45)' : 'rgba(148, 163, 184, 0.5)',
-                    boxShadow: isDarkMode
-                      ? '0 4px 12px rgba(0, 0, 0, 0.15)'
-                      : '0 2px 8px rgba(0, 0, 0, 0.08)'
-                  },
-                  '.is-focused':{ 
-                    borderColor: isDarkMode ? 'rgba(125, 211, 252, 0.6)' : 'rgba(148, 163, 184, 0.65)',
-                    boxShadow: isDarkMode 
-                      ? '0 0 0 4px rgba(54, 144, 206, 0.12)'
-                      : '0 0 0 4px rgba(54, 144, 206, 0.1)',
-                    background: isDarkMode
-                      ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.95) 0%, rgba(11, 30, 55, 0.8) 100%)'
-                      : 'linear-gradient(135deg, rgba(248, 250, 252, 0.98) 0%, rgba(255, 255, 255, 0.95) 100%)'
-                  }
-                }
-              }
-            }}
+            onChange={(event) => onScopeChange(event.currentTarget.value)}
+            placeholder={scopePlaceholder || "the service, e.g. \u2018drafting a letter of claim, reviewing the response, and advising on next steps\u2019"}
+            rows={3}
           />
-        </div>
+        </section>
       )}
 
-      {/* Amount Section */}
       {!showScopeOnly && (
-        <div style={{
-          marginLeft: 11,
-          paddingLeft: 23,
-          borderLeft: `2px solid ${getAmountConnectorColor()}`,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 12,
-          paddingTop: 12
-        }}>
-          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-        <div style={{
-          flex: 1,
-          border:`1.5px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.25)' : 'rgba(148, 163, 184, 0.3)'}`,
-          borderRadius:8,
-          background: isDarkMode 
-            ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.6) 0%, rgba(11, 30, 55, 0.4) 100%)'
-            : 'linear-gradient(135deg, rgba(248, 250, 252, 0.95) 0%, rgba(255, 255, 255, 0.85) 100%)',
-          display:'flex',
-          alignItems:'center',
-          height: 42,
-          transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-          boxShadow: isDarkMode
-            ? '0 2px 6px rgba(0, 0, 0, 0.1)'
-            : '0 1px 3px rgba(0, 0, 0, 0.05)'
-        }}>
-          <span style={{
-            padding:'0 14px',
-            fontSize:16,
-            fontWeight:600,
-            color: colours.blue,
-            borderRight:`1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.3)' : 'rgba(148, 163, 184, 0.35)'}`
-          }}>
-            £
-          </span>
-          <TextField
-            value={isAmountFocused ? amount : formattedAmount}
-            onChange={handleAmount}
-            onFocus={() => setIsAmountFocused(true)}
-            onBlur={() => setIsAmountFocused(false)}
-            placeholder="2500"
-            styles={{
-              root:{ flex:1 },
-              field:{
-                fontSize:15,
-                fontWeight:500,
-                background:'transparent',
-                color: isDarkMode ? '#E0F2FE' : '#0F172A',
-                fontFamily:'inherit',
-                padding:'10px 12px',
-                border:'none',
-                height:40,
-                selectors:{
-                  '::placeholder':{ 
-                    color: isDarkMode ? '#475569' : '#A0AEC0',
-                    fontSize: 14
-                  }
-                }
-              },
-              fieldGroup:{
-                border:'none',
-                background:'transparent',
-                height:38
-              }
-            }}
-          />
-        </div>
-        
-        {/* Adjust Buttons */}
-        <div style={{ display:'flex', gap:6 }}>
-          <button type="button" onClick={() => adjust(50)} style={{
-              padding:'8px 14px',
-              border:`1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.25)'}`,
-              background: isDarkMode 
-                ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.15) 0%, rgba(54, 144, 206, 0.1) 100%)'
-                : 'linear-gradient(135deg, rgba(54, 144, 206, 0.1) 0%, rgba(54, 144, 206, 0.08) 100%)',
-              color: accent,
-              borderRadius:8,
-              cursor:'pointer',
-              fontSize:12,
-              fontWeight:600,
-              height:40,
-              transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = isDarkMode
-                ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.25) 0%, rgba(54, 144, 206, 0.18) 100%)'
-                : 'linear-gradient(135deg, rgba(54, 144, 206, 0.18) 0%, rgba(54, 144, 206, 0.15) 100%)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = isDarkMode
-                ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.15) 0%, rgba(54, 144, 206, 0.1) 100%)'
-                : 'linear-gradient(135deg, rgba(54, 144, 206, 0.1) 0%, rgba(54, 144, 206, 0.08) 100%)';
-            }}
-            >+50</button>
-          <button type="button" onClick={() => adjust(-50)} style={{
-              padding:'8px 14px',
-              border:`1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.25)'}`,
-              background: isDarkMode 
-                ? 'linear-gradient(135deg, rgba(148, 163, 184, 0.12) 0%, rgba(107, 114, 128, 0.08) 100%)'
-                : 'linear-gradient(135deg, rgba(148, 163, 184, 0.08) 0%, rgba(107, 114, 128, 0.05) 100%)',
-              color: isDarkMode ? '#94A3B8' : '#64748B',
-              borderRadius:8,
-              cursor:'pointer',
-              fontSize:12,
-              fontWeight:600,
-              height:40,
-              transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = isDarkMode
-                ? 'linear-gradient(135deg, rgba(148, 163, 184, 0.2) 0%, rgba(107, 114, 128, 0.15) 100%)'
-                : 'linear-gradient(135deg, rgba(148, 163, 184, 0.15) 0%, rgba(107, 114, 128, 0.1) 100%)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = isDarkMode
-                ? 'linear-gradient(135deg, rgba(148, 163, 184, 0.12) 0%, rgba(107, 114, 128, 0.08) 100%)'
-                : 'linear-gradient(135deg, rgba(148, 163, 184, 0.08) 0%, rgba(107, 114, 128, 0.05) 100%)';
-            }}
-            >-50</button>
-        </div>
-        </div>
-
-        {/* VAT Confirmation - subtle inline display */}
-        {vatInfo && (
-          <div style={{
-            fontSize: 12,
-            color: isDarkMode ? '#94A3B8' : '#64748B',
-            paddingLeft: 2,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between'
-          }}>
+        <section className="pitch-capture__section" style={amountStyle}>
+          <div className="pitch-capture__section-header">
             <div>
-              <span style={{ opacity: 0.8 }}>{includeVat ? 'Inc. VAT (20%): ' : 'Exc. VAT: '}</span>
-              <strong style={{ color: accent }}>{vatInfo.total}</strong>
+              <div className="pitch-capture__eyebrow">Fee</div>
+              <div className="pitch-capture__title">Funds on account</div>
             </div>
-            {onIncludeVatChange && (
-              <label style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                cursor: 'pointer',
-                fontSize: 12,
-                fontWeight: 700,
-                color: isDarkMode ? '#7DD3FC' : '#3690CE',
-                userSelect: 'none',
-                padding: '3px 8px',
-                borderRadius: 6,
-                border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.45)' : 'rgba(54, 144, 206, 0.35)'}`,
-                background: isDarkMode ? 'rgba(125, 211, 252, 0.12)' : 'rgba(54, 144, 206, 0.12)',
-                boxShadow: isDarkMode
-                  ? '0 0 0 1px rgba(125, 211, 252, 0.18)'
-                  : '0 0 0 1px rgba(54, 144, 206, 0.14)'
-              }}>
-                <input
-                  type="checkbox"
-                  checked={!includeVat}
-                  onChange={(e) => onIncludeVatChange(!e.target.checked)}
-                  style={{
-                    width: 13,
-                    height: 13,
-                    cursor: 'pointer'
-                  }}
-                />
-                No VAT (international)
-              </label>
-            )}
           </div>
-        )}
 
-        {/* Error Message */}
-        {amountError && (
-          <div style={{
-            fontSize: 11,
-            color: colours.cta,
-            paddingLeft: 2,
-            marginTop: -6,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 4
-          }}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="10"/>
-              <line x1="12" y1="8" x2="12" y2="12"/>
-              <line x1="12" y1="16" x2="12.01" y2="16"/>
-            </svg>
-            {amountError}
+          <div className="pitch-capture__amount-row">
+            <label className="pitch-capture__amount-shell">
+              <span className="pitch-capture__currency">{GBP_SYMBOL}</span>
+              <input
+                className="pitch-capture__amount-input"
+                value={amountDisplay}
+                onChange={(event) => handleAmountInput(event.currentTarget.value)}
+                onFocus={() => setIsAmountFocused(true)}
+                onBlur={() => setIsAmountFocused(false)}
+                inputMode="decimal"
+                aria-label="Funds on account amount"
+                placeholder="1500.00"
+              />
+            </label>
+            <button
+              className="pitch-capture__stepper"
+              type="button"
+              onClick={() => adjustAmount(50)}
+              aria-label="Increase fee by 50 pounds"
+              title="Increase by 50"
+            >
+              <span aria-hidden="true" style={{ fontSize: 14, lineHeight: 1 }}>+</span>
+              <span>50</span>
+            </button>
+            <button
+              className="pitch-capture__stepper"
+              type="button"
+              onClick={() => adjustAmount(-50)}
+              aria-label="Decrease fee by 50 pounds"
+              title="Decrease by 50"
+            >
+              <span aria-hidden="true" style={{ fontSize: 14, lineHeight: 1 }}>{'\u2212'}</span>
+              <span>50</span>
+            </button>
           </div>
-        )}
-        </div>
+
+          {vatInfo && (
+            <div className="pitch-capture__vat-row">
+              <span>
+                {includeVat ? 'Inc. VAT (20%): ' : 'Exc. VAT: '}
+                <strong>{vatInfo.total}</strong>
+              </span>
+            </div>
+          )}
+
+          {amountError && <div className="pitch-capture__error">{amountError}</div>}
+        </section>
       )}
     </div>
   );

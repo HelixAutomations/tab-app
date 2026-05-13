@@ -14,6 +14,8 @@ const KV_URI = "https://helix-keys.vault.azure.net/";
 const ONEDRIVE_DRIVE_ID = "b!Yvwb2hcQd0Sccr_JiZEOOEqq1HfNiPFCs8wM4QfDlvVbiAZXWhpCS47xKdZKl8Vd";
 const ASANA_PROJECT_ID = "1203336124217593";
 const PAYMENT_REQUESTS_WEBHOOK_SECRET_NAME = 'payment-request-logic-app-url';
+const SIMPLE_UPLOAD_MAX_BYTES = 4 * 1024 * 1024;
+const UPLOAD_CHUNK_SIZE = 10 * 320 * 1024;
 
 function createHttpError(status, code, message, details) {
   const err = new Error(message);
@@ -168,29 +170,88 @@ async function getGraphAccessToken() {
 
 // Upload file to OneDrive
 async function uploadFileToOneDrive(accessToken, folderId, fileName, fileContentBase64) {
-  // Remove data URL prefix if present
   const commaIndex = fileContentBase64.indexOf(",");
   if (commaIndex > -1) {
     fileContentBase64 = fileContentBase64.substring(commaIndex + 1);
   }
-  
+
   const fileBuffer = Buffer.from(fileContentBase64, "base64");
-  const uploadUrl = `https://graph.microsoft.com/v1.0/drives/${ONEDRIVE_DRIVE_ID}/items/${folderId}:/${encodeURIComponent(fileName)}:/content`;
-  
-  const response = await fetch(uploadUrl, {
-    method: "PUT",
-    headers: {
-      "Authorization": `Bearer ${accessToken}`,
-      "Content-Type": "application/octet-stream"
-    },
-    body: fileBuffer
-  });
-  
-  if (!response.ok) {
-    throw new Error("OneDrive file upload failed");
+
+  if (fileBuffer.length <= SIMPLE_UPLOAD_MAX_BYTES) {
+    const uploadUrl = `https://graph.microsoft.com/v1.0/drives/${ONEDRIVE_DRIVE_ID}/items/${folderId}:/${encodeURIComponent(fileName)}:/content`;
+    const response = await fetch(uploadUrl, {
+      method: "PUT",
+      headers: {
+        "Authorization": `Bearer ${accessToken}`,
+        "Content-Type": "application/octet-stream"
+      },
+      body: fileBuffer
+    });
+
+    if (!response.ok) {
+      const errText = await response.text().catch(() => '');
+      throw new Error(`OneDrive file upload failed (${response.status}): ${errText.slice(0, 300) || 'no response body'}`);
+    }
+
+    return response.json();
   }
-  
-  return response.json();
+
+  const createSessionUrl = `https://graph.microsoft.com/v1.0/drives/${ONEDRIVE_DRIVE_ID}/items/${folderId}:/${encodeURIComponent(fileName)}:/createUploadSession`;
+  const sessionResponse = await fetch(createSessionUrl, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      item: {
+        '@microsoft.graph.conflictBehavior': 'rename',
+        name: fileName,
+      },
+    }),
+  });
+
+  if (!sessionResponse.ok) {
+    const errText = await sessionResponse.text().catch(() => '');
+    throw new Error(`OneDrive upload session creation failed (${sessionResponse.status}): ${errText.slice(0, 300) || 'no response body'}`);
+  }
+
+  const sessionPayload = await sessionResponse.json();
+  if (!sessionPayload?.uploadUrl) {
+    throw new Error('OneDrive upload session creation failed: missing uploadUrl');
+  }
+
+  let uploadedItem = null;
+
+  for (let start = 0; start < fileBuffer.length; start += UPLOAD_CHUNK_SIZE) {
+    const endExclusive = Math.min(start + UPLOAD_CHUNK_SIZE, fileBuffer.length);
+    const chunk = fileBuffer.subarray(start, endExclusive);
+    const endInclusive = endExclusive - 1;
+
+    const chunkResponse = await fetch(sessionPayload.uploadUrl, {
+      method: 'PUT',
+      headers: {
+        'Content-Length': String(chunk.length),
+        'Content-Range': `bytes ${start}-${endInclusive}/${fileBuffer.length}`,
+      },
+      body: chunk,
+    });
+
+    if (!chunkResponse.ok) {
+      const errText = await chunkResponse.text().catch(() => '');
+      throw new Error(`OneDrive chunk upload failed (${chunkResponse.status}): ${errText.slice(0, 300) || 'no response body'}`);
+    }
+
+    if (endExclusive === fileBuffer.length) {
+      uploadedItem = await chunkResponse.json();
+    }
+  }
+
+  if (!uploadedItem?.id) {
+    throw new Error('OneDrive upload completed without a drive item id');
+  }
+
+  return uploadedItem;
 }
 
 // Create org-wide sharing link
@@ -408,9 +469,22 @@ router.post('/', async (req, res) => {
           const uploadResult = await uploadFileToOneDrive(graphAccessToken, targetFolderId, fileData.fileName, fileContentBase64);
           
           if (uploadResult?.id) {
-            const sharingLink = await createSharingLink(graphAccessToken, uploadResult.id);
-            if (sharingLink) {
-              description += `\nUploaded File: ${uploadResult.name}\nLink: ${sharingLink}`;
+            let attachmentLink = uploadResult.webUrl || '';
+
+            try {
+              attachmentLink = await createSharingLink(graphAccessToken, uploadResult.id) || attachmentLink;
+            } catch (sharingError) {
+              console.warn('[financial-task] Sharing link creation failed, falling back to drive item URL', {
+                itemId: uploadResult.id,
+                message: sharingError?.message,
+                requestId,
+              });
+            }
+
+            if (attachmentLink) {
+              description += `\nUploaded File: ${uploadResult.name}\nLink: ${attachmentLink}`;
+            } else {
+              description += `\nUploaded File: ${uploadResult.name} (uploaded successfully, no share link returned)`;
             }
 
             console.log('[financial-task] OneDrive upload ok', {
@@ -421,6 +495,13 @@ router.post('/', async (req, res) => {
           }
         } catch (uploadError) {
           console.warn(`[financial-task] File upload failed: ${uploadError.message}`);
+          trackException(uploadError instanceof Error ? uploadError : new Error(String(uploadError)), {
+            operation,
+            phase: 'onedrive.upload',
+            formType,
+            requestId,
+            fileName: fileData.fileName || 'unknown',
+          });
           if (fileData.fileName) {
             description += `\nFile mentioned: ${fileData.fileName} (upload failed)`;
           }
@@ -511,7 +592,7 @@ router.post('/', async (req, res) => {
     await markComplete(submissionId, { lastEvent: 'financial task created' });
     
     res.json({
-      message: "Task created and OneDrive upload completed (if applicable).",
+      message: 'Task created. Attachment processed when applicable.',
       asanaTask: asanaResult,
       submissionId,
       streamUrl: submissionId ? `forms?focusSubmission=${submissionId}` : null,

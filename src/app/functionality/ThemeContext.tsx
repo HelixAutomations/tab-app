@@ -1,7 +1,7 @@
 // src/app/functionality/ThemeContext.tsx
 // invisible change 2
 
-import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, ReactNode } from 'react';
 
 interface ThemeContextProps {
   isDarkMode: boolean;
@@ -32,30 +32,48 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ isDarkMode: initia
     return initialIsDarkMode;
   });
 
+  const lastBroadcastThemeRef = useRef<string | null>(null);
+
+  const applyThemeToDocument = React.useCallback((nextIsDarkMode: boolean, shouldBroadcast = true) => {
+    const themeName = nextIsDarkMode ? 'dark' : 'light';
+    try {
+      if (typeof document !== 'undefined') {
+        const html = document.documentElement;
+        html.dataset.theme = themeName;
+        html.classList.toggle('theme-dark', nextIsDarkMode);
+        html.classList.toggle('theme-light', !nextIsDarkMode);
+
+        const body = document.body;
+        if (body) {
+          body.dataset.theme = themeName;
+          body.classList.toggle('theme-dark', nextIsDarkMode);
+          body.classList.toggle('theme-light', !nextIsDarkMode);
+        }
+      }
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem('helix_theme', themeName);
+        if (shouldBroadcast && lastBroadcastThemeRef.current !== themeName) {
+          lastBroadcastThemeRef.current = themeName;
+          window.dispatchEvent(new CustomEvent('helix-theme-changed', { detail: { theme: themeName } }));
+        }
+      }
+    } catch {}
+  }, []);
+
   useEffect(() => {
     setIsDarkMode(initialIsDarkMode);
   }, [initialIsDarkMode]);
 
   // Reflect on <body> and persist
-  useEffect(() => {
-    try {
-      const themeName = isDarkMode ? 'dark' : 'light';
-      if (typeof document !== 'undefined') {
-        document.body.dataset.theme = themeName;
-        document.body.classList.toggle('theme-dark', isDarkMode);
-        document.body.classList.toggle('theme-light', !isDarkMode);
-      }
-      if (typeof window !== 'undefined') {
-        window.localStorage.setItem('helix_theme', themeName);
-        // Broadcast for listeners (e.g., Loading)
-        window.dispatchEvent(new CustomEvent('helix-theme-changed', { detail: { theme: themeName } }));
-      }
-    } catch {}
-  }, [isDarkMode]);
+  useLayoutEffect(() => {
+    applyThemeToDocument(isDarkMode);
+  }, [applyThemeToDocument, isDarkMode]);
 
-  const toggleTheme = () => {
-    setIsDarkMode((prevMode) => !prevMode);
-  };
+  const toggleTheme = React.useCallback(() => {
+    const nextIsDarkMode = !isDarkMode;
+    applyThemeToDocument(nextIsDarkMode);
+    setIsDarkMode(nextIsDarkMode);
+  }, [applyThemeToDocument, isDarkMode]);
 
   return (
     <ThemeContext.Provider value={{ isDarkMode, toggleTheme }}>

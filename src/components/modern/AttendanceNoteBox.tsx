@@ -5,7 +5,7 @@
 // Clio-mirror modal that replaces the inline "generated note" preview when
 // the user clicks "Add to file" on an external call in the Call Centre
 // surface. Presentational-only: the host (CallsAndNotes) passes in the call,
-// the transcript, the generated note, the matter-chain prefill, and handles
+// the generated note, the matter-chain prefill, and handles
 // the actual Save fork in `onSave`.
 //
 // Fields (mirroring Clio's Create Time Entry box):
@@ -20,15 +20,10 @@
 //   • Toggles: upload to NetDocuments (on for matter) and record Clio time entry
 //     (opt-in; the endpoint ships in Cut 3 — when off, the Save leg no-ops)
 //
-// The transcript pane is a collapsible side panel so the fee earner can
-// cross-check nuances the generated note might miss — the "brief backing
-// on the transcript" the user asked for.
-//
 // Save path: `onSave(payload)` fires once and returns a per-leg status map
 // which the box renders beneath the Save button. The host owns the network
 // calls (existing save-note, existing upload-note-nd, new clio-time-entry
 // in Cut 3, /api/todo/reconcile at the end).
-
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FiFileText, FiUploadCloud, FiClock, FiX, FiCheck, FiAlertCircle, FiCalendar, FiUser, FiCloud, FiEdit3 } from 'react-icons/fi';
 import { colours, withAlpha } from '../../app/styles/colours';
@@ -109,6 +104,8 @@ export interface AttendanceNoteBoxProps {
   initialTarget?: AttendanceNoteTarget;
   /** Render the target switch inside the box. Embedded Home renders this in the panel header. */
   showTargetTabs?: boolean;
+  /** Render local-only destination toggles/status for development sessions. */
+  showDestinations?: boolean;
   /** When true, the date field is editable (used for blank/manual drafts). */
   dateEditable?: boolean;
   /** Pre-filled summary from the generated note (first 500 chars shown). */
@@ -117,8 +114,6 @@ export interface AttendanceNoteBoxProps {
   generatedBody: string;
   /** Action items from the generated note. */
   actionItems: string[];
-  /** Transcript text for the side pane (plain-text joined). */
-  transcriptText: string;
   /** Prefill matter from the resolved matter chain, if any. */
   prefillMatter?: { displayNumber: string; clientName?: string; description?: string } | null;
   /** Preloaded matters for instant local lookup. Falls back to live lookup when omitted. */
@@ -147,6 +142,16 @@ export interface AttendanceNoteBoxProps {
   readOnly?: boolean;
   /** Optional explanation shown when the form is read-only. */
   readOnlyMessage?: string;
+  /** Optional attribution strip rendered above the form when a saved note exists.
+   *  Shows who filed the note first and who else was on the call. Renders even
+   *  when the form is editable, so co-attendees know the note has already been
+   *  filed before they save (their save will skip NetDocs and only record their
+   *  own Clio time entry). */
+  attribution?: {
+    filedBy?: string | null;
+    filedAt?: string | null;
+    coAttendees?: string[];
+  } | null;
   onClose: () => void;
   onSave: (payload: AttendanceNoteBoxPayload) => void;
 }
@@ -217,11 +222,11 @@ export default function AttendanceNoteBox({
   isBlankDraft = false,
   initialTarget = 'matter',
   showTargetTabs = true,
+  showDestinations = false,
   dateEditable = false,
   generatedSummary,
   generatedBody,
   actionItems,
-  transcriptText,
   prefillMatter,
   matterOptions,
   recentMatters,
@@ -235,7 +240,8 @@ export default function AttendanceNoteBox({
   onGenerateNote,
   generating = false,
   readOnly = false,
-  readOnlyMessage = 'Only the primary call owner can file this note.',
+  readOnlyMessage = 'Only the call owner or someone on this call can file this note.',
+  attribution = null,
   onClose,
   onSave,
 }: AttendanceNoteBoxProps) {
@@ -269,6 +275,7 @@ export default function AttendanceNoteBox({
   const [internalAttendeeKey, setInternalAttendeeKey] = useState<string>('');
   const [internalAttendeeRole, setInternalAttendeeRole] = useState<AttendanceNoteAttendeeRole>('supporting');
   const [externalAttendeeName, setExternalAttendeeName] = useState<string>('');
+  const [attendeeEditorOpen, setAttendeeEditorOpen] = useState<boolean>(false);
   const [matterPromptNudge, setMatterPromptNudge] = useState<boolean>(false);
   const [clioPromptNudge, setClioPromptNudge] = useState<boolean>(false);
   const [manualNarrative, setManualNarrative] = useState<boolean>(false);
@@ -298,6 +305,7 @@ export default function AttendanceNoteBox({
     setInternalAttendeeKey('');
     setInternalAttendeeRole('supporting');
     setExternalAttendeeName('');
+    setAttendeeEditorOpen(false);
   }, [recordingId, initialAttendees]);
   useEffect(() => {
     if (prefillMatter) {
@@ -343,13 +351,6 @@ export default function AttendanceNoteBox({
   const headerBg = isDarkMode ? withAlpha(colours.helixBlue, 0.55) : colours.grey;
   const footerBg = isDarkMode ? withAlpha(colours.helixBlue, 0.35) : colours.grey;
   const isEmbedded = variant === 'embedded';
-  const transcriptBody = transcriptText.trim();
-  const transcriptIsInformational = transcriptBody === 'Loading transcript…'
-    || transcriptBody.startsWith('No transcript available')
-    || transcriptBody.startsWith('Could not load transcript')
-    || transcriptBody.startsWith('Network error loading transcript')
-    || transcriptBody.startsWith('Transcript request timed out');
-
   const parsedEnquiryId = useMemo(() => {
     if (prospectSelection?.id && prospectSelection.id > 0) return prospectSelection.id;
     const n = Number.parseInt(enquiryIdInput.trim(), 10);
@@ -607,11 +608,7 @@ export default function AttendanceNoteBox({
     <div
       data-helix-region={isEmbedded ? 'home/calls-and-notes/workspace' : 'modal/attendance-note-box'}
       className="atb-root"
-      onClick={isEmbedded ? undefined : (e) => e.stopPropagation()}
       style={{
-        display: 'grid',
-        gridTemplateColumns: isEmbedded ? 'minmax(0, 1fr)' : 'minmax(440px, 620px)',
-        gap: 0,
         background: 'transparent',
         margin: isEmbedded ? 0 : 'auto',
         maxHeight: isEmbedded ? '100%' : '92%',
@@ -783,6 +780,33 @@ export default function AttendanceNoteBox({
               <div className="atb-section" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 11px', color: colours.orange, background: isDarkMode ? 'rgba(255,140,0,0.08)' : 'rgba(255,140,0,0.05)', border: `1px solid ${isDarkMode ? 'rgba(255,140,0,0.18)' : 'rgba(255,140,0,0.14)'}`, fontSize: 11, lineHeight: 1.4 }}>
                 <FiAlertCircle size={13} aria-hidden />
                 <span>{readOnlyMessage}</span>
+              </div>
+            )}
+            {!readOnly && attribution && (attribution.filedBy || (attribution.coAttendees && attribution.coAttendees.length > 0)) && (
+              <div
+                className="atb-section"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '8px 10px',
+                  color: isDarkMode ? '#d1d5db' : '#374151',
+                  background: isDarkMode ? 'rgba(54,144,206,0.06)' : 'rgba(54,144,206,0.05)',
+                  border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.18)' : 'rgba(54,144,206,0.14)'}`,
+                  fontSize: 11,
+                  lineHeight: 1.4,
+                }}
+              >
+                <FiAlertCircle size={13} aria-hidden style={{ color: colours.highlight, flexShrink: 0 }} />
+                <span>
+                  {attribution.filedBy ? (
+                    <>Filed by <strong>{String(attribution.filedBy).toUpperCase()}</strong>{attribution.filedAt ? ` on ${formatDate(attribution.filedAt)}` : ''}.{' '}</>
+                  ) : null}
+                  {attribution.coAttendees && attribution.coAttendees.length > 0 ? (
+                    <>Also on the call: {attribution.coAttendees.join(', ')}.{' '}</>
+                  ) : null}
+                  Saving again here records your own Clio time entry; the NetDocuments file is not re-uploaded.
+                </span>
               </div>
             )}
             {/* Target picker — embedded Home renders the tabs in the panel header. */}
@@ -1033,80 +1057,111 @@ export default function AttendanceNoteBox({
 
             {/* Attendees */}
             <div className="atb-section" style={{ animationDelay: '120ms' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: labelText, marginBottom: 6 }}>
-                <FiUser size={12} aria-hidden style={{ color: muted }} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: muted, marginBottom: 5 }}>
+                <FiUser size={11} aria-hidden style={{ color: muted }} />
                 Attendees
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, border: `1px solid ${inputBorder}`, background: mutedInputBg, padding: '8px 10px' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.45fr) minmax(108px, 0.65fr) auto', gap: 6 }}>
-                  <select
-                    value={internalAttendeeKey}
-                    onChange={(event) => setInternalAttendeeKey(event.target.value)}
-                    disabled={saving || activeTeamOptions.length === 0}
-                    className="atb-input"
-                    aria-label="Add internal attendee"
-                    style={{ minWidth: 0, padding: '8px 10px', background: inputBg, border: `1px solid ${inputBorder}`, color: internalAttendeeKey ? text : muted, fontSize: 12, fontFamily: 'Raleway, sans-serif', borderRadius: 0, outline: 'none' }}
-                  >
-                    <option value="">Add internal attendee</option>
-                    {activeTeamOptions.map((member) => (
-                      <option key={member.key} value={member.key} disabled={selectedInternalKeys.has(member.key)}>
-                        {member.name}{member.initials ? ` (${member.initials})` : ''}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    value={internalAttendeeRole}
-                    onChange={(event) => setInternalAttendeeRole(event.target.value as AttendanceNoteAttendeeRole)}
-                    disabled={saving}
-                    className="atb-input"
-                    aria-label="Internal attendee role"
-                    style={{ minWidth: 0, padding: '8px 10px', background: inputBg, border: `1px solid ${inputBorder}`, color: text, fontSize: 12, fontFamily: 'Raleway, sans-serif', borderRadius: 0, outline: 'none' }}
-                  >
-                    <option value="primary">Primary</option>
-                    <option value="supporting">Supporting</option>
-                    <option value="learning">Learning</option>
-                  </select>
-                  <button
-                    type="button"
-                    onClick={addInternalAttendee}
-                    disabled={saving || !internalAttendeeKey}
-                    aria-label="Add internal attendee"
-                    style={{ padding: '0 10px', minWidth: 40, background: inputBg, border: `1px solid ${inputBorder}`, color: internalAttendeeKey ? accent : muted, cursor: saving || !internalAttendeeKey ? 'not-allowed' : 'pointer', borderRadius: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
-                  >
-                    <FiCheck size={13} aria-hidden />
-                  </button>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: attendeeEditorOpen ? 8 : 5, border: `1px solid ${withAlpha(muted, isDarkMode ? 0.16 : 0.18)}`, background: isDarkMode ? withAlpha(colours.dark.sectionBackground, 0.32) : withAlpha(colours.grey, 0.5), padding: attendeeEditorOpen ? '8px 10px' : '6px 8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, minHeight: 24 }}>
+                  <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+                    {attendees.length > 0 ? attendees.map((attendee) => (
+                      <span
+                        key={attendee.id}
+                        title={`${attendee.name}${attendee.initials ? ` (${attendee.initials})` : ''}`}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: 160, padding: '2px 6px', border: `1px solid ${withAlpha(inputBorder, 0.75)}`, color: bodyText, background: isDarkMode ? withAlpha(colours.dark.cardBackground, 0.56) : '#ffffff', fontSize: 10, lineHeight: 1.25 }}
+                      >
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{attendee.name}</span>
+                        <span style={{ color: muted }}>{attendeeRoleLabel(attendee.role)}</span>
+                      </span>
+                    )) : (
+                      <span style={{ fontSize: 10, color: muted, fontStyle: 'italic' }}>No extra attendees tagged.</span>
+                    )}
+                  </div>
+                  {!readOnly && (
+                    <button
+                      type="button"
+                      onClick={() => setAttendeeEditorOpen((open) => !open)}
+                      disabled={saving}
+                      aria-expanded={attendeeEditorOpen}
+                      aria-label={attendeeEditorOpen ? 'Hide attendee editor' : 'Add attendee'}
+                      style={{ flexShrink: 0, minHeight: 22, padding: '2px 7px', background: 'transparent', border: `1px solid ${withAlpha(inputBorder, 0.75)}`, color: attendeeEditorOpen ? accent : muted, cursor: saving ? 'not-allowed' : 'pointer', borderRadius: 0, fontSize: 10, fontFamily: 'Raleway, sans-serif', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase' }}
+                    >
+                      {attendeeEditorOpen ? 'Done' : attendees.length > 0 ? 'Edit' : 'Add'}
+                    </button>
+                  )}
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 6 }}>
-                  <input
-                    type="text"
-                    value={externalAttendeeName}
-                    onChange={(event) => setExternalAttendeeName(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') {
-                        event.preventDefault();
-                        addExternalAttendee();
-                      }
-                    }}
-                    disabled={saving}
-                    className="atb-input"
-                    aria-label="Add external attendee"
-                    placeholder="Add external attendee"
-                    style={{ minWidth: 0, padding: '8px 10px', background: inputBg, border: `1px solid ${inputBorder}`, color: text, fontSize: 12, fontFamily: 'Raleway, sans-serif', borderRadius: 0, outline: 'none' }}
-                  />
-                  <button
-                    type="button"
-                    onClick={addExternalAttendee}
-                    disabled={saving || !externalAttendeeName.trim()}
-                    aria-label="Add external attendee"
-                    style={{ padding: '0 10px', minWidth: 40, background: inputBg, border: `1px solid ${inputBorder}`, color: externalAttendeeName.trim() ? accent : muted, cursor: saving || !externalAttendeeName.trim() ? 'not-allowed' : 'pointer', borderRadius: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
-                  >
-                    <FiCheck size={13} aria-hidden />
-                  </button>
-                </div>
+                {attendeeEditorOpen && (
+                  <>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.45fr) minmax(108px, 0.65fr) auto', gap: 6 }}>
+                      <select
+                        value={internalAttendeeKey}
+                        onChange={(event) => setInternalAttendeeKey(event.target.value)}
+                        disabled={saving || activeTeamOptions.length === 0}
+                        className="atb-input"
+                        aria-label="Add internal attendee"
+                        style={{ minWidth: 0, padding: '7px 9px', background: inputBg, border: `1px solid ${inputBorder}`, color: internalAttendeeKey ? text : muted, fontSize: 11, fontFamily: 'Raleway, sans-serif', borderRadius: 0, outline: 'none' }}
+                      >
+                        <option value="">Add internal attendee</option>
+                        {activeTeamOptions.map((member) => (
+                          <option key={member.key} value={member.key} disabled={selectedInternalKeys.has(member.key)}>
+                            {member.name}{member.initials ? ` (${member.initials})` : ''}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        value={internalAttendeeRole}
+                        onChange={(event) => setInternalAttendeeRole(event.target.value as AttendanceNoteAttendeeRole)}
+                        disabled={saving}
+                        className="atb-input"
+                        aria-label="Internal attendee role"
+                        style={{ minWidth: 0, padding: '7px 9px', background: inputBg, border: `1px solid ${inputBorder}`, color: text, fontSize: 11, fontFamily: 'Raleway, sans-serif', borderRadius: 0, outline: 'none' }}
+                      >
+                        <option value="primary">Primary</option>
+                        <option value="supporting">Supporting</option>
+                        <option value="learning">Learning</option>
+                      </select>
+                      <button
+                        type="button"
+                        onClick={addInternalAttendee}
+                        disabled={saving || !internalAttendeeKey}
+                        aria-label="Add internal attendee"
+                        style={{ padding: '0 9px', minWidth: 36, background: inputBg, border: `1px solid ${inputBorder}`, color: internalAttendeeKey ? accent : muted, cursor: saving || !internalAttendeeKey ? 'not-allowed' : 'pointer', borderRadius: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                      >
+                        <FiCheck size={12} aria-hidden />
+                      </button>
+                    </div>
 
-                {attendees.length > 0 ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 6 }}>
+                      <input
+                        type="text"
+                        value={externalAttendeeName}
+                        onChange={(event) => setExternalAttendeeName(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            addExternalAttendee();
+                          }
+                        }}
+                        disabled={saving}
+                        className="atb-input"
+                        aria-label="Add external attendee"
+                        placeholder="Add external attendee"
+                        style={{ minWidth: 0, padding: '7px 9px', background: inputBg, border: `1px solid ${inputBorder}`, color: text, fontSize: 11, fontFamily: 'Raleway, sans-serif', borderRadius: 0, outline: 'none' }}
+                      />
+                      <button
+                        type="button"
+                        onClick={addExternalAttendee}
+                        disabled={saving || !externalAttendeeName.trim()}
+                        aria-label="Add external attendee"
+                        style={{ padding: '0 9px', minWidth: 36, background: inputBg, border: `1px solid ${inputBorder}`, color: externalAttendeeName.trim() ? accent : muted, cursor: saving || !externalAttendeeName.trim() ? 'not-allowed' : 'pointer', borderRadius: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                      >
+                        <FiCheck size={12} aria-hidden />
+                      </button>
+                    </div>
+
+                    {attendees.length > 0 && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
                     {attendees.map((attendee) => (
                       <div key={attendee.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(104px, 0.45fr) auto', gap: 6, alignItems: 'center' }}>
                         <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 6, color: bodyText, fontSize: 12 }}>
@@ -1141,9 +1196,9 @@ export default function AttendanceNoteBox({
                         </button>
                       </div>
                     ))}
-                  </div>
-                ) : (
-                  <div style={{ fontSize: 10, color: muted, fontStyle: 'italic' }}>No additional attendees tagged.</div>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -1229,39 +1284,32 @@ export default function AttendanceNoteBox({
               )}
             </div>
 
-            {!!transcriptBody && (
-              <div className="atb-section" style={{ animationDelay: '160ms' }}>
-                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: labelText, marginBottom: 6 }}>
-                  Transcript
-                </div>
-                <div
-                  style={{
-                    maxHeight: isEmbedded ? 180 : 220,
-                    overflowY: 'auto',
-                    padding: '10px 12px',
-                    background: mutedInputBg,
-                    border: `1px solid ${inputBorder}`,
-                    color: transcriptIsInformational ? muted : bodyText,
-                    fontSize: 12,
-                    lineHeight: 1.5,
-                    whiteSpace: 'pre-wrap',
-                    fontStyle: transcriptIsInformational ? 'italic' : 'normal',
-                  }}
-                >
-                  {transcriptBody}
-                </div>
-              </div>
-            )}
-
             {/* Action points */}
-            {actionItems && actionItems.length > 0 && (
+            {actionItems && actionItems.length > 0 && (() => {
+              // §12: routing of unticked action points (Asana / hub To Do task generation) is the
+              // next iteration. Until then non-dev fee earners see the checks as display-only so
+              // the affordance does not promise behaviour that has not landed yet. LZ/AC keep the
+              // live toggle for QA and get a small "Admin" label so they remember fee earners see
+              // the read-only version.
+              const interactive = ['LZ', 'AC'].includes(String(userInitials || '').toUpperCase());
+              return (
               <div className="atb-section" style={{ animationDelay: '180ms' }}>
-                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: labelText, marginBottom: 6 }}>Action points</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: labelText }}>Action points</div>
+                  {interactive && (
+                    <span
+                      title="Admin only. Fee earners see these as read-only until action-point routing (Asana / hub To Do) lands."
+                      style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: muted, padding: '1px 5px', border: `1px dashed ${inputBorder}` }}
+                    >
+                      Admin · live toggle
+                    </span>
+                  )}
+                </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 5, border: `1px solid ${inputBorder}`, padding: '8px 10px', background: mutedInputBg }}>
                   {actionItems.map((item, i) => {
-                    const on = !!checkedActionPoints[i];
+                    const on = interactive ? !!checkedActionPoints[i] : true;
                     const toggle = () => {
-                      if (saving) return;
+                      if (saving || !interactive) return;
                       setCheckedActionPoints(prev => {
                         const next = [...prev];
                         next[i] = !on;
@@ -1269,14 +1317,16 @@ export default function AttendanceNoteBox({
                       });
                     };
                     return (
-                      <label key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: saving ? 'not-allowed' : 'pointer', fontSize: 12, color: bodyText, lineHeight: 1.4 }}>
+                      <label key={i} title={interactive ? undefined : 'Action-point routing arrives in the next iteration. All points are saved with the note for now.'} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: !interactive ? 'default' : (saving ? 'not-allowed' : 'pointer'), fontSize: 12, color: bodyText, lineHeight: 1.4 }}>
                         <span
                           role="checkbox"
                           aria-checked={on}
-                          tabIndex={saving ? -1 : 0}
+                          aria-disabled={!interactive || undefined}
+                          tabIndex={interactive && !saving ? 0 : -1}
                           onClick={toggle}
-                          onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggle(); } }}
+                          onKeyDown={(e) => { if (interactive && (e.key === ' ' || e.key === 'Enter')) { e.preventDefault(); toggle(); } }}
                           className={`atb-check-box${on ? ' is-on' : ''}`}
+                          style={!interactive ? { cursor: 'default', opacity: 0.85 } : undefined}
                         >
                           {on && <FiCheck size={10} color={colours.green} strokeWidth={3} />}
                         </span>
@@ -1286,10 +1336,11 @@ export default function AttendanceNoteBox({
                   })}
                 </div>
               </div>
-            )}
+              );
+            })()}
 
             {/* Destinations (matter-mode toggles, prospect-mode info) */}
-            {target === 'matter' ? (
+            {showDestinations && (target === 'matter' ? (
               <div className={`atb-section${matterPromptNudge ? ' atb-nudge' : ''}`} style={{ display: 'flex', flexDirection: 'column', gap: 8, borderTop: `1px solid ${panelBorder}`, paddingTop: 10, animationDelay: '220ms' }}>
                 <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: muted, marginBottom: 2 }}>Destinations</div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
@@ -1408,7 +1459,7 @@ export default function AttendanceNoteBox({
                 </div>
                 <div style={{ fontSize: 10, color: muted, fontStyle: 'italic', marginTop: 2 }}>Not billable.</div>
               </div>
-            )}
+            ))}
 
             {/* Save legs status */}
             {saveLegs.length > 0 && (

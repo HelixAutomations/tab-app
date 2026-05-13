@@ -7,6 +7,7 @@ import { Pivot, PivotItem } from '@fluentui/react/lib/Pivot';
 import { TextField } from '@fluentui/react/lib/TextField';
 import { FaBolt, FaEdit, FaFileAlt, FaEraser, FaInfoCircle, FaThumbtack, FaCalculator, FaExclamationTriangle, FaEnvelope, FaPaperPlane, FaChevronDown, FaChevronUp, FaCopy, FaEye, FaCheck, FaTimes, FaUsers, FaArrowLeft, FaPoundSign, FaUndo, FaRedo } from 'react-icons/fa';
 import DealCapture from './DealCapture';
+import PitchTypeformWizard, { PitchWizardStepDescriptor, PitchWizardStepId } from './PitchTypeformWizard';
 import { colours } from '../../../app/styles/colours';
 import { TemplateBlock } from '../../../app/customisation/ProductionTemplateBlocks';
 import SnippetEditPopover from './SnippetEditPopover';
@@ -18,6 +19,7 @@ import { processEmailContentV2 } from './emailFormattingV2';
 import FormattingToolbar from './FormattingToolbar';
 import { processEditorContentForEmail, KEYBOARD_SHORTCUTS, type FormattingCommand } from './emailFormattingUtils';
 import markUrl from '../../../assets/dark blue mark.svg';
+import EmailSignature from '../EmailSignature';
 // Import tab bg image directly for debugging
 const tabBgUrl = require('../../../assets/tab bg.jpg');
 
@@ -158,6 +160,7 @@ function stripDashDividers(text: string): string {
 
 const GBP_SYMBOL = '\u00a3';
 const POUND_SYMBOL_PATTERN = /(?:\u00a3|\u00c2\u00a3)/;
+const DEBUG_EDITOR_SYNC = process.env.REACT_APP_PITCH_EDITOR_DEBUG === 'true';
 
 // Convert very basic HTML to plain text for textarea defaults and copy actions
 function htmlToPlainText(html: string): string {
@@ -512,7 +515,7 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
     if (richTextMode && bodyEditorRef?.current) {
       // Log body changes to track what's triggering re-renders
       if (previousBodyRef.current !== value) {
-        console.log('[EditorSync] Body prop changed', {
+        DEBUG_EDITOR_SYNC && console.log('[EditorSync] Body prop changed', {
           internalUpdate: internalUpdateRef.current,
           debounceActive: debounceActiveRef.current,
           focused: editorFocusedRef.current,
@@ -523,13 +526,13 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
       }
       // Skip if this was an internal update (user typing) - prevents cursor jumping
       if (internalUpdateRef.current) {
-        console.log('[EditorSync] Blocked by internalUpdate');
+        DEBUG_EDITOR_SYNC && console.log('[EditorSync] Blocked by internalUpdate');
         return;
       }
 
       // Skip if a debounced onChange is pending (user is actively typing)
       if (debounceActiveRef.current) {
-        console.log('[EditorSync] Blocked by debounceActive');
+        DEBUG_EDITOR_SYNC && console.log('[EditorSync] Blocked by debounceActive');
         return;
       }
 
@@ -559,7 +562,7 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
       // Only update if the content is different
       const currentContent = bodyEditorRef.current.innerHTML;
       if (currentContent !== wrappedContent) {
-        console.log('[EditorSync] warning WRITING innerHTML', { wrappedLength: wrappedContent.length });
+        DEBUG_EDITOR_SYNC && console.log('[EditorSync] warning WRITING innerHTML', { wrappedLength: wrappedContent.length });
         bodyEditorRef.current.innerHTML = wrappedContent;
       }
     }
@@ -1094,7 +1097,7 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
           
           // Trap innerHTML writes to catch culprit
           const editor = bodyEditorRef?.current;
-          if (editor && !editor.hasAttribute('data-trapped')) {
+          if (DEBUG_EDITOR_SYNC && editor && !editor.hasAttribute('data-trapped')) {
             editor.setAttribute('data-trapped', 'true');
             const originalDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
             if (originalDescriptor && originalDescriptor.set) {
@@ -1120,7 +1123,7 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
           if (isPitchFlowLocked) return;
           const target = e.currentTarget as HTMLDivElement;
           const newValue = target.innerHTML;
-          console.log('[EditorInput] User typing - setting flags');
+          DEBUG_EDITOR_SYNC && console.log('[EditorInput] User typing - setting flags');
           internalUpdateRef.current = true;
           debounceActiveRef.current = true;
           pendingValueRef.current = newValue;
@@ -1134,7 +1137,7 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
               addToHistory(pendingValueRef.current);
               pendingValueRef.current = null;
             }
-            console.log('[EditorDebounce] Debounce completed - clearing debounceActiveRef');
+            DEBUG_EDITOR_SYNC && console.log('[EditorDebounce] Debounce completed - clearing debounceActiveRef');
             debounceActiveRef.current = false;
           }, 150);
         }}
@@ -1157,7 +1160,7 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
             addToHistory(pendingValueRef.current);
             pendingValueRef.current = null;
           }
-          console.log('[EditorBlur] Flushing on blur - clearing debounceActiveRef');
+          DEBUG_EDITOR_SYNC && console.log('[EditorBlur] Flushing on blur - clearing debounceActiveRef');
           debounceActiveRef.current = false;
           
           if (leavingEditor) {
@@ -1454,6 +1457,15 @@ interface EditorAndTemplateBlocksProps {
   emailStatus?: 'idle' | 'processing' | 'sent' | 'error';
   emailMessage?: string;
   pitchFlowLocked?: boolean;
+  linkActivationMode?: 'pitch' | 'manual';
+  onLinkActivationModeChange?: (mode: 'pitch' | 'manual') => void;
+  // Passcode-only flow: parent owns the deal capture + toast progression and
+  // tells us when to flip into the receipt panel.
+  onGeneratePasscode?: () => Promise<string | null>;
+  passcodeIssuing?: boolean;
+  passcodeIssued?: boolean;
+  onResetPasscodeReceipt?: () => void;
+  demoModeEnabled?: boolean;
   // Scenario callback to expose selectedScenarioId to parent
   onScenarioChange?: (scenarioId: string) => void;
   initialScenario?: string;
@@ -1513,6 +1525,13 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
   emailStatus,
   emailMessage,
   pitchFlowLocked = false,
+  linkActivationMode = 'pitch',
+  onLinkActivationModeChange,
+  onGeneratePasscode,
+  passcodeIssuing = false,
+  passcodeIssued = false,
+  onResetPasscodeReceipt,
+  demoModeEnabled = false,
   onScenarioChange,
   initialScenario
 }) => {
@@ -1524,6 +1543,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
 
   // Deal capture state
   const [scopeDescription, setScopeDescription] = useState(initialScopeDescription || '');
+  // Remember bespoke draft when toggling to standard, so it isn't lost.
+  const bespokeDraftRef = useRef<string>(initialScopeDescription || '');
   // Default amount now 1500 if not supplied
   const [amountValue, setAmountValue] = useState(amount && amount.trim() !== '' ? amount : '1500');
   const [amountError, setAmountError] = useState<string | null>(null);
@@ -1550,6 +1571,12 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
   const [isAmountCollapsed, setIsAmountCollapsed] = useState(false);
   const [isSubjectCollapsed, setIsSubjectCollapsed] = useState(false);
   const [showInlinePreview, setShowInlinePreview] = useState(false);
+  // Typeform-style wizard navigation
+  const [wizardIndex, setWizardIndex] = useState(0);
+  const [receiptLinkCopied, setReceiptLinkCopied] = useState(false);
+  const [scopeMode, setScopeMode] = useState<'bespoke' | 'default-payment'>('bespoke');
+  const [feeMode, setFeeMode] = useState<'preset' | 'custom'>('preset');
+  const isCfa = selectedScenarioId === 'cfa';
   const [isBodyEditorFocused, setIsBodyEditorFocused] = useState(false);
   const [allPlaceholdersSatisfied, setAllPlaceholdersSatisfied] = useState(false);
   const [isSubjectEditing, setIsSubjectEditing] = useState(true); // Start expanded to prevent autopilot
@@ -1612,6 +1639,160 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
       body.classList.remove('helix-editor-focus-active');
     };
   }, [isBodyEditorFocused]);
+
+  // ==================================================================
+  // Typeform wizard step model
+  // Single-box, one-step-at-a-time intake. Steps adapt to scenario:
+  //   before-call-call: scenario, subject, body
+  //   cfa:              scenario, subject, scope, body  (no fee)
+  //   default:          scenario, subject, scope, fee, body
+  // ==================================================================
+  const wizardSteps = React.useMemo<PitchWizardStepDescriptor[]>(() => {
+    const subjectReady = !!subject && subject !== 'Your Enquiry - Helix Law';
+    const scopeReady = !!scopeDescription && scopeDescription.trim().length > 0;
+    const feeReady = !!amountValue && parseFloat(amountValue) > 0;
+    const scenarioPicked = !!selectedScenarioId;
+    const isPasscodeOnly = (linkActivationMode || 'pitch') === 'manual';
+    const steps: PitchWizardStepDescriptor[] = [
+      {
+        id: 'scenario',
+        label: 'Scenario',
+        question: 'Which template fits this enquiry?',
+        hint: 'Pick the path that matches where the conversation is right now.',
+        status: scenarioPicked ? 'done' : 'active',
+      },
+    ];
+    if (!isPasscodeOnly) {
+      steps.push({
+        id: 'subject',
+        label: 'Subject',
+        question: 'What is the email subject?',
+        hint: 'Keep it short and recognisable in the recipient\u2019s inbox.',
+        status: !scenarioPicked ? 'pending' : (subjectReady ? 'done' : 'active'),
+      });
+    }
+    if (!isBeforeCallCall) {
+      steps.push({
+        id: 'scope',
+        label: 'Scope',
+        question: 'Describe the scope of work',
+        hint: 'Internal scope summary used to capture the deal. Replace the placeholder with bespoke wording, or switch to the standard payment-on-account line.',
+        status: !scenarioPicked ? 'pending' : (scopeReady ? 'done' : 'active'),
+      });
+    }
+    if (!isBeforeCallCall) {
+      steps.push({
+        id: 'fee',
+        label: 'Fee',
+        question: isCfa ? 'Confirm there is no upfront fee' : 'What fee should we quote?',
+        hint: isCfa
+          ? 'CFA matters carry no upfront fee. The client only completes ID checks and can upload supporting documents from the success page.'
+          : 'Pick a preset or open custom for a specific amount.',
+        status: !scenarioPicked ? 'pending' : (isCfa || feeReady ? 'done' : 'active'),
+      });
+    }
+    if (!isPasscodeOnly) {
+      steps.push({
+        id: 'body',
+        label: 'Body',
+        question: isCfa
+          ? 'Confirm and finalise the CFA email'
+          : 'Compose your email',
+        hint: isCfa
+          ? 'CFA is processed under our alternative no-win-no-fee assessment. No payment on account is taken at this stage.'
+          : 'Resolve any highlighted placeholders, then send when ready.',
+        status: !scenarioPicked ? 'pending' : (allPlaceholdersSatisfied ? 'done' : 'active'),
+      });
+    }
+    if (isPasscodeOnly && passcodeIssued) {
+      steps.push({
+        id: 'receipt',
+        label: 'Passcode',
+        question: 'Passcode ready to share',
+        hint: demoModeEnabled
+          ? 'Demo mode: no deal was saved. The passcode is reusable for the walkthrough.'
+          : 'Send the instruct link with the passcode. The client uses it to verify identity and complete payment.',
+        status: 'done',
+      });
+    }
+    return steps;
+  }, [selectedScenarioId, subject, scopeDescription, amountValue, isBeforeCallCall, isCfa, allPlaceholdersSatisfied, linkActivationMode, passcodeIssued, demoModeEnabled]);
+
+  // Clamp wizard index when step list shrinks (e.g. scenario change drops fee)
+  React.useEffect(() => {
+    if (wizardIndex > wizardSteps.length - 1) {
+      setWizardIndex(Math.max(0, wizardSteps.length - 1));
+    }
+  }, [wizardSteps.length, wizardIndex]);
+
+  const activeWizardStep = wizardSteps[Math.min(wizardIndex, wizardSteps.length - 1)];
+  const activeStepId: PitchWizardStepId = activeWizardStep?.id ?? 'scenario';
+
+  const wizardCanAdvance = React.useMemo(() => {
+    if (!activeWizardStep) return false;
+    if (passcodeIssuing) return false;
+    switch (activeWizardStep.id) {
+      case 'delivery': return true; // legacy fallthrough, no longer in step list
+      case 'scenario': return !!selectedScenarioId;
+      case 'subject': return !!subject && subject !== 'Your Enquiry - Helix Law';
+      case 'scope': return !!scopeDescription && scopeDescription.trim().length > 0;
+      case 'fee': return !!amountValue && parseFloat(amountValue) > 0;
+      case 'body': return false; // last step has no Next
+      case 'receipt': return false; // terminal receipt: no Next
+      default: return true;
+    }
+  }, [activeWizardStep, selectedScenarioId, subject, scopeDescription, amountValue, passcodeIssuing]);
+
+  const isPasscodeOnlyMode = (linkActivationMode || 'pitch') === 'manual';
+  // The final intake step in passcode-only mode is 'fee' (or 'scope' if CFA strips fee).
+  // Pressing Next on that step should fire the generate-passcode handler instead of advancing.
+  const passcodeTerminalStepId: PitchWizardStepId | null = React.useMemo(() => {
+    if (!isPasscodeOnlyMode || passcodeIssued) return null;
+    const intakeSteps = wizardSteps.filter(s => s.id !== 'receipt');
+    return (intakeSteps[intakeSteps.length - 1]?.id as PitchWizardStepId) ?? null;
+  }, [isPasscodeOnlyMode, passcodeIssued, wizardSteps]);
+
+  const goWizardNext = useCallback(() => {
+    if (isPasscodeOnlyMode && !passcodeIssued && activeWizardStep?.id === passcodeTerminalStepId && onGeneratePasscode) {
+      // Fire-and-forget: parent owns toast + state. When passcodeIssued flips true,
+      // the receipt step appears and we advance to it via the effect below.
+      void onGeneratePasscode();
+      return;
+    }
+    setWizardIndex(idx => Math.min(idx + 1, wizardSteps.length - 1));
+  }, [wizardSteps.length, isPasscodeOnlyMode, passcodeIssued, activeWizardStep, passcodeTerminalStepId, onGeneratePasscode]);
+
+  // When the receipt step appears, slide to it
+  React.useEffect(() => {
+    if (passcodeIssued && isPasscodeOnlyMode) {
+      const idx = wizardSteps.findIndex(s => s.id === 'receipt');
+      if (idx >= 0) setWizardIndex(idx);
+    }
+  }, [passcodeIssued, isPasscodeOnlyMode, wizardSteps]);
+  const goWizardBack = useCallback(() => {
+    setWizardIndex(idx => Math.max(idx - 1, 0));
+  }, []);
+
+  // Wizard restart: clears scenario, subject, scope, fee, and editor body and returns to step 0.
+  const handleWizardRestart = useCallback(() => {
+    try {
+      setSelectedScenarioId('');
+      setSubject('');
+      setScopeDescription('');
+      onScopeDescriptionChange?.('');
+      setScopeMode('bespoke');
+      setAmountValue('1500');
+      onAmountChange?.('1500');
+      setFeeMode('preset');
+      setAmountError(null);
+      setBody('');
+      setBlockContents({});
+      setRemovedBlocks({});
+      setAllBodyReplacedRanges([]);
+      setIsTemplatesCollapsed(false);
+      setWizardIndex(0);
+    } catch {}
+  }, [setBody, setSubject, onAmountChange, onScopeDescriptionChange]);
 
   // Helper: reset editor to a fresh state
   const resetEditor = useCallback(() => {
@@ -2398,9 +2579,77 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
             position: 'relative',
             zIndex: isBodyEditorFocused ? 10001 : 'auto'
           }}>
+            {(() => {
+              const onScenarioJump = (id: PitchWizardStepId) => {
+                const idx = wizardSteps.findIndex(s => s.id === id);
+                if (idx >= 0) setWizardIndex(idx);
+              };
+              return null;
+            })()}
+            <PitchTypeformWizard
+              steps={wizardSteps}
+              activeIndex={Math.min(wizardIndex, wizardSteps.length - 1)}
+              onStepChange={setWizardIndex}
+              onNext={goWizardNext}
+              onBack={goWizardBack}
+              onRestart={handleWizardRestart}
+              canAdvance={wizardCanAdvance}
+              busy={passcodeIssuing}
+              busyLabel={passcodeIssuing ? (demoModeEnabled ? 'Generating demo passcode…' : 'Reserving instruct link…') : undefined}
+              nextLabel={
+                activeStepId === 'body'
+                  ? undefined
+                  : (activeStepId === passcodeTerminalStepId
+                      ? (passcodeIssuing ? 'Generating…' : 'Generate passcode')
+                      : 'Next')
+              }
+              headerSlot={
+                <div
+                  className="pitch-typeform__mode"
+                  role="radiogroup"
+                  aria-label="Pitch output"
+                >
+                  {[
+                    { value: 'pitch' as const, label: 'Send by email' },
+                    { value: 'manual' as const, label: 'Just generate a passcode' },
+                  ].map((opt) => {
+                    const isOn = (linkActivationMode || 'pitch') === opt.value;
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        role="radio"
+                        aria-checked={isOn}
+                        className="pitch-typeform__mode-option"
+                        data-state={isOn ? 'on' : 'off'}
+                        onClick={() => {
+                          if (isOn) return;
+                          onLinkActivationModeChange?.(opt.value);
+                          setWizardIndex(0);
+                        }}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              }
+              footerSlot={
+                activeStepId === 'body'
+                  ? (
+                    <span style={{ color: allPlaceholdersSatisfied ? 'var(--helix-green)' : 'var(--text-muted)' }}>
+                      {allPlaceholdersSatisfied ? 'Ready to send' : 'Resolve placeholders to send'}
+                    </span>
+                  )
+                  : <span>{`${activeWizardStep?.label ?? ''}`}</span>
+              }
+            >
+            <div className="pitch-typeform__steps-host" data-active-step={activeStepId}>
             {/* Step 1: Template Selection */}
             <div
               className="pitch-step-shell"
+              data-helix-region="pitch-builder/scenario-step"
+              data-wizard-step="scenario"
               data-collapsed={isTemplatesCollapsed}
               style={{
                 marginBottom: 16,
@@ -2602,7 +2851,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
             )}
           </div>
           {/* Scenario choice buttons */}
-          {(!selectedScenarioId || !isTemplatesCollapsed) && (
+          {(activeStepId === 'scenario' || !selectedScenarioId || !isTemplatesCollapsed) && (
             <div style={{
               marginLeft: 11,
               paddingLeft: 23,
@@ -2654,6 +2903,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                       try {
                         setSelectedScenarioId(s.id);
                         setIsTemplatesCollapsed(true);
+                        // Auto-advance the typeform wizard to subject step on scenario pick.
+                        setWizardIndex(idx => Math.max(idx, 1));
 
                       const raw = stripDashDividers(s.body);
                       const greetingName = (() => {
@@ -2990,6 +3241,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
             {/* Step 2: Subject Line Section */}
             <div
               className="pitch-step-shell"
+              data-wizard-step="subject"
               data-collapsed={isSubjectCollapsed}
               style={{
                 marginBottom: 16,
@@ -3093,7 +3345,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   }
                 </div>
               </div>
-              {!isSubjectCollapsed && (
+              {(activeStepId === 'subject' || !isSubjectCollapsed) && (
               <div style={{
                 marginLeft: 11,
                 paddingLeft: 23,
@@ -3199,6 +3451,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
               return (
               <div
                 className="pitch-step-shell"
+                data-wizard-step="scope"
                 data-collapsed={isScopeCollapsed}
                 style={{
                   marginBottom: 16,
@@ -3339,8 +3592,75 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                     </div>
                   </div>
                 </div>
-                {!isScopeCollapsed && (
-                  <DealCapture
+                {(activeStepId === 'scope' || !isScopeCollapsed) && (
+                  <>
+                    <div className="pitch-typeform__choices" role="group" aria-label="Scope shape" style={{ marginBottom: 12 }}>
+                      <button
+                        type="button"
+                        className="pitch-typeform__choice"
+                        aria-pressed={scopeMode === 'bespoke'}
+                        onClick={() => {
+                          if (scopeMode === 'bespoke') return;
+                          setScopeMode('bespoke');
+                          const restored = bespokeDraftRef.current || '';
+                          setScopeDescription(restored);
+                          onScopeDescriptionChange?.(restored);
+                        }}
+                      >
+                        <span className="pitch-typeform__choice-title">Bespoke</span>
+                        <span className="pitch-typeform__choice-desc">Write the scope yourself.</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="pitch-typeform__choice"
+                        aria-pressed={scopeMode === 'default-payment'}
+                        onClick={() => {
+                          if (scopeMode === 'default-payment') return;
+                          if (scopeDescription && scopeDescription !== 'Payment on account of costs') {
+                            bespokeDraftRef.current = scopeDescription;
+                          }
+                          setScopeMode('default-payment');
+                          setScopeDescription('Payment on account of costs');
+                          onScopeDescriptionChange?.('Payment on account of costs');
+                        }}
+                      >
+                        <span className="pitch-typeform__choice-title">Standard</span>
+                        <span className="pitch-typeform__choice-desc">Use “Payment on account of costs”.</span>
+                      </button>
+                    </div>
+                    {scopeMode === 'default-payment' ? (
+                      <div
+                        role="note"
+                        style={{
+                          background: 'rgba(54, 144, 206, 0.06)',
+                          border: '1px solid rgba(54, 144, 206, 0.22)',
+                          borderLeft: '2px solid var(--helix-highlight)',
+                          color: 'var(--text-secondary)',
+                          padding: '10px 12px',
+                          fontSize: 12,
+                          lineHeight: 1.5,
+                        }}
+                      >
+                        Standard wording will be used: <strong style={{ color: 'var(--text-primary)', fontWeight: 600 }}>Payment on account of costs</strong>. Switch to Bespoke above if you need to describe a specific scope.
+                      </div>
+                    ) : (
+                      <>
+                      <div
+                        role="note"
+                        style={{
+                          background: 'rgba(54, 144, 206, 0.06)',
+                          border: '1px solid rgba(54, 144, 206, 0.22)',
+                          borderLeft: '2px solid var(--helix-highlight)',
+                          color: 'var(--text-secondary)',
+                          padding: '10px 12px',
+                          marginBottom: 8,
+                          fontSize: 12,
+                          lineHeight: 1.5,
+                        }}
+                      >
+                        Write a short <strong style={{ color: 'var(--text-primary)', fontWeight: 600 }}>service description</strong>, not instructions to the fee earner. The client sees it rendered as <em>"…in relation to {'{your text}'}."</em>
+                      </div>
+                      <DealCapture
                     isDarkMode={isDarkMode}
                     scopeDescription={scopeDescription}
                     onScopeChange={(v) => { setScopeDescription(v); onScopeDescriptionChange?.(v); }}
@@ -3348,6 +3668,17 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                     onAmountChange={(v) => { setAmountValue(v); onAmountChange?.(v); }}
                     amountError={amountError}
                     showScopeOnly={true}
+                    scopeSubject={subject}
+                    scopePlaceholder={(() => {
+                      switch (selectedScenarioId) {
+                        case 'cfa': return 'an initial CFA assessment, with scope to be confirmed after review';
+                        case 'before-call-call': return 'an initial call to discuss the matter and next steps';
+                        case 'before-call-no-call': return 'an initial review of the matter and advice on next steps';
+                        case 'after-call-probably-cant-assist': return 'a holding response setting out our position on whether we can assist';
+                        case 'after-call-want-instruction': return 'drafting the agreed letter of claim and a strategy advice call';
+                        default: return "the service, e.g. \u2018drafting a letter of claim, reviewing the response, and advising on next steps\u2019";
+                      }
+                    })()}
                     scopeConnectorColor={!isIncomplete
                       ? (isDarkMode ? 'rgba(32, 178, 108, 0.35)' : 'rgba(32, 178, 108, 0.3)')
                       : needsAttention
@@ -3356,15 +3687,19 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                     includeVat={includeVat}
                     onIncludeVatChange={setIncludeVat}
                   />
+                      </>
+                    )}
+                  </>
                 )}
               </div>
             );
             })()}
 
-            {/* Step 4: Quote Amount Section */}
-            {!isBeforeCallCall && (
+            {/* Step 4: Quote Amount Section (skipped for CFA - no payment on account) */}
+            {!isBeforeCallCall && !isCfa && (
               <div
                 className="pitch-step-shell"
+                data-wizard-step="fee"
                 data-collapsed={isAmountCollapsed}
                 style={{
                   marginBottom: 16,
@@ -3466,7 +3801,73 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                     </div>
                   </div>
                 </div>
-                {!isAmountCollapsed && (
+                {(activeStepId === 'fee' || !isAmountCollapsed) && (
+                  <>
+                    {isCfa ? (
+                      <div className="pitch-typeform__no-fee" role="note">
+                        <div className="pitch-typeform__no-fee-badge">No fee</div>
+                        <p className="pitch-typeform__no-fee-body">
+                          This CFA matter is processed under our no-win-no-fee assessment, so no payment on account is taken now. The client only completes ID verification and can upload supporting documents from the success page after submitting.
+                        </p>
+                      </div>
+                    ) : (() => {
+                      const FEE_PRESETS = [750, 1000, 1200, 1400, 1500, 2000, 2500, 3000];
+                      const currentNum = parseFloat(amountValue);
+                      return (
+                        <>
+                          <div className="pitch-typeform__chips" role="group" aria-label="Fee presets" style={{ marginBottom: 8 }}>
+                            {FEE_PRESETS.map(p => {
+                              const isOn = feeMode === 'preset' && currentNum === p;
+                              const incVatTotal = Math.round(p * 1.2);
+                              return (
+                                <button
+                                  key={p}
+                                  type="button"
+                                  className="pitch-typeform__chip pitch-typeform__chip--fee"
+                                  aria-pressed={isOn}
+                                  onClick={() => {
+                                    setFeeMode('preset');
+                                    const v = String(p);
+                                    setAmountValue(v);
+                                    onAmountChange?.(v);
+                                  }}
+                                >
+                                  <span className="pitch-typeform__chip-amount">{`\u00A3${(includeVat ? incVatTotal : p).toLocaleString('en-GB')}`}</span>
+                                  <span className="pitch-typeform__chip-vat">{includeVat ? 'inc. VAT' : 'no VAT'}</span>
+                                </button>
+                              );
+                            })}
+                            <button
+                              type="button"
+                              className="pitch-typeform__chip pitch-typeform__chip--ghost"
+                              aria-pressed={feeMode === 'custom'}
+                              onClick={() => setFeeMode('custom')}
+                            >Custom…</button>
+                          </div>
+                          <p className="pitch-typeform__vat-note" role="note">
+                            <FaInfoCircle aria-hidden="true" className="pitch-typeform__vat-note-icon" />
+                            <span>{includeVat
+                              ? 'Showing amounts inclusive of 20% VAT.'
+                              : 'Showing amounts net of VAT. No VAT will be added at billing.'}</span>
+                          </p>
+                          <div className="pitch-typeform__vat-row">
+                            <button
+                              type="button"
+                              className="pitch-typeform__vat-toggle"
+                              role="switch"
+                              aria-checked={includeVat}
+                              onClick={() => setIncludeVat(v => !v)}
+                            >
+                              <span className="pitch-typeform__vat-toggle-track" data-on={includeVat ? 'true' : 'false'}>
+                                <span className="pitch-typeform__vat-toggle-knob" />
+                              </span>
+                              <span className="pitch-typeform__vat-toggle-label">{includeVat ? 'Add 20% VAT' : 'VAT excluded'}</span>
+                            </button>
+                          </div>
+                        </>
+                      );
+                    })()}
+                    {!isCfa && feeMode === 'custom' && (
                   <DealCapture
                     isDarkMode={isDarkMode}
                     scopeDescription={scopeDescription}
@@ -3481,6 +3882,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                     includeVat={includeVat}
                     onIncludeVatChange={setIncludeVat}
                   />
+                    )}
+                  </>
                 )}
               </div>
             )}
@@ -3489,6 +3892,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
 
             <div
               className="pitch-step-shell"
+              data-wizard-step="body"
               style={{
                 marginBottom: 16,
                 padding: '14px 16px',
@@ -3500,82 +3904,16 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   : '0 4px 12px rgba(15, 23, 42, 0.06)'
               }}
             >
-            {/* Section Title */}
+            {/* Slim toolbar (preview mode only): Copy + back-to-editor.
+                In editor mode the same actions live inside the formatting toolbar header. */}
+            {showInlinePreview && (
             <div style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '10px',
-              marginBottom: 16
+              justifyContent: 'flex-end',
+              gap: 8,
+              marginBottom: 10
             }}>
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px'
-              }}>
-                <div style={{
-                  width: '24px',
-                  height: '24px',
-                  borderRadius: '50%',
-                  background: allPlaceholdersSatisfied
-                    ? (isDarkMode 
-                        ? 'linear-gradient(135deg, rgba(32, 178, 108, 0.35) 0%, rgba(32, 178, 108, 0.28) 100%)'
-                        : 'linear-gradient(135deg, rgba(32, 178, 108, 0.16) 0%, rgba(32, 178, 108, 0.18) 100%)')
-                    : (isDarkMode 
-                        ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.24) 0%, rgba(54, 144, 206, 0.18) 100%)'
-                        : 'linear-gradient(135deg, rgba(54, 144, 206, 0.16) 0%, rgba(54, 144, 206, 0.18) 100%)'),
-                  border: allPlaceholdersSatisfied
-                    ? `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.5)' : 'rgba(32, 178, 108, 0.3)'}`
-                    : `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '12px',
-                  fontWeight: 700,
-                  color: allPlaceholdersSatisfied 
-                    ? (isDarkMode ? colours.green : colours.green)
-                    : (isDarkMode ? colours.accent : colours.highlight)
-                }}>
-                  {isBeforeCallCall ? 3 : 5}
-                </div>
-                <div style={{
-                  padding: '6px',
-                  background: allPlaceholdersSatisfied
-                    ? (isDarkMode 
-                        ? 'linear-gradient(135deg, rgba(32, 178, 108, 0.35) 0%, rgba(32, 178, 108, 0.28) 100%)'
-                        : 'linear-gradient(135deg, rgba(32, 178, 108, 0.16) 0%, rgba(32, 178, 108, 0.18) 100%)')
-                    : (isDarkMode 
-                        ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.24) 0%, rgba(54, 144, 206, 0.18) 100%)'
-                        : 'linear-gradient(135deg, rgba(54, 144, 206, 0.16) 0%, rgba(54, 144, 206, 0.18) 100%)'),
-                  borderRadius: '8px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  border: allPlaceholdersSatisfied
-                    ? `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.5)' : 'rgba(32, 178, 108, 0.3)'}`
-                    : `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`
-                }}>
-                  <FaFileAlt style={{ 
-                    fontSize: 12, 
-                    color: allPlaceholdersSatisfied 
-                      ? colours.green 
-                      : (isDarkMode ? colours.accent : colours.highlight) 
-                  }} />
-                </div>
-                <span style={{
-                  fontSize: '14px',
-                  fontWeight: 600,
-                  color: isDarkMode ? colours.dark.text : colours.light.text,
-                  letterSpacing: '0.025em'
-                }}>
-                  {showInlinePreview ? 'Email Preview' : 'Email Body'}
-                </span>
-              </div>
-              <div style={{
-                flex: 1,
-                height: 1,
-                background: isDarkMode 
-                  ? 'linear-gradient(90deg, rgba(54, 144, 206, 0.2) 0%, transparent 100%)'
-                  : 'linear-gradient(90deg, rgba(148, 163, 184, 0.3) 0%, transparent 100%)'
-              }} />
               <button
                 onClick={async () => {
                   const text = showInlinePreview
@@ -3740,6 +4078,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 {showInlinePreview ? 'Editor' : 'Preview'}
               </button>
             </div>
+            )}
 
             {/* Email body / Preview (swap in place) */}
             <div style={{
@@ -3775,18 +4114,104 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                       background: isDarkMode ? 'rgba(11, 19, 36, 0.94)' : '#F8FAFC',
                       position: 'relative',
                       zIndex: 2,
-                      padding: '8px 14px'
+                      padding: '6px 10px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8
                     }}>
-                      <FormattingToolbar
-                        isDarkMode={isDarkMode}
-                        onFormatChange={handleFormatCommand}
-                        editorRef={bodyEditorRef}
-                        style={{
-                          border: 'none',
-                          borderRadius: 0,
-                          backgroundColor: 'transparent'
-                        }}
-                      />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <FormattingToolbar
+                          isDarkMode={isDarkMode}
+                          onFormatChange={handleFormatCommand}
+                          editorRef={bodyEditorRef}
+                          style={{
+                            border: 'none',
+                            borderRadius: 0,
+                            backgroundColor: 'transparent'
+                          }}
+                        />
+                      </div>
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        flexShrink: 0,
+                        paddingLeft: 8,
+                        marginLeft: 4,
+                        borderLeft: `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.5)' : 'rgba(209, 213, 219, 0.8)'}`
+                      }}>
+                        <button
+                          onClick={async () => {
+                            const text = htmlToPlainText(body);
+                            if (!text) return;
+                            let copied = false;
+                            try {
+                              await navigator.clipboard.writeText(text);
+                              copied = true;
+                            } catch {
+                              try {
+                                const ta = document.createElement('textarea');
+                                ta.value = text;
+                                document.body.appendChild(ta);
+                                ta.select();
+                                copied = document.execCommand('copy');
+                                document.body.removeChild(ta);
+                              } catch { copied = false; }
+                            }
+                            if (copied) {
+                              setCopiedToolbar(true);
+                              setTimeout(() => setCopiedToolbar(false), 2000);
+                            }
+                          }}
+                          title="Copy email body text"
+                          style={{
+                            padding: '5px 9px',
+                            fontSize: 11,
+                            backgroundColor: copiedToolbar
+                              ? (isDarkMode ? 'rgba(32, 178, 108, 0.18)' : 'rgba(32, 178, 108, 0.12)')
+                              : 'transparent',
+                            color: copiedToolbar
+                              ? colours.green
+                              : (isDarkMode ? colours.dark.text : colours.light.text),
+                            border: `1px solid ${copiedToolbar
+                              ? (isDarkMode ? 'rgba(32, 178, 108, 0.35)' : 'rgba(32, 178, 108, 0.25)')
+                              : (isDarkMode ? 'rgba(71, 85, 105, 0.5)' : 'rgba(203, 213, 225, 0.8)')}`,
+                            borderRadius: 0,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 5,
+                            transition: 'all 0.18s ease',
+                            fontWeight: 600
+                          }}
+                        >
+                          {copiedToolbar ? <FaCheck style={{ fontSize: 11 }} /> : <FaCopy style={{ fontSize: 11 }} />}
+                          {copiedToolbar ? 'Copied' : 'Copy'}
+                        </button>
+                        <button
+                          onClick={() => setShowInlinePreview(true)}
+                          title="Show preview of the email"
+                          style={{
+                            padding: '5px 9px',
+                            fontSize: 11,
+                            backgroundColor: 'transparent',
+                            color: allPlaceholdersSatisfied
+                              ? colours.green
+                              : (isDarkMode ? colours.dark.text : colours.light.text),
+                            border: `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.5)' : 'rgba(203, 213, 225, 0.8)'}`,
+                            borderRadius: 0,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 5,
+                            transition: 'all 0.18s ease',
+                            fontWeight: 600
+                          }}
+                        >
+                          {allPlaceholdersSatisfied ? <FaCheck style={{ fontSize: 11 }} /> : <FaEye style={{ fontSize: 11 }} />}
+                          Preview
+                        </button>
+                      </div>
                     </div>
 
                     <div style={{ padding: '18px 20px' }}>
@@ -3806,6 +4231,46 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                         onFocusChange={setIsBodyEditorFocused}
                         pitchFlowLocked={isPitchFlowLocked}
                       />
+                      {/* Dimmed signature peek: non-interactive, mirrors the
+                          server-appended personal signature so the editor
+                          behaves like Outlook (sig visible below the cursor,
+                          flowing as content grows). Not part of the body.
+                          Shifted in by 12px horizontally to match the
+                          rich-text-editor's own 8px 12px padding above, so
+                          the dashed separator and signature text line up
+                          with the first character of the body. */}
+                      <div
+                        aria-hidden="true"
+                        style={{
+                          marginTop: 28,
+                          marginLeft: 12,
+                          marginRight: 12,
+                          paddingTop: 22,
+                          borderTop: `1px dashed ${isDarkMode ? 'rgba(71, 85, 105, 0.45)' : 'rgba(148, 163, 184, 0.45)'}`,
+                          pointerEvents: 'none',
+                          userSelect: 'none',
+                          fontSize: 12,
+                          color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                          position: 'relative'
+                        }}
+                      >
+                        <div style={{
+                          position: 'absolute',
+                          top: -8,
+                          left: 0,
+                          padding: '0 6px',
+                          background: isDarkMode ? '#0B1324' : '#FFFFFF',
+                          fontSize: 9,
+                          fontWeight: 600,
+                          letterSpacing: 0.5,
+                          textTransform: 'uppercase',
+                          color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                          opacity: 0.7
+                        }}>
+                          Signature appended automatically
+                        </div>
+                        <EmailSignature bodyHtml="" userData={userData} isDarkMode={isDarkMode} paperPaddingX={12} />
+                      </div>
                     </div>
                   </div>
                 )}
@@ -3906,6 +4371,37 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                               </div>
                             )}
                             <div dangerouslySetInnerHTML={{ __html: styledFinalHighlighted }} />
+                            {/* Signature appears as part of the actual email,
+                                with the same dim separator + label used in the
+                                editor peek so the two surfaces feel consistent. */}
+                            <div
+                              aria-hidden="true"
+                              style={{
+                                marginTop: 28,
+                                paddingTop: 22,
+                                borderTop: `1px dashed ${isDarkMode ? 'rgba(71, 85, 105, 0.45)' : 'rgba(148, 163, 184, 0.45)'}`,
+                                opacity: 0.85,
+                                userSelect: 'none',
+                                fontSize: 12,
+                                position: 'relative',
+                              }}
+                            >
+                              <div style={{
+                                position: 'absolute',
+                                top: -8,
+                                left: 0,
+                                padding: '0 6px',
+                                background: isDarkMode ? '#0B1324' : '#FFFFFF',
+                                fontSize: 9,
+                                fontWeight: 600,
+                                letterSpacing: 0.5,
+                                textTransform: 'uppercase',
+                                color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                              }}>
+                                Signature appended automatically
+                              </div>
+                              <EmailSignature bodyHtml="" userData={userData} isDarkMode={isDarkMode} paperPaddingX={20} />
+                            </div>
                           </>
                         );
                       })()}
@@ -4112,6 +4608,189 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
             {/* Template blocks removed in simplified flow */}
             </div>
           )}
+
+            {/* Passcode-only receipt step: shown after the user picks "Just
+                generate a passcode" and confirms scope+fee. CSS hides this
+                shell unless active step is 'receipt'. */}
+            <div
+              className="pitch-step-shell"
+              data-wizard-step="receipt"
+              data-helix-region="pitch-builder/passcode-receipt"
+              style={{
+                marginBottom: 16,
+                padding: '20px 22px',
+                borderRadius: '2px',
+                background: isDarkMode
+                  ? 'linear-gradient(135deg, rgba(11, 30, 55, 0.94) 0%, rgba(15, 38, 68, 0.88) 100%)'
+                  : 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
+                border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(148, 163, 184, 0.3)'}`,
+                boxShadow: isDarkMode
+                  ? '0 18px 38px rgba(2, 6, 17, 0.45)'
+                  : '0 12px 28px rgba(15, 23, 42, 0.08)',
+                animation: 'passcodeReceiptIn 0.34s cubic-bezier(0.22, 0.61, 0.36, 1)'
+              }}
+            >
+              {(() => {
+                const issuedPasscode = passcode || '';
+                const instructUrl = `https://instruct.helix-law.com/pitch/${enquiry?.ID || ''}-${issuedPasscode}`;
+                const sectionLabel: React.CSSProperties = {
+                  fontSize: 11,
+                  fontWeight: 700,
+                  letterSpacing: 0.6,
+                  textTransform: 'uppercase',
+                  color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                  marginBottom: 6,
+                };
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+                    <div>
+                      <div style={sectionLabel}>Instruct link</div>
+                      <button
+                        type="button"
+                        title="Click to copy"
+                        aria-label="Copy instruct link"
+                        onClick={async () => {
+                          try {
+                            await navigator.clipboard.writeText(instructUrl);
+                            setReceiptLinkCopied(true);
+                            window.setTimeout(() => setReceiptLinkCopied(false), 1600);
+                          } catch { /* noop */ }
+                        }}
+                        style={{
+                          position: 'relative',
+                          width: '100%',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 10,
+                          padding: '12px 14px',
+                          background: 'transparent',
+                          border: `1px solid ${receiptLinkCopied
+                            ? (isDarkMode ? 'rgba(32, 178, 108, 0.45)' : 'rgba(32, 178, 108, 0.4)')
+                            : (isDarkMode ? 'rgba(148, 163, 184, 0.28)' : 'rgba(148, 163, 184, 0.4)')}`,
+                          cursor: 'pointer',
+                          borderRadius: 0,
+                          textAlign: 'left',
+                          fontFamily: 'Raleway, "SF Mono", Menlo, monospace',
+                          fontSize: 14,
+                          color: isDarkMode ? colours.dark.text : colours.light.text,
+                          lineHeight: 1.35,
+                          wordBreak: 'break-all',
+                          transition: 'border-color 0.18s ease, color 0.18s ease',
+                        }}
+                      >
+                        <span style={{ flex: 1 }}>{instructUrl}</span>
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            fontFamily: 'Raleway, sans-serif',
+                            fontSize: 11,
+                            fontWeight: 700,
+                            letterSpacing: 0.5,
+                            textTransform: 'uppercase',
+                            color: receiptLinkCopied ? colours.green : (isDarkMode ? colours.subtleGrey : colours.greyText),
+                            transition: 'color 0.18s ease',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {receiptLinkCopied ? (
+                            <>
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ animation: 'passcodeCopyTick 0.34s ease-out' }}>
+                                <polyline points="20 6 9 17 4 12" />
+                              </svg>
+                              Copied
+                            </>
+                          ) : (
+                            <>
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <rect x="9" y="9" width="13" height="13" rx="2" />
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                              </svg>
+                              Click to copy
+                            </>
+                          )}
+                        </span>
+                      </button>
+                      <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                        gap: 12,
+                        paddingTop: 12,
+                      }}>
+                        <div>
+                          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: isDarkMode ? colours.subtleGrey : colours.greyText, marginBottom: 4 }}>Scope</div>
+                          <div style={{ fontSize: 13, color: isDarkMode ? '#d1d5db' : '#374151', lineHeight: 1.45 }}>
+                            {scopeDescription || '\u2014'}
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: isDarkMode ? colours.subtleGrey : colours.greyText, marginBottom: 4 }}>Fee</div>
+                          <div style={{ fontSize: 13, color: isDarkMode ? '#d1d5db' : '#374151', lineHeight: 1.45 }}>
+                            {amountValue && parseFloat(amountValue) > 0 ? `\u00a3${amountValue}` : 'No upfront fee'}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{
+                      display: 'flex',
+                      gap: 10,
+                      paddingTop: 12,
+                      flexWrap: 'wrap',
+                      borderTop: `1px dashed ${isDarkMode ? 'rgba(71, 85, 105, 0.5)' : 'rgba(148, 163, 184, 0.4)'}`,
+                    }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onResetPasscodeReceipt?.();
+                          onLinkActivationModeChange?.('pitch');
+                          setWizardIndex(0);
+                        }}
+                        style={{
+                          padding: '10px 18px',
+                          fontSize: 12,
+                          fontWeight: 700,
+                          letterSpacing: 0.5,
+                          textTransform: 'uppercase',
+                          color: '#ffffff',
+                          background: colours.highlight,
+                          border: 'none',
+                          cursor: 'pointer',
+                          borderRadius: 0
+                        }}
+                      >
+                        Switch to send by email
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onResetPasscodeReceipt?.();
+                          setWizardIndex(0);
+                        }}
+                        style={{
+                          padding: '10px 18px',
+                          fontSize: 12,
+                          fontWeight: 700,
+                          letterSpacing: 0.5,
+                          textTransform: 'uppercase',
+                          color: isDarkMode ? colours.dark.text : colours.light.text,
+                          background: 'transparent',
+                          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(148, 163, 184, 0.5)'}`,
+                          cursor: 'pointer',
+                          borderRadius: 0
+                        }}
+                      >
+                        Start again
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            </div>
+            </PitchTypeformWizard>
           </div>
         </Stack>
       </div>
@@ -4412,8 +5091,11 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
         }
       `}</style>
 
-      {/* Email Send Confirmation Modal */}
-      {showSendConfirmModal && (
+      {/* Email Send Confirmation Modal — portalled to document.body so any
+          transformed ancestor (Teams iframe shell, scroll containers with
+          will-change/filter) can't re-anchor position:fixed and float the
+          modal off the top of the page where the user can't see it. */}
+      {showSendConfirmModal && createPortal((
         <div style={{
           position: 'fixed',
           top: 0,
@@ -5296,7 +5978,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
             </div>
           </div>
         </div>
-      )}
+      ), document.body)}
     </>
   );
 };

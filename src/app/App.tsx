@@ -337,17 +337,21 @@ const App: React.FC<AppProps> = ({
   const isDarkMode = themeName === 'dark' || themeName === 'contrast' || (!themeName && systemPrefersDark);
 
   // Ensure body background matches theme immediately for smooth transitions
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     if (typeof document !== 'undefined') {
       const bg = isDarkMode ? colours.websiteBlue : colours.light.background;
+      const themeName = isDarkMode ? 'dark' : 'light';
       // Set on <html> so no layer can leak a stale background
+      document.documentElement.dataset.theme = themeName;
+      document.documentElement.classList.toggle('theme-dark', isDarkMode);
+      document.documentElement.classList.toggle('theme-light', !isDarkMode);
       document.documentElement.style.backgroundColor = bg;
       document.documentElement.style.transition = 'background-color 0.15s ease';
       const body = document.body;
       if (body) {
         body.style.backgroundColor = bg;
         body.style.transition = 'background-color 0.15s ease';
-        body.dataset.theme = isDarkMode ? 'dark' : 'light';
+        body.dataset.theme = themeName;
         body.classList.toggle('theme-dark', isDarkMode);
         body.classList.toggle('theme-light', !isDarkMode);
       }
@@ -813,9 +817,12 @@ const App: React.FC<AppProps> = ({
     const navNode = navigatorChromeRef.current;
     const actNode = actionsWrapperRef.current;
     if (navNode) {
-      navNode.classList.toggle('chrome-tab-hidden', activeTab !== 'home' && activeTab !== 'enquiries' && activeTab !== 'matters');
+      navNode.classList.toggle('chrome-tab-hidden', activeTab !== 'home' && activeTab !== 'enquiries' && activeTab !== 'matters' && activeTab !== 'reporting');
     }
     if (actNode) {
+      // ImmediateActions portal is populated by Home only. Hide it on every
+      // other tab, including Reporting (which keeps the navigator visible
+      // for its title bar but does not own any actions of its own).
       actNode.classList.toggle('chrome-tab-hidden', activeTab !== 'home');
     }
   }, [activeTab]);
