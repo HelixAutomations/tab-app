@@ -859,16 +859,10 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
           backLabel="Back"
           tabs={[
             { key: 'overview', label: 'Matter Overview' },
-            {
-              key: 'enquiry',
-              label: 'Originating Enquiry',
-              disabled: !selectedWorkbenchItem?.enquiry,
-              disabledMessage: 'No originating enquiry linked to this matter yet.',
-            },
+            { key: 'enquiry', label: 'Originating Enquiry' },
           ]}
           activeTab={activeDetailTab}
           onTabChange={(key) => {
-            if (key === 'enquiry' && !selectedWorkbenchItem?.enquiry) return;
             setActiveDetailTab(key as MatterDetailTabKey);
           }}
         />,

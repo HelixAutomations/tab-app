@@ -1,0 +1,99 @@
+.pitch-external-form {
+  display: grid;
+  gap: var(--spacing-lg);
+  color: var(--text-primary);
+  font-family: var(--font-primary);
+}
+
+.pitch-external-form__intro {
+  display: grid;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-md) var(--spacing-lg);
+  background: var(--surface-section);
+  border: 1px solid var(--border-base);
+  border-left: 2px solid var(--helix-highlight);
+  border-radius: 0;
+}
+
+.pitch-external-form__eyebrow {
+  margin: 0;
+  color: var(--text-accent);
+  font-size: var(--text-2xs);
+  font-weight: 800;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+.pitch-external-form__copy {
+  margin: 0;
+  color: var(--text-body);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.pitch-external-form__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--spacing-md);
+}
+
+.pitch-external-form__field {
+  display: grid;
+  gap: var(--spacing-xs);
+}
+
+.pitch-external-form__field--wide {
+  grid-column: 1 / -1;
+}
+
+.pitch-external-form__input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.pitch-external-form__error {
+  margin: 0;
+  padding: var(--spacing-sm) var(--spacing-md);
+  color: var(--helix-cta);
+  background: var(--surface-section);
+  border: 1px solid var(--helix-cta);
+  border-radius: 0;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.pitch-external-form__result {
+  display: grid;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  background: var(--surface-section);
+  border: 1px solid var(--border-strong);
+  border-left: 2px solid var(--helix-highlight);
+  border-radius: 0;
+}
+
+.pitch-external-form__link-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--spacing-sm);
+  align-items: center;
+}
+
+.pitch-external-form__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+
+.pitch-external-form__actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+@media (max-width: 620px) {
+  .pitch-external-form__grid,
+  .pitch-external-form__link-row {
+    grid-template-columns: 1fr;
+  }
+}

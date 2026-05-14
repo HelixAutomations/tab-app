@@ -10,7 +10,6 @@ import {
   getStackedDateDisplay,
 } from '../enquiries/components/prospectDisplayUtils';
 import '../../app/styles/Prospects.css';
-import clioIcon from '../../assets/clio.svg';
 
 interface MatterTableViewProps {
   matters: NormalizedMatter[];
@@ -88,7 +87,7 @@ export const MatterTableLoadingSkeleton: React.FC<MatterTableLoadingSkeletonProp
   // Real matter-row geometry (sampled from .prospect-row inside MatterTableView):
   //   col1 ~36px timeline strip
   //   col2 date stack: top "DD MMM" (11px bold) + bottom "HH:MM" (9px)
-  //   col3 matter ref (12px link) + Clio chip (~52x16 with icon) + client name (10px) below
+  //   col3 matter ref (12px link) + client name (10px) below
   //   col4 AOW glyph 17x17 + practice area text (12px)
   //   col5 FE rectangular badge (min 26 wide x 20 tall, monospace)
   //   col6/7 (CCL) status pill 72x22 + CCL date stack
@@ -180,17 +179,10 @@ export const MatterTableLoadingSkeleton: React.FC<MatterTableLoadingSkeletonProp
               <div className="matter-table-skeleton__block matter-table-skeleton__block--base" style={block(dateBottomWidths[idx % dateBottomWidths.length], 9)} />
             </div>
 
-            {/* Col 3: Matter ref + Clio chip on top, client name below */}
+            {/* Col 3: Matter ref on top, client name below */}
             <div className="matter-table-skeleton__matter">
               <div className="matter-table-skeleton__matter-head">
                 <div className="matter-table-skeleton__block matter-table-skeleton__block--strong" style={block(matterRefWidths[idx % matterRefWidths.length], 12, true)} />
-                <div
-                  className="matter-table-skeleton__clio-chip"
-                  style={{
-                    border: `1px solid ${withAlpha(colours.highlight, isDarkMode ? 0.28 : 0.22)}`,
-                    background: withAlpha(colours.highlight, isDarkMode ? 0.10 : 0.06),
-                  }}
-                />
               </div>
               <div className="matter-table-skeleton__block matter-table-skeleton__block--base" style={block(clientWidths[idx % clientWidths.length], 9)} />
             </div>
@@ -474,6 +466,7 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
 
   return (
     <div
+      className="matter-table-view"
       style={{
         backgroundColor: isDarkMode ? colours.dark.background : colours.grey,
         overflow: 'hidden',
@@ -632,32 +625,6 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
                     title="Open matter in Clio"
                   >
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{matterLabel}</span>
-                    <span
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        minHeight: 16,
-                        padding: '0 4px',
-                        border: `1px solid ${withAlpha(colours.highlight, isDarkMode ? 0.28 : 0.18)}` ,
-                        background: withAlpha(colours.highlight, isDarkMode ? 0.1 : 0.06),
-                        color: isDarkMode ? `${colours.subtleGrey}d9` : `${colours.greyText}d9`,
-                        fontSize: 9,
-                        fontWeight: 600,
-                        letterSpacing: '0.04em',
-                        lineHeight: 1,
-                        whiteSpace: 'nowrap',
-                        flexShrink: 0,
-                      }}
-                    >
-                      <img
-                        src={clioIcon}
-                        alt=""
-                        style={{ width: 9, height: 9, opacity: 0.72, flexShrink: 0, filter: isDarkMode ? 'brightness(0) invert(1)' : undefined }}
-                      />
-                      <span>Clio</span>
-                      <Icon iconName="NavigateExternalInline" style={{ fontSize: 9, opacity: 0.7 }} />
-                    </span>
                   </a>
                 ) : (
                   <span style={{ fontSize: 12, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

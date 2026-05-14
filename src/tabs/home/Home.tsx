@@ -97,6 +97,7 @@ import PersonalAttendanceConfirm from './PersonalAttendanceConfirm';
 import AttendancePortal from './AttendancePortal';
 import TeamInsight from './TeamInsight';
 import HomeLoadConfidence, { type HomeLoadConfidenceStatus } from './HomeLoadConfidence';
+import PitchExternalForm from './PitchExternalForm';
 
 import RateChangeModal from './RateChangeModal';
 import { useRateChangeData } from './useRateChangeData';
@@ -393,6 +394,7 @@ const quickActionOrder: Record<string, number> = {
   'Save Telephone Note': 11,
   'Save Attendance Note': 12,
   'Request ID': 13,
+  'Pitch External': 13,
   'Open a Matter': 14,
   'Request Annual Leave': 15,
   'Log L&D': 15,
@@ -6748,6 +6750,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
       'Confirm Attendance': { shortTitle: 'Confirm Attendance', description: 'Plan your 14-day schedule' },
       'Book Space': { shortTitle: 'Book Room', description: 'Reserve a meeting room or workspace' },
       'Verify ID': { shortTitle: 'Verify ID', description: 'Run a Tiller identity verification (address + PEP & sanctions)' },
+      'Pitch External': { shortTitle: 'Pitch External', description: 'Create a direct or referral Instruct link' },
       'Log L&D': { shortTitle: 'Log L&D', description: 'Record a learning & development activity or plan' },
       'Team Attendance': { shortTitle: 'Team Leave', description: 'View who is away, upcoming leave, and leave history' },
       'Team Leave': { shortTitle: 'Team Leave', description: 'View who is away, upcoming leave, and leave history' },
@@ -6966,6 +6969,21 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
           </Suspense>
         );
         break;
+      case 'Pitch External':
+        setBespokePanelWidth('560px');
+        content = (
+          <PitchExternalForm
+            currentUserInitials={userInitials}
+            currentUserEmail={currentUserEmail || undefined}
+            onClose={() => {
+              setIsBespokePanelOpen(false);
+              setBespokePanelContent(null);
+              resetQuickActionsSelection();
+            }}
+            onShowToast={showToast}
+          />
+        );
+        break;
       case 'Log L&D':
         content = (
           <Suspense fallback={<ModalSkeleton variant="generic" />}>
@@ -7030,6 +7048,8 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     saveAttendance,
     demoModeEnabled,
     showToast,
+    currentUserEmail,
+    userInitials,
     actionableInstructionIds,
     resetQuickActionsSelection,
     setReviewedInstructionIds,
@@ -7551,6 +7571,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     // demo-mode surfaces agree on a single client identity.
     if (demoModeEnabled) {
       const REHEARSAL_INSTRUCTION_REF = 'HLX-27367-94842';
+      const REHEARSAL_CCL_MATTER_ID = 'DEMO-3311402';
       const REHEARSAL_PROSPECT_ID = '27367';
       const REHEARSAL_CLIENT = 'Helix Demo';
 
@@ -7670,7 +7691,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         title: `Review CCL · ${REHEARSAL_INSTRUCTION_REF}`,
         subtitle: `${REHEARSAL_CLIENT} \u2013 Commercial`,
         icon: 'Send',
-        onClick: () => openHomeCclReview(REHEARSAL_INSTRUCTION_REF),
+        onClick: () => openHomeCclReview(REHEARSAL_CCL_MATTER_ID),
         category: 'standard',
         expansion: {
           kind: 'generic',
@@ -7685,7 +7706,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
             { label: 'Safety Net', value: 'Passed' },
           ],
           actions: [
-            { label: 'Open review', onClick: () => openHomeCclReview(REHEARSAL_INSTRUCTION_REF), tone: 'primary' },
+            { label: 'Open review', onClick: () => openHomeCclReview(REHEARSAL_CCL_MATTER_ID), tone: 'primary' },
           ],
         },
       });
@@ -7887,6 +7908,9 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     const isLzOrAc = ['LZ', 'AC'].includes(userInitials.toUpperCase());
     if (isLocalhost) {
       actions.push({ title: 'New Matter', icon: 'OpenFolderHorizontal' });
+    }
+    if (isLzOrAc) {
+      actions.push({ title: 'Pitch External', icon: 'Presentation' });
     }
     actions.sort(
       (a, b) => (quickActionOrder[a.title] || 99) - (quickActionOrder[b.title] || 99)

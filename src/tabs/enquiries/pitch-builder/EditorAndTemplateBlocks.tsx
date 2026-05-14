@@ -1457,15 +1457,6 @@ interface EditorAndTemplateBlocksProps {
   emailStatus?: 'idle' | 'processing' | 'sent' | 'error';
   emailMessage?: string;
   pitchFlowLocked?: boolean;
-  linkActivationMode?: 'pitch' | 'manual';
-  onLinkActivationModeChange?: (mode: 'pitch' | 'manual') => void;
-  // Passcode-only flow: parent owns the deal capture + toast progression and
-  // tells us when to flip into the receipt panel.
-  onGeneratePasscode?: () => Promise<string | null>;
-  passcodeIssuing?: boolean;
-  passcodeIssued?: boolean;
-  onResetPasscodeReceipt?: () => void;
-  demoModeEnabled?: boolean;
   // Scenario callback to expose selectedScenarioId to parent
   onScenarioChange?: (scenarioId: string) => void;
   initialScenario?: string;
@@ -1525,13 +1516,6 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
   emailStatus,
   emailMessage,
   pitchFlowLocked = false,
-  linkActivationMode = 'pitch',
-  onLinkActivationModeChange,
-  onGeneratePasscode,
-  passcodeIssuing = false,
-  passcodeIssued = false,
-  onResetPasscodeReceipt,
-  demoModeEnabled = false,
   onScenarioChange,
   initialScenario
 }) => {
@@ -1573,7 +1557,6 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
   const [showInlinePreview, setShowInlinePreview] = useState(false);
   // Typeform-style wizard navigation
   const [wizardIndex, setWizardIndex] = useState(0);
-  const [receiptLinkCopied, setReceiptLinkCopied] = useState(false);
   const [scopeMode, setScopeMode] = useState<'bespoke' | 'default-payment'>('bespoke');
   const [feeMode, setFeeMode] = useState<'preset' | 'custom'>('preset');
   const isCfa = selectedScenarioId === 'cfa';
@@ -1652,7 +1635,6 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
     const scopeReady = !!scopeDescription && scopeDescription.trim().length > 0;
     const feeReady = !!amountValue && parseFloat(amountValue) > 0;
     const scenarioPicked = !!selectedScenarioId;
-    const isPasscodeOnly = (linkActivationMode || 'pitch') === 'manual';
     const steps: PitchWizardStepDescriptor[] = [
       {
         id: 'scenario',
@@ -1662,15 +1644,13 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
         status: scenarioPicked ? 'done' : 'active',
       },
     ];
-    if (!isPasscodeOnly) {
-      steps.push({
-        id: 'subject',
-        label: 'Subject',
-        question: 'What is the email subject?',
-        hint: 'Keep it short and recognisable in the recipient\u2019s inbox.',
-        status: !scenarioPicked ? 'pending' : (subjectReady ? 'done' : 'active'),
-      });
-    }
+    steps.push({
+      id: 'subject',
+      label: 'Subject',
+      question: 'What is the email subject?',
+      hint: 'Keep it short and recognisable in the recipient\u2019s inbox.',
+      status: !scenarioPicked ? 'pending' : (subjectReady ? 'done' : 'active'),
+    });
     if (!isBeforeCallCall) {
       steps.push({
         id: 'scope',
@@ -1691,32 +1671,19 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
         status: !scenarioPicked ? 'pending' : (isCfa || feeReady ? 'done' : 'active'),
       });
     }
-    if (!isPasscodeOnly) {
-      steps.push({
-        id: 'body',
-        label: 'Body',
-        question: isCfa
-          ? 'Confirm and finalise the CFA email'
-          : 'Compose your email',
-        hint: isCfa
-          ? 'CFA is processed under our alternative no-win-no-fee assessment. No payment on account is taken at this stage.'
-          : 'Resolve any highlighted placeholders, then send when ready.',
-        status: !scenarioPicked ? 'pending' : (allPlaceholdersSatisfied ? 'done' : 'active'),
-      });
-    }
-    if (isPasscodeOnly && passcodeIssued) {
-      steps.push({
-        id: 'receipt',
-        label: 'Passcode',
-        question: 'Passcode ready to share',
-        hint: demoModeEnabled
-          ? 'Demo mode: no deal was saved. The passcode is reusable for the walkthrough.'
-          : 'Send the instruct link with the passcode. The client uses it to verify identity and complete payment.',
-        status: 'done',
-      });
-    }
+    steps.push({
+      id: 'body',
+      label: 'Body',
+      question: isCfa
+        ? 'Confirm and finalise the CFA email'
+        : 'Compose your email',
+      hint: isCfa
+        ? 'CFA is processed under our alternative no-win-no-fee assessment. No payment on account is taken at this stage.'
+        : 'Resolve any highlighted placeholders, then send when ready.',
+      status: !scenarioPicked ? 'pending' : (allPlaceholdersSatisfied ? 'done' : 'active'),
+    });
     return steps;
-  }, [selectedScenarioId, subject, scopeDescription, amountValue, isBeforeCallCall, isCfa, allPlaceholdersSatisfied, linkActivationMode, passcodeIssued, demoModeEnabled]);
+  }, [selectedScenarioId, subject, scopeDescription, amountValue, isBeforeCallCall, isCfa, allPlaceholdersSatisfied]);
 
   // Clamp wizard index when step list shrinks (e.g. scenario change drops fee)
   React.useEffect(() => {
@@ -1730,7 +1697,6 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
 
   const wizardCanAdvance = React.useMemo(() => {
     if (!activeWizardStep) return false;
-    if (passcodeIssuing) return false;
     switch (activeWizardStep.id) {
       case 'delivery': return true; // legacy fallthrough, no longer in step list
       case 'scenario': return !!selectedScenarioId;
@@ -1738,37 +1704,14 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
       case 'scope': return !!scopeDescription && scopeDescription.trim().length > 0;
       case 'fee': return !!amountValue && parseFloat(amountValue) > 0;
       case 'body': return false; // last step has no Next
-      case 'receipt': return false; // terminal receipt: no Next
       default: return true;
     }
-  }, [activeWizardStep, selectedScenarioId, subject, scopeDescription, amountValue, passcodeIssuing]);
-
-  const isPasscodeOnlyMode = (linkActivationMode || 'pitch') === 'manual';
-  // The final intake step in passcode-only mode is 'fee' (or 'scope' if CFA strips fee).
-  // Pressing Next on that step should fire the generate-passcode handler instead of advancing.
-  const passcodeTerminalStepId: PitchWizardStepId | null = React.useMemo(() => {
-    if (!isPasscodeOnlyMode || passcodeIssued) return null;
-    const intakeSteps = wizardSteps.filter(s => s.id !== 'receipt');
-    return (intakeSteps[intakeSteps.length - 1]?.id as PitchWizardStepId) ?? null;
-  }, [isPasscodeOnlyMode, passcodeIssued, wizardSteps]);
+  }, [activeWizardStep, selectedScenarioId, subject, scopeDescription, amountValue]);
 
   const goWizardNext = useCallback(() => {
-    if (isPasscodeOnlyMode && !passcodeIssued && activeWizardStep?.id === passcodeTerminalStepId && onGeneratePasscode) {
-      // Fire-and-forget: parent owns toast + state. When passcodeIssued flips true,
-      // the receipt step appears and we advance to it via the effect below.
-      void onGeneratePasscode();
-      return;
-    }
     setWizardIndex(idx => Math.min(idx + 1, wizardSteps.length - 1));
-  }, [wizardSteps.length, isPasscodeOnlyMode, passcodeIssued, activeWizardStep, passcodeTerminalStepId, onGeneratePasscode]);
+  }, [wizardSteps.length]);
 
-  // When the receipt step appears, slide to it
-  React.useEffect(() => {
-    if (passcodeIssued && isPasscodeOnlyMode) {
-      const idx = wizardSteps.findIndex(s => s.id === 'receipt');
-      if (idx >= 0) setWizardIndex(idx);
-    }
-  }, [passcodeIssued, isPasscodeOnlyMode, wizardSteps]);
   const goWizardBack = useCallback(() => {
     setWizardIndex(idx => Math.max(idx - 1, 0));
   }, []);
@@ -2594,46 +2537,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
               onBack={goWizardBack}
               onRestart={handleWizardRestart}
               canAdvance={wizardCanAdvance}
-              busy={passcodeIssuing}
-              busyLabel={passcodeIssuing ? (demoModeEnabled ? 'Generating demo passcode…' : 'Reserving instruct link…') : undefined}
-              nextLabel={
-                activeStepId === 'body'
-                  ? undefined
-                  : (activeStepId === passcodeTerminalStepId
-                      ? (passcodeIssuing ? 'Generating…' : 'Generate passcode')
-                      : 'Next')
-              }
-              headerSlot={
-                <div
-                  className="pitch-typeform__mode"
-                  role="radiogroup"
-                  aria-label="Pitch output"
-                >
-                  {[
-                    { value: 'pitch' as const, label: 'Send by email' },
-                    { value: 'manual' as const, label: 'Just generate a passcode' },
-                  ].map((opt) => {
-                    const isOn = (linkActivationMode || 'pitch') === opt.value;
-                    return (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        role="radio"
-                        aria-checked={isOn}
-                        className="pitch-typeform__mode-option"
-                        data-state={isOn ? 'on' : 'off'}
-                        onClick={() => {
-                          if (isOn) return;
-                          onLinkActivationModeChange?.(opt.value);
-                          setWizardIndex(0);
-                        }}
-                      >
-                        {opt.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              }
+              nextLabel={activeStepId === 'body' ? undefined : 'Next'}
               footerSlot={
                 activeStepId === 'body'
                   ? (
@@ -3658,7 +3562,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                           lineHeight: 1.5,
                         }}
                       >
-                        Write a short <strong style={{ color: 'var(--text-primary)', fontWeight: 600 }}>service description</strong>, not instructions to the fee earner. The client sees it rendered as <em>"…in relation to {'{your text}'}."</em>
+                        Write a short <strong style={{ color: 'var(--text-primary)', fontWeight: 600 }}>service description</strong>, not instructions to the client. The client sees it rendered as <em>"…in relation to {'{your text}'}."</em>
                       </div>
                       <DealCapture
                     isDarkMode={isDarkMode}
@@ -4609,185 +4513,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
             </div>
           )}
 
-            {/* Passcode-only receipt step: shown after the user picks "Just
-                generate a passcode" and confirms scope+fee. CSS hides this
-                shell unless active step is 'receipt'. */}
-            <div
-              className="pitch-step-shell"
-              data-wizard-step="receipt"
-              data-helix-region="pitch-builder/passcode-receipt"
-              style={{
-                marginBottom: 16,
-                padding: '20px 22px',
-                borderRadius: '2px',
-                background: isDarkMode
-                  ? 'linear-gradient(135deg, rgba(11, 30, 55, 0.94) 0%, rgba(15, 38, 68, 0.88) 100%)'
-                  : 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
-                border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(148, 163, 184, 0.3)'}`,
-                boxShadow: isDarkMode
-                  ? '0 18px 38px rgba(2, 6, 17, 0.45)'
-                  : '0 12px 28px rgba(15, 23, 42, 0.08)',
-                animation: 'passcodeReceiptIn 0.34s cubic-bezier(0.22, 0.61, 0.36, 1)'
-              }}
-            >
-              {(() => {
-                const issuedPasscode = passcode || '';
-                const instructUrl = `https://instruct.helix-law.com/pitch/${enquiry?.ID || ''}-${issuedPasscode}`;
-                const sectionLabel: React.CSSProperties = {
-                  fontSize: 11,
-                  fontWeight: 700,
-                  letterSpacing: 0.6,
-                  textTransform: 'uppercase',
-                  color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                  marginBottom: 6,
-                };
-                return (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-                    <div>
-                      <div style={sectionLabel}>Instruct link</div>
-                      <button
-                        type="button"
-                        title="Click to copy"
-                        aria-label="Copy instruct link"
-                        onClick={async () => {
-                          try {
-                            await navigator.clipboard.writeText(instructUrl);
-                            setReceiptLinkCopied(true);
-                            window.setTimeout(() => setReceiptLinkCopied(false), 1600);
-                          } catch { /* noop */ }
-                        }}
-                        style={{
-                          position: 'relative',
-                          width: '100%',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 10,
-                          padding: '12px 14px',
-                          background: 'transparent',
-                          border: `1px solid ${receiptLinkCopied
-                            ? (isDarkMode ? 'rgba(32, 178, 108, 0.45)' : 'rgba(32, 178, 108, 0.4)')
-                            : (isDarkMode ? 'rgba(148, 163, 184, 0.28)' : 'rgba(148, 163, 184, 0.4)')}`,
-                          cursor: 'pointer',
-                          borderRadius: 0,
-                          textAlign: 'left',
-                          fontFamily: 'Raleway, "SF Mono", Menlo, monospace',
-                          fontSize: 14,
-                          color: isDarkMode ? colours.dark.text : colours.light.text,
-                          lineHeight: 1.35,
-                          wordBreak: 'break-all',
-                          transition: 'border-color 0.18s ease, color 0.18s ease',
-                        }}
-                      >
-                        <span style={{ flex: 1 }}>{instructUrl}</span>
-                        <span
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: 6,
-                            fontFamily: 'Raleway, sans-serif',
-                            fontSize: 11,
-                            fontWeight: 700,
-                            letterSpacing: 0.5,
-                            textTransform: 'uppercase',
-                            color: receiptLinkCopied ? colours.green : (isDarkMode ? colours.subtleGrey : colours.greyText),
-                            transition: 'color 0.18s ease',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {receiptLinkCopied ? (
-                            <>
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ animation: 'passcodeCopyTick 0.34s ease-out' }}>
-                                <polyline points="20 6 9 17 4 12" />
-                              </svg>
-                              Copied
-                            </>
-                          ) : (
-                            <>
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                <rect x="9" y="9" width="13" height="13" rx="2" />
-                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                              </svg>
-                              Click to copy
-                            </>
-                          )}
-                        </span>
-                      </button>
-                      <div style={{
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                        gap: 12,
-                        paddingTop: 12,
-                      }}>
-                        <div>
-                          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: isDarkMode ? colours.subtleGrey : colours.greyText, marginBottom: 4 }}>Scope</div>
-                          <div style={{ fontSize: 13, color: isDarkMode ? '#d1d5db' : '#374151', lineHeight: 1.45 }}>
-                            {scopeDescription || '\u2014'}
-                          </div>
-                        </div>
-                        <div>
-                          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: isDarkMode ? colours.subtleGrey : colours.greyText, marginBottom: 4 }}>Fee</div>
-                          <div style={{ fontSize: 13, color: isDarkMode ? '#d1d5db' : '#374151', lineHeight: 1.45 }}>
-                            {amountValue && parseFloat(amountValue) > 0 ? `\u00a3${amountValue}` : 'No upfront fee'}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div style={{
-                      display: 'flex',
-                      gap: 10,
-                      paddingTop: 12,
-                      flexWrap: 'wrap',
-                      borderTop: `1px dashed ${isDarkMode ? 'rgba(71, 85, 105, 0.5)' : 'rgba(148, 163, 184, 0.4)'}`,
-                    }}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onResetPasscodeReceipt?.();
-                          onLinkActivationModeChange?.('pitch');
-                          setWizardIndex(0);
-                        }}
-                        style={{
-                          padding: '10px 18px',
-                          fontSize: 12,
-                          fontWeight: 700,
-                          letterSpacing: 0.5,
-                          textTransform: 'uppercase',
-                          color: '#ffffff',
-                          background: colours.highlight,
-                          border: 'none',
-                          cursor: 'pointer',
-                          borderRadius: 0
-                        }}
-                      >
-                        Switch to send by email
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onResetPasscodeReceipt?.();
-                          setWizardIndex(0);
-                        }}
-                        style={{
-                          padding: '10px 18px',
-                          fontSize: 12,
-                          fontWeight: 700,
-                          letterSpacing: 0.5,
-                          textTransform: 'uppercase',
-                          color: isDarkMode ? colours.dark.text : colours.light.text,
-                          background: 'transparent',
-                          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(148, 163, 184, 0.5)'}`,
-                          cursor: 'pointer',
-                          borderRadius: 0
-                        }}
-                      >
-                        Start again
-                      </button>
-                    </div>
-                  </div>
-                );
-              })()}
-            </div>
+            {/* Passcode-only receipt step removed in Phase A2 (direct-referral-onboarding). */}
 
             </div>
             </PitchTypeformWizard>

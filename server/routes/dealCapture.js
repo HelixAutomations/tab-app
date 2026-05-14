@@ -2,6 +2,7 @@ const sql = require('mssql');
 const { loggers } = require('../utils/logger');
 const { emitEvent } = require('../utils/eventEmitter');
 const { getPool } = require('../utils/db');
+const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
 
 const log = loggers.payments.child('DealCapture');
 
@@ -50,14 +51,39 @@ module.exports = async (req, res) => {
     reminders,
     notes,
     dealKind: providedDealKind,
+    source,
+    firstName,
+    lastName,
+    contactEmail,
     linkOnly,
     checkoutMode: providedCheckoutMode
   } = req.body;
 
-  const finalServiceDescription = serviceDescription || initialScopeDescription;
+  const rawDealKind = typeof providedDealKind === 'string' ? providedDealKind.trim().toUpperCase() : '';
+  const isDirectReferral = rawDealKind === 'DIRECT_REFERRAL' || source === 'direct-referral';
+  const finalServiceDescription = serviceDescription || initialScopeDescription || (isDirectReferral ? 'External pitch request' : '');
+  const finalAmount = amount == null && isDirectReferral ? 0 : amount;
+  const finalAreaOfWork = areaOfWork || (isDirectReferral ? 'Misc' : '');
+  const finalPitchedBy = pitchedBy || (isDirectReferral ? 'Hub' : '');
+  const startedAt = Date.now();
+
+  trackEvent('DealCapture.Started', {
+    operation: isDirectReferral ? 'pitchExternal' : 'dealCapture',
+    triggeredBy: finalPitchedBy,
+    dealKind: isDirectReferral ? 'DIRECT_REFERRAL' : (rawDealKind || (linkOnly === true ? 'CHECKOUT_LINK' : '')),
+    source: source || '',
+    hasProspectId: Boolean(prospectId),
+  });
 
   // Validate required fields
-  if (!finalServiceDescription || amount == null || !areaOfWork || !pitchedBy) {
+  if (!finalServiceDescription || finalAmount == null || !finalAreaOfWork || !finalPitchedBy) {
+    trackEvent('DealCapture.Failed', {
+      operation: isDirectReferral ? 'pitchExternal' : 'dealCapture',
+      triggeredBy: finalPitchedBy,
+      phase: 'validation',
+      error: 'Missing required fields',
+      requestId,
+    });
     return res.status(400).json({ error: 'Missing required fields', requestId });
   }
 
@@ -69,19 +95,24 @@ module.exports = async (req, res) => {
     const prospectIdStr = String(prospectId).padStart(5, '0');
     instructionRef = `HLX-${prospectIdStr}-${passcodeStr}`;
   }
+  if (!instructionRef && isDirectReferral) {
+    const passcodeStr = String(passcode).padStart(5, '0');
+    instructionRef = `HLX-EXT-${passcodeStr}`;
+  }
 
   try {
     const pool = await getPool(getInstrConnStr());
     const dealsColumns = await getDealsColumns(pool);
 
     const resolvedDealKind = (() => {
-      const raw = typeof providedDealKind === 'string' ? providedDealKind.trim() : '';
-      if (raw) return raw.toUpperCase();
+      if (rawDealKind) return rawDealKind;
+      if (isDirectReferral) return 'DIRECT_REFERRAL';
       if (linkOnly === true) return 'CHECKOUT_LINK';
       return '';
     })();
 
     const resolvedStatus = (() => {
+      if (isDirectReferral) return 'PENDING_CONTACT';
       if (linkOnly === true) return 'CHECKOUT_LINK';
       // CFA checkout mode: set deal status to 'CFA' so instruct-pitch derives CFA mode
       if (typeof providedCheckoutMode === 'string' && providedCheckoutMode.toUpperCase() === 'CFA') return 'CFA';
@@ -98,16 +129,16 @@ module.exports = async (req, res) => {
       .input('InstructionRef', sql.NVarChar(50), instructionRef)
       .input('ProspectId', sql.Int, prospectId || null)
       .input('ServiceDescription', sql.NVarChar(sql.MAX), finalServiceDescription)
-      .input('Amount', sql.Money, amount)
-      .input('AreaOfWork', sql.NVarChar(100), areaOfWork)
-      .input('PitchedBy', sql.NVarChar(100), pitchedBy)
+      .input('Amount', sql.Money, finalAmount)
+      .input('AreaOfWork', sql.NVarChar(100), finalAreaOfWork)
+      .input('PitchedBy', sql.NVarChar(100), finalPitchedBy)
       .input('PitchedDate', sql.Date, formatDate(now))
       .input('PitchedTime', sql.Time, now)
       .input('PitchValidUntil', sql.Date, formatDate(pitchValidUntil))
       .input('Status', sql.NVarChar(20), resolvedStatus)
       .input('IsMultiClient', sql.Bit, isMultiClient ? 1 : 0)
       .input('LeadClientId', sql.Int, prospectId || null)
-      .input('LeadClientEmail', sql.NVarChar(255), leadClientEmail || null)
+      .input('LeadClientEmail', sql.NVarChar(255), leadClientEmail || contactEmail || null)
       .input('Passcode', sql.NVarChar(50), passcode)
       .input('CloseDate', sql.Date, null)
       .input('CloseTime', sql.Time, null);
@@ -161,19 +192,28 @@ module.exports = async (req, res) => {
     const cleanEmailSubject = (emailSubject && emailSubject.trim()) ? emailSubject : null;
     const cleanEmailBody = (emailBody && emailBody.trim()) ? emailBody : null;
     const cleanEmailBodyHtml = (emailBodyHtml && emailBodyHtml.trim()) ? emailBodyHtml : null;
-    const cleanNotes = (notes && notes.trim()) ? notes : null;
+    const directReferralNotes = isDirectReferral
+      ? JSON.stringify({
+          source: 'direct-referral',
+          firstName: firstName || null,
+          lastName: lastName || null,
+          email: leadClientEmail || contactEmail || null,
+          originalNotes: (notes && notes.trim()) ? notes : null,
+        })
+      : null;
+    const cleanNotes = directReferralNotes || ((notes && notes.trim()) ? notes : null);
     
     await pool.request()
       .input('DealId', sql.Int, dealId)
       .input('InstructionRef', sql.NVarChar(50), instructionRef)
       .input('ProspectId', sql.Int, prospectId || null)
-      .input('Amount', sql.Money, amount)
+      .input('Amount', sql.Money, finalAmount)
       .input('ServiceDescription', sql.NVarChar(sql.MAX), finalServiceDescription)
       .input('EmailSubject', sql.NVarChar(255), cleanEmailSubject)
       .input('EmailBody', sql.NVarChar(sql.MAX), cleanEmailBody)
       .input('EmailBodyHtml', sql.NVarChar(sql.MAX), cleanEmailBodyHtml)
       .input('Reminders', sql.NVarChar(sql.MAX), reminders ? JSON.stringify(reminders) : null)
-      .input('CreatedBy', sql.NVarChar(100), pitchedBy)
+      .input('CreatedBy', sql.NVarChar(100), finalPitchedBy)
       .input('Notes', sql.NVarChar(sql.MAX), cleanNotes)
       .input('ScenarioId', sql.NVarChar(100), scenarioId)
       .query(`
@@ -182,7 +222,7 @@ module.exports = async (req, res) => {
       `);
 
     // Log key operation for App Insights recovery
-    log.op('deal:captured', { dealId, instructionRef, prospectId, amount, areaOfWork });
+    log.op('deal:captured', { dealId, instructionRef, prospectId, amount: finalAmount, areaOfWork: finalAreaOfWork, dealKind: resolvedDealKind });
 
     const baseInstructions = process.env.DEAL_INSTRUCTIONS_URL || 'https://instruct.helix-law.com/pitch';
     const instructionsUrl = `${baseInstructions.replace(/\/$/, '')}/${encodeURIComponent(passcode)}`;
@@ -190,10 +230,22 @@ module.exports = async (req, res) => {
     // Emit to shared Events table for realtime pipeline updates
     emitEvent('deal.created', 'tab-app', instructionRef || String(dealId), 'deal', {
       dealId,
-      amount,
-      areaOfWork,
+      amount: finalAmount,
+      areaOfWork: finalAreaOfWork,
       passcode,
+      dealKind: resolvedDealKind,
     });
+
+    const durationMs = Date.now() - startedAt;
+    trackEvent('DealCapture.Completed', {
+      operation: isDirectReferral ? 'pitchExternal' : 'dealCapture',
+      triggeredBy: finalPitchedBy,
+      durationMs,
+      dealKind: resolvedDealKind,
+      status: resolvedStatus,
+      hasProspectId: Boolean(prospectId),
+    });
+    trackMetric('DealCapture.Duration', durationMs, { operation: isDirectReferral ? 'pitchExternal' : 'dealCapture' });
 
     res.json({ 
       success: true,
@@ -217,12 +269,26 @@ module.exports = async (req, res) => {
 
     log.fail('deal:capture', error, {
       prospectId,
-      amount,
-      areaOfWork,
+      amount: finalAmount,
+      areaOfWork: finalAreaOfWork,
       requestId,
       dbName,
       dbServer,
       recoverable: isMissingDealsTable
+    });
+
+    trackException(error, {
+      operation: isDirectReferral ? 'pitchExternal' : 'dealCapture',
+      phase: 'captureDeal',
+      requestId,
+      dealKind: rawDealKind || '',
+    });
+    trackEvent('DealCapture.Failed', {
+      operation: isDirectReferral ? 'pitchExternal' : 'dealCapture',
+      triggeredBy: finalPitchedBy,
+      error: message,
+      requestId,
+      recoverable: isMissingDealsTable,
     });
 
     // If the DB/table is missing due to configuration drift, treat as recoverable so callers

@@ -1530,10 +1530,25 @@
 }
 
 .prospect-detail-stage-meta-copy {
-  font-size: 10px;
-  font-weight: 500;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
   line-height: 1.2;
+}
+
+.prospect-detail-stage-meta-copy-prefix {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
   color: var(--text-muted);
+}
+
+.prospect-detail-stage-meta-copy-value {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-body);
+  white-space: nowrap;
 }
 
 .prospect-case-switcher {

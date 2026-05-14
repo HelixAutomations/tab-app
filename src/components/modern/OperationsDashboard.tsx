@@ -4310,9 +4310,13 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
       return;
     }
 
-    const requestedMatterId = homeReviewRequest?.matterId;
-    const resolvedMatterId = requestedMatterId && displayMatters.some((matter) => matter.matterId === requestedMatterId)
-      ? requestedMatterId
+    const requestedMatterId = String(homeReviewRequest?.matterId || '').trim();
+    const requestedMatterIsVisible = requestedMatterId
+      ? displayMatters.some((matter) => matter.matterId === requestedMatterId)
+      : false;
+    const requestedMatterHasCcl = requestedMatterId ? Boolean(cclMap[requestedMatterId]) : false;
+    const resolvedMatterId = requestedMatterId
+      ? (requestedMatterIsVisible || requestedMatterHasCcl ? requestedMatterId : null)
       : displayMatters.find((matter) => cclMap[matter.matterId])?.matterId || null;
 
     if (!resolvedMatterId) {

@@ -98,7 +98,7 @@ export const WorkbenchJourneyRail: React.FC<WorkbenchJourneyRailProps> = ({
               justifyContent: compact || isSecondary ? 'flex-start' : 'center',
               gap: compact ? 5 : isSecondary ? 8 : 8,
               minWidth: 'max-content',
-              flex: compact ? '0 0 auto' : '1 0 max-content',
+              flex: '1 0 max-content',
               padding: compact
                 ? (isSecondary ? '8px 10px' : '10px 12px')
                 : (isSecondary ? '8px 12px' : '12px 16px'),

@@ -1,13 +1,8 @@
-import React, { CSSProperties, useCallback, useMemo, useState } from 'react';
+import React, { CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Spinner } from '@fluentui/react/lib/Spinner';
 import { Icon } from '@fluentui/react/lib/Icon';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';
-import {
-  reportingPanelBackground,
-  reportingPanelBorder,
-  reportingPanelShadow,
-} from './styles/reportingFoundation';
 
 interface YoYYearData {
   fy: number;
@@ -45,7 +40,6 @@ type MonthlyPhase = 'idle' | 'loading' | 'loaded' | 'error';
 interface MetricConfig {
   label: string;
   detail: string;
-  iconName: string;
   colour: string;
   value: (year: YoYYearData) => number;
   available: (year: YoYYearData) => boolean;
@@ -100,9 +94,11 @@ const yearRangeLabel = (year: YoYYearData): string => `${formatDate(year.startDa
 
 const YearOverYearComparison: React.FC = () => {
   const { isDarkMode } = useTheme();
-  const [phase, setPhase] = useState<Phase>('idle');
+  const hasAutoLoadedRef = useRef(false);
+  const [phase, setPhase] = useState<Phase>('loading');
   const [yearsBack, setYearsBack] = useState(3);
   const [activeMetric, setActiveMetric] = useState<MetricKey>('wip');
+  const [showMonthlyProfile, setShowMonthlyProfile] = useState(false);
   const [data, setData] = useState<YoYResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [monthlyPhase, setMonthlyPhase] = useState<MonthlyPhase>('idle');
@@ -122,7 +118,6 @@ const YearOverYearComparison: React.FC = () => {
     wip: {
       label: 'WIP',
       detail: 'Open value',
-      iconName: 'Money',
       colour: colours.highlight,
       value: (year) => year.wip,
       available: (year) => year.dataAvailability.wip,
@@ -132,8 +127,7 @@ const YearOverYearComparison: React.FC = () => {
     collected: {
       label: 'Collected',
       detail: 'Paid fees',
-      iconName: 'PaymentCard',
-      colour: colours.green,
+      colour: colours.highlight,
       value: (year) => year.collected,
       available: (year) => year.dataAvailability.collected,
       format: formatCurrency,
@@ -142,8 +136,7 @@ const YearOverYearComparison: React.FC = () => {
     mattersOpened: {
       label: 'Matters',
       detail: 'Opened',
-      iconName: 'WorkItem',
-      colour: colours.cta,
+      colour: colours.highlight,
       value: (year) => year.mattersOpened,
       available: (year) => year.dataAvailability.matters,
       format: formatCount,
@@ -152,11 +145,11 @@ const YearOverYearComparison: React.FC = () => {
   }), []);
 
   const panelStyle: CSSProperties = {
-    background: reportingPanelBackground(isDarkMode),
-    border: `0.5px solid ${reportingPanelBorder(isDarkMode)}`,
-    boxShadow: reportingPanelShadow(isDarkMode),
+    background: 'transparent',
+    border: `1px solid ${softBorder}`,
+    boxShadow: 'none',
     borderRadius: 0,
-    padding: 20,
+    padding: 16,
     fontFamily: 'Raleway, sans-serif',
     color: labelText,
   };
@@ -195,6 +188,7 @@ const YearOverYearComparison: React.FC = () => {
     setError(null);
     setMonthlyError(null);
     setMonthlyPhase('idle');
+    setShowMonthlyProfile(false);
     setMonthlyCache({});
 
     try {
@@ -208,6 +202,12 @@ const YearOverYearComparison: React.FC = () => {
       setPhase('error');
     }
   }, [yearsBack]);
+
+  useEffect(() => {
+    if (hasAutoLoadedRef.current) return;
+    hasAutoLoadedRef.current = true;
+    void loadComparison();
+  }, [loadComparison]);
 
   const loadMonthly = useCallback(async (metric: MetricKey = activeMetric) => {
     if (!data?.years.length) return;
@@ -280,56 +280,26 @@ const YearOverYearComparison: React.FC = () => {
 
     const isPositive = delta >= 0;
     return (
-      <span style={{ color: isPositive ? colours.green : colours.cta, fontSize: 10, fontWeight: 800 }}>
+      <span style={{ color: isPositive ? colours.highlight : colours.cta, fontSize: 10, fontWeight: 800 }}>
         {isPositive ? '+' : ''}{delta.toFixed(1)}%
       </span>
     );
   };
 
-  const renderAvailabilityPills = (year: YoYYearData): JSX.Element => (
-    <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-      {METRIC_KEYS.map((metric) => {
-        const config = metricConfig[metric];
-        const available = config.available(year);
-        return (
-          <span
-            key={metric}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 4,
-              height: 18,
-              padding: '0 6px',
-              borderRadius: 999,
-              border: `1px solid ${available ? `${config.colour}44` : softBorder}`,
-              color: available ? labelText : muted,
-              background: available ? `${config.colour}16` : 'transparent',
-              fontSize: 9,
-              fontWeight: 800,
-            }}
-          >
-            <span
-              style={{
-                width: 5,
-                height: 5,
-                borderRadius: '50%',
-                background: available ? config.colour : muted,
-                opacity: available ? 1 : 0.45,
-              }}
-            />
-            {config.label}
-          </span>
-        );
-      })}
-    </div>
-  );
+  const renderAvailabilitySummary = (year: YoYYearData): JSX.Element => {
+    const ready = METRIC_KEYS.filter((metric) => metricConfig[metric].available(year)).length;
+    return (
+      <span style={{ color: muted, fontSize: 10, fontWeight: 700 }}>
+        {ready}/{METRIC_KEYS.length} feeds ready
+      </span>
+    );
+  };
 
   const renderIdle = (): JSX.Element => (
     <div style={panelStyle}>
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 18, alignItems: 'center' }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-            <Icon iconName="LineChart" style={{ color: accent, fontSize: 16 }} />
             <span style={{ color: accent, fontSize: 11, fontWeight: 900, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
               Year on year
             </span>
@@ -386,9 +356,8 @@ const YearOverYearComparison: React.FC = () => {
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 18, alignItems: 'start', marginBottom: 16 }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-            <Icon iconName="LineChart" style={{ color: accent, fontSize: 16 }} />
             <span style={{ color: accent, fontSize: 11, fontWeight: 900, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-              Year on year performance
+              Year on year
             </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', color: bodyText, fontSize: 12 }}>
@@ -424,7 +393,7 @@ const YearOverYearComparison: React.FC = () => {
           <div style={{ color: muted, fontSize: 10, fontWeight: 900, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 8 }}>Latest FY</div>
           <div style={{ color: labelText, fontSize: 18, fontWeight: 900 }}>{latestYear.label}</div>
           <div style={{ color: bodyText, fontSize: 11, marginTop: 4 }}>{yearRangeLabel(latestYear)}</div>
-          <div style={{ marginTop: 10 }}>{renderAvailabilityPills(latestYear)}</div>
+          <div style={{ marginTop: 10 }}>{renderAvailabilitySummary(latestYear)}</div>
         </div>
         {metricSummaries.map(({ metric, config, current, delta }) => (
           <button
@@ -432,20 +401,19 @@ const YearOverYearComparison: React.FC = () => {
             type="button"
             onClick={() => setActiveMetric(metric)}
             style={{
-              background: activeMetric === metric ? `${config.colour}14` : cardBackground,
-              border: `1px solid ${activeMetric === metric ? `${config.colour}66` : border}`,
+              background: activeMetric === metric ? elevatedBackground : cardBackground,
+              border: `1px solid ${activeMetric === metric ? 'rgba(54, 144, 206, 0.38)' : border}`,
               borderRadius: 0,
               padding: 12,
               textAlign: 'left',
               cursor: 'pointer',
               fontFamily: 'Raleway, sans-serif',
               color: labelText,
-              boxShadow: activeMetric === metric ? `inset 0 -2px 0 ${config.colour}` : 'none',
+              boxShadow: activeMetric === metric ? `inset 2px 0 0 ${colours.highlight}` : 'none',
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: muted, fontSize: 10, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                <Icon iconName={config.iconName} style={{ color: config.colour }} />
+              <span style={{ color: muted, fontSize: 10, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                 {config.label}
               </span>
               {renderDelta(delta)}
@@ -456,29 +424,8 @@ const YearOverYearComparison: React.FC = () => {
         ))}
       </div>
 
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
-        {METRIC_KEYS.map((metric) => {
-          const config = metricConfig[metric];
-          return (
-            <button
-              key={metric}
-              type="button"
-              onClick={() => setActiveMetric(metric)}
-              style={{
-                ...tertiaryButtonStyle(activeMetric === metric),
-                borderColor: activeMetric === metric ? `${config.colour}66` : border,
-                color: activeMetric === metric ? labelText : muted,
-              }}
-            >
-              <Icon iconName={config.iconName} style={{ marginRight: 6, color: config.colour }} />
-              {config.label}
-            </button>
-          );
-        })}
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12, alignItems: 'stretch' }}>
-        <div style={{ background: cardBackground, border: `1px solid ${border}`, borderRadius: 0, padding: 14 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 12, alignItems: 'stretch' }}>
+        <div style={{ display: 'none', background: cardBackground, border: `1px solid ${border}`, borderRadius: 0, padding: 14 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, marginBottom: 12 }}>
             <div>
               <div style={{ color: activeConfig.colour, fontSize: 11, fontWeight: 900, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
@@ -509,7 +456,7 @@ const YearOverYearComparison: React.FC = () => {
                       style={{
                         width: `${width}%`,
                         height: '100%',
-                        background: available ? `linear-gradient(90deg, ${activeConfig.colour}55, ${activeConfig.colour})` : `linear-gradient(90deg, ${muted}33, ${muted}66)`,
+                        background: available ? activeConfig.colour : muted,
                         opacity: isLatest ? 1 : 0.62 + (index / Math.max(years.length, 1)) * 0.24,
                       }}
                     />
@@ -546,7 +493,7 @@ const YearOverYearComparison: React.FC = () => {
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginTop: 8 }}>
                   <span style={{ color: muted, fontSize: 9, fontWeight: 700 }}>{formatHours(year.wipHours)}</span>
-                  {renderAvailabilityPills(year)}
+                  {renderAvailabilitySummary(year)}
                 </div>
               </div>
             ))}
@@ -554,7 +501,15 @@ const YearOverYearComparison: React.FC = () => {
         </div>
       </div>
 
-      <div style={{ marginTop: 12, background: cardBackground, border: `1px solid ${border}`, borderRadius: 0, padding: 14 }}>
+      {!showMonthlyProfile && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
+          <button type="button" style={tertiaryButtonStyle(false)} onClick={() => setShowMonthlyProfile(true)}>
+            Show monthly profile
+          </button>
+        </div>
+      )}
+
+      <div style={{ display: showMonthlyProfile ? 'block' : 'none', marginTop: 12, background: cardBackground, border: `1px solid ${border}`, borderRadius: 0, padding: 14 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: monthlyData ? 12 : 0 }}>
           <div>
             <div style={{ color: activeConfig.colour, fontSize: 11, fontWeight: 900, letterSpacing: '0.06em', textTransform: 'uppercase' }}>

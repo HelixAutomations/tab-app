@@ -3370,6 +3370,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     const defaultToColor = isDarkMode ? colours.accent : colours.highlight;
     const toColor = to?.color || defaultToColor;
     const hasBoth = Boolean(from && to);
+    const sameStage = hasBoth && from?.stageKey === to?.stageKey;
 
     const renderEndpoint = (endpoint: JourneyStripEndpoint, role: 'from' | 'to') => {
       const visual = journeyStageVisuals[endpoint.stageKey];
@@ -3387,8 +3388,14 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         ? (isDarkMode ? colours.subtleGrey : colours.greyText)
         : fromColor;
 
+      // When both endpoints share the same stage (e.g. Enquiry Submitted -> Enquiry Claimed),
+      // hide the duplicated stage label and promote `detail` to the primary label slot.
+      const stageLabelText = sameStage ? null : visual.label;
+      const primaryText = stageLabelText ?? endpoint.detail ?? visual.label;
+      const showDetailInline = Boolean(endpoint.detail) && stageLabelText !== null;
+
       return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0, flexShrink: 0, alignItems: 'flex-start' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0, flexShrink: 0, alignItems: 'flex-start' }}>
           <div
             title={endpoint.title || `${visual.label}${metaText ? ` · ${metaText}` : ''}`}
             onClick={isInteractive ? endpoint.onClick : undefined}
@@ -3407,9 +3414,9 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
             </span>
             <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 4, minWidth: 0 }}>
               <span style={{ fontSize: 10, fontWeight: isDestination ? 700 : 600, letterSpacing: '0.1px', whiteSpace: 'nowrap' }}>
-                {visual.label}
+                {primaryText}
               </span>
-              {endpoint.detail && (
+              {showDetailInline && (
                 <span style={{ fontSize: 10, fontWeight: 600, color: detailTone, opacity: isDestination ? 0.84 : 0.72, whiteSpace: 'nowrap' }}>
                   {endpoint.detail}
                 </span>
@@ -3438,8 +3445,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         display: 'flex',
         alignItems: 'center',
         gap: 10,
-        padding: '7px 14px',
-        minHeight: 36,
+        padding: '4px 10px',
+        minHeight: 30,
         boxSizing: 'border-box',
       }}>
         {from && renderEndpoint(from, 'from')}

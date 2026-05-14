@@ -9,8 +9,6 @@ export interface VerificationSummaryProps {
   isLoading?: boolean;
   amount?: string | number;
   initialScopeDescription?: string;
-  linkActivationMode?: 'pitch' | 'manual';
-  onLinkActivationModeChange?: (mode: 'pitch' | 'manual') => void;
   onInitialScopeDescriptionChange?: (value: string) => void;
   onAmountChange?: (value: string) => void;
   passcode?: string;
@@ -33,8 +31,6 @@ export const VerificationSummary: React.FC<VerificationSummaryProps> = ({
   isLoading,
   amount,
   initialScopeDescription,
-  linkActivationMode,
-  onLinkActivationModeChange,
   onInitialScopeDescriptionChange,
   onAmountChange,
   passcode,
@@ -57,8 +53,6 @@ export const VerificationSummary: React.FC<VerificationSummaryProps> = ({
         amount={amount}
         initialScopeDescription={initialScopeDescription}
         notes={enquiry?.Initial_first_call_notes}
-        linkActivationMode={linkActivationMode}
-        onLinkActivationModeChange={onLinkActivationModeChange}
         onInitialScopeDescriptionChange={onInitialScopeDescriptionChange}
         onAmountChange={onAmountChange}
         dealStatus={dealStatus}

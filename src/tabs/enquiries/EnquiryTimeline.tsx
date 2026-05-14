@@ -721,6 +721,18 @@ const createInitialSourceProgress = (): TimelineSourceProgress => ({
   documents: { status: 'loading', count: 0 },
 });
 
+const waitForOverviewHydrationWindow = (): Promise<void> => new Promise((resolve) => {
+  if (typeof window === 'undefined') {
+    resolve();
+    return;
+  }
+  window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
+      window.setTimeout(resolve, 120);
+    });
+  });
+});
+
 type CachedTimelineSession = {
   enquiryId: string;
   timeline: TimelineItem[];
@@ -2401,6 +2413,9 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
       const pitchEnquiryId = resolvePitchEnquiryId(enquiry);
       if (!pitchEnquiryId) return;
 
+      await waitForOverviewHydrationWindow();
+      if (cancelled) return;
+
       const status = await fetchDocRequestStatus(pitchEnquiryId);
       if (cancelled) return;
 
@@ -3647,6 +3662,12 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
       }
 
       setInstructionStatuses(statusMap);
+
+      if (!hasShownAnyItems) {
+        setLoading(false);
+      }
+
+      await waitForOverviewHydrationWindow();
 
       // Auto-fetch emails on entry like pitches
       try {
@@ -5255,7 +5276,10 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         <div className="prospect-detail-stage-bar">
         <div className="prospect-detail-stage-meta">
           <span className="prospect-detail-stage-meta-label">Journey stages</span>
-          <span className="prospect-detail-stage-meta-copy">Within selected case: {activeWindowRangeLabel}</span>
+          <span className="prospect-detail-stage-meta-copy">
+            <span className="prospect-detail-stage-meta-copy-prefix">Within case</span>
+            <span className="prospect-detail-stage-meta-copy-value">{activeWindowRangeLabel}</span>
+          </span>
         </div>
         <div className={`prospect-detail-stage-bar-tabs ${isCompactPipelineMode ? 'is-compact' : ''}`}>
           {(() => {
@@ -5300,14 +5324,22 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   || enrichmentPitchData?.pitchContent
                   || ''
               ).trim();
-              const hasWorkbenchPitch = workbenchPitchStatus !== 'CHECKOUT_LINK' && Boolean(
-                workbenchPitchDateRaw
-                || workbenchPitchScenarioId
-                || workbenchPitchContent
-                || workbenchPitch?.dealId
-                || workbenchPitch?.DealId
-                || workbenchDeal?.DealId
-                || enrichmentPitchData?.dealId
+              const sentPitchTimelineItems = scopedTimeline.filter((item) => {
+                if (item.type !== 'pitch') return false;
+                const metadata = item.metadata || {};
+                const status = String(metadata.status || '').trim().toUpperCase();
+                const origin = String(metadata.dealOrigin || '').trim().toLowerCase();
+                const originLabel = String(metadata.dealOriginLabel || item.content || '').trim().toUpperCase();
+                return status === 'SENT'
+                  || status === 'PITCHED'
+                  || origin === 'email'
+                  || originLabel === 'PITCH EMAIL'
+                  || Boolean(metadata.pitchEmailSubject);
+              });
+              const hasWorkbenchPitch = Boolean(
+                workbenchPitchContent
+                || workbenchPitchStatus === 'PITCHED'
+                || workbenchPitchStatus === 'SENT'
               );
               const instruction = inlineWorkbenchItem?.instruction;
               const instructionRef = instruction?.InstructionRef || instruction?.instructionRef || '';
@@ -5316,10 +5348,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               const isShellInstruction = Boolean(instructionRef) && (instructionStage === 'initialised' || instructionStage === 'opened' || instructionStage === 'pitched' || instructionStage === '');
               const hasInstruction = Boolean(instructionRef) && (Boolean(instructedDate) || !isShellInstruction);
               const hasInstructionActivity = Boolean(instructionRef);
-              // An instruction can only exist if a pitch was sent first — guarantee the
-              // pitch stage reads as complete whenever instruction evidence is present,
-              // even if the scoped timeline / workbench enrichment didn't surface the pitch row.
-              const hasPitch = pitchCount > 0 || hasWorkbenchPitch || hasInstruction || hasInstructionActivity;
+              const sentPitchCount = sentPitchTimelineItems.length;
+              const hasPitch = sentPitchCount > 0 || hasWorkbenchPitch;
               const stageStatuses = inlineWorkbenchItem?.stageStatuses;
               const payments = Array.isArray(inlineWorkbenchItem?.payments) ? inlineWorkbenchItem?.payments ?? [] : [];
               const risk = inlineWorkbenchItem?.risk;
@@ -5400,7 +5430,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               
               // Get dates for completed stages
               const enquiryDate = enquiry?.Date_Created ? new Date(enquiry.Date_Created) : null;
-              const pitchItems = scopedTimeline.filter(t => t.type === 'pitch').sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+              const pitchItems = sentPitchTimelineItems.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
               const firstPitchDate = (() => {
                 if (pitchItems.length > 0) return new Date(pitchItems[0].date);
                 if (!workbenchPitchDateRaw) return null;
@@ -5452,12 +5482,12 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 },
                 { 
                   key: 'pitch', 
-                  label: 'Pitch Sent', 
-                  shortLabel: 'Pitch sent',
+                  label: hasPitch ? 'Pitch Sent' : 'Pitch', 
+                  shortLabel: hasPitch ? 'Pitch sent' : 'Pitch',
                   icon: <FiSend size={14} strokeWidth={1.8} />,
-                  status: hasPitch ? 'complete' : 'current',
+                  status: hasPitch ? 'complete' : 'pending',
                   date: firstPitchDate,
-                  detail: hasPitch ? `${pitchCount} pitch${pitchCount > 1 ? 'es' : ''}` : undefined,
+                  detail: sentPitchCount > 0 ? `${sentPitchCount} pitch${sentPitchCount > 1 ? 'es' : ''}` : undefined,
                 },
                 { 
                   key: 'instructed', 

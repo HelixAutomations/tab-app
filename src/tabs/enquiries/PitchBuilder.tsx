@@ -813,7 +813,6 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
   const [selectedOption, setSelectedOption] = useState<IDropdownOption | undefined>(initialOption);
   // Default estimated fee now set to 1,500 per request
   const [amount, setAmount] = useState<string>('1500');
-  const [linkActivationMode, setLinkActivationMode] = useState<'pitch' | 'manual'>('pitch');
   const [noAmountMode, setNoAmountMode] = useState<boolean>(false);
   // Demo mode: when on, the passcode-only flow skips the real deal-capture API
   // and surfaces the locally pre-generated passcode after a short animated delay
@@ -834,9 +833,6 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
   }, []);
-  // Set true once the passcode-only flow has finished and the receipt should show
-  const [passcodeIssued, setPasscodeIssued] = useState<boolean>(false);
-  const [passcodeIssuing, setPasscodeIssuing] = useState<boolean>(false);
   function handleAmountChange(val?: string) {
     setAmount(val ?? '');
   }
@@ -3241,83 +3237,6 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
     }
   }
 
-  /**
-   * Passcode-only flow: when the user picked "Just generate a passcode" and hits
-   * Next on the final intake step, run an animated toast progression and then
-   * either (demo) resolve with the local pre-generated passcode, or (real)
-   * call insertDealIfNeeded({ linkOnly: true }). On success, set
-   * passcodeIssued=true so the wizard swaps to a receipt panel.
-   */
-  async function handleGeneratePasscodeOnly(): Promise<string | null> {
-    if (passcodeIssuing || passcodeIssued) return null;
-    // Light pre-flight: require a scope description; amount can be 0 if noAmountMode
-    if (!initialScopeDescription || !initialScopeDescription.trim()) {
-      showToast('Add a scope first', 'error', {
-        details: 'A short scope & quote description is required before issuing a passcode.',
-        duration: 4500,
-      });
-      return null;
-    }
-    setPasscodeIssuing(true);
-    try {
-      showToast('Generating passcode…', 'info', {
-        loading: true,
-        details: demoModeEnabled ? 'Demo mode: no deal will be saved' : 'Preparing the instruct link',
-        progress: 20,
-        duration: 0,
-      });
-      // Small animated stagger so the transition feels intentional, not janky
-      await new Promise((r) => setTimeout(r, 380));
-      showToast('Issuing passcode…', 'info', {
-        loading: true,
-        details: demoModeEnabled ? 'Reusing local demo passcode' : 'Reserving the instruct link',
-        progress: 65,
-        duration: 0,
-      });
-
-      let issuedPasscode: string | null = null;
-      if (demoModeEnabled) {
-        await new Promise((r) => setTimeout(r, 420));
-        issuedPasscode = dealPasscode;
-      } else {
-        issuedPasscode = await insertDealIfNeeded({ linkOnly: true });
-      }
-
-      if (!issuedPasscode) {
-        showToast('Could not generate passcode', 'error', {
-          details: 'Check the deal status above and try again.',
-          duration: 5000,
-        });
-        return null;
-      }
-
-      showToast('Passcode ready', 'info', {
-        details: `Share the instruct link. Passcode ${issuedPasscode}.`,
-        progress: 100,
-        duration: 3600,
-      });
-      setPasscodeIssued(true);
-      return issuedPasscode;
-    } catch (err) {
-      console.error('handleGeneratePasscodeOnly failed:', err);
-      showToast('Could not generate passcode', 'error', {
-        details: err instanceof Error ? err.message : 'Unexpected error',
-        duration: 5000,
-      });
-      return null;
-    } finally {
-      setPasscodeIssuing(false);
-    }
-  }
-
-  // Reset the receipt view if the user switches modes or restarts the wizard
-  useEffect(() => {
-    if (linkActivationMode !== 'manual') {
-      setPasscodeIssued(false);
-    }
-  }, [linkActivationMode]);
-
-
   // DISABLED: This was creating unwanted placeholder deals. Real deals are created when users send/draft emails.
   useEffect(() => {
     // Background deal creation disabled to prevent duplicate placeholder deals
@@ -4798,8 +4717,6 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
         enquiry={enquiry}
         amount={amount}
         initialScopeDescription={initialScopeDescription}
-        linkActivationMode={linkActivationMode}
-        onLinkActivationModeChange={setLinkActivationMode}
         onInitialScopeDescriptionChange={setInitialScopeDescription}
         onAmountChange={(v) => handleAmountChange(v)}
         passcode={dealPasscode}
@@ -4881,13 +4798,6 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
           onScenarioChange={setSelectedScenarioId}
           initialScenario={initialScenario}
           pitchFlowLocked={false}
-          linkActivationMode={linkActivationMode}
-          onLinkActivationModeChange={setLinkActivationMode}
-          onGeneratePasscode={handleGeneratePasscodeOnly}
-          passcodeIssuing={passcodeIssuing}
-          passcodeIssued={passcodeIssued}
-          onResetPasscodeReceipt={() => setPasscodeIssued(false)}
-          demoModeEnabled={demoModeEnabled}
         />
 
         {/* Optional extracted sections (kept functional, moved below composer to reduce pre-scenario noise) */}

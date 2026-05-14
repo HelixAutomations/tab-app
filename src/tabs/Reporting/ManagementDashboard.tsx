@@ -3179,7 +3179,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
         </div>
       )}
 
-      {/* Year-over-Year Comparison — LOCAL DEV ONLY */}
+      {/* Year-over-Year comparison */}
       <div className="dashboard-yoy-section" style={{ marginTop: 24 }}>
         <YearOverYearComparison />
       </div>

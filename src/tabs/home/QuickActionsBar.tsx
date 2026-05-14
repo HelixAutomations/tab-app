@@ -16,6 +16,8 @@ import {
   MdEventSeat,
   MdOutlineLocationOn,
   MdLocationOn,
+  MdOutlineSlideshow,
+  MdSlideshow,
 } from 'react-icons/md';
 import {
   AiOutlinePlus,
@@ -72,6 +74,7 @@ const iconMap: Record<string, { outline: React.ComponentType<any>; filled: React
   Leave: { outline: FaUmbrellaBeach, filled: FaUmbrellaBeach },
   PalmTree: { outline: FaUmbrellaBeach, filled: FaUmbrellaBeach },
   Attendance: { outline: MdOutlineLocationOn, filled: MdLocationOn },
+  Presentation: { outline: MdOutlineSlideshow, filled: MdSlideshow },
 };
 
 const getShortTitle = (title: string) => {
@@ -244,7 +247,9 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
         style={{
           display: 'flex',
           alignItems: 'center',
+          flexWrap: isCompact ? 'wrap' : 'nowrap',
           gap: isCompact ? 8 : 12,
+          rowGap: isCompact ? 6 : 0,
           padding: isCompact ? '8px 12px' : '8px 16px',
           minHeight: 48,
           fontFamily: 'var(--font-primary)',
@@ -278,8 +283,10 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
     <div
       style={{
         display: 'flex',
-        alignItems: 'center',
+        alignItems: isCompact ? 'flex-start' : 'center',
+        flexWrap: isCompact ? 'wrap' : 'nowrap',
         gap: isCompact ? 8 : 12,
+        rowGap: isCompact ? 6 : 0,
         padding: isCompact ? '8px 12px' : '8px 16px',
         minHeight: 48,
         fontFamily: "var(--font-primary)",
@@ -334,7 +341,7 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
       </button>
 
       {/* Separator between label and chips */}
-      {(expanded || isCompact) && (
+      {expanded && !isCompact && (
         <div style={{
           width: 1,
           alignSelf: 'stretch',
@@ -353,6 +360,9 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
           display: 'flex',
           alignItems: 'center',
           gap: isCompact ? 6 : 8,
+          minWidth: 0,
+          flex: isCompact ? '1 1 100%' : '0 1 auto',
+          flexWrap: isCompact ? 'wrap' : 'nowrap',
           ...(isCompact
             ? { maxWidth: 'none', opacity: 1, overflow: 'visible', pointerEvents: 'auto' as const }
             : {
@@ -401,7 +411,8 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
                 opacity: isLoading && !isSelected ? 0.5 : 1,
                 transition: 'all 0.2s ease',
                 whiteSpace: 'nowrap',
-                flexShrink: 0,
+                flex: isCompact ? '0 1 40px' : '0 0 auto',
+                flexShrink: isCompact ? 1 : 0,
                 animation: isCompact ? 'none' : (expanded ? `fadeInChip 0.2s ease ${index * 0.03}s both` : 'none'),
                 ['--qa-chip-hover-bg' as string]: isDarkMode
                   ? 'linear-gradient(0deg, rgba(54, 144, 206, 0.08), rgba(54, 144, 206, 0.08)), #061733'
@@ -446,6 +457,7 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
           alignItems: 'center',
           gap: 0,
           flexShrink: 0,
+          order: isCompact ? 2 : 0,
           minHeight: 28,
         }}
       >
@@ -627,6 +639,10 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
           opacity: 1 !important;
           pointer-events: auto !important;
           overflow: visible !important;
+          display: flex !important;
+          flex-wrap: wrap !important;
+          min-width: 0 !important;
+          width: 100% !important;
         }
         @media (max-width: 640px) {
           .qa-greeting { display: none !important; }
@@ -638,6 +654,9 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
             pointer-events: auto !important;
             overflow: visible !important;
             gap: 4px !important;
+            display: flex !important;
+            flex-wrap: wrap !important;
+            width: 100% !important;
           }
           .qa-bar { padding: 3px 10px !important; gap: 4px !important; min-height: 28px !important; }
           .qa-chips button { padding: 3px 6px !important; font-size: 9px !important; gap: 0 !important; }

@@ -235,11 +235,11 @@ export const getStackedDateDisplay = (dateStr: string | null): { top: string; mi
   const hasTime = timePart !== '00:00';
 
   if (dateKey === todayKey) {
-    return { top: hasTime ? `Today ${timePart}` : 'Today', middle: '', bottom: '' };
+    return { top: 'Today', middle: '', bottom: hasTime ? timePart : '' };
   }
 
   if (dateKey === yesterdayKey) {
-    return { top: hasTime ? `Yest ${timePart}` : 'Yesterday', middle: '', bottom: '' };
+    return { top: 'Yest', middle: '', bottom: hasTime ? timePart : '' };
   }
 
   const datePart = d.toLocaleDateString('en-GB', {
