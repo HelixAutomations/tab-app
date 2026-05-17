@@ -372,6 +372,37 @@ interface DocumentPreviewModalProps {
   isDarkMode: boolean;
 }
 
+const inferDocumentContentType = (fileName: string): string => {
+  const ext = String(fileName.split('.').pop() || '').trim().toLowerCase();
+  switch (ext) {
+    case 'pdf':
+      return 'application/pdf';
+    case 'png':
+      return 'image/png';
+    case 'jpg':
+    case 'jpeg':
+      return 'image/jpeg';
+    case 'gif':
+      return 'image/gif';
+    case 'webp':
+      return 'image/webp';
+    case 'svg':
+      return 'image/svg+xml';
+    case 'doc':
+      return 'application/msword';
+    case 'docx':
+      return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    case 'xls':
+      return 'application/vnd.ms-excel';
+    case 'xlsx':
+      return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    case 'csv':
+      return 'text/csv';
+    default:
+      return 'application/octet-stream';
+  }
+};
+
 const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({ document, onClose, isDarkMode }) => {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
@@ -5204,6 +5235,35 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
   );
   const isDocsDisabled = docRequestLoading || !requestDocsEnabled;
 
+  const handleWorkbenchDocumentPreview = useCallback((doc: any) => {
+    const fileName = String(doc?.FileName || doc?.fileName || doc?.name || 'Document').trim() || 'Document';
+    const uploadedAt = String(doc?.UploadedAt || doc?.uploadedAt || doc?.uploaded_at || new Date().toISOString());
+    const uploadedBy = String(doc?.UploadedBy || doc?.uploadedBy || doc?.uploaded_by || 'Helix').trim() || 'Helix';
+    const rawDocumentId = Number(doc?.DocumentId ?? doc?.documentId ?? doc?.id);
+    const blobUrl = String(doc?.BlobUrl || doc?.blobUrl || doc?.DocumentUrl || doc?.documentUrl || '').trim();
+    const fileSize = Number(doc?.FileSizeBytes || doc?.fileSizeBytes || doc?.size || 0) || 0;
+    const documentType = String(doc?.DocumentType || doc?.documentType || '').trim();
+    const contentType = String(doc?.ContentType || doc?.contentType || '').trim() || inferDocumentContentType(fileName);
+
+    setPreviewDocument({
+      id: `workbench-doc-${doc?.DocumentId || doc?.documentId || doc?.id || fileName}`,
+      type: 'document',
+      date: uploadedAt,
+      subject: fileName,
+      createdBy: uploadedBy,
+      metadata: {
+        filename: fileName,
+        fileSize,
+        contentType,
+        blobUrl: blobUrl || undefined,
+        documentId: Number.isFinite(rawDocumentId) ? rawDocumentId : undefined,
+        documentType: documentType || undefined,
+        stageUploaded: uploadedAt,
+        source: String(doc?.source || 'instruction-documents'),
+      },
+    });
+  }, []);
+
   // Compute pitch presence for the hero header. Link-only deals (no email content)
   // must NOT count as a sent pitch — that would falsely mark the Pitch stage complete.
   const hasPitchForHeader = (() => {
@@ -5287,8 +5347,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
           onShareEnquiry={() => {
             void handleShareEnquiry();
           }}
-          onOpenPitchBuilder={onOpenPitchBuilder}
-          hasPitch={hasPitchForHeader}
+          onOpenPitchBuilder={onOpenPitchBuilder ? () => onOpenPitchBuilder() : undefined}
         />
         </div>
 
@@ -5686,13 +5745,14 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               documentWorkspaceLabel={isWorkspaceLive ? 'Open workspace' : 'Request docs'}
               documentWorkspaceDisabled={isDocsDisabled}
               documentWorkspaceLive={isWorkspaceLive}
-              onDocumentPreview={workbenchHandlers?.onDocumentPreview}
+              onDocumentPreview={handleWorkbenchDocumentPreview}
               onTriggerEID={workbenchHandlers?.onTriggerEID}
               onOpenIdReview={workbenchHandlers?.onOpenIdReview}
               onOpenMatter={workbenchHandlers?.onOpenMatter}
               onOpenRiskAssessment={workbenchHandlers?.onOpenRiskAssessment}
               onRefreshData={workbenchHandlers?.onRefreshData ? () => workbenchHandlers.onRefreshData!(inlineWorkbenchItem?.instruction?.InstructionRef || inlineWorkbenchItem?.instruction?.instructionRef) : undefined}
               onRiskAssessmentSave={workbenchHandlers?.onRiskAssessmentSave ? (risk) => workbenchHandlers.onRiskAssessmentSave!(inlineWorkbenchItem?.instruction?.InstructionRef || inlineWorkbenchItem?.instruction?.instructionRef, risk) : undefined}
+              onOpenPitchBuilder={onOpenPitchBuilder}
               demoModeEnabled={demoModeEnabled}
             />
           </div>

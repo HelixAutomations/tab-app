@@ -62,6 +62,8 @@ import CompactMatterWizard from './MatterOpening/CompactMatterWizard';
 import DemoModeStripe from './MatterOpening/DemoModeStripe';
 import type { POID } from '../../app/functionality/types';
 import { deriveWorkbenchStageStatuses } from '../../utils/workbenchStatusDerivation';
+import { SCENARIOS } from '../enquiries/pitch-builder/scenarios';
+import { scenarioTone, scenarioIcon } from '../../components/pitchScenarioPresentation';
 import type {
   WorkbenchContextStage,
   WorkbenchItem,
@@ -146,6 +148,7 @@ type InlineWorkbenchProps = {
   onOpenEnquiryRating?: (enquiryId: string) => void;
   onRefreshData?: (instructionRef?: string) => void | Promise<void>;
   onClose?: () => void;
+  onOpenPitchBuilder?: (scenarioId?: string) => void;
   currentUser?: { FullName?: string; Email?: string } | null;
   onRiskAssessmentSave?: (risk: any) => void | Promise<void>;
   demoModeEnabled?: boolean;
@@ -262,6 +265,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   onConfirmBankPayment,
   onRefreshData,
   onClose,
+  onOpenPitchBuilder,
   currentUser,
   onRiskAssessmentSave,
   demoModeEnabled = false,
@@ -5451,16 +5455,97 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                             );
                           }
 
-                          // Show empty state if no pitch data
+                          // Show empty state if no pitch data — surfaces a 5-scenario picker that
+                          // opens the Pitch Builder with the chosen scenario preselected.
                           if (hasNoPitchData) {
+                            const cardBg = isDarkMode ? 'rgba(10, 28, 50, 0.55)' : 'rgba(214, 232, 255, 0.32)';
                             return (
-                              <div style={{
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                padding: '24px', color: textMuted, fontSize: 12,
-                                fontFamily: "'Raleway', 'Segoe UI', sans-serif", gap: 6,
-                              }}>
-                                <FaEnvelope size={12} style={{ color: textMuted }} />
-                                No pitch recorded
+                              <div
+                                data-helix-region="workbench/pitch/scenario-picker"
+                                style={{
+                                  display: 'flex', flexDirection: 'column', gap: 14,
+                                  padding: '20px 18px 22px',
+                                  fontFamily: "'Raleway', 'Segoe UI', sans-serif",
+                                  animation: 'wb-pitch-empty-fade 240ms ease-out both',
+                                }}
+                              >
+                                <style>{`@keyframes wb-pitch-empty-fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } } .wb-pitch-scenario-tile { transition: transform 160ms ease, box-shadow 160ms ease, background-color 160ms ease, border-color 160ms ease; } .wb-pitch-scenario-tile:hover { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(6,23,51,0.22); }`}</style>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                  <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: textMuted }}>
+                                    Start a pitch
+                                  </span>
+                                  <span style={{ fontSize: 13, fontWeight: 500, color: textBody }}>
+                                    No pitch recorded — choose a starting scenario.
+                                  </span>
+                                </div>
+                                {onOpenPitchBuilder ? (
+                                  <div
+                                    role="list"
+                                    aria-label="Pitch scenarios"
+                                    style={{
+                                      display: 'grid',
+                                      gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                                      gap: 10,
+                                    }}
+                                  >
+                                    {SCENARIOS.map((scenario) => {
+                                      const tone = scenarioTone(scenario.id);
+                                      const parts = scenario.name.split('\u2014').map(s => s.trim());
+                                      const primary = parts[0];
+                                      const secondary = parts.length > 1 ? parts.slice(1).join(' — ') : '';
+                                      return (
+                                        <button
+                                          key={scenario.id}
+                                          type="button"
+                                          role="listitem"
+                                          className="wb-pitch-scenario-tile"
+                                          onClick={() => onOpenPitchBuilder(scenario.id)}
+                                          title={scenario.subject}
+                                          style={{
+                                            display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 10,
+                                            padding: '14px 14px 16px',
+                                            background: cardBg,
+                                            border: `1px solid ${tone}55`,
+                                            borderLeft: `3px solid ${tone}`,
+                                            borderRadius: 0,
+                                            cursor: 'pointer',
+                                            textAlign: 'left',
+                                            fontFamily: 'inherit',
+                                            color: textBody,
+                                            minHeight: 96,
+                                          }}
+                                        >
+                                          <span
+                                            aria-hidden="true"
+                                            style={{
+                                              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                              width: 32, height: 32,
+                                              background: `${tone}1F`,
+                                              border: `1px solid ${tone}33`,
+                                            }}
+                                          >
+                                            {scenarioIcon(scenario.id)}
+                                          </span>
+                                          <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                            <span style={{ fontSize: 13, fontWeight: 600, color: textBody, lineHeight: 1.25 }}>
+                                              {primary}
+                                            </span>
+                                            {secondary && (
+                                              <span style={{ fontSize: 11, fontWeight: 500, color: textMuted, lineHeight: 1.3 }}>
+                                                {secondary}
+                                              </span>
+                                            )}
+                                          </span>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                ) : (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: textMuted, fontSize: 12 }}>
+                                    <FaEnvelope size={12} />
+                                    No pitch recorded
+                                  </div>
+                                )}
                               </div>
                             );
                           }
@@ -8465,8 +8550,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                     color: isDarkMode ? '#d1d5db' : '#374151',
                   }}>
                     {documentWorkspaceLive
-                      ? 'Open the existing upload workspace from the documents tab.'
-                      : 'Request documents from here when you are ready to open a shared upload workspace.'}
+                      ? 'Open the existing upload workspace from the documents tab. Matter transfer runs later from the matter queue, not here.'
+                      : 'Request documents from here when you are ready to open a shared upload workspace. Matter transfer is a later step, not part of this tab yet.'}
                   </span>
                 </div>
 

@@ -1552,8 +1552,9 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
   const [isAmountCollapsed, setIsAmountCollapsed] = useState(false);
   const [isSubjectCollapsed, setIsSubjectCollapsed] = useState(false);
   const [showInlinePreview, setShowInlinePreview] = useState(false);
-  // Typeform-style wizard navigation
-  const [wizardIndex, setWizardIndex] = useState(0);
+  // Typeform-style wizard navigation. If a scenario is preselected (e.g. from the
+  // workbench pitch-tab picker), skip step 0 since the question is already answered.
+  const [wizardIndex, setWizardIndex] = useState<number>(initialScenario ? 1 : 0);
   const [scopeMode, setScopeMode] = useState<'bespoke' | 'default-payment'>('bespoke');
   const [feeMode, setFeeMode] = useState<'preset' | 'custom'>('preset');
   const isCfa = selectedScenarioId === 'cfa';
