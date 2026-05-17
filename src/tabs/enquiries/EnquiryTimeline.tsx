@@ -5204,6 +5204,36 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
   );
   const isDocsDisabled = docRequestLoading || !requestDocsEnabled;
 
+  // Compute pitch presence for the hero header. Link-only deals (no email content)
+  // must NOT count as a sent pitch — that would falsely mark the Pitch stage complete.
+  const hasPitchForHeader = (() => {
+    const wb = (inlineWorkbenchItem?.pitch || inlineWorkbenchItem?.Pitch || inlineWorkbenchItem?.pitchData || null) as Record<string, any> | null;
+    const deal = (inlineWorkbenchItem?.deal || null) as Record<string, any> | null;
+    const wbContent = String(
+      wb?.pitchContent
+        || wb?.PitchContent
+        || wb?.EmailSubject
+        || wb?.EmailBody
+        || deal?.EmailSubject
+        || deal?.EmailBody
+        || enrichmentPitchData?.pitchContent
+        || ''
+    ).trim();
+    if (wbContent) return true;
+    return scopedTimeline.some((item) => {
+      if (item.type !== 'pitch') return false;
+      const metadata = item.metadata || {};
+      const status = String(metadata.status || '').trim().toUpperCase();
+      const origin = String(metadata.dealOrigin || '').trim().toLowerCase();
+      const originLabel = String(metadata.dealOriginLabel || item.content || '').trim().toUpperCase();
+      return status === 'SENT'
+        || status === 'PITCHED'
+        || origin === 'email'
+        || originLabel === 'PITCH EMAIL'
+        || Boolean(metadata.pitchEmailSubject);
+    });
+  })();
+
   return (
     <div className="prospect-detail-shell">
       {/* ═══════════════════════════════════════════════════════════════════════
@@ -5257,7 +5287,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
           onShareEnquiry={() => {
             void handleShareEnquiry();
           }}
-          onOpenPitchBuilder={onOpenPitchBuilder ? () => onOpenPitchBuilder() : undefined}
+          onOpenPitchBuilder={onOpenPitchBuilder}
+          hasPitch={hasPitchForHeader}
         />
         </div>
 
@@ -5336,11 +5367,10 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   || originLabel === 'PITCH EMAIL'
                   || Boolean(metadata.pitchEmailSubject);
               });
-              const hasWorkbenchPitch = Boolean(
-                workbenchPitchContent
-                || workbenchPitchStatus === 'PITCHED'
-                || workbenchPitchStatus === 'SENT'
-              );
+              // Require actual email content to count as a sent pitch. A bare
+              // PITCHED/SENT deal status without content usually indicates a
+              // link-only deal and must not light the Pitch stage green.
+              const hasWorkbenchPitch = Boolean(workbenchPitchContent);
               const instruction = inlineWorkbenchItem?.instruction;
               const instructionRef = instruction?.InstructionRef || instruction?.instructionRef || '';
               const instructionStage = (instruction?.Stage || instruction?.stage || '').toLowerCase();

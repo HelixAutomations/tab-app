@@ -1,7 +1,6 @@
 // Clean admin tools - removed beaker and legacy toggle
 import React, { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, useTransition, useDeferredValue, startTransition } from 'react';
 import ReactDOM from 'react-dom';
-import { getProxyBaseUrl } from '../../utils/getProxyBaseUrl';
 import { Stack } from '@fluentui/react/lib/Stack';
 import { Text } from '@fluentui/react/lib/Text';
 import { Icon } from '@fluentui/react/lib/Icon';

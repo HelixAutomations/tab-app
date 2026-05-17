@@ -22,6 +22,8 @@ import {
 } from 'react-icons/fa';
 import { useToast } from '../../../components/feedback/ToastProvider';
 import { trackClientEvent } from '../../../utils/telemetry';
+import CompactOptionStrip from '../../../components/CompactOptionStrip';
+import { buildPitchScenarioStripItems } from '../../../components/pitchScenarioPresentation';
 
 const FONT_STACK = "'Raleway', 'Segoe UI', sans-serif";
 
@@ -50,7 +52,9 @@ interface ProspectHeroHeaderProps {
   currentRating?: string | null;
   onOpenEnquiryRating?: () => void;
   onShareEnquiry?: () => void;
-  onOpenPitchBuilder?: () => void;
+  onOpenPitchBuilder?: (scenarioId?: string) => void;
+  /** When false (default), Draft pitch is paired with a 5-scenario starter strip. */
+  hasPitch?: boolean;
   inlineWorkbenchItem?: any;
 }
 
@@ -111,6 +115,7 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
   onOpenEnquiryRating,
   onShareEnquiry,
   onOpenPitchBuilder,
+  hasPitch = false,
   inlineWorkbenchItem,
 }) => {
   const areaColour = getAreaColour(displayAreaOfWork);
@@ -534,7 +539,7 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
             {onOpenPitchBuilder && (
               <button
                 type="button"
-                onClick={onOpenPitchBuilder}
+                onClick={() => onOpenPitchBuilder()}
                 title="Open the pitch builder to draft an email pitch"
                 style={primaryActionStyle}
                 onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.9'; }}
@@ -749,6 +754,28 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Row 2b: when no pitch is recorded, surface the 5 Pitch Builder scenarios
+            as a starter strip beneath Draft pitch. Selecting one opens the Pitch
+            Builder with that scenario preselected. */}
+        {onOpenPitchBuilder && !hasPitch && (
+          <div data-helix-region="enquiries/detail/pitch-scenarios" style={{ display: 'grid', gap: 6 }}>
+            <span style={{
+              fontSize: 9,
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              letterSpacing: '0.4px',
+              color: textMuted,
+            }}>
+              Start a pitch
+            </span>
+            <CompactOptionStrip
+              items={buildPitchScenarioStripItems()}
+              onSelect={(scenarioId) => onOpenPitchBuilder(scenarioId)}
+              ariaLabel="Pitch scenarios"
+            />
           </div>
         )}
 

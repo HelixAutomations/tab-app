@@ -18,13 +18,37 @@ function Test-StagingDeployFailure {
     return $joined -match 'An error occurred during deployment' -or $joined -match 'Status Code:\s*500'
 }
 
+function Remove-DirectoryRobust {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return
+    }
+
+    try {
+        Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop
+        return
+    }
+    catch {
+        Write-Host "PowerShell removal failed for $Path; retrying with cmd rmdir."
+        $resolvedPath = (Resolve-Path -LiteralPath $Path).Path
+        & cmd.exe /c "rd /s /q `"$resolvedPath`""
+        if (Test-Path -LiteralPath $Path) {
+            throw
+        }
+    }
+}
+
 Write-Host "🚀 STAGING DEPLOYMENT - Building and deploying to staging slot"
 Write-Host "Removing existing zip artifacts"
 Remove-Item -Path $zipPath, $copyPath -Force -ErrorAction SilentlyContinue
 
 # Prepare a clean deployment staging directory
 Write-Host "Preparing deployment staging directory"
-Remove-Item -Recurse -Force $deployDir -ErrorAction SilentlyContinue
+Remove-DirectoryRobust -Path $deployDir
 New-Item -ItemType Directory -Path $deployDir | Out-Null
 
 
@@ -52,7 +76,7 @@ Copy-Item -Path "$PSScriptRoot\build\*" -Destination "$deployDir" -Recurse -Forc
 Write-Host "Installing server dependencies (production only)"
 if (Test-Path "server\node_modules") {
     Write-Host "Removing existing server node_modules before clean install"
-    Remove-Item -LiteralPath "server\node_modules" -Recurse -Force
+    Remove-DirectoryRobust -Path "server\node_modules"
 }
 npm ci --prefix server --omit=dev --no-audit --fund=false --progress=false
 if ($LASTEXITCODE -ne 0) {

@@ -1,15 +1,8 @@
 /**
- * Tests for `getApiUrl` and `getApiBase` — the same-origin API helpers that
- * replaced `getProxyBaseUrl()` for routes our Express server hosts directly.
- *
- * The legacy `getProxyBaseUrl()` is intentionally kept and tested separately
- * in `getProxyBaseUrl.test.ts` until the remaining Function-fronted routes
- * (snippet edits, getInstructionData, updateTransactions, MattersReport,
- * updateAnnualLeave) are ported per the
- * `retire-helix-keys-proxy-and-add-form-route-preflight` stash brief.
+ * Tests for `getApiUrl` and `getApiBase` — same-origin API helpers.
  *
  * The helpers accept an optional `loc` parameter purely for test injection
- * (production callers always invoke zero-arg) — this avoids fighting jsdom's
+ * (production callers always invoke zero-arg). This avoids fighting jsdom's
  * non-configurable `window.location`.
  */
 
@@ -65,10 +58,6 @@ describe("getApiBase", () => {
     });
 
     it("never produces a /api/api/ path when concatenated with /api/foo (prod)", () => {
-        // The classic `/api/api/` regression shape — with the legacy proxy
-        // (`https://helix-keys-proxy.../api`) this template produced
-        // `${proxy}/api/api/foo`. With getApiBase the same template stays
-        // single-prefixed.
         const url = `${getApiBase(fakeLoc("https://app.helix-law.com/"))}/api/foo`;
         expect(url).toBe("https://app.helix-law.com/api/foo");
         expect(url).not.toMatch(/\/api\/api\//);

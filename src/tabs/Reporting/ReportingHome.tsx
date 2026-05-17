@@ -45,6 +45,11 @@ import {
   getTrustCheckId,
   deriveTrustState,
   findTrustCheck,
+  MANAGEMENT_PRESSURE_TEST_CHECK_IDS,
+  formatReadinessBlockerDetail,
+  registerManagementBlockerSimulationControls,
+  simulateManagementBlocker,
+  clearManagementBlockerSimulation,
 } from './reportTrust';
 import { useReadinessRemediate } from './useReadinessRemediate';
 import { useStreamingDatasets } from '../../hooks/useStreamingDatasets';
@@ -4331,6 +4336,28 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     const raw = propUserData?.[0]?.Initials;
     return typeof raw === 'string' ? raw.trim().toUpperCase() : '';
   }, [propUserData]);
+  useEffect(() => registerManagementBlockerSimulationControls(userInitialsForGate), [userInitialsForGate]);
+  const canSimulateBlocker = demoModeEnabled && userInitialsForGate === 'LZ';
+  const [simulatedBlockerActive, setSimulatedBlockerActive] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    try { return window.localStorage.getItem('helix:reporting:managementBlockerSimulation') !== null; } catch { return false; }
+  });
+  const handleToggleSimulatedBlocker = useCallback(() => {
+    if (!canSimulateBlocker) return;
+    if (simulatedBlockerActive) {
+      clearManagementBlockerSimulation();
+      setSimulatedBlockerActive(false);
+      showToast({ type: 'success', title: 'Simulated blocker cleared', message: 'Real readiness state restored.' });
+    } else {
+      simulateManagementBlocker({
+        checkId: 'wipWtd',
+        reason: 'Simulated broken load (demo mode)',
+        message: 'Demo: the WIP feed failed to refresh. This is a simulated blocker.',
+      });
+      setSimulatedBlockerActive(true);
+      showToast({ type: 'warning', title: 'Simulated broken load applied', message: 'Dashboard entry is now blocked by a simulated WIP failure.' });
+    }
+  }, [canSimulateBlocker, simulatedBlockerActive, showToast]);
   const trustGateEnabled = true;
   const isAdminForGate = useMemo(() => {
     const u = propUserData?.[0];
@@ -4343,6 +4370,19 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
   const { payload: trustReadinessPayload } = useReportingReadiness(true);
   const [trustGateOverall, setTrustGateOverall] = useState<ReadinessOverall>('ready');
   const [trustGateOverridden, setTrustGateOverridden] = useState(false);
+  const blockingPressureTestCheck = useMemo(() => (
+    trustReadinessPayload?.checks.find((check) => (
+      MANAGEMENT_PRESSURE_TEST_CHECK_IDS.includes(check.id)
+      && check.blocking
+      && check.status === 'blocked'
+      && check.reason !== 'no-snapshot'
+      && check.reason !== 'snapshot-missing-scope'
+    )) ?? null
+  ), [trustReadinessPayload]);
+  const trustGateBlockerDetail = useMemo(
+    () => formatReadinessBlockerDetail(blockingPressureTestCheck),
+    [blockingPressureTestCheck]
+  );
   const handleTrustGateChange = useCallback((overall: ReadinessOverall) => {
     setTrustGateOverall(overall);
   }, []);
@@ -4380,7 +4420,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
   const slimRemediateFiredForRef = useRef<string | null>(null);
   useEffect(() => {
     if (!isSlimReports) return;
-    if (!trustGateBlocksEntry) {
+    if (!trustGateBlocksEntry || blockingPressureTestCheck?.id !== 'collectedMtd') {
       slimRemediateFiredForRef.current = null;
       return;
     }
@@ -4391,19 +4431,21 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     if (slimRemediateState.status === 'running') return;
     slimRemediateFiredForRef.current = stamp;
     void slimRemediate();
-  }, [isSlimReports, trustGateBlocksEntry, trustReadinessPayload?.generatedAt, slimRemediate, slimRemediateState.status]);
+  }, [blockingPressureTestCheck?.id, isSlimReports, trustGateBlocksEntry, trustReadinessPayload?.generatedAt, slimRemediate, slimRemediateState.status]);
   const slimNotifiedLuke = slimRemediateState.status === 'escalated' || slimRemediateState.status === 'persisted';
 
   // More conservative auto-refresh logic to prevent excessive refreshing
   const handleOpenDashboard = useCallback(() => {
     // Trust gate (Phase B): block entry if dev preview user has unresolved blocking checks.
-    // Demo mode bypasses the gate so walkthroughs always open into live data.
-    if (trustGateBlocksEntry && !demoModeEnabled) {
+    // Demo mode normally bypasses the gate so walkthroughs always open into live data,
+    // but a Luke-triggered simulated blocker must always take effect so the failure UX
+    // can be exercised on demand.
+    if (trustGateBlocksEntry && (!demoModeEnabled || simulatedBlockerActive)) {
       debugLog('Trust gate blocked - refusing to open Management Dashboard');
       showToast({
         type: 'error',
         title: 'Reports access paused',
-        message: 'Use the indicator next to the Management Dashboard tile to refresh and retry.',
+        message: trustGateBlockerDetail || 'Use the indicator next to the Management Dashboard tile to refresh and retry.',
       });
       return;
     }
@@ -4440,7 +4482,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     } else {
       debugLog('Dashboard using cached data (fresh enough)');
     }
-  }, [hasFetchedOnce, isFetching, isStreamingConnected, refreshDatasetsWithStreaming, testMode, trustGateBlocksEntry, showToast, demoModeEnabled, slimSelectedRangeKey]);
+  }, [hasFetchedOnce, isFetching, isStreamingConnected, refreshDatasetsWithStreaming, testMode, trustGateBlocksEntry, trustGateBlockerDetail, simulatedBlockerActive, showToast, demoModeEnabled, slimSelectedRangeKey]);
 
   // Helper to navigate to reports in test mode without triggering refreshes
   const navigateToReport = useCallback((view: typeof activeView) => {
@@ -4984,7 +5026,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
           slimRefreshingFeedCount > 0 ? `${slimRefreshingFeedCount} refreshing` : null,
           slimIssueFeedCount > 0 ? `${slimIssueFeedCount} issue${slimIssueFeedCount === 1 ? '' : 's'}` : null,
         ].filter(Boolean).join(', ');
-      const slimOpenDisabled = slimNeedsRange || !slimShowFeedState || !slimDashboardFeedsReady || isActivelyLoading || (!demoModeEnabled && trustGateNotReady);
+      const slimOpenDisabled = slimNeedsRange || !slimShowFeedState || !slimDashboardFeedsReady || isActivelyLoading || ((!demoModeEnabled || simulatedBlockerActive) && trustGateNotReady);
       const slimStatusColour = !slimShowFeedState
         ? colours.orange
         : slimDashboardFeedsFailed
@@ -5005,7 +5047,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
         : !slimDashboardFeedsReady
           ? null
         : trustGateBlocksEntry
-          ? 'The data gate has not cleared yet.'
+          ? trustGateBlockerDetail || 'The data gate has not cleared yet.'
           : trustGateNotReady
           ? 'The dashboard opens as soon as the feeds are ready.'
           : null;
@@ -5197,6 +5239,71 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
               })}
             </div>
           </div>
+
+          {canSimulateBlocker && (
+            <div
+              data-helix-region="reports/slim-management/simulate-blocker"
+              style={{
+                marginTop: 10,
+                padding: '10px 14px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+                backgroundColor: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
+                border: `1px dashed ${simulatedBlockerActive ? colours.cta : (isDarkMode ? colours.dark.borderColor : colours.highlightNeutral)}`,
+                borderRadius: 0,
+              }}
+            >
+              <span style={{ display: 'block', minWidth: 0 }}>
+                <span style={{
+                  display: 'block',
+                  fontSize: 11,
+                  fontWeight: 800,
+                  textTransform: 'uppercase' as const,
+                  letterSpacing: '0.08em',
+                  color: simulatedBlockerActive ? colours.cta : (isDarkMode ? colours.dark.text : colours.light.text),
+                }}>
+                  {simulatedBlockerActive ? 'Simulated blocker active' : 'Demo controls (Luke only)'}
+                </span>
+                <span style={{
+                  display: 'block',
+                  marginTop: 3,
+                  fontSize: 12,
+                  lineHeight: 1.4,
+                  color: isDarkMode ? '#d1d5db' : '#374151',
+                }}>
+                  {simulatedBlockerActive
+                    ? 'A simulated WIP failure is blocking dashboard entry. Clear it to restore the real readiness state.'
+                    : 'Invoke a simulated WIP failure to demo a blocked dashboard entry for the selected period.'}
+                </span>
+              </span>
+              <button
+                type="button"
+                onClick={handleToggleSimulatedBlocker}
+                style={{
+                  appearance: 'none',
+                  flex: '0 0 auto',
+                  minHeight: 36,
+                  cursor: 'pointer',
+                  padding: '0 14px',
+                  fontFamily: 'Raleway, sans-serif',
+                  fontSize: 12,
+                  fontWeight: 800,
+                  letterSpacing: '0.02em',
+                  color: simulatedBlockerActive ? colours.dark.text : (isDarkMode ? colours.dark.text : colours.light.text),
+                  backgroundColor: simulatedBlockerActive ? colours.cta : 'transparent',
+                  borderStyle: 'solid',
+                  borderWidth: 1,
+                  borderColor: simulatedBlockerActive ? colours.cta : (isDarkMode ? colours.dark.borderColor : colours.highlightNeutral),
+                  borderRadius: 0,
+                  transition: 'background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease',
+                }}
+              >
+                {simulatedBlockerActive ? 'Clear simulated blocker' : 'Simulate broken load'}
+              </button>
+            </div>
+          )}
 
           <div
             style={{

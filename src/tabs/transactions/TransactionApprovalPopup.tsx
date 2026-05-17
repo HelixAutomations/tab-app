@@ -8,7 +8,6 @@ import { DefaultButton } from '@fluentui/react/lib/Button';
 import type { IButtonStyles } from '@fluentui/react/lib/Button';
 import { TextField } from '@fluentui/react/lib/TextField';
 import type { ITextFieldStyles } from '@fluentui/react/lib/TextField';
-import { getProxyBaseUrl } from '../../utils/getProxyBaseUrl';
 import { Transaction, Matter } from '../../app/functionality/types';
 import { colours } from '../../app/styles/colours';
 import { debugLog, debugWarn } from '../../utils/debug';
@@ -131,22 +130,11 @@ const TransactionApprovalPopup: React.FC<TransactionApprovalPopupProps> = ({
       // Optimistically update the status to 'transfer' for the animation
       setLocalStatus('transfer');
 
-        const response = await fetch(
-          `${getProxyBaseUrl()}/${process.env.REACT_APP_UPDATE_TRANSACTIONS_PATH}?code=${process.env.REACT_APP_UPDATE_TRANSACTIONS_CODE}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify([submissionValues]),
-        }
-      );
+      // Legacy updateTransactions Function retired; transactions workflow is being rebuilt in a separate app.
+      throw new Error('Transactions workflow is being rebuilt; submissions are temporarily disabled.');
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Failed to update transaction: ${response.status} - ${errorText}`);
-      }
-
-      const result = await response.json();
-      debugLog("Update successful:", result);
+      // eslint-disable-next-line no-unreachable
+      debugLog("Update successful (stub):", submissionValues);
       setSubmitStatus('success');
 
       // Update the transaction status in the parent component

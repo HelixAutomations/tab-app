@@ -47,10 +47,8 @@ import VerificationSummary from './pitch-builder/VerificationSummary';
 import OperationStatusToast from './pitch-builder/OperationStatusToast';
 import { addDays } from 'date-fns';
 import PlaceholderEditorPopover from './pitch-builder/PlaceholderEditorPopover';
-import SnippetEditPopover from './pitch-builder/SnippetEditPopover';
 
 import { placeholderSuggestions } from '../../app/customisation/InsertSuggestions';
-import { getProxyBaseUrl } from '../../utils/getProxyBaseUrl';
 import { getApiBase } from '../../utils/getApiUrl';
 import { isInTeams } from '../../app/functionality/isInTeams';
 import {
@@ -1058,13 +1056,6 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
     }
   }
 
-  function openSnippetEdit(e: MouseEvent, blockTitle: string) {
-    e.stopPropagation();
-    e.preventDefault();
-    if (lockedBlocks[blockTitle]) return;
-    setSnippetEdit({ blockTitle, target: e.currentTarget as HTMLElement });
-  }
-
   function saveToUndoStack(content: string) {
     if (isUndoRedoOperation) return;
     if (!content || !content.trim()) return; // Don't save empty content
@@ -1251,10 +1242,8 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
     (window as any).toggleBlockSidebar = toggleBlockSidebar;
     (window as any).highlightBlock = highlightBlock;
     (window as any).openSnippetOptions = openSnippetOptions;
-    (window as any).openSnippetEdit = openSnippetEdit;
     (window as any).insertBlockOption = insertBlockOption;
     (window as any).resetBlockOption = resetBlockOption;
-    (window as any).saveCustomSnippet = saveCustomSnippet;
     (window as any).toggleSidebarOverlayMode = toggleSidebarOverlayMode;
     (window as any).undo = undo;
     (window as any).redo = redo;
@@ -1283,7 +1272,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
     return () => {
       document.removeEventListener('keydown', handleKeyDown, true);
     };
-  }, [toggleBlockLock, toggleBlockSidebar, highlightBlock, openSnippetOptions, openSnippetEdit, insertBlockOption, resetBlockOption, toggleSidebarOverlayMode, templateBlocks, undo, redo]);
+  }, [toggleBlockLock, toggleBlockSidebar, highlightBlock, openSnippetOptions, insertBlockOption, resetBlockOption, toggleSidebarOverlayMode, templateBlocks, undo, redo]);
 
   // Simple helper to capitalize your "Area_of_Work" for the subject line
   function capitalizeWords(str: string): string {
@@ -1643,13 +1632,6 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
     placeholder: string;
     blockTitle?: string;
   } | null>(null);
-
-  const [snippetEdit, setSnippetEdit] = useState<{
-    blockTitle: string;
-    target: HTMLElement;
-    placeholder?: string;
-  } | null>(null);
-  const [pendingOptionText, setPendingOptionText] = useState<string>('');
 
   function getNeighboringWords(span: HTMLElement, count: number = 3) {
     const gather = (node: Node | null, words: string[], dir: 'prev' | 'next') => {
@@ -2343,7 +2325,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
     const pinnedClass = pinnedBlocks[block.title] ? ' pinned' : '';
     const overlayIcon = overlaySidebars ? 'DockRight' : 'DockLeft';
     const overlayActive = overlaySidebars ? ' active' : '';
-    const controlsHTML = `<div class="block-sidebar${pinnedClass}" data-block-title="${block.title}" data-label="${labelText}"><div class="sidebar-handle" onclick="window.toggleBlockSidebar('${block.title}')"><i class="ms-Icon ms-Icon--${pinnedBlocks[block.title] ? 'ChevronRight' : 'ChevronLeft'}"></i></div><div class="actions"><span class="icon-btn pin-toggle${pinnedBlocks[block.title] ? ' pinned' : ''}" onclick="window.toggleBlockSidebar('${block.title}')"><i class="ms-Icon ms-Icon--${pinnedBlocks[block.title] ? 'Pinned' : 'Pin'}"></i></span><span class="icon-btn overlay-toggle${overlayActive}" onclick="window.toggleSidebarOverlayMode()"><i class="ms-Icon ms-Icon--${overlayIcon}"></i></span><span class="icon-btn" onclick="window.openSnippetEdit(event,'${block.title}')"><i class='ms-Icon ms-Icon--Save'></i></span><span class="icon-btn lock-toggle" onclick="window.toggleBlockLock('${block.title}')"><i class="ms-Icon ms-Icon--Unlock"></i></span><span class="icon-btn" onclick="window.removeBlock('${block.title}')"><i class="ms-Icon ms-Icon--Delete"></i></span></div><div class="option-choices">${optionsHtmlCombined}</div></div>`;
+    const controlsHTML = `<div class="block-sidebar${pinnedClass}" data-block-title="${block.title}" data-label="${labelText}"><div class="sidebar-handle" onclick="window.toggleBlockSidebar('${block.title}')"><i class="ms-Icon ms-Icon--${pinnedBlocks[block.title] ? 'ChevronRight' : 'ChevronLeft'}"></i></div><div class="actions"><span class="icon-btn pin-toggle${pinnedBlocks[block.title] ? ' pinned' : ''}" onclick="window.toggleBlockSidebar('${block.title}')"><i class="ms-Icon ms-Icon--${pinnedBlocks[block.title] ? 'Pinned' : 'Pin'}"></i></span><span class="icon-btn overlay-toggle${overlayActive}" onclick="window.toggleSidebarOverlayMode()"><i class="ms-Icon ms-Icon--${overlayIcon}"></i></span><span class="icon-btn lock-toggle" onclick="window.toggleBlockLock('${block.title}')"><i class="ms-Icon ms-Icon--Unlock"></i></span><span class="icon-btn" onclick="window.removeBlock('${block.title}')"><i class="ms-Icon ms-Icon--Delete"></i></span></div><div class="option-choices">${optionsHtmlCombined}</div></div>`;
     const highlightedReplacement = `<${containerTag} class="block-container${pinnedClass}" style="${style}" data-inserted="${block.title}" data-placeholder="${block.placeholder}" contenteditable="true"><div class="block-main">${styledInnerHTML}${labelHTML}</div>${controlsHTML}</${containerTag}>`;
 
 
@@ -2663,74 +2645,6 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
     const updatedHtml = span.innerHTML;
     setOriginalBlockContent((prev) => ({ ...prev, [block.title]: updatedHtml }));
     setBodyInternal(bodyEditorRef.current.innerHTML);
-  }
-
-  async function saveCustomSnippet(blockTitle: string, label?: string, sortOrder?: number, isNew?: boolean) {
-    if (!bodyEditorRef.current) return;
-    const span = bodyEditorRef.current.querySelector(
-      `span[data-inserted="${blockTitle}"]`
-    ) as HTMLElement | null;
-    if (!span) return;
-    const main = span.querySelector('.block-main') as HTMLElement | null;
-    if (!main) return;
-    const snippetHtml = main.innerHTML;
-    const firstSnippet = main.querySelector('[data-snippet-id]') as HTMLElement | null;
-    const snippetId = firstSnippet ? parseInt(firstSnippet.getAttribute('data-snippet-id') || '0', 10) : undefined;
-    const block = blocks.find(b => b.title === blockTitle);
-    const blockId = block?.blockId;
-    try {
-      const url = `${getProxyBaseUrl()}/${process.env.REACT_APP_SUBMIT_SNIPPET_EDIT_PATH}?code=${process.env.REACT_APP_SUBMIT_SNIPPET_EDIT_CODE}`;
-      await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          snippetId,
-          proposedContent: snippetHtml,
-          proposedLabel: label,
-          proposedSortOrder: sortOrder,
-          proposedBlockId: blockId,
-          isNew,
-          proposedBy: userInitials
-        })
-      });
-      setSavedSnippets(prev => ({ ...prev, [blockTitle]: snippetHtml }));
-      showToast('Snippet submitted for approval', 'success');
-    } catch (err) {
-      console.error('Failed to save snippet', err);
-      showToast('Submission failed', 'error');
-    }
-  }
-
-  async function submitPlaceholderOption(
-    blockTitle: string,
-    text: string,
-    placeholder?: string,
-    label?: string,
-    sortOrder?: number,
-    isNew?: boolean,
-  ) {
-    try {
-      const url = `${getProxyBaseUrl()}/${process.env.REACT_APP_SUBMIT_SNIPPET_EDIT_PATH}?code=${process.env.REACT_APP_SUBMIT_SNIPPET_EDIT_CODE}`;
-      const block = blocks.find(b => b.title === blockTitle);
-      const blockId = block?.blockId;
-      await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          proposedContent: text,
-          proposedLabel: label,
-          proposedSortOrder: sortOrder,
-          proposedBlockId: blockId,
-          placeholder,
-          isNew,
-          proposedBy: userInitials,
-        }),
-      });
-      showToast('Option submitted', 'success');
-    } catch (err) {
-      console.error('Failed to submit option', err);
-      showToast('Save failed', 'error');
-    }
   }
 
   function removeSnippetOption(block: TemplateBlock, optionLabel: string) {
@@ -4760,7 +4674,6 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
           bodyEditorRef={bodyEditorRef}
           toolbarStyle={toolbarStyle}
           bubblesContainerStyle={bubblesContainerStyle}
-          saveCustomSnippet={saveCustomSnippet}
           markBlockAsEdited={(blockTitle, edited) =>
             setEditedBlocks((prev) => ({ ...prev, [blockTitle]: edited }))
           }
@@ -4997,14 +4910,6 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
             initialText={placeholderEdit.text}
             before={placeholderEdit.before}
             after={placeholderEdit.after}
-            onAddOption={(text) => {
-              setSnippetEdit({
-                blockTitle: placeholderEdit.blockTitle || '',
-                target: placeholderEdit.target,
-                placeholder: placeholderEdit.placeholder,
-              });
-              setPendingOptionText(text);
-            }}
             onDismiss={() => setPlaceholderEdit(null)}
             onSave={(val) => {
               const span = placeholderEdit.span;
@@ -5050,29 +4955,6 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
             }}
           />
         )}
-
-        {snippetEdit && (
-          <SnippetEditPopover
-            target={snippetEdit.target}
-            onDismiss={() => {
-              setSnippetEdit(null);
-              setPendingOptionText('');
-            }}
-            onSave={({ label, sortOrder, isNew }) => {
-              submitPlaceholderOption(
-                snippetEdit.blockTitle,
-                pendingOptionText,
-                snippetEdit.placeholder,
-                label,
-                sortOrder,
-                isNew
-              );
-              setSnippetEdit(null);
-              setPendingOptionText('');
-            }} originalText={''} editedText={''} />
-        )}
-
-
 
         <OperationStatusToast
           visible={toast !== null}

@@ -23,35 +23,19 @@ function raceTimeout(promise, ms, onTimeoutValue) {
   ]);
 }
 
-// Helper: best-effort secret retrieval from multiple sources (ENV, Key Vault, Keys Proxy).
-// Each remote source is bounded so a slow Key Vault / proxy can't stall the request.
+// Helper: best-effort secret retrieval from ENV then Key Vault. Key Vault is bounded so a slow vault can't stall the request.
 async function getSecretFromAnySource(secretName) {
   if (!secretName) return null;
-  // 1) Local env overrides (support both exact and UPPER_SNAKE_CASE without dashes)
   const envExact = process.env[secretName];
   if (envExact && String(envExact).trim()) return String(envExact).trim();
   const envSnake = process.env[secretName.replace(/-/g, '_').toUpperCase()];
   if (envSnake && String(envSnake).trim()) return String(envSnake).trim();
 
-  // 2) Azure Key Vault via shared singleton (5s cap)
   try {
     const sec = await raceTimeout(getClient().getSecret(secretName), 5000, null);
     if (sec?.value) return sec.value;
   } catch (_) {
-    // ignore and try proxy fallback
-  }
-
-  // 3) Keys proxy fallback (5s cap)
-  try {
-    const base = process.env.REACT_APP_PROXY_BASE_URL || 'https://helix-keys-proxy.azurewebsites.net/api';
-    const url = `${base.replace(/\/$/, '')}/keys/${encodeURIComponent(secretName)}`;
-    const resp = await withTimeout((signal) => fetch(url, { signal }), 5000, 'Keys proxy timed out (5s)');
-    if (resp && resp.ok) {
-      const json = await resp.json();
-      if (json && json.value) return json.value;
-    }
-  } catch (_) {
-    // swallow and return null
+    // swallow
   }
 
   return null;

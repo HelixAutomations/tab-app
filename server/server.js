@@ -41,7 +41,6 @@ const syncInstructionClientRouter = require('./routes/sync-instruction-client');
 const getMattersRouter = require('./routes/getMatters');
 const riskAssessmentsRouter = require('./routes/riskAssessments');
 const bundleRouter = require('./routes/bundle');
-const proxyToAzureFunctionsRouter = require('./routes/proxyToAzureFunctions');
 const enquiriesUnifiedRouter = require('./routes/enquiries-unified');
 const updateEnquiryPOCRouter = require('./routes/updateEnquiryPOC');
 const pitchesRouter = require('./routes/pitches');
@@ -263,9 +262,6 @@ app.use('/api/poid', poidRouter);
 app.use('/api/future-bookings', futureBookingsRouter);
 app.use('/api/outstanding-balances', outstandingBalancesRouter);
 app.use('/api/matter-metrics', matterMetricsRouter);
-
-// Proxy routes to Azure Functions
-app.use('/', proxyToAzureFunctionsRouter);
 
 app.get('/api/keys/:name/preview', async (req, res) => {
     try {

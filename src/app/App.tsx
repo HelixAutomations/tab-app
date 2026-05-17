@@ -14,7 +14,6 @@ import { app } from '@microsoft/teams-js';
 import { Matter, UserData, Enquiry, Tab, TeamData, POID, Transaction, BoardroomBooking, SoundproofPodBooking, InstructionData, NormalizedMatter } from './functionality/types';
 import { hasActiveMatterOpening } from './functionality/matterOpeningUtils';
 import { normalizeMatterData } from '../utils/matterNormalization';
-import { getProxyBaseUrl } from '../utils/getProxyBaseUrl';
 import { ADMIN_USERS, isAdminUser, canSeePrivateHubControls, canSeeActivityTab } from './admin';
 import { useCapability } from './useEffectiveCapabilities';
 import { EffectivePermissionsProvider } from './effectivePermissions';
@@ -31,8 +30,6 @@ import actionLog from '../utils/actionLog';
 import { trackClientEvent } from '../utils/telemetry';
 
 const CclDiff = lazy(() => import('../tabs/dev/CclDiff'));
-
-const proxyBaseUrl = getProxyBaseUrl();
 
 /** Retry a dynamic import up to `retries` times with exponential back-off. */
 function retryImport<T>(fn: () => Promise<T>, retries = 2, delay = 1000): Promise<T> {
@@ -1634,52 +1631,6 @@ const App: React.FC<AppProps> = ({
       } catch (err) {
         actionLog.warn('Instructions fetch failed', String(err));
         console.error("❌ Error fetching instruction data from unified endpoint:", err);
-        
-        // Fallback: try the legacy endpoint as backup
-
-        const path = process.env.REACT_APP_GET_INSTRUCTION_DATA_PATH;
-        const code = process.env.REACT_APP_GET_INSTRUCTION_DATA_CODE;
-        if (path && code) {
-          try {
-            const url = `${proxyBaseUrl}/${path}?code=${code}`;
-            const res = await fetch(url);
-            if (res.ok) {
-              const data = await res.json();
-              const all = Array.isArray(data) ? data : [data];
-              
-              // Populate allInstructionData for all users to support Mine/All toggle
-              setAllInstructionData(prev => instructionDataEqual(prev, all) ? prev : all);
-              
-              const filtered = all.reduce<InstructionData[]>((acc, prospect) => {
-                const instructions = (prospect.instructions ?? []).filter(
-                  (inst: any) => inst.HelixContact === targetInitials,
-                );
-                if (instructions.length > 0) {
-                  const refSet = new Set(
-                    instructions.map((i: any) => i.InstructionRef),
-                  );
-                  acc.push({
-                    ...prospect,
-                    instructions,
-                    deals: (prospect.deals ?? []).filter((d: any) =>
-                      refSet.has(d.InstructionRef),
-                    ),
-                  });
-                }
-                return acc;
-              }, []);
-              setInstructionData(filtered);
-              instructionDataFetchedRef.current = true;
-
-            } else {
-              console.error("Failed to fetch instructions from legacy endpoint");
-            }
-          } catch (legacyErr) {
-            console.error("Legacy endpoint error:", legacyErr);
-          }
-        } else {
-          console.error("Missing env variables for legacy instruction data endpoint");
-        }
       }
     }
 

@@ -29,6 +29,12 @@ const runInstructionQuery = createEnvBasedQueryRunner('INSTRUCTIONS_SQL_CONNECTI
   defaultRetries: Number(process.env.SQL_INSTRUCTIONS_MAX_RETRIES || DEFAULT_SQL_RETRIES)
 });
 
+// Legacy POID lives in helix-core-data alongside `enquiries` and `matters`.
+// Used by the Verify ID form to run Tiller checks against pre-Instructions clients.
+const runLegacyQuery = createEnvBasedQueryRunner('SQL_CONNECTION_STRING', {
+  defaultRetries: Number(process.env.SQL_CORE_MAX_RETRIES || DEFAULT_SQL_RETRIES)
+});
+
 /**
  * Convert Helix contact name or initials to email address
  * @param {string} contactName - Contact name or initials (e.g., "Al", "AC", "Alex")
@@ -1077,6 +1083,155 @@ router.get('/adhoc/prefill/:instructionRef', async (req, res) => {
 });
 
 /**
+ * Legacy POID search (helix-core-data `poid` table).
+ * GET /api/verify-id/adhoc/legacy-poid/search?q=<acid|poid_id|email|name>&limit=25
+ *
+ * Used by the Verify ID form when the operator picks the "Legacy POID" dataset.
+ * Returns a minimal list — never logs PII into App Insights.
+ */
+router.get('/adhoc/legacy-poid/search', async (req, res) => {
+  const q = String(req.query.q || '').trim();
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 25, 1), 100);
+
+  trackEvent('Verify.Legacy.Lookup.Started', { operation: 'legacyPoidSearch', qLen: String(q.length), mode: q ? 'search' : 'recent' });
+
+  try {
+    const isNumeric = q && /^\d+$/.test(q);
+    const result = await runLegacyQuery((request, s) => {
+      request.input('lim', s.Int, limit);
+      if (!q) {
+        // Empty query: return the most recent legacy POID rows so the operator can browse.
+        return request.query(`
+          SELECT TOP (@lim)
+            poid_id, acid, first, last, email, submission_date, check_result
+          FROM poid
+          ORDER BY submission_date DESC
+        `);
+      }
+      request.input('q', s.NVarChar, q);
+      request.input('qLike', s.NVarChar, `%${q}%`);
+      return request.query(`
+        SELECT TOP (@lim)
+          poid_id, acid, first, last, email, submission_date, check_result
+        FROM poid
+        WHERE
+          ${isNumeric ? 'CAST(poid_id AS NVARCHAR(32)) = @q OR ' : ''}
+          acid = @q
+          OR email LIKE @qLike
+          OR first LIKE @qLike
+          OR last LIKE @qLike
+          OR (first + ' ' + last) LIKE @qLike
+        ORDER BY submission_date DESC
+      `);
+    });
+
+    const rows = (result.recordset || []).map((r) => ({
+      poidId: r.poid_id ?? null,
+      acid: r.acid || null,
+      first: r.first || '',
+      last: r.last || '',
+      email: r.email || '',
+      submissionDate: r.submission_date
+        ? (r.submission_date instanceof Date ? r.submission_date.toISOString().slice(0, 10) : String(r.submission_date).slice(0, 10))
+        : null,
+      checkResult: r.check_result || null,
+    }));
+
+    trackEvent('Verify.Legacy.Lookup.Completed', { operation: 'legacyPoidSearch', count: String(rows.length) });
+    return res.json({ rows });
+  } catch (error) {
+    const transient = isTransientSqlError(error);
+    trackException(error, { operation: 'legacyPoidSearch', phase: 'queryPoid', entity: 'poid' });
+    trackEvent('Verify.Legacy.Lookup.Failed', { operation: 'legacyPoidSearch', error: error.message });
+    return res.status(transient ? 503 : 500).json({ error: 'Legacy POID search failed', details: error.message, transient });
+  }
+});
+
+/**
+ * Legacy POID prefill — fetch a single row and shape it for the Verify ID form.
+ * GET /api/verify-id/adhoc/legacy-poid/prefill/:identifier
+ *
+ * `identifier` is either the numeric poid_id or the acid string. The response
+ * mirrors the /adhoc/prefill/:instructionRef shape so the form can reuse its
+ * setFormData path.
+ */
+router.get('/adhoc/legacy-poid/prefill/:identifier', async (req, res) => {
+  const identifier = String(req.params.identifier || '').trim();
+  if (!identifier) return res.status(400).json({ error: 'Missing identifier' });
+
+  trackEvent('Verify.Legacy.Prefill.Started', { operation: 'legacyPoidPrefill' });
+
+  try {
+    const isNumeric = /^\d+$/.test(identifier);
+    const result = await runLegacyQuery((request, s) => {
+      request.input('id', s.NVarChar, identifier);
+      return request.query(`
+        SELECT TOP 1
+          poid_id, acid, prefix, first, last, email, best_number,
+          date_of_birth, nationality, passport_number, drivers_license_number,
+          house_building_number, street, city, county, post_code, country,
+          company_name, company_number, check_result, check_id, submission_date
+        FROM poid
+        WHERE ${isNumeric ? 'CAST(poid_id AS NVARCHAR(32)) = @id OR ' : ''} acid = @id
+        ORDER BY submission_date DESC
+      `);
+    });
+
+    if (!result.recordset?.length) {
+      trackEvent('Verify.Legacy.Prefill.NotFound', { operation: 'legacyPoidPrefill' });
+      return res.status(404).json({ error: 'Legacy POID not found' });
+    }
+    const r = result.recordset[0];
+
+    const dobIso = r.date_of_birth
+      ? (r.date_of_birth instanceof Date ? r.date_of_birth.toISOString().slice(0, 10) : String(r.date_of_birth).slice(0, 10))
+      : '';
+    const submissionDateIso = r.submission_date
+      ? (r.submission_date instanceof Date ? r.submission_date.toISOString().slice(0, 10) : String(r.submission_date).slice(0, 10))
+      : null;
+
+    trackEvent('Verify.Legacy.Prefill.Completed', { operation: 'legacyPoidPrefill', hasPassport: r.passport_number ? 'true' : 'false', hasLicence: r.drivers_license_number ? 'true' : 'false' });
+
+    return res.json({
+      source: 'legacy-poid',
+      poidId: r.poid_id ?? null,
+      acid: r.acid || null,
+      submissionDate: submissionDateIso,
+      priorCheck: {
+        result: r.check_result || null,
+        checkId: r.check_id || null,
+      },
+      companyName: r.company_name || '',
+      companyNumber: r.company_number || '',
+      prefill: {
+        title: r.prefix || '',
+        gender: '',
+        firstName: r.first || '',
+        lastName: r.last || '',
+        dob: dobIso,
+        email: r.email || '',
+        phone: r.best_number || '',
+        nationality: r.nationality || '',
+        passportNumber: r.passport_number || '',
+        driversLicenseNumber: r.drivers_license_number || '',
+        houseNumber: r.house_building_number || '',
+        street: r.street || '',
+        city: r.city || '',
+        county: r.county || '',
+        postcode: r.post_code || '',
+        country: r.country || '',
+        countryCode: '',
+      },
+    });
+  } catch (error) {
+    const transient = isTransientSqlError(error);
+    trackException(error, { operation: 'legacyPoidPrefill', phase: 'queryPoid', entity: 'poid' });
+    trackEvent('Verify.Legacy.Prefill.Failed', { operation: 'legacyPoidPrefill', error: error.message });
+    return res.status(transient ? 503 : 500).json({ error: 'Legacy POID prefill failed', details: error.message, transient });
+  }
+});
+
+/**
  * Ad-hoc verification check.
  * POST /api/verify-id/adhoc
  *
@@ -1104,6 +1259,7 @@ router.post('/adhoc', async (req, res) => {
     passportNumber, driversLicenseNumber,
     houseNumber, street, city, county, postcode, country, countryCode,
     externalReferenceId,
+    legacySource, // { acid, poidId } when sourced from legacy POID dataset
   } = body;
 
   const missing = [];
@@ -1122,22 +1278,27 @@ router.post('/adhoc', async (req, res) => {
     return res.status(400).json({ error: 'Missing required fields', missing });
   }
 
-  const ref = externalReferenceId || (instructionRef ? `adhoc-${instructionRef}-${Date.now()}` : `adhoc-${Date.now()}`);
+  const ref = externalReferenceId
+    || (instructionRef ? `adhoc-${instructionRef}-${Date.now()}`
+      : (legacySource && legacySource.acid ? `legacy-poid-${legacySource.acid}-${Date.now()}`
+        : `adhoc-${Date.now()}`));
 
   trackEvent('Verify.Adhoc.Started', {
     operation: 'adhoc', triggeredBy, ref,
     linkedInstruction: instructionRef || '',
+    legacyAcid: (legacySource && legacySource.acid) || '',
   });
 
   // Forms-stream-persistence: every adhoc check now joins the unified rail.
   let submissionId = null;
   try {
+    const legacyTag = legacySource && legacySource.acid ? ` [legacy poid acid:${legacySource.acid}]` : '';
     submissionId = await recordSubmission({
       formKey: 'verification',
       submittedBy: String(triggeredBy || 'UNK').slice(0, 10),
       lane: 'Verification',
       payload: body,
-      summary: `EID: ${firstName} ${lastName}${instructionRef ? ` (${instructionRef})` : ''}`.slice(0, 400),
+      summary: `EID: ${firstName} ${lastName}${instructionRef ? ` (${instructionRef})` : ''}${legacyTag}`.slice(0, 400),
     });
   } catch (logErr) {
     trackException(logErr, { phase: 'verifyAdhoc.recordSubmission' });

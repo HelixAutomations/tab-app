@@ -150,11 +150,9 @@ This application uses a unified API architecture to efficiently serve instructio
 ### Environment Configuration
 - Production data: `REACT_APP_USE_LOCAL_DATA=false` (default)
 - Local test data: `REACT_APP_USE_LOCAL_DATA=true`
-- VNet function authentication via `INSTRUCTIONS_FUNC_CODE` environment variable
 
-### Security: Do NOT expose Function keys in frontend
-- Frontend must not reference `REACT_APP_*_CODE` or call Function URLs with `?code=...`.
-- Always call server routes under `/api/...`; the Express server uses Key Vault or env to call Functions.
+### Security
+- Always call server routes under `/api/...`; the Express server resolves secrets via Key Vault or env.
 - Configure CORS for production via `ALLOWED_ORIGINS` (comma-separated) so only trusted origins are allowed.
 
 Migration plan (summary):

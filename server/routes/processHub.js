@@ -94,9 +94,9 @@ function getTriggeredBy(req) {
 }
 
 function getConnectionString() {
-  // form_submissions now lives on the Helix Operations Platform DB
-  // (helix-operations). Two-stage gate identical to formSubmissionLog so reads
-  // and writes always agree on which database they hit.
+  // Preferred path is the Helix Operations Platform DB. If a staging or legacy
+  // shell is missing the OPS env vars, fall back to SQL_CONNECTION_STRING so
+  // reads and writes still agree with formSubmissionLog.
   //
   // Emergency rollback: FORM_SUBMISSIONS_USE_LEGACY=true forces the rail back
   // onto legacy helix-core-data (via SQL_CONNECTION_STRING).
@@ -106,12 +106,12 @@ function getConnectionString() {
     if (!legacy) throw new Error('Process hub legacy connection string not configured');
     return legacy;
   }
-  if (String(process.env.OPS_PLATFORM_ENABLED || '').toLowerCase() !== 'true') {
-    throw new Error('Process hub: OPS_PLATFORM_ENABLED is not "true"');
+  if (String(process.env.OPS_PLATFORM_ENABLED || '').toLowerCase() === 'true' && process.env.OPS_SQL_CONNECTION_STRING) {
+    return process.env.OPS_SQL_CONNECTION_STRING;
   }
-  const connectionString = process.env.OPS_SQL_CONNECTION_STRING;
+  const connectionString = process.env.SQL_CONNECTION_STRING;
   if (!connectionString) {
-    throw new Error('Process hub: OPS_SQL_CONNECTION_STRING is not configured');
+    throw new Error('Process hub: no form-submission connection string configured');
   }
   return connectionString;
 }
@@ -453,11 +453,15 @@ const RETRIGGER_DISPATCH = Object.create(null);
 
 // B5b: tech-ticket retrigger handlers (re-run Asana create from stored payload).
 const techTickets = require('./techTickets');
+const financialTask = require('./financialTask');
 if (typeof techTickets.retriggerIdea === 'function') {
   RETRIGGER_DISPATCH['tech-idea'] = techTickets.retriggerIdea;
 }
 if (typeof techTickets.retriggerProblem === 'function') {
   RETRIGGER_DISPATCH['tech-problem'] = techTickets.retriggerProblem;
+}
+if (typeof financialTask.retriggerFinancialTask === 'function') {
+  RETRIGGER_DISPATCH['financial-task'] = financialTask.retriggerFinancialTask;
 }
 
 function isAdminInitials(initials) {

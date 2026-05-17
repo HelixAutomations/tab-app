@@ -18,6 +18,49 @@ import '../app/styles/MultiSelect.css';
 
 export const INPUT_HEIGHT = 44;
 
+const FIELD_BORDER = '1px solid var(--home-tile-border)';
+const FIELD_BG = 'var(--surface-card)';
+const FIELD_FG = 'var(--text-primary)';
+const HELP_FG = 'var(--text-muted)';
+const BODY_FG = 'var(--text-body)';
+
+const baseInputStyle: React.CSSProperties = {
+  width: '100%',
+  height: `${INPUT_HEIGHT}px`,
+  border: FIELD_BORDER,
+  borderRadius: 0,
+  padding: '0 12px',
+  boxSizing: 'border-box',
+  backgroundColor: FIELD_BG,
+  color: FIELD_FG,
+  fontSize: '14px',
+  fontFamily: formFont,
+};
+
+const fieldLabelStyle: React.CSSProperties = {
+  display: 'block',
+  fontSize: '12px',
+  fontWeight: 600,
+  letterSpacing: '0.04em',
+  textTransform: 'uppercase',
+  color: 'var(--text-primary)',
+  margin: '4px 0 6px',
+};
+
+const helpTextStyle: React.CSSProperties = {
+  color: HELP_FG,
+  fontSize: '12px',
+  marginTop: '6px',
+  display: 'block',
+  lineHeight: 1.4,
+};
+
+const BespokeFieldLabel: React.FC<{ label: string; required?: boolean }> = ({ label, required }) => (
+  <div style={fieldLabelStyle}>
+    {label}{required ? ' *' : ''}
+  </div>
+);
+
 export const formContainerStyle = mergeStyles({
   marginTop: '10px',
   padding: '1.5rem',
@@ -318,7 +361,7 @@ const MatterReferenceDropdown: React.FC<MatterReferenceDropdownProps> = ({
 
   return (
     <div ref={containerRef} style={{ position: 'relative' }}>
-      <div className="question-banner">{field.label}</div>
+      <BespokeFieldLabel label={field.label} required={field.required} />
       <input
         type="text"
         placeholder="Search by matter number or client name..."
@@ -336,11 +379,12 @@ const MatterReferenceDropdown: React.FC<MatterReferenceDropdownProps> = ({
           height: `${INPUT_HEIGHT}px`,
           lineHeight: `${INPUT_HEIGHT}px`,
           padding: '0 32px 0 12px',
-          border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
+          border: FIELD_BORDER,
           borderRadius: 0,
           fontSize: '14px',
-          backgroundColor: isDarkMode ? 'rgba(0, 3, 25, 0.5)' : '#ffffff',
-          color: isDarkMode ? '#f3f4f6' : '#061733',
+          backgroundColor: FIELD_BG,
+          color: FIELD_FG,
+          fontFamily: formFont,
           boxSizing: 'border-box',
           backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='${isDarkMode ? '%2394a3b8' : '%2364748b'}' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
           backgroundRepeat: 'no-repeat',
@@ -356,12 +400,10 @@ const MatterReferenceDropdown: React.FC<MatterReferenceDropdownProps> = ({
             left: 0,
             right: 0,
             zIndex: 1000,
-            background: isDarkMode ? '#061733' : '#ffffff',
-            border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
+            background: 'var(--surface-section)',
+            border: FIELD_BORDER,
             borderTop: 'none',
-            boxShadow: isDarkMode
-              ? '0 8px 24px rgba(0, 0, 0, 0.4)'
-              : '0 8px 24px rgba(0, 0, 0, 0.12)',
+            boxShadow: 'var(--shadow-overlay, 0 8px 24px rgba(0, 0, 0, 0.4))',
             maxHeight: '280px',
             overflowY: 'auto',
           }}
@@ -373,13 +415,11 @@ const MatterReferenceDropdown: React.FC<MatterReferenceDropdownProps> = ({
               style={{
                 padding: '10px 12px',
                 cursor: 'pointer',
-                borderBottom: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
+                borderBottom: '1px solid var(--home-row-border)',
                 transition: 'background-color 0.1s ease',
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = isDarkMode
-                  ? 'rgba(160, 160, 160, 0.15)'
-                  : 'rgba(0, 0, 0, 0.04)';
+                e.currentTarget.style.backgroundColor = 'var(--home-tile-bg-hover)';
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.backgroundColor = 'transparent';
@@ -389,7 +429,7 @@ const MatterReferenceDropdown: React.FC<MatterReferenceDropdownProps> = ({
               <div style={{
                 fontWeight: 600,
                 fontSize: '14px',
-                color: isDarkMode ? '#f3f4f6' : '#374151',
+                color: FIELD_FG,
                 marginBottom: '2px',
               }}>
                 {opt.displayNumber}
@@ -398,7 +438,7 @@ const MatterReferenceDropdown: React.FC<MatterReferenceDropdownProps> = ({
               {opt.clientName && (
                 <div style={{
                   fontSize: '13px',
-                  color: isDarkMode ? '#A0A0A0' : '#6B6B6B',
+                  color: BODY_FG,
                 }}>
                   {opt.clientName}
                 </div>
@@ -407,7 +447,7 @@ const MatterReferenceDropdown: React.FC<MatterReferenceDropdownProps> = ({
               {opt.description && (
                 <div style={{
                   fontSize: '12px',
-                  color: isDarkMode ? '#6B6B6B' : '#A0A0A0',
+                  color: HELP_FG,
                   marginTop: '2px',
                 }}>
                   {opt.description.length > 60 ? opt.description.substring(0, 60) + '...' : opt.description}
@@ -584,10 +624,7 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
             }
 
             const questionBanner = (
-              <div className="question-banner">
-                {field.label}
-                {field.required ? ' *' : ''}
-              </div>
+              <BespokeFieldLabel label={field.label} required={field.required} />
             );
 
             switch (field.type) {
@@ -637,11 +674,11 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'space-between',
-                        padding: '10px 12px',
-                        background: isChecked 
-                          ? (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)')
-                          : (isDarkMode ? 'rgba(6, 23, 51, 0.6)' : 'rgba(0, 0, 0, 0.02)'),
-                        border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.15)' : 'rgba(0, 0, 0, 0.1)'}`,
+                        padding: '12px 14px',
+                        background: isChecked
+                          ? 'rgba(54, 144, 206, 0.10)'
+                          : 'var(--home-tile-bg)',
+                        border: FIELD_BORDER,
                         cursor: isSubmitting ? 'not-allowed' : 'pointer',
                         transition: '0.15s',
                         opacity: isSubmitting ? 0.6 : 1,
@@ -649,12 +686,10 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                       onClick={() => !isSubmitting && handleInputChange(field.name, !isChecked)}
                     >
                       <div>
-                        <div style={{ 
-                          fontSize: '13px', 
-                          fontWeight: 500, 
-                          color: isChecked 
-                            ? (isDarkMode ? colours.highlight : colours.highlight)
-                            : (isDarkMode ? '#f3f4f6' : '#374151'),
+                        <div style={{
+                          fontSize: '13px',
+                          fontWeight: 500,
+                          color: isChecked ? colours.highlight : FIELD_FG,
                           display: 'flex',
                           alignItems: 'center',
                           gap: '6px',
@@ -667,14 +702,15 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                               color: '#ffffff',
                               padding: '1px 5px',
                               fontWeight: 700,
+                              letterSpacing: '0.04em',
                             }}>YES</span>
                           )}
                         </div>
                         {field.helpText && (
-                          <div style={{ 
-                            fontSize: '10px', 
-                            color: isDarkMode ? '#A0A0A0' : '#6B6B6B', 
-                            marginTop: '2px' 
+                          <div style={{
+                            fontSize: '11px',
+                            color: HELP_FG,
+                            marginTop: '3px',
                           }}>
                             {field.helpText}
                           </div>
@@ -684,7 +720,7 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                         style={{
                           width: '40px',
                           height: '20px',
-                          background: isChecked ? colours.highlight : (isDarkMode ? '#6B6B6B' : '#d1d5db'),
+                          background: isChecked ? colours.highlight : 'var(--home-tile-border-hover)',
                           position: 'relative',
                           transition: '0.2s',
                           flexShrink: 0,
@@ -725,25 +761,19 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                       style={{
                         width: '100%',
                         minHeight: '80px',
-                        border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
+                        border: FIELD_BORDER,
                         borderRadius: 0,
                         padding: '10px 12px',
                         boxSizing: 'border-box',
-                        backgroundColor: isDarkMode ? 'rgba(0, 3, 25, 0.5)' : '#ffffff',
-                        color: isDarkMode ? '#f3f4f6' : '#061733',
+                        backgroundColor: FIELD_BG,
+                        color: FIELD_FG,
                         fontSize: '14px',
                         fontFamily: formFont,
+                        lineHeight: 1.5,
                       }}
                     />
                     {field.helpText && (
-                      <span
-                        style={{
-                          color: colours.greyText,
-                          fontSize: '12px',
-                          marginTop: '4px',
-                          display: 'block',
-                        }}
-                      >
+                      <span style={helpTextStyle}>
                         {field.helpText}
                       </span>
                     )}
@@ -765,28 +795,10 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                       min={field.min}
                       max={field.max}
                       placeholder={field.placeholder}
-                      style={{
-                        width: '100%',
-                        height: `${INPUT_HEIGHT}px`,
-                        border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
-                        borderRadius: 0,
-                        padding: '0 12px',
-                        boxSizing: 'border-box',
-                        backgroundColor: isDarkMode ? 'rgba(0, 3, 25, 0.5)' : '#ffffff',
-                        color: isDarkMode ? '#f3f4f6' : '#061733',
-                        fontSize: '14px',
-                        fontFamily: formFont,
-                      }}
+                      style={baseInputStyle}
                     />
                     {field.helpText && (
-                      <span
-                        style={{
-                          color: colours.greyText,
-                          fontSize: '12px',
-                          marginTop: '4px',
-                          display: 'block',
-                        }}
-                      >
+                      <span style={helpTextStyle}>
                         {field.helpText}
                       </span>
                     )}
@@ -812,18 +824,9 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                           min={field.min}
                           max={field.max}
                           style={{
-                            width: '100%',
+                            ...baseInputStyle,
                             height: '100%',
-                            border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
-                            borderTopRightRadius: 0,
-                            borderBottomRightRadius: 0,
                             borderLeft: 'none',
-                            padding: '0 12px',
-                            boxSizing: 'border-box',
-                            backgroundColor: isDarkMode ? 'rgba(0, 3, 25, 0.5)' : '#ffffff',
-                            color: isDarkMode ? '#f3f4f6' : '#061733',
-                            fontSize: '14px',
-                            fontFamily: formFont,
                           }}
                         />
                       </div>
@@ -837,29 +840,11 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                         step={field.step}
                         min={field.min}
                         max={field.max}
-                        style={{
-                          width: '100%',
-                          height: `${INPUT_HEIGHT}px`,
-                          border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
-                          borderRadius: 0,
-                          padding: '0 12px',
-                          boxSizing: 'border-box',
-                          backgroundColor: isDarkMode ? 'rgba(0, 3, 25, 0.5)' : '#ffffff',
-                          color: isDarkMode ? '#f3f4f6' : '#061733',
-                          fontSize: '14px',
-                          fontFamily: formFont,
-                        }}
+                        style={baseInputStyle}
                       />
                     )}
                     {field.helpText && (
-                      <span
-                        style={{
-                          color: colours.greyText,
-                          fontSize: '12px',
-                          marginTop: '4px',
-                          display: 'block',
-                        }}
-                      >
+                      <span style={helpTextStyle}>
                         {field.helpText}
                       </span>
                     )}
@@ -873,16 +858,6 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                 return (
                   <div key={index}>
                     {questionBanner}
-                    <PrimaryButton
-                      text="Upload File"
-                      iconProps={{ iconName: 'Upload' }}
-                      onClick={() => {
-                        const fileInput = document.getElementById(fileInputId) as HTMLInputElement | null;
-                        fileInput?.click();
-                      }}
-                      styles={getFormPrimaryButtonStyles(isDarkMode)}
-                      disabled={isSubmitting}
-                    />
                     <input
                       id={fileInputId}
                       type="file"
@@ -895,7 +870,7 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                       }
                       style={{ display: 'none' }}
                     />
-                    {/* Drag-and-drop zone */}
+                    {/* Drag-and-drop zone (also acts as click target) */}
                     <div
                       role="button"
                       tabIndex={0}
@@ -932,63 +907,36 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                         }
                       }}
                       style={{
-                        marginTop: 8,
-                        padding: '16px',
-                        minHeight: 90,
-                        border: `2px dashed ${isDragging ? colours.highlight : (isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(0, 0, 0, 0.1)')}`,
+                        padding: '20px',
+                        minHeight: 100,
+                        border: `1px dashed ${isDragging ? colours.highlight : 'var(--home-tile-border)'}`,
                         borderRadius: 0,
-                        background: isDarkMode 
-                          ? 'rgba(0, 3, 25, 0.5)'
-                          : '#ffffff',
+                        background: isDragging
+                          ? 'rgba(54, 144, 206, 0.06)'
+                          : 'var(--home-tile-bg)',
                         cursor: 'pointer',
-                        transition: 'all 0.2s ease',
-                        boxShadow: isDragging 
-                          ? (isDarkMode ? '0 4px 12px rgba(54, 144, 206, 0.2)' : '0 4px 12px rgba(54, 144, 206, 0.15)')
-                          : 'none',
-                        color: isDarkMode ? '#A0A0A0' : '#6B6B6B',
+                        transition: 'all 0.15s ease',
+                        color: BODY_FG,
                         display: 'flex',
+                        flexDirection: 'column',
                         alignItems: 'center',
                         justifyContent: 'center',
                         textAlign: 'center',
                         fontSize: 13,
                         fontWeight: 500,
                         userSelect: 'none',
-                        transform: isDragging ? 'scale(1.01)' : 'scale(1)',
+                        gap: '4px',
                       }}
                     >
-                      Drag & drop a file here, or click to select
+                      <span>{fileValue?.fileName ? 'Replace file' : 'Drag a file here, or click to select'}</span>
+                      {fileValue?.fileName && (
+                        <span style={{ fontSize: '12px', color: HELP_FG }}>
+                          Selected: {fileValue.fileName}
+                        </span>
+                      )}
                     </div>
-                    {fileValue?.fileName && (
-                      <span
-                        style={{
-                          marginTop: '10px',
-                          display: 'block',
-                          fontSize: '14px',
-                          color: isDarkMode ? colours.dark.text : colours.light.text,
-                        }}
-                      >
-                        Selected File: {fileValue.fileName}
-                      </span>
-                    )}
-                    <span
-                      style={{
-                        color: colours.greyText,
-                        fontSize: '12px',
-                        marginTop: '10px',
-                        display: 'block',
-                      }}
-                    >
-                      You can also drag a file into the drop zone above.
-                    </span>
                     {field.helpText && (
-                      <span
-                        style={{
-                          color: colours.greyText,
-                          fontSize: '12px',
-                          display: 'block',
-                          marginTop: '5px',
-                        }}
-                      >
+                      <span style={helpTextStyle}>
                         {field.helpText}
                       </span>
                     )}

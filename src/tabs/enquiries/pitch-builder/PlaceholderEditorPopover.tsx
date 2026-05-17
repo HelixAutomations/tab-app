@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { TextField } from '@fluentui/react/lib/TextField';
-import { PrimaryButton, DefaultButton } from '@fluentui/react/lib/Button';
+import { PrimaryButton } from '@fluentui/react/lib/Button';
 import { Stack } from '@fluentui/react/lib/Stack';
 import PopoverContainer from '../../../components/PopoverContainer';
 import '../../../app/styles/PlaceholderEditorPopover.css';
@@ -10,8 +10,6 @@ type PlaceholderEditorPopoverProps = {
     initialText: string;
     before: string;
     after: string;
-    /** Callback when the user wants to save this text as an option */
-    onAddOption: (text: string) => void;
     onSave: (text: string) => void;
     onDismiss: () => void;
 };
@@ -20,9 +18,7 @@ const PlaceholderEditorPopover: React.FC<PlaceholderEditorPopoverProps> = ({
     target,
     initialText,
     before,
-// invisible change
     after,
-    onAddOption,
     onSave,
     onDismiss,
 }) => {
@@ -61,11 +57,7 @@ const PlaceholderEditorPopover: React.FC<PlaceholderEditorPopoverProps> = ({
                 }}
             />
             <span className="placeholder-context">{after}</span>
-            <Stack horizontal horizontalAlign="space-between">
-                <DefaultButton
-                    text="Add Option"
-                    onClick={() => onAddOption(value)}
-                />
+            <Stack horizontal horizontalAlign="end">
                 <PrimaryButton
                     text="Save"
                     styles={{

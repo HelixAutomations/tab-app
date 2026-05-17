@@ -20,6 +20,29 @@ import type {
   ReadinessPayload,
 } from './readiness.types';
 
+const READINESS_SIMULATION_STORAGE_KEY = 'helix:reporting:managementBlockerSimulation';
+export const READINESS_SIMULATION_CHANGED_EVENT = 'helix:reporting-readiness-simulation-changed';
+let simulationControlInitials: string | null = null;
+
+export interface SimulatedManagementBlockerOptions {
+  checkId?: ReadinessCheckId;
+  message?: string;
+  reason?: string;
+  retryAfterSeconds?: number;
+}
+
+interface ReportingSimulationApi {
+  simulateManagementBlocker: (options?: SimulatedManagementBlockerOptions) => ReadinessPayload | null;
+  clearManagementBlockerSimulation: () => void;
+}
+
+declare global {
+  interface Window {
+    helixReporting?: ReportingSimulationApi;
+    __helix__?: Record<string, unknown>;
+  }
+}
+
 export type TrustState =
   /** No readiness check exists for this source (today's behaviour). */
   | 'unsupported'
@@ -47,6 +70,7 @@ export type TrustState =
  */
 export const REPORT_SOURCE_TRUST_MANIFEST: Record<string, Partial<Record<string, ReadinessCheckId>>> = {
   dashboard: {
+    wip: 'wipWtd',
     recoveredFees: 'collectedMtd',
   },
 };
@@ -54,6 +78,180 @@ export const REPORT_SOURCE_TRUST_MANIFEST: Record<string, Partial<Record<string,
 export const MANAGEMENT_PRESSURE_TEST_CHECK_IDS: ReadonlyArray<ReadinessCheckId> = Object.values(
   REPORT_SOURCE_TRUST_MANIFEST.dashboard,
 ).filter((checkId): checkId is ReadinessCheckId => Boolean(checkId));
+
+const isLukeInitials = (initials?: string | null): boolean => (
+  typeof initials === 'string' && initials.trim().toUpperCase() === 'LZ'
+);
+
+const getCurrentInitials = (): string => {
+  if (typeof window === 'undefined') return '';
+  try {
+    return window.localStorage.getItem('__currentUserInitials')?.trim().toUpperCase() || '';
+  } catch {
+    return '';
+  }
+};
+
+const canUseManagementBlockerSimulation = (initials?: string | null): boolean => (
+  isLukeInitials(initials) || isLukeInitials(simulationControlInitials) || getCurrentInitials() === 'LZ'
+);
+
+const readSimulationOptions = (): SimulatedManagementBlockerOptions | null => {
+  if (typeof window === 'undefined' || !canUseManagementBlockerSimulation()) return null;
+  try {
+    const raw = window.localStorage.getItem(READINESS_SIMULATION_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as SimulatedManagementBlockerOptions;
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+};
+
+const notifySimulationChanged = (): void => {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(READINESS_SIMULATION_CHANGED_EVENT));
+};
+
+const simulatedCheckLabel = (checkId: ReadinessCheckId): string => {
+  switch (checkId) {
+    case 'wipWtd': return 'WIP WTD parity';
+    case 'collectedMtd': return 'Collected MTD parity';
+    default: return 'Management readiness';
+  }
+};
+
+const defaultSimulationMessage = (checkId: ReadinessCheckId): string => {
+  switch (checkId) {
+    case 'wipWtd': return 'WIP parity check is paused after a source limit. Retry once the source window clears.';
+    case 'collectedMtd': return 'Collected fees parity needs a fresh source check before the dashboard opens.';
+    default: return 'A reporting source check needs attention before the dashboard opens.';
+  }
+};
+
+const buildSimulatedCheck = (options: SimulatedManagementBlockerOptions): ReadinessCheck => {
+  const checkId = options.checkId || 'wipWtd';
+  return {
+    id: checkId,
+    label: simulatedCheckLabel(checkId),
+    status: 'blocked',
+    blocking: true,
+    ageSeconds: 0,
+    lastGoodAt: null,
+    source: 'inferred',
+    measured: {
+      simulated: 'true',
+      retryAfterSeconds: typeof options.retryAfterSeconds === 'number' ? options.retryAfterSeconds : 60,
+    },
+    threshold: null,
+    reason: options.reason || 'simulated-blocker',
+    message: options.message || defaultSimulationMessage(checkId),
+    remediation: 'retry',
+  };
+};
+
+export function getReadinessRetryHint(check: ReadinessCheck | null | undefined): string | null {
+  if (!check) return null;
+  const measuredRetry = Number(check.measured?.retryAfterSeconds ?? check.measured?.retryInSeconds ?? check.measured?.retrySeconds);
+  if (Number.isFinite(measuredRetry) && measuredRetry > 0) {
+    if (measuredRetry < 90) return `Retry in about ${Math.round(measuredRetry)}s`;
+    return `Retry in about ${Math.ceil(measuredRetry / 60)}m`;
+  }
+  const retryMatch = typeof check.message === 'string'
+    ? check.message.match(/retry\s+in\s+(\d+)\s+seconds?/i)
+    : null;
+  if (retryMatch) {
+    const seconds = Number(retryMatch[1]);
+    if (Number.isFinite(seconds) && seconds > 0) {
+      return seconds < 90 ? `Retry in about ${seconds}s` : `Retry in about ${Math.ceil(seconds / 60)}m`;
+    }
+  }
+  return null;
+}
+
+export function formatReadinessBlockerDetail(check: ReadinessCheck | null | undefined): string | null {
+  if (!check) return null;
+  const reason = check.message || check.label || 'A reporting source check needs attention.';
+  const retryHint = getReadinessRetryHint(check);
+  const alreadyHasRetryWindow = /retry\s+in\s+\d+\s+seconds?/i.test(reason);
+  return retryHint && !alreadyHasRetryWindow ? `${reason} ${retryHint}.` : reason;
+}
+
+export function applyReadinessSimulation(payload: ReadinessPayload | null): ReadinessPayload | null {
+  const options = readSimulationOptions();
+  if (!options) return payload;
+  const simulatedCheck = buildSimulatedCheck(options);
+  const base = payload ?? {
+    generatedAt: new Date().toISOString(),
+    overall: 'ready' as const,
+    buildMs: 0,
+    fromCache: false,
+    checks: [],
+  };
+  const checks = base.checks.filter((check) => check.id !== simulatedCheck.id);
+  return {
+    ...base,
+    generatedAt: new Date().toISOString(),
+    overall: 'blocked',
+    fromCache: false,
+    checks: [simulatedCheck, ...checks],
+  };
+}
+
+export function simulateManagementBlocker(options: SimulatedManagementBlockerOptions = {}): ReadinessPayload | null {
+  if (typeof window === 'undefined' || !canUseManagementBlockerSimulation()) return null;
+  const safeOptions: SimulatedManagementBlockerOptions = {
+    checkId: options.checkId || 'wipWtd',
+    message: options.message,
+    reason: options.reason,
+    retryAfterSeconds: typeof options.retryAfterSeconds === 'number' ? options.retryAfterSeconds : 60,
+  };
+  try {
+    window.localStorage.setItem(READINESS_SIMULATION_STORAGE_KEY, JSON.stringify(safeOptions));
+  } catch {
+    return null;
+  }
+  notifySimulationChanged();
+  return applyReadinessSimulation(sharedState.payload);
+}
+
+export function clearManagementBlockerSimulation(): void {
+  if (typeof window === 'undefined' || !canUseManagementBlockerSimulation()) return;
+  try {
+    window.localStorage.removeItem(READINESS_SIMULATION_STORAGE_KEY);
+  } catch {
+    return;
+  }
+  notifySimulationChanged();
+}
+
+export function registerManagementBlockerSimulationControls(initials?: string | null): () => void {
+  if (typeof window === 'undefined' || !canUseManagementBlockerSimulation(initials)) return () => undefined;
+  simulationControlInitials = initials || null;
+  const api: ReportingSimulationApi = {
+    simulateManagementBlocker,
+    clearManagementBlockerSimulation,
+  };
+  window.helixReporting = api;
+  if (window.__helix__) {
+    window.__helix__.simulateManagementBlocker = simulateManagementBlocker;
+    window.__helix__.clearManagementBlockerSimulation = clearManagementBlockerSimulation;
+  }
+  return () => {
+    if (window.helixReporting === api) {
+      delete window.helixReporting;
+    }
+    if (window.__helix__?.simulateManagementBlocker === simulateManagementBlocker) {
+      delete window.__helix__.simulateManagementBlocker;
+    }
+    if (window.__helix__?.clearManagementBlockerSimulation === clearManagementBlockerSimulation) {
+      delete window.__helix__.clearManagementBlockerSimulation;
+    }
+    if (simulationControlInitials === initials) {
+      simulationControlInitials = null;
+    }
+  };
+}
 
 /**
  * Resolve the readiness check that backs a (report, dataset) pair, or null
@@ -151,7 +349,7 @@ async function fetchSharedReadiness(force = false): Promise<void> {
       credentials: 'include',
     });
     if (!res.ok) throw new Error(`Readiness check failed (${res.status})`);
-    const payload = (await res.json()) as ReadinessPayload;
+    const payload = applyReadinessSimulation((await res.json()) as ReadinessPayload);
     sharedState = { payload, loading: false, error: null };
     lastFetchAt = Date.now();
     notify();
@@ -202,8 +400,16 @@ export function useReportingReadiness(enabled: boolean = true): {
       }, POLL_INTERVAL_MS);
     }
 
+    const handleSimulationChanged = () => { void fetchSharedReadiness(true); };
+    if (typeof window !== 'undefined') {
+      window.addEventListener(READINESS_SIMULATION_CHANGED_EVENT, handleSimulationChanged);
+    }
+
     return () => {
       subscribers.delete(sub);
+      if (typeof window !== 'undefined') {
+        window.removeEventListener(READINESS_SIMULATION_CHANGED_EVENT, handleSimulationChanged);
+      }
       // Tear down the poller when the last consumer unmounts to avoid
       // background fetches on tabs the user has navigated away from.
       if (subscribers.size === 0 && pollTimer !== null && typeof window !== 'undefined') {

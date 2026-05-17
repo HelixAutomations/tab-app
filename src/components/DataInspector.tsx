@@ -20,7 +20,6 @@ import {
   clearCallLogs,
   getCallLogs,
 } from '../utils/callLogger';
-import { getProxyBaseUrl } from '../utils/getProxyBaseUrl';
 
 interface DataInspectorProps {
   data: unknown;
@@ -235,7 +234,6 @@ const DataInspector: React.FC<DataInspectorProps> = ({ data, onClose, mode = 'mo
     },
     configuration: {
       useLocalData: process.env.REACT_APP_USE_LOCAL_DATA,
-      proxyBaseUrl: getProxyBaseUrl(),
       nodeEnv: process.env.NODE_ENV,
     },
   }), []);

@@ -6,11 +6,6 @@
  * are same-origin in staging + production and the dev CRA proxy
  * (`src/setupProxy.js`) handles localhost.
  *
- * Do NOT use this for the legacy Azure Functions hosted behind
- * `helix-keys-proxy.azurewebsites.net` (snippet edits, getInstructionData,
- * updateTransactions, MattersReport endpoints, updateAnnualLeave). Those
- * still resolve via `getProxyBaseUrl()` until they are migrated to Express.
- *
  * @example
  *   const url = getApiUrl(`/api/claimEnquiry`);             // → /api/claimEnquiry on dev, https://app.helix-law.../api/claimEnquiry in prod
  *   const url = getApiUrl(`/api/dubberCalls/${id}/transcript`);
@@ -43,14 +38,9 @@ export function getApiUrl(path: string, loc?: LocationLike): string {
 /**
  * `getApiBase()` — same-origin API base (no path).
  *
- * Use when existing code already builds the path inline as `${base}/api/foo`
- * and you just want to swap the base off the legacy `helix-keys-proxy` hop.
+ * Use when existing code already builds the path inline as `${base}/api/foo`.
  * Returns `''` (empty string → relative URL) on localhost so the CRA dev proxy
  * still handles it, and `window.location.origin` in staging/prod.
- *
- * Same migration boundary as `getApiUrl` — do NOT use for legacy Azure Function
- * routes (snippet edits, updateTransactions, MattersReport endpoints,
- * updateAnnualLeave, getInstructionData) until those are ported to Express.
  *
  * The optional `loc` argument exists only to keep the helper test-friendly
  * without monkey-patching jsdom's read-only `window.location`. Production

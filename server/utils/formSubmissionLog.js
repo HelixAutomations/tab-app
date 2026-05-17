@@ -29,16 +29,11 @@ const { withRequest } = require('./db');
 const { trackEvent, trackException } = require('./appInsights');
 
 /**
- * Resolve the Helix Operations Platform DB connection string at call time.
+ * Resolve the form-submission DB connection string at call time.
  *
- * Two-stage gate (mirrors aiProposalLog):
- *   1. OPS_PLATFORM_ENABLED must be 'true' (repo-level kill switch).
- *   2. OPS_SQL_CONNECTION_STRING must be set.
- *
- * Emergency rollback path: setting FORM_SUBMISSIONS_USE_LEGACY=true forces
- * the helper back onto legacy helix-core-data via SQL_CONNECTION_STRING. Use
- * only if the ops DB is degraded — leaves new rows on the legacy table that
- * will need a second backfill once the ops DB recovers.
+ * Preferred path is the Helix Operations Platform DB. If a staging or legacy
+ * shell has not been given the OPS env vars yet, fall back to SQL_CONNECTION_STRING
+ * so form submissions still land in the process rail instead of disappearing.
  *
  * Resolved per-call (not at module-load) because Key Vault resolution in
  * server/index.js completes after some utils are required.
@@ -47,10 +42,10 @@ function getConnStr() {
   if (String(process.env.FORM_SUBMISSIONS_USE_LEGACY || '').toLowerCase() === 'true') {
     return process.env.SQL_CONNECTION_STRING || null;
   }
-  if (String(process.env.OPS_PLATFORM_ENABLED || '').toLowerCase() !== 'true') {
-    return null;
+  if (String(process.env.OPS_PLATFORM_ENABLED || '').toLowerCase() === 'true' && process.env.OPS_SQL_CONNECTION_STRING) {
+    return process.env.OPS_SQL_CONNECTION_STRING;
   }
-  return process.env.OPS_SQL_CONNECTION_STRING || null;
+  return process.env.SQL_CONNECTION_STRING || null;
 }
 
 /**
@@ -212,6 +207,35 @@ async function markComplete(submissionId, { lastEvent = 'complete' } = {}) {
 }
 
 /**
+ * Mark a submission as landed but requiring a person to resolve a partial
+ * side-effect failure, for example an attachment that could not be attached.
+ *
+ * @param {string|null} submissionId
+ * @param {object} [opts]
+ * @param {string} [opts.lastEvent]
+ */
+async function markAwaitingHuman(submissionId, { lastEvent = 'awaiting human' } = {}) {
+  const connStr = getConnStr();
+  if (!submissionId || !connStr) return;
+  try {
+    await withRequest(connStr, async (request, sql) => {
+      request.input('id', sql.UniqueIdentifier, submissionId);
+      request.input('last_event', sql.NVarChar(200), lastEvent);
+      await request.query(`
+        UPDATE dbo.form_submissions
+        SET processing_status = 'awaiting_human',
+            last_event = @last_event,
+            last_event_at = SYSUTCDATETIME()
+        WHERE id = @id;
+      `);
+    });
+    trackEvent('FormSubmission.AwaitingHuman', { submissionId, lastEvent });
+  } catch (err) {
+    trackException(err, { phase: 'markAwaitingHuman', submissionId });
+  }
+}
+
+/**
  * Mark a submission as failed.
  *
  * @param {string|null} submissionId
@@ -336,6 +360,7 @@ async function archiveSubmission(submissionId) {
 module.exports = {
   recordSubmission,
   recordStep,
+  markAwaitingHuman,
   markComplete,
   markFailed,
   loadSubmission,

@@ -17,13 +17,11 @@ Consolidates: Instruction-data-handbook, instruction-scenarios, local-instructio
 `GET /api/instructions?includeAll=true`
 
 ### Server flow
-- Express route proxies to VNet function with `INSTRUCTIONS_FUNC_CODE`.
-- VNet function queries production SQL within VNet access.
+- Express route queries the Instructions SQL pool directly using the connection string in Key Vault.
 
-## VNet requirements (summary)
+## Database access
 
-- Production SQL is only accessible from VNet resources.
-- Local dev must use VNet functions for production data.
+- Instructions SQL is reached via `INSTRUCTIONS_SQL_CONNECTION_STRING` (resolved from Key Vault in staging/prod, `.env` locally).
 
 ## Data shape (summary)
 

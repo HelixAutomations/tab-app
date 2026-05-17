@@ -272,6 +272,14 @@ async function warmupConnections() {
             { path: '/api/ops-queue/ccl-dates-pending', method: 'GET', label: 'CCL Dates' },
             { path: '/api/ops-queue/transactions-pending?range=mtd', method: 'GET', label: 'Transactions' },
             { path: '/api/ops-queue/asana-account-tasks?initials=KW', method: 'GET', label: 'Asana Tasks' },
+            { path: '/api/enquiries-unified/', method: 'GET', label: 'Enquiries Unified' },
+            { path: '/api/home-journey/?initials=KW', method: 'GET', label: 'Home Journey' },
+            { path: '/api/reporting/management-datasets?datasets=recoveredFeesSummary&firm=true', method: 'GET', label: 'Collected (firm)' },
+            { path: '/api/outstanding-balances/', method: 'GET', label: 'Outstanding Balances' },
+            { path: '/api/doc-workspace/pending-actions', method: 'GET', label: 'Doc Workspace Pending' },
+            { path: '/api/documents/pending-transfers', method: 'GET', label: 'Pending Transfers' },
+            { path: '/api/future-bookings', method: 'GET', label: 'Future Bookings' },
+            { path: '/api/todo?scope=all', method: 'GET', label: 'Todo (all)' },
         ];
         for (const ep of tier1) warmup(ep);
 
@@ -399,7 +407,6 @@ const teamLookupRouter = require('./routes/team-lookup');
 const teamDataRouter = require('./routes/teamData');
 const userDataRouter = require('./routes/userData');
 const pitchTeamRouter = require('./routes/pitchTeam');
-const proxyToAzureFunctionsRouter = require('./routes/proxyToAzureFunctions');
 const fileMapRouter = require('./routes/fileMap');
 const paymentLinkRouter = require('./routes/paymentLink');
 const stripeWebhookRouter = require('./routes/stripeWebhook');
@@ -928,9 +935,6 @@ app.get('/api/update-deal', async (req, res) => {
 });
 
 // Route registration logs removed to reduce startup noise
-
-// Proxy routes to Azure Functions - these handle requests without /api/ prefix
-app.use('/', proxyToAzureFunctionsRouter);
 
 // API routes should come BEFORE static file serving and catch-all route
 // This ensures API requests don't get caught by the catch-all route

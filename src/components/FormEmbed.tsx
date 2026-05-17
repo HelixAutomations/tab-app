@@ -38,6 +38,7 @@ const FormEmbed: React.FC<FormEmbedProps> = ({ link, userData, teamData, matters
         formKey,
         isSubmitting,
         submissionSuccess,
+        submissionMessageType,
         setSubmissionSuccess,
         handleFinancialSubmit,
     } = useFinancialFormSubmit({
@@ -49,7 +50,7 @@ const FormEmbed: React.FC<FormEmbedProps> = ({ link, userData, teamData, matters
         <div style={{ padding: '10px 0' }}>
             {submissionSuccess && (
                 <MessageBar
-                    messageBarType={MessageBarType.success}
+                    messageBarType={submissionMessageType === 'warning' ? MessageBarType.warning : MessageBarType.success}
                     isMultiline={false}
                     onDismiss={() => setSubmissionSuccess(null)}
                     dismissButtonAriaLabel="Close"

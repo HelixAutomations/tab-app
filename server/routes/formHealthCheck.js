@@ -38,14 +38,7 @@ async function verifyMountedEndpoint(url, options = {}) {
 }
 
 function getNotableCaseInfoUrl(baseUrl) {
-  const path = (process.env.REACT_APP_INSERT_NOTABLE_CASE_INFO_PATH || '').replace(/^\/+/, '');
-  const code = process.env.REACT_APP_INSERT_NOTABLE_CASE_INFO_CODE;
-
-  if (!path || !code) {
-    throw new Error('Notable case info route is not configured');
-  }
-
-  return `${baseUrl}/${path}?code=${code}`;
+  return `${baseUrl}/api/notable-case-info`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

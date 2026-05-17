@@ -49,7 +49,6 @@ import { dashboardTokens, cardTokens, cardStyles } from '../instructions/compone
 import { componentTokens } from '../../app/styles/componentTokens';
 // ThemedSpinner removed — skeleton fallbacks used instead
 import { ModalSkeleton } from '../../components/ModalSkeleton';
-import { getProxyBaseUrl } from '../../utils/getProxyBaseUrl';
 import OperationStatusToast from '../enquiries/pitch-builder/OperationStatusToast';
 import ReleaseNotesModal from '../../components/ReleaseNotesModal';
 import OpenAnotherMatterModal from '../instructions/MatterOpening/OpenAnotherMatterModal';
@@ -111,7 +110,6 @@ import UnclaimedEnquiries from '../enquiries/UnclaimedEnquiries';
 import RegistersWorkspace from '../resources/registers/RegistersWorkspace';
 
 const HOME_BOOT_MONITOR_LOG_KEY = '__helix_home_boot_monitor_log_v1';
-const proxyBaseUrl = getProxyBaseUrl();
 
 function appendHomeBootMonitorEvent(source: string, status: string, timestamp: number): void {
   if (typeof window === 'undefined') return;
@@ -139,7 +137,6 @@ const TelephoneAttendance = lazy(() => import('../../CustomForms/TelephoneAttend
 const AnnualLeaveApprovals = lazy(() => import('../../CustomForms/AnnualLeaveApprovals').then(m => ({ default: m.default || m })));
 const AnnualLeaveBookings = lazy(() => import('../../CustomForms/AnnualLeaveBookings').then(m => ({ default: m.default || m })));
 const BookSpaceForm = lazy(() => import('../../CustomForms/BookSpaceForm').then(m => ({ default: m.default || m })));
-const SnippetEditsApproval = lazy(() => import('../../CustomForms/SnippetEditsApproval'));
 const VerificationCheckForm = lazy(() => import('../../CustomForms/VerificationCheckForm'));
 const LearningDevelopmentForm = lazy(() => import('../../CustomForms/LearningDevelopmentForm'));
 const OutstandingBalancesList = lazy(() => import('../transactions/OutstandingBalancesList'));
@@ -183,35 +180,6 @@ interface AnnualLeaveRecord {
   requested_at?: string;
   approved_at?: string;
   booked_at?: string;
-}
-
-export interface SnippetEdit {
-  id: number;
-  snippetId: number;
-  blockTitle: string;
-  currentText: string;
-  currentLabel?: string;
-  currentSortOrder?: number;
-  currentBlockId?: number;
-  currentCreatedBy?: string;
-  currentCreatedAt?: string;
-  currentUpdatedBy?: string;
-  currentUpdatedAt?: string;
-  currentApprovedBy?: string;
-  currentApprovedAt?: string;
-  currentIsApproved?: boolean;
-  currentVersion?: number;
-  proposedText: string;
-  proposedLabel?: string;
-  proposedSortOrder?: number;
-  proposedBlockId?: number;
-  isNew?: boolean;
-  submittedBy: string;
-  submittedAt?: string;
-  reviewNotes?: string;
-  reviewedBy?: string;
-  reviewedAt?: string;
-  status?: string;
 }
 
 interface HomeProps {
@@ -828,6 +796,8 @@ let cachedTransactions: Transaction[] | null = null;
 const HOME_DATA_FRESH_MS = 60_000;
 type CachedHomeMatters = { key: string; matters: any[]; ts: number };
 type CachedEnquiryMetrics = { key: string; payload: any; ts: number };
+type HomeMatterOpenedDailyCount = { date: string; userCount: number; firmCount: number };
+type HomeMatterOpenedCounts = { key: string; startDate: string; endDate: string; userCount: number; firmCount: number; dailyCounts: HomeMatterOpenedDailyCount[]; source?: string };
 let cachedHomeMattersEntry: CachedHomeMatters | null = null;
 let cachedEnquiryMetricsEntry: CachedEnquiryMetrics | null = null;
 
@@ -1267,6 +1237,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
   const [isLoadingAllMatters, setIsLoadingAllMatters] = useState<boolean>(false);
   const [homeMatters, setHomeMatters] = useState<NormalizedMatter[]>([]);
   const [isLoadingHomeMatters, setIsLoadingHomeMatters] = useState<boolean>(true);
+  const [homeMatterOpenedCounts, setHomeMatterOpenedCounts] = useState<HomeMatterOpenedCounts | null>(null);
 
   // State for refreshing time metrics
   const [isRefreshingTimeMetrics, setIsRefreshingTimeMetrics] = useState<boolean>(false);
@@ -1435,9 +1406,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
     todo: 'closed',
   });
 
-  // Pending snippet edits for approval
-  const [snippetEdits, setSnippetEdits] = useState<SnippetEdit[]>([]);
-
   // Pending document workspace actions (files in Holding needing allocation)
   interface PendingDocAction {
     enquiryId: string;
@@ -1557,7 +1525,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
   useFirstHydration('home.matters', homeMatters.length > 0 || !isLoadingHomeMatters, { count: homeMatters.length });
   useFirstHydration('home.outstandingBalances', outstandingBalancesData != null, { hasData: outstandingBalancesData != null });
   useFirstHydration('home.futureBookings', (futureBookings.boardroomBookings.length + futureBookings.soundproofBookings.length) > 0 || hasStartedParallelFetch);
-  useFirstHydration('home.snippetEdits', snippetEdits.length > 0 || hasStartedParallelFetch, { count: snippetEdits.length });
   useFirstHydration('home.pendingDocActions', !pendingDocActionsLoading, { count: pendingDocActions.length });
   useFirstHydration('home.immediateActions', immediateActionsReady);
   useFirstHydration('home.dataReady', homeDataReady);
@@ -1877,52 +1844,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
     }
     return { unclaimedToday: today, unclaimedThisWeek: week, unclaimedLastWeek: lastWk };
   }, [unclaimedEnquiries]);
-
-  // Fetch pending snippet edits and prefetch snippet blocks
-  useEffect(() => {
-    // SNIPPET FUNCTIONALITY REMOVED - Changed approach completely
-    // Snippet edits and blocks are no longer fetched from Azure Functions
-    const useLocal = process.env.REACT_APP_USE_LOCAL_DATA === 'true';
-
-    const fetchEditsAndBlocks = async () => {
-      if (useLocal) {
-        const [{ default: localSnippetEdits }, { default: localV3Blocks }] = await Promise.all([
-          import('../../localData/localSnippetEdits.json'),
-          import('../../localData/localV3Blocks.json'),
-        ]);
-        setSnippetEdits(localSnippetEdits as SnippetEdit[]);
-        if (!sessionStorage.getItem('prefetchedBlocksData')) {
-          sessionStorage.setItem('prefetchedBlocksData', JSON.stringify(localV3Blocks));
-        }
-        return;
-      }
-      // Snippet fetching disabled - functionality removed
-      // try {
-      //   const url = `${proxyBaseUrl}/${process.env.REACT_APP_GET_SNIPPET_EDITS_PATH}?code=${process.env.REACT_APP_GET_SNIPPET_EDITS_CODE}`;
-      //   const res = await fetch(url);
-      //   if (res.ok) {
-      //     const data = await res.json();
-      //     setSnippetEdits(data);
-      //   }
-      // } catch (err) {
-      //   console.error('Failed to fetch snippet edits', err);
-      // }
-
-      // if (!sessionStorage.getItem('prefetchedBlocksData')) {
-      //   try {
-      //     const blocksUrl = `${proxyBaseUrl}/${process.env.REACT_APP_GET_SNIPPET_BLOCKS_PATH}?code=${process.env.REACT_APP_GET_SNIPPET_BLOCKS_CODE}`;
-      //     const blocksRes = await fetch(blocksUrl);
-      //     if (blocksRes.ok) {
-      //       const data = await blocksRes.json();
-      //       sessionStorage.setItem('prefetchedBlocksData', JSON.stringify(data));
-      //     }
-      //   } catch (err) {
-      //     console.error('Failed to prefetch snippet blocks', err);
-      //   }
-      // }
-    };
-    fetchEditsAndBlocks();
-  }, []);
 
   // Check for active matter opening / pitch builder — event-driven (no polling)
   useEffect(() => {
@@ -2331,7 +2252,9 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
 
     const mapped = normalizedMatters
       .filter(m => m.dataSource === 'vnet_direct')
-      .filter(m => isDemoMatter(m) ? isDemo : (isAdmin || isUserMatter(m.responsibleSolicitor || '')))
+      .filter(m => isDemoMatter(m)
+        ? isDemo
+        : (isAdmin || isUserMatter(m.responsibleSolicitor || '') || isUserMatter(m.originatingSolicitor || '')))
       .filter(m => isDemo ? true : !isDemoMatter(m))
       .sort((a, b) => (b.openDate || '').localeCompare(a.openDate || ''))
       .map(m => ({
@@ -3338,6 +3261,8 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
     const runId = Date.now();
     fetchRunIdRef.current = runId;
 
+    let homeMattersIdleHandle: number | null = null;
+
     const fetchAllData = async () => {
       setHasStartedParallelFetch(true);
       setIsLoadingAttendance(true);
@@ -3598,12 +3523,13 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
       }
 
       // Matters: fetch recent new-space matters directly for the Home dashboard.
-      // Home firm-wide users get all (no name filter); others scope to their name.
+      // Deferred out of the primary boot wave so the critical Attendance/WIP
+      // path does not compete with this secondary card for SQL/browser budget.
       const fullName = userData[0]?.FullName || '';
       const isOwner = canSeeFirmWideHomeData(userData[0]);
       const mattersQueryName = isOwner ? '' : fullName;
       const mattersUrl = `/api/matters-new-space?limit=50${mattersQueryName ? `&fullName=${encodeURIComponent(mattersQueryName)}` : ''}`;
-      const mattersRequest = fetch(mattersUrl, { headers: { Accept: 'application/json' } })
+      const runMattersRequest = () => fetch(mattersUrl, { headers: { Accept: 'application/json' } })
         .then(async (mattersRes) => {
           if (!isLatestRun() || !mattersRes.ok) return;
           const data = await mattersRes.json();
@@ -3624,12 +3550,24 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
           setIsLoadingHomeMatters(false);
         });
 
+      const scheduleMattersRequest = () => {
+        if (!isLatestRun() || homeMattersCacheFresh) return;
+        void runMattersRequest();
+      };
+
+      if (!homeMattersCacheFresh) {
+        if (typeof window !== 'undefined' && typeof (window as any).requestIdleCallback === 'function') {
+          homeMattersIdleHandle = (window as any).requestIdleCallback(scheduleMattersRequest, { timeout: 3000 });
+        } else {
+          homeMattersIdleHandle = window.setTimeout(scheduleMattersRequest, 500);
+        }
+      }
+
       await Promise.allSettled([
         attendanceRequest,
         annualLeaveRequest,
         wipRequest,
         enquiriesRequest,
-        mattersRequest,
       ]);
 
       if (isLatestRun()) {
@@ -3642,6 +3580,13 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
     return () => {
       // Only reset on unmount (user switches) — NOT on dep-change re-fires,
       // which would defeat the parallelFetchKeyRef dedup.
+      if (homeMattersIdleHandle !== null) {
+        if (typeof window !== 'undefined' && typeof (window as any).cancelIdleCallback === 'function') {
+          try { (window as any).cancelIdleCallback(homeMattersIdleHandle); } catch { /* ignore */ }
+        } else {
+          window.clearTimeout(homeMattersIdleHandle);
+        }
+      }
     };
   }, [isActive, userData?.[0]?.EntraID, userData?.[0]?.['Entra ID'], userData?.[0]?.Email, useLocalData, teamData, homeLoadRetryNonce]);
 
@@ -4574,8 +4519,17 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
       const now = new Date();
       return { currentMonth: now.getMonth(), currentYear: now.getFullYear() };
     }, []);
+    const matterOpenedCountsRange = useMemo(() => {
+      const now = new Date();
+      const currentQuarterMonth = Math.floor(now.getMonth() / 3) * 3;
+      const start = new Date(now.getFullYear(), currentQuarterMonth - 3, 1);
+      return {
+        startDate: formatDateLocal(start),
+        endDate: formatDateLocal(now),
+      };
+    }, []);
 
-    const mattersOpenedCount = useMemo(() => {
+    const derivedMattersOpenedCount = useMemo(() => {
       if (!normalizedMatters) return 0;
       return normalizedMatters.filter((m) => {
         const openDate = parseOpenDate((m as any).openDate);
@@ -4586,7 +4540,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
       }).length;
     }, [normalizedMatters, currentMonth, currentYear, userResponsibleName]);
 
-    const firmMattersOpenedCount = useMemo(() => {
+    const derivedFirmMattersOpenedCount = useMemo(() => {
       if (!normalizedMatters) return 0;
       return normalizedMatters.filter((m) => {
         const openDate = parseOpenDate((m as any).openDate);
@@ -4594,6 +4548,71 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         return openDate.getMonth() === currentMonth && openDate.getFullYear() === currentYear;
       }).length;
     }, [normalizedMatters, currentMonth, currentYear]);
+
+    const homeMatterOpenedCountsKey = `${matterOpenedCountsRange.startDate}:${matterOpenedCountsRange.endDate}:${normalizeName(userResponsibleName) || 'firm'}`;
+    const liveHomeMatterOpenedCounts = homeMatterOpenedCounts?.key === homeMatterOpenedCountsKey ? homeMatterOpenedCounts : null;
+    const sumLiveMatterOpenedCounts = (rangeStart: Date, rangeEnd: Date, scope: 'user' | 'firm'): number | null => {
+      if (!liveHomeMatterOpenedCounts?.dailyCounts?.length) return null;
+      const startKey = formatDateLocal(rangeStart);
+      const endKey = formatDateLocal(rangeEnd);
+      return liveHomeMatterOpenedCounts.dailyCounts.reduce((total, entry) => {
+        if (entry.date < startKey || entry.date > endKey) return total;
+        return total + Number(scope === 'firm' ? entry.firmCount : entry.userCount || 0);
+      }, 0);
+    };
+    const currentMonthStartForCounts = new Date(currentYear, currentMonth, 1);
+    const currentMonthEndForCounts = new Date(currentYear, currentMonth + 1, 0);
+    const liveMattersOpenedCount = sumLiveMatterOpenedCounts(currentMonthStartForCounts, currentMonthEndForCounts, 'user');
+    const liveFirmMattersOpenedCount = sumLiveMatterOpenedCounts(currentMonthStartForCounts, currentMonthEndForCounts, 'firm');
+    const mattersOpenedCount = liveMattersOpenedCount ?? derivedMattersOpenedCount;
+    const firmMattersOpenedCount = liveFirmMattersOpenedCount ?? derivedFirmMattersOpenedCount;
+
+    useEffect(() => {
+      if (!isActive || demoModeEnabled || useLocalData || !homeDataReady) return;
+      const fullName = userResponsibleName.trim();
+      if (!fullName) return;
+
+      const run = async () => {
+        try {
+          const url = new URL('/api/matters-new-space/opened-counts', window.location.origin);
+          url.searchParams.set('start', matterOpenedCountsRange.startDate);
+          url.searchParams.set('end', matterOpenedCountsRange.endDate);
+          url.searchParams.set('fullName', fullName);
+          const response = await fetch(url.toString(), { headers: { Accept: 'application/json' }, credentials: 'include' });
+          if (!response.ok) return;
+          const data = await response.json();
+          setHomeMatterOpenedCounts({
+            key: homeMatterOpenedCountsKey,
+            startDate: String(data.startDate || matterOpenedCountsRange.startDate),
+            endDate: String(data.endDate || matterOpenedCountsRange.endDate),
+            userCount: Number(data.userCount) || 0,
+            firmCount: Number(data.firmCount) || 0,
+            dailyCounts: Array.isArray(data.dailyCounts)
+              ? data.dailyCounts.map((entry: any) => ({
+                  date: String(entry.date || ''),
+                  userCount: Number(entry.userCount) || 0,
+                  firmCount: Number(entry.firmCount) || 0,
+                })).filter((entry: HomeMatterOpenedDailyCount) => /^\d{4}-\d{2}-\d{2}$/.test(entry.date))
+              : [],
+            source: String(data.source || ''),
+          });
+        } catch (error) {
+          console.warn('[Home] Failed to fetch legacy-inclusive matters opened counts:', error);
+        }
+      };
+
+      const idle: number = typeof window !== 'undefined' && typeof (window as any).requestIdleCallback === 'function'
+        ? (window as any).requestIdleCallback(() => { void run(); }, { timeout: 4500 })
+        : window.setTimeout(() => { void run(); }, 800);
+
+      return () => {
+        if (typeof window !== 'undefined' && typeof (window as any).cancelIdleCallback === 'function') {
+          try { (window as any).cancelIdleCallback(idle); } catch { /* ignore */ }
+        } else {
+          window.clearTimeout(idle);
+        }
+      };
+    }, [demoModeEnabled, homeDataReady, homeMatterOpenedCountsKey, isActive, matterOpenedCountsRange.endDate, matterOpenedCountsRange.startDate, useLocalData, userResponsibleName]);
 
     const mattersResolvedForConversion = Array.isArray(providedMatters) || allMatters !== null || !!allMattersError;
 
@@ -4748,6 +4767,8 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
       };
 
       const countMattersInRange = (rangeStart: Date, rangeEnd: Date, granularity: 'day' | 'hour' = 'day') => {
+        const liveCount = sumLiveMatterOpenedCounts(rangeStart, rangeEnd, godMode ? 'firm' : 'user');
+        if (liveCount !== null) return liveCount;
         const startBoundary = granularity === 'hour' ? rangeStart : startOfDay(rangeStart);
         const endBoundary = granularity === 'hour' ? rangeEnd : endOfDay(rangeEnd);
         return userMatters.filter((matter) => {
@@ -5412,7 +5433,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
           },
         ],
       };
-    }, [currentUserEmail, deferredEnquiries, mattersResolvedForConversion, normalizedMatters, deferredTeamData, userData, userResponsibleName, instructionData]);
+    }, [currentUserEmail, deferredEnquiries, mattersResolvedForConversion, normalizedMatters, deferredTeamData, userData, userResponsibleName, instructionData, liveHomeMatterOpenedCounts]);
 
   // Removed no-op effect that could trigger unnecessary renders
   // useEffect(() => {}, [userMatterIDs, outstandingBalancesData]);
@@ -6290,11 +6311,6 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     [combinedLeaveRecords, isApprover, isManagerApprover, normalizedUserInitials]
   );
 
-  const snippetApprovalsNeeded = useMemo(
-    () => (isApprover ? snippetEdits.filter(e => e.status === 'pending') : []),
-    [snippetEdits, isApprover]
-  );
-
   // Merge annualLeaveRecords and futureLeaveRecords for bookings
   const bookingsNeeded = useMemo(
     () =>
@@ -6569,50 +6585,6 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     openBookLeavePanel(sample);
   }, [openBookLeavePanel, userData]);
 
-  const approveSnippet = async (id: number, approve: boolean) => {
-    try {
-      const baseUrl = proxyBaseUrl;
-      if (approve) {
-        const approveUrl = `${baseUrl}/${process.env.REACT_APP_APPROVE_SNIPPET_EDIT_PATH}?code=${process.env.REACT_APP_APPROVE_SNIPPET_EDIT_CODE}`;
-        await fetch(approveUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ editId: id, approvedBy: userInitials })
-        });
-      } else {
-        const deleteUrl = `${baseUrl}/${process.env.REACT_APP_DELETE_SNIPPET_EDIT_PATH}?code=${process.env.REACT_APP_DELETE_SNIPPET_EDIT_CODE}`;
-        await fetch(deleteUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ editId: id })
-        });
-      }
-      setSnippetEdits(prev => prev.filter(e => e.id !== id));
-    } catch (err) {
-      console.error('Failed to update snippet edit', err);
-    }
-  };
-
-  const handleSnippetApprovalClick = () => {
-    if (snippetApprovalsNeeded.length > 0) {
-      setBespokePanelContent(
-        <Suspense fallback={<ModalSkeleton variant="generic" />}>
-          <SnippetEditsApproval
-            edits={snippetApprovalsNeeded}
-            onApprove={(id) => approveSnippet(id, true)}
-            onReject={(id) => approveSnippet(id, false)}
-            onClose={() => {
-              setIsBespokePanelOpen(false);
-              resetQuickActionsSelection();
-            }}
-          />
-        </Suspense>
-      );
-      setBespokePanelTitle('Approve Snippet Edits');
-      setIsBespokePanelOpen(true);
-    }
-  };
-
   const immediateALActions = useMemo(() => {
     const actions: HomeImmediateAction[] = [];
 
@@ -6654,21 +6626,6 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         count: approvalsNeeded.length,
       });
     }
-    if (isApprover && snippetApprovalsNeeded.length > 0) {
-      // Build subtitle from snippet names
-      const firstSnippet = snippetApprovalsNeeded[0]?.blockTitle || '';
-      const subtitle = snippetApprovalsNeeded.length > 1
-        ? `${firstSnippet} +${snippetApprovalsNeeded.length - 1} more`
-        : firstSnippet;
-      actions.push({
-        title: 'Approve Snippet Edits',
-        subtitle,
-        onClick: handleSnippetApprovalClick,
-        icon: 'Edit',
-        category: 'standard',
-        count: snippetApprovalsNeeded.length,
-      });
-    }
     if (bookingsNeeded.length > 0) {
       // Format date nicely (e.g., "15 Jan")
       const formatShortDate = (dateStr: string) => {
@@ -6704,11 +6661,9 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
   }, [
     isApprover,
     approvalsNeeded,
-    snippetApprovalsNeeded,
     bookingsNeeded,
     handleTestApproveLeaveClick,
     handleApproveLeaveClick,
-    handleSnippetApprovalClick,
     handleBookLeaveClick,
     handleBookLeavePreviewClick,
     isLocalhost,

@@ -10,7 +10,6 @@ import DealCapture from './DealCapture';
 import PitchTypeformWizard, { PitchWizardStepDescriptor, PitchWizardStepId } from './PitchTypeformWizard';
 import { colours } from '../../../app/styles/colours';
 import { TemplateBlock } from '../../../app/customisation/ProductionTemplateBlocks';
-import SnippetEditPopover from './SnippetEditPopover';
 import { placeholderSuggestions } from '../../../app/customisation/InsertSuggestions';
 import { wrapInsertPlaceholders } from './emailUtils';
 import { SCENARIOS, SCENARIOS_VERSION } from './scenarios';
@@ -1425,7 +1424,6 @@ interface EditorAndTemplateBlocksProps {
   bodyEditorRef: React.RefObject<HTMLDivElement>;
   toolbarStyle?: any;
   bubblesContainerStyle?: any;
-  saveCustomSnippet?: (blockTitle: string, label?: string, sortOrder?: number, isNew?: boolean) => Promise<void>;
   markBlockAsEdited?: (blockTitle: string, edited: boolean) => void;
   initialNotes?: string;
   subject: string;
@@ -1485,7 +1483,6 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
   bodyEditorRef,
   toolbarStyle,
   bubblesContainerStyle,
-  saveCustomSnippet,
   markBlockAsEdited,
   initialNotes,
   subject,

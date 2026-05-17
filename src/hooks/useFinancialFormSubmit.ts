@@ -2,6 +2,15 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 type FinancialFormValues = Record<string, unknown>;
 
+type FinancialTaskResponse = {
+  message?: string;
+  attachment?: {
+    fileName?: string | null;
+    asanaAttached?: boolean;
+    warning?: string | null;
+  };
+};
+
 type UseFinancialFormSubmitOptions = {
   formType: string;
   initials?: string;
@@ -11,6 +20,7 @@ export function useFinancialFormSubmit({ formType, initials }: UseFinancialFormS
   const [formKey, setFormKey] = useState<number>(() => Date.now());
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [submissionSuccess, setSubmissionSuccess] = useState<string | null>(null);
+  const [submissionMessageType, setSubmissionMessageType] = useState<'success' | 'warning'>('success');
   const resetTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -54,8 +64,14 @@ export function useFinancialFormSubmit({ formType, initials }: UseFinancialFormS
           return;
         }
 
-        await response.json();
-        setSubmissionSuccess('Financial form submitted successfully!');
+        const result = (await response.json()) as FinancialTaskResponse;
+        if (result.attachment?.fileName && result.attachment.asanaAttached === false) {
+          setSubmissionMessageType('warning');
+          setSubmissionSuccess(result.attachment.warning || 'Task created, but the file could not be attached in Asana.');
+        } else {
+          setSubmissionMessageType('success');
+          setSubmissionSuccess(result.message || 'Financial form submitted successfully!');
+        }
 
         if (resetTimerRef.current !== null) {
           window.clearTimeout(resetTimerRef.current);
@@ -79,6 +95,7 @@ export function useFinancialFormSubmit({ formType, initials }: UseFinancialFormS
     formKey,
     isSubmitting,
     submissionSuccess,
+    submissionMessageType,
     setSubmissionSuccess,
     handleFinancialSubmit,
   };

@@ -10,19 +10,71 @@ let newSpaceCache = {
   data: null,
   ts: 0,
 };
+const openedCountsCache = new Map();
 
 const NEW_SPACE_CACHE_TTL_MS = Number(process.env.NEW_SPACE_MATTERS_TTL_MS || 2 * 60 * 1000);
 const NEW_SPACE_STALE_GRACE_MS = 5 * 60 * 1000;
+const OPENED_COUNTS_CACHE_TTL_MS = Number(process.env.HOME_MATTERS_OPENED_COUNTS_TTL_MS || 5 * 60 * 1000);
 let backgroundRefreshInFlight = false;
 
 function normalizeName(name) {
   if (!name) return '';
-  const normalized = String(name).trim().toLowerCase();
+  let normalized = String(name).trim().toLowerCase();
   if (normalized.includes(',')) {
     const [last, first] = normalized.split(',').map((part) => part.trim());
     if (first && last) return `${first} ${last}`;
   }
-  return normalized.replace(/\s+/g, ' ');
+  normalized = normalized.replace(/\./g, '');
+  normalized = normalized.replace(/\s*\([^)]*\)\s*/g, ' ');
+  normalized = normalized.replace(/\s[-/|].*$/, '');
+  normalized = normalized.replace(/\s+/g, ' ').trim();
+  if (normalized === 'bianca odonnell') return "bianca o'donnell";
+  if (normalized === 'samuel packwood') return 'sam packwood';
+  return normalized;
+}
+
+function namesMatch(a, b) {
+  const n1 = normalizeName(a);
+  const n2 = normalizeName(b);
+  if (!n1 || !n2) return false;
+  if (n1 === n2) return true;
+
+  const initialsFrom = (value) => value.split(/\s+/).filter(Boolean).map((part) => part[0] || '').join('');
+  const compact1 = n1.replace(/\s+/g, '');
+  const compact2 = n2.replace(/\s+/g, '');
+  const initials1 = initialsFrom(n1);
+  const initials2 = initialsFrom(n2);
+  if (compact1.length <= 3 && compact1 === initials2) return true;
+  if (compact2.length <= 3 && compact2 === initials1) return true;
+
+  const variations = {
+    alexander: ['alex'],
+    alex: ['alexander'],
+    samuel: ['sam'],
+    sam: ['samuel'],
+    lukasz: ['luke', 'lucas'],
+    luke: ['lukasz', 'lucas'],
+    lucas: ['luke', 'lukasz'],
+    robert: ['rob', 'bob'],
+    rob: ['robert'],
+    bob: ['robert'],
+  };
+
+  const p1 = n1.split(' ').filter(Boolean);
+  const p2 = n2.split(' ').filter(Boolean);
+  const first1 = p1[0] || '';
+  const first2 = p2[0] || '';
+  const last1 = p1[p1.length - 1] || '';
+  const last2 = p2[p2.length - 1] || '';
+
+  if (first1 && first2) {
+    if (first1 === first2 && (!last1 || !last2 || last1 === last2)) return true;
+    const vars1 = variations[first1] || [];
+    const vars2 = variations[first2] || [];
+    if ((vars1.includes(first2) || vars2.includes(first1)) && (!last1 || !last2 || last1 === last2)) return true;
+  }
+
+  return false;
 }
 
 function pickFirstDefined(row, keys) {
@@ -161,6 +213,220 @@ async function queryNewSpaceMatters(queryParams) {
     };
   });
 }
+
+function toDateKey(value) {
+  if (!value) return '';
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0, 10);
+  const raw = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? '' : parsed.toISOString().slice(0, 10);
+}
+
+function parseDateOnlyParam(value) {
+  const raw = String(value || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
+  const [year, month, day] = raw.split('-').map((part) => Number.parseInt(part, 10));
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function addUtcDays(date, days) {
+  const next = new Date(date);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
+}
+
+function parseOpenedCountsWindow(queryParams) {
+  const now = new Date();
+  const requestedStart = parseDateOnlyParam(queryParams.start);
+  const requestedEnd = parseDateOnlyParam(queryParams.end);
+
+  if (requestedStart && requestedEnd && requestedStart <= requestedEnd) {
+    const endExclusive = addUtcDays(requestedEnd, 1);
+    const maxStart = addUtcDays(endExclusive, -190);
+    const start = requestedStart < maxStart ? maxStart : requestedStart;
+    const startDate = toDateKey(start);
+    const endDate = toDateKey(requestedEnd);
+    return {
+      year: start.getUTCFullYear(),
+      month: start.getUTCMonth() + 1,
+      start,
+      endExclusive,
+      startDate,
+      endDate,
+      rangeKey: `${startDate}:${endDate}`,
+    };
+  }
+
+  const year = Number.parseInt(queryParams.year, 10) || now.getFullYear();
+  const rawMonth = Number.parseInt(queryParams.month, 10);
+  const month = Number.isFinite(rawMonth) && rawMonth >= 1 && rawMonth <= 12 ? rawMonth : now.getMonth() + 1;
+  const start = new Date(Date.UTC(year, month - 1, 1));
+  const endExclusive = new Date(Date.UTC(year, month, 1));
+  const endInclusive = addUtcDays(endExclusive, -1);
+  const startDate = toDateKey(start);
+  const endDate = toDateKey(endInclusive);
+  return { year, month, start, endExclusive, startDate, endDate, rangeKey: `${startDate}:${endDate}` };
+}
+
+function matterDedupeKey(row) {
+  const matterId = row.matterId != null ? String(row.matterId).trim() : '';
+  if (matterId) return `matter:${matterId.toLowerCase()}`;
+  const displayNumber = row.displayNumber != null ? String(row.displayNumber).trim() : '';
+  if (displayNumber) return `display:${displayNumber.toLowerCase()}`;
+  const uniqueId = row.uniqueId != null ? String(row.uniqueId).trim() : '';
+  if (uniqueId) return `unique:${uniqueId.toLowerCase()}`;
+  return `source:${row.source}:${row.rowNumber}`;
+}
+
+async function queryOpenedCounts(queryParams) {
+  const { year, month, start, endExclusive, startDate, endDate } = parseOpenedCountsWindow(queryParams);
+  const fullName = queryParams.fullName ? String(queryParams.fullName).trim() : '';
+  const legacyConn = process.env.SQL_CONNECTION_STRING_LEGACY || process.env.SQL_CONNECTION_STRING;
+  const newConn = process.env.SQL_CONNECTION_STRING_VNET || process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+
+  if (!legacyConn || !newConn) {
+    throw new Error('Missing DB connection strings for matters opened counts');
+  }
+
+  const [legacyResult, newResult] = await Promise.allSettled([
+    withRequest(legacyConn, async (request) => {
+      request.input('start', sql.DateTime2, start);
+      request.input('end', sql.DateTime2, endExclusive);
+      const result = await request.query(`
+        SELECT
+          CAST([Unique ID] AS NVARCHAR(100)) AS uniqueId,
+          CAST([Unique ID] AS NVARCHAR(100)) AS matterId,
+          CAST([Display Number] AS NVARCHAR(100)) AS displayNumber,
+          CAST([Responsible Solicitor] AS NVARCHAR(200)) AS responsibleSolicitor,
+          CONVERT(date, [Open Date]) AS openDate
+        FROM matters
+        WHERE [Open Date] >= @start AND [Open Date] < @end
+      `);
+      return Array.isArray(result.recordset) ? result.recordset.map((row, index) => ({ ...row, source: 'legacy', rowNumber: index })) : [];
+    }),
+    withRequest(newConn, async (request) => {
+      request.input('start', sql.DateTime2, start);
+      request.input('end', sql.DateTime2, endExclusive);
+      const result = await request.query(`
+        SELECT
+          CAST(MatterID AS NVARCHAR(100)) AS matterId,
+          CAST(DisplayNumber AS NVARCHAR(100)) AS displayNumber,
+          CAST(NULL AS NVARCHAR(100)) AS uniqueId,
+          CAST(ResponsibleSolicitor AS NVARCHAR(200)) AS responsibleSolicitor,
+          CONVERT(date, OpenDate) AS openDate
+        FROM Matters
+        WHERE OpenDate >= @start AND OpenDate < @end
+      `);
+      return Array.isArray(result.recordset) ? result.recordset.map((row, index) => ({ ...row, source: 'new-space', rowNumber: index })) : [];
+    }),
+  ]);
+
+  const legacyRows = legacyResult.status === 'fulfilled' ? legacyResult.value : [];
+  const newRows = newResult.status === 'fulfilled' ? newResult.value : [];
+  const rowsByMatter = new Map();
+
+  for (const row of [...newRows, ...legacyRows]) {
+    const key = matterDedupeKey(row);
+    const existing = rowsByMatter.get(key);
+    const isUserMatter = fullName ? namesMatch(row.responsibleSolicitor, fullName) : false;
+    const dateKey = toDateKey(row.openDate);
+    if (existing) {
+      existing.sources.add(row.source);
+      existing.isUserMatter = existing.isUserMatter || isUserMatter;
+      existing.dateKey = existing.dateKey || dateKey;
+    } else {
+      rowsByMatter.set(key, { dateKey, isUserMatter, sources: new Set([row.source]) });
+    }
+  }
+
+  const deduped = [...rowsByMatter.values()];
+  const daily = new Map();
+  for (const row of deduped) {
+    if (!row.dateKey) continue;
+    const entry = daily.get(row.dateKey) || { date: row.dateKey, firmCount: 0, userCount: 0 };
+    entry.firmCount += 1;
+    if (row.isUserMatter) entry.userCount += 1;
+    daily.set(row.dateKey, entry);
+  }
+  const errors = {
+    legacy: legacyResult.status === 'rejected' ? legacyResult.reason?.message || String(legacyResult.reason) : null,
+    newSpace: newResult.status === 'rejected' ? newResult.reason?.message || String(newResult.reason) : null,
+  };
+
+  return {
+    year,
+    month,
+    startDate,
+    endDate,
+    firmCount: deduped.length,
+    userCount: fullName ? deduped.filter((row) => row.isUserMatter).length : 0,
+    fullName,
+    dailyCounts: [...daily.values()].sort((left, right) => left.date.localeCompare(right.date)),
+    sourceCounts: {
+      legacy: legacyRows.length,
+      newSpace: newRows.length,
+      deduped: deduped.length,
+    },
+    errors,
+  };
+}
+
+router.get('/opened-counts', async (req, res) => {
+  const startedAt = Date.now();
+  const { year, month, startDate, endDate, rangeKey } = parseOpenedCountsWindow(req.query);
+  const fullName = req.query.fullName ? String(req.query.fullName).trim() : '';
+  const cacheKey = `${rangeKey}:${normalizeName(fullName) || 'firm'}`;
+  const now = Date.now();
+
+  trackEvent('Matters.OpenedCounts.Started', {
+    operation: 'home-opened-counts',
+    triggeredBy: 'home-idle-fetch',
+    year: String(year),
+    month: String(month),
+    startDate,
+    endDate,
+    filtered: String(Boolean(fullName)),
+  });
+
+  const cachedCounts = openedCountsCache.get(cacheKey);
+  if (cachedCounts && now - cachedCounts.ts < OPENED_COUNTS_CACHE_TTL_MS) {
+    annotate(res, { source: 'memory', note: 'matters opened counts' });
+    return res.json({ ...cachedCounts.data, cached: true, source: 'memory' });
+  }
+
+  try {
+    const data = await queryOpenedCounts(req.query);
+    openedCountsCache.set(cacheKey, { data, ts: Date.now() });
+    if (openedCountsCache.size > 60) {
+      const oldestKey = openedCountsCache.keys().next().value;
+      if (oldestKey) openedCountsCache.delete(oldestKey);
+    }
+    const durationMs = Date.now() - startedAt;
+    trackEvent('Matters.OpenedCounts.Completed', {
+      operation: 'home-opened-counts',
+      triggeredBy: 'home-idle-fetch',
+      year: String(data.year),
+      month: String(data.month),
+      firmCount: String(data.firmCount),
+      userCount: String(data.userCount),
+    });
+    trackMetric('Matters.OpenedCounts.Duration', durationMs, { operation: 'home-opened-counts' });
+    annotate(res, { source: 'sql', note: `${data.firmCount} deduped matters opened` });
+    return res.json({ ...data, cached: false, source: 'sql' });
+  } catch (error) {
+    const durationMs = Date.now() - startedAt;
+    trackException(error, { operation: 'Matters.OpenedCounts', phase: 'query' });
+    trackEvent('Matters.OpenedCounts.Failed', {
+      operation: 'home-opened-counts',
+      triggeredBy: 'home-idle-fetch',
+      error: error?.message || String(error),
+    });
+    trackMetric('Matters.OpenedCounts.Duration', durationMs, { operation: 'home-opened-counts', success: 'false' });
+    return res.status(500).json({ error: 'Failed to fetch matters opened counts', details: error?.message || String(error) });
+  }
+});
 
 router.get('/', async (req, res) => {
   const startedAt = Date.now();

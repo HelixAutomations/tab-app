@@ -15,6 +15,7 @@ import { appendDefaultEnquiryProcessingParams, enquiryReferencesId } from "./app
 import { trackBootStage, trackBootSummary, trackClientError, trackClientEvent } from "./utils/telemetry";
 import actionLog from "./utils/actionLog";
 import { clearRequestAuthContext, writeRequestAuthContext } from "./utils/requestAuthContext";
+import { clearUserSwitch, persistUserSwitch, readUserSwitch } from "./utils/userSwitchPersistence";
 import { disposeOnHmr, onServerBounced } from "./utils/devHmr";
 import { stampBuildAttribute, registerWayfindingDebugApi } from "./utils/devWayfinding";
 import { useDevServerBoot } from "./hooks/useDevServerBoot";
@@ -1709,94 +1710,53 @@ const AppWithContext: React.FC = () => {
     return !!a.initials && !!b.initials && a.initials === b.initials;
   };
 
-  // Allow switching user in production for specific users
+  // Allow switching user in production for specific users.
+  // Persist the chosen identity to sessionStorage, then hard-reload so SSE
+  // streams, keep-alive tabs, and per-user caches all re-init under the new
+  // user. The boot path consults `readUserSwitch()` after resolving the
+  // primary principal and swaps in the switched user before priming
+  // user-dependent data. Returning to the original admin clears the persist.
   const switchUser = async (newUser: UserData) => {
     actionLog.start('User switch', `→ ${newUser.Initials || newUser.First || 'unknown'}`);
-    setLoading(true);
 
     const normalized = normalizeUserRecord(newUser) as UserData;
     const hydratedUser = await hydrateUserProfile(normalized).catch(() => normalized);
     const activeUser = (hydratedUser || normalized) as UserData;
+
     writeRequestAuthContext(activeUser);
+
     const returningToOriginalAdmin = !!originalAdminUser && isSameSwitchIdentity(normalized, originalAdminUser);
+    const currentPrimary = userData?.[0] || null;
+    const originalToPreserve = returningToOriginalAdmin
+      ? null
+      : (originalAdminUser
+          || (currentPrimary && !isSameSwitchIdentity(normalized, currentPrimary) ? currentPrimary : null));
 
-    // Store the current admin user only when moving away from the original identity.
-    if (!originalAdminUser && userData && userData[0] && !isSameSwitchIdentity(normalized, userData[0])) {
-      setOriginalAdminUser(userData[0]);
+    if (returningToOriginalAdmin || !originalToPreserve) {
+      clearUserSwitch();
+    } else {
+      persistUserSwitch(activeUser, originalToPreserve);
     }
-    if (returningToOriginalAdmin) {
-      setOriginalAdminUser(null);
-    }
 
-    setUserData([activeUser]);
-    const liveTeam = teamData ?? await fetchTeamData().catch(() => null);
-    if (liveTeam && liveTeam !== teamData) {
-      setTeamData(liveTeam);
-    }
-    const effectiveUser = resolveEffectiveDatasetUser(activeUser, liveTeam);
-    const activeOriginalAdminUser = returningToOriginalAdmin ? null : originalAdminUser;
-    
-
-
-    
-    // Clear only essential caches when switching users (less aggressive for performance)
-    const keysToRemove = Object.keys(localStorage).filter(key => {
-      const k = key.toLowerCase();
-      return (
-        k.includes('enquiries-') ||
-        k.includes('userdata-')
-        // Keep matters cache to avoid refetching - matters don't change often
-      );
-    });
-    keysToRemove.forEach(key => localStorage.removeItem(key));
-
-    
     try {
-      // Always fetch matters for the selected user.
-      // Matters can be user-scoped server-side (queryName), so reusing a previously-loaded
-      // matters list will show the wrong "Mine" results after switching user.
-      const queryName = isDevOwner(normalized) && !activeOriginalAdminUser ? '' : effectiveUser.fullName;
-      const mattersRes = await fetchAllMatterSources(effectiveUser.fullName, queryName);
-      setMatters(mattersRes);
-      
-      // Fetch enquiries for new user with extended date range and fresh data
-      const { dateFrom, dateTo } = getDateRange();
-      // Use actual user's email and initials - no overrides
-      const userInitials = effectiveUser.initials;
-      const enquiriesEmail = effectiveUser.email;
-      const adminFetchAll = isDevOwner(normalized) && !activeOriginalAdminUser;
-      
-      // Don't pass AOW to backend - let frontend handle AOW filtering for Claimable state only
-      // For Mine/Claimed, users should see ALL their claimed enquiries regardless of DB AOW setting
-      // Backend filtering by AOW would hide enquiries user has already claimed in other areas
-      const enquiriesRes = await fetchEnquiries(
-        enquiriesEmail,
-        dateFrom,
-        dateTo,
-        "", // Empty AOW - frontend will apply AOW logic for Claimable state only
-        userInitials,
-        adminFetchAll,
-        false  // bypassCache - allow caching for better performance when switching users
-      );
-      setEnquiries(enquiriesRes);
-      
+      const keysToRemove = Object.keys(localStorage).filter(key => {
+        const k = key.toLowerCase();
+        return k.includes('enquiries-') || k.includes('userdata-') || k.includes('matters-');
+      });
+      keysToRemove.forEach(key => localStorage.removeItem(key));
+    } catch { /* ignore */ }
 
-      
-    } catch (err) {
-      console.error('Error fetching data for switched user:', err);
-      actionLog.warn('User switch failed');
-    } finally {
-      actionLog.end('User switch');
-      setLoading(false);
+    actionLog.end('User switch', 'reloading');
+
+    if (typeof window !== 'undefined') {
+      window.location.reload();
     }
   };
 
   // Return to original admin user
   const returnToAdmin = async () => {
     if (originalAdminUser) {
-
       await switchUser(originalAdminUser);
-      setOriginalAdminUser(null); // Clear the stored admin user
     }
   };
 
@@ -1838,6 +1798,15 @@ const AppWithContext: React.FC = () => {
 
       writeRequestAuthContext(initialUserData[0]);
       setUserData(initialUserData as UserData[]);
+
+      // Restore "return to admin" state if this entry resumed a persisted switch.
+      const persistedSwitch = readUserSwitch();
+      if (persistedSwitch?.original) {
+        const restoredOriginal = normalizeUserRecord(persistedSwitch.original as UserData);
+        if (restoredOriginal && !isSameSwitchIdentity(restoredOriginal, initialUserData[0])) {
+          setOriginalAdminUser(restoredOriginal);
+        }
+      }
 
       const gateSnapshot = readShellBootSnapshot(gateSnapshotId);
       let restoredGateSnapshot = false;
@@ -2225,7 +2194,20 @@ const AppWithContext: React.FC = () => {
           trackBootStage('teams', 'user-data', 'started', { entry: 'teams' });
           fetchUserData(objectId)
             .then((userDataRes) => {
-              setUserData(userDataRes);
+              // If a persisted in-session switch is active, swap the principal-derived
+              // user for the switched user before any user-dependent fetches run.
+              let effectiveUserData = userDataRes;
+              const persistedSwitch = readUserSwitch();
+              const principalUser = Array.isArray(userDataRes) ? userDataRes[0] : null;
+              const persistedSwitched = persistedSwitch?.switched
+                ? (normalizeUserRecord(persistedSwitch.switched as UserData) as UserData | null)
+                : null;
+              if (persistedSwitched && principalUser && !isSameSwitchIdentity(persistedSwitched, principalUser)) {
+                effectiveUserData = [persistedSwitched];
+                setOriginalAdminUser(principalUser as UserData);
+                writeRequestAuthContext(persistedSwitched);
+              }
+              setUserData(effectiveUserData);
               trackBootStage('teams', 'user-data', 'completed', {
                 entry: 'teams',
                 userCount: Array.isArray(userDataRes) ? userDataRes.length : 0,
@@ -2242,7 +2224,7 @@ const AppWithContext: React.FC = () => {
                 }
                 return;
               }
-              primeUserDependentData(userDataRes);
+              primeUserDependentData(effectiveUserData);
             })
             .catch((userErr) => {
               console.error("Failed to load user data:", userErr);
@@ -2567,10 +2549,19 @@ const AppWithContext: React.FC = () => {
             setLoading(false);
           }
         } else {
-          // Production (outside Teams): require passcode + user selection
-          clearRequestAuthContext();
-          setLoading(false);
-          setShowEntryGate(true);
+          // Production (outside Teams): require passcode + user selection.
+          // If a previous switch persisted in this session, bypass the gate
+          // and resume as the switched user (with originalAdminUser restored
+          // inside handleUserSelected).
+          const persistedSwitch = readUserSwitch();
+          const switchedInitials = String(persistedSwitch?.switched?.Initials || '').trim();
+          if (switchedInitials) {
+            handleUserSelected(switchedInitials);
+          } else {
+            clearRequestAuthContext();
+            setLoading(false);
+            setShowEntryGate(true);
+          }
         }
         return;
       }

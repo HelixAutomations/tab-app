@@ -35,7 +35,6 @@ import Slider from 'rc-slider';
 import MattersCombinedMenu from '../matters/MattersCombinedMenu';
 import MatterTransactions from '../matters/MatterTransactions';
 import Documents from '../matters/documents/Documents';
-import { getProxyBaseUrl } from '../../utils/getProxyBaseUrl';
 import { useNavigatorActions } from '../../app/functionality/NavigatorContext';
 import './ManagementDashboard.css';
 import type { DealRecord, InstructionRecord } from './dataSources';
@@ -68,33 +67,12 @@ export interface WIP {
 }
 
 // ----------------------------------------------
-// callGetMatterOverview helper function
+// callGetMatterOverview: legacy Function retired; report not yet rebuilt on Express.
 // ----------------------------------------------
-async function callGetMatterOverview(matterId: number) {
-    const code = process.env.REACT_APP_GET_MATTER_OVERVIEW_CODE;
-    const path = process.env.REACT_APP_GET_MATTER_OVERVIEW_PATH;
-    const baseUrl = getProxyBaseUrl();
-    if (!code || !path || !baseUrl) {
-        console.error('Missing required environment variables for getMatterOverview');
-        return null;
-    }
-    const url = `${baseUrl}/${path}?code=${code}`;
-    try {
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ matterId: matterId }),
-        });
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error('Error calling getMatterOverview:', errorText);
-            return null;
-        }
-        return await response.json();
-    } catch (err) {
-        console.error('Error calling getMatterOverview:', err);
-        return null;
-    }
+type MatterOverviewResponse = { data?: unknown };
+
+async function callGetMatterOverview(_matterId: number): Promise<MatterOverviewResponse | null> {
+    return null;
 }
 
 // ----------------------------------------------
@@ -120,33 +98,10 @@ async function callGetComplianceData(matterId: string, clientId: string): Promis
 }
 
 // ----------------------------------------------
-// callGetMatterSpecificActivities helper function (new)
+// callGetMatterSpecificActivities: legacy Function retired; report not yet rebuilt on Express.
 // ----------------------------------------------
-async function callGetMatterSpecificActivities(matterId: string): Promise<any> {
-    const code = process.env.REACT_APP_GET_MATTER_SPECIFIC_ACTIVITIES_CODE;
-    const path = process.env.REACT_APP_GET_MATTER_SPECIFIC_ACTIVITIES_PATH;
-    const baseUrl = getProxyBaseUrl();
-    if (!code || !path || !baseUrl) {
-        console.error('Missing required environment variables for getMatterSpecificActivities');
-        return null;
-    }
-    const url = `${baseUrl}/${path}?code=${code}`;
-    try {
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ matterId }),
-        });
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error('Error calling getMatterSpecificActivities:', errorText);
-            return null;
-        }
-        return await response.json();
-    } catch (err) {
-        console.error('Error calling getMatterSpecificActivities:', err);
-        return null;
-    }
+async function callGetMatterSpecificActivities(_matterId: string): Promise<null> {
+    return null;
 }
 
 // ----------------------------------------------
@@ -1517,41 +1472,8 @@ const MattersReport: React.FC<MattersReportProps> = ({
         setGoogleAdsProgress({ current: 0, total: gclids.length });
         
         try {
-            const baseUrl = getProxyBaseUrl();
-            const code = process.env.REACT_APP_GET_GOOGLE_ADS_CLICK_DATA_CODE;
-            const path = process.env.REACT_APP_GET_GOOGLE_ADS_CLICK_DATA_PATH || 'api/getGoogleAdsClickData';
-            
-            // Process in batches of 20
-            const batchSize = 20;
+            // Legacy getGoogleAdsClickData Function retired; report not yet rebuilt on Express.
             const allResults = new Map<string, GoogleAdsClickData>();
-            
-            for (let i = 0; i < gclids.length; i += batchSize) {
-                const batch = gclids.slice(i, i + batchSize);
-                setGoogleAdsProgress({ current: Math.min(i + batchSize, gclids.length), total: gclids.length });
-                
-                try {
-                    const url = code ? `${baseUrl}/${path}?code=${code}` : `${baseUrl}/${path}`;
-                    const response = await fetch(url, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            gclids: batch,
-                            customerId: GOOGLE_ADS_CUSTOMER_ID,
-                        }),
-                    });
-                    
-                    if (response.ok) {
-                        const data = await response.json();
-                        if (data.results && Array.isArray(data.results)) {
-                            data.results.forEach((result: GoogleAdsClickData) => {
-                                allResults.set(result.gclid, result);
-                            });
-                        }
-                    }
-                } catch (err) {
-                    console.error('[GoogleAds] Batch error:', err);
-                }
-            }
             
             // Update inspection results with Google Ads data
             if (allResults.size > 0) {

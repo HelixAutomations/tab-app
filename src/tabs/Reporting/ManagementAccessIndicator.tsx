@@ -23,7 +23,12 @@ import type {
   ReadinessOverall,
   ReadinessPayload,
 } from './readiness.types';
-import { MANAGEMENT_PRESSURE_TEST_CHECK_IDS } from './reportTrust';
+import {
+  MANAGEMENT_PRESSURE_TEST_CHECK_IDS,
+  READINESS_SIMULATION_CHANGED_EVENT,
+  applyReadinessSimulation,
+  formatReadinessBlockerDetail,
+} from './reportTrust';
 import { useReadinessRemediate } from './useReadinessRemediate';
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000;
@@ -159,7 +164,7 @@ const ManagementAccessIndicator: React.FC<ManagementAccessIndicatorProps> = ({
         credentials: 'include',
       });
       if (!res.ok) throw new Error(`Readiness check failed (${res.status})`);
-      const payload = (await res.json()) as ReadinessPayload;
+      const payload = applyReadinessSimulation((await res.json()) as ReadinessPayload);
       setState({ loading: false, error: null, payload });
     } catch (err) {
       if ((err as Error).name === 'AbortError') return;
@@ -179,6 +184,13 @@ const ManagementAccessIndicator: React.FC<ManagementAccessIndicatorProps> = ({
       window.clearInterval(id);
       inFlightRef.current?.abort();
     };
+  }, [enabled, fetchReadiness]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const handleSimulationChanged = () => { void fetchReadiness(); };
+    window.addEventListener(READINESS_SIMULATION_CHANGED_EVENT, handleSimulationChanged);
+    return () => window.removeEventListener(READINESS_SIMULATION_CHANGED_EVENT, handleSimulationChanged);
   }, [enabled, fetchReadiness]);
 
   // Refetch if the server returned a stale cache.
@@ -267,6 +279,7 @@ const ManagementAccessIndicator: React.FC<ManagementAccessIndicatorProps> = ({
   const hasError = !!state.error;
   const colour = dotColour(overall, hasError, neutralUnknown);
   const headline = useMemo(() => headlineFor(overall, hasError, state.payload), [overall, hasError, state.payload]);
+  const problemDetail = useMemo(() => formatReadinessBlockerDetail(topProblem), [topProblem]);
   const isLoading = state.loading && !state.payload;
   const showPing = !isLoading && !neutralUnknown && (overall === 'warn' || overall === 'blocked' || hasError);
 
@@ -367,7 +380,9 @@ const ManagementAccessIndicator: React.FC<ManagementAccessIndicatorProps> = ({
           </div>
           {state.payload && (
             <div style={{ fontSize: 10, color: subText }}>
-              {neutralUnknown
+              {problemDetail && !neutralUnknown
+                ? problemDetail
+                : neutralUnknown
                 ? 'Pressure test not run yet.'
                 : actionableSignalCount === 0
                   ? 'Collected parity is current.'

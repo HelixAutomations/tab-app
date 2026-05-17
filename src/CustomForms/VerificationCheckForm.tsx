@@ -155,6 +155,50 @@ const CHECK_TYPE_LABELS: Record<number, string> = {
   2: 'PEP & Sanctions',
 };
 
+// Subtle inline processing cue — mirrors the opacity pulse used across Home
+// skeletons (see src/tabs/home/home-tokens.css → homeSkelPulse). Avoids the
+// chunky FluentUI spinner for lightweight in-progress states.
+const PROCESSING_CUE_KEYFRAME_ID = 'verify-id-cue-keyframe';
+const ProcessingCue: React.FC<{ label: string; isDarkMode: boolean }> = ({ label, isDarkMode }) => {
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    if (document.getElementById(PROCESSING_CUE_KEYFRAME_ID)) return;
+    const style = document.createElement('style');
+    style.id = PROCESSING_CUE_KEYFRAME_ID;
+    style.textContent = `
+      @keyframes verifyIdCuePulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+      @media (prefers-reduced-motion: reduce) {
+        @keyframes verifyIdCuePulse { 0%, 100% { opacity: 1; } }
+      }
+    `;
+    document.head.appendChild(style);
+  }, []);
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 8,
+        fontSize: 12,
+        color: isDarkMode ? '#A0A0A0' : '#6B6B6B',
+        animation: 'verifyIdCuePulse 1.6s ease-in-out infinite',
+      }}
+      aria-live="polite"
+    >
+      <span
+        style={{
+          width: 6,
+          height: 6,
+          borderRadius: '50%',
+          background: '#3690CE',
+          flexShrink: 0,
+        }}
+      />
+      {label}
+    </span>
+  );
+};
+
 function summariseResponse(raw: unknown): { items: AdhocResponseItem[]; summary: CheckResultSummary[] } {
   const asArray: AdhocResponseItem[] = Array.isArray(raw) ? (raw as AdhocResponseItem[]) : [raw as AdhocResponseItem];
   const summary: CheckResultSummary[] = [];
@@ -220,6 +264,13 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
 
+  // Dataset toggle — "new" picks from Instructions, "legacy" searches the legacy POID table.
+  const [dataset, setDataset] = useState<'new' | 'legacy'>('new');
+  const [legacyQuery, setLegacyQuery] = useState('');
+  const [legacyResults, setLegacyResults] = useState<Array<{ poidId: number | null; acid: string | null; first: string; last: string; email: string; submissionDate: string | null; checkResult: string | null }>>([]);
+  const [legacyIsSearching, setLegacyIsSearching] = useState(false);
+  const [legacySelected, setLegacySelected] = useState<{ acid: string | null; poidId: number | null } | null>(null);
+
   const loadHistory = useCallback(async (ref: string) => {
     if (!ref) { setHistory([]); return; }
     setIsLoadingHistory(true);
@@ -258,6 +309,10 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
     setPersistedSummary(null);
     setCorrelationId(null);
     setHistory([]);
+    setLegacyQuery('');
+    setLegacyResults([]);
+    setLegacySelected(null);
+    setDataset('new');
   }, []);
 
   const handlePrefill = useCallback(async (refArg?: string) => {
@@ -313,14 +368,85 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
     // passed in explicitly (either from the dropdown onChange or the prior value).
   }, []);
 
+  const handleLegacySearch = useCallback(async (q: string) => {
+    const term = q.trim();
+    setLegacyIsSearching(true);
+    const ctrl = new AbortController();
+    const timeoutId = window.setTimeout(() => ctrl.abort(), 8000);
+    try {
+      const baseUrl = getApiBase();
+      const url = term
+        ? `${baseUrl}/api/verify-id/adhoc/legacy-poid/search?q=${encodeURIComponent(term)}&limit=25`
+        : `${baseUrl}/api/verify-id/adhoc/legacy-poid/search?limit=25`;
+      const res = await fetch(url, { signal: ctrl.signal });
+      const json = await res.json().catch(() => ({} as any));
+      if (res.ok && Array.isArray(json.rows)) setLegacyResults(json.rows);
+      else setLegacyResults([]);
+    } catch {
+      setLegacyResults([]);
+    } finally {
+      window.clearTimeout(timeoutId);
+      setLegacyIsSearching(false);
+    }
+  }, []);
+
+  const handleLegacyPrefill = useCallback(async (identifier: string | number) => {
+    const id = String(identifier).trim();
+    if (!id) return;
+    setIsPrefilling(true);
+    setPrefillMessage(null);
+    setPriorVerifications(null);
+    try {
+      const baseUrl = getApiBase();
+      const res = await fetch(`${baseUrl}/api/verify-id/adhoc/legacy-poid/prefill/${encodeURIComponent(id)}`);
+      const json = await res.json().catch(() => ({} as any));
+      if (!res.ok) {
+        throw new Error(json?.details || json?.error || `HTTP ${res.status}`);
+      }
+      const p = json.prefill || {};
+      setFormData(prev => ({
+        ...prev,
+        instructionRef: '', // legacy submissions stay ad-hoc
+        title: p.title || prev.title,
+        gender: p.gender || prev.gender,
+        firstName: p.firstName || '',
+        lastName: p.lastName || '',
+        dob: p.dob || '',
+        email: p.email || '',
+        phone: p.phone || '',
+        nationality: p.nationality || '',
+        passportNumber: p.passportNumber || '',
+        driversLicenseNumber: p.driversLicenseNumber || '',
+        houseNumber: p.houseNumber || '',
+        street: p.street || '',
+        city: p.city || '',
+        county: p.county || '',
+        postcode: p.postcode || '',
+        countryCode: p.countryCode || 'GB',
+      }));
+      setLegacySelected({ acid: json.acid || null, poidId: json.poidId ?? null });
+      const filledFrom = [p.firstName && 'name', p.dob && 'DOB', p.email && 'email', p.postcode && 'address', p.passportNumber && 'passport', p.driversLicenseNumber && 'licence']
+        .filter(Boolean).join(', ');
+      const label = json.acid ? `ACID ${json.acid}` : (json.poidId != null ? `POID #${json.poidId}` : 'legacy POID');
+      setPrefillMessage(`Prefilled from ${label}${filledFrom ? ` — ${filledFrom}` : ''}. Submission will run ad-hoc (not filed against an instruction).`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Legacy prefill failed';
+      setPrefillMessage(`Legacy prefill failed: ${msg}`);
+    } finally {
+      setIsPrefilling(false);
+    }
+  }, []);
+
   // Load recent instructions once on mount for the picklist.
   useEffect(() => {
     let cancelled = false;
+    const ctrl = new AbortController();
+    const timeoutId = window.setTimeout(() => ctrl.abort(), 8000);
     const load = async () => {
       setIsLoadingInstructions(true);
       try {
         const baseUrl = getApiBase();
-        const res = await fetch(`${baseUrl}/api/verify-id/adhoc/instructions?limit=75`);
+        const res = await fetch(`${baseUrl}/api/verify-id/adhoc/instructions?limit=75`, { signal: ctrl.signal });
         const json = await res.json().catch(() => ({} as any));
         if (!cancelled && res.ok && Array.isArray(json.instructions)) {
           setInstructionList(json.instructions);
@@ -328,11 +454,12 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
       } catch {
         // Silent — dropdown just stays empty with a fallback hint.
       } finally {
+        window.clearTimeout(timeoutId);
         if (!cancelled) setIsLoadingInstructions(false);
       }
     };
     load();
-    return () => { cancelled = true; };
+    return () => { cancelled = true; ctrl.abort(); window.clearTimeout(timeoutId); };
   }, []);
 
   const instructionDropdownOptions = useMemo<IDropdownOption[]>(() => {
@@ -394,6 +521,7 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
         county: formData.county.trim() || formData.city.trim(),
         postcode: formData.postcode.trim(),
         countryCode: formData.countryCode,
+        legacySource: dataset === 'legacy' && legacySelected ? legacySelected : undefined,
       };
 
       const res = await fetch(`${baseUrl}/api/verify-id/adhoc`, {
@@ -438,7 +566,7 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
     } finally {
       setIsSubmitting(false);
     }
-  }, [formData, onSubmitError, onSubmitSuccess, loadHistory]);
+  }, [formData, onSubmitError, onSubmitSuccess, loadHistory, dataset, legacySelected]);
 
   const resultView = useMemo(() => (response ? summariseResponse(response) : null), [response]);
   const submitterInitials = currentUser?.Initials || '';
@@ -499,34 +627,172 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
               Link to instruction (optional)
             </div>
             <Stack tokens={formFieldTokens}>
-              <Dropdown
-                label={isLoadingInstructions ? 'Loading instructions…' : 'Instruction reference'}
-                placeholder="Pick an instruction to auto-prefill…"
-                options={instructionDropdownOptions}
-                selectedKey={formData.instructionRef}
-                onChange={(_, opt) => {
-                  const ref = (opt?.key as string) || '';
-                  handleFieldChange('instructionRef', ref);
-                  setPrefillMessage(null);
-                  if (ref) {
-                    void handlePrefill(ref);
-                  } else {
-                    setPriorVerifications(null);
-                  }
-                }}
-                styles={getDropdownStyles(isDarkMode)}
-                disabled={isPrefilling}
-              />
-              {isPrefilling && (
-                <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 6 }}>
-                  <Spinner size={SpinnerSize.xSmall} />
-                  <Text style={{ fontSize: 12, color: isDarkMode ? '#A0A0A0' : '#6B6B6B' }}>Prefilling…</Text>
+              {/* Dataset toggle: new instruction vs legacy POID */}
+              <div style={{ display: 'flex', gap: 0, marginBottom: 4 }}>
+                {(['new', 'legacy'] as const).map((opt) => {
+                  const active = dataset === opt;
+                  return (
+                    <button
+                      key={opt}
+                      type="button"
+                      onClick={() => {
+                        setDataset(opt);
+                        setPrefillMessage(null);
+                        setPriorVerifications(null);
+                        if (opt === 'new') {
+                          setLegacySelected(null);
+                        } else {
+                          handleFieldChange('instructionRef', '');
+                          // Browse-friendly default: load recent legacy POID rows when there's no query.
+                          if (!legacyQuery.trim() && legacyResults.length === 0) {
+                            void handleLegacySearch('');
+                          }
+                        }
+                      }}
+                      style={{
+                        flex: 1,
+                        padding: '8px 12px',
+                        background: active
+                          ? accentColor
+                          : (isDarkMode ? 'rgba(54, 144, 206, 0.08)' : '#F4F4F6'),
+                        color: active ? '#ffffff' : (isDarkMode ? '#f3f4f6' : '#061733'),
+                        border: `1px solid ${active ? accentColor : (isDarkMode ? '#4b5563' : '#d1d5db')}`,
+                        borderRadius: 0,
+                        cursor: 'pointer',
+                        fontSize: 12,
+                        fontWeight: 600,
+                        letterSpacing: '0.02em',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      {opt === 'new' ? 'New instruction' : 'Legacy POID'}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {dataset === 'new' && (
+                <Stack tokens={{ childrenGap: 4 }}>
+                  <Dropdown
+                    label="Instruction reference"
+                    placeholder="Pick an instruction to auto-prefill…"
+                    options={instructionDropdownOptions}
+                    selectedKey={formData.instructionRef}
+                    onChange={(_, opt) => {
+                      const ref = (opt?.key as string) || '';
+                      handleFieldChange('instructionRef', ref);
+                      setPrefillMessage(null);
+                      if (ref) {
+                        void handlePrefill(ref);
+                      } else {
+                        setPriorVerifications(null);
+                      }
+                    }}
+                    styles={getDropdownStyles(isDarkMode)}
+                    disabled={isPrefilling}
+                  />
+                  {isLoadingInstructions && (
+                    <ProcessingCue label="Loading instructions" isDarkMode={isDarkMode} />
+                  )}
                 </Stack>
+              )}
+
+              {dataset === 'legacy' && (
+                <>
+                  <TextField
+                    label="Search legacy POID (ACID, POID id, email or name)"
+                    placeholder="e.g. 31776"
+                    value={legacyQuery}
+                    onChange={(_, v) => {
+                      const next = v || '';
+                      setLegacyQuery(next);
+                      if (next.trim().length >= 2) {
+                        void handleLegacySearch(next);
+                      } else if (next.trim().length === 0) {
+                        void handleLegacySearch('');
+                      }
+                    }}
+                    styles={getInputStyles(isDarkMode)}
+                  />
+                  {legacyIsSearching && (
+                    <ProcessingCue label={legacyQuery.trim() ? 'Searching legacy POID' : 'Loading recent legacy POIDs'} isDarkMode={isDarkMode} />
+                  )}
+                  {legacyResults.length > 0 && (
+                    <div
+                      style={{
+                        maxHeight: 220,
+                        overflowY: 'auto',
+                        border: `1px solid ${isDarkMode ? '#4b5563' : '#d1d5db'}`,
+                        background: isDarkMode ? '#081c30' : '#ffffff',
+                      }}
+                    >
+                      {legacyResults.map((row) => {
+                        const id = row.acid || (row.poidId != null ? String(row.poidId) : '');
+                        const isSelected = legacySelected && (
+                          (row.acid && legacySelected.acid === row.acid)
+                          || (row.poidId != null && legacySelected.poidId === row.poidId)
+                        );
+                        return (
+                          <button
+                            key={`${row.poidId ?? ''}-${row.acid ?? ''}`}
+                            type="button"
+                            onClick={() => { void handleLegacyPrefill(id); }}
+                            style={{
+                              display: 'block',
+                              width: '100%',
+                              textAlign: 'left',
+                              padding: '8px 12px',
+                              background: isSelected
+                                ? (isDarkMode ? 'rgba(54, 144, 206, 0.18)' : '#d6e8ff')
+                                : 'transparent',
+                              border: 'none',
+                              borderBottom: `1px solid ${isDarkMode ? '#1f2937' : '#e5e7eb'}`,
+                              color: isDarkMode ? '#f3f4f6' : '#061733',
+                              cursor: 'pointer',
+                              fontSize: 12,
+                              borderRadius: 0,
+                            }}
+                          >
+                            <div style={{ fontWeight: 600 }}>
+                              {row.first || ''} {row.last || ''}{!row.first && !row.last ? '(no name)' : ''}
+                            </div>
+                            <div style={{ color: isDarkMode ? '#A0A0A0' : '#6B6B6B', fontSize: 11, marginTop: 2 }}>
+                              {row.acid ? `ACID ${row.acid}` : ''}
+                              {row.acid && row.poidId != null ? ' • ' : ''}
+                              {row.poidId != null ? `POID #${row.poidId}` : ''}
+                              {row.email ? ` • ${row.email}` : ''}
+                              {row.submissionDate ? ` • ${row.submissionDate}` : ''}
+                              {row.checkResult ? ` • ${row.checkResult}` : ''}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {legacyQuery.trim().length >= 2 && !legacyIsSearching && legacyResults.length === 0 && (
+                    <Text style={{ fontSize: 12, color: isDarkMode ? '#A0A0A0' : '#6B6B6B' }}>
+                      No legacy POID matches for "{legacyQuery.trim()}".
+                    </Text>
+                  )}
+                  {legacySelected && (legacySelected.acid || legacySelected.poidId != null) && (
+                    <div style={{ marginTop: 4, padding: '8px 12px', background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : '#d6e8ff', borderLeft: `3px solid ${accentColor}` }}>
+                      <Text style={{ fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151' }}>
+                        Source: Legacy POID
+                        {legacySelected.acid ? ` (ACID ${legacySelected.acid})` : ''}
+                        {legacySelected.poidId != null ? ` [POID #${legacySelected.poidId}]` : ''}. Submission will run ad-hoc and not file against an instruction.
+                      </Text>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {isPrefilling && (
+                <ProcessingCue label="Prefilling" isDarkMode={isDarkMode} />
               )}
               {prefillMessage && (
                 <Text style={{ fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151' }}>{prefillMessage}</Text>
               )}
-              {priorVerifications && priorVerifications.count > 0 && (
+              {dataset === 'new' && priorVerifications && priorVerifications.count > 0 && (
                 <div style={{ marginTop: 4, padding: '8px 12px', background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : '#d6e8ff', borderLeft: `3px solid ${accentColor}` }}>
                   <Text style={{ fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151' }}>
                     {priorVerifications.count} verification{priorVerifications.count === 1 ? '' : 's'} already on record for this instruction

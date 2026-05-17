@@ -3,8 +3,6 @@
  * Calls POST /api/ccl-ai/fill and returns the generated intake fields.
  */
 
-import getProxyBaseUrl from '../../../utils/getProxyBaseUrl';
-
 const LOCAL_DEV_CCL_BACKEND_ORIGIN = 'http://localhost:8080';
 
 export function getCclApiBaseUrl(): string {
@@ -14,13 +12,9 @@ export function getCclApiBaseUrl(): string {
     if ((host === 'localhost' || host === '127.0.0.1') && port === '3000') {
       return LOCAL_DEV_CCL_BACKEND_ORIGIN;
     }
-    // Deployed browser: use same-origin. The app server (server/index.js)
-    // mounts /api/ccl, /api/ccl-ai, /api/ccl-admin, /api/ccl-ops directly.
-    // Routing through the keys-proxy was producing /api/api/ccl/... and
-    // tripping CORS (wildcard origin + credentials: 'include').
-    return '';
   }
-  return getProxyBaseUrl();
+  // Same-origin: server/index.js mounts /api/ccl, /api/ccl-ai, /api/ccl-admin, /api/ccl-ops directly.
+  return '';
 }
 
 export function buildCclApiUrl(path: string): string {

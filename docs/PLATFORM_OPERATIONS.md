@@ -14,17 +14,13 @@ npm run dev:all
 ## Environment essentials
 
 - `REACT_APP_USE_LOCAL_DATA=false` to use production instruction data.
-- `INSTRUCTIONS_FUNC_CODE` and `INSTRUCTIONS_FUNC_BASE_URL` for VNet function access.
 - `KEY_VAULT_URL` + `USE_LOCAL_SECRETS=false` to use Key Vault.
-- `SQL_CONNECTION_STRING` only for VNet functions (not local dev).
+- `SQL_CONNECTION_STRING` + `INSTRUCTIONS_SQL_CONNECTION_STRING` resolved from Key Vault (passwords) at boot.
 
 ## Services and ports
 
 - React dev server: 3000
 - Express server: 8080 (single entrypoint for frontend)
-- Decoupled Functions: 7071
-- API Functions: 7072
-- Azurite: 10000–10002
 
 ## Server route registration
 

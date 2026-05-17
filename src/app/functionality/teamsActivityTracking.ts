@@ -1,5 +1,4 @@
 import { colours } from '../styles/colours';
-import { getProxyBaseUrl } from '../../utils/getProxyBaseUrl';
 
 export interface TeamsActivityData {
   Id: number;
@@ -46,21 +45,8 @@ export async function fetchTeamsActivityTracking(enquiryIds: Array<number | stri
   };
 
   const fetchBatch = async (batch: Array<number | string>): Promise<TeamsActivityData[]> => {
-    const primaryBase = getProxyBaseUrl();
-    try {
-      return await tryFetch(primaryBase, batch);
-    } catch (err) {
-      // If the primary target fails (e.g., cloud proxy missing the route),
-      // fall back to same-origin relative API which will hit the local server in dev.
-      if (primaryBase) {
-        try {
-          return await tryFetch('', batch);
-        } catch (_) {
-          // Ignore and rethrow original error below
-        }
-      }
-      throw err;
-    }
+    // Same-origin: Express serves /api/teams-activity-tracking; CRA dev proxy handles localhost.
+    return tryFetch('', batch);
   };
 
   // Split into batches if needed

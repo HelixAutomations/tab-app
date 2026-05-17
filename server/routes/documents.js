@@ -189,7 +189,10 @@ router.get('/pending-transfers', async (_req, res) => {
                     SELECT
                         i.InstructionRef     AS instructionRef,
                         i.MatterId           AS matterId,
-                        i.ProspectId         AS prospectId,
+                        (SELECT TOP 1 dl.ProspectId
+                           FROM Deals dl
+                          WHERE dl.InstructionRef = i.InstructionRef
+                          ORDER BY dl.DealId DESC) AS prospectId,
                         i.HelixContact       AS helixContact,
                         i.FirstName          AS firstName,
                         i.LastName           AS lastName,
@@ -207,7 +210,7 @@ router.get('/pending-transfers', async (_req, res) => {
                             )
                             OR d.TransferredToNdAt IS NULL
                           )
-                    GROUP BY i.InstructionRef, i.MatterId, i.ProspectId,
+                    GROUP BY i.InstructionRef, i.MatterId,
                              i.HelixContact, i.FirstName, i.LastName, i.CompanyName
                     HAVING COUNT(d.DocumentId) > 0
                     ORDER BY i.InstructionRef DESC
