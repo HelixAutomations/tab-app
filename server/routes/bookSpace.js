@@ -138,6 +138,7 @@ router.post('/', async (req, res) => {
       lane: 'Log',
       payload: req.body,
       summary: `${spaceType} booking — ${booking_date} ${booking_time} (${duration}h)`.slice(0, 400),
+      clientSubmissionId: req.body?.clientSubmissionId || null,
     });
   } catch (logErr) {
     trackException(logErr, { phase: 'bookSpace.recordSubmission' });

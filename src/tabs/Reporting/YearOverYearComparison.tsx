@@ -1,6 +1,17 @@
 import React, { CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Spinner } from '@fluentui/react/lib/Spinner';
 import { Icon } from '@fluentui/react/lib/Icon';
+import {
+  BarChart,
+  Bar,
+  Cell,
+  CartesianGrid,
+  Tooltip,
+  XAxis,
+  YAxis,
+  ResponsiveContainer,
+} from 'recharts';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';
 
@@ -49,8 +60,23 @@ interface MetricConfig {
 
 interface MonthlyPoint {
   label: string;
+  start?: string;
+  end?: string;
   value: number;
   rowCount: number;
+}
+
+interface MonthlyHoverState {
+  key: string;
+  left: number;
+  top: number;
+  placement: 'above' | 'below';
+  title: string;
+  metricLabel: string;
+  formattedValue: string;
+  basis: string;
+  period: string;
+  rowSummary: string;
 }
 
 interface DrillYearData {
@@ -91,6 +117,7 @@ const deltaPercent = (current: number, previous: number | null): number | null =
 };
 
 const yearRangeLabel = (year: YoYYearData): string => `${formatDate(year.startDate)} to ${formatDate(year.endDate)}`;
+const samePeriodRangeLabel = (anchorLabel: string): string => `1 Apr to ${anchorLabel}`;
 
 const YearOverYearComparison: React.FC = () => {
   const { isDarkMode } = useTheme();
@@ -98,12 +125,13 @@ const YearOverYearComparison: React.FC = () => {
   const [phase, setPhase] = useState<Phase>('loading');
   const [yearsBack, setYearsBack] = useState(3);
   const [activeMetric, setActiveMetric] = useState<MetricKey>('wip');
-  const [showMonthlyProfile, setShowMonthlyProfile] = useState(false);
+  const [showMonthlyProfile, setShowMonthlyProfile] = useState(true);
   const [data, setData] = useState<YoYResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [monthlyPhase, setMonthlyPhase] = useState<MonthlyPhase>('idle');
   const [monthlyError, setMonthlyError] = useState<string | null>(null);
   const [monthlyCache, setMonthlyCache] = useState<Partial<Record<MetricKey, DrillYearData[]>>>({});
+  const [monthlyHover, setMonthlyHover] = useState<MonthlyHoverState | null>(null);
 
   const accent = colours.highlight;
   const bodyText = isDarkMode ? '#d1d5db' : '#374151';
@@ -113,6 +141,41 @@ const YearOverYearComparison: React.FC = () => {
   const elevatedBackground = isDarkMode ? 'rgba(13, 47, 96, 0.48)' : 'rgba(244, 244, 246, 0.72)';
   const border = isDarkMode ? 'rgba(75, 85, 99, 0.34)' : 'rgba(6, 23, 51, 0.10)';
   const softBorder = isDarkMode ? 'rgba(75, 85, 99, 0.22)' : 'rgba(6, 23, 51, 0.07)';
+  const gridLine = isDarkMode ? 'rgba(75, 85, 99, 0.2)' : 'rgba(107, 107, 107, 0.08)';
+  const axisLine = isDarkMode ? 'rgba(75, 85, 99, 0.3)' : 'rgba(107, 107, 107, 0.15)';
+  const tickStyle = { fontSize: 9, fill: muted, fontFamily: 'Raleway, sans-serif' };
+  const tooltipLabelColour = isDarkMode ? '#f3f4f6' : '#061733';
+  const tooltipItemColour = isDarkMode ? '#d1d5db' : '#374151';
+  const tooltipStyle: CSSProperties = {
+    background: isDarkMode ? 'rgba(6, 23, 51, 0.95)' : 'rgba(255, 255, 255, 0.96)',
+    border: `0.5px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.4)' : 'rgba(107, 107, 107, 0.15)'}`,
+    borderRadius: 0,
+    fontSize: 11,
+    fontFamily: 'Raleway, sans-serif',
+    color: tooltipItemColour,
+    boxShadow: isDarkMode ? '0 4px 12px rgba(0,0,0,0.4)' : '0 3px 8px rgba(6,23,51,0.08)',
+    padding: '6px 10px',
+  };
+
+  const showMonthlyBucketTooltip = (
+    event: React.MouseEvent<HTMLDivElement> | React.FocusEvent<HTMLDivElement>,
+    detail: Omit<MonthlyHoverState, 'left' | 'top' | 'placement'>
+  ): void => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const viewportWidth = typeof window === 'undefined' ? rect.left + rect.width : window.innerWidth;
+    const left = Math.min(Math.max(rect.left + rect.width / 2, 140), viewportWidth - 140);
+    const placement: MonthlyHoverState['placement'] = rect.top < 130 ? 'below' : 'above';
+    setMonthlyHover({
+      ...detail,
+      left,
+      top: placement === 'above' ? rect.top - 8 : rect.bottom + 8,
+      placement,
+    });
+  };
+
+  const hideMonthlyBucketTooltip = (key: string): void => {
+    setMonthlyHover((current) => (current?.key === key ? null : current));
+  };
 
   const metricConfig = useMemo<Record<MetricKey, MetricConfig>>(() => ({
     wip: {
@@ -188,7 +251,6 @@ const YearOverYearComparison: React.FC = () => {
     setError(null);
     setMonthlyError(null);
     setMonthlyPhase('idle');
-    setShowMonthlyProfile(false);
     setMonthlyCache({});
 
     try {
@@ -235,11 +297,23 @@ const YearOverYearComparison: React.FC = () => {
     }
   }, [activeMetric, data, monthlyCache]);
 
+  useEffect(() => {
+    if (!data?.years.length) return;
+    if (monthlyCache[activeMetric]) return;
+    if (monthlyPhase === 'loading') return;
+    void loadMonthly(activeMetric);
+  }, [data, activeMetric, monthlyCache, monthlyPhase, loadMonthly]);
+
   const years = data?.years ?? [];
   const latestYear = years[years.length - 1] ?? null;
   const previousYear = years[years.length - 2] ?? null;
   const activeConfig = metricConfig[activeMetric];
   const anchorLabel = data?.anchorDate ? formatDate(data.anchorDate) : formatDate(new Date().toISOString().slice(0, 10));
+  const comparisonModeLabel = data?.ytd ? 'Same-period year-to-date' : 'Full financial year';
+  const comparisonPeriodLabel = data?.ytd ? samePeriodRangeLabel(anchorLabel) : '1 Apr to 31 Mar';
+  const comparisonBasis = data?.ytd
+    ? `Each bar totals ${comparisonPeriodLabel} within its own financial year.`
+    : 'Each bar totals the full financial year.';
   const generatedLabel = data?.generatedAt
     ? new Date(data.generatedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
     : null;
@@ -305,7 +379,7 @@ const YearOverYearComparison: React.FC = () => {
             </span>
           </div>
           <div style={{ color: bodyText, fontSize: 13, lineHeight: 1.45 }}>
-            Load a YTD comparison across WIP, collected fees and matters for the current financial-year window.
+            Load the current financial year-to-date and compare the same 1 Apr to today window in previous financial years.
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -357,14 +431,17 @@ const YearOverYearComparison: React.FC = () => {
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
             <span style={{ color: accent, fontSize: 11, fontWeight: 900, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-              Year on year
+              {comparisonModeLabel}
             </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', color: bodyText, fontSize: 12 }}>
             <span>{years.length} financial years</span>
-            <span style={{ color: muted }}>YTD to {anchorLabel}</span>
+            <span style={{ color: muted }}>{comparisonPeriodLabel} in each FY</span>
             <span style={{ color: muted }}>{availabilitySummary.ready}/{availabilitySummary.total} feeds available</span>
             {generatedLabel && <span style={{ color: muted }}>Updated {generatedLabel}</span>}
+          </div>
+          <div style={{ color: bodyText, fontSize: 12, lineHeight: 1.45, marginTop: 7 }}>
+            {comparisonBasis} Prior years are not full-year totals in this view.
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
@@ -388,13 +465,16 @@ const YearOverYearComparison: React.FC = () => {
         </div>
       </div>
 
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10, color: muted, fontSize: 11 }}>
+        <span style={{ color: muted, fontSize: 10, fontWeight: 900, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Current comparison window</span>
+        <span style={{ color: labelText, fontSize: 13, fontWeight: 900 }}>{latestYear.label}</span>
+        <span aria-hidden style={{ color: muted }}>{'\u00B7'}</span>
+        <span style={{ color: bodyText }}>{yearRangeLabel(latestYear)}</span>
+        <span aria-hidden style={{ color: muted }}>{'\u00B7'}</span>
+        {renderAvailabilitySummary(latestYear)}
+      </div>
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10, marginBottom: 14 }}>
-        <div style={{ background: elevatedBackground, border: `1px solid ${border}`, padding: 12, borderRadius: 0 }}>
-          <div style={{ color: muted, fontSize: 10, fontWeight: 900, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 8 }}>Latest FY</div>
-          <div style={{ color: labelText, fontSize: 18, fontWeight: 900 }}>{latestYear.label}</div>
-          <div style={{ color: bodyText, fontSize: 11, marginTop: 4 }}>{yearRangeLabel(latestYear)}</div>
-          <div style={{ marginTop: 10 }}>{renderAvailabilitySummary(latestYear)}</div>
-        </div>
         {metricSummaries.map(({ metric, config, current, delta }) => (
           <button
             key={metric}
@@ -424,90 +504,78 @@ const YearOverYearComparison: React.FC = () => {
         ))}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 12, alignItems: 'stretch' }}>
-        <div style={{ display: 'none', background: cardBackground, border: `1px solid ${border}`, borderRadius: 0, padding: 14 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, marginBottom: 12 }}>
-            <div>
-              <div style={{ color: activeConfig.colour, fontSize: 11, fontWeight: 900, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-                {activeConfig.label} trend
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12, alignItems: 'stretch' }}>
+        {METRIC_KEYS.map((metric) => {
+          const config = metricConfig[metric];
+          const chartData = years.map((year) => ({
+            label: year.label,
+            fy: year.fy,
+            value: config.value(year),
+            period: yearRangeLabel(year),
+            basis: data.ytd ? 'Same-period YTD' : 'Full FY',
+            hasData: config.available(year),
+            isLatest: year.fy === latestYear.fy,
+          }));
+          const isActive = activeMetric === metric;
+          return (
+            <button
+              key={metric}
+              type="button"
+              onClick={() => setActiveMetric(metric)}
+              style={{
+                background: cardBackground,
+                border: `1px solid ${isActive ? 'rgba(54, 144, 206, 0.38)' : border}`,
+                borderRadius: 0,
+                padding: '14px 12px 8px',
+                fontFamily: 'Raleway, sans-serif',
+                cursor: 'pointer',
+                textAlign: 'left',
+                boxShadow: isActive ? `inset 2px 0 0 ${colours.highlight}` : 'none',
+              }}
+            >
+              <div style={{ color: config.colour, fontSize: 10, fontWeight: 900, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 10 }}>
+                {config.label}
               </div>
-              <div style={{ color: bodyText, fontSize: 11, marginTop: 3 }}>Relative scale across the loaded financial years.</div>
-            </div>
-            <div style={{ color: muted, fontSize: 10, fontWeight: 700 }}>{activeConfig.detail}</div>
-          </div>
-
-          <div style={{ display: 'grid', gap: 9 }}>
-            {years.map((year, index) => {
-              const value = activeConfig.value(year);
-              const previous = index > 0 ? activeConfig.value(years[index - 1]) : null;
-              const delta = deltaPercent(value, previous);
-              const width = clampPercent((value / activeMetricMax) * 100);
-              const isLatest = year.fy === latestYear.fy;
-              const available = activeConfig.available(year);
-
-              return (
-                <div key={year.fy} style={{ display: 'grid', gridTemplateColumns: '96px minmax(0, 1fr) 92px 64px', gap: 10, alignItems: 'center' }}>
-                  <div>
-                    <div style={{ color: isLatest ? labelText : bodyText, fontSize: 12, fontWeight: isLatest ? 900 : 800 }}>{year.label}</div>
-                    <div style={{ color: muted, fontSize: 9, marginTop: 2 }}>{available ? 'Ready' : 'Partial'}</div>
-                  </div>
-                  <div style={{ height: 30, background: isDarkMode ? 'rgba(0, 3, 25, 0.62)' : 'rgba(6, 23, 51, 0.05)', border: `1px solid ${softBorder}`, borderRadius: 0, overflow: 'hidden' }}>
-                    <div
-                      style={{
-                        width: `${width}%`,
-                        height: '100%',
-                        background: available ? activeConfig.colour : muted,
-                        opacity: isLatest ? 1 : 0.62 + (index / Math.max(years.length, 1)) * 0.24,
+              <div style={{ color: bodyText, fontSize: 10, fontWeight: 700, marginTop: -6, marginBottom: 8 }}>
+                {comparisonPeriodLabel} in each FY
+              </div>
+              <div style={{ width: '100%', height: 180 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={chartData} margin={{ top: 5, right: 8, left: 4, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={gridLine} vertical={false} />
+                    <XAxis dataKey="label" tick={{ ...tickStyle, fontWeight: 600 }} axisLine={{ stroke: axisLine }} tickLine={false} />
+                    <YAxis tick={tickStyle} axisLine={false} tickLine={false} tickFormatter={(value: number) => config.compact(value)} width={50} />
+                    <Tooltip
+                      contentStyle={tooltipStyle}
+                      labelStyle={{ color: tooltipLabelColour, fontWeight: 700, marginBottom: 3 }}
+                      itemStyle={{ color: tooltipItemColour }}
+                      labelFormatter={(label) => `${label} ${comparisonModeLabel}`}
+                      formatter={(value, _name, item) => {
+                        const numericValue = typeof value === 'number' ? value : Number(value) || 0;
+                        const period = typeof item?.payload?.period === 'string' ? item.payload.period : null;
+                        const basis = typeof item?.payload?.basis === 'string' ? item.payload.basis : comparisonModeLabel;
+                        return [config.format(numericValue), period ? `${config.label}, ${basis}, ${period}` : config.label];
                       }}
+                      cursor={{ fill: isDarkMode ? 'rgba(54,144,206,0.04)' : 'rgba(54,144,206,0.03)' }}
                     />
-                  </div>
-                  <div style={{ color: labelText, fontSize: 12, fontWeight: 900, textAlign: 'right' }}>{activeConfig.compact(value)}</div>
-                  <div style={{ textAlign: 'right' }}>{renderDelta(delta)}</div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div style={{ background: cardBackground, border: `1px solid ${border}`, borderRadius: 0, padding: 14 }}>
-          <div style={{ color: muted, fontSize: 10, fontWeight: 900, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 10 }}>
-            Financial year detail
-          </div>
-          <div style={{ display: 'grid', gap: 8 }}>
-            {years.slice().reverse().map((year) => (
-              <div key={year.fy} style={{ background: elevatedBackground, border: `1px solid ${year.fy === latestYear.fy ? 'rgba(54, 144, 206, 0.42)' : softBorder}`, borderRadius: 0, padding: 10 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
-                  <span style={{ color: labelText, fontSize: 12, fontWeight: 900 }}>{year.label}</span>
-                  <span style={{ color: muted, fontSize: 10, fontWeight: 700 }}>{yearRangeLabel(year)}</span>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
-                  {METRIC_KEYS.map((metric) => {
-                    const config = metricConfig[metric];
-                    return (
-                      <div key={metric}>
-                        <div style={{ color: muted, fontSize: 9, fontWeight: 800 }}>{config.label}</div>
-                        <div style={{ color: labelText, fontSize: 12, fontWeight: 900, marginTop: 2 }}>{config.compact(config.value(year))}</div>
-                      </div>
-                    );
-                  })}
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginTop: 8 }}>
-                  <span style={{ color: muted, fontSize: 9, fontWeight: 700 }}>{formatHours(year.wipHours)}</span>
-                  {renderAvailabilitySummary(year)}
-                </div>
+                    <Bar dataKey="value" maxBarSize={36}>
+                      {chartData.map((entry, idx) => (
+                        <Cell
+                          key={entry.fy}
+                          fill={entry.hasData ? config.colour : (isDarkMode ? 'rgba(75,85,99,0.18)' : 'rgba(107,107,107,0.10)')}
+                          opacity={entry.hasData ? (0.5 + ((idx + 1) / chartData.length) * 0.5) : 0.3}
+                          stroke={isActive && entry.isLatest ? colours.highlight : 'none'}
+                          strokeWidth={isActive && entry.isLatest ? 1.5 : 0}
+                        />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
               </div>
-            ))}
-          </div>
-        </div>
+            </button>
+          );
+        })}
       </div>
-
-      {!showMonthlyProfile && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
-          <button type="button" style={tertiaryButtonStyle(false)} onClick={() => setShowMonthlyProfile(true)}>
-            Show monthly profile
-          </button>
-        </div>
-      )}
 
       <div style={{ display: showMonthlyProfile ? 'block' : 'none', marginTop: 12, background: cardBackground, border: `1px solid ${border}`, borderRadius: 0, padding: 14 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: monthlyData ? 12 : 0 }}>
@@ -516,7 +584,7 @@ const YearOverYearComparison: React.FC = () => {
               Monthly profile
             </div>
             <div style={{ color: bodyText, fontSize: 11, marginTop: 3 }}>
-              Fiscal-month shape for {activeConfig.label.toLowerCase()}. Current FY stops at the anchor month.
+              Fiscal-month shape for {activeConfig.label.toLowerCase()}. The comparison view above uses {comparisonPeriodLabel} for every FY.
             </div>
           </div>
           <button type="button" style={tertiaryButtonStyle(false)} onClick={() => loadMonthly(activeMetric)} disabled={monthlyPhase === 'loading'}>
@@ -534,11 +602,7 @@ const YearOverYearComparison: React.FC = () => {
           <div style={{ color: colours.cta, fontSize: 12, fontWeight: 700, marginTop: 10 }}>{monthlyError}</div>
         )}
 
-        {!monthlyData && monthlyPhase !== 'loading' && (
-          <div style={{ color: muted, fontSize: 11, marginTop: 10 }}>
-            Monthly data is kept on demand so the dashboard stays quick on first load.
-          </div>
-        )}
+
 
         {monthlyData && (
           <div style={{ display: 'grid', gap: 8, overflowX: 'auto', paddingBottom: 2 }}>
@@ -555,8 +619,43 @@ const YearOverYearComparison: React.FC = () => {
                   {MONTH_LABELS.map((label, index) => {
                     const point = year.months[index] ?? { label, value: 0, rowCount: 0 };
                     const height = clampPercent((point.value / monthlyPeak) * 100);
+                    const bucketKey = `${year.fy}-${label}`;
+                    const bucketPeriod = point.start && point.end ? `${formatDate(point.start)} to ${formatDate(point.end)}` : point.label;
+                    const rowSummary = activeMetric === 'mattersOpened'
+                      ? `${formatCount(point.rowCount)} matters opened`
+                      : `${formatCount(point.rowCount)} source rows`;
+                    const hoverDetail = {
+                      key: bucketKey,
+                      title: `${year.fyLabel} ${point.label}`,
+                      metricLabel: activeConfig.label,
+                      formattedValue: activeConfig.format(point.value),
+                      basis: data.ytd ? `Same-period YTD view: ${comparisonPeriodLabel} in each FY` : 'Full financial year view',
+                      period: point.start && point.end ? `Bucket period: ${bucketPeriod}` : `Bucket: ${bucketPeriod}`,
+                      rowSummary,
+                    };
+                    const isBucketHovered = monthlyHover?.key === bucketKey;
                     return (
-                      <div key={`${year.fy}-${label}`} title={`${year.fyLabel} ${label}: ${activeConfig.format(point.value)}`} style={{ height: 42, display: 'flex', alignItems: 'end', justifyContent: 'center', background: isDarkMode ? 'rgba(0, 3, 25, 0.34)' : 'rgba(6, 23, 51, 0.035)', border: `1px solid ${softBorder}` }}>
+                      <div
+                        key={bucketKey}
+                        tabIndex={0}
+                        aria-label={`${year.fyLabel} ${point.label}: ${activeConfig.label} ${activeConfig.format(point.value)}, ${bucketPeriod}, ${rowSummary}`}
+                        onMouseEnter={(event) => showMonthlyBucketTooltip(event, hoverDetail)}
+                        onMouseMove={(event) => showMonthlyBucketTooltip(event, hoverDetail)}
+                        onFocus={(event) => showMonthlyBucketTooltip(event, hoverDetail)}
+                        onMouseLeave={() => hideMonthlyBucketTooltip(bucketKey)}
+                        onBlur={() => hideMonthlyBucketTooltip(bucketKey)}
+                        style={{
+                          height: 42,
+                          display: 'flex',
+                          alignItems: 'end',
+                          justifyContent: 'center',
+                          background: isDarkMode ? 'rgba(0, 3, 25, 0.34)' : 'rgba(6, 23, 51, 0.035)',
+                          border: `1px solid ${isBucketHovered ? activeConfig.colour : softBorder}`,
+                          boxShadow: isBucketHovered ? `0 0 0 1px ${activeConfig.colour}` : 'none',
+                          cursor: 'default',
+                          outline: 'none',
+                        }}
+                      >
                         <span style={{ width: '100%', height: `${Math.max(6, height)}%`, background: activeConfig.colour, opacity: point.value > 0 ? 0.28 + (height / 100) * 0.62 : 0.12 }} />
                       </div>
                     );
@@ -567,6 +666,31 @@ const YearOverYearComparison: React.FC = () => {
             })}
           </div>
         )}
+
+        {monthlyHover && typeof document !== 'undefined' && createPortal((
+          <div
+            role="tooltip"
+            style={{
+              ...tooltipStyle,
+              position: 'fixed',
+              left: monthlyHover.left,
+              top: monthlyHover.top,
+              transform: monthlyHover.placement === 'above' ? 'translate(-50%, -100%)' : 'translateX(-50%)',
+              zIndex: 10000,
+              minWidth: 220,
+              maxWidth: 270,
+              pointerEvents: 'none',
+              lineHeight: 1.35,
+              textAlign: 'left',
+            }}
+          >
+            <div style={{ color: tooltipLabelColour, fontWeight: 800, marginBottom: 5 }}>{monthlyHover.title}</div>
+            <div style={{ color: tooltipItemColour, fontWeight: 800 }}>{monthlyHover.metricLabel}: {monthlyHover.formattedValue}</div>
+            <div style={{ color: tooltipItemColour, marginTop: 4 }}>{monthlyHover.basis}</div>
+            <div style={{ color: tooltipItemColour, marginTop: 2 }}>{monthlyHover.period}</div>
+            <div style={{ color: muted, marginTop: 5 }}>{monthlyHover.rowSummary}</div>
+          </div>
+        ), document.body)}
       </div>
     </div>
   );

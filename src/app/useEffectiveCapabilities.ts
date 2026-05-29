@@ -12,6 +12,7 @@
 // returned yet — so LZ-by-default behaviour is preserved when SQL is cold.
 
 import { useEffect, useState } from 'react';
+import { buildRequestAuthHeaders } from '../utils/requestAuthContext';
 
 type CapEntry = { allowed?: boolean } | boolean | null | undefined;
 type CapMap = Record<string, CapEntry>;
@@ -40,7 +41,7 @@ async function fetchEffective(): Promise<CapMap> {
   if (inflight) return inflight;
   inflight = (async () => {
     try {
-      const res = await fetch('/api/access/effective', { credentials: 'include' });
+      const res = await fetch('/api/access/effective', { credentials: 'include', headers: buildRequestAuthHeaders() });
       if (!res.ok) throw new Error(`effective ${res.status}`);
       const json = await res.json();
       const map = (json && json.capabilities) || {};

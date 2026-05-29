@@ -20,6 +20,14 @@ import { disposeOnHmr, onServerBounced } from "./utils/devHmr";
 import { stampBuildAttribute, registerWayfindingDebugApi } from "./utils/devWayfinding";
 import { useDevServerBoot } from "./hooks/useDevServerBoot";
 import { useRealtimeChannel } from "./hooks/useRealtimeChannel";
+import {
+  LOCAL_SUPPORT_CHANGED_EVENT,
+  readLocalSupportSettings,
+  shouldAllowLocalTeamData,
+  shouldRunLocalShellEnquiries,
+  shouldRunLocalShellMatters,
+  shouldSkipLocalLiveData,
+} from "./app/localSupportMode";
 import "./utils/callLogger";
 import { initializeIcons } from '@fluentui/react/lib/Icons';
 import Loading from "./app/styles/Loading";
@@ -994,6 +1002,115 @@ function resolveEffectiveDatasetUser(
   return { email, initials, fullName, entraId, clioId };
 }
 
+// ── User-switch UI helpers ────────────────────────────────────────────────
+// Blocking overlay rendered while a user switch is in flight. Prevents the
+// operator from clicking the still-mounted previous identity's UI while we
+// persist + reload. Uses Helix dark navy ladder, borderRadius 0.
+const SwitchUserOverlay: React.FC<{ targetName: string; mode: 'switching' | 'returning' }> = ({ targetName, mode }) => {
+  return (
+    <div
+      role="dialog"
+      aria-live="assertive"
+      aria-modal="true"
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 999999,
+        background: 'rgba(0, 3, 25, 0.82)',
+        backdropFilter: 'blur(4px)',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 14,
+        fontFamily: 'Raleway, sans-serif',
+        color: '#f3f4f6',
+        cursor: 'wait',
+      }}
+    >
+      <div style={{
+        width: 38, height: 38,
+        border: '3px solid rgba(54, 144, 206, 0.25)',
+        borderTopColor: colours.blue,
+        borderRadius: '50%',
+        animation: 'helix-spin 0.9s linear infinite',
+      }} />
+      <div style={{ fontSize: 13, fontWeight: 600, letterSpacing: 0.2 }}>
+        {mode === 'returning' ? 'Returning to' : 'Switching to'} {targetName}…
+      </div>
+      <div style={{ fontSize: 11, opacity: 0.7 }}>Reloading the app under the new identity.</div>
+      <style>{`@keyframes helix-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+    </div>
+  );
+};
+
+// Persistent slim banner shown whenever the operator is viewing as another
+// user. Sits above all chrome so the return path is always one click away.
+const ViewingAsBanner: React.FC<{
+  switchedUser: UserData | null;
+  originalAdminUser: UserData;
+  onReturn: () => void;
+}> = ({ switchedUser, originalAdminUser, onReturn }) => {
+  const switchedName = String(switchedUser?.FullName || switchedUser?.Initials || 'another user').trim();
+  const originalName = String(originalAdminUser.FullName || originalAdminUser.Initials || 'admin').trim();
+  return (
+    <div
+      role="status"
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        zIndex: 9000,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 12,
+        padding: '6px 14px',
+        background: 'linear-gradient(90deg, rgba(214, 85, 65, 0.95), rgba(214, 85, 65, 0.85))',
+        color: '#fff',
+        fontFamily: 'Raleway, sans-serif',
+        fontSize: 11,
+        fontWeight: 600,
+        letterSpacing: 0.2,
+        boxShadow: '0 1px 6px rgba(0, 3, 25, 0.35)',
+      }}
+    >
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
+        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+        <line x1="12" y1="9" x2="12" y2="13" />
+        <line x1="12" y1="17" x2="12.01" y2="17" />
+      </svg>
+      <span>Viewing as {switchedName}</span>
+      <button
+        type="button"
+        onClick={onReturn}
+        style={{
+          background: 'rgba(255,255,255,0.18)',
+          color: '#fff',
+          border: '1px solid rgba(255,255,255,0.45)',
+          padding: '3px 10px',
+          fontSize: 11,
+          fontWeight: 600,
+          fontFamily: 'Raleway, sans-serif',
+          cursor: 'pointer',
+          borderRadius: 0,
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 6,
+        }}
+        onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.30)'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.18)'; }}
+      >
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6">
+          <path d="M19 12H5M12 19l-7-7 7-7" />
+        </svg>
+        Return to {originalName}
+      </button>
+    </div>
+  );
+};
+
 // Main component
 const AppWithContext: React.FC = () => {
   // Wayfinding + dev server-bounce reconnect (no-ops in production).
@@ -1003,6 +1120,7 @@ const AppWithContext: React.FC = () => {
     useState<app.Context | null>(null);
   const [userData, setUserData] = useState<UserData[] | null>(null);
   const [originalAdminUser, setOriginalAdminUser] = useState<UserData | null>(null);
+  const [switchOverlay, setSwitchOverlay] = useState<{ targetName: string; mode: 'switching' | 'returning' } | null>(null);
   const [enquiries, setEnquiries] = useState<Enquiry[]>([]);
   const [matters, setMatters] = useState<NormalizedMatter[]>([]);
   const [teamData, setTeamData] = useState<TeamData[] | null>(null);
@@ -1012,6 +1130,21 @@ const AppWithContext: React.FC = () => {
   const [enquiriesUsingSnapshot, setEnquiriesUsingSnapshot] = useState(false);
   const [enquiriesLiveRefreshInFlight, setEnquiriesLiveRefreshInFlight] = useState(false);
   const [lastEnquiriesLiveSyncAt, setLastEnquiriesLiveSyncAt] = useState<number | null>(null);
+  const [localSupportSettings, setLocalSupportSettings] = useState(() => readLocalSupportSettings(isLocalDevEnv));
+
+  useEffect(() => {
+    if (!isLocalDevEnv || typeof window === 'undefined') return;
+    const syncLocalSupportSettings = (event?: Event) => {
+      const detail = event instanceof CustomEvent ? event.detail : undefined;
+      setLocalSupportSettings(detail?.mode && detail?.dataScope ? detail : readLocalSupportSettings(true));
+    };
+    window.addEventListener(LOCAL_SUPPORT_CHANGED_EVENT, syncLocalSupportSettings as EventListener);
+    window.addEventListener('storage', syncLocalSupportSettings);
+    return () => {
+      window.removeEventListener(LOCAL_SUPPORT_CHANGED_EVENT, syncLocalSupportSettings as EventListener);
+      window.removeEventListener('storage', syncLocalSupportSettings);
+    };
+  }, []);
 
   // Avoid over-flushing server cache during rapid refresh bursts (e.g. SSE-driven refresh).
   const lastEnquiriesCacheFlushAtRef = React.useRef<number>(0);
@@ -1067,8 +1200,8 @@ const AppWithContext: React.FC = () => {
   const [sseConnectionState, setSseConnectionState] = useState<'connecting' | 'live' | 'error'>('connecting');
   const [lastPipelineEventAt, setLastPipelineEventAt] = useState<number | null>(null);
 
-  // Local development state for area selection
-  const [localSelectedAreas, setLocalSelectedAreas] = useState<string[]>(['Commercial', 'Construction', 'Property']);
+  const defaultLocalAreas = React.useMemo(() => ['Commercial', 'Construction', 'Property'], []);
+  const areaOverrideRefreshPendingRef = React.useRef(false);
 
   useLayoutEffect(() => {
     const activeUser = normalizeUserRecord(userData?.[0] || null);
@@ -1083,6 +1216,10 @@ const AppWithContext: React.FC = () => {
   // Refresh enquiries function - can be called after claiming an enquiry
   const refreshEnquiries = React.useCallback(async () => {
     if (!userData || !userData[0]) return;
+    if (isLocalDevEnv && !shouldRunLocalShellEnquiries(localSupportSettings)) {
+      setEnquiriesLiveRefreshInFlight(false);
+      return;
+    }
 
     if (refreshEnquiriesInFlightRef.current) {
       refreshEnquiriesQueuedRef.current = true;
@@ -1139,7 +1276,7 @@ const AppWithContext: React.FC = () => {
     const refreshPromise = runRefresh();
     refreshEnquiriesInFlightRef.current = refreshPromise;
     return refreshPromise;
-  }, [originalAdminUser, teamData, userData]);
+  }, [localSupportSettings, originalAdminUser, teamData, userData]);
 
     const scheduleBootEnquiriesLiveRefresh = (options: {
       stage: 'teams' | 'gate' | 'local';
@@ -1286,11 +1423,28 @@ const AppWithContext: React.FC = () => {
   }, [refreshEnquiries]);
 
   useEffect(() => {
+    if (!areaOverrideRefreshPendingRef.current) return;
+    areaOverrideRefreshPendingRef.current = false;
+    void refreshEnquiriesRef.current();
+  }, [userData]);
+
+  useEffect(() => {
     optimisticClaimEnquiryRef.current = optimisticClaimEnquiry;
   }, [optimisticClaimEnquiry]);
 
   useEffect(() => {
     if (!userData?.[0]) return;
+    if (isLocalDevEnv && !shouldRunLocalShellEnquiries(localSupportSettings)) {
+      setSseConnectionState('live');
+      trackClientEvent('AppShell', 'enquiries-stream-skipped', {
+        mode: localSupportSettings.mode,
+        dataScope: localSupportSettings.dataScope,
+      }, {
+        throttleKey: `app:enquiries-stream-skipped:${localSupportSettings.mode}:${localSupportSettings.dataScope}`,
+        cooldownMs: 60000,
+      });
+      return;
+    }
 
     let eventSource: EventSource | null = null;
 
@@ -1437,8 +1591,8 @@ const AppWithContext: React.FC = () => {
       eventSource.onerror = () => {
         setSseConnectionState('error');
         // Browser will auto-retry; keep handler light.
-        trackClientEvent('AppShell', 'enquiries-stream-error', { readyState: eventSource?.readyState ?? -1 }, {
-          throttleKey: 'app:enquiries-stream-error',
+        trackClientEvent('AppShell', 'enquiries-stream-retrying', { readyState: eventSource?.readyState ?? -1 }, {
+          throttleKey: 'app:enquiries-stream-retrying',
           cooldownMs: 15000,
         });
       };
@@ -1494,7 +1648,7 @@ const AppWithContext: React.FC = () => {
       undoHmr();
       undoBounce();
     };
-  }, [userData]);
+  }, [localSupportSettings, userData]);
 
   // Refresh matters function - clears local caches and fetches normalized matters for current user
   const refreshMatters = React.useCallback(async () => {
@@ -1669,7 +1823,7 @@ const AppWithContext: React.FC = () => {
   useRealtimeChannel('/api/matters/stream', {
     event: 'matters.changed',
     name: 'matters-app-shell',
-    enabled: !!(userData && userData[0]) && isPageVisible,
+    enabled: !!(userData && userData[0]) && isPageVisible && (!isLocalDevEnv || shouldRunLocalShellMatters(localSupportSettings)),
     onChange: () => {
       requestMattersRefresh();
       // Re-emit the legacy window event so other listeners (e.g. Home tile
@@ -1680,18 +1834,12 @@ const AppWithContext: React.FC = () => {
 
   // Update user data when local areas change
   const updateLocalUserData = (areas: string[]) => {
-    debugLog('📥 updateLocalUserData called with:', areas);
-    debugLog('📝 Current userData before update:', userData?.[0]?.AOW);
-    setLocalSelectedAreas(areas);
-    // Allow area override for all users, not just localhost
-    if (userData && userData[0]) {
-      const updatedUserData = [{
-        ...userData[0],
-        AOW: areas.join(', ')
-      }];
-      debugLog('✅ Setting new userData with AOW:', updatedUserData[0].AOW);
-      setUserData(updatedUserData as UserData[]);
-    }
+    if (!userData || !userData[0]) return;
+    const nextAow = areas.join(', ');
+    if (String(userData[0].AOW || '').trim() === nextAow) return;
+
+    areaOverrideRefreshPendingRef.current = true;
+    setUserData([{ ...userData[0], AOW: nextAow }] as UserData[]);
   };
 
   const normalizeSwitchIdentity = (user?: UserData | null) => ({
@@ -1720,11 +1868,11 @@ const AppWithContext: React.FC = () => {
     actionLog.start('User switch', `→ ${newUser.Initials || newUser.First || 'unknown'}`);
 
     const normalized = normalizeUserRecord(newUser) as UserData;
-    const hydratedUser = await hydrateUserProfile(normalized).catch(() => normalized);
-    const activeUser = (hydratedUser || normalized) as UserData;
 
-    writeRequestAuthContext(activeUser);
-
+    // Compute persistence intent up-front using whatever identity we already
+    // have. We do NOT await hydration first — if hydrate hangs or the network
+    // is slow, the user is left looking at the previous identity with no
+    // feedback. Persist + reload first; hydration on boot will fill any gaps.
     const returningToOriginalAdmin = !!originalAdminUser && isSameSwitchIdentity(normalized, originalAdminUser);
     const currentPrimary = userData?.[0] || null;
     const originalToPreserve = returningToOriginalAdmin
@@ -1732,18 +1880,53 @@ const AppWithContext: React.FC = () => {
       : (originalAdminUser
           || (currentPrimary && !isSameSwitchIdentity(normalized, currentPrimary) ? currentPrimary : null));
 
+    // 1. Show a blocking overlay synchronously so the old UI can't be clicked
+    //    while we prepare the reload. Pre-paint the target name.
+    const targetName = String(normalized.FullName || normalized.First || normalized.Initials || 'user').trim();
+    setSwitchOverlay({
+      targetName,
+      mode: returningToOriginalAdmin ? 'returning' : 'switching',
+    });
+
+    // 2. Write the persisted-switch sessionStorage marker BEFORE any async
+    //    work, then write the request-auth context so any in-flight retries
+    //    after navigation use the new identity.
     if (returningToOriginalAdmin || !originalToPreserve) {
       clearUserSwitch();
     } else {
-      persistUserSwitch(activeUser, originalToPreserve);
+      persistUserSwitch(normalized, originalToPreserve);
     }
+    writeRequestAuthContext(normalized);
 
+    // 3. Aggressively wipe every per-user cache key. Everything in localStorage
+    //    is reproducible from the server; the only state that MUST survive the
+    //    reload is the persisted user-switch marker (which lives in
+    //    sessionStorage). Erring on the side of nuke-then-rebuild stops the
+    //    "stale data from the previous user keeps showing up" class of bugs.
     try {
-      const keysToRemove = Object.keys(localStorage).filter(key => {
-        const k = key.toLowerCase();
-        return k.includes('enquiries-') || k.includes('userdata-') || k.includes('matters-');
-      });
+      const preserveKeys = new Set<string>([
+        // visual preferences we want to keep
+        'helix:showScrollbars',
+        'helix:theme',
+        'theme',
+      ]);
+      const keysToRemove = Object.keys(localStorage).filter(key => !preserveKeys.has(key));
       keysToRemove.forEach(key => localStorage.removeItem(key));
+    } catch { /* ignore */ }
+
+    // 4. Best-effort hydrate to upgrade the persisted record with EntraID /
+    //    ClioID before reload, but never block the reload on it. A 1.5s cap
+    //    guarantees the user always sees the new identity within ~2s even on
+    //    a slow network.
+    try {
+      const hydratePromise = hydrateUserProfile(normalized).then((hydrated) => {
+        if (hydrated && !returningToOriginalAdmin && originalToPreserve) {
+          persistUserSwitch(hydrated as UserData, originalToPreserve);
+        }
+        if (hydrated) writeRequestAuthContext(hydrated);
+      }).catch(() => { /* ignore */ });
+      const timeout = new Promise<void>((resolve) => window.setTimeout(resolve, 1500));
+      await Promise.race([hydratePromise, timeout]);
     } catch { /* ignore */ }
 
     actionLog.end('User switch', 'reloading');
@@ -1791,7 +1974,7 @@ const AppWithContext: React.FC = () => {
 
       const seededUser = normalizeUserRecord({
         ...selectedUserData,
-        AOW: selectedUserData?.AOW || localSelectedAreas.join(', '),
+        AOW: selectedUserData?.AOW || defaultLocalAreas.join(', '),
       } as UserData) as UserData;
       const hydratedUser = await hydrateUserProfile(seededUser).catch(() => seededUser);
       const initialUserData = [(hydratedUser || seededUser) as UserData];
@@ -2254,7 +2437,7 @@ const AppWithContext: React.FC = () => {
         if (isLocalDevEnv && !isWebEntry) {
           // Local development: skip prompts and use default local user
           try {
-            await dedup(`local-init:${localSelectedAreas.join('|')}`, async () => {
+            await dedup(`local-init:${defaultLocalAreas.join('|')}`, async () => {
               setTeamsContext({
                 user: {
                   id: "local",
@@ -2269,24 +2452,48 @@ const AppWithContext: React.FC = () => {
               const { default: localUserData } = await import('./localData/localUserData.json');
               const initialUserData = [{
                 ...localUserData[0],
-                AOW: localSelectedAreas.join(', ')
+                AOW: defaultLocalAreas.join(', ')
               }];
               setUserData(initialUserData as UserData[]);
+
+              if (shouldSkipLocalLiveData(localSupportSettings)) {
+                setEnquiries([]);
+                setMatters([]);
+                setTeamData(null);
+                setEnquiriesUsingSnapshot(false);
+                setEnquiriesLiveRefreshInFlight(false);
+                setLoading(false);
+                trackBootStage('local', 'core-home', 'skipped', {
+                  entry: 'local-dev',
+                  mode: localSupportSettings.mode,
+                  dataScope: localSupportSettings.dataScope,
+                  reason: 'local-support-no-data',
+                });
+                trackBootSummary('local', {
+                  entry: 'local-dev',
+                  mode: localSupportSettings.mode,
+                  dataScope: localSupportSettings.dataScope,
+                  skipped: true,
+                });
+                return;
+              }
 
               // Restore the local shell snapshot before waiting on /api/health
               // so cached shell data can paint even while the backend wakes up.
               const localSnapshot = readShellBootSnapshot('local');
-              const restoredLocalSnapshot = Boolean(localSnapshot);
-              if (localSnapshot) {
-                if (localSnapshot.enquiries?.length) setEnquiries(localSnapshot.enquiries);
-                if (localSnapshot.teamData) setTeamData(localSnapshot.teamData);
-                setEnquiriesUsingSnapshot(Boolean(localSnapshot.enquiries?.length));
+              const canRestoreLocalEnquiriesSnapshot = shouldRunLocalShellEnquiries(localSupportSettings) && shouldAllowLocalTeamData(localSupportSettings);
+              const canRestoreLocalTeamSnapshot = shouldAllowLocalTeamData(localSupportSettings);
+              const restoredLocalSnapshot = Boolean(localSnapshot && (canRestoreLocalEnquiriesSnapshot || canRestoreLocalTeamSnapshot));
+              if (restoredLocalSnapshot && localSnapshot) {
+                if (canRestoreLocalEnquiriesSnapshot && localSnapshot.enquiries?.length) setEnquiries(localSnapshot.enquiries);
+                if (canRestoreLocalTeamSnapshot && localSnapshot.teamData) setTeamData(localSnapshot.teamData);
+                setEnquiriesUsingSnapshot(Boolean(canRestoreLocalEnquiriesSnapshot && localSnapshot.enquiries?.length));
                 setLoading(false);
                 console.info('[Boot:Local] Shell snapshot restored before local API readiness wait');
                 trackBootStage('local', 'snapshot', 'restored', {
                   entry: 'local-dev',
-                  hasEnquiries: Boolean(localSnapshot.enquiries?.length),
-                  hasTeamData: Boolean(localSnapshot.teamData),
+                  hasEnquiries: Boolean(canRestoreLocalEnquiriesSnapshot && localSnapshot.enquiries?.length),
+                  hasTeamData: Boolean(canRestoreLocalTeamSnapshot && localSnapshot.teamData),
                 });
               }
 
@@ -2321,12 +2528,16 @@ const AppWithContext: React.FC = () => {
               actionLog.start('Boot: core data');
               trackBootStage('local', 'core-home', 'started', {
                 entry: 'local-dev',
-                restoredSnapshot: Boolean(localSnapshot),
+                restoredSnapshot: restoredLocalSnapshot,
+                mode: localSupportSettings.mode,
+                dataScope: localSupportSettings.dataScope,
               });
 
               try {
-                const cachedTeam = localSnapshot?.teamData || getCachedData<TeamData[]>('teamData');
-                if (!localSnapshot && cachedTeam?.length) {
+                const shouldFetchLocalTeamData = shouldAllowLocalTeamData(localSupportSettings);
+                const shouldFetchLocalEnquiries = shouldRunLocalShellEnquiries(localSupportSettings);
+                const cachedTeam = shouldFetchLocalTeamData ? (localSnapshot?.teamData || getCachedData<TeamData[]>('teamData')) : null;
+                if (shouldFetchLocalTeamData && !localSnapshot && cachedTeam?.length) {
                   setTeamData(cachedTeam);
                 }
 
@@ -2334,8 +2545,8 @@ const AppWithContext: React.FC = () => {
                 const cachedUserInitials = cachedEffectiveUser.initials || "";
                 const cachedEnquiriesEmail = cachedEffectiveUser.email || "";
 
-                if (!localSnapshot) {
-                  const devOwnerBoot = isDevOwner(initialUserData[0] as UserData);
+                if (shouldFetchLocalEnquiries && !localSnapshot) {
+                  const devOwnerBoot = shouldFetchLocalTeamData && isDevOwner(initialUserData[0] as UserData);
                   const cachedEnquiries = getCachedEnquiriesSnapshot(
                     cachedEnquiriesEmail,
                     dateFrom,
@@ -2357,33 +2568,70 @@ const AppWithContext: React.FC = () => {
                 }
 
                 const t0Team = performance.now();
-                actionLog.start('Boot: team data');
-                trackBootStage('local', 'team-data', 'started', { entry: 'local-dev' });
-                const liveTeamPromise = fetchTeamData()
-                  .then((liveTeam) => {
-                    const teamMs = Math.round(performance.now() - t0Team);
-                    console.info(`[Boot] TeamData: ${teamMs}ms`);
-                    actionLog.end('Boot: team data');
-                    setTeamData(liveTeam);
-                    trackBootStage('local', 'team-data', 'completed', {
-                      entry: 'local-dev',
-                      teamCount: Array.isArray(liveTeam) ? liveTeam.length : 0,
-                    }, {
-                      duration: teamMs,
-                    });
-                    return liveTeam;
-                  })
-                  .catch((err) => {
-                    const teamMs = Math.round(performance.now() - t0Team);
-                    console.warn(`[Boot] TeamData failed (${teamMs}ms):`, err);
-                    trackBootStage('local', 'team-data', 'failed', {
-                      entry: 'local-dev',
-                    }, {
-                      duration: teamMs,
-                      error: err instanceof Error ? err.message : String(err),
-                    });
-                    return cachedTeam || null;
+                const liveTeamPromise = shouldFetchLocalTeamData
+                  ? (() => {
+                      actionLog.start('Boot: team data');
+                      trackBootStage('local', 'team-data', 'started', { entry: 'local-dev' });
+                      return fetchTeamData()
+                        .then((liveTeam) => {
+                          const teamMs = Math.round(performance.now() - t0Team);
+                          console.info(`[Boot] TeamData: ${teamMs}ms`);
+                          actionLog.end('Boot: team data');
+                          setTeamData(liveTeam);
+                          trackBootStage('local', 'team-data', 'completed', {
+                            entry: 'local-dev',
+                            teamCount: Array.isArray(liveTeam) ? liveTeam.length : 0,
+                          }, {
+                            duration: teamMs,
+                          });
+                          return liveTeam;
+                        })
+                        .catch((err) => {
+                          const teamMs = Math.round(performance.now() - t0Team);
+                          console.warn(`[Boot] TeamData failed (${teamMs}ms):`, err);
+                          trackBootStage('local', 'team-data', 'failed', {
+                            entry: 'local-dev',
+                          }, {
+                            duration: teamMs,
+                            error: err instanceof Error ? err.message : String(err),
+                          });
+                          return cachedTeam || null;
+                        });
+                    })()
+                  : Promise.resolve(cachedTeam || null);
+
+                if (!shouldFetchLocalEnquiries) {
+                  setEnquiries([]);
+                  setEnquiriesUsingSnapshot(false);
+                  setEnquiriesLiveRefreshInFlight(false);
+                  await liveTeamPromise;
+                  const coreHomeMs = Math.round(performance.now() - bootStart);
+                  actionLog.end('Boot: core data', 'enquiries skipped');
+                  trackBootStage('local', 'enquiries', 'skipped', {
+                    entry: 'local-dev',
+                    mode: localSupportSettings.mode,
+                    dataScope: localSupportSettings.dataScope,
+                    reason: 'local-support-mode',
                   });
+                  trackBootStage('local', 'core-home', 'completed', {
+                    entry: 'local-dev',
+                    mode: localSupportSettings.mode,
+                    dataScope: localSupportSettings.dataScope,
+                    enquiriesCount: 0,
+                  }, {
+                    duration: coreHomeMs,
+                  });
+                  trackBootSummary('local', {
+                    entry: 'local-dev',
+                    mode: localSupportSettings.mode,
+                    dataScope: localSupportSettings.dataScope,
+                    enquiriesCount: 0,
+                    coreHomeMs,
+                  }, {
+                    duration: coreHomeMs,
+                  });
+                  return;
+                }
 
                 setEnquiriesLiveRefreshInFlight(true);
 
@@ -2391,7 +2639,7 @@ const AppWithContext: React.FC = () => {
                   const effectiveUser = resolveEffectiveDatasetUser(initialUserData[0] as UserData, teamForIdentity);
                   const userInitials = effectiveUser.initials || "";
                   const enquiriesEmail = effectiveUser.email || "";
-                  const fetchAll = isDevOwner(initialUserData[0] as UserData);
+                  const fetchAll = shouldFetchLocalTeamData && isDevOwner(initialUserData[0] as UserData);
                   console.info(`[Boot] Enquiries fetch: email=${enquiriesEmail} initials=${userInitials} fetchAll=${fetchAll}`);
                   const t0 = performance.now();
                   trackBootStage('local', 'enquiries', 'started', {
@@ -2442,7 +2690,9 @@ const AppWithContext: React.FC = () => {
                       enquiriesCount: res.length,
                       coreHomeMs,
                       enquiriesMs,
-                      restoredSnapshot: Boolean(localSnapshot),
+                      restoredSnapshot: restoredLocalSnapshot,
+                      mode: localSupportSettings.mode,
+                      dataScope: localSupportSettings.dataScope,
                     }, {
                       duration: coreHomeMs,
                     });
@@ -2485,7 +2735,7 @@ const AppWithContext: React.FC = () => {
                 setEnquiriesLiveRefreshInFlight(false);
 
                 // Dev owner matters stay out of the critical boot path.
-                if (isDevOwner(initialUserData[0] as UserData)) {
+                if (shouldRunLocalShellMatters(localSupportSettings) && isDevOwner(initialUserData[0] as UserData)) {
                   const effectiveUser = resolveEffectiveDatasetUser(initialUserData[0] as UserData, liveTeam);
                   trackBootStage('local', 'matters', 'skipped', {
                     entry: 'local-dev',
@@ -2568,7 +2818,7 @@ const AppWithContext: React.FC = () => {
     };
 
     initializeTeamsAndFetchData();
-  }, [localSelectedAreas]); // Add dependency so it re-runs when areas change
+  }, [defaultLocalAreas]);
 
   return (
     <>
@@ -2607,6 +2857,19 @@ const AppWithContext: React.FC = () => {
         <Suspense fallback={null}>
           <WayfindingOverlay />
         </Suspense>
+      )}
+      {originalAdminUser && !switchOverlay && (
+        <ViewingAsBanner
+          switchedUser={userData?.[0] || null}
+          originalAdminUser={originalAdminUser}
+          onReturn={returnToAdmin}
+        />
+      )}
+      {switchOverlay && (
+        <SwitchUserOverlay
+          targetName={switchOverlay.targetName}
+          mode={switchOverlay.mode}
+        />
       )}
     </>
   );

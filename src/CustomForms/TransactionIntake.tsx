@@ -2,6 +2,7 @@
 // Transaction Intake — accounts tool for recording inbound payments
 
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import { recordIntent } from '../utils/recordIntent';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { isDevOwner } from '../app/admin';
 import { colours } from '../app/styles/colours';
@@ -161,35 +162,37 @@ const TransactionIntake: React.FC<TransactionIntakeProps> = ({
     setError(null);
 
     try {
+      const transactionPayload = {
+        matterRef: form.matterRef.trim(),
+        matterDescription: form.matterDescription.trim() || null,
+        feeEarner: form.feeEarner.trim().toUpperCase() || userInitials,
+        amount: parseFloat(form.amount),
+        vatAmount: form.vatAmount ? parseFloat(form.vatAmount) : null,
+        transactionDate: form.transactionDate,
+        transactionTime: form.transactionTime || null,
+        fromClient: form.fromClient,
+        moneySender: form.fromClient ? null : form.moneySender.trim() || null,
+        transactionType: form.transactionType,
+        instructionRef: form.instructionRef.trim() || null,
+        debitAccount: form.debitAccount || null,
+        payeeName: form.payeeName.trim() || null,
+        paymentReference: form.paymentReference.trim() || null,
+        sortCode: form.sortCode.trim() || null,
+        accountNumber: form.accountNumber.trim() || null,
+        invoiceNumber: form.invoiceNumber.trim() || null,
+        collaborators: form.collaborators.trim() || null,
+        clientFirstName: form.clientFirstName.trim() || null,
+        clientLastName: form.clientLastName.trim() || null,
+        clientEmail: form.clientEmail.trim() || null,
+        companyName: form.companyName.trim() || null,
+        notes: form.notes.trim() || null,
+        createdBy: userInitials,
+      };
+      const clientSubmissionId = await recordIntent({ formKey: 'transactions-v2', payload: transactionPayload });
       const res = await fetch('/api/transactions-v2', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          matterRef: form.matterRef.trim(),
-          matterDescription: form.matterDescription.trim() || null,
-          feeEarner: form.feeEarner.trim().toUpperCase() || userInitials,
-          amount: parseFloat(form.amount),
-          vatAmount: form.vatAmount ? parseFloat(form.vatAmount) : null,
-          transactionDate: form.transactionDate,
-          transactionTime: form.transactionTime || null,
-          fromClient: form.fromClient,
-          moneySender: form.fromClient ? null : form.moneySender.trim() || null,
-          transactionType: form.transactionType,
-          instructionRef: form.instructionRef.trim() || null,
-          debitAccount: form.debitAccount || null,
-          payeeName: form.payeeName.trim() || null,
-          paymentReference: form.paymentReference.trim() || null,
-          sortCode: form.sortCode.trim() || null,
-          accountNumber: form.accountNumber.trim() || null,
-          invoiceNumber: form.invoiceNumber.trim() || null,
-          collaborators: form.collaborators.trim() || null,
-          clientFirstName: form.clientFirstName.trim() || null,
-          clientLastName: form.clientLastName.trim() || null,
-          clientEmail: form.clientEmail.trim() || null,
-          companyName: form.companyName.trim() || null,
-          notes: form.notes.trim() || null,
-          createdBy: userInitials,
-        }),
+        body: JSON.stringify({ ...transactionPayload, clientSubmissionId }),
       });
 
       if (!res.ok) {
@@ -237,7 +240,7 @@ const TransactionIntake: React.FC<TransactionIntakeProps> = ({
   const sectionCardStyle: React.CSSProperties = {
     marginBottom: 14,
     padding: '12px 14px',
-    background: 'var(--home-tile-bg)',
+    background: 'var(--surface-card-raised)',
     border: '1px solid var(--home-tile-border)',
   };
 

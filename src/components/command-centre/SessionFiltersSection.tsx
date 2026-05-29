@@ -12,6 +12,7 @@ interface SessionFiltersSectionProps {
      *  this set, a "Reset to my profile" affordance appears so the user can
      *  return to their baseline scope. */
     defaultAreasOfWork?: string[];
+    availableAreas?: string[];
 }
 
 const sameSet = (a: string[], b: string[]): boolean => {
@@ -32,16 +33,23 @@ const SessionFiltersSection: React.FC<SessionFiltersSectionProps> = ({
     areasOfWork,
     setAreasOfWork,
     defaultAreasOfWork,
+    availableAreas,
 }) => {
     const { isDarkMode, sectionTitle } = tokens;
 
     if (!onAreasChange) return null;
 
+    const filterAreas = availableAreas && availableAreas.length > 0 ? availableAreas : [...AVAILABLE_AREAS];
     const canReset = !!defaultAreasOfWork && !sameSet(areasOfWork, defaultAreasOfWork);
 
     const commit = (next: string[]) => {
-        setAreasOfWork(next);
-        onAreasChange(next);
+        const allowed = new Set(filterAreas);
+        const scopedNext = next.filter(area => allowed.has(area));
+        const fallback = defaultAreasOfWork && defaultAreasOfWork.length > 0 ? defaultAreasOfWork : filterAreas;
+        const safeNext = scopedNext.length > 0 ? scopedNext : fallback;
+        if (sameSet(areasOfWork, safeNext)) return;
+        setAreasOfWork(safeNext);
+        onAreasChange(safeNext);
     };
 
     const handleReset = () => {
@@ -79,7 +87,7 @@ const SessionFiltersSection: React.FC<SessionFiltersSectionProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', minHeight: 30 }}>
                 <IconAreaFilter
                     selectedAreas={areasOfWork}
-                    availableAreas={[...AVAILABLE_AREAS]}
+                    availableAreas={filterAreas}
                     onAreaChange={commit}
                     ariaLabel="Set session Areas of Work"
                     variant="glyph"

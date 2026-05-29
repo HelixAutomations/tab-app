@@ -1,5 +1,7 @@
 # Team & Rate Data Reference
 
+Last verified: 2026-05-23
+
 ## Overview
 
 Team data (including hourly rates) is stored in **two synchronized databases**:

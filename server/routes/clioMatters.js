@@ -5,10 +5,38 @@ const path = require('path');
 const teamLookup = require('../utils/teamLookup');
 const createOrUpdate = require('../utils/createOrUpdate');
 const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
+const { trackRouteException } = require('../utils/errorContext');
 const { emitEvent } = require('../utils/eventEmitter');
 const { shouldDryRunClio, syntheticClioMatter } = require('../utils/rehearsalGuard');
+const opLog = require('../utils/opLog');
 
 const { PRACTICE_AREAS } = require('../utils/clioConstants');
+
+function normalisePracticeAreaKey(value) {
+    return String(value || '')
+        .trim()
+        .replace(/[–—]/g, '-')
+        .replace(/\s+/g, ' ')
+        .toLowerCase();
+}
+
+function resolveClioPracticeArea(practiceArea) {
+    const candidate = String(practiceArea || '').trim();
+    if (!candidate) return null;
+
+    if (PRACTICE_AREAS[candidate]) {
+        return { id: PRACTICE_AREAS[candidate], name: candidate, fallback: false };
+    }
+
+    const normalised = normalisePracticeAreaKey(candidate);
+    const match = Object.entries(PRACTICE_AREAS).find(([key]) => normalisePracticeAreaKey(key) === normalised);
+    if (match) {
+        return { id: match[1], name: match[0], fallback: false };
+    }
+
+    const fallbackName = 'Miscellaneous';
+    return { id: PRACTICE_AREAS[fallbackName], name: fallbackName, fallback: true, requestedName: candidate };
+}
 
 // Hard-coded picklist option mappings
 const ND_OPTIONS = {
@@ -41,6 +69,21 @@ function getRiskResult(ref) {
     if (!ref) return null;
     const entry = riskData.find(r => (r.InstructionRef || '').toLowerCase() === ref.toLowerCase());
     return entry ? entry.RiskAssessmentResult : null;
+}
+
+function appendMatterOpeningActivity({ status, title, summary, instructionRef, initials, traceId, step, error }) {
+    opLog.append({
+        type: 'activity.matter-opening',
+        source: 'matter-opening',
+        status,
+        title,
+        summary,
+        instructionRef: instructionRef || '',
+        initials: initials || '',
+        traceId: traceId || '',
+        step: step || '',
+        error: error || null,
+    });
 }
 
 function mapPerson(client, instructionRef) {
@@ -174,8 +217,9 @@ router.post('/', async (req, res) => {
     const matterStartTime = Date.now();
     const { formData, initials, contactIds, companyId } = req.body || {};
     const instructionRef = formData?.matter_details?.instruction_ref || 'unknown';
+    const traceId = String(req.headers['x-matter-trace-id'] || '');
     if (!formData || !initials) {
-        trackEvent('MatterOpening.ClioMatter.ValidationFailed', { instructionRef, reason: 'Missing formData or initials' });
+        trackEvent('MatterOpening.ClioMatter.ValidationFailed', { instructionRef, reason: 'Missing formData or initials', traceId });
         return res.status(400).json({ error: 'Missing data' });
     }
 
@@ -190,11 +234,12 @@ router.post('/', async (req, res) => {
             route: '/api/clio-matters',
             seed: 'rehearsal',
             displayNumber: matter.display_number,
+            traceId,
         });
         return res.json({ ok: true, matter, dryRun: true });
     }
 
-    trackEvent('MatterOpening.ClioMatter.Started', { instructionRef, initials, practiceArea: formData?.matter_details?.practice_area || '', hasContactIds: String(Array.isArray(contactIds) && contactIds.length > 0) });
+    trackEvent('MatterOpening.ClioMatter.Started', { instructionRef, initials, practiceArea: formData?.matter_details?.practice_area || '', hasContactIds: String(Array.isArray(contactIds) && contactIds.length > 0), traceId });
     try {
         // 1. Refresh token (normalize initials to lower-case to match secret naming convention)
         const lower = String(initials || '').toLowerCase();
@@ -268,16 +313,18 @@ router.post('/', async (req, res) => {
             originatingId = responsibleId;
         }
         
-        // Find practice area ID with case-insensitive matching
-        const practiceAreaId = PRACTICE_AREAS[practice_area] || 
-            Object.entries(PRACTICE_AREAS).find(([key]) => 
-                key.toLowerCase() === practice_area.toLowerCase()
-            )?.[1];
-        
-        if (!practiceAreaId) {
-            console.error(`No practice area ID found for: "${practice_area}"`);
-            console.error('Available practice areas:', Object.keys(PRACTICE_AREAS));
-            throw new Error(`Invalid practice area: ${practice_area}`);
+        const resolvedPracticeArea = resolveClioPracticeArea(practice_area);
+        if (!resolvedPracticeArea?.id) {
+            throw new Error('Practice area is required');
+        }
+        if (resolvedPracticeArea.fallback) {
+            trackEvent('MatterOpening.ClioMatter.PracticeAreaFallback', {
+                instructionRef,
+                initials,
+                requestedPracticeArea: resolvedPracticeArea.requestedName || practice_area || '',
+                fallbackPracticeArea: resolvedPracticeArea.name,
+                traceId,
+            });
         }
         
         const payload = {
@@ -286,7 +333,7 @@ router.post('/', async (req, res) => {
                 client: { id: pid },
                 client_reference: instruction_ref,
                 description: description || `Matter opened for ${instruction_ref}`,
-                practice_area: { id: practiceAreaId },
+                practice_area: { id: resolvedPracticeArea.id },
                 responsible_attorney: { id: responsibleId },
                 originating_attorney: { id: originatingId },
                 status: 'Open',
@@ -666,11 +713,13 @@ router.post('/', async (req, res) => {
                         
                         // Resolve fee earner email — prefer formData, fall back to DB lookup
                         let feeEarnerEmail = teamSafe.fee_earner_email || null;
+                        let feeEarnerInitialsForEmail = teamSafe.fee_earner_initials || null;
                         if (!feeEarnerEmail) {
-                                const feInitials = teamSafe.fee_earner_initials || initials;
+                            const feInitials = feeEarnerInitialsForEmail || initials;
                                 if (feInitials) {
                                         try {
                                                 feeEarnerEmail = await teamLookup.getTeamEmail(feInitials);
+                                    feeEarnerInitialsForEmail = feInitials;
                                         } catch (lookupErr) {
                                                 console.warn('Fee earner email lookup failed:', lookupErr?.message);
                                         }
@@ -687,25 +736,38 @@ router.post('/', async (req, res) => {
                                 bcc_emails: '',
                                 skip_signature: true
                         };
+                            const emailIdentityHeaders = {
+                                'Content-Type': 'application/json',
+                                'x-user-email': feeEarnerEmail || 'lz@helix-law.com'
+                            };
+                            if (feeEarnerInitialsForEmail) {
+                                emailIdentityHeaders['x-helix-initials'] = feeEarnerInitialsForEmail;
+                            } else if (!feeEarnerEmail) {
+                                emailIdentityHeaders['x-helix-initials'] = 'LZ';
+                            }
 
                         // Fire the email; do not block overall success if this fails
                         const emailResp = await fetch(`${base}/api/sendEmail`, {
                                 method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
+                                headers: emailIdentityHeaders,
                                 body: JSON.stringify(emailPayload)
                         });
                         if (!emailResp.ok) {
                                 const t = await emailResp.text();
                                 console.warn('Matter-open confirmation email failed:', emailResp.status, t);
+                                trackEvent('MatterOpening.ClioMatter.Email.Failed', { instructionRef, initials, status: String(emailResp.status), displayNumber: matter.display_number || '' });
                         } else {
                                 console.log(`📧 Matter opening email sent for ${displayNumber}`);
+                                trackEvent('MatterOpening.ClioMatter.Email.Completed', { instructionRef, initials, displayNumber: matter.display_number || '' });
                         }
                 } catch (emailErr) {
                         console.warn('Email dispatch error (non-blocking):', emailErr?.message || emailErr);
+                            trackException(emailErr, { component: 'MatterOpening', operation: 'ClioMatterEmail', phase: 'send', instructionRef, initials });
+                            trackEvent('MatterOpening.ClioMatter.Email.Failed', { instructionRef, initials, error: emailErr?.message || String(emailErr) });
                 }
 
                 const matterDurationMs = Date.now() - matterStartTime;
-                trackEvent('MatterOpening.ClioMatter.Completed', { instructionRef, initials, displayNumber: matter.display_number || '', clioMatterId: String(matter.id), durationMs: String(matterDurationMs) });
+                trackEvent('MatterOpening.ClioMatter.Completed', { instructionRef, initials, displayNumber: matter.display_number || '', clioMatterId: String(matter.id), durationMs: String(matterDurationMs), traceId });
                 trackMetric('MatterOpening.ClioMatter.Duration', matterDurationMs, { instructionRef });
 
                 // Emit to shared Events table for realtime pipeline updates
@@ -719,9 +781,19 @@ router.post('/', async (req, res) => {
     } catch (e) {
         const matterDurationMs = Date.now() - matterStartTime;
         console.error(e);
-        trackException(e, { component: 'MatterOpening', operation: 'ClioMatter', phase: 'matterCreation', instructionRef, initials });
-        trackEvent('MatterOpening.ClioMatter.Failed', { instructionRef, initials, error: e.message, durationMs: String(matterDurationMs) });
-        res.status(500).json({ error: e.message });
+        trackRouteException(e, req, { component: 'MatterOpening', operation: 'ClioMatter', phase: 'matterCreation', instructionRef, initials, traceId, formKey: 'clio-matter' });
+        trackEvent('MatterOpening.ClioMatter.Failed', { instructionRef, initials, error: e.message, durationMs: String(matterDurationMs), traceId });
+        appendMatterOpeningActivity({
+            status: 'error',
+            title: 'Matter opening failed at Clio matter',
+            summary: e.message || 'Clio matter creation failed',
+            instructionRef,
+            initials,
+            traceId,
+            step: 'Clio Matter Opened',
+            error: e.message || 'Clio matter creation failed',
+        });
+        res.status(500).json({ error: 'Failed to create Clio matter', detail: e.message, traceId });
     }
 });
 module.exports = router;

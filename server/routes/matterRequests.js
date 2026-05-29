@@ -7,6 +7,11 @@ const { emitEvent } = require('../utils/eventEmitter');
 
 const router = express.Router();
 
+function isLocalCclRequest(req) {
+    const host = String(req.headers.host || req.hostname || '').toLowerCase();
+    return host.startsWith('localhost') || host.startsWith('127.0.0.1') || host.startsWith('[::1]') || host === '::1';
+}
+
 const getInstrConnStr = () => {
   const s = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
   if (!s) throw new Error('INSTRUCTIONS_SQL_CONNECTION_STRING not configured');
@@ -177,7 +182,8 @@ router.patch('/:matterId', async (req, res) => {
         displayNumber: body.displayNumber ?? null,
         clioMatterId: body.clioMatterId ?? null
     };
-    const cclQueuedAt = new Date().toISOString();
+    const cclOperationsAvailable = isLocalCclRequest(req);
+    const cclQueuedAt = cclOperationsAvailable ? new Date().toISOString() : '';
 
     if (!updates.instructionRef && !updates.clientId && !updates.displayNumber && !updates.clioMatterId) {
         trackEvent('MatterOpening.MatterRequestPatch.ValidationFailed', {
@@ -230,10 +236,15 @@ router.patch('/:matterId', async (req, res) => {
             updated: String(result.rowsAffected[0] || 0),
             durationMs: String(durationMs),
             cclQueuedAt,
+            cclClipped: String(!cclOperationsAvailable),
             traceId: String(traceId || ''),
         });
         trackMetric('MatterOpening.MatterRequestPatch.Duration', durationMs, {});
-        return res.json({ ok: true, updated: result.rowsAffected[0], cclQueuedAt });
+        return res.json({
+            ok: true,
+            updated: result.rowsAffected[0],
+            ...(cclQueuedAt ? { cclQueuedAt } : {}),
+        });
     } catch (err) {
         console.error('[matter-requests] Patch error:', err);
         trackException(err, {

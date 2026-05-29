@@ -1,6 +1,7 @@
 // src/CustomForms/NotableCaseInfoForm.tsx
 
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import { recordIntent } from '../utils/recordIntent';
 import { Stack } from '@fluentui/react/lib/Stack';
 import { Text } from '@fluentui/react/lib/Text';
 import { TextField } from '@fluentui/react/lib/TextField';
@@ -8,16 +9,16 @@ import { PrimaryButton, DefaultButton } from '@fluentui/react/lib/Button';
 import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
 import { Toggle } from '@fluentui/react/lib/Toggle';
 import { Icon } from '@fluentui/react/lib/Icon';
+import { TooltipHost } from '@fluentui/react/lib/Tooltip';
+import { DirectionalHint } from '@fluentui/react/lib/Callout';
 import { getApiBase } from '../utils/getApiUrl';
 import { NormalizedMatter, UserData } from '../app/functionality/types';
 import { useTheme } from '../app/functionality/ThemeContext';
-import { colours } from '../app/styles/colours';
 import {
   getFormContainerStyle,
   getFormScrollContainerStyle,
   getFormCardStyle,
   getFormHeaderStyle,
-  getFormHeaderTitleStyle,
   getFormHeaderSubtitleStyle,
   getFormSectionStyle,
   getFormSectionHeaderStyle,
@@ -35,6 +36,7 @@ import {
 } from './shared/formStyles';
 import { useFormReadinessPulse } from './shared/useFormReadinessPulse';
 import { FormReadinessCue } from './shared/FormReadinessCue';
+import RecordPicker, { PickerOption } from './shared/RecordPicker';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES
@@ -99,10 +101,11 @@ const NotableCaseInfoForm: React.FC<NotableCaseInfoFormProps> = ({
   const [submitStatus, setSubmitStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle');
   const [submitMessage, setSubmitMessage] = useState<string>('');
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
-  const [matterDropdownOpen, setMatterDropdownOpen] = useState(false);
   const [matterSearchTerm, setMatterSearchTerm] = useState('');
+  const [prospectSearchTerm, setProspectSearchTerm] = useState('');
   const [valueDropdownOpen, setValueDropdownOpen] = useState(false);
-  const matterFieldRef = useRef<HTMLDivElement>(null);
+  const [history, setHistory] = useState<Array<{ id: string; initials: string; summary: string; value_in_dispute: string | null; counsel_instructed: boolean; counsel_name: string | null; created_at: string }>>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const valueFieldRef = useRef<HTMLDivElement>(null);
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -169,46 +172,107 @@ const NotableCaseInfoForm: React.FC<NotableCaseInfoFormProps> = ({
     }
   }, [users]);
 
-  const filteredMatters = useMemo(() => {
+  const matterOptions: PickerOption[] = useMemo(() => {
     if (!matters || matters.length === 0) return [];
-    if (!matterSearchTerm.trim()) return matters.slice(0, 50);
-    
-    const searchLower = matterSearchTerm.toLowerCase();
-    return matters.filter((matter: any) => {
-      const displayNumber = matter["Display Number"] || matter.displayNumber || '';
-      const clientName = matter["Client Name"] || matter.clientName || '';
-      const description = matter["Description"] || matter.description || '';
-      return displayNumber.toLowerCase().includes(searchLower) ||
-             clientName.toLowerCase().includes(searchLower) ||
-             description.toLowerCase().includes(searchLower);
-    }).slice(0, 20);
-  }, [matters, matterSearchTerm]);
+    return matters.map((matter: any) => {
+      const displayNumber = matter['Display Number'] || matter.displayNumber || '';
+      const clientName = matter['Client Name'] || matter.clientName || '';
+      const description = matter['Description'] || matter.description || '';
+      return {
+        id: String(displayNumber || description || clientName || Math.random()),
+        label: displayNumber || clientName || 'Unknown matter',
+        sublabel: clientName && displayNumber ? clientName : undefined,
+        meta: description || undefined,
+        raw: matter,
+      } as PickerOption;
+    });
+  }, [matters]);
+
+  const searchEnquiries = useCallback(async (query: string): Promise<PickerOption[]> => {
+    const base = getApiBase();
+    const url = `${base}/api/enquiries/lookup?q=${encodeURIComponent(query)}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const rows: any[] = Array.isArray(data?.results) ? data.results : [];
+    return rows.map((row) => {
+      const isLegacy = row.source === 'legacy';
+      const metaBits = [
+        row.areaOfWork || null,
+        row.value ? `Value ${row.value}` : null,
+        row.poc ? `POC ${row.poc}` : null,
+        row.createdAt ? new Date(row.createdAt).toLocaleDateString('en-GB') : null,
+      ].filter(Boolean);
+      return {
+        id: `${row.source}:${row.id}`,
+        label: row.displayName || `Enquiry ${row.id}`,
+        sublabel: row.email || undefined,
+        meta: metaBits.join(' , '),
+        badge: isLegacy ? 'Legacy' : undefined,
+        badgeTone: isLegacy ? 'warning' : undefined,
+        raw: row,
+      } as PickerOption;
+    });
+  }, []);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (matterFieldRef.current && !matterFieldRef.current.contains(event.target as Node)) {
-        setMatterDropdownOpen(false);
-      }
       if (valueFieldRef.current && !valueFieldRef.current.contains(event.target as Node)) {
         setValueDropdownOpen(false);
       }
     };
 
-    if (matterDropdownOpen || valueDropdownOpen) {
+    if (valueDropdownOpen) {
       document.addEventListener('mousedown', handleClickOutside);
     }
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [matterDropdownOpen, valueDropdownOpen]);
+  }, [valueDropdownOpen]);
+
+  // Load prior notable-case entries for the selected reference so users see
+  // this is an additive log (next submission stacks as another update).
+  useEffect(() => {
+    const ref = formData.context_type === 'C' ? formData.display_number : formData.prospect_id;
+    if (!ref || !ref.trim()) {
+      setHistory([]);
+      return;
+    }
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      setHistoryLoading(true);
+      try {
+        const base = getApiBase();
+        const param = formData.context_type === 'C' ? 'display_number' : 'prospect_id';
+        const url = `${base}/api/notable-case-info?${param}=${encodeURIComponent(ref.trim())}`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (!cancelled) setHistory(Array.isArray(data?.entries) ? data.entries : []);
+      } catch {
+        if (!cancelled) setHistory([]);
+      } finally {
+        if (!cancelled) setHistoryLoading(false);
+      }
+    }, 350);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [formData.context_type, formData.display_number, formData.prospect_id]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // HANDLERS
   // ─────────────────────────────────────────────────────────────────────────
 
-  const handleMatterSelect = (matter: any) => {
-    const displayNumber = matter["Display Number"] || matter.displayNumber || '';
+  const handleMatterPicked = (option: PickerOption) => {
+    const matter = option.raw as any;
+    const displayNumber = matter?.['Display Number'] || matter?.displayNumber || option.label;
     setFormData(prev => ({ ...prev, display_number: displayNumber }));
     setMatterSearchTerm(displayNumber);
-    setMatterDropdownOpen(false);
+  };
+
+  const handleProspectPicked = (option: PickerOption) => {
+    const row = option.raw as any;
+    const id = row?.id != null ? String(row.id) : '';
+    setFormData(prev => ({ ...prev, prospect_id: id }));
+    const display = row?.displayName ? `${id} - ${row.displayName}` : id;
+    setProspectSearchTerm(display);
   };
 
   const handleValueSelect = (value: string) => {
@@ -271,8 +335,8 @@ const NotableCaseInfoForm: React.FC<NotableCaseInfoFormProps> = ({
         value_in_dispute: formData.value_in_dispute || null,
         value_in_dispute_exact: formData.value_in_dispute === '£500,001 or more' ? (formData.value_in_dispute_exact || null) : null,
         c_reference_status: formData.c_reference_status,
-        counsel_instructed: formData.context_type === 'C' ? formData.counsel_instructed : false,
-        counsel_name: formData.context_type === 'C' && formData.counsel_instructed ? formData.counsel_name : null,
+        counsel_instructed: formData.counsel_instructed,
+        counsel_name: formData.counsel_instructed ? formData.counsel_name : null,
       };
 
       const base = getApiBase();
@@ -280,11 +344,12 @@ const NotableCaseInfoForm: React.FC<NotableCaseInfoFormProps> = ({
       // recorded in form_submissions + appears in FormsHub. The proxy forwards
       // to the same downstream Azure Function.
       const url = `${base}/api/notable-case-info`;
-      
+
+      const clientSubmissionId = await recordIntent({ formKey: 'notable-case-info', payload });
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ ...payload, clientSubmissionId }),
       });
 
       if (!response.ok) {
@@ -357,14 +422,9 @@ const NotableCaseInfoForm: React.FC<NotableCaseInfoFormProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <Icon iconName="DocumentSearch" style={{ fontSize: '20px', color: accentColor }} />
-                <div>
-                  <Text style={getFormHeaderTitleStyle(isDarkMode)}>
-                    Notable Case Information
-                  </Text>
-                  <Text style={getFormHeaderSubtitleStyle(isDarkMode)}>
-                    Record case details for legal directory submissions
-                  </Text>
-                </div>
+                <Text style={getFormHeaderSubtitleStyle(isDarkMode)}>
+                  Record case details for legal directory submissions
+                </Text>
               </div>
               <FormReadinessCue state={readiness.state} detail={readiness.detail} readyAnnouncement="Notable case form ready" />
             </div>
@@ -420,80 +480,44 @@ const NotableCaseInfoForm: React.FC<NotableCaseInfoFormProps> = ({
 
                   {/* Matter/Prospect Reference */}
                   {formData.context_type === 'C' ? (
-                    <div ref={matterFieldRef} style={{ position: 'relative' }}>
+                    <div>
                       <label style={labelStyle}>File Reference *</label>
-                      <input
-                        type="text"
+                      <RecordPicker
+                        mode="sync"
+                        options={matterOptions}
                         value={matterSearchTerm}
-                        onChange={(e) => {
-                          setMatterSearchTerm(e.target.value);
-                          setFormData(prev => ({ ...prev, display_number: e.target.value }));
-                          setMatterDropdownOpen(true);
+                        onTextChange={(text) => {
+                          setMatterSearchTerm(text);
+                          setFormData(prev => ({ ...prev, display_number: text }));
                         }}
-                        onFocus={() => setMatterDropdownOpen(true)}
+                        onSelect={handleMatterPicked}
                         placeholder="Search by matter number or client name"
-                        style={{
-                          width: '100%',
-                          height: '44px',
-                          border: '1px solid var(--home-tile-border)',
-                          background: 'var(--surface-card)',
-                          padding: '0 12px',
-                          fontFamily: formFont,
-                          fontSize: '14px',
-                          color: 'var(--text-primary)',
-                          outline: 'none',
-                          boxSizing: 'border-box',
-                        }}
+                        isDarkMode={isDarkMode}
+                        fontFamily={formFont}
+                        emptyMessage="No matching matters in your claimed list"
+                        ariaLabel="Matter reference"
                       />
-                      {matterDropdownOpen && filteredMatters.length > 0 && (
-                        <div style={dropdownContainerStyle}>
-                          {filteredMatters.map((matter: any, index: number) => (
-                            <div
-                              key={matter.displayNumber + index}
-                              onClick={() => handleMatterSelect(matter)}
-                              style={dropdownOptionStyle}
-                              onMouseEnter={(e) => {
-                                e.currentTarget.style.backgroundColor = isDarkMode 
-                                  ? 'rgba(255,255,255,0.05)' 
-                                  : 'rgba(0,0,0,0.03)';
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.backgroundColor = 'transparent';
-                              }}
-                            >
-                              <div style={{ fontWeight: 600, marginBottom: '2px' }}>
-                                {matter.displayNumber}
-                              </div>
-                              {matter.clientName && (
-                                <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
-                                  {matter.clientName}
-                                </div>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      )}
                     </div>
                   ) : (
                     <div>
-                      <label style={labelStyle}>Prospect / Enquiry ID *</label>
-                      <input
-                        type="text"
-                        value={formData.prospect_id}
-                        onChange={(e) => handleInputChange('prospect_id', e.target.value)}
-                        placeholder="Enter prospect or enquiry reference"
-                        style={{
-                          width: '100%',
-                          height: '44px',
-                          border: '1px solid var(--home-tile-border)',
-                          background: 'var(--surface-card)',
-                          padding: '0 12px',
-                          fontFamily: formFont,
-                          fontSize: '14px',
-                          color: 'var(--text-primary)',
-                          outline: 'none',
-                          boxSizing: 'border-box',
+                      <label style={labelStyle}>Prospect / Enquiry *</label>
+                      <RecordPicker
+                        mode="async"
+                        search={searchEnquiries}
+                        value={prospectSearchTerm}
+                        onTextChange={(text) => {
+                          setProspectSearchTerm(text);
+                          // Keep prospect_id in sync with the raw text so manual
+                          // IDs still work when nothing is selected from results.
+                          setFormData(prev => ({ ...prev, prospect_id: text.split(' - ')[0].trim() }));
                         }}
+                        onSelect={handleProspectPicked}
+                        placeholder="Search by name, email, or enquiry ID"
+                        isDarkMode={isDarkMode}
+                        fontFamily={formFont}
+                        busyMessage="Searching enquiries..."
+                        emptyMessage="No matching enquiries in the instructions or legacy databases"
+                        ariaLabel="Prospect or enquiry reference"
                       />
                     </div>
                   )}
@@ -515,18 +539,59 @@ const NotableCaseInfoForm: React.FC<NotableCaseInfoFormProps> = ({
 
                   {/* Summary */}
                   <div>
-                    <label style={labelStyle}>
-                      {formData.context_type === 'C' ? 'Brief Summary of Matter *' : 'Brief Summary of Enquiry *'}
+                    <label style={{ ...labelStyle, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span>{formData.context_type === 'C' ? 'Brief Summary of Matter *' : 'Brief Summary of Enquiry *'}</span>
+                      <TooltipHost
+                        content="Please include here who we act for, who we act against, the central issues in dispute, value, the firm of solicitors and counsel instructed or likely to be instructed, and an overview of next steps. Bullet points are fine."
+                        directionalHint={DirectionalHint.rightCenter}
+                      >
+                        <Icon
+                          iconName="Info"
+                          aria-label="What to include in the summary"
+                          style={{ fontSize: '13px', color: 'var(--text-muted)', cursor: 'help' }}
+                        />
+                      </TooltipHost>
                     </label>
                     <textarea
                       style={textAreaStyle}
                       value={formData.summary}
                       onChange={(e) => handleInputChange('summary', e.target.value)}
-                      placeholder="Include: parties involved, central issues, value, counsel instructed, next steps"
+                      placeholder="Who we act for, who we act against, central issues, value, counsel instructed or likely to be, next steps. Bullet points are fine."
                       rows={4}
                       disabled={isSubmitting}
                     />
                   </div>
+
+                  {/* Prior entries for this reference (additive log) */}
+                  {(history.length > 0 || historyLoading) && (
+                    <div style={{
+                      border: '1px solid var(--home-tile-border)',
+                      background: 'var(--home-tile-bg)',
+                      padding: '10px 12px',
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: history.length ? '8px' : 0 }}>
+                        <Icon iconName="History" style={{ fontSize: '12px', color: accentColor }} />
+                        <Text style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                          {historyLoading ? 'Checking previous entries...' : `Previous entries for this reference (${history.length})`}
+                        </Text>
+                      </div>
+                      {history.length > 0 && (
+                        <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '12px', color: 'var(--text-body)', lineHeight: 1.55 }}>
+                          {history.slice(0, 5).map((entry) => (
+                            <li key={entry.id} style={{ marginBottom: '4px' }}>
+                              <strong>{new Date(entry.created_at).toLocaleDateString('en-GB')}</strong>
+                              {', '}{entry.initials}{entry.summary ? `: ${entry.summary.slice(0, 140)}${entry.summary.length > 140 ? '...' : ''}` : ''}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {history.length > 0 && (
+                        <Text style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginTop: '6px' }}>
+                          Submitting will add a new entry. Earlier entries remain on file.
+                        </Text>
+                      )}
+                    </div>
+                  )}
                 </Stack>
               </div>
 
@@ -544,7 +609,7 @@ const NotableCaseInfoForm: React.FC<NotableCaseInfoFormProps> = ({
                     style={{
                       height: '44px',
                       border: '1px solid var(--home-tile-border)',
-                      background: 'var(--surface-card)',
+                      background: 'var(--surface-card-hover)',
                       display: 'flex',
                       alignItems: 'center',
                       padding: '0 12px',
@@ -633,32 +698,28 @@ const NotableCaseInfoForm: React.FC<NotableCaseInfoFormProps> = ({
                     </Text>
                   </div>
 
-                  {formData.context_type === 'C' && (
-                    <>
-                      <Toggle
-                        label="Is Counsel Instructed?"
-                        checked={formData.counsel_instructed}
-                        onChange={(_, checked) => handleInputChange('counsel_instructed', checked || false)}
-                        disabled={isSubmitting}
-                        styles={{
-                          label: {
-                            fontWeight: 600,
-                            fontSize: '13px',
-                            color: 'var(--text-primary)',
-                          },
-                        }}
-                      />
-                      {formData.counsel_instructed && (
-                        <TextField
-                          label="Counsel Name"
-                          value={formData.counsel_name}
-                          onChange={(_, value) => handleInputChange('counsel_name', value || '')}
-                          placeholder="Enter counsel name"
-                          disabled={isSubmitting}
-                          styles={inputStyles}
-                        />
-                      )}
-                    </>
+                  <Toggle
+                    label={formData.context_type === 'C' ? 'Is Counsel Instructed?' : 'Is Counsel Instructed or Likely to be Instructed?'}
+                    checked={formData.counsel_instructed}
+                    onChange={(_, checked) => handleInputChange('counsel_instructed', checked || false)}
+                    disabled={isSubmitting}
+                    styles={{
+                      label: {
+                        fontWeight: 600,
+                        fontSize: '13px',
+                        color: 'var(--text-primary)',
+                      },
+                    }}
+                  />
+                  {formData.counsel_instructed && (
+                    <TextField
+                      label={formData.context_type === 'C' ? 'Counsel Name' : 'Counsel Name (if known)'}
+                      value={formData.counsel_name}
+                      onChange={(_, value) => handleInputChange('counsel_name', value || '')}
+                      placeholder="Enter counsel name"
+                      disabled={isSubmitting}
+                      styles={inputStyles}
+                    />
                   )}
                 </Stack>
               </div>
@@ -712,12 +773,12 @@ const NotableCaseInfoForm: React.FC<NotableCaseInfoFormProps> = ({
                     iconProps={{ iconName: 'Refresh' }}
                   />
                   <PrimaryButton
-                    text={isSubmitting ? 'Submitting...' : submitStatus === 'success' ? 'Submitted!' : 'Submit'}
+                    text={isSubmitting ? 'Submitting...' : submitStatus === 'success' ? 'Submitted!' : (history.length > 0 ? 'Add update' : 'Submit')}
                     onClick={handleSubmit}
                     disabled={isSubmitting || submitStatus === 'success'}
                     styles={primaryButtonStyles}
                     iconProps={{
-                      iconName: isSubmitting ? 'More' : submitStatus === 'success' ? 'CheckMark' : 'DocumentSearch'
+                      iconName: isSubmitting ? 'More' : submitStatus === 'success' ? 'CheckMark' : (history.length > 0 ? 'Add' : 'DocumentSearch')
                     }}
                   />
                 </Stack>

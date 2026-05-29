@@ -689,6 +689,8 @@ router.get('/getAttendance', getAttendanceHandler);
 
 // Update attendance data
 router.post('/updateAttendance', async (req, res) => {
+  const startedAt = Date.now();
+  const operation = 'attendance-update';
   try {
     const { initials, weekStart, attendanceDays } = req.body;
     
@@ -698,6 +700,13 @@ router.post('/updateAttendance', async (req, res) => {
         error: 'Missing required fields: initials, weekStart, attendanceDays'
       });
     }
+
+    trackEvent('Attendance.Update.Started', {
+      operation,
+      triggeredBy: 'api',
+      initials: String(initials || '').toUpperCase(),
+      weekStart: String(weekStart || ''),
+    });
     
     const password = await getSqlPassword();
     if (!password) {
@@ -779,7 +788,7 @@ router.post('/updateAttendance', async (req, res) => {
     );
 
     // Get the updated record
-  const updatedResult = await attendanceQuery(process.env.SQL_CONNECTION_STRING, (req, sql) =>
+  const updatedResult = await attendanceQuery(coreDataConnStr, (req, sql) =>
       req.input('initials', sql.VarChar(10), initials)
         .input('weekStart', sql.Date, weekStart)
         .query(`
@@ -799,11 +808,26 @@ router.post('/updateAttendance', async (req, res) => {
         `)
     );
 
+    const updatedRecord = updatedResult.recordset?.[0];
+    if (!updatedRecord) {
+      throw new Error('Attendance update completed but the saved record could not be read back');
+    }
+
     res.json({
       success: true,
       message: 'Attendance updated successfully',
-      record: updatedResult.recordset[0]
+      record: updatedRecord
     });
+
+    const durationMs = Date.now() - startedAt;
+    trackEvent('Attendance.Update.Completed', {
+      operation,
+      triggeredBy: 'api',
+      initials: String(initials || '').toUpperCase(),
+      weekStart: String(weekStart || ''),
+      durationMs,
+    });
+    trackMetric('Attendance.Update.Duration', durationMs, { operation });
 
     // Realtime notify (payload-light: clients refetch)
     try {
@@ -826,6 +850,13 @@ router.post('/updateAttendance', async (req, res) => {
 
   } catch (error) {
     console.error('Error updating attendance:', error.message || error);
+    trackException(error, { operation, phase: 'update-attendance' });
+    trackEvent('Attendance.Update.Failed', {
+      operation,
+      triggeredBy: 'api',
+      durationMs: Date.now() - startedAt,
+      error: error.message || String(error),
+    });
     res.status(500).json({
       success: false,
       error: error.message
@@ -1431,6 +1462,7 @@ router.post('/annual-leave', async (req, res) => {
         lane: 'Request',
         payload: req.body,
         summary: `Annual leave (${leave_type}) \u2014 ${dateRanges.length} range${dateRanges.length === 1 ? '' : 's'}`.slice(0, 400),
+        clientSubmissionId: req.body?.clientSubmissionId || null,
       });
     } catch (logErr) {
       trackException(logErr, { phase: 'annualLeave.recordSubmission' });
@@ -1907,11 +1939,19 @@ async function ensureAnnualLeaveCalendarEntries({ projectDataConnStr, password, 
           requestId: parsedId
         });
 
-        const outlookEntryId = await createOutlookCalendarEntry(graphToken, outlookUserId, payload);
+        let outlookEntryId = await findOutlookEventIdForLeave(graphToken, outlookUserId, {
+          startDate: leaveRecord.start_date,
+          endDate: leaveRecord.end_date,
+          transactionId: payload.transactionId,
+          subject: payload.subject
+        });
+        if (!outlookEntryId) {
+          outlookEntryId = await createOutlookCalendarEntry(graphToken, outlookUserId, payload);
+        }
         if (outlookEntryId) {
           await attendanceQuery(projectDataConnStr, (req, sql) =>
             req.input('id', sql.Int, parsedId)
-              .input('outlookEntryId', sql.NVarChar(100), outlookEntryId)
+              .input('outlookEntryId', sql.NVarChar(sql.MAX), outlookEntryId)
               .query(`
                 UPDATE [dbo].[annualLeave]
                    SET [OutlookEntryId] = @outlookEntryId

@@ -528,11 +528,9 @@ async function enrichRecordings(recordings, userMapRows) {
     const fromParty = String(row.from_party || '').toLowerCase();
     const toParty = String(row.to_party || '').toLowerCase();
     const hasPhoneSignal = [row.from_party, row.from_label, row.to_party, row.to_label].some(looksLikePhone);
-    const isInternal = matchStrategy === 'internal' || (teamNames.has(fromStr) && teamNames.has(toStr));
-    // Meeting-like = explicit screen-share / meeting / video / Teams session indicators
-    // anywhere in channel or party labels. Match strategy alone is NOT a meeting signal —
-    // username-email matches still happen for real external calls Dubber couldn't number-resolve.
     const meetingPattern = /\b(screen[- ]?share|screenshare|meeting|video[- ]?call|teams[- ]?meeting|conference)\b/;
+    // Meeting-like rows are internal collaboration artefacts for this queue.
+    // They should not consume External Calls list space.
     const isMeetingLike = !hasPhoneSignal && (
       meetingPattern.test(channel)
       || meetingPattern.test(fromStr)
@@ -540,14 +538,11 @@ async function enrichRecordings(recordings, userMapRows) {
       || meetingPattern.test(fromParty)
       || meetingPattern.test(toParty)
     );
+    const isInternal = matchStrategy === 'internal' || isMeetingLike || (teamNames.has(fromStr) && teamNames.has(toStr));
     return {
       ...row,
       is_internal: isInternal,
       is_meeting_like: isMeetingLike,
-      // External Calls lane = anything not internal. Meeting-shaped Dubber rows
-      // (to_party='meeting' etc.) still belong here because that is what the
-      // team's recorded external interactions actually look like; the
-      // is_meeting_like flag is exposed separately for future UI badging.
       is_external_call: !isInternal,
     };
   });

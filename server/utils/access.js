@@ -39,7 +39,7 @@ const EMERGENCY_DEFAULTS = {
   'feature:reports': ['user:LZ', 'user:AC', 'user:KW', 'user:JW', 'user:EA'],
   'feature:firm-wide-home': ['user:LZ', 'user:KW', 'user:EA'],
   'feature:hub-controls': ['user:LZ'],
-  'feature:activity-tab': ['user:LZ'],
+  'feature:activity-tab': ['user:LZ', 'user:EA'],
   'feature:ccl': ['group:*'],
   'action:matter-oneoff-replay': ['user:LZ'],
 };

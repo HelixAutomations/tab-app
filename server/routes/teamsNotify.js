@@ -5,6 +5,7 @@
  * POST /api/teams-notify/html          — Post simple HTML to a channel
  * POST /api/teams-notify/activity-feed — Send activity feed notification to a user
  * POST /api/teams-notify/test          — Quick test: post a card to api-tests channel
+ * POST /api/teams-notify/pitch-link-test — Send Luke a pitch notification test card
  * GET  /api/teams-notify/health        — Token + channel health check
  */
 
@@ -20,6 +21,7 @@ const {
   sendCardToDM,
   CHANNEL_ROUTES,
 } = require('../utils/teamsNotificationClient');
+const { notifyPitchLinkReady } = require('../utils/pitchTeamsNotifications');
 const { trackEvent, trackException } = require('../utils/appInsights');
 const { append } = require('../utils/opLog');
 const log = require('../utils/logger');
@@ -242,6 +244,53 @@ router.post('/dm-test', async (req, res) => {
   } catch (err) {
     console.error('[TeamsNotifyRoute] /dm-test error:', err.message);
     trackException(err, { operation: 'TeamsNotifyRoute.DmTest' });
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /pitch-link-test - Send Luke the same card used by pitch requests.
+router.post('/pitch-link-test', async (req, res) => {
+  const startedAt = Date.now();
+  try {
+    const sentAt = new Date().toISOString();
+    const result = await notifyPitchLinkReady({
+      recipientEmail: 'lz@helix-law.com',
+      dealId: 'TEST-PITCH-CARD',
+      instructionRef: 'HLX-TEST-12345',
+      passcode: '12345',
+      instructionsUrl: 'https://instruct.helix-law.com/pitch/12345',
+      amount: 2000,
+      areaOfWork: 'Commercial',
+      serviceDescription: 'Demo pitch notification card',
+      pitchedBy: 'LZ',
+      requestedBy: 'Luke',
+      linkOnly: true,
+      firstName: 'Test',
+      lastName: 'Client',
+      createdAt: sentAt,
+    });
+
+    append({
+      type: 'activity.pitch-link-test.send',
+      action: 'pitch-link-test',
+      status: result.success ? 'success' : 'error',
+      email: 'lz@helix-law.com',
+      displayName: result.displayName || null,
+      conversationId: result.conversationId || null,
+      activityId: result.activityId || null,
+      error: result.error || undefined,
+    });
+
+    trackEvent('TeamsNotification.PitchLinkTest', {
+      success: String(result.success),
+      activityId: result.activityId || '',
+      durationMs: String(Date.now() - startedAt),
+    });
+
+    return res.status(result.success ? 200 : 502).json(result);
+  } catch (err) {
+    log.error('[TeamsNotifyRoute] /pitch-link-test error:', err.message);
+    trackException(err, { operation: 'TeamsNotifyRoute.PitchLinkTest' });
     return res.status(500).json({ success: false, error: err.message });
   }
 });

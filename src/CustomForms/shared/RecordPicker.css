@@ -1,0 +1,29 @@
+/* Shared form picker dropdown. Hidden scrollbar chrome by default to match
+   Home, Matters, and Reports. UserBubble "Show scrollbars" toggle
+   (html[data-show-scrollbars="1"]) reveals a thin Helix-blue scrollbar. */
+.record-picker-dropdown {
+  scrollbar-width: none;
+}
+.record-picker-dropdown::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+html[data-show-scrollbars="1"] .record-picker-dropdown {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(54, 144, 206, 0.55) transparent;
+  scrollbar-gutter: stable;
+}
+html[data-show-scrollbars="1"] .record-picker-dropdown::-webkit-scrollbar {
+  width: 8px !important;
+  height: 8px !important;
+  display: block;
+}
+html[data-show-scrollbars="1"] .record-picker-dropdown::-webkit-scrollbar-thumb {
+  background-color: rgba(54, 144, 206, 0.55);
+  border-radius: 999px;
+}
+html[data-show-scrollbars="1"] .record-picker-dropdown::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(54, 144, 206, 0.8);
+}

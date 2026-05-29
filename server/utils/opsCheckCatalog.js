@@ -1,7 +1,12 @@
 const { getRequestUser } = require('./userTier');
+const { withRequest } = require('./db');
 
 const DEFAULT_TIMEOUT_MS = 5000;
 const MAX_RECENT_RUNS = 25;
+const DATA_OPS_MAX_CURRENT_FILL_AGE_MS = 2 * 60 * 60 * 1000;
+const DATA_OPS_MAX_COLLECTED_LAG_MS = 72 * 60 * 60 * 1000;
+const DATA_OPS_MAX_WIP_LAG_MS = 36 * 60 * 60 * 1000;
+const DATA_OPS_TERMINAL_FAILURES = new Set(['error', 'failed', 'timeout']);
 const latestRunsByCheck = new Map();
 const recentRuns = [];
 
@@ -225,6 +230,93 @@ function findTeamMemberByInitials(rows, initials) {
   return rows.find((row) => String(row?.Initials || '').toUpperCase().trim() === initials) || null;
 }
 
+function ageMs(value, now = Date.now()) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  const timestamp = date.getTime();
+  if (!Number.isFinite(timestamp)) return null;
+  return Math.max(0, now - timestamp);
+}
+
+function formatAge(age) {
+  if (age == null) return 'unknown age';
+  const minutes = Math.round(age / 60000);
+  if (minutes < 90) return `${minutes}m`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return `${hours}h`;
+  return `${Math.round(hours / 24)}d`;
+}
+
+function sqlDate(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (!Number.isFinite(date.getTime())) return null;
+  return date.toISOString().slice(0, 10);
+}
+
+function dependencyFromAge({ name, latest, maxAgeMs, missingDetail, staleDetail, evidence = {} }) {
+  const age = ageMs(latest);
+  if (age == null) {
+    return {
+      name,
+      status: 'fail',
+      severity: 'blocking',
+      statusCode: null,
+      durationMs: 0,
+      detail: missingDetail,
+      evidence,
+    };
+  }
+  const stale = age > maxAgeMs;
+  return {
+    name,
+    status: stale ? 'fail' : 'pass',
+    severity: 'blocking',
+    statusCode: null,
+    durationMs: 0,
+    detail: stale ? staleDetail(age) : `Latest ${sqlDate(latest)} (${formatAge(age)} old)`,
+    evidence: { ...evidence, latest: sqlDate(latest), ageMinutes: Math.round(age / 60000), maxAgeMinutes: Math.round(maxAgeMs / 60000) },
+  };
+}
+
+function dependencyFromSchedulerRow(row, label) {
+  if (!row) {
+    return {
+      name: label,
+      status: 'fail',
+      severity: 'blocking',
+      statusCode: null,
+      durationMs: 0,
+      detail: 'No currentHourly scheduler lifecycle row found.',
+      evidence: {},
+    };
+  }
+  const age = ageMs(row.ts);
+  const failed = DATA_OPS_TERMINAL_FAILURES.has(String(row.status || '').toLowerCase());
+  const stale = age == null || age > DATA_OPS_MAX_CURRENT_FILL_AGE_MS;
+  return {
+    name: label,
+    status: failed || stale ? 'fail' : 'pass',
+    severity: 'blocking',
+    statusCode: null,
+    durationMs: Number(row.durationMs || 0),
+    detail: failed
+      ? `Latest scheduler row is ${row.status}: ${row.message || 'no message'}`
+      : stale
+        ? `Latest scheduler row is ${formatAge(age)} old (status ${row.status || 'unknown'}).`
+        : `Latest scheduler row ${row.status || 'unknown'} ${formatAge(age)} ago.`,
+    evidence: {
+      operation: row.operation,
+      status: row.status,
+      ts: row.ts instanceof Date ? row.ts.toISOString() : row.ts,
+      startDate: sqlDate(row.startDate),
+      endDate: sqlDate(row.endDate),
+      insertedRows: row.insertedRows ?? null,
+      deletedRows: row.deletedRows ?? null,
+    },
+  };
+}
+
 const checks = [
   routeCheck({
     id: 'ops-pulse-snapshot',
@@ -270,6 +362,136 @@ const checks = [
     ],
     successCriteria: ['HTTP 200', 'Team payload returned before timeout'],
   }),
+  {
+    id: 'data-ops-freshness-sentry',
+    label: 'Data-ops freshness sentry',
+    group: 'workflow',
+    risk: 'safe',
+    runMode: 'safe',
+    method: 'SQL',
+    target: 'Core data + dataOpsLog',
+    dependencies: ['Core SQL collectedTime', 'Core SQL wip', 'Instructions dataOpsLog', 'currentHourly scheduler rows'],
+    whatWillHappen: [
+      'Reads aggregate-only current-month freshness from collectedTime and wip.',
+      'Reads the latest persisted currentHourly scheduler lifecycle rows for Collected and WIP.',
+      'Fails closed if current fills are failed, stale, or if data freshness has drifted beyond the tolerance window.',
+    ],
+    successCriteria: ['Collected latest payment date is recent', 'WIP latest date is recent', 'Collected and WIP currentHourly rows are recent non-failures'],
+    timeoutMs: 8000,
+    async run() {
+      const coreConn = process.env.SQL_CONNECTION_STRING;
+      const instructionsConn = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+      const dependencyResults = [];
+
+      if (!coreConn) {
+        dependencyResults.push({
+          name: 'Core SQL connection',
+          status: 'fail',
+          severity: 'blocking',
+          statusCode: null,
+          durationMs: 0,
+          detail: 'SQL_CONNECTION_STRING is not configured.',
+          evidence: {},
+        });
+      } else {
+        try {
+          const stats = await withRequest(coreConn, async (request) => {
+            const result = await request.query(`
+              SELECT
+                (SELECT COUNT(*) FROM collectedTime WHERE payment_date >= DATEFROMPARTS(YEAR(SYSUTCDATETIME()), MONTH(SYSUTCDATETIME()), 1)) AS collectedRows,
+                (SELECT MAX(CAST(payment_date AS date)) FROM collectedTime WHERE payment_date >= DATEFROMPARTS(YEAR(SYSUTCDATETIME()), MONTH(SYSUTCDATETIME()), 1)) AS collectedLatestDate,
+                (SELECT COUNT(*) FROM wip WHERE date >= DATEFROMPARTS(YEAR(SYSUTCDATETIME()), MONTH(SYSUTCDATETIME()), 1)) AS wipRows,
+                (SELECT MAX(CAST(date AS date)) FROM wip WHERE date >= DATEFROMPARTS(YEAR(SYSUTCDATETIME()), MONTH(SYSUTCDATETIME()), 1)) AS wipLatestDate
+            `);
+            return result.recordset?.[0] || {};
+          });
+
+          dependencyResults.push(dependencyFromAge({
+            name: 'Collected current-month data',
+            latest: stats.collectedLatestDate,
+            maxAgeMs: DATA_OPS_MAX_COLLECTED_LAG_MS,
+            missingDetail: 'No collectedTime rows found for the current month.',
+            staleDetail: (age) => `Latest collected payment date is ${formatAge(age)} old, beyond the 72h sentry window.`,
+            evidence: { rows: stats.collectedRows ?? null },
+          }));
+
+          dependencyResults.push(dependencyFromAge({
+            name: 'WIP current-month data',
+            latest: stats.wipLatestDate,
+            maxAgeMs: DATA_OPS_MAX_WIP_LAG_MS,
+            missingDetail: 'No WIP rows found for the current month.',
+            staleDetail: (age) => `Latest WIP date is ${formatAge(age)} old, beyond the 36h sentry window.`,
+            evidence: { rows: stats.wipRows ?? null },
+          }));
+        } catch (error) {
+          dependencyResults.push({
+            name: 'Core SQL data freshness query',
+            status: 'fail',
+            severity: 'blocking',
+            statusCode: null,
+            durationMs: 0,
+            detail: error?.message || 'Core SQL query failed.',
+            evidence: {},
+          });
+        }
+      }
+
+      if (!instructionsConn) {
+        dependencyResults.push({
+          name: 'Instructions SQL connection',
+          status: 'fail',
+          severity: 'blocking',
+          statusCode: null,
+          durationMs: 0,
+          detail: 'INSTRUCTIONS_SQL_CONNECTION_STRING is not configured.',
+          evidence: {},
+        });
+      } else {
+        try {
+          const rows = await withRequest(instructionsConn, async (request) => {
+            const result = await request.query(`
+              ;WITH ranked AS (
+                SELECT
+                  operation,
+                  status,
+                  message,
+                  ts,
+                  startDate,
+                  endDate,
+                  insertedRows,
+                  deletedRows,
+                  durationMs,
+                  ROW_NUMBER() OVER (PARTITION BY operation ORDER BY ts DESC) AS rn
+                FROM dataOpsLog
+                WHERE operation IN ('syncCollectedTimeCurrentHourly', 'syncWipCurrentHourly')
+                  AND status <> 'progress'
+                  AND ts >= DATEADD(HOUR, -8, SYSUTCDATETIME())
+              )
+              SELECT operation, status, message, ts, startDate, endDate, insertedRows, deletedRows, durationMs
+              FROM ranked
+              WHERE rn = 1
+            `);
+            return result.recordset || [];
+          });
+          const byOperation = new Map(rows.map((row) => [row.operation, row]));
+          dependencyResults.push(dependencyFromSchedulerRow(byOperation.get('syncCollectedTimeCurrentHourly'), 'Collected currentHourly scheduler'));
+          dependencyResults.push(dependencyFromSchedulerRow(byOperation.get('syncWipCurrentHourly'), 'WIP currentHourly scheduler'));
+        } catch (error) {
+          dependencyResults.push({
+            name: 'Instructions dataOpsLog query',
+            status: 'fail',
+            severity: 'blocking',
+            statusCode: null,
+            durationMs: 0,
+            detail: error?.message || 'Instructions SQL query failed.',
+            evidence: {},
+          });
+        }
+      }
+
+      return { status: summarizeStatus(dependencyResults), dependencyResults };
+    },
+  },
   {
     id: 'home-bank-holidays',
     label: 'GOV.UK bank holidays dependency',

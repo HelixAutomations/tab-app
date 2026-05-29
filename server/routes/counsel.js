@@ -185,6 +185,7 @@ router.post('/', async (req, res) => {
         lane: 'Request',
         payload: req.body,
         summary: `Counsel: ${first_name} ${last_name} (${chambers_name || area_of_work || ''})`.trim().slice(0, 400),
+        clientSubmissionId: req.body?.clientSubmissionId || null,
       });
     } catch (logErr) {
       trackException(logErr, { phase: 'counsel.recordSubmission' });

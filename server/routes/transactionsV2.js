@@ -129,6 +129,7 @@ router.post('/', async (req, res) => {
         lane: 'Request',
         payload: { ...req.body, sortCode: redactedSortCode, accountNumber: redactedAccountNumber },
         summary: `Transaction: ${matterRef} — £${amount} (${transactionType || 'receipt'})`.slice(0, 400),
+        clientSubmissionId: req.body?.clientSubmissionId || null,
       });
     } catch (logErr) {
       trackException(logErr, { phase: 'transactionsV2.recordSubmission' });

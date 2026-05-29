@@ -45,7 +45,7 @@ import {
   getTrustCheckId,
   deriveTrustState,
   findTrustCheck,
-  MANAGEMENT_PRESSURE_TEST_CHECK_IDS,
+  MANAGEMENT_ENTRY_CHECK_IDS,
   formatReadinessBlockerDetail,
   registerManagementBlockerSimulationControls,
   simulateManagementBlocker,
@@ -63,6 +63,7 @@ import type { DealRecord, InstructionRecord, DubberCallRecord } from './dataSour
 import { reportingPanelBackground, reportingPanelBorder } from './styles/reportingFoundation';
 import NavigatorDetailBar from '../../components/NavigatorDetailBar';
 import CallsReport from './CallsReport';
+import ReceptionReport from './ReceptionReport';
 import EnquiryLedgerReport from './EnquiryLedgerReport';
 import ReportCard from './ReportCard';
 
@@ -788,7 +789,7 @@ interface AvailableReport {
   key: string;
   name: string;
   status: string;
-  action?: 'dashboard' | 'annualLeave' | 'enquiries' | 'enquiryLedger' | 'metaMetrics' | 'seoReport' | 'ppcReport' | 'matters' | 'logMonitor' | 'calls';
+  action?: 'dashboard' | 'annualLeave' | 'enquiries' | 'enquiryLedger' | 'metaMetrics' | 'seoReport' | 'ppcReport' | 'matters' | 'logMonitor' | 'calls' | 'receptionReport';
   requiredDatasets: DatasetKey[];
   description?: string;
   disabled?: boolean;
@@ -809,6 +810,14 @@ const AVAILABLE_REPORTS: AvailableReport[] = [
     status: 'Live today',
     action: 'dashboard',
     requiredDatasets: ['enquiries', 'allMatters', 'wip', 'recoveredFees', 'teamData', 'userData', 'annualLeave'],
+    tier: 'prod',
+  },
+  {
+    key: 'receptionReport',
+    name: 'Reception Performance',
+    status: 'Evidence live',
+    action: 'receptionReport',
+    requiredDatasets: [],
     tier: 'prod',
   },
   {
@@ -1599,6 +1608,7 @@ const subtleButtonStyles = (isDarkMode: boolean): IButtonStyles => ({
 const REPORT_NAV_TABS: { key: typeof ACTIVE_VIEW_TYPE; label: string; draft?: boolean }[] = [
   // â”€â”€ Prod â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   { key: 'dashboard' as const, label: 'Dashboard' },
+  { key: 'receptionReport' as const, label: 'Reception' },
   { key: 'enquiries' as const, label: 'Enquiries' },
   { key: 'enquiryLedger' as const, label: 'Ledger' },
   { key: 'annualLeave' as const, label: 'Leave', draft: true },
@@ -1611,7 +1621,7 @@ const REPORT_NAV_TABS: { key: typeof ACTIVE_VIEW_TYPE; label: string; draft?: bo
   { key: 'calls' as const, label: 'Calls', draft: true },
   { key: 'responseTime' as const, label: 'Response Time', draft: true },
 ];
-type ActiveViewType = 'overview' | 'dashboard' | 'annualLeave' | 'enquiries' | 'enquiryLedger' | 'metaMetrics' | 'seoReport' | 'ppcReport' | 'matters' | 'logMonitor' | 'syncHistory' | 'dataCentre' | 'cacheMonitor' | 'agedDebts' | 'calls' | 'responseTime';
+type ActiveViewType = 'overview' | 'dashboard' | 'annualLeave' | 'enquiries' | 'enquiryLedger' | 'metaMetrics' | 'seoReport' | 'ppcReport' | 'matters' | 'logMonitor' | 'syncHistory' | 'dataCentre' | 'cacheMonitor' | 'agedDebts' | 'calls' | 'responseTime' | 'receptionReport';
 const ACTIVE_VIEW_TYPE: ActiveViewType = 'overview';
 
 interface ReportingNavigationRequest {
@@ -2992,7 +3002,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     const initials = extractUserInitials(propUserData);
     // Prod-tier nav tabs (visible to every reports user). Mirrors
     // AVAILABLE_REPORTS entries marked tier: 'prod'.
-    const PROD_TAB_KEYS = ['dashboard'];
+    const PROD_TAB_KEYS = ['dashboard', 'receptionReport'];
     const visibleTabs = REPORT_NAV_TABS.filter((tab) => {
       if (tab.key === 'enquiryLedger') {
         return canViewEnquiryLedger;
@@ -4372,7 +4382,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
   const [trustGateOverridden, setTrustGateOverridden] = useState(false);
   const blockingPressureTestCheck = useMemo(() => (
     trustReadinessPayload?.checks.find((check) => (
-      MANAGEMENT_PRESSURE_TEST_CHECK_IDS.includes(check.id)
+      MANAGEMENT_ENTRY_CHECK_IDS.includes(check.id)
       && check.blocking
       && check.status === 'blocked'
       && check.reason !== 'no-snapshot'
@@ -4868,7 +4878,9 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
 
   const renderAvailableReportCards = () => {
     const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-    const PROD_REPORT_KEYS = ['dashboard', 'enquiries'];
+    // Cards that show as live in production (and stay un-greyed on localhost).
+    // Mirrors AVAILABLE_REPORTS entries marked tier: 'prod'.
+    const PROD_REPORT_KEYS = ['dashboard', 'receptionReport', 'enquiries'];
     const decorateLocalPpcCard = (card: ReportCard) => {
       if (!isLocal || card.key !== 'ppc') {
         return card;
@@ -4990,9 +5002,9 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       </>
     ) : null;
     
-    // Slim Reports surface: render only the Management Dashboard entry path.
-    // Active, development, and disabled report sections are dropped so the
-    // workspace reduces to one clear operational affordance.
+    // Slim Reports surface: keep Management Dashboard as the primary path,
+    // then show live secondary reports underneath it. Development and disabled
+    // sections stay dropped so the workspace remains focused in production.
     if (isSlimReports) {
       if (!heroCard) return null;
       const slimNeedsRange = !slimRangeInvoked || slimSelectedRangeKey === null;
@@ -5085,6 +5097,12 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
         : slimRangeRefreshing || slimDashboardFeedsLoading
           ? 'Preparing dashboard'
           : 'Open dashboard';
+      const getSlimSecondaryReportDetail = (card: ReportCard) => {
+        if (card.key === 'receptionReport') {
+          return 'Review reception calls, conversion, notes clarity, and open follow-up work.';
+        }
+        return 'Open this live report separately from the dashboard period pull.';
+      };
       const handleSlimRangeSelect = (nextKey: ReportRangeKey) => {
         const nextMattersKey = nextKey as MattersWipRangeKey;
         const nextLabel = describeRangeKey(nextKey).toLowerCase();
@@ -5466,6 +5484,193 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
               </button>
             </div>
           </div>
+
+          {activeCards.length > 0 && (
+            <div style={{ marginTop: 12 }}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                marginBottom: 8,
+                paddingLeft: 10,
+                borderLeft: `2px solid ${isDarkMode ? colours.subtleGrey : colours.greyText}`,
+              }}>
+                <span style={{
+                  fontSize: 9,
+                  fontWeight: 700,
+                  textTransform: 'uppercase' as const,
+                  letterSpacing: '0.06em',
+                  color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                }}>
+                  Reports
+                </span>
+              </div>
+
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))',
+                  gap: 12,
+                }}
+              >
+                {activeCards.map((card, index) => {
+                  const cardAction = card.action === 'dashboard'
+                    ? handleLaunchDashboard
+                    : () => navigateToReport(card.action as ActiveViewType);
+                  const cardIsBusy = Boolean(reportProgressStates[card.key]?.isLoading);
+                  const cardReady = card.readiness === 'ready' || testMode;
+                  const cardStatusColour = cardIsBusy
+                    ? colours.highlight
+                    : cardReady
+                      ? colours.green
+                      : colours.orange;
+                  const cardStatusLabel = cardIsBusy
+                    ? (reportProgressStates[card.key]?.stage || 'Opening report')
+                    : cardReady
+                      ? card.status || 'Live today'
+                      : 'Refresh data to unlock';
+                  const cardDisabled = !card.action || (card.disabled && !testMode) || cardIsBusy;
+                  return (
+                    <button
+                      key={card.key}
+                      type="button"
+                      onClick={() => {
+                        if (cardDisabled) {
+                          return;
+                        }
+                        void handleReportCardClick(card.key, cardAction, card.dependencies.map((dependency) => dependency.key));
+                      }}
+                      disabled={cardDisabled}
+                      style={{
+                        appearance: 'none',
+                        display: 'grid',
+                        gridTemplateRows: '1fr auto',
+                        minHeight: 132,
+                        padding: 0,
+                        textAlign: 'left' as const,
+                        cursor: cardDisabled ? 'not-allowed' : 'pointer',
+                        fontFamily: 'Raleway, sans-serif',
+                        color: isDarkMode ? colours.dark.text : colours.light.text,
+                        backgroundColor: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
+                        border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
+                        borderRadius: 0,
+                        boxShadow: isDarkMode ? '0 14px 34px rgba(0, 3, 25, 0.28)' : '0 16px 36px rgba(6, 23, 51, 0.08)',
+                        overflow: 'hidden',
+                        opacity: cardDisabled ? 0.72 : 1,
+                        animation: 'fadeInUp 0.35s ease forwards',
+                        animationDelay: `${(index + 1) * 0.06}s`,
+                        transition: 'border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease, opacity 0.18s ease',
+                      }}
+                      onMouseEnter={(event) => {
+                        if (cardDisabled) return;
+                        event.currentTarget.style.borderColor = colours.highlight;
+                        event.currentTarget.style.transform = 'translateY(-1px)';
+                        event.currentTarget.style.boxShadow = isDarkMode ? '0 16px 38px rgba(0, 3, 25, 0.36)' : '0 18px 40px rgba(6, 23, 51, 0.12)';
+                      }}
+                      onMouseLeave={(event) => {
+                        event.currentTarget.style.borderColor = isDarkMode ? colours.dark.borderColor : colours.highlightNeutral;
+                        event.currentTarget.style.transform = 'translateY(0)';
+                        event.currentTarget.style.boxShadow = isDarkMode ? '0 14px 34px rgba(0, 3, 25, 0.28)' : '0 16px 36px rgba(6, 23, 51, 0.08)';
+                      }}
+                    >
+                      <span style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: 14,
+                        padding: '20px 22px 18px',
+                      }}>
+                        <span style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          width: 38,
+                          height: 38,
+                          flex: '0 0 auto',
+                          color: colours.highlight,
+                          backgroundColor: isDarkMode ? colours.dark.cardHover : colours.highlightBlue,
+                          border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
+                          borderRadius: 0,
+                        }}>
+                          <FaChartLine size={16} />
+                        </span>
+                        <span style={{ display: 'block', minWidth: 0 }}>
+                          <span style={{
+                            display: 'block',
+                            marginBottom: 7,
+                            fontSize: 18,
+                            lineHeight: 1.22,
+                            fontWeight: 800,
+                            color: isDarkMode ? colours.dark.text : colours.light.text,
+                          }}>
+                            {card.name}
+                          </span>
+                          <span style={{
+                            display: 'block',
+                            maxWidth: 520,
+                            fontSize: 13,
+                            lineHeight: 1.5,
+                            fontWeight: 500,
+                            color: isDarkMode ? '#d1d5db' : '#374151',
+                          }}>
+                            {getSlimSecondaryReportDetail(card)}
+                          </span>
+                        </span>
+                      </span>
+
+                      <span style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 14,
+                        padding: '13px 18px 13px 22px',
+                        backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.grey,
+                        borderTop: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
+                      }}>
+                        <span style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 10,
+                          minWidth: 0,
+                        }}>
+                          <span
+                            aria-hidden="true"
+                            style={{
+                              width: 3,
+                              height: 28,
+                              flex: '0 0 auto',
+                              backgroundColor: cardStatusColour,
+                              boxShadow: `0 0 14px ${cardStatusColour}33`,
+                            }}
+                          />
+                          <span style={{
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            fontSize: 12,
+                            fontWeight: 800,
+                            color: isDarkMode ? colours.dark.text : colours.light.text,
+                          }}>
+                            {cardStatusLabel}
+                          </span>
+                        </span>
+                        <span style={{
+                          flex: '0 0 auto',
+                          padding: '9px 14px',
+                          fontSize: 12,
+                          fontWeight: 800,
+                          color: colours.dark.text,
+                          backgroundColor: cardDisabled ? (isDarkMode ? colours.dark.border : colours.light.disabledBackground) : colours.cta,
+                          border: `1px solid ${cardDisabled ? (isDarkMode ? colours.dark.borderColor : colours.highlightNeutral) : colours.cta}`,
+                          borderRadius: 0,
+                        }}>
+                          Open report
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       );
     }
@@ -6176,6 +6381,16 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
             lastRefreshTimestamp={lastRefreshTimestamp ?? undefined}
             triggerRefresh={refreshDatasetsWithStreaming}
           />
+        </div>
+      </div>
+    );
+  }
+
+  if (activeView === 'receptionReport') {
+    return (
+      <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
+        <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
+          <ReceptionReport />
         </div>
       </div>
     );

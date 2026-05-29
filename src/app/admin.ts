@@ -1,25 +1,32 @@
 import { UserData } from './functionality/types';
 
 // Centralized list of admin users by initials
-export const ADMIN_USERS = ['LZ', 'AC', 'KW', 'JW', 'LA', 'EA'] as const;
+export const ADMIN_USERS = ['LZ', 'AC', 'KW', 'JW', 'LA', 'EA', 'WH'] as const;
 
 // Admins who can access the Reports tab (LA is admin but no reports access)
-export const REPORTS_USERS = ['LZ', 'AC', 'KW', 'JW', 'EA'] as const;
+export const REPORTS_USERS = ['LZ', 'AC', 'KW', 'JW', 'EA', 'WH'] as const;
 
-// CCL features are now live for all users (matter to-do items editable by
-// anyone). Kept as a constant so existing imports don't break; `isCclUser`
-// returns true unconditionally below.
-export const CCL_USERS = ['*'] as const;
+// CCL operations are clipped under the ZDR/LPP containment position. They are
+// available on localhost only so the built workflow remains testable without
+// surfacing or firing in staging/production.
+export const CCL_USERS = ['localhost'] as const;
 
 // Dev-preview lock — features in active development visible only to LZ.
 // AC was previously included; promoted features should now use isAdminUser
 // (broader admin tier) rather than this dev-preview gate.
 export const PRIVATE_HUB_CONTROL_USERS = ['LZ'] as const;
+export const SESSION_MODE_CONTROL_USERS = ['LZ', 'AC'] as const;
+export const ACTIVITY_TAB_USERS = ['LZ', 'EA'] as const;
 
-export function isCclUser(_initials?: string): boolean {
-    // CCL features (matter to-do items, lifecycle steps) are live for everyone.
-    // The dev-only CCL diff/eval panel uses `canSeePrivateHubControls` instead.
-    return true;
+export function isCclOperationsAvailable(options?: { viewAsProd?: boolean }): boolean {
+    if (options?.viewAsProd) return false;
+    if (typeof window === 'undefined') return false;
+    const hostname = window.location.hostname;
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || hostname === '::1';
+}
+
+export function isCclUser(_initials?: string, options?: { viewAsProd?: boolean }): boolean {
+    return isCclOperationsAvailable(options);
 }
 
 export function canSeePrivateHubControls(user?: UserData | null): boolean {
@@ -36,6 +43,24 @@ export function canSeePrivateHubControls(user?: UserData | null): boolean {
     );
 }
 
+export function canUseSessionModeControls(user?: UserData | null): boolean {
+    if (!user) return false;
+    const initials = user.Initials?.toUpperCase().trim();
+    const first = user.First?.toLowerCase().trim();
+    const nickname = user.Nickname?.toLowerCase().trim();
+    const email = user.Email?.toLowerCase().trim();
+    const allowedInitials = SESSION_MODE_CONTROL_USERS as readonly string[];
+    return !!(
+        (initials && allowedInitials.includes(initials)) ||
+        first === 'luke' ||
+        nickname === 'luke' ||
+        email === 'lz@helix-law.com' ||
+        first === 'alex' ||
+        nickname === 'alex' ||
+        email === 'ac@helix-law.com'
+    );
+}
+
 
 // Helper to determine if a user has admin privileges
 export function isAdminUser(user?: UserData | null): boolean {
@@ -43,7 +68,7 @@ export function isAdminUser(user?: UserData | null): boolean {
     const initials = user.Initials?.toUpperCase().trim();
     const first = user.First?.toLowerCase().trim();
     const nickname = user.Nickname?.toLowerCase().trim();
-    const adminNames = ['lukasz', 'luke', 'alex', 'kanchel', 'jonathan', 'laura', 'emma'];
+    const adminNames = ['lukasz', 'luke', 'alex', 'kanchel', 'jonathan', 'laura', 'emma', 'wolfgang'];
     return !!(
         (initials && ADMIN_USERS.includes(initials as any)) ||
         (first && adminNames.includes(first)) ||
@@ -100,7 +125,20 @@ export function isDevGroupOrHigher(user?: UserData | null): boolean {
 
 export function canSeeActivityTab(user?: UserData | null, isLocalDev = false): boolean {
     if (isLocalDev) return true;
-    return isDevOwner(user);
+    if (!user) return false;
+    const initials = user.Initials?.toUpperCase().trim();
+    const first = user.First?.toLowerCase().trim();
+    const nickname = user.Nickname?.toLowerCase().trim();
+    const email = user.Email?.toLowerCase().trim();
+    return !!(
+        (initials && ACTIVITY_TAB_USERS.includes(initials as any)) ||
+        first === 'luke' ||
+        nickname === 'luke' ||
+        email === 'lz@helix-law.com' ||
+        first === 'emma' ||
+        nickname === 'emma' ||
+        email === 'ea@helix-law.com'
+    );
 }
 
 // Helper to determine if a user can access the Instructions tab
@@ -118,7 +156,7 @@ export function canAccessReports(user?: UserData | null): boolean {
     const initials = user.Initials?.toUpperCase().trim();
     const first = user.First?.toLowerCase().trim();
     const nickname = user.Nickname?.toLowerCase().trim();
-    const reportsNames = ['lukasz', 'luke', 'alex', 'kanchel', 'jonathan', 'emma'];
+    const reportsNames = ['lukasz', 'luke', 'alex', 'kanchel', 'jonathan', 'emma', 'wolfgang'];
     return !!(
         (initials && REPORTS_USERS.includes(initials as any)) ||
         (first && reportsNames.includes(first)) ||

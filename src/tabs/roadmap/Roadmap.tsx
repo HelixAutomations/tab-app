@@ -5,7 +5,7 @@ import { Spinner } from '@fluentui/react/lib/Spinner';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';
 import { UserData } from '../../app/functionality/types';
-import { getUserTier, isDevGroupOrHigher } from '../../app/admin';
+import { canSeeActivityTab, getUserTier } from '../../app/admin';
 import HomeBootMonitor from './HomeBootMonitor';
 import ActivityFeedSection from './parts/ActivityFeedSection';
 import ApiHeatSection from './parts/ApiHeatSection';
@@ -15,18 +15,22 @@ import ActivityAlertsStrip from './parts/ActivityAlertsStrip';
 import FocalSurface from './parts/FocalSurface';
 import SideRail from './parts/SideRail';
 import ToolsDrawer from './parts/ToolsDrawer';
+import SystemErrorsView from './system/SystemErrorsView';
+import MatterReplayView from './system/MatterReplayView';
 import { PROCESS_STREAM_UPDATED_EVENT } from '../forms/processStreamStore';
 import { useOpsPulse } from './hooks/useOpsPulse';
 import { useActivityLayout } from './hooks/useActivityLayout';
 import { ActivityProvider } from './ActivityContext';
 import { ActivityFeedItem } from './parts/types';
 import { useNavigatorActions } from '../../app/functionality/NavigatorContext';
+import { LocalSupportSettings } from '../../app/localSupportMode';
 import './Activity.css';
 
 interface ActivityProps {
   userData: UserData[] | null;
   showBootMonitor?: boolean;
   isLocalDev?: boolean;
+  localSupportMode?: LocalSupportSettings['mode'];
 }
 
 type ReleaseCategory = 'feature' | 'improvement' | 'fix' | 'ops';
@@ -123,6 +127,84 @@ const containerStyles = (isDarkMode: boolean): React.CSSProperties => ({
   transition: 'background-color 0.2s',
 });
 
+type SystemMode = 'entry' | 'errors' | 'matter-replay' | 'dashboard';
+
+const SystemChoiceButton: React.FC<{
+  label: string;
+  isDarkMode: boolean;
+  accent: string;
+  onClick: () => void;
+}> = ({ label, isDarkMode, accent, onClick }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    style={{
+      minHeight: 180,
+      border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+      borderLeft: `4px solid ${accent}`,
+      background: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+      color: isDarkMode ? colours.dark.text : colours.light.text,
+      cursor: 'pointer',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      fontFamily: 'Raleway, sans-serif',
+      fontSize: 24,
+      fontWeight: 800,
+      letterSpacing: '0',
+      textTransform: 'uppercase',
+      transition: 'transform 0.14s ease, border-color 0.14s ease, background 0.14s ease',
+    }}
+    onMouseEnter={(event) => {
+      event.currentTarget.style.transform = 'translateY(-2px)';
+      event.currentTarget.style.borderColor = accent;
+    }}
+    onMouseLeave={(event) => {
+      event.currentTarget.style.transform = 'translateY(0)';
+      event.currentTarget.style.borderColor = isDarkMode ? colours.dark.border : colours.light.border;
+    }}
+  >
+    {label}
+  </button>
+);
+
+const SystemEntry: React.FC<{
+  isDarkMode: boolean;
+  onOpenErrors: () => void;
+  onOpenMatterReplay: () => void;
+  onOpenDashboard: () => void;
+}> = ({ isDarkMode, onOpenErrors, onOpenMatterReplay, onOpenDashboard }) => {
+  const textColour = isDarkMode ? colours.dark.text : colours.light.text;
+  const mutedColour = isDarkMode ? '#d1d5db' : colours.greyText;
+
+  return (
+    <section
+      data-helix-region="system/entry"
+      style={{
+        minHeight: 'calc(100vh - 96px)',
+        display: 'grid',
+        placeItems: 'center',
+      }}
+    >
+      <div style={{ width: 'min(760px, 100%)' }}>
+        <div style={{ marginBottom: 22 }}>
+          <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px', color: mutedColour }}>
+            System
+          </div>
+          <h1 style={{ margin: '6px 0 0', fontSize: 30, lineHeight: 1.15, color: textColour, fontFamily: 'Raleway, sans-serif' }}>
+            Choose a starting point
+          </h1>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14 }}>
+          <SystemChoiceButton label="Errors" isDarkMode={isDarkMode} accent={colours.cta} onClick={onOpenErrors} />
+          <SystemChoiceButton label="Matter Replay" isDarkMode={isDarkMode} accent={colours.orange} onClick={onOpenMatterReplay} />
+          <SystemChoiceButton label="Dashboard" isDarkMode={isDarkMode} accent={colours.highlight} onClick={onOpenDashboard} />
+        </div>
+      </div>
+    </section>
+  );
+};
+
 const FilterChip: React.FC<{
   label: string;
   count: number;
@@ -207,10 +289,10 @@ const EntryRow: React.FC<{
   );
 };
 
-const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, isLocalDev = false }) => {
+const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, isLocalDev = false, localSupportMode }) => {
   const { isDarkMode } = useTheme();
   const primaryUser = Array.isArray(userData) ? userData[0] : null;
-  const showLiveMonitor = isDevGroupOrHigher(primaryUser);
+  const showLiveMonitor = canSeeActivityTab(primaryUser, isLocalDev);
   const userTier = getUserTier(primaryUser);
   const userInitials = (primaryUser?.Initials || '').toString().toUpperCase().trim();
   const isDevOwner = userInitials === 'LZ';
@@ -248,7 +330,54 @@ const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, 
   const [expandedEntries, setExpandedEntries] = useState<Set<string>>(new Set());
   const layout = useActivityLayout();
   const { lens, setLens } = layout;
+  const [showAdvancedLenses, setShowAdvancedLenses] = useState<boolean>(() => lens !== 'triage');
+  const [systemMode, setSystemMode] = useState<SystemMode>(() => (isLocalDev && localSupportMode === 'system' ? 'errors' : 'entry'));
   const activityItemsRef = useRef<ActivityFeedItem[]>([]);
+
+  useEffect(() => {
+    if (lens !== 'triage') setShowAdvancedLenses(true);
+  }, [lens]);
+
+  useEffect(() => {
+    if (!isLocalDev || localSupportMode !== 'system') return;
+    setLens('triage');
+    setShowAdvancedLenses(false);
+    setSystemMode('errors');
+  }, [isLocalDev, localSupportMode, setLens]);
+
+  const handleAdvancedLensesToggle = useCallback(() => {
+    if (showAdvancedLenses && lens !== 'triage') setLens('triage');
+    setShowAdvancedLenses((prev) => !prev);
+  }, [lens, setLens, showAdvancedLenses]);
+
+  const resetToSystemEntry = useCallback(() => {
+    setLens('triage');
+    setShowAdvancedLenses(false);
+    setSystemMode('entry');
+  }, [setLens]);
+
+  useEffect(() => {
+    window.addEventListener('helix:system-entry-reset', resetToSystemEntry);
+    return () => window.removeEventListener('helix:system-entry-reset', resetToSystemEntry);
+  }, [resetToSystemEntry]);
+
+  const handleOpenErrors = useCallback(() => {
+    setLens('triage');
+    setShowAdvancedLenses(false);
+    setSystemMode('errors');
+  }, [setLens]);
+
+  const handleOpenMatterReplay = useCallback(() => {
+    setLens('triage');
+    setShowAdvancedLenses(false);
+    setSystemMode('matter-replay');
+  }, [setLens]);
+
+  const handleOpenDashboard = useCallback(() => {
+    setShowAdvancedLenses(true);
+    setLens('all');
+    setSystemMode('dashboard');
+  }, [setLens]);
 
   // Coordinated reveal — flips once when initial data arrives, never resets
   const [dashReady, setDashReady] = useState(false);
@@ -459,6 +588,46 @@ const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, 
   const borderColour = isDarkMode ? colours.dark.border : colours.light.border;
   const surfaceColour = isDarkMode ? 'rgba(255,255,255,0.06)' : colours.light.sectionBackground;
 
+  if (showLiveMonitor && systemMode === 'entry') {
+    return (
+      <ActivityProvider value={layout}>
+        <div style={containerStyles(isDarkMode)}>
+          <SystemEntry isDarkMode={isDarkMode} onOpenErrors={handleOpenErrors} onOpenMatterReplay={handleOpenMatterReplay} onOpenDashboard={handleOpenDashboard} />
+        </div>
+      </ActivityProvider>
+    );
+  }
+
+  if (showLiveMonitor && systemMode === 'errors') {
+    return (
+      <ActivityProvider value={layout}>
+        <div style={containerStyles(isDarkMode)}>
+          <SystemErrorsView
+            viewerInitials={userInitials || null}
+            isDarkMode={isDarkMode}
+            onBack={resetToSystemEntry}
+            onOpenDashboard={handleOpenDashboard}
+          />
+        </div>
+      </ActivityProvider>
+    );
+  }
+
+  if (showLiveMonitor && systemMode === 'matter-replay') {
+    return (
+      <ActivityProvider value={layout}>
+        <div style={containerStyles(isDarkMode)}>
+          <MatterReplayView
+            viewerInitials={userInitials || null}
+            isDarkMode={isDarkMode}
+            onBack={resetToSystemEntry}
+            onOpenDashboard={handleOpenDashboard}
+          />
+        </div>
+      </ActivityProvider>
+    );
+  }
+
   return (
     <ActivityProvider value={layout}>
     <div style={containerStyles(isDarkMode)}>
@@ -468,79 +637,103 @@ const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, 
         const checksWarningCount = opsPulse.opsChecks?.warningCount ?? 0;
         const checksIssueCount = checksFailingCount + checksWarningCount;
         const checksTrackedCount = opsPulse.opsChecks?.totalTracked ?? 0;
+        const triageIssueCount = (opsPulse.errors?.length || 0) + (opsPulse.sessionTraces?.degraded ?? 0) + checksIssueCount;
+        const triageTone: LensSpec['tone'] = (opsPulse.errors?.length || 0) > 0 || (opsPulse.sessionTraces?.degraded ?? 0) > 0 || checksFailingCount > 0
+          ? 'danger'
+          : (opsPulse.sessionTraces?.busy ?? 0) > 0 || checksWarningCount > 0
+            ? 'warning'
+            : opsPulse.connected
+              ? 'success'
+              : 'neutral';
+        const advancedLenses: LensSpec[] = [
+          { key: 'all', label: 'All', count: activityItems.length },
+          { key: 'forms', label: 'Forms', count: formsTodayCount },
+          { key: 'matters', label: 'Matters' },
+          { key: 'sync', label: 'Sync' },
+          {
+            key: 'checks',
+            label: 'Checks',
+            count: checksIssueCount > 0 ? checksIssueCount : undefined,
+            tone: checksFailingCount > 0
+              ? 'danger'
+              : checksWarningCount > 0
+                ? 'warning'
+                : checksTrackedCount > 0
+                  ? 'success'
+                  : 'neutral',
+          },
+          {
+            key: 'trace',
+            label: 'Trace',
+            count: opsPulse.sessionTraces?.active ?? 0,
+            tone: (opsPulse.sessionTraces?.degraded ?? 0) > 0
+              ? 'danger'
+              : (opsPulse.sessionTraces?.busy ?? 0) > 0
+                ? 'warning'
+                : (opsPulse.sessionTraces?.active ?? 0) > 0
+                  ? 'success'
+                  : 'neutral',
+          },
+          {
+            key: 'errors',
+            label: 'Errors',
+            count: opsPulse.errors?.length || 0,
+            tone: (opsPulse.errors?.length || 0) > 0 ? 'danger' : 'neutral',
+          },
+          ...(canSeeForge
+            ? [{
+                key: 'signals' as ActivityLens,
+                label: 'Signals',
+                count: (signalsOpenCount ?? 0) > 0 ? signalsOpenCount ?? undefined : undefined,
+                tone: (signalsOpenCount ?? 0) > 0 ? 'warning' as const : 'neutral' as const,
+              }]
+            : []),
+          ...(canSeeForge
+            ? [{
+                key: 'forge' as ActivityLens,
+                label: 'Controls',
+                tone: 'success' as const,
+              }]
+            : []),
+          ...(isDevOwner
+            ? [{
+                key: 'briefs' as ActivityLens,
+                label: 'Briefs',
+                count: briefsOpenCount ?? undefined,
+                tone: (briefsOpenCount ?? 0) > 0 ? 'warning' as const : 'neutral' as const,
+              }]
+            : []),
+          ...(isDevOwner
+            ? [{
+                key: 'actions' as ActivityLens,
+                label: 'Actions',
+                tone: 'success' as const,
+              }]
+            : []),
+          ...(isDevOwner
+            ? [{
+                key: 'mechanisms' as ActivityLens,
+                label: 'Mechanisms',
+                tone: 'neutral' as const,
+              }]
+            : []),
+          ...(canSeeForge
+            ? [{
+                key: 'audit' as ActivityLens,
+                label: 'Audit',
+                tone: 'neutral' as const,
+              }]
+            : []),
+        ];
         const lenses: LensSpec[] = showLiveMonitor
           ? [
-              { key: 'all', label: 'All', count: activityItems.length },
-              { key: 'forms', label: 'Forms', count: formsTodayCount },
-              { key: 'matters', label: 'Matters' },
-              { key: 'sync', label: 'Sync' },
               {
-                key: 'checks',
-                label: 'Checks',
-                count: checksIssueCount > 0 ? checksIssueCount : undefined,
-                tone: checksFailingCount > 0
-                  ? 'danger'
-                  : checksWarningCount > 0
-                    ? 'warning'
-                    : checksTrackedCount > 0
-                      ? 'success'
-                      : 'neutral',
+                key: 'triage',
+                label: 'Triage',
+                count: triageIssueCount > 0 ? triageIssueCount : undefined,
+                tone: triageTone,
               },
-              {
-                key: 'trace',
-                label: 'Trace',
-                count: opsPulse.sessionTraces?.active ?? 0,
-                tone: (opsPulse.sessionTraces?.degraded ?? 0) > 0
-                  ? 'danger'
-                  : (opsPulse.sessionTraces?.busy ?? 0) > 0
-                    ? 'warning'
-                    : (opsPulse.sessionTraces?.active ?? 0) > 0
-                      ? 'success'
-                      : 'neutral',
-              },
-              {
-                key: 'errors',
-                label: 'Errors',
-                count: opsPulse.errors?.length || 0,
-                tone: (opsPulse.errors?.length || 0) > 0 ? 'danger' : 'neutral',
-              },
-              ...(canSeeForge
-                ? [{
-                    key: 'signals' as ActivityLens,
-                    label: 'Signals',
-                    count: (signalsOpenCount ?? 0) > 0 ? signalsOpenCount ?? undefined : undefined,
-                    tone: (signalsOpenCount ?? 0) > 0 ? 'warning' as const : 'neutral' as const,
-                  }]
-                : []),
-              ...(canSeeForge
-                ? [{
-                    key: 'forge' as ActivityLens,
-                    label: 'Controls',
-                    tone: 'success' as const,
-                  }]
-                : []),
-              ...(isDevOwner
-                ? [{
-                    key: 'briefs' as ActivityLens,
-                    label: 'Briefs',
-                    count: briefsOpenCount ?? undefined,
-                    tone: (briefsOpenCount ?? 0) > 0 ? 'warning' as const : 'neutral' as const,
-                  }]
-                : []),
-              ...(isDevOwner
-                ? [{
-                    key: 'actions' as ActivityLens,
-                    label: 'Actions',
-                    tone: 'success' as const,
-                  }]
-                : []),
-              ...(isDevOwner
-                ? [{
-                    key: 'mechanisms' as ActivityLens,
-                    label: 'Mechanisms',
-                    tone: 'neutral' as const,
-                  }]
-                : []),
+              ...(showAdvancedLenses ? advancedLenses : []),
             ]
           : [];
 
@@ -645,36 +838,61 @@ const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, 
             : [];
 
         return (
-          <ActivityHero
-            isDarkMode={isDarkMode}
-            title="System"
-            connected={showLiveMonitor ? opsPulse.connected : null}
-            showLiveDot={showLiveMonitor}
-            lastSyncAt={activityFeedLastSyncAt}
-            kpis={kpis}
-            lenses={lenses}
-            activeLens={lens}
-            onLensChange={setLens}
-            subtitle={
-              userTier === 'devGroup'
-                ? 'Dev group preview'
-                : !showLiveMonitor
-                ? `${activityItems.length > 0 ? `${activityItems.length} live signals` : ''}${activityItems.length > 0 && allEntries.length > 0 ? ' - ' : ''}${allEntries.length > 0 ? `${allEntries.length} updates` : 'Platform updates and improvements'}`
-                : undefined
-            }
-          />
+          <>
+            <ActivityHero
+              isDarkMode={isDarkMode}
+              title="System"
+              connected={showLiveMonitor ? opsPulse.connected : null}
+              showLiveDot={showLiveMonitor}
+              lastSyncAt={activityFeedLastSyncAt}
+              kpis={kpis}
+              lenses={lenses}
+              activeLens={lens}
+              onLensChange={setLens}
+              subtitle={
+                userTier === 'devGroup'
+                  ? 'Dev group preview'
+                  : !showLiveMonitor
+                  ? `${activityItems.length > 0 ? `${activityItems.length} live signals` : ''}${activityItems.length > 0 && allEntries.length > 0 ? ' - ' : ''}${allEntries.length > 0 ? `${allEntries.length} updates` : 'Platform updates and improvements'}`
+                  : undefined
+              }
+            />
+            {showLiveMonitor && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginTop: -10, marginBottom: 14 }}>
+                <button
+                  type="button"
+                  onClick={handleAdvancedLensesToggle}
+                  style={{
+                    border: `1px solid ${borderColour}`,
+                    background: showAdvancedLenses ? `${accentColour}1F` : 'transparent',
+                    color: showAdvancedLenses ? accentColour : mutedColour,
+                    padding: '6px 10px',
+                    borderRadius: 0,
+                    cursor: 'pointer',
+                    fontFamily: 'Raleway, sans-serif',
+                    fontSize: 11,
+                    fontWeight: 800,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px',
+                  }}
+                >
+                  {showAdvancedLenses ? 'Hide advanced tools' : 'Advanced tools'}
+                </button>
+              </div>
+            )}
+          </>
         );
       })()}
 
       {/* ═══ Alerts strip (conditional) ═══ */}
-      {showLiveMonitor && (
+      {showLiveMonitor && showAdvancedLenses && (
         <ActivityAlertsStrip isDarkMode={isDarkMode} opsPulse={opsPulse} />
       )}
 
       {/* ═══ Tier 1: Dashboard shell — focal surface + side rail (dev group) ═══ */}
       {showLiveMonitor && (
         <div className={dashReady ? 'activity-cascade-1' : 'activity-cascade-pending'} style={{ marginBottom: 28 }}>
-          <div className="activity-shell">
+          <div className={`activity-shell ${lens === 'triage' && !showAdvancedLenses ? 'activity-shell--triage' : ''}`}>
             <div style={{ minWidth: 0 }}>
               <FocalSurface
                 lens={lens}
@@ -692,19 +910,21 @@ const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, 
                 selectedErrorTs={layout.selectedErrorTs}
               />
             </div>
-            <div className="activity-shell-rail">
-              <SideRail
-                isDarkMode={isDarkMode}
-                presence={opsPulse.presence}
-                sessions={opsPulse.sessions}
-                requests={opsPulse.requests || []}
-                pulse={opsPulse.pulse}
-                scheduler={opsPulse.scheduler}
-                sessionTraces={opsPulse.sessionTraces}
-                connected={opsPulse.connected}
-                layers={layout.layers}
-              />
-            </div>
+            {(showAdvancedLenses || lens !== 'triage') && (
+              <div className="activity-shell-rail">
+                <SideRail
+                  isDarkMode={isDarkMode}
+                  presence={opsPulse.presence}
+                  sessions={opsPulse.sessions}
+                  requests={opsPulse.requests || []}
+                  pulse={opsPulse.pulse}
+                  scheduler={opsPulse.scheduler}
+                  sessionTraces={opsPulse.sessionTraces}
+                  connected={opsPulse.connected}
+                  layers={layout.layers}
+                />
+              </div>
+            )}
           </div>
         </div>
       )}

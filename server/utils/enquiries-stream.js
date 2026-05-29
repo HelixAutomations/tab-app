@@ -29,6 +29,13 @@ let lazyEventPollerStarted = false;
 function ensureLazyEventPoller() {
   if (lazyEventPollerStarted) return;
   if (process.env.NODE_ENV === 'production' || process.env.HELIX_LAZY_INIT !== '1') return;
+  if (process.env.HELIX_DISABLE_LAZY_EVENT_POLLER === '1') {
+    trackEvent('Enquiries.Stream.LazyEventPoller.Skipped', {
+      operation: 'enquiries-stream.lazyEventPoller',
+      reason: 'HELIX_DISABLE_LAZY_EVENT_POLLER',
+    });
+    return;
+  }
 
   try {
     const { startEventPoller } = require('./eventPoller');

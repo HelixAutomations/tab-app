@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { recordIntent } from '../utils/recordIntent';
 import { Stack } from '@fluentui/react/lib/Stack';
 import { Text } from '@fluentui/react/lib/Text';
 import { TextField } from '@fluentui/react/lib/TextField';
@@ -156,18 +157,20 @@ const ComplaintForm: React.FC<ComplaintFormProps> = ({ userData, teamData, onBac
 
     try {
       const baseUrl = getApiBase();
+      const complaintPayload = {
+        matter_ref: formData.matter_ref || null,
+        complainant: formData.complainant.trim(),
+        respondent: formData.respondent,
+        received_date: formData.received_date,
+        description: formData.description.trim(),
+        category: formData.category || null,
+        area_of_work: formData.area_of_work || null,
+      };
+      const clientSubmissionId = await recordIntent({ formKey: 'complaint', payload: complaintPayload });
       const response = await fetch(`${baseUrl}/api/registers/complaints`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...requestHeaders },
-        body: JSON.stringify({
-          matter_ref: formData.matter_ref || null,
-          complainant: formData.complainant.trim(),
-          respondent: formData.respondent,
-          received_date: formData.received_date,
-          description: formData.description.trim(),
-          category: formData.category || null,
-          area_of_work: formData.area_of_work || null,
-        }),
+        body: JSON.stringify({ ...complaintPayload, clientSubmissionId }),
       });
 
       const payload = await response.json().catch(() => ({}));

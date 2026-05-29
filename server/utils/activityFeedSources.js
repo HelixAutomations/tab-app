@@ -139,6 +139,24 @@ function mapEmailForwardEvent(event) {
   };
 }
 
+function mapMatterOpeningEvent(event) {
+  const summaryParts = [];
+  if (event.step) summaryParts.push(event.step);
+  if (event.initials) summaryParts.push(`operator ${event.initials}`);
+  if (event.traceId) summaryParts.push(`trace ${event.traceId}`);
+  if (event.summary) summaryParts.push(event.summary);
+
+  return {
+    id: `matter-opening-${event.id}`,
+    source: 'activity.matter-opening',
+    sourceLabel: 'Matter opening',
+    status: event.status === 'error' ? 'error' : 'info',
+    title: event.title || 'Matter opening event',
+    summary: summaryParts.join(' · '),
+    timestamp: event.ts,
+  };
+}
+
 const OP_LOG_ACTIVITY_SOURCES = [
   {
     key: 'bot',
@@ -188,6 +206,12 @@ const OP_LOG_ACTIVITY_SOURCES = [
     type: 'activity.email.forward',
     limitFactor: 2,
     map: mapEmailForwardEvent,
+  },
+  {
+    key: 'matterOpening',
+    type: 'activity.matter-opening',
+    limitFactor: 3,
+    map: mapMatterOpeningEvent,
   },
 ];
 

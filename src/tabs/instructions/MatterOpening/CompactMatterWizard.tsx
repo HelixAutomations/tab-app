@@ -32,6 +32,7 @@ import {
 } from 'react-icons/fa';
 import { Icon } from '@fluentui/react/lib/Icon';
 import { colours } from '../../../app/styles/colours';
+import { isCclOperationsAvailable } from '../../../app/admin';
 import { getPracticeAreaOptions, normalisePracticeArea, practiceAreasByArea, resolveMatterPracticeArea, partnerOptions } from './config';
 import { buildMatterOpeningPayload, validateMatterOpeningPayload } from './intakeModel';
 import type { MatterOpeningPayload } from './intakeModel';
@@ -58,6 +59,8 @@ import MatterOpenedHandoff from '../../../components/modern/matter-opening/Matte
 
 type ShowToastFn = (toast: Omit<Toast, 'id'> & { id?: string }) => string;
 type HideToastFn = (id: string) => void;
+type CurrentUserProfile = { FullName?: string; Email?: string; EntraID?: string; 'Entra ID'?: string; entraId?: string };
+type UserProfileLookup = { userObjectId?: string; email?: string; initials?: string };
 
 interface CompactMatterWizardProps {
   inst: any;
@@ -68,7 +71,7 @@ interface CompactMatterWizardProps {
   documents: any[];
   poidData: any[];
   teamData: TeamData[] | null;
-  currentUser: { FullName?: string; Email?: string } | null;
+  currentUser: CurrentUserProfile | null;
   isDarkMode: boolean;
   feeEarner: string;
   areaOfWork: string;
@@ -173,6 +176,7 @@ const CompactMatterWizard: React.FC<CompactMatterWizardProps> = ({
   skipConfirmedPreview = false,
 }) => {
   /* ---- derived constants ---- */
+  const cclOperationsAvailable = isCclOperationsAvailable();
   const activeTeam = useMemo(() => {
     if (!teamData) return [] as any[];
     return teamData.filter((t: any) => String(t?.status ?? t?.Status ?? '').toLowerCase() === 'active');
@@ -356,7 +360,7 @@ const CompactMatterWizard: React.FC<CompactMatterWizardProps> = ({
   const [userData, setUserData] = useState<any[] | null>(null);
   const [userDataLoading, setUserDataLoading] = useState(false);
   const profileFetchInFlightRef = useRef(false);
-  const lastFetchedEntraIdRef = useRef<string | null>(null);
+  const lastFetchedProfileLookupRef = useRef<string | null>(null);
 
   const matterId = useRef<string | null>(null);
   const matterDisplayNum = useRef<string | null>(null);
@@ -393,14 +397,27 @@ const CompactMatterWizard: React.FC<CompactMatterWizardProps> = ({
     return null;
   }, [teamData, currentUser]);
 
-  const fetchUserDataFallback = useCallback(async (entraId: string): Promise<any[] | null> => {
-    if (!entraId) return null;
+  const buildUserProfileLookup = useCallback((teamMember: any | null | undefined): UserProfileLookup => {
+    const userObjectId = String(currentUser?.EntraID || currentUser?.['Entra ID'] || currentUser?.entraId || teamMember?.['Entra ID'] || teamMember?.EntraID || '').trim();
+    const email = normalizeEmail(currentUser?.Email || teamMember?.Email || teamMember?.email);
+    const initials = String(resolvedProcessingInitials || teamMember?.Initials || teamMember?.initials || '').trim().toUpperCase();
+
+    return {
+      ...(userObjectId ? { userObjectId } : {}),
+      ...(email ? { email } : {}),
+      ...(initials ? { initials } : {}),
+    };
+  }, [currentUser, resolvedProcessingInitials]);
+
+  const fetchUserDataFallback = useCallback(async (lookup: string | UserProfileLookup): Promise<any[] | null> => {
+    const payload = typeof lookup === 'string' ? { userObjectId: lookup } : lookup;
+    if (!payload.userObjectId && !payload.email && !payload.initials) return null;
     setUserDataLoading(true);
     try {
       const response = await fetch('/api/user-data', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userObjectId: entraId }),
+        body: JSON.stringify(payload),
       });
       if (!response.ok) return null;
       const data = await response.json();
@@ -551,16 +568,15 @@ const CompactMatterWizard: React.FC<CompactMatterWizardProps> = ({
     const tm = findOperatorTeamMember() || findTeamMemberByInitials(resolvedProcessingInitials);
     if (!tm) return;
 
-    // Try API first
-    const entraId = tm['Entra ID'] || tm.EntraID;
-    if (entraId) {
-      const normalizedEntraId = String(entraId);
+    const profileLookup = buildUserProfileLookup(tm);
+    const lookupKey = [profileLookup.userObjectId || '', profileLookup.email || '', profileLookup.initials || ''].join('|');
+    if (profileLookup.userObjectId || profileLookup.email || profileLookup.initials) {
       if (profileFetchInFlightRef.current) return;
-      if (lastFetchedEntraIdRef.current === normalizedEntraId) return;
+      if (lastFetchedProfileLookupRef.current === lookupKey) return;
 
       profileFetchInFlightRef.current = true;
-      lastFetchedEntraIdRef.current = normalizedEntraId;
-      fetchUserDataFallback(normalizedEntraId)
+      lastFetchedProfileLookupRef.current = lookupKey;
+      fetchUserDataFallback(profileLookup)
         .then((data) => {
           if (data && data.length > 0) {
             setUserData(data);
@@ -581,6 +597,7 @@ const CompactMatterWizard: React.FC<CompactMatterWizardProps> = ({
     userData,
     currentUser?.Email,
     currentUser?.FullName,
+    buildUserProfileLookup,
     fetchUserDataFallback,
     findOperatorTeamMember,
     findTeamMemberByInitials,
@@ -979,7 +996,8 @@ const CompactMatterWizard: React.FC<CompactMatterWizardProps> = ({
       return;
     }
 
-    // ─── Demo mode: simulate all steps, fire real CCL endpoints ───
+    // Demo mode simulates the matter-opening chain. CCL is local-only under
+    // the ZDR/LPP containment gate, so hosted environments never call it.
     if (demoModeEnabled) {
       resetMatterTraceId();
       setWizardMode('processing');
@@ -1004,8 +1022,7 @@ const CompactMatterWizard: React.FC<CompactMatterWizardProps> = ({
         setCurrentStepIdx(i);
         await new Promise(r => setTimeout(r, 120 + Math.random() * 180));
 
-        // Last 2 steps are CCL context preview + draft service run — fire real endpoints against demo data
-        if (i === total - 2 && initialSteps[i].label === 'CCL Context Assembled') {
+        if (cclOperationsAvailable && i === total - 2 && initialSteps[i].label === 'CCL Context Assembled') {
           try {
             const cclPayload = {
               matterId: demoMatterId,
@@ -1040,7 +1057,7 @@ const CompactMatterWizard: React.FC<CompactMatterWizardProps> = ({
             setProcessingSteps(prev => prev.map((s, idx) => idx === i ? { ...s, status: 'success', message: 'Context preview skipped (non-blocking)' } : s));
             setProcessingLogs(prev => [...prev, `✓ CCL context preview skipped — ${err instanceof Error ? err.message : 'error'}`]);
           }
-        } else if (i === total - 1 && initialSteps[i].label === 'CCL Service Generated') {
+        } else if (cclOperationsAvailable && i === total - 1 && initialSteps[i].label === 'CCL Service Generated') {
           try {
             const resp = await fetch('/api/ccl/service/run', {
               method: 'POST',
@@ -1111,11 +1128,11 @@ const CompactMatterWizard: React.FC<CompactMatterWizardProps> = ({
     let workingUserData = userData;
     let teamMember = findOperatorTeamMember() || findTeamMemberByInitials(resolvedProcessingInitials);
 
-    // Step 1: If no userData yet, try API fetch via Entra ID
+    // Step 1: If no userData yet, try the credential-bearing profile API.
     if ((!workingUserData || workingUserData.length === 0) && teamMember) {
-      const entraId = teamMember['Entra ID'] || teamMember.EntraID;
-      if (entraId) {
-        const fallbackData = await fetchUserDataFallback(String(entraId));
+      const profileLookup = buildUserProfileLookup(teamMember);
+      if (profileLookup.userObjectId || profileLookup.email || profileLookup.initials) {
+        const fallbackData = await fetchUserDataFallback(profileLookup);
         if (fallbackData && fallbackData.length > 0) {
           workingUserData = fallbackData;
         }
@@ -1135,16 +1152,15 @@ const CompactMatterWizard: React.FC<CompactMatterWizardProps> = ({
 
     teamMember = teamMember || findOperatorTeamMember() || findTeamMemberByInitials(resolvedProcessingInitials);
 
-    // Step 3: Validate Asana credentials — if missing, re-fetch from API
+    // Step 3: Validate Asana credentials. If missing, re-fetch from API.
     // teamData does NOT carry ASANA columns, so buildMinimalUserData will have empty strings.
     // The /api/user-data endpoint explicitly queries ASANAClient_ID, ASANASecret, ASANARefreshToken.
     if (!workingUserData[0]?.ASANASecret && !workingUserData[0]?.ASANA_Secret) {
-      // Resolve team member for Entra ID if we haven't already
       const tm = teamMember || findOperatorTeamMember() || findTeamMemberByInitials(resolvedProcessingInitials);
-      const entraId = tm?.['Entra ID'] || tm?.EntraID;
-      if (entraId) {
+      const profileLookup = buildUserProfileLookup(tm);
+      if (profileLookup.userObjectId || profileLookup.email || profileLookup.initials) {
         console.log('[CompactMatterWizard] ASANA credentials missing from cached userData, retrying API fetch...');
-        const freshData = await fetchUserDataFallback(String(entraId));
+        const freshData = await fetchUserDataFallback(profileLookup);
         if (freshData && freshData.length > 0 && (freshData[0].ASANASecret || freshData[0].ASANA_Secret)) {
           workingUserData = freshData;
         }
@@ -1152,9 +1168,8 @@ const CompactMatterWizard: React.FC<CompactMatterWizardProps> = ({
     }
 
     if (!workingUserData[0]?.ASANASecret && !workingUserData[0]?.ASANA_Secret) {
-      reportTelemetry('PreValidation.Failed', { error: 'Asana credentials missing', phase: 'credentialCheck', hasTeamMember: !!teamMember, hasEntraId: !!(teamMember?.['Entra ID'] || teamMember?.EntraID) });
-      showToast({ type: 'error', title: 'Credentials Missing', message: 'Asana credentials not found. Please contact support.' });
-      return;
+      const profileLookup = buildUserProfileLookup(teamMember);
+      reportTelemetry('PreValidation.Warning', { warning: 'Asana credentials missing', phase: 'credentialCheck', hasTeamMember: !!teamMember, hasEntraId: !!profileLookup.userObjectId, hasEmail: !!profileLookup.email, hasInitials: !!profileLookup.initials });
     }
 
     resetMatterTraceId();
@@ -1682,11 +1697,7 @@ const CompactMatterWizard: React.FC<CompactMatterWizardProps> = ({
             )}
           </div>
 
-          {/* Live CCL autopilot state — polls /api/ccl/batch-status so real and
-            * demo runs are indistinguishable. "Review CCL" inside this surface
-            * routes directly to the Home modern review modal (openHomeCclReview
-            * → navigateToHome), bypassing the old Matters-tab workbench. */}
-          {handoffMatterId && (
+          {cclOperationsAvailable && handoffMatterId && (
             <MatterOpenedHandoff
               openedMatterId={handoffMatterId}
               matterOpenSucceeded={true}

@@ -394,6 +394,40 @@
   display: none;
 }
 
+/* Forms hub honours the UserBubble "Show scrollbars" toggle. Any scrollable
+   descendant inside the hub hides its scrollbar chrome by default, then
+   reveals a thin Helix-blue scrollbar when html[data-show-scrollbars="1"]. */
+.forms-hub__content *,
+.forms-hub__content {
+  scrollbar-width: none;
+}
+.forms-hub__content *::-webkit-scrollbar,
+.forms-hub__content::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+html[data-show-scrollbars="1"] .forms-hub__content,
+html[data-show-scrollbars="1"] .forms-hub__content * {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(54, 144, 206, 0.55) transparent;
+}
+html[data-show-scrollbars="1"] .forms-hub__content::-webkit-scrollbar,
+html[data-show-scrollbars="1"] .forms-hub__content *::-webkit-scrollbar {
+  width: 8px !important;
+  height: 8px !important;
+  display: block;
+}
+html[data-show-scrollbars="1"] .forms-hub__content::-webkit-scrollbar-thumb,
+html[data-show-scrollbars="1"] .forms-hub__content *::-webkit-scrollbar-thumb {
+  background-color: rgba(54, 144, 206, 0.55);
+  border-radius: 999px;
+}
+html[data-show-scrollbars="1"] .forms-hub__content::-webkit-scrollbar-thumb:hover,
+html[data-show-scrollbars="1"] .forms-hub__content *::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(54, 144, 206, 0.8);
+}
+
 .forms-hub__launcher-panel {
   display: flex;
   flex-direction: column;

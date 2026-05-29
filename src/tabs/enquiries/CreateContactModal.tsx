@@ -51,7 +51,8 @@ interface ContactFormData {
   notes: string;
   // Referral/Source
   rep: string;
-  contactReferrer: string;
+  contactReferrerFirstName: string;
+  contactReferrerLastName: string;
   companyReferrer: string;
   source: string;
 }
@@ -69,6 +70,7 @@ const methodOfContactOptions: IDropdownOption[] = [
   { key: 'Web Form', text: 'Web Form' },
   { key: 'Direct FE Email', text: 'Direct FE Email' },
   { key: 'Direct Firm Email', text: 'Direct Firm Email' },
+  { key: 'Referral', text: 'Referral' },
 ];
 
 const valueBandOptions: IDropdownOption[] = [
@@ -146,7 +148,8 @@ const CreateContactModal: React.FC<CreateContactModalProps> = ({
     notes: '',
     // Referral/Source
     rep: userEmail || '', // Default to current user's email
-    contactReferrer: '',
+    contactReferrerFirstName: '',
+    contactReferrerLastName: '',
     companyReferrer: '',
     source: '',
   });
@@ -163,7 +166,11 @@ const CreateContactModal: React.FC<CreateContactModalProps> = ({
   const [success, setSuccess] = useState<string | null>(null);
 
   const handleFieldChange = useCallback((field: keyof ContactFormData, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
+    setFormData(prev => ({
+      ...prev,
+      [field]: value,
+      ...(field === 'moc' && value.trim().toLowerCase() === 'referral' ? { source: 'referral' } : {}),
+    }));
     setError(null);
   }, []);
 
@@ -199,6 +206,14 @@ const CreateContactModal: React.FC<CreateContactModalProps> = ({
       return;
     }
 
+    if (
+      formData.moc.trim().toLowerCase() === 'referral' &&
+      (!formData.contactReferrerFirstName.trim() || !formData.contactReferrerLastName.trim() || !formData.companyReferrer.trim())
+    ) {
+      setError('Referrer first name, last name and company are required for referrals');
+      return;
+    }
+
     if (!formData.value) {
       setError('Value Band is required');
       return;
@@ -225,6 +240,13 @@ const CreateContactModal: React.FC<CreateContactModalProps> = ({
 
       setSavingProgress('Preparing data for submission...');
 
+      const contactReferrer = [formData.contactReferrerFirstName.trim(), formData.contactReferrerLastName.trim()]
+        .filter(Boolean)
+        .join(' ');
+      const source = formData.moc.trim().toLowerCase() === 'referral'
+        ? 'referral'
+        : formData.source.trim().toLowerCase();
+
       // Format payload for processEnquiry function (instructions database)
       const payload = {
         data: {
@@ -238,9 +260,9 @@ const CreateContactModal: React.FC<CreateContactModalProps> = ({
           value: formData.value.trim() || undefined,
           notes: formData.notes.trim() || undefined,
           rep: formData.rep.trim() || userEmail || undefined,
-          contact_referrer: formData.contactReferrer.trim() || undefined,
+          contact_referrer: contactReferrer || undefined,
           company_referrer: formData.companyReferrer.trim() || undefined,
-          source: formData.source.trim().toLowerCase() || 'manual',
+          source: source || 'manual',
         },
       };
 
@@ -302,7 +324,8 @@ const CreateContactModal: React.FC<CreateContactModalProps> = ({
       value: '',
       notes: '',
       rep: userEmail || '', // Reset to current user
-      contactReferrer: '',
+      contactReferrerFirstName: '',
+      contactReferrerLastName: '',
       companyReferrer: '',
       source: '',
     });
@@ -558,6 +581,8 @@ const CreateContactModal: React.FC<CreateContactModalProps> = ({
     }
   };
 
+  const isReferralMethod = formData.moc.trim().toLowerCase() === 'referral';
+
   return (
     <Modal
       isOpen={isOpen}
@@ -745,23 +770,36 @@ const CreateContactModal: React.FC<CreateContactModalProps> = ({
             </div>
           </div>
 
-          {formData.source.toLowerCase() === 'referral' && (
-            <div style={{ display: 'flex', gap: 8 }}>
-              <TextField
-                label="Referring Individual"
-                value={formData.contactReferrer}
-                onChange={(_, value) => handleFieldChange('contactReferrer', value || '')}
-                disabled={isSaving}
-                placeholder="Name of person"
-                styles={{ root: { flex: 1 }, ...fieldStyles }}
-              />
+          {isReferralMethod && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <TextField
+                  label="Referrer First Name"
+                  value={formData.contactReferrerFirstName}
+                  onChange={(_, value) => handleFieldChange('contactReferrerFirstName', value || '')}
+                  disabled={isSaving}
+                  required
+                  placeholder="First name"
+                  styles={{ root: { flex: 1 }, ...fieldStyles }}
+                />
+                <TextField
+                  label="Referrer Last Name"
+                  value={formData.contactReferrerLastName}
+                  onChange={(_, value) => handleFieldChange('contactReferrerLastName', value || '')}
+                  disabled={isSaving}
+                  required
+                  placeholder="Last name"
+                  styles={{ root: { flex: 1 }, ...fieldStyles }}
+                />
+              </div>
               <TextField
                 label="Referring Company"
                 value={formData.companyReferrer}
                 onChange={(_, value) => handleFieldChange('companyReferrer', value || '')}
                 disabled={isSaving}
+                required
                 placeholder="Company name"
-                styles={{ root: { flex: 1 }, ...fieldStyles }}
+                styles={fieldStyles}
               />
             </div>
           )}

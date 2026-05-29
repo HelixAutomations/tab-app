@@ -42,6 +42,150 @@ function Remove-DirectoryRobust {
     }
 }
 
+function Test-ZipEntry {
+    param(
+        [Parameter(Mandatory = $true)]
+        [System.IO.Compression.ZipArchive]
+        $Archive,
+
+        [Parameter(Mandatory = $true)]
+        [string]
+        $Pattern
+    )
+
+    foreach ($entry in $Archive.Entries) {
+        $name = $entry.FullName -replace '\\', '/'
+        if ($name -like $Pattern) {
+            return $true
+        }
+    }
+    return $false
+}
+
+function Assert-StagingPackage {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]
+        $Path
+    )
+
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $archive = [System.IO.Compression.ZipFile]::OpenRead($Path)
+    try {
+        $requiredPatterns = @(
+            'index.html',
+            'static/js/*',
+            'static/css/*',
+            'server.js',
+            'web.config',
+            'routes/*',
+            'utils/*',
+            'node_modules/*'
+        )
+
+        $missing = @()
+        foreach ($pattern in $requiredPatterns) {
+            if (-not (Test-ZipEntry -Archive $archive -Pattern $pattern)) {
+                $missing += $pattern
+            }
+        }
+
+        if ($missing.Count -gt 0) {
+            Write-Host "ERROR: Staging package is incomplete. Missing zip entries: $($missing -join ', ')"
+            Write-Host "       Aborting before Azure deploy. Inspect: $Path"
+            exit 1
+        }
+    }
+    finally {
+        $archive.Dispose()
+    }
+}
+
+function New-ZipFromDirectory {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]
+        $SourceDir,
+
+        [Parameter(Mandatory = $true)]
+        [string]
+        $DestinationPath
+    )
+
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    if (Test-Path -LiteralPath $DestinationPath) {
+        Remove-Item -LiteralPath $DestinationPath -Force
+    }
+
+    [System.IO.Compression.ZipFile]::CreateFromDirectory(
+        $SourceDir,
+        $DestinationPath,
+        [System.IO.Compression.CompressionLevel]::Optimal,
+        $false
+    )
+}
+
+function Install-ServerDependenciesForDeploy {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]
+        $DestinationDir
+    )
+
+    $depsDir = Join-Path ([System.IO.Path]::GetTempPath()) ("helix-staging-server-deps-$([guid]::NewGuid().ToString('N'))")
+    New-Item -ItemType Directory -Path $depsDir | Out-Null
+
+    try {
+        Copy-Item -Path "server\package.json" -Destination "$depsDir\package.json" -Force
+        Copy-Item -Path "server\package-lock.json" -Destination "$depsDir\package-lock.json" -Force
+
+        $installSucceeded = $false
+        for ($attempt = 1; $attempt -le 2; $attempt++) {
+            if (Test-Path "$depsDir\node_modules") {
+                Remove-DirectoryRobust -Path "$depsDir\node_modules"
+            }
+
+            if ($attempt -gt 1) {
+                Write-Host "Retrying server dependency install in a fresh temp folder"
+            }
+
+            $previousNpmEAP = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            try {
+                & npm ci --prefix "$depsDir" --omit=dev --no-audit --fund=false --progress=false --no-bin-links 2>&1 | ForEach-Object { Write-Host $_ }
+                $npmExit = $LASTEXITCODE
+            }
+            finally {
+                $ErrorActionPreference = $previousNpmEAP
+            }
+            if ($npmExit -eq 0) {
+                $installSucceeded = $true
+                break
+            }
+        }
+
+        if (-not $installSucceeded) {
+            Write-Host "ERROR: Server dependency install failed."
+            exit 1
+        }
+
+        $destinationNodeModules = Join-Path $DestinationDir 'node_modules'
+        if (Test-Path -LiteralPath $destinationNodeModules) {
+            Remove-DirectoryRobust -Path $destinationNodeModules
+        }
+
+        Copy-Item -Path "$depsDir\node_modules" -Destination "$DestinationDir\node_modules" -Recurse -Force
+    }
+    finally {
+        try {
+            Remove-DirectoryRobust -Path $depsDir
+        }
+        catch {
+            Write-Host "Warning: Could not remove temporary dependency directory: $depsDir"
+        }
+    }
+}
+
 Write-Host "🚀 STAGING DEPLOYMENT - Building and deploying to staging slot"
 Write-Host "Removing existing zip artifacts"
 Remove-Item -Path $zipPath, $copyPath -Force -ErrorAction SilentlyContinue
@@ -73,23 +217,22 @@ Write-Host "Frontend build verified (index.html + static/ present)."
 Write-Host "Copying build output to deploy directory"
 Copy-Item -Path "$PSScriptRoot\build\*" -Destination "$deployDir" -Recurse -Force
 
-Write-Host "Installing server dependencies (production only)"
-if (Test-Path "server\node_modules") {
-    Write-Host "Removing existing server node_modules before clean install"
-    Remove-DirectoryRobust -Path "server\node_modules"
-}
-npm ci --prefix server --omit=dev --no-audit --fund=false --progress=false
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "ERROR: Server dependency install failed."
-    exit $LASTEXITCODE
+$deployIndexHtml = Join-Path $deployDir 'index.html'
+$deployStaticDir = Join-Path $deployDir 'static'
+if (-not (Test-Path $deployIndexHtml) -or -not (Test-Path $deployStaticDir)) {
+    Write-Host "ERROR: Deploy staging directory is missing frontend assets after copy."
+    Write-Host "       Expected $deployIndexHtml and $deployStaticDir."
+    exit 1
 }
 
-Write-Host "Copying server dependencies to deploy directory"
-Copy-Item -Path "server\node_modules" -Destination "$deployDir\node_modules" -Recurse -Force
-
-Write-Host "Copying server files to deploy directory"
+Write-Host "Copying server package manifest to deploy directory"
 Copy-Item -Path "server\package.json" -Destination "$deployDir\package.json" -Force
 Copy-Item -Path "server\package-lock.json" -Destination "$deployDir\package-lock.json" -Force
+
+Write-Host "Installing server dependencies into deploy directory (production only)"
+Install-ServerDependenciesForDeploy -DestinationDir $deployDir
+
+Write-Host "Copying server files to deploy directory"
 # Use index.js as production entry point (single source of truth for routes + middleware).
 # IISNode expects server.js — copy index.js under that name.
 Copy-Item -Path "server\index.js" -Destination "$deployDir\server.js" -Force
@@ -157,10 +300,26 @@ if (Test-Path $changelogSrc) {
 }
 
 Write-Host "Zipping files for staging deploy"
-Compress-Archive -Path (Join-Path $deployDir '*') -DestinationPath $zipPath -Force
+New-ZipFromDirectory -SourceDir $deployDir -DestinationPath $zipPath
+
+Write-Host "Verifying staging deployment package"
+Assert-StagingPackage -Path $zipPath
 
 Write-Host "Copying deployment zip for inspection"
-Copy-Item -Path $zipPath -Destination $copyPath -Force
+$copyAttempts = 0
+$copySucceeded = $false
+while (-not $copySucceeded -and $copyAttempts -lt 10) {
+    $copyAttempts++
+    try {
+        Copy-Item -Path $zipPath -Destination $copyPath -Force -ErrorAction Stop
+        $copySucceeded = $true
+    }
+    catch {
+        if ($copyAttempts -ge 10) { throw }
+        Write-Host "  zip still locked (attempt $copyAttempts), retrying in 2s..."
+        Start-Sleep -Seconds 2
+    }
+}
 
 Write-Host "🎯 Deploying to Azure staging slot"
 $hadNativeCommandPreference = Test-Path variable:PSNativeCommandUseErrorActionPreference

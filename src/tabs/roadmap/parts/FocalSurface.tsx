@@ -12,6 +12,8 @@ import DevConsolePanel from './DevConsolePanel';
 import OperatorActionsPanel from './OperatorActionsPanel';
 import SignalsInboxPanel from './SignalsInboxPanel';
 import MechanismsPanel from './MechanismsPanel';
+import AuditLens from './AuditLens';
+import SystemTriagePanel from './SystemTriagePanel';
 import type { ActivityFeedItem } from './types';
 import type { OpsPulseState } from './ops-pulse-types';
 import type { ActivityLens } from './ActivityHero';
@@ -47,6 +49,10 @@ const FocalSurface: React.FC<FocalSurfaceProps> = ({
   selectedSessionId,
   selectedErrorTs,
 }) => {
+  if (lens === 'triage') {
+    return <SystemTriagePanel viewerInitials={initials} isDarkMode={isDarkMode} />;
+  }
+
   if (lens === 'forms') {
     return (
       <UnifiedStream
@@ -130,6 +136,12 @@ const FocalSurface: React.FC<FocalSurfaceProps> = ({
         title="Matter & platform activity"
       />
     );
+  }
+
+  if (lens === 'audit') {
+    // Operator god-mode P3 — pressure-release valve. LZ/AC only at the chip
+    // level upstream. Self-contained: search initials, see everything.
+    return <AuditLens initials={initials} isDarkMode={isDarkMode} />;
   }
 
   // 'all' default

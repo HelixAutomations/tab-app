@@ -819,8 +819,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
       return;
     }
 
-    setShowPitchComposerPanel(isPitchComposerVisible && !hasExistingPitchRecord);
-  }, [activeTab, baseInstructionRef, prospectId, hasExistingPitchRecord, isPitchContentLoading, isPitchComposerVisible]);
+    setShowPitchComposerPanel(false);
+  }, [activeTab, baseInstructionRef, prospectId, isPitchContentLoading]);
 
   const teamsIdentifier = useMemo(() => {
     const asNumber = (v: any): number | null => {
@@ -10653,7 +10653,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
               </div>
             )}
 
-            {isPitchComposerVisible && (((!hasExistingPitchRecord && !isPitchContentLoading) || showPitchComposerPanel)) ? (
+            {isPitchComposerVisible && showPitchComposerPanel ? (
               <React.Suspense
                 fallback={(
                   <div

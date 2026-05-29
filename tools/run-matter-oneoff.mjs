@@ -26,8 +26,22 @@ Options:
   --practice-area <value>  Practice area override
   --description <value>    Matter description override
   --source <value>         Source override
+  --email <address>        User email for protected API routes
+  --entra-id <id>          User Entra ID for protected API routes
+  --matter-request-id <id> Reuse an existing pending MatterRequest row
   --dry-run                Build payload and print only; do not call endpoints
 `;
+
+let defaultRequestHeaders = {};
+
+function buildIdentityHeaders(options, initials) {
+  const headers = {
+    'x-helix-initials': initials,
+  };
+  if (options.email) headers['x-user-email'] = options.email;
+  if (options['entra-id']) headers['x-helix-entra-id'] = options['entra-id'];
+  return headers;
+}
 
 function parseArgs(argv) {
   const positional = [];
@@ -94,7 +108,7 @@ async function resolveInstructionsConnectionString() {
 async function request(baseUrl, path, options = {}) {
   const url = `${baseUrl}${path}`;
   const method = options.method || 'GET';
-  const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+  const headers = { 'Content-Type': 'application/json', ...defaultRequestHeaders, ...(options.headers || {}) };
   const res = await fetch(url, { ...options, method, headers });
   const text = await res.text();
   let body = null;
@@ -298,6 +312,7 @@ async function run() {
   }
 
   const baseUrl = options['base-url'] || DEFAULT_BASE_URL;
+  defaultRequestHeaders = buildIdentityHeaders(options, initials);
   const connectionString = await resolveInstructionsConnectionString();
 
   const pool = await sql.connect(connectionString);
@@ -326,31 +341,36 @@ async function run() {
     const solicitorId = opponents?.solicitorId || null;
     console.log('✓ Opponents synced', { opponentId, solicitorId });
 
-    const matterRequest = await request(baseUrl, '/api/matter-requests', {
-      method: 'POST',
-      body: JSON.stringify({
-        instructionRef: formData.matter_details?.instruction_ref || null,
-        clientType: formData.matter_details?.client_type || null,
-        description: formData.matter_details?.description || null,
-        practiceArea: formData.matter_details?.practice_area || null,
-        value: formData.matter_details?.dispute_value || null,
-        budgetRequired: formData.matter_details?.budget_required || null,
-        budgetAmount: formData.matter_details?.budget_amount || null,
-        budgetNotifyThreshold: formData.matter_details?.budget_notify_threshold || null,
-        budgetNotifyUsers: formData.matter_details?.budget_notify_users || null,
-        responsibleSolicitor: formData.team_assignments?.fee_earner || null,
-        originatingSolicitor: formData.team_assignments?.originating_solicitor || null,
-        supervisingPartner: formData.team_assignments?.supervising_partner || null,
-        source: formData.source_details?.source || null,
-        referrer: formData.source_details?.referrer_name || null,
-        opponentId,
-        solicitorId,
-        createdBy: initials
-      })
-    });
+    let matterRequestId = options['matter-request-id'] || null;
+    if (matterRequestId) {
+      console.log('✓ Matter request reused', { matterRequestId });
+    } else {
+      const matterRequest = await request(baseUrl, '/api/matter-requests', {
+        method: 'POST',
+        body: JSON.stringify({
+          instructionRef: formData.matter_details?.instruction_ref || null,
+          clientType: formData.matter_details?.client_type || null,
+          description: formData.matter_details?.description || null,
+          practiceArea: formData.matter_details?.practice_area || null,
+          value: formData.matter_details?.dispute_value || null,
+          budgetRequired: formData.matter_details?.budget_required || null,
+          budgetAmount: formData.matter_details?.budget_amount || null,
+          budgetNotifyThreshold: formData.matter_details?.budget_notify_threshold || null,
+          budgetNotifyUsers: formData.matter_details?.budget_notify_users || null,
+          responsibleSolicitor: formData.team_assignments?.fee_earner || null,
+          originatingSolicitor: formData.team_assignments?.originating_solicitor || null,
+          supervisingPartner: formData.team_assignments?.supervising_partner || null,
+          source: formData.source_details?.source || null,
+          referrer: formData.source_details?.referrer_name || null,
+          opponentId,
+          solicitorId,
+          createdBy: initials
+        })
+      });
 
-    const matterRequestId = matterRequest?.matterId || null;
-    console.log('✓ Matter request created', { matterRequestId });
+      matterRequestId = matterRequest?.matterId || null;
+      console.log('✓ Matter request created', { matterRequestId });
+    }
 
     const contacts = await request(baseUrl, '/api/clio-contacts', {
       method: 'POST',

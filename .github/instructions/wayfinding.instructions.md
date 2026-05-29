@@ -4,6 +4,8 @@ applyTo: "src/**"
 
 # Wayfinding (agent-assistive UI annotations)
 
+Last verified: 2026-05-23
+
 Wayfinding is the convention that makes the running Helix Hub UI inspectable
 by humans AND by AI agents that share the operator's browser window. Without
 it, an agent can only refer to UI parts via brittle CSS selectors or vague

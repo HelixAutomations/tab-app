@@ -68,7 +68,7 @@ export const CAPABILITIES = {
     kind: 'feature',
     label: 'Activity (System) tab',
     description: 'Operations dashboard, ops pulse, Operator Actions surface.',
-    defaultAllow: ['user:LZ'],
+    defaultAllow: ['user:LZ', 'user:EA'],
   },
   'feature:ccl': {
     key: 'feature:ccl',

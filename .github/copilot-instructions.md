@@ -1,10 +1,6 @@
 # Helix Hub
 
-Internal operations platform for Helix Law. Every change compounds.
-
-## Foundation
-
-Compounding context. Each interaction deposits a fragment — a rule, a preference, a decision. Small alone; over time they stack, reinforce, and the system sharpens without re-teaching.
+Internal operations platform for Helix Law. Every change compounds — each interaction deposits a fragment (rule, preference, decision) that stacks into a sharper system over time.
 
 ## Platform Topology (Always Keep in View)
 
@@ -15,74 +11,31 @@ Compounding context. Each interaction deposits a fragment — a rule, a preferen
 
 ## Operating Vision (Compounding Autonomy)
 
-Target state: the user can provide outcome-level direction (e.g. “here’s what’s broken, fix it” or “add X in Y with Z behaviour”) and the agent executes end-to-end with minimal back-and-forth.
+Target state: the user gives outcome-level direction (e.g. "here's what's broken, fix it" or "add X in Y with Z behaviour") and the agent executes end-to-end with minimal back-and-forth. Every change should improve delivery speed (fewer handoffs, fewer repeated questions), consistency (same patterns across surfaces), quality (safe defaults, observable failures, predictable UX), and strengthen cross-app contracts (`tab-app` ↔ `instruct-pitch` ↔ `enquiry-processing-v2`).
 
-To achieve this, every change should:
-- improve delivery speed (fewer manual handoffs, fewer repeated questions),
-- improve consistency (same patterns and naming across surfaces),
-- improve quality (safe defaults, observable failures, predictable UX),
-- strengthen cross-app contracts (`tab-app` ↔ `instruct-pitch` ↔ `enquiry-processing-v2`).
-
-This is a lean startup operating model: small safe deposits, shipped continuously, compounding over time.
-
-Communication tempo: brief by default. Match depth to complexity, not to politeness. The user operates under cognitive load — every unnecessary sentence is friction. Ship signal, not paragraphs.
+Lean startup model: small safe deposits, shipped continuously, compounding over time. Communication tempo: brief by default, match depth to complexity. The user operates under cognitive load. Ship signal, not paragraphs.
 
 ## Communication Frameworks (Pressure-Tested Output)
 
-Every outbound communication — client emails, internal briefs, proposals, status updates, legal correspondence — should pass through a framework-specific pressure test before sending. The goal is not polish for polish's sake; it is catching misaligned tone, missing information, unclear next steps, and regulatory red flags before they reach a recipient.
+Outbound communications (client emails, internal briefs, status updates, feedback) can be pressure-tested before sending. The live taxonomy lives in [server/prompts/communication-frameworks.js](../server/prompts/communication-frameworks.js): `communication`, `management`, `tasking`, `feedback`, `projects`. Route: `POST /api/ai/pressure-test-comms` (see [server/routes/comms-framework.js](../server/routes/comms-framework.js)).
 
-### Framework Taxonomy
+### Rules for Agents (Communication Frameworks)
 
-Each framework defines a persona, structural expectations, mandatory elements, and red flags to catch. The server holds prompt templates for each under `server/prompts/communication-frameworks.js`.
-
-| Framework | Use case | Core rules |
-|-----------|----------|------------|
-| **Management** | Leadership comms, delegation, status updates | Clear ownership, deadline, escalation path. No ambiguity about who does what by when. |
-| **Tasking** | Work assignments, specs, acceptance criteria | Measurable outcome, definition of done, dependencies listed. No open-ended "look into this". |
-| **Feedback** | Performance, code review, client feedback | Specific observation → impact → request. No vague praise or criticism. |
-| **Projects** | Scope, milestones, stakeholder updates | Status against plan, blockers with owners, next milestone with date. No status without trajectory. |
-| **Communication** | Client emails, pitch follow-ups, internal announcements | Recipient-appropriate tone, clear ask or next step, context the reader needs (not what the writer knows). |
-| **Legal** | Compliance tone, duty of care, regulatory language | Accuracy of legal position, appropriate caveats, no overcommitment, SRA-aligned language. |
-
-### How It Works
-
-1. **Draft** your communication normally.
-2. **Select** the appropriate framework (or let the system infer it from context).
-3. **Pressure test** via `POST /api/ai/pressure-test-comms` — the AI scores tone, completeness, clarity, and red flags.
-4. **Review** flagged items and accept/reject suggestions. The system does not auto-send.
-
-### Rules for Agents
-
-- When generating any outbound text (email drafts, client letters, internal updates), identify which framework applies and follow its structural rules.
-- When asked to "pressure test" or "review" a draft, use the communication framework route, not free-form AI.
-- The pressure test is a second pass — like CCL Safety Net — not a rewrite. Flag problems; don't silently change meaning.
+- When generating any outbound text, identify which framework applies and follow that framework's prompt rules (read the live file, do not re-derive from this section).
+- When asked to "pressure test" or "review" a draft, use the route above, not free-form AI.
+- Pressure test is a second pass (like CCL Safety Net), not a rewrite. Flag problems; don't silently change meaning.
 
 ## Architectural Transparency (Blueprints & Observability)
 
 As complexity grows, the system must be self-documenting. Three pillars:
 
-### 1. Visual Blueprints
+1. **Visual Blueprints** — interactive maps of infrastructure, data flow, permissions, and database schema. Living manifests rendered from source data, not static diagrams. Rendered by `src/tabs/blueprints/`. Living text reference: `.github/instructions/ARCHITECTURE_DATA_FLOW.md`.
+2. **Telemetry Surfaced to the Team** — App Insights telemetry is currently dev-facing only. The team should see what's running, whether it succeeded, and duration trends, without needing KQL. Transparency strip, not a full observability dashboard.
+3. **Processing Transparency** — every long-running server operation should surface its state to connected clients via SSE (start/progress/complete/fail) with a compact status strip in the UI.
 
-Interactive maps of infrastructure, data flow, permissions, and database schema. Not static diagrams that rot — living manifests rendered from source data. The Blueprints tab (`src/tabs/blueprints/`) renders these.
+### Rules for Agents (Architectural Transparency)
 
-Reference: `.github/instructions/ARCHITECTURE_DATA_FLOW.md` is the current living text reference. Blueprints are the visual complement.
-
-### 2. Telemetry Surfaced to the Team
-
-Application Insights telemetry is currently dev-facing only. The team should see:
-- What the system is doing right now (active syncs, AI calls, matter-opening steps)
-- Whether it succeeded or failed (without needing KQL)
-- Processing duration trends (is the system getting slower?)
-
-This is not a full observability dashboard — it is a transparency strip that builds trust.
-
-### 3. Processing Transparency
-
-Every long-running server operation should surface its state to connected clients. The user should never wonder "is it still working?" The pattern: emit SSE events for start/progress/complete/fail, render a compact status strip in the UI.
-
-### Rules for Agents
-
-- When adding a new server-side process, add telemetry (per existing App Insights rules) AND consider whether the team should see its status.
+- When adding a new server-side process, add telemetry (per App Insights rules) AND consider whether the team should see its status.
 - When building new UI surfaces, consider whether a blueprint entry should accompany the feature.
 - Prefer manifests and data-driven rendering over hand-drawn diagrams.
 
@@ -90,7 +43,7 @@ Every long-running server operation should surface its state to connected client
 
 "App is up" is not an acceptable release signal if the real dependency chain has not been exercised. For any route, workflow, or background process that matters operationally, the system should make it clear whether it will work right now against the dependencies it actually needs.
 
-### Rules for Agents
+### Rules for Agents (Operational Confidence)
 
 - When changing a user-facing route, integration workflow, or background process, identify the smallest prod-parity exercise path for it: what gets called, which dependencies it relies on, and what success looks like.
 - Prefer exposing those exercise paths in an operator-facing control plane (Activity tab, live monitor, or equivalent) for dev-group users rather than leaving them as terminal-only tribal knowledge.
@@ -100,15 +53,7 @@ Every long-running server operation should surface its state to connected client
 
 ## Stuck Local Loader Ladder (CRITICAL)
 
-When the operator reports a local UI stuck on loading, debug in this order:
-
-1. Reproduce from the operator's actual browser origin first (port + host matter).
-2. Check the browser request path/host/port/status before assuming relative `/api` is reaching Express.
-3. Compare that browser result with a direct route probe (`curl`, temp script, or browser fixture) to split origin/proxy issues from route failures.
-4. If browser and direct route differ, inspect local API base selection, `src/setupProxy.js`, auth-context augmentation, and dev CORS before touching SQL or business logic.
-5. Only once the request path is proven correct should you move inward to route logic, DB calls, or schema assumptions.
-
-Rule of thumb: a `200` from `http://localhost:8080/...` does not prove the operator's active page can hit the same route.
+Stuck-on-loading bugs reproduce from the operator's browser origin first; never assume `/api` reaches Express. Full debug ladder lives in [.github/instructions/dev-loop.instructions.md](.github/instructions/dev-loop.instructions.md). A `200` from `http://localhost:8080/...` does not prove the operator's active page can hit the same route.
 
 ## Cross-App Execution Contract
 
@@ -117,7 +62,7 @@ Before implementing, identify where the requested outcome sits in the 3-stage sy
 2) `tab-app` operates internal workflows, orchestration, and operational controls.
 3) `instruct-pitch` delivers client-facing onboarding and portal experience.
 
-When touching one surface, proactively check adjacent impact in the other two. If direct implementation is in-scope, do it; if not directly adjacent, record the dependency in `.github/instructions/ROADMAP.md` as a compounding follow-up.
+When touching one surface, proactively check adjacent impact in the other two. If direct implementation is in-scope, do it; if not directly adjacent, stash a follow-up brief in `docs/notes/` via the stash routine. Only add to `.github/instructions/ROADMAP.md` if it is an accepted strategic priority.
 
 ## Request Filter (Always Apply)
 
@@ -125,42 +70,40 @@ Every user request is filtered through this, in order:
 
 1) **Deliver the request** (primary outcome). Do exactly what was asked.
 2) **Compound without clutter** (secondary outcome). While touching the same area, make small, safe improvements that reduce future friction (types, dead code, confusing naming, brittle scripts, stale guidance).
-3) **Avoid scope creep**. If an improvement is not directly adjacent, park it in `.github/instructions/ROADMAP.md` instead of doing it now.
+3) **Avoid scope creep**. If an improvement is not directly adjacent, park it in `docs/notes/` via the stash routine. Only add to `.github/instructions/ROADMAP.md` if it is an accepted strategic priority.
 4) **Log the work** (mandatory). After completing any task that changes behaviour, UI, or server logic, add an entry to `logs/changelog.md`. See the Logging section below. If you skip this, the work is invisible in the release notes UI.
 
 ## Brief Refinement Protocol (CRITICAL — runs BEFORE Plan-First)
 
-When the operator pastes a **rough brief** (anything beyond a one-line direct command — i.e. a description of an outcome rather than a specific instruction like "fix this typo" or "rename X to Y"), do **not** start implementing and do **not** jump straight to a plan. First, refine the brief against the actual repo so the plan that follows is sharp.
+When the operator pastes a **rough brief** (anything beyond a one-line direct command), do **not** start implementing and do **not** jump straight to a plan. First, refine the brief against the actual repo so the plan that follows is sharp.
 
 Procedure:
 
-1. **Read before refining.** Open the files the brief most likely touches (use grep / explore_subagent / read_file). Cite real paths and line numbers in step 2 — never hedge with "if a component like X exists".
-2. **Reply with a refined brief** using the 9-section template below. Omit any section that genuinely doesn't apply, but err on the side of including them.
+1. **Read before refining.** Open the files the brief most likely touches. Cite real paths and line numbers in step 2; never hedge with "if a component like X exists".
+2. **Reply with a refined brief** using the 9-section template below. Omit any section that genuinely doesn't apply.
 3. **Score it** (specificity / boundedness / repo-fit, each 0-10) so the operator sees confidence before approving.
-4. **Wait for confirmation or amendment.** Then move into the normal Plan-First Default with the refined brief as the source of truth.
+4. **Wait for confirmation or amendment.** Then move into Plan-First with the refined brief as the source of truth.
 
 ### 9-section refined-brief template
 
 1. **Goal** — one crisp sentence stating the outcome.
 2. **In scope** — bullet list of concrete deliverables with cited file paths.
-3. **Out of scope** — what NOT to touch this pass (prevents drift).
-4. **Repo context loaded** — files / lines / instruction docs you actually read while refining (e.g. `src/components/UserBubble.tsx#L660`, `.github/instructions/dev-experience.instructions.md`).
-5. **Conventions to honour** — only the ones that apply (borderRadius 0, brand tokens, dev tier check, no em dashes, structural loading, log to changelog, etc.).
-6. **Expected output shape** — files created/modified, UX behaviour, API surface (if any).
-7. **Verification** — how you'll know it worked (manual click path, route smoke, telemetry event to expect, `npm run check-sizes`).
-8. **Mechanisms to invoke** — changelog entry yes/no; stash if multi-phase; telemetry events to add; health observations to surface; sync needed first.
-9. **Open questions** — at most 2, only if a real ambiguity blocks the first pass. Otherwise omit.
+3. **Out of scope** — what NOT to touch this pass.
+4. **Repo context loaded** — files / lines / instruction docs you actually read.
+5. **Conventions to honour** — only the ones that apply (borderRadius 0, brand tokens, tier check, no em dashes, structural loading, log to changelog).
+6. **Expected output shape** — files created/modified, UX behaviour, API surface.
+7. **Verification** — manual click path, route smoke, telemetry event, `npm run check-sizes`.
+8. **Mechanisms to invoke** — changelog yes/no; stash if multi-phase; telemetry events; sync first.
+9. **Open questions** — at most 2, only if a real ambiguity blocks the first pass.
 
 ### Skip the protocol when:
 
-- The operator gives a direct one-line command ("fix this typo", "rename Foo to Bar", "delete that import").
-- The operator says "just do it", "skip refinement", "no plan", or similar.
-- The work is purely conversational / informational.
-- The brief is a follow-up tweak inside a previously refined and approved scope.
+- One-line direct command ("fix this typo", "rename Foo to Bar", "delete that import").
+- User says "just do it", "skip refinement", "no plan".
+- Purely conversational / informational.
+- Follow-up tweak inside a previously refined and approved scope.
 
-### Why
-
-Refining against the real repo before planning is the single biggest first-pass quality lever. The UserBubble Prompt Coach exists for the operator-alone case. In the agent loop, **the agent is the better refiner** because it can read the repo. Doing this inline replaces silent guesses with cited facts and surfaces missing context the operator can fill before code starts moving.
+Why: refining against the real repo before planning is the single biggest first-pass quality lever. In the agent loop, the agent is the better refiner because it can read the repo. Doing this inline replaces silent guesses with cited facts.
 
 ## Plan-First Default (CRITICAL)
 
@@ -175,9 +118,7 @@ Single-file fixes (typo, one-liner bug, style tweak) skip the plan step. Multi-f
 
 When a plan you propose has **2+ phases**, **spans more than one session of work**, or includes language like "phase 1", "first instalment", "start with", or "then" between distinct deliverables: proactively offer to stash the brief in the same response that proposes the plan. Do not wait for the user to say "stash this."
 
-Format: after presenting the plan, add one line — *"This is multi-phase; I'll stash it as a brief so phases stay locked. OK?"* If the user agrees, run the stash routine before starting Phase 1. The locked plan in the brief becomes the source of truth — refer back to it between phases instead of redesigning from memory.
-
-Why: the user has repeatedly observed that implementations get diluted by phase 2 because the plan exists only in chat. The brief is the anti-dilution mechanism. Forgetting to offer it forces the user to re-prompt and burns the compounding loop.
+Format: after presenting the plan, add one line: *"This is multi-phase; I'll stash it as a brief so phases stay locked. OK?"* If the user agrees, run the stash routine before starting Phase 1. The locked plan in the brief becomes the source of truth between phases (prevents phase-2 dilution from chat-only plans).
 
 ## Continuous Health Observations (CRITICAL)
 
@@ -191,22 +132,13 @@ While working on any file, silently note codebase health issues. At the end of e
 - Files approaching the 3,000-line threshold (run `npm run check-sizes` mentally)
 
 **Footer format rules:**
-- One footer block total per response. Combine Health and Stash into the same block. Never emit two `---` separators.
-- One bullet per item, max 3 total across both categories combined. Skip the footer entirely if zero items. Never print an empty header.
-- Use proper workspace-relative markdown links with `#L<line>` for line references (e.g. `[server/index.js](server/index.js#L378)`). Never write `file.js:378` plain text.
-- Never use em dashes or en dashes inside the footer. Use commas, colons, or parentheses. The global no-dash rule applies here too.
-- Drop the closing summary sentence ("Logged in changelog.md", "No prod surfaces touched") when the footer plus the body already convey completion. Don't pad.
-- Do NOT emit the `<!-- helix-suggestions ... -->` HTML envelope. The suggestions inbox capture tool is not wired yet, and the comment renders as visible noise in the chat client.
+- One footer block per response. Combine Health and Stash; never emit two `---` separators. Max 3 bullets across both. Skip the block entirely if zero items.
+- Use workspace-relative markdown links with `#L<line>` for line refs. Never write plain `file.js:378`.
+- No em dashes or en dashes (global rule applies here too).
+- Don't pad with "Logged in changelog.md" or "No prod surfaces touched" when the body already conveys completion.
+- Do NOT emit the `<!-- helix-suggestions ... -->` HTML envelope (capture tool not wired; comment renders as visible noise).
 
-**Combined format:**
-
-```
----
-**Health:** [src/components/Foo.tsx](src/components/Foo.tsx) 3 dead imports (X, Y, Z); [server/routes/bar.js](server/routes/bar.js) duplicated date helper (vs `server/utils/dates.js`)
-**Stash:** [src/tabs/finance/PaymentApprovals.tsx](src/tabs/finance/PaymentApprovals.tsx) no bulk-action affordance
-```
-
-Either label can be omitted if its category has no items. If only Health items exist, only the `**Health:**` line appears. Same for Stash. The `---` separator and bold labels are the only chrome.
+Shape: `---` separator, then `**Health:** ...` and/or `**Stash:** ...` lines. Either label may be omitted if its category is empty.
 
 These are observations, not actions. Non-trivial ones become stash candidates (next section), not ROADMAP entries.
 
@@ -245,7 +177,6 @@ Five distinct access concepts exist in the codebase. They serve **different purp
 - When a feature is **not ready for wider rollout** but should be in prod for dev testing, gate it behind `isLzOrAc` (inline `['LZ', 'AC'].includes(initials)` check). This is a temporary lock — remove it and promote to `isAdminUser()` or wider when the feature is ready.
 - Never use `isAdminUser()` for data-scope decisions — other admins should not wait for team-wide queries or see everyone's data by default.
 - All tier functions live in `src/app/admin.ts`. Dev preview checks are inline at the call site.
-- This distinction should compound: as new cross-surface data-scope or god-mode features are added, reach for `isDevOwner()` unless the brief explicitly calls for a narrower surface-scoped exception like Home. As new feature gates are added, use `isAdminUser()`. As features are being developed, use dev preview until ready.
 
 **Rollout ladder** (features should progress through these tiers):
 1. **Dev Preview** (LZ + AC only) → build and test in prod without impacting other users
@@ -254,102 +185,7 @@ Five distinct access concepts exist in the codebase. They serve **different purp
 
 ## Database Access (CRITICAL)
 
-When user says "check X database" or "look up in Y table":
-
-**DON'T** trial-and-error connections. **DO** use these exact patterns:
-
-```javascript
-// Instructions DB (Deals, Instructions tables)
-import { config } from 'dotenv'; import sql from 'mssql'; config();
-const pool = await sql.connect(process.env.INSTRUCTIONS_SQL_CONNECTION_STRING);
-
-// Core Data DB (enquiries, matters tables)  
-const pool = await sql.connect(process.env.SQL_CONNECTION_STRING);
-
-// Query format: const result = await pool.request().query('SELECT ...');
-```
-
-**INSTANT LOOKUPS - Use these one-liners:**
-
-```bash
-# Universal lookup script (FASTEST)
-node tools/instant-lookup.mjs passcode 37693
-node tools/instant-lookup.mjs enquiry 12345  
-node tools/instant-lookup.mjs deal 898
-node tools/instant-lookup.mjs instruction HLX-00898-37693
-node tools/instant-lookup.mjs person "Luke Test"
-node tools/instant-lookup.mjs pipeline HLX-00898-37693
-node tools/instant-lookup.mjs --plan person "Luke Test"
-
-# Matter opening one-off replay (API endpoint chain)
-node tools/run-matter-oneoff.mjs HLX-30038-73942 RCH --fee-earner "Ryan Choi" --originating "Ryan Choi" --supervising "Alex"
-node tools/run-matter-oneoff.mjs HLX-30038-73942 RCH --dry-run
-
-# The one-off tool handles Company client types (populates company_details from Instructions)
-# and pulls EID verification data from the IdVerifications table automatically.
-# Override practice area with --practice-area "Contract Dispute" (AreaOfWork ≠ Clio practice area).
-
-# Re-opening a matter under corrected details (e.g. wrong company name):
-#   1. Update Instructions record (CompanyName, CompanyNumber, clear ClientId/MatterId)
-#   2. Delete old Matters rows from BOTH Instructions DB and Core Data DB
-#   3. Confirm old Clio contact/matter deleted by ops (Cass)
-#   4. Run the one-off with --practice-area override
-#   5. Patch Clio contact with missing EID custom fields if needed (235699=ID type, 235702=expiry, 286228=Tiller ID)
-
-# The instant-lookup script auto-resolves Key Vault passwords (no flags) and fails fast if auth hangs.
-
-# Raw fallback (if script unavailable)
-# Prefer temp scripts in scripts/ and parameterized SQL. Do not use string-concatenated SQL for lookups.
-
-**Name lookups (critical):**
-
-- If the user asks for a *pipeline* (legacy space / end-to-end chain), ALWAYS use `pipeline` (e.g., `node tools/instant-lookup.mjs pipeline "Robert Bedwell"` or `node tools/instant-lookup.mjs pipeline HLX-00898-37693`).
-- If the user asks to find a *person/enquiry record* by name (Core Data / enquiries tables), use `person` (e.g., `node tools/instant-lookup.mjs person "Luke Test"`).
-- Do NOT run ad-hoc `node -e` SQL for name searches.
-- Only run the specific lookup requested. Do NOT expand to deals/instructions unless explicitly asked.
-
-**Confirm before running commands (chat-first):**
-
-- In chat, confirm the intended lookup first.
-- Default: after chat confirmation, run the real command directly (no `--plan`).
-- Use `--plan` only when the user explicitly asks for a dry-run preview, or when the operation is unusually risky/expensive.
-
-**Node ESM note (prevents `sql.connect is not a function`)**
-
-When using `node -e` with `import('mssql')`, default export may be nested. Use:
-```js
-const m = await import('mssql');
-const sql = m.default || m;
-const pool = await sql.connect(process.env.SQL_CONNECTION_STRING);
-```
-
-**AVOID `node -e` for complex commands (CRITICAL)**
-
-PowerShell escaping breaks `node -e` commands with backticks, nested quotes, or template literals. Symptoms: `SyntaxError: Invalid or unexpected token`.
-
-**Instead, create a temp script:**
-```bash
-# 1. Create script file (scripts/ is gitignored)
-# 2. Run it: node scripts/temp-task.mjs
-# 3. Delete it: Remove-Item scripts/temp-task.mjs
-```
-
-Use `node -e` only for trivial one-liners. For anything with SQL, Key Vault, or async chains, write a temp file.
-```
-
-**SCHEMA KNOWLEDGE** (no discovery needed):
-
-**Instructions DB Tables:**
-- `Instructions`: InstructionRef, Stage, ClientId, ProspectId, FirstName, LastName
-- `Deals`: DealId, ProspectId, Passcode, Amount, ServiceDescription, InstructionRef
-
-**Core Data DB Tables:**  
-- `enquiries`: ID, First_Name, Last_Name, Email, Phone_Number, Area_of_Work, Company
-- `matters`: [Display Number], [Unique ID], [Status], [Client Name]
-
-**Key field names**: enquiries uses `First_Name`/`Last_Name`/`ID`. Instructions uses `InstructionRef`/`ProspectId`. NO discovery queries needed.
-4) **Don’t work only on the machine**. The “machine” is the default lens, not a separate project; it should progress in small deposits alongside real feature/debug work.
-5) **Prefer deletion over documentation sprawl**. Update existing instruction files; delete stale docs; avoid creating new docs unless there is genuinely no existing home.
+When user says "check X database" or "look up in Y table", do NOT trial-and-error connections. Use the documented patterns in [.github/instructions/DATABASE_SCHEMA_REFERENCE.md](.github/instructions/DATABASE_SCHEMA_REFERENCE.md) (connection strings, instant-lookup one-liners, matter-opening replay tool, schema tables, name-lookup discipline). Confirm intent in chat first; default to the real command (no `--plan`).
 
 ## Rules
 
@@ -380,44 +216,13 @@ Use `node -e` only for trivial one-liners. For anything with SQL, Key Vault, or 
 
 **Do NOT auto-prompt to sync submodules on session start.** Open the session silently and get to work.
 
-Only run the sync flow when the user uses one of the canonical or alias trigger phrases listed in [.github/instructions/STASHED_PROJECTS.md](.github/instructions/STASHED_PROJECTS.md) (Trigger C — "sync submodules"). When triggered, ask:
-
-`Pick one:`
-`0) No sync`
-`1) Sync all`
-`2) Sync instruct-pitch only`
-`3) Sync enquiry-processing-v2 only`
-`4) Check current position first (no sync)`
-
-After user picks, run exactly one:
-- `0` → `node tools/sync-context.mjs --sync-choice=none`
-- `1` → `node tools/sync-context.mjs --sync-choice=all`
-- `2` → `node tools/sync-context.mjs --sync-choice=instruct-pitch`
-- `3` → `node tools/sync-context.mjs --sync-choice=enquiry-processing-v2`
-- `4` → `node tools/sync-context.mjs --sync-choice=check`
-
-This generates `.github/instructions/REALTIME_CONTEXT.md` with current branch, submodule state, and server status.
+Only run the sync flow when the user uses one of the canonical or alias trigger phrases listed in [.github/instructions/STASHED_PROJECTS.md](.github/instructions/STASHED_PROJECTS.md) (Trigger C — "sync submodules"). The full 5-option menu (none/all/instruct-pitch/enquiry-processing-v2/check) and the matching `node tools/sync-context.mjs --sync-choice=<n>` commands live in STASHED_PROJECTS.md; present that menu verbatim and run exactly one command. Output lands in `.github/instructions/REALTIME_CONTEXT.md`.
 
 Full session init (slower, more thorough): `node tools/session-start.mjs`
 
 ## Local Browser Snappiness Reset (CRITICAL — recognise the triggers)
 
-The user can ask an agent to refresh the local Simple Browser/webview session without re-explaining the routine.
-
-**Recognise these triggers:**
-- `refresh local browser session`
-- `refresh the local browser session`
-- `make local browser snappier`
-- `make the local browser snappier`
-- `make Simple Browser snappier`
-- `reset Simple Browser`
-- `refresh Simple Browser`
-- `local browser is lagging`
-- `Simple Browser is laggy`
-
-When triggered, run the local-browser reset ladder from [.github/instructions/dev-experience.instructions.md](.github/instructions/dev-experience.instructions.md) (`Local browser snappiness reset`). Do not change app code. Do not add a changelog entry for cleanup-only work.
-
-Default intent: make the current local dev/browser loop feel snappier by clearing dev clutter, resetting the embedded browser/webview state, and avoiding duplicate dev servers.
+Triggers: `refresh local browser session`, `make Simple Browser snappier`, `reset Simple Browser`, `local browser is lagging`, and the obvious variants. Full cleanup ladder lives in [.github/instructions/dev-loop.instructions.md](.github/instructions/dev-loop.instructions.md). Cleanup-only routine: no app changes, no changelog entry.
 
 ## Production Deploy Guard (CRITICAL)
 
@@ -519,191 +324,36 @@ YYYY-MM-DD / Short title / Description of what changed. (~ changed/file.ts, + ne
 - Files list uses `~` changed, `+` added, `-` deleted.
 - Don't log trivial typo fixes or instruction-only updates — log anything that changes behaviour, UI, or server logic.
 
-## Application Insights (CRITICAL — read before adding server-side features)
+## Application Insights
 
-Every server-side process MUST emit telemetry to Application Insights. This is non-negotiable — if the server restarts or a sync fails silently, App Insights is the only way to know what happened.
-
-**How it works:**
-- SDK initialised in `server/index.js` (before Express) via `server/utils/appInsights.js`
-- Auto-detects `APPLICATIONINSIGHTS_CONNECTION_STRING` in Azure; no-op locally
-- HTTP requests, exceptions, console output, and dependencies are auto-tracked
-- Custom events/metrics added at key lifecycle points
-
-**When adding or modifying any server-side process:**
-```javascript
-const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
-
-// On start
-trackEvent('Component.Entity.Started', { operation, triggeredBy, ...context });
-
-// On success
-trackEvent('Component.Entity.Completed', { operation, triggeredBy, durationMs, rowCount, ...context });
-trackMetric('Component.Entity.Duration', durationMs, { operation });
-
-// On failure (MOST IMPORTANT — always track both exception AND event)
-trackException(error, { operation, phase: 'whatWasHappening', entity: 'WhatEntity' });
-trackEvent('Component.Entity.Failed', { operation, error: error.message, ...context });
-```
-
-**Naming convention:** `Component.Entity.Lifecycle` — e.g. `DataOps.CollectedTime.Completed`, `Scheduler.Wip.Hot.Failed`
-
-**Rules:**
-1. Track BOTH success and failure. Failure paths are most valuable.
-2. Always include `operation`, `triggeredBy`, and date range in properties.
-3. Use `trackException` in every catch block — this is how Azure Alerts find failures.
-4. Use `trackMetric` for anything you'd want to graph (durations, row counts, queue depths).
-5. Properties must be strings (the helper auto-converts).
-6. See `ARCHITECTURE_DATA_FLOW.md` → "Application Insights Telemetry" for KQL queries.
-
-**Currently instrumented:**
-- Data Operations: syncCollectedTime, syncWip (started/completed/validated/failed)
-- Scheduler: all Hot/Warm/Cold tiers for both Collected and WIP
-- Matter Opening Pipeline: opponents, matterRequests, clioContacts, clioMatters (started/completed/failed + duration metrics)
-- Client-side Matter Opening: pre-validation failures, processing step failures, successful completions (via /api/telemetry → trackEvent)
-- HTTP requests: auto-instrumented by SDK
-- Console output: auto-captured as traces
+Every server-side process MUST emit telemetry. Full convention, code patterns, and currently-instrumented surfaces live in [.github/instructions/server.instructions.md](.github/instructions/server.instructions.md) (auto-attached when editing `server/**`). Naming: `Component.Entity.Lifecycle`. Always track both success and failure paths, and use `trackException` in every catch block.
 
 ## CCL Prompt Engineering
 
-The CCL (Client Care Letter) system uses a two-pass AI pipeline:
+The CCL system uses a two-pass AI pipeline: Generate (`POST /api/ccl-ai/fill`) then Safety Net pressure test (`POST /api/ccl-ai/pressure-test`). Fields scoring ≤7 flag for fee earner review. Full reference: [docs/CCL_PROMPT_ENGINEERING.md](docs/CCL_PROMPT_ENGINEERING.md).
 
-1. **Generate** (`POST /api/ccl-ai/fill`): Gathers matter context from Instructions DB, Deals, PitchContent, Core Data, then generates 26 intake fields via Azure OpenAI (temperature 0.2). Confidence levels: `full` (auto-approve), `partial`, `fallback` (defaults only).
-2. **Safety Net / Pressure Test** (`POST /api/ccl-ai/pressure-test`): Second AI pass (temperature 0.1) that scores each generated field 0-10 against extended evidence (emails, call transcripts, documents, deal data). Fields scoring ≤7 are flagged for fee earner review.
+## Reference Files (read only when touching the named surface)
 
-**Pipeline**: Generate → auto-approve if full confidence → auto-trigger Safety Net → results surface inline in review rail (orange warning strip for flagged fields, green verified dot for passed).
+These are not auto-loaded. Open the one that matches the task. If `Last verified:` on any reference is older than 90 days, re-read it against source before quoting.
 
-**When modifying prompts or fields:**
-- Adding a field: update schema → sections → fieldPrompts → system prompt → defaults → PT keys → template
-- Changing prompt instructions: check PT scoring model still aligns
-- Financial fields: respect cost accuracy rules (deal/pitch amounts flow through unchanged)
-- See `docs/CCL_PROMPT_ENGINEERING.md` for the full reference
-
-## Reference Files (read these)
-
-| File | Purpose |
-|------|---------|
-| `.github/instructions/REALTIME_CONTEXT.md` | Current branch, submodules, server state |
-| `.github/instructions/ROADMAP.md` | Tracked priorities and future work |
-| `.github/instructions/DATABASE_SCHEMA_REFERENCE.md` | Tables, fields, query patterns |
-| `.github/instructions/TEAM_DATA_REFERENCE.md` | Team table, rates, dual-DB sync |
-| `.github/instructions/CLIO_API_REFERENCE.md` | Clio integration, auth, endpoints |
-| `.github/instructions/ARCHITECTURE_DATA_FLOW.md` | System architecture, data flows |
-| `.github/instructions/STASHED_PROJECTS.md` | Stash routine: trigger phrases, brief template, INDEX rules |
-| `.github/instructions/dev-experience.instructions.md` | Snappy local loop: `dev:fast`, env flags, `disposeOnHmr` + `onServerBounced` SSE survival |
-| `.github/instructions/wayfinding.instructions.md` | `data-helix-region` convention, `window.__helix__` debug API, Ctrl+Shift+H overlay |
-| `docs/notes/INDEX.md` | Live register of stashed work (open / done / stale) |
-| `docs/notes/_HANDOFF_TEMPLATE.md` | House-standard skeleton for new stash briefs |
-| `docs/CCL_PROMPT_ENGINEERING.md` | CCL AI generation + Safety Net scoring model |
+| File | When to load |
+|------|--------------|
+| [.github/instructions/REALTIME_CONTEXT.md](.github/instructions/REALTIME_CONTEXT.md) | Start of a session if branch / submodule / server state is unclear. |
+| [.github/instructions/ROADMAP.md](.github/instructions/ROADMAP.md) | Only when the user explicitly references strategic priorities. Routine work parks in `docs/notes/`. |
+| [.github/instructions/DATABASE_SCHEMA_REFERENCE.md](.github/instructions/DATABASE_SCHEMA_REFERENCE.md) | Before SQL against Instructions DB or Core Data DB; before adding tables/fields. |
+| [.github/instructions/TEAM_DATA_REFERENCE.md](.github/instructions/TEAM_DATA_REFERENCE.md) | Touching `team` table, rates, AOW routing, or dual-DB sync. |
+| [.github/instructions/CLIO_API_REFERENCE.md](.github/instructions/CLIO_API_REFERENCE.md) | Touching Clio auth, endpoints, matter opening, or EID custom fields. |
+| [.github/instructions/ARCHITECTURE_DATA_FLOW.md](.github/instructions/ARCHITECTURE_DATA_FLOW.md) | Adding a new background process or tracing a cross-app data flow. |
+| [.github/instructions/STASHED_PROJECTS.md](.github/instructions/STASHED_PROJECTS.md) | When invoking any stash trigger phrase or writing/closing a stash brief. |
+| [.github/instructions/dev-experience.instructions.md](.github/instructions/dev-experience.instructions.md) | Editing SSE consumers, HMR-sensitive surfaces, or boot-time gating in `src/`. |
+| [.github/instructions/wayfinding.instructions.md](.github/instructions/wayfinding.instructions.md) | Adding addressable UI regions (`data-helix-region`) or using `window.__helix__`. |
+| [docs/notes/INDEX.md](docs/notes/INDEX.md) | Auto-generated register of open / done / stale stashed work. |
+| [docs/notes/_HANDOFF_TEMPLATE.md](docs/notes/_HANDOFF_TEMPLATE.md) | Writing a new stash brief. |
+| [docs/CCL_PROMPT_ENGINEERING.md](docs/CCL_PROMPT_ENGINEERING.md) | Editing CCL generation prompts, Safety Net scoring, or the 26-field schema. |
 
 ## "Helix look and feel" (what the user means)
 
-When the user says **"Helix look and feel"**, they are referring to the design system documented in `docs/COMPONENT_STYLE_GUIDE.md`. The **living reference implementation** is `src/components/UserBubble.tsx` — the command centre modal. If UserBubble is updated, the style guide and downstream components should follow.
-
-**Do not guess the look and feel from other components.** Many components pre-date the standard and carry off-brand colours, Tailwind defaults, Material Design tokens, or inconsistent icon sets. Always trace visual decisions back to the style guide and UserBubble.
-
-Key pillars:
-- Dark surface depth ladder (websiteBlue → darkBlue → helixBlue)
-- Interactive row gradient + lift + shadow (applyRowHover / resetRowHover)
-- Toast feedback for every state change
-- `borderRadius: 0` everywhere (999 pills, 50% dots only)
-- Brand tokens only — no invented hex values
-- Accent aliases Helix Highlight (`#3690CE`) for anchor points; highlightBlue (`#d6e8ff`) remains a light-mode surface tint
-- Area of Work colours and icons from the canonical table below
-
-### Text hierarchy inside panels (CRITICAL — prevents blue-on-blue)
-
-Body text in dark-mode panels MUST use **neutral greys**, never brand blue. `colours.dark.subText` (#3690CE) is highlight blue — for links and interactive highlights only. Using it for body copy on navy backgrounds creates unreadable blue-on-blue.
-
-| Role | Dark mode | Light mode | Use |
-|------|-----------|------------|-----|
-| **labelText** | `colours.dark.text` (#f3f4f6) | `colours.light.text` (#061733) | Headings, active labels, input values |
-| **bodyText** | `#d1d5db` (warm grey) | `#374151` (warm dark grey) | Paragraphs, descriptions — always neutral |
-| **helpText** | `colours.subtleGrey` (#A0A0A0) | `colours.greyText` (#6B6B6B) | Tertiary guidance, timestamps |
-| **sectionAccent** | `colours.accent` / `colours.highlight` (#3690CE) | `colours.highlight` (#3690CE) | Section titles only — anchor points |
-
-> If you're writing more than ~3 words, use `bodyText` or `labelText`. Brand colours are for _structure_ (titles, dots, icons), not prose.
-
-### Readability minimums
-
-- Body text: **13px** minimum. Field labels: **12px**. Section titles: **11px** uppercase.
-- Line height ≥ 1.4 for multi-line. Icon cues (16×16, strokeWidth 1.8) alongside every radio/toggle option.
-- Toggle switches: **40×20** with **16×16** knobs. Interactive row padding: **12px 14px** minimum.
-- See `docs/COMPONENT_STYLE_GUIDE.md` §1b and §1c for the full specification.
-
-## Brand Colour Palette (CRITICAL — the canonical source)
-
-**All colours MUST come from `src/app/styles/colours.ts`. Never invent hex values.**
-
-### Brand palette (6 canonical colours)
-| Brand name | Token | Hex | RGB | Role |
-|------------|-------|-----|-----|------|
-| Website Blue | `websiteBlue` | `#000319` | 0, 3, 25 | Deepest brand navy — page-level backgrounds |
-| Helix Dark Blue | `darkBlue` | `#061733` | 6, 23, 51 | Primary dark surface — sections, headers |
-| Helix Blue | `helixBlue` | `#0D2F60` | 13, 47, 96 | Mid-depth navy — elevated panels, light-mode headings |
-| Helix Highlight | `blue` / `highlight` | `#3690CE` | 54, 144, 206 | Links, active states, loading indicators |
-| Helix CTA | `cta` | `#D65541` | 214, 85, 65 | Sole strong colour pop — action buttons, urgency |
-| Helix Grey | `grey` | `#F4F4F6` | 244, 244, 246 | Light-mode surface fills |
-
-> **Legacy alias:** `missedBlue` = `helixBlue` (#0D2F60). Prefer `helixBlue` in new code.
-
-### Supplementary tokens
-| Token | Hex | Role |
-|-------|-----|------|
-| `highlightBlue` | `#d6e8ff` | Lightest blue tint — light-mode surface fill only (hover rows, selected backgrounds). **Not** the primary highlight colour. |
-| `accent` | `#3690CE` | Alias for Helix Highlight — active states, sort headers, selected borders. The old teal accent is retired. |
-| `green` | `#20b26c` | Success, ready, connected, Property AoW |
-| `orange` | `#FF8C00` | Warnings, Construction AoW. **The only orange.** Never use `#FFB74D`, `#E65100`, `#f59e0b`, `#FF9800`. |
-| `yellow` | `#ffd54f` | Employment AoW |
-| `greyText` | `#6B6B6B` | Secondary text (light mode), Misc/Other AoW fallback |
-| `subtleGrey` | `#A0A0A0` | Tertiary text, muted labels |
-
-### Area of Work colours (canonical)
-
-Every Area of Work indicator across the app MUST use these exact tokens. No RGB literals, no Material Design, no Tailwind.
-
-| Area | Colour token | Hex | Dark-mode accent | Fallback |
-|------|-------------|-----|-------------------|----------|
-| Commercial | `colours.blue` | `#3690CE` | `colours.accent` | — |
-| Construction | `colours.orange` | `#FF8C00` | `colours.orange` | — |
-| Property | `colours.green` | `#20b26c` | `colours.green` | — |
-| Employment | `colours.yellow` | `#ffd54f` | `colours.yellow` | — |
-| Misc/Other/Unsure | `colours.greyText` | `#6B6B6B` | `colours.subtleGrey` | `colours.greyText` |
-
-**Known violations** (to fix over time): InlineWorkbench uses RGB values; MattersReport uses raw hex off-palette; 15 copies of `getAreaColor` have inconsistent fallbacks (some `cta`, some `greyText`, some `blue`). Canonical fallback is `colours.greyText`.
-
-### Dark mode surface ladder (215° hue, tightly spaced)
-| Token | Hex | Lightness | Role |
-|-------|-----|-----------|------|
-| `dark.background` | `#020617` | ~5% | Page canvas |
-| `dark.sectionBackground` | `#051525` | ~8% | Section containers |
-| `dark.cardBackground` | `#081c30` | ~11% | Card surfaces |
-| `dark.cardHover` | `#0c2440` | ~14% | Hover lift |
-| `dark.border` | `#374151` | — | Border base |
-| `dark.borderColor` | `#4b5563` | — | Stronger border |
-
-### Reporting panel tokens (`reportingFoundation.ts`)
-| Token | Value | Purpose |
-|-------|-------|---------|
-| Panel base | `rgba(10, 28, 50, 0.95)` | ~11% lightness, card-level |
-| Panel elevated | `rgba(14, 36, 62, 0.95)` | ~14% lightness, hover-level |
-| Border base | `rgba(75, 85, 99, 0.38)` | Subtle edge |
-| Border strong | `rgba(75, 85, 99, 0.55)` | Visible edge |
-| Shadow | `0 4px 16px rgba(0, 0, 0, 0.4)` | Drop shadow |
-
-### Design rules
-- **borderRadius: 0** everywhere. Only exceptions: `999` for pills/dots, `'50%'` for circular status indicators.
-- **Font: Raleway** for all headings and UI text.
-- **One CTA pop per view** — `cta` (#D65541) is the sole warm colour. Don't compete with multiple strong colours.
-- **Accent for highlights** — `accent` and `highlight` both resolve to `#3690CE`. Use for active sort headers, selected borders, filter chips, and tab underlines. Do not reintroduce the old teal/cyan accent.
-- **Accent sparingly at anchor points** — section title bars, key structural elements. Never for widespread decoration or body text.
-- **highlightBlue for light-mode surfaces** — `highlightBlue` (#d6e8ff) for hover backgrounds, selected rows, badge fills in light mode.
-- **True highlight naming rule (critical)** — when specs/UX say “highlight blue”, use `colours.blue` / `colours.highlight` (`#3690CE`). Do **not** substitute `highlightBlue` (`#d6e8ff`), which is a light surface tint only.
-- **No ad-hoc blue shades** — if a needed blue is missing, update `src/app/styles/colours.ts` first and then consume that token; never inline a new hex/RGB in component code.
-- **Mixed comparison charts** — use lines or line-plus-stems for flow metrics, bars for completed outcomes, and reserve filled areas for single-series charts only. In quiet windows, calm motion and legend chrome before adding decoration.
-- **Status colours** — ready/success: `green`, loading: `blue`, warning: `orange`, error: `cta`, idle/neutral: `subtleGrey`.
-- **No off-brand colours** — never use Tailwind defaults (sky-400, blue-400, #22c55e, #4ade80, etc.), Material Design (`#FFB74D`, `#E65100`), or raw hex that doesn't map to a token. Violations to watch: `#0ea5e9`, `#60a5fa`, `#f59e0b`, `#10b981`, `#8b5cf6`, `#ef4444`, `#E53935`, `#0078d4` (use `colours.blue`).
-- **Dark text hierarchy** — `dark.text` (#f3f4f6) for primary, `subtleGrey` for secondary, `greyText` for tertiary.
-- **All modals** — `borderRadius: 0` or `2px`. Backdrop: `rgba(0, 3, 25, 0.6)` with blur. Primary buttons: `colours.highlight`. Never `borderRadius: 12`.
+When the user says "Helix look and feel", they mean the design system in `docs/COMPONENT_STYLE_GUIDE.md` with `src/components/UserBubble.tsx` as the living reference implementation. Brand palette, AoW colours, dark surface ladder, text hierarchy, and design rules live in [.github/instructions/styles.instructions.md](.github/instructions/styles.instructions.md) and [.github/instructions/components.instructions.md](.github/instructions/components.instructions.md) (auto-attached). Never guess look-and-feel from older components, many pre-date the standard.
 
 ## Type Safety
 
@@ -743,13 +393,7 @@ Every Area of Work indicator across the app MUST use these exact tokens. No RGB 
 - Add JSDoc on exported functions when helpful.
 - Keep diffs minimal.
 
-## CSS & Styling (CRITICAL — read before adding UI)
+## CSS & Styling
 
-**New components MUST use CSS classes from `src/app/styles/design-tokens.css`, NOT inline styles.**
+New UI must use CSS classes from `src/app/styles/design-tokens.css`, never inline styles for colours/fonts/spacing/borders. Reference implementation: `BrandingSettingsPanel.tsx`. Full token catalogue and design rules in [.github/instructions/styles.instructions.md](.github/instructions/styles.instructions.md) (auto-attached when editing `src/app/styles/**`).
 
-- `design-tokens.css` provides CSS custom properties (`--helix-*`, `--surface-*`, `--text-*`, `--border-*`, `--shadow-*`, `--spacing-*`) and utility classes (`helix-panel`, `helix-input`, `helix-label`, `helix-btn-primary`, `helix-btn-danger`, `helix-toast-success`, `helix-toast-error`, `helix-dropzone`, `helix-section-title`, `helix-body`, `helix-help`, `helix-spin`).
-- Prospects table elements use classes from `src/app/styles/Prospects.css` (`.prospect-row`, `.prospect-day-sep`, `.prospect-pipeline`, etc.).
-- **Reference implementation**: `BrandingSettingsPanel.tsx` — fully refactored to use CSS classes. Copy this pattern for new panels.
-- **Inline styles allowed only for**: truly dynamic values (runtime calculations, conditional opacity, animation transforms). Never for colours, fonts, spacing, or borders — those MUST use tokens.
-- Use `var(--surface-section)` not `colours.dark.sectionBackground` for backgrounds. Use `var(--text-body)` not hardcoded `#d1d5db`.
-- All tokens resolve via `[data-theme]` attribute — dark/light/high-contrast automatically.

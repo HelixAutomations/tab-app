@@ -14,7 +14,7 @@ import { app } from '@microsoft/teams-js';
 import { Matter, UserData, Enquiry, Tab, TeamData, POID, Transaction, BoardroomBooking, SoundproofPodBooking, InstructionData, NormalizedMatter } from './functionality/types';
 import { hasActiveMatterOpening } from './functionality/matterOpeningUtils';
 import { normalizeMatterData } from '../utils/matterNormalization';
-import { ADMIN_USERS, isAdminUser, canSeePrivateHubControls, canSeeActivityTab } from './admin';
+import { isAdminUser, canSeePrivateHubControls, canSeeActivityTab, canUseSessionModeControls, isCclOperationsAvailable } from './admin';
 import { useCapability } from './useEffectiveCapabilities';
 import { EffectivePermissionsProvider } from './effectivePermissions';
 import HubToolsChip from '../components/HubToolsChip';
@@ -28,6 +28,16 @@ import MaintenanceNotice from './MaintenanceNotice';
 import { useServiceHealthMonitor } from './functionality/useServiceHealthMonitor';
 import actionLog from '../utils/actionLog';
 import { trackClientEvent } from '../utils/telemetry';
+import { buildRequestAuthHeaders } from '../utils/requestAuthContext';
+import {
+  defaultDataScopeForMode,
+  dispatchLocalSupportChanged,
+  getLocalSupportModeOption,
+  LOCAL_SUPPORT_CHANGED_EVENT,
+  LocalSupportSettings,
+  persistLocalSupportSettings,
+  readLocalSupportSettings,
+} from './localSupportMode';
 
 const CclDiff = lazy(() => import('../tabs/dev/CclDiff'));
 
@@ -201,14 +211,30 @@ const App: React.FC<AppProps> = ({
   sseConnectionState,
   lastPipelineEventAt,
 }) => {
-  const [activeTab, setActiveTab] = useState('home');
+  const [localSupportSettings, setLocalSupportSettings] = useState<LocalSupportSettings>(() => readLocalSupportSettings(isLocalDev));
+  const [activeTab, setActiveTab] = useState<string>(() => isLocalDev ? getLocalSupportModeOption(localSupportSettings.mode).targetTab : 'home');
+  useEffect(() => {
+    if (!isLocalDev || typeof window === 'undefined') return;
+    const syncLocalSupportSettings = (event?: Event) => {
+      const detail = event instanceof CustomEvent ? event.detail as LocalSupportSettings | undefined : undefined;
+      setLocalSupportSettings(detail?.mode && detail?.dataScope ? detail : readLocalSupportSettings(true));
+    };
+    window.addEventListener(LOCAL_SUPPORT_CHANGED_EVENT, syncLocalSupportSettings as EventListener);
+    window.addEventListener('storage', syncLocalSupportSettings);
+    return () => {
+      window.removeEventListener(LOCAL_SUPPORT_CHANGED_EVENT, syncLocalSupportSettings as EventListener);
+      window.removeEventListener('storage', syncLocalSupportSettings);
+    };
+  }, [isLocalDev]);
   // Persist keep-alive flags across reloads in the same session so we don't
   // re-pay the first-mount cost (matters hydration, enquiries shell) on every
   // refresh. SessionStorage scopes this to the current tab session.
   const [enquiriesEverVisited, setEnquiriesEverVisited] = useState<boolean>(() => {
+    if (isLocalDev && localSupportSettings.mode !== 'full-live') return localSupportSettings.mode === 'enquiries';
     try { return sessionStorage.getItem('helix.tab.enquiriesEverVisited') === '1'; } catch { return false; }
   });
   const [mattersEverVisited, setMattersEverVisited] = useState<boolean>(() => {
+    if (isLocalDev && localSupportSettings.mode !== 'full-live') return localSupportSettings.mode === 'matters';
     try { return sessionStorage.getItem('helix.tab.mattersEverVisited') === '1'; } catch { return false; }
   });
   const [formsEverVisited, setFormsEverVisited] = useState<boolean>(() => {
@@ -229,6 +255,11 @@ const App: React.FC<AppProps> = ({
       try { sessionStorage.setItem('helix.tab.formsEverVisited', '1'); } catch { /* ignore */ }
     }
   }, [formsEverVisited]);
+  useEffect(() => {
+    if (!isLocalDev || localSupportSettings.mode === 'full-live') return;
+    setEnquiriesEverVisited(localSupportSettings.mode === 'enquiries');
+    setMattersEverVisited(localSupportSettings.mode === 'matters');
+  }, [isLocalDev, localSupportSettings.mode]);
   const [pendingMatterId, setPendingMatterId] = useState<string | null>(null);
   const [pendingShowCcl, setPendingShowCcl] = useState(false);
   const [pendingEnquiryId, setPendingEnquiryId] = useState<string | null>(null);
@@ -461,6 +492,7 @@ const App: React.FC<AppProps> = ({
     return window.location.hostname === 'localhost';
   }, [isLocalDev]);
   const isProductionPreview = Boolean(featureToggles?.viewAsProd);
+  const cclOperationsAvailable = isCclOperationsAvailable({ viewAsProd: isProductionPreview });
   const homeFeatureToggles = useMemo(
     () => ({ ...(featureToggles || {}) }),
     [featureToggles]
@@ -749,6 +781,12 @@ const App: React.FC<AppProps> = ({
   useEffect(() => {
     if (typeof window === 'undefined') return;
     if (!userData?.[0]) return;
+    if (isLocalDev && localSupportSettings.mode !== 'full-live') {
+      if (localSupportSettings.mode === 'enquiries' && activeTab !== 'enquiries') void loadEnquiriesTab();
+      if (localSupportSettings.mode === 'matters' && activeTab !== 'matters') void loadMattersTab();
+      if (localSupportSettings.mode === 'reports' && activeTab !== 'reporting') void loadReportingTab();
+      return;
+    }
 
     let cancelled = false;
     let idleId: number | null = null;
@@ -786,7 +824,7 @@ const App: React.FC<AppProps> = ({
       }
       globalThis.clearTimeout(timer);
     };
-  }, [activeTab, userData]);
+  }, [activeTab, isLocalDev, localSupportSettings.mode, userData]);
 
   // ─── Bars inside scroll region — tab-switch visibility only ───
   // Navigator + ImmediateActions are inside .app-scroll-region so they
@@ -957,6 +995,34 @@ const App: React.FC<AppProps> = ({
     });
   }, [activeTab, setContent]);
 
+  const handleLocalSupportSettingsChange = useCallback((nextSettings: LocalSupportSettings) => {
+    const nextMode = getLocalSupportModeOption(nextSettings.mode);
+    persistLocalSupportSettings(nextSettings);
+    setLocalSupportSettings(nextSettings);
+    dispatchLocalSupportChanged(nextSettings);
+    activateTab(nextMode.targetTab);
+    trackClientEvent('AppShell', 'local-support-mode-changed', {
+      mode: nextSettings.mode,
+      dataScope: nextSettings.dataScope,
+    }, {
+      throttleKey: `app:local-support-mode:${nextSettings.mode}:${nextSettings.dataScope}`,
+      cooldownMs: 1000,
+    });
+  }, [activateTab]);
+
+  const updateLocalSupportMode = useCallback((mode: LocalSupportSettings['mode']) => {
+    const dataScope = mode === 'fast-shell'
+      ? 'none'
+      : localSupportSettings.dataScope === 'none'
+        ? defaultDataScopeForMode(mode)
+        : localSupportSettings.dataScope;
+    handleLocalSupportSettingsChange({ mode, dataScope });
+  }, [handleLocalSupportSettingsChange, localSupportSettings.dataScope]);
+
+  const updateLocalSupportDataScope = useCallback((dataScope: LocalSupportSettings['dataScope']) => {
+    handleLocalSupportSettingsChange({ ...localSupportSettings, dataScope });
+  }, [handleLocalSupportSettingsChange, localSupportSettings]);
+
   // CCL deep-link: Teams autopilot card links here as
   //   ?tab=operations&cclMatter=<id>&autoReview=1
   // On mount, forward to the existing `openHomeCclReview` window event (handled
@@ -968,6 +1034,19 @@ const App: React.FC<AppProps> = ({
     const params = new URLSearchParams(window.location.search);
     const cclMatter = params.get('cclMatter');
     if (!cclMatter) return;
+    if (!cclOperationsAvailable) {
+      try {
+        params.delete('cclMatter');
+        params.delete('autoReview');
+        params.delete('autoRunAi');
+        const next = params.toString();
+        const url = window.location.pathname + (next ? `?${next}` : '') + window.location.hash;
+        window.history.replaceState(null, '', url);
+      } catch {
+        /* non-fatal */
+      }
+      return;
+    }
     const autoReview = params.get('autoReview') === '1';
     const autoRunAi = params.get('autoRunAi') === '1';
     activateTab('home');
@@ -993,8 +1072,7 @@ const App: React.FC<AppProps> = ({
       /* non-fatal */
     }
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [activateTab, cclOperationsAvailable]);
 
   const handleAllMattersFetched = useCallback((fetchedMatters: Matter[]) => {
     setAllMattersFromHome(fetchedMatters);
@@ -1153,7 +1231,7 @@ const App: React.FC<AppProps> = ({
       if (detail?.matterId) {
         setPendingMatterId(detail.matterId);
       }
-      setPendingShowCcl(!!detail?.showCcl);
+      setPendingShowCcl(cclOperationsAvailable && !!detail?.showCcl);
       activateTab('matters');
     };
     const handleNavigateToForms = (e: Event) => {
@@ -1270,9 +1348,9 @@ const App: React.FC<AppProps> = ({
 
   const handleOpenDemoMatter = useCallback((showCcl = false) => {
     setPendingMatterId('DEMO-3311402');
-    setPendingShowCcl(showCcl);
+    setPendingShowCcl(cclOperationsAvailable && showCcl);
     activateTab('matters');
-  }, [activateTab]);
+  }, [activateTab, cclOperationsAvailable]);
 
   useEffect(() => {
     if (!pendingDemoMode || activeTab !== 'enquiries') {
@@ -1300,7 +1378,7 @@ const App: React.FC<AppProps> = ({
   const [demoCheatAllowed, setDemoCheatAllowed] = React.useState<string[]>([]);
   const refreshDemoCheatAccess = React.useCallback(async () => {
     try {
-      const res = await fetch('/api/demo-cheat-sheet/access');
+      const res = await fetch('/api/demo-cheat-sheet/access', { headers: buildRequestAuthHeaders() });
       if (!res.ok) return;
       const json = await res.json();
       if (Array.isArray(json?.allowed)) {
@@ -1320,6 +1398,7 @@ const App: React.FC<AppProps> = ({
     || userInitials === 'EA'
     || demoCheatAllowed.includes(userInitials)
   );
+  const sessionModeControlsEnabled = canUseSessionModeControls(currentUser) || canUseSessionModeControls(originalAdminUser || null);
 
   // Ref-based guard: track whether instruction data has been fetched to avoid re-triggering the effect
   const instructionDataFetchedRef = React.useRef(false);
@@ -1696,7 +1775,15 @@ const App: React.FC<AppProps> = ({
         >
           <CustomTabs
             selectedKey={activeTab}
-            onTabSelect={(key) => { actionLog(`Tab → ${key}`); trackClientEvent('Nav', 'tab-switch', { from: prevTabRef.current, to: key }); prevTabRef.current = key; activateTab(key); }}
+            onTabSelect={(key) => {
+              if (key === 'roadmap' && activeTab === 'roadmap') {
+                window.dispatchEvent(new Event('helix:system-entry-reset'));
+              }
+              actionLog(`Tab → ${key}`);
+              trackClientEvent('Nav', 'tab-switch', { from: prevTabRef.current, to: key });
+              prevTabRef.current = key;
+              activateTab(key);
+            }}
             onTabWarm={warmTabByKey}
             onHomeClick={() => { actionLog('Tab → home'); trackClientEvent('Nav', 'tab-switch', { from: prevTabRef.current, to: 'home' }); prevTabRef.current = 'home'; activateTab('home'); }}
             tabs={tabs}
@@ -1798,6 +1885,7 @@ const App: React.FC<AppProps> = ({
                   featureToggles={homeFeatureToggles}
                   onFeatureToggle={handleFeatureToggle}
                   demoModeEnabled={demoModeEnabled}
+                  localSupportSettings={localSupportSettings}
                 />
                 </TabMountMeter>
               </Suspense>
@@ -1922,14 +2010,14 @@ const App: React.FC<AppProps> = ({
             {activeTab === 'roadmap' && (
               <Suspense fallback={<ThemedSuspenseFallback />}>
                 <TabMountMeter name="roadmap">
-                <Roadmap userData={userData} showBootMonitor={isLocalDev && !isProductionPreview} isLocalDev={isLocalDev} />
+                <Roadmap userData={userData} showBootMonitor={isLocalDev && !isProductionPreview} isLocalDev={isLocalDev} localSupportMode={localSupportSettings.mode} />
                 </TabMountMeter>
               </Suspense>
             )}
             </>
           </div>
         </div>
-        {dataReady && (isLocalDev || canSeePrivateHubControls(userData[0] || null) || canSeePrivateHubControls(originalAdminUser || null) || demoCheatEnabled) && (
+        {dataReady && (isLocalDev || canSeePrivateHubControls(userData[0] || null) || canSeePrivateHubControls(originalAdminUser || null) || sessionModeControlsEnabled || demoCheatEnabled) && (
           <HubToolsChip
             user={userData[0] || { First: 'Local', Last: 'Dev', Initials: 'LD', AOW: 'Commercial, Construction, Property, Employment, Misc/Other', Email: 'local@dev.com' }}
             isLocalDev={isLocalDev}
@@ -1949,6 +2037,9 @@ const App: React.FC<AppProps> = ({
             enquiriesLastLiveSyncAt={enquiriesLastLiveSyncAt}
             onOpenDemoMatter={handleOpenDemoMatter}
             cheatSheetEnabled={demoCheatEnabled}
+            localSupportSettings={localSupportSettings}
+            onLocalSupportModeChange={updateLocalSupportMode}
+            onLocalSupportDataScopeChange={updateLocalSupportDataScope}
           />
         )}
         {/* UX Realtime Programme — Phase 0: dev-only latency overlay (LZ/AC + ?ux-debug=1). */}

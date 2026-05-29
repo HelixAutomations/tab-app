@@ -173,6 +173,7 @@ router.post('/', async (req, res) => {
         lane: 'Request',
         payload: req.body,
         summary: `Expert: ${first_name} ${last_name} (${company_name || area_of_work || ''})`.trim().slice(0, 400),
+        clientSubmissionId: req.body?.clientSubmissionId || null,
       });
     } catch (logErr) {
       trackException(logErr, { phase: 'experts.recordSubmission' });

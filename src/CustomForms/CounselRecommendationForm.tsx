@@ -2,6 +2,7 @@
 // Form for recommending barristers/counsel → saves to counsel_recommendations table
 
 import React, { useState, useCallback } from 'react';
+import { recordIntent } from '../utils/recordIntent';
 import { Stack } from '@fluentui/react/lib/Stack';
 import { Text } from '@fluentui/react/lib/Text';
 import { TextField } from '@fluentui/react/lib/TextField';
@@ -145,14 +146,16 @@ const CounselRecommendationFormContent: React.FC<CounselRecommendationFormProps>
 
     try {
       const baseUrl = getApiBase();
+      const counselPayload = {
+        ...formData,
+        created_by: currentUser?.FullName || 'Unknown',
+        created_by_initials: currentUser?.Initials || '',
+      };
+      const clientSubmissionId = await recordIntent({ formKey: 'counsel-recommendation', payload: counselPayload });
       const response = await fetch(`${baseUrl}/api/counsel`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...formData,
-          created_by: currentUser?.FullName || 'Unknown',
-          created_by_initials: currentUser?.Initials || '',
-        }),
+        body: JSON.stringify({ ...counselPayload, clientSubmissionId }),
       });
 
       if (!response.ok) {

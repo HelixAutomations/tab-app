@@ -4,6 +4,8 @@ applyTo: "src/tabs/**"
 
 # Tab Rules (auto-attached)
 
+Last verified: 2026-05-23
+
 ## Structure
 - Each tab lives in `src/tabs/<name>/` with an index component and supporting files.
 - Tabs over **3,000 lines** must be decomposed. Use `parts/` or co-located sub-components.
@@ -13,6 +15,8 @@ applyTo: "src/tabs/**"
 - Every interaction must feel snappy and intentional. Stale counts, layout jank, and flickering are bugs.
 - Use structural loading (skeletons matching settled layout) — never spinners that shift content.
 - Long-running operations must surface progress to the user (SSE events → status strip).
+- Home quick-action panels should be progressive. On first open, ask only for the minimum input needed to proceed. Hide explanatory copy and downstream actions such as copy, download, draft, forward, save, or integration checks until a lookup or result exists.
+- For short Home lookups, prefer a compact status line over anonymous skeleton blocks. Name the system being checked and the current step in plain language.
 
 ## Data scope
 - Use `isDevOwner()` for data-scope decisions (fetch all vs fetch mine). Never `isAdminUser()`.

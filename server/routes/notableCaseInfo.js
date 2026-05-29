@@ -104,7 +104,7 @@ async function fetchNotableCaseHistory(connectionString, displayNumber) {
 
 async function insertNotableCaseInfo(connectionString, body) {
   const cReferenceStatus = normalizeBoolean(body.c_reference_status);
-  const counselInstructed = body.context_type === 'C' ? normalizeBoolean(body.counsel_instructed) : null;
+  const counselInstructed = normalizeBoolean(body.counsel_instructed);
   const exactValue = parseExactValue(body.value_in_dispute_exact);
 
   const result = await withRequest(connectionString, (request, sqlTypes) =>
@@ -119,7 +119,7 @@ async function insertNotableCaseInfo(connectionString, body) {
       .input('ValueInDisputeExact', sqlTypes.Decimal(19, 2), exactValue)
       .input('CRef', sqlTypes.Bit, cReferenceStatus)
       .input('CounselInstr', sqlTypes.Bit, counselInstructed)
-      .input('CounselName', sqlTypes.NVarChar(255), body.context_type === 'C' && counselInstructed ? body.counsel_name || null : null)
+      .input('CounselName', sqlTypes.NVarChar(255), counselInstructed ? body.counsel_name || null : null)
       .query(`
         INSERT INTO dbo.notable_case_info
           (initials, context_type, display_number, prospect_id, summary, merit_press, value_in_dispute, value_in_dispute_exact, c_reference_status, counsel_instructed, counsel_name)
@@ -151,9 +151,10 @@ function buildNotificationHtml(body, relatedMatters, history) {
   rows.push(['Indication of Value', body.value_in_dispute || 'Not specified']);
   if (body.value_in_dispute_exact) rows.push(['Exact Value (>500k)', body.value_in_dispute_exact]);
   rows.push([`${body.context_type === 'C' ? 'Client' : 'Prospect'} Prepared to Provide Reference`, normalizeBoolean(body.c_reference_status) ? 'Yes' : 'No']);
-  if (body.context_type === 'C') {
+  {
     const counselInstructed = normalizeBoolean(body.counsel_instructed);
-    rows.push(['Counsel Instructed', counselInstructed ? 'Yes' : 'No']);
+    const counselLabel = body.context_type === 'C' ? 'Counsel Instructed' : 'Counsel Instructed or Likely';
+    rows.push([counselLabel, counselInstructed ? 'Yes' : 'No']);
     if (counselInstructed) rows.push(['Counsel Name', body.counsel_name || 'Not specified']);
   }
 
@@ -204,6 +205,36 @@ function validatePayload(body) {
 
 router.options('/', (_req, res) => res.status(204).end());
 
+// Lightweight history lookup so the form can show prior entries for the same
+// file reference or prospect id and frame the next submission as an update.
+router.get('/', async (req, res) => {
+  const displayNumber = (req.query.display_number || '').toString().trim();
+  const prospectId = (req.query.prospect_id || '').toString().trim();
+  if (!displayNumber && !prospectId) {
+    return res.status(400).json({ error: 'display_number or prospect_id is required' });
+  }
+  try {
+    const connectionString = await buildProjectDataConnectionString();
+    const result = await withRequest(connectionString, (request, sqlTypes) => {
+      const where = displayNumber ? 'display_number = @Ref' : 'prospect_id = @Ref';
+      return request
+        .input('Ref', sqlTypes.NVarChar(100), displayNumber || prospectId)
+        .query(`
+          SELECT TOP 20 id, initials, context_type, display_number, prospect_id,
+                 summary, value_in_dispute, value_in_dispute_exact,
+                 c_reference_status, counsel_instructed, counsel_name, created_at
+          FROM dbo.notable_case_info
+          WHERE ${where}
+          ORDER BY created_at DESC;
+        `);
+    });
+    return res.json({ entries: (result.recordset || []).map((row) => ({ ...row, id: String(row.id) })) });
+  } catch (error) {
+    trackException(error, { operation: 'history', phase: 'notableCaseInfo.history' });
+    return res.status(500).json({ error: 'Failed to load notable case history' });
+  }
+});
+
 router.post('/', async (req, res) => {
   const started = Date.now();
   trackEvent('Forms.NotableCaseInfo.Started', {
@@ -239,6 +270,7 @@ router.post('/', async (req, res) => {
       lane: 'Log',
       payload: req.body,
       summary: `Notable case info [${context_type || '?'}] ${ref}${summary ? ` - ${summary}` : ''}`.slice(0, 400),
+      clientSubmissionId: req.body?.clientSubmissionId || null,
     });
   } catch (logErr) {
     trackException(logErr, { phase: 'notableCaseInfo.recordSubmission' });

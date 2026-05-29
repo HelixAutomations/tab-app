@@ -6,6 +6,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Enquiry } from '../../../app/functionality/types';
 import { colours } from '../../../app/styles/colours';
 import activecampaignIcon from '../../../assets/activecampaign.svg';
@@ -121,21 +122,44 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
   const [pitchLinkDescription, setPitchLinkDescription] = useState('');
   const [pitchLinkAmount, setPitchLinkAmount] = useState('');
   const [pitchLinkBusy, setPitchLinkBusy] = useState(false);
+  const [pitchLinkPopoverPosition, setPitchLinkPopoverPosition] = useState<{ top: number; left: number; width: number } | null>(null);
   const pitchLinkAnchorRef = useRef<HTMLDivElement | null>(null);
+  const pitchLinkPopoverRef = useRef<HTMLDivElement | null>(null);
+
+  const updatePitchLinkPopoverPosition = () => {
+    const anchor = pitchLinkAnchorRef.current;
+    if (!anchor) return;
+    const rect = anchor.getBoundingClientRect();
+    const viewportWidth = window.innerWidth || 360;
+    const width = Math.min(360, Math.max(288, viewportWidth - 32));
+    const left = Math.min(Math.max(16, rect.left), Math.max(16, viewportWidth - width - 16));
+    setPitchLinkPopoverPosition({ top: rect.bottom + 6, left, width });
+  };
 
   useEffect(() => {
     if (!pitchLinkOpen) return;
+    updatePitchLinkPopoverPosition();
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setPitchLinkOpen(false); };
     const onClick = (e: MouseEvent) => {
-      if (pitchLinkAnchorRef.current && !pitchLinkAnchorRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (
+        pitchLinkAnchorRef.current &&
+        !pitchLinkAnchorRef.current.contains(target) &&
+        !pitchLinkPopoverRef.current?.contains(target)
+      ) {
         setPitchLinkOpen(false);
       }
     };
+    const onMove = () => updatePitchLinkPopoverPosition();
     window.addEventListener('keydown', onKey);
     window.addEventListener('mousedown', onClick);
+    window.addEventListener('resize', onMove);
+    window.addEventListener('scroll', onMove, true);
     return () => {
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('mousedown', onClick);
+      window.removeEventListener('resize', onMove);
+      window.removeEventListener('scroll', onMove, true);
     };
   }, [pitchLinkOpen]);
 
@@ -171,7 +195,10 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
           pitchedBy: enquiry?.Point_of_Contact || 'Hub',
           firstName: enquiry?.First_Name || '',
           lastName: enquiry?.Last_Name || '',
+          clientName: clientDisplayName,
           email: enquiry?.Email || '',
+          contactEmail: enquiry?.Email || '',
+          leadClientEmail: enquiry?.Email || '',
         }),
       });
       if (!res.ok) {
@@ -217,6 +244,12 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
   const textPrimary = isDarkMode ? colours.dark.text : colours.light.text;
   const textMuted = isDarkMode ? colours.subtleGrey : colours.greyText;
   const textBody = isDarkMode ? '#d1d5db' : '#374151';
+  const pitchLinkOpenBackground = isDarkMode ? colours.dark.cardHover : colours.highlightBlue;
+  const pitchLinkOpenText = isDarkMode ? colours.dark.text : colours.helixBlue;
+  const pitchLinkPopoverSurface = isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground;
+  const pitchLinkPopoverBorder = isDarkMode ? colours.highlight : colours.helixBlue;
+  const pitchLinkInputSurface = isDarkMode ? colours.dark.cardHover : colours.grey;
+  const pitchLinkShadow = isDarkMode ? '0 18px 42px rgba(0, 3, 25, 0.78)' : '0 16px 36px rgba(6, 23, 51, 0.24)';
 
   const showCaseSelectorRow = showCaseSelector && enquiryWindows.length > 1;
   const activeCampaignIconFilter = isDarkMode ? 'brightness(0) invert(1)' : 'none';
@@ -312,7 +345,7 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
     minHeight: 28,
     padding: '0 12px',
     fontSize: 11,
-    background: 'transparent',
+    backgroundColor: 'transparent',
     border: `1px solid ${colours.highlight}`,
     color: colours.highlight,
     flexShrink: 0,
@@ -322,6 +355,8 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
     <div
       data-helix-region="enquiries/detail/context-strip"
       style={{
+        position: 'relative',
+        zIndex: pitchLinkOpen ? 20000 : 'auto',
         background: isDarkMode ? 'rgba(255, 255, 255, 0.015)' : 'rgba(13, 47, 96, 0.015)',
         border: `1px solid ${shellDivider}`,
         borderBottom: 'none',
@@ -545,14 +580,26 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
               </button>
             )}
             {onOpenPitchBuilder && (
-              <div ref={pitchLinkAnchorRef} style={{ position: 'relative', display: 'inline-flex' }}>
+              <div
+                ref={pitchLinkAnchorRef}
+                style={{
+                  position: 'relative',
+                  display: 'inline-flex',
+                  zIndex: pitchLinkOpen ? 20001 : 'auto',
+                }}
+              >
                 <button
                   type="button"
-                  onClick={() => setPitchLinkOpen((v) => !v)}
+                  onClick={() => {
+                    if (!pitchLinkOpen) updatePitchLinkPopoverPosition();
+                    setPitchLinkOpen((v) => !v);
+                  }}
                   title="Generate a passcode and instruct URL without sending an email"
                   style={{
                     ...secondaryActionStyle,
-                    background: pitchLinkOpen ? (isDarkMode ? 'rgba(54,144,206,0.12)' : 'rgba(54,144,206,0.08)') : 'transparent',
+                    backgroundColor: pitchLinkOpen ? pitchLinkOpenBackground : 'transparent',
+                    border: `1px solid ${pitchLinkOpen ? pitchLinkPopoverBorder : colours.highlight}`,
+                    color: pitchLinkOpen ? pitchLinkOpenText : colours.highlight,
                   }}
                   onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.85'; }}
                   onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
@@ -562,22 +609,29 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
                   <FaLink size={10} />
                   <span>Activate Pitch Link</span>
                 </button>
-                {pitchLinkOpen && (
+                {pitchLinkOpen && pitchLinkPopoverPosition && createPortal(
                   <div
+                    ref={pitchLinkPopoverRef}
                     role="dialog"
                     aria-label="Activate pitch link"
+                    data-helix-region="enquiries/prospect/pitch-link-popover"
                     style={{
-                      position: 'absolute',
-                      top: 'calc(100% + 6px)',
-                      left: 0,
-                      zIndex: 50,
-                      minWidth: 320,
-                      background: isDarkMode ? colours.darkBlue : '#ffffff',
-                      border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.28)' : 'rgba(6,23,51,0.12)'}`,
-                      boxShadow: isDarkMode ? '0 8px 24px rgba(0,3,25,0.5)' : '0 6px 18px rgba(6,23,51,0.12)',
+                      position: 'fixed',
+                      top: pitchLinkPopoverPosition.top,
+                      left: pitchLinkPopoverPosition.left,
+                      zIndex: 30000,
+                      isolation: 'isolate',
+                      width: pitchLinkPopoverPosition.width,
+                      maxHeight: 'calc(100vh - 32px)',
+                      overflowY: 'auto',
+                      backgroundColor: pitchLinkPopoverSurface,
+                      border: `1px solid ${pitchLinkPopoverBorder}`,
+                      boxShadow: pitchLinkShadow,
                       padding: 14,
+                      boxSizing: 'border-box',
                       fontFamily: FONT_STACK,
                       borderRadius: 0,
+                      opacity: 1,
                     }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
@@ -588,7 +642,7 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
                         type="button"
                         onClick={() => setPitchLinkOpen(false)}
                         aria-label="Close"
-                        style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: textMuted, padding: 2 }}
+                        style={{ backgroundColor: 'transparent', border: 'none', cursor: 'pointer', color: textMuted, padding: 2 }}
                       >
                         <FaTimes size={11} />
                       </button>
@@ -611,9 +665,9 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
                         marginBottom: 10,
                         fontSize: 13,
                         fontFamily: FONT_STACK,
-                        background: isDarkMode ? colours.dark.cardBackground : '#ffffff',
+                        backgroundColor: pitchLinkInputSurface,
                         color: textPrimary,
-                        border: `1px solid ${isDarkMode ? colours.dark.border : 'rgba(6,23,51,0.18)'}`,
+                        border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
                         borderRadius: 0,
                         outline: 'none',
                       }}
@@ -634,9 +688,9 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
                         marginBottom: 12,
                         fontSize: 13,
                         fontFamily: FONT_STACK,
-                        background: isDarkMode ? colours.dark.cardBackground : '#ffffff',
+                        backgroundColor: pitchLinkInputSurface,
                         color: textPrimary,
-                        border: `1px solid ${isDarkMode ? colours.dark.border : 'rgba(6,23,51,0.18)'}`,
+                        border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
                         borderRadius: 0,
                         outline: 'none',
                       }}
@@ -651,7 +705,7 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
                           fontSize: 11,
                           fontWeight: 600,
                           fontFamily: FONT_STACK,
-                          background: 'transparent',
+                          backgroundColor: 'transparent',
                           color: textMuted,
                           border: `1px solid ${isDarkMode ? colours.dark.border : 'rgba(6,23,51,0.18)'}`,
                           cursor: pitchLinkBusy ? 'not-allowed' : 'pointer',
@@ -671,7 +725,7 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
                           letterSpacing: '0.3px',
                           textTransform: 'uppercase',
                           fontFamily: FONT_STACK,
-                          background: colours.highlight,
+                          backgroundColor: colours.highlight,
                           color: '#ffffff',
                           border: `1px solid ${colours.highlight}`,
                           cursor: pitchLinkBusy || !pitchLinkDescription.trim() ? 'not-allowed' : 'pointer',
@@ -682,7 +736,8 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
                         {pitchLinkBusy ? 'Activating…' : 'Activate link'}
                       </button>
                     </div>
-                  </div>
+                  </div>,
+                  document.body
                 )}
               </div>
             )}

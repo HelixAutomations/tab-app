@@ -1,6 +1,6 @@
 import React from 'react';
 import { Icon } from '@fluentui/react/lib/Icon';
-import { colours } from '../../app/styles/colours';
+import { colours, withAlpha } from '../../app/styles/colours';
 import './home-tokens.css';
 import {
   FaChevronRight,
@@ -22,11 +22,14 @@ import {
 import {
   AiOutlinePlus,
   AiFillPlusSquare,
+  AiOutlineUserAdd,
+  AiFillContacts,
 } from 'react-icons/ai';
 
 interface QuickAction {
   title: string;
   icon: string;
+  previewOnly?: boolean;
 }
 
 interface QuickActionsBarProps {
@@ -63,6 +66,14 @@ const CalendarDayIcon: React.FC<{ style?: React.CSSProperties; className?: strin
   <Icon iconName="CalendarDay" style={style} className={className} />
 );
 
+const ContactCardIcon: React.FC<{ style?: React.CSSProperties; className?: string }> = ({ style, className }) => (
+  <Icon iconName="ContactCard" style={style} className={className} />
+);
+
+const SearchIcon: React.FC<{ style?: React.CSSProperties; className?: string }> = ({ style, className }) => (
+  <Icon iconName="Search" style={style} className={className} />
+);
+
 const iconMap: Record<string, { outline: React.ComponentType<any>; filled: React.ComponentType<any> }> = {
   Accept: { outline: FaRegCheckSquare, filled: FaCheckSquare },
   Checklist: { outline: FaRegCheckSquare, filled: FaCheckSquare },
@@ -75,6 +86,9 @@ const iconMap: Record<string, { outline: React.ComponentType<any>; filled: React
   PalmTree: { outline: FaUmbrellaBeach, filled: FaUmbrellaBeach },
   Attendance: { outline: MdOutlineLocationOn, filled: MdLocationOn },
   Presentation: { outline: MdOutlineSlideshow, filled: MdSlideshow },
+  ContactCard: { outline: ContactCardIcon, filled: ContactCardIcon },
+  AddContact: { outline: AiOutlineUserAdd, filled: AiFillContacts },
+  Search: { outline: SearchIcon, filled: SearchIcon },
 };
 
 const getShortTitle = (title: string) => {
@@ -85,6 +99,7 @@ const getShortTitle = (title: string) => {
     case 'Update Attendance': return 'Attendance';
     case 'Confirm Attendance': return 'Confirm Attendance';
     case 'Book Space': return 'Book Room';
+    case 'Find Risk Assessment': return 'Risk Finder';
     default: return title;
   }
 };
@@ -239,6 +254,7 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
   const interactiveAccent = isDarkMode ? colours.accent : colours.blue;
   const greetingAccent = isDarkMode ? colours.highlight : colours.helixBlue;
   const interactiveHoverBg = `${interactiveAccent}${isDarkMode ? '1A' : '14'}`;
+  const previewAccent = colours.orange;
 
   // Loading skeleton state - show chips similar to home page skeletons
   if (loading) {
@@ -294,7 +310,9 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
         borderBottom: '1px solid var(--home-strip-border)',
         position: 'relative',
         width: '100%',
+        maxWidth: '100%',
         boxSizing: 'border-box',
+        overflowX: 'clip',
       }}
       className={`qa-bar${isCompact ? ' qa-compact' : ''}`}
       ref={barRef}
@@ -361,14 +379,15 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
           alignItems: 'center',
           gap: isCompact ? 6 : 8,
           minWidth: 0,
-          flex: isCompact ? '1 1 100%' : '0 1 auto',
+          maxWidth: '100%',
+          flex: isCompact ? '1 1 100%' : '1 1 0',
           flexWrap: isCompact ? 'wrap' : 'nowrap',
           ...(isCompact
             ? { maxWidth: 'none', opacity: 1, overflow: 'visible', pointerEvents: 'auto' as const }
             : {
-                maxWidth: expanded ? 1200 : 0,
+                maxWidth: expanded ? '100%' : 0,
                 opacity: expanded ? 1 : 0,
-                overflow: expanded ? 'visible' as const : 'hidden' as const,
+                overflow: 'hidden' as const,
                 transition: 'max-width 0.3s ease, opacity 0.2s ease',
                 pointerEvents: (expanded ? 'auto' : 'none') as React.CSSProperties['pointerEvents'],
               }),
@@ -377,8 +396,17 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
         {quickActions.map((action, index) => {
           const isSelected = selected === action.title;
           const isActive = isSelected && panelActive;
+          const isPreview = action.previewOnly === true;
           const mapping = iconMap[action.icon] || { outline: FaRegCheckSquare, filled: FaCheckSquare };
           const IconComponent = isActive ? mapping.filled : mapping.outline;
+          const chipAccent = isPreview ? previewAccent : interactiveAccent;
+          const previewActiveOverlay = withAlpha(previewAccent, 0.14);
+          const previewBorder = withAlpha(previewAccent, isDarkMode ? 0.35 : 0.28);
+          const previewHoverBorder = withAlpha(previewAccent, isDarkMode ? 0.45 : 0.38);
+          const previewTagBorder = withAlpha(previewAccent, isDarkMode ? 0.42 : 0.36);
+          const chipHoverBg = isPreview
+            ? withAlpha(previewAccent, isDarkMode ? 0.12 : 0.08)
+            : interactiveHoverBg;
 
           return (
             <button
@@ -396,34 +424,35 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
                 padding: isCompact ? '0 9px' : '0 12px',
                 background: isActive
                   ? (isDarkMode
-                    ? 'linear-gradient(0deg, rgba(54, 144, 206, 0.12), rgba(54, 144, 206, 0.12)), #061733'
-                    : `${interactiveAccent}${isDarkMode ? '1A' : '10'}`)
+                    ? `linear-gradient(0deg, ${isPreview ? previewActiveOverlay : 'rgba(54, 144, 206, 0.12)'}, ${isPreview ? previewActiveOverlay : 'rgba(54, 144, 206, 0.12)'}), #061733`
+                    : `${chipAccent}${isDarkMode ? '1A' : '10'}`)
                   : isDarkMode ? colours.darkBlue : 'transparent',
                 border: isDarkMode
-                  ? `0.5px solid rgba(54, 144, 206, ${isActive ? '0.35' : '0.18'})`
-                  : `0.5px solid ${isActive ? 'rgba(0,0,0,0.09)' : 'rgba(0,0,0,0.06)'}`,
-                borderLeft: `2px solid ${isActive ? interactiveAccent : (isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.25)')}`,
+                  ? `0.5px solid ${isPreview ? previewBorder : `rgba(54, 144, 206, ${isActive ? '0.35' : '0.18'})`}`
+                  : `0.5px solid ${isPreview ? previewBorder : (isActive ? 'rgba(0,0,0,0.09)' : 'rgba(0,0,0,0.06)')}`,
+                borderLeft: `2px solid ${isActive || isPreview ? chipAccent : (isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.25)')}`,
                 borderRadius: 2,
-                color: isActive ? interactiveAccent : textPrimary,
+                color: isActive ? chipAccent : textPrimary,
                 fontSize: 12,
                 fontWeight: 600,
                 cursor: isLoading && !isSelected ? 'not-allowed' : 'pointer',
                 opacity: isLoading && !isSelected ? 0.5 : 1,
                 transition: 'all 0.2s ease',
                 whiteSpace: 'nowrap',
-                flex: isCompact ? '0 1 40px' : '0 0 auto',
-                flexShrink: isCompact ? 1 : 0,
+                minWidth: isCompact ? 36 : 0,
+                maxWidth: '100%',
+                flex: isCompact ? '0 1 40px' : '0 1 auto',
                 animation: isCompact ? 'none' : (expanded ? `fadeInChip 0.2s ease ${index * 0.03}s both` : 'none'),
                 ['--qa-chip-hover-bg' as string]: isDarkMode
-                  ? 'linear-gradient(0deg, rgba(54, 144, 206, 0.08), rgba(54, 144, 206, 0.08)), #061733'
-                  : interactiveHoverBg,
+                  ? (isPreview ? `linear-gradient(0deg, ${withAlpha(previewAccent, 0.1)}, ${withAlpha(previewAccent, 0.1)}), #061733` : 'linear-gradient(0deg, rgba(54, 144, 206, 0.08), rgba(54, 144, 206, 0.08)), #061733')
+                  : chipHoverBg,
                 ['--qa-chip-hover-border' as string]: isDarkMode
-                  ? '0.5px solid rgba(54, 144, 206, 0.35)'
-                  : '0.5px solid rgba(0,0,0,0.09)',
+                  ? `0.5px solid ${isPreview ? previewHoverBorder : 'rgba(54, 144, 206, 0.35)'}`
+                  : `0.5px solid ${isPreview ? previewHoverBorder : 'rgba(0,0,0,0.09)'}`,
                 ['--qa-chip-hover-text' as string]: textPrimary,
                 ['--qa-chip-hover-icon' as string]: textPrimary,
               } as React.CSSProperties}
-              title={getShortTitle(action.title)}
+              title={isPreview ? `${getShortTitle(action.title)} preview only` : getShortTitle(action.title)}
             >
               <IconComponent
                 className="qa-chip-icon"
@@ -437,11 +466,30 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
                   className="qa-chip-label"
                   style={{
                     overflow: 'hidden',
+                    minWidth: 0,
+                    textOverflow: 'ellipsis',
                     display: 'inline-block',
                     whiteSpace: 'nowrap',
                   }}
                 >
                   {getShortTitle(action.title)}
+                </span>
+              )}
+              {!isCompact && isPreview && (
+                <span
+                  style={{
+                    marginLeft: 1,
+                    padding: '2px 4px',
+                    border: `1px solid ${previewTagBorder}`,
+                    color: previewAccent,
+                    fontSize: 8,
+                    fontWeight: 800,
+                    letterSpacing: '0.08em',
+                    lineHeight: 1,
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  Preview
                 </span>
               )}
             </button>

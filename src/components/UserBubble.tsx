@@ -3,12 +3,12 @@ import { createPortal } from 'react-dom';
 import { UserData } from '../app/functionality/types';
 import '../app/styles/UserBubble.css';
 import '../app/styles/personas.css';
-import { isAdminUser, getUserTier } from '../app/admin';
+import { isAdminUser, getUserTier, isDevOwner } from '../app/admin';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { colours } from '../app/styles/colours';
 import lightAvatarMark from '../assets/dark blue mark.svg';
 import darkAvatarMark from '../assets/markwhite.svg';
-import { CommandCentreTokens, BubbleToastTone } from './command-centre/types';
+import { CommandCentreTokens, BubbleToastTone, AVAILABLE_AREAS } from './command-centre/types';
 import SessionFiltersSection from './command-centre/SessionFiltersSection';
 import TodayStripSection from './command-centre/TodayStripSection';
 import CommsFrameworkSection from './command-centre/CommsFrameworkSection';
@@ -37,6 +37,56 @@ interface UserBubbleProps {
     demoModeEnabled?: boolean;
 }
 
+const sameAreaSet = (left: string[], right: string[]): boolean => {
+    if (left.length !== right.length) return false;
+    const lookup = new Set(left);
+    return right.every(area => lookup.has(area));
+};
+
+const canonicalAreaFor = (rawArea: string): string | null => {
+    const area = rawArea.trim().toLowerCase();
+    if (!area) return null;
+    if (area.includes('commercial')) return 'Commercial';
+    if (area.includes('construction')) return 'Construction';
+    if (area.includes('property')) return 'Property';
+    if (area.includes('employment')) return 'Employment';
+    if (area.includes('misc') || area.includes('other') || area.includes('unsure')) return 'Misc/Other';
+    return null;
+};
+
+const parseProfileAreas = (value: unknown): string[] => {
+    if (!value) return [];
+    const parsed: string[] = [];
+    String(value)
+        .split(/[,;|]/)
+        .map(part => canonicalAreaFor(part))
+        .filter((area): area is string => !!area)
+        .forEach((area) => {
+            if (!parsed.includes(area)) parsed.push(area);
+        });
+    return parsed;
+};
+
+const areasForUserScope = (user: UserData): string[] => {
+    const record = user as unknown as Record<string, unknown>;
+    const profileAreas = parseProfileAreas(user.AOW || record.Area_of_Work || record.aow);
+    if (isDevOwner(user) || profileAreas.length === 0) return [...AVAILABLE_AREAS];
+    return profileAreas;
+};
+
+const userIdentityKey = (user: UserData): string => {
+    const record = user as unknown as Record<string, unknown>;
+    return String(
+        user.EntraID
+        || record['Entra ID']
+        || user.Email
+        || user.FullName
+        || record['Full Name']
+        || user.Initials
+        || '',
+    ).trim().toLowerCase();
+};
+
 const UserBubble: React.FC<UserBubbleProps> = ({
     user,
     onAreasChange,
@@ -52,14 +102,11 @@ const UserBubble: React.FC<UserBubbleProps> = ({
     const [toast, setToast] = useState<{ message: string; tone: BubbleToastTone } | null>(null);
     const [showUserPicker, setShowUserPicker] = useState(false);
     const [pickerQuery, setPickerQuery] = useState('');
-    const [areasOfWork, setAreasOfWork] = useState<string[]>(() => {
-        const record = user as unknown as Record<string, unknown>;
-        const aow = user.AOW || record.Area_of_Work || record.aow;
-        return aow ? String(aow).split(',').map(s => s.trim()).filter(Boolean) : [];
-    });
+    const [areasOfWork, setAreasOfWork] = useState<string[]>(() => areasForUserScope(user));
     // Snapshot the profile-default AoW at first render so "Reset to my profile"
     // still points at the baseline even after the user has toggled areas.
-    const defaultAreasRef = useRef<string[]>(areasOfWork);
+    const defaultAreasRef = useRef<string[]>(areasForUserScope(user));
+    const userIdentityRef = useRef<string>(userIdentityKey(user));
 
     // ── Refs ──
     const bubbleRef = useRef<HTMLButtonElement | null>(null);
@@ -71,6 +118,19 @@ const UserBubble: React.FC<UserBubbleProps> = ({
     // ── Theme ──
     const { isDarkMode, toggleTheme } = useTheme();
     const popoverId = useId();
+
+    useEffect(() => {
+        const nextIdentity = userIdentityKey(user);
+        const nextDefaultAreas = areasForUserScope(user);
+        const identityChanged = nextIdentity !== userIdentityRef.current;
+        const filtersStillAtDefault = sameAreaSet(areasOfWork, defaultAreasRef.current);
+
+        if (!identityChanged && !filtersStillAtDefault) return;
+
+        userIdentityRef.current = nextIdentity;
+        defaultAreasRef.current = nextDefaultAreas;
+        setAreasOfWork(prev => sameAreaSet(prev, nextDefaultAreas) ? prev : nextDefaultAreas);
+    }, [areasOfWork, user]);
 
     // ── Show scrollbars (accessibility / click-to-scroll preference) ──
     // Persisted in localStorage; applied to <html> as data-show-scrollbars="1".
@@ -648,6 +708,7 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                         areasOfWork={areasOfWork}
                                         setAreasOfWork={setAreasOfWork}
                                         defaultAreasOfWork={defaultAreasRef.current}
+                                        availableAreas={defaultAreasRef.current}
                                     />
                                 </div>
                             )}

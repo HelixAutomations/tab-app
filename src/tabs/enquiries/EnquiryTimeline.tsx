@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect, useRef } from 'react';
+import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Enquiry, TeamData } from '../../app/functionality/types';
 import { buildEnquiryMutationPayload } from '../../app/functionality/enquiryProcessingModel';

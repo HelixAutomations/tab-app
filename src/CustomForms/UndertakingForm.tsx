@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { recordIntent } from '../utils/recordIntent';
 import { Stack } from '@fluentui/react/lib/Stack';
 import { Text } from '@fluentui/react/lib/Text';
 import { TextField } from '@fluentui/react/lib/TextField';
@@ -16,7 +17,7 @@ import {
   getFormScrollContainerStyle,
   getFormCardStyle,
   getFormHeaderStyle,
-  getFormHeaderTitleStyle,
+  getFormHeaderSubtitleStyle,
   getFormContentStyle,
   getFormSectionStyle,
   getFormSectionHeaderStyle,
@@ -134,17 +135,19 @@ const UndertakingForm: React.FC<UndertakingFormProps> = ({ userData, onBack, onS
 
     try {
       const baseUrl = getApiBase();
+      const undertakingPayload = {
+        matter_ref: formData.matter_ref || null,
+        given_to: formData.given_to.trim(),
+        given_date: formData.given_date,
+        due_date: formData.due_date || null,
+        description: formData.description.trim(),
+        area_of_work: formData.area_of_work || null,
+      };
+      const clientSubmissionId = await recordIntent({ formKey: 'undertaking', payload: undertakingPayload });
       const response = await fetch(`${baseUrl}/api/registers/undertakings`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...requestHeaders },
-        body: JSON.stringify({
-          matter_ref: formData.matter_ref || null,
-          given_to: formData.given_to.trim(),
-          given_date: formData.given_date,
-          due_date: formData.due_date || null,
-          description: formData.description.trim(),
-          area_of_work: formData.area_of_work || null,
-        }),
+        body: JSON.stringify({ ...undertakingPayload, clientSubmissionId }),
       });
 
       const payload = await response.json().catch(() => ({}));
@@ -181,22 +184,12 @@ const UndertakingForm: React.FC<UndertakingFormProps> = ({ userData, onBack, onS
         <div style={getFormHeaderStyle(isDarkMode, accentColor)}>
           <Stack horizontal horizontalAlign="space-between" verticalAlign="center">
             <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 12 }}>
-              <Icon iconName="Permissions" style={{ fontSize: 22, color: accentColor }} />
-              <div>
-                <Text variant="xLarge" style={getFormHeaderTitleStyle(isDarkMode)}>
-                  New Undertaking
-                </Text>
-              </div>
+              <Icon iconName="Permissions" style={{ fontSize: 20, color: accentColor }} />
+              <Text style={getFormHeaderSubtitleStyle(isDarkMode)}>
+                Start a new undertaking through structured intake before monitoring it in Compliance
+              </Text>
             </Stack>
-            {onBack && (
-              <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 10 }}>
-                <FormReadinessCue state={readiness.state} detail={readiness.detail} readyAnnouncement="Undertaking form ready" />
-                <DefaultButton text="Back" onClick={onBack} styles={getFormDefaultButtonStyles(isDarkMode)} />
-              </Stack>
-            )}
-            {!onBack && (
-              <FormReadinessCue state={readiness.state} detail={readiness.detail} readyAnnouncement="Undertaking form ready" />
-            )}
+            <FormReadinessCue state={readiness.state} detail={readiness.detail} readyAnnouncement="Undertaking form ready" />
           </Stack>
         </div>
 

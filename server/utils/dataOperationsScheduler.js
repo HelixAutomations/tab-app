@@ -4,7 +4,6 @@ const { trackEvent, trackException, trackMetric } = require('./appInsights');
 const { acquire, getState: getMutexState } = require('./syncMutex');
 const { getCache, setCache } = require('./redisClient');
 const { status: devStatus } = require('./devConsole');
-const { notify } = require('./hubNotifier');
 
 const schedulerLogger = createLogger('DataOpsScheduler');
 
@@ -35,7 +34,28 @@ function isBootCatchUpEnabled() {
 }
 
 function getLondonNow() {
-  return new Date(new Date().toLocaleString('en-GB', { timeZone: 'Europe/London' }));
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/London',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date()).reduce((acc, part) => {
+    if (part.type !== 'literal') acc[part.type] = part.value;
+    return acc;
+  }, {});
+  return new Date(
+    Number(parts.year),
+    Number(parts.month) - 1,
+    Number(parts.day),
+    Number(parts.hour),
+    Number(parts.minute),
+    Number(parts.second),
+    0,
+  );
 }
 
 function formatDateKey(date) {
@@ -104,64 +124,6 @@ function getLatestPreviousMonthSealSlotKey(now, targetMinute) {
   return formatSlotKey(candidates[0]);
 }
 
-function formatUpcomingJobTime(now, minute) {
-  const slot = new Date(now);
-  slot.setMinutes(minute, 0, 0);
-  return slot.toLocaleTimeString('en-GB', {
-    timeZone: 'Europe/London',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  });
-}
-
-function getUpcomingSyncJobsForHour(now) {
-  const jobs = [
-    `${formatUpcomingJobTime(now, 5)} Collected current month`,
-    `${formatUpcomingJobTime(now, 20)} WIP current month`,
-  ];
-
-  const collectedSealProbe = new Date(now);
-  collectedSealProbe.setMinutes(33, 0, 0);
-  if (isPreviousMonthSealSlot(collectedSealProbe, 33)) {
-    jobs.push(`${formatUpcomingJobTime(now, 33)} Collected previous-month seal`);
-  }
-
-  const wipSealProbe = new Date(now);
-  wipSealProbe.setMinutes(50, 0, 0);
-  if (isPreviousMonthSealSlot(wipSealProbe, 50)) {
-    jobs.push(`${formatUpcomingJobTime(now, 50)} WIP previous-month seal`);
-  }
-
-  return jobs;
-}
-
-async function maybeNotifyUpcomingSyncs(now) {
-  if (now.getMinutes() !== 0) return false;
-  const slot = new Date(now);
-  slot.setMinutes(0, 0, 0);
-  const slotKey = formatSlotKey(slot);
-  if (await isDedupHit('sync:upcoming', slotKey, 'syncUpcomingLastSlot')) return false;
-  await recordDedup('sync:upcoming', slotKey, 'syncUpcomingLastSlot', DEDUP_TTL.hourly);
-
-  const jobs = getUpcomingSyncJobsForHour(now);
-  notify('sync.upcoming', {
-    entity: 'DataOps',
-    tier: slotKey,
-    slotKey,
-    window: slot.toLocaleTimeString('en-GB', {
-      timeZone: 'Europe/London',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    }),
-    jobs: jobs.join('\n'),
-    triggeredBy: 'scheduler',
-  });
-  trackEvent('Scheduler.SyncUpcoming.Notified', { slotKey, jobs: jobs.join(' | ') });
-  return true;
-}
-
 // ── Scheduler state — exposed via getSchedulerState() for ops-pulse ──
 const _tierState = {
   collected: { currentHourly: null, previousSeal: null },
@@ -210,7 +172,6 @@ const _memDedup = {
   wipCurrentHourlyLastSlot: null,
   collectedPreviousSealLastSlot: null,
   wipPreviousSealLastSlot: null,
-  syncUpcomingLastSlot: null,
 };
 
 /** Check if a tier already fired for the given slot. Redis first, memory fallback. */
@@ -240,7 +201,6 @@ const DEDUP_TTL = {
  * Hourly full-month re-clear scheduler.
  *
  * Cadence:
- *   :00 every hour → DM heads-up with the jobs about to run
  *   :05 every hour → Collected sync, full current month (1st → today)
  *   :20 every hour → WIP sync, full current month (offset to avoid Clio rate-limit clash)
  *   Previous month seal → Collected at :33, WIP at :50 on:
@@ -275,7 +235,7 @@ function startDataOperationsScheduler() {
   schedulerLogger.info('Data operations scheduler started — hourly full-month re-clear (Europe/London)');
   devStatus('Data scheduler', true, 'started — hourly full-month re-clear (Europe/London)');
   trackEvent('Scheduler.Started', {
-    cadence: 'heads-up :00, current collected :05 hourly, current wip :20 hourly, previous seal :33/:50 on day1/day2-14/day21/last-day',
+    cadence: 'current collected :05 hourly, current wip :20 hourly, previous seal :33/:50 on day1/day2-14/day21/last-day',
     operations: 'CollectedTime,Wip',
     mutex: true,
     bootCatchUpDelay: String(BOOT_CATCHUP_DELAY_MS),
@@ -355,17 +315,6 @@ async function runWithMutex(opName, tier, entity, slotKey, fn, triggeredBy = 'sc
       message: `${entity} ${tier} completed (${slotKey})`,
     });
     devStatus('Data scheduler', true, `${entity} ${tier} done (${(durationMs / 1000).toFixed(1)}s)`);
-    notify('sync.completed', {
-      entity,
-      tier,
-      slotKey,
-      durationMs: String(durationMs),
-      deletedRows: syncResult?.deletedRows,
-      insertedRows: syncResult?.insertedRows,
-      noData: syncResult?.noData === true ? 'true' : '',
-      preserved: syncResult?.preserved === true ? 'true' : '',
-      triggeredBy,
-    });
 
     // Post-sync reconciliation refresh — this is what makes the trust gate
     // continuously truthful. Soft-fail: a snapshot rebuild failure does not
@@ -541,9 +490,6 @@ async function schedulerTick() {
   const monthEnd = formatDateKey(now);
   const previousMonthStart = formatDateKey(new Date(now.getFullYear(), now.getMonth() - 1, 1));
   const previousMonthEnd = formatDateKey(new Date(now.getFullYear(), now.getMonth(), 0));
-
-  const sentUpcomingNotice = await maybeNotifyUpcomingSyncs(now);
-  if (sentUpcomingNotice) firedThisTick = true;
 
   // ═══════════════════════════════════════════════
   // COLLECTED — current month full re-clear at :05

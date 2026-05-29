@@ -116,8 +116,8 @@ const PitchComposer: React.FC<PitchComposerProps> = ({
         <Toast toast={state.toast} onDismiss={state.dismissToast} isDarkMode={isDarkMode} />
       )}
 
-      {/* ── Mode selector ── */}
-      {!state.mode && !hasBeenSent && (
+      {/* ── Mode selector (Quick Link hidden for now; scenario email is default) ── */}
+      {false && !state.mode && !hasBeenSent && (
         <div style={{
           display: 'flex', gap: 12, padding: '6px 0',
           animation: 'pitchFadeIn 0.25s ease',
@@ -192,8 +192,8 @@ const PitchComposer: React.FC<PitchComposerProps> = ({
         </div>
       )}
 
-      {/* ── Back header ── */}
-      {state.mode && !hasBeenSent && (
+      {/* ── Back header (hidden: only one mode active) ── */}
+      {false && state.mode && !hasBeenSent && (
         <div style={{
           display: 'flex', alignItems: 'center', gap: 8,
           padding: '6px 14px',

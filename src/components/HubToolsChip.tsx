@@ -3,11 +3,12 @@ import { createPortal } from 'react-dom';
 import { colours } from '../app/styles/colours';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { UserData } from '../app/functionality/types';
-import { isAdminUser, isDevOwner } from '../app/admin';
+import { canUseSessionModeControls, isAdminUser, isDevOwner } from '../app/admin';
 import { BubbleToastTone, CommandCentreTokens } from './command-centre/types';
 import CommandDeck from './command-centre/CommandDeck';
 import ErrorScreenPreview from './command-centre/ErrorScreenPreview';
 import { trackClientEvent } from '../utils/telemetry';
+import { LocalSupportSettings } from '../app/localSupportMode';
 
 // Visible Suspense fallback + error boundary around the lazy CommandDeck chunk.
 // If the chunk fails to load or throws on render, the user must SEE it rather
@@ -98,6 +99,9 @@ interface HubToolsChipProps {
     onOpenDemoMatter?: (showCcl?: boolean) => void;
     /** Show the cheat-sheet chip (Ctrl+Shift+D) — only for users on the demo-cheat-sheet allowlist. */
     cheatSheetEnabled?: boolean;
+    localSupportSettings?: LocalSupportSettings;
+    onLocalSupportModeChange?: (mode: LocalSupportSettings['mode']) => void;
+    onLocalSupportDataScopeChange?: (dataScope: LocalSupportSettings['dataScope']) => void;
 }
 
 interface HealthComponent {
@@ -147,6 +151,9 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
     enquiriesLastLiveSyncAt = null,
     onOpenDemoMatter,
     cheatSheetEnabled = false,
+    localSupportSettings,
+    onLocalSupportModeChange,
+    onLocalSupportDataScopeChange,
 }) => {
     const { isDarkMode } = useTheme();
     const [open, setOpen] = useState(false);
@@ -447,6 +454,7 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
 
     const isAdminEligible = isAdminUser(user) || isLocalDev || !!originalAdminUser;
     const canSwitchUser = isAdminUser(user) || !!originalAdminUser;
+    const hasSessionModeControls = canUseSessionModeControls(user) || canUseSessionModeControls(originalAdminUser || null);
     const hasFullToolsStrip = isDevOwner(user);
     const openHome = useCallback(() => {
         window.dispatchEvent(new CustomEvent('navigateToHome'));
@@ -683,7 +691,7 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
             >
                 {/* Demo — satellite one-click chip. Toggles demo mode only.
                     Multi-option demo surface lives in Tools → Demo lab. */}
-                {hasFullToolsStrip && (
+                {hasSessionModeControls && (
                 <button
                     type="button"
                     onClick={handleDemoView}
@@ -719,11 +727,11 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
                     <span>Demo</span>
                 </button>
                 )}
-                {/* Reset Demo — LZ/AC only, only visible when demo is on. Clears
+                {/* Reset Demo: Luke/Alex only, only visible when demo is on. Clears
                     demo caches (localStorage cclDraftCache.*, helix.demo.*,
                     demoModeEnabled), sessionStorage demo entries, then asks the
                     server to reseed the rehearsal record. */}
-                {hasFullToolsStrip && demoModeEnabled && ['LZ', 'AC'].includes(String(user?.Initials || '').toUpperCase()) && (
+                {hasSessionModeControls && demoModeEnabled && (
                     <button
                         type="button"
                         onClick={handleResetDemo}
@@ -756,8 +764,8 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
                     </button>
                 )}
                 {/* About demo mode — removed (was opening raw DEMO_MODE_REFERENCE.md). Notes overlay (Ctrl+Shift+D) is the canonical presenter aid. */}
-                {/* Production view — satellite one-click chip. LZ only. */}
-                {hasFullToolsStrip && (
+                {/* Production view: satellite one-click chip. Luke/Alex only. */}
+                {hasSessionModeControls && (
                 <button
                     type="button"
                     onClick={handleProdView}
@@ -946,6 +954,10 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
                     onClose={() => closePanel()}
                     showToast={showToast}
                     tokens={tokens}
+                    isLocalDev={isLocalDev}
+                    localSupportSettings={localSupportSettings}
+                    onLocalSupportModeChange={onLocalSupportModeChange}
+                    onLocalSupportDataScopeChange={onLocalSupportDataScopeChange}
                 />
                 </CommandDeckErrorBoundary>,
                 document.body

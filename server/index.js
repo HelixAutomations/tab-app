@@ -364,123 +364,158 @@ if (_bootTimingEnabled && !global.__helixBootRequirePatched) {
         }
     };
 }
-const keysRouter = require('./routes/keys');
-const refreshRouter = require('./routes/refresh');
-const matterRequestsRouter = require('./routes/matterRequests');
-const matterAuditRouter = require('./routes/matter-audit');
-const opponentsRouter = require('./routes/opponents');
-const clioContactsRouter = require('./routes/clioContacts');
-const clioMattersRouter = require('./routes/clioMatters');
-const searchClioContactsRouter = require('./routes/searchClioContacts');
-const clioClientQueryRouter = require('./routes/clio-client-query');
-const clioClientLookupRouter = require('./routes/clio-client-lookup');
-const relatedClientsRouter = require('./routes/related-clients');
-const matterOperationsRouter = require('./routes/matter-operations');
-const mattersRouter = require('./routes/matters');
-const openAnotherMatterRouter = require('./routes/openAnotherMatter');
-const getMattersRouter = require('./routes/getMatters');
-const riskAssessmentsRouter = require('./routes/riskAssessments');
-const bundleRouter = require('./routes/bundle');
-const { router: cclRouter, CCL_DIR } = require('./routes/ccl');
-const cclAiRouter = require('./routes/ccl-ai');
-const commsFrameworkRouter = require('./routes/comms-framework');
-const promptCoachRouter = require('./routes/prompt-coach');
-const cclAdminRouter = require('./routes/ccl-admin');
-const formsAiRouter = require('./routes/formsAi');
+// ── Lazy route loader (Phase B1 of DEV_LOOP_COLD_BOOT_PERFORMANCE_OVERHAUL) ──
+// Defers `require()` of each route module until the first request hits its
+// mount point. Cold boot drops from ~170s to a few seconds because the heavy
+// SDK closures (mssql, @azure/storage-blob, stripe, openai, docx, puppeteer,
+// pdf-lib, ...) only load when actually needed.
+//
+// `loader` is either a module path string (most common) or a function that
+// returns the actual router (used for named exports e.g. `{ router }`).
+// `module.exports` is captured once and reused for subsequent requests.
+function lazyRouter(loader) {
+    let cached = null;
+    const proxy = function lazyRouterMiddleware(req, res, next) {
+        if (!cached) {
+            const resolved = typeof loader === 'function' ? loader() : require(loader);
+            if (typeof resolved !== 'function') {
+                return next(new Error(`lazyRouter: ${loader} did not resolve to a router function`));
+            }
+            cached = resolved;
+        }
+        return cached(req, res, next);
+    };
+    return proxy;
+}
 
-const updateEnquiryPOCRouter = require('./routes/updateEnquiryPOC');
-const pitchesRouter = require('./routes/pitches');
-const paymentsRouter = require('./routes/payments');
-const instructionDetailsRouter = require('./routes/instruction-details');
-const instructionsRouter = require('./routes/instructions');
-const updateInstructionStatusRouter = require('./routes/updateInstructionStatus');
-const documentsRouter = require('./routes/documents');
-const demoDocumentsRouter = require('./routes/demo-documents');
-const prospectDocumentsRouter = require('./routes/prospect-documents');
-const docRequestDealsRouter = require('./routes/doc-request-deals');
-const docWorkspaceRouter = require('./routes/doc-workspace');
-const enquiriesUnifiedRouter = require('./routes/enquiries-unified');
-const mattersUnifiedRouter = require('./routes/mattersUnified');
-const verifyIdRouter = require('./routes/verify-id');
-const testDbRouter = require('./routes/test-db');
-const teamLookupRouter = require('./routes/team-lookup');
-const teamDataRouter = require('./routes/teamData');
-const userDataRouter = require('./routes/userData');
-const pitchTeamRouter = require('./routes/pitchTeam');
-const fileMapRouter = require('./routes/fileMap');
-const paymentLinkRouter = require('./routes/paymentLink');
-const stripeWebhookRouter = require('./routes/stripeWebhook');
-const clioWebhookRouter = require('./routes/clio-webhook');
-const opsRouter = require('./routes/ops');
-const sendEmailRouter = require('./routes/sendEmail');
-const emailSignatureRouter = require('./routes/emailSignature');
-const demoCheatSheetRouter = require('./routes/demoCheatSheet');
-const createDraftRouter = require('./routes/createDraft');
-const forwardEmailRouter = require('./routes/forwardEmail');
-const searchInboxRouter = require('./routes/searchInbox');
-const callrailCallsRouter = require('./routes/callrailCalls');
-const dubberCallsRouter = require('./routes/dubberCalls');
-const homeJourneyRouter = require('./routes/home-journey');
-const attendanceRouter = require('./routes/attendance');
-const resourcesAnalyticsRouter = require('./routes/resources-analytics');
-const resourcesCoreRouter = require('./routes/resources-core');
-const reportingRouter = require('./routes/reporting');
-const reportingStreamRouter = require('./routes/reporting-stream');
-const homeMetricsStreamRouter = require('./routes/home-metrics-stream');
-const complianceRouter = require('./routes/compliance');
-const homeWipRouter = require('./routes/home-wip');
-const homeEnquiriesRouter = require('./routes/home-enquiries');
-const mattersNewSpaceRouter = require('./routes/mattersNewSpace');
-const poidRouter = require('./routes/poid');
-const futureBookingsRouter = require('./routes/futureBookings');
-const outstandingBalancesRouter = require('./routes/outstandingBalances');
-const matterMetricsRouter = require('./routes/matter-metrics');
-const transactionsRouter = require('./routes/transactions');
-const transactionsV2Router = require('./routes/transactionsV2');
-const marketingMetricsRouter = require('./routes/marketing-metrics');
-const cachePreheaterRouter = require('./routes/cache-preheater');
-const clearCacheRouter = require('./routes/clearCache');
-const teamsActivityTrackingRouter = require('./routes/teamsActivityTracking');
-const pitchTrackingRouter = require('./routes/pitchTracking');
-const enquiryEnrichmentRouter = require('./routes/enquiryEnrichment');
-const peopleSearchRouter = require('./routes/people-search');
-const claimEnquiryRouter = require('./routes/claimEnquiry');
-const pipelineActivityRouter = require('./routes/pipelineActivity');
-const responseMetricsRouter = require('./routes/responseMetrics');
-const rateChangesRouter = require('./routes/rate-changes');
-const cclDateRouter = require('./routes/ccl-date');
-const cclOpsRouter = require('./routes/ccl-ops');
-const cclDryRunRouter = require('./routes/ccl-dry-run');
-const expertsRouter = require('./routes/experts');
-const counselRouter = require('./routes/counsel');
-const syncInstructionClientRouter = require('./routes/sync-instruction-client');
-const techTicketsRouter = require('./routes/techTickets');
-const signalsRouter = require('./routes/signals');
-const logsStreamRouter = require('./routes/logs-stream');
-const telemetryRouter = require('./routes/telemetry');
-const todoRouter = require('./routes/todo');
-const bookSpaceRouter = require('./routes/bookSpace');
-const financialTaskRouter = require('./routes/financialTask');
-const activityFeedRouter = require('./routes/activity-feed');
-const releaseNotesRouter = require('./routes/release-notes');
-const stashBriefsRouter = require('./routes/stash-briefs');
-const devConsoleRouter = require('./routes/dev-console');
-const devRoadmapRouter = require('./routes/dev-roadmap');
-const opsQueueRouter = require('./routes/opsQueue');
-const processHubRouter = require('./routes/processHub');
-const { router: dataOperationsRouter } = require('./routes/dataOperations');
-const yoyComparisonRouter = require('./routes/yoy-comparison');
-const formHealthCheckRouter = require('./routes/formHealthCheck');
-const notableCaseInfoRouter = require('./routes/notableCaseInfo');
-const teamsBotRouter = require('./routes/teamsBot');
-const teamsNotifyRouter = require('./routes/teamsNotify');
-const activityCardLabRouter = require('./routes/activity-card-lab');
-const { router: opsPulseRouter } = require('./routes/ops-pulse');
-const opsChecksRouter = require('./routes/ops-checks');
-const operatorActionsRouter = require('./routes/operator-actions');
-const accessRouter = require('./routes/access');
+// Eager — has top-level side effects (setInterval) so it must register at boot.
+const openAnotherMatterRouter = require('./routes/openAnotherMatter');
+// Eager — CCL_DIR is consumed below by express.static() outside any handler.
+const { router: cclRouter, CCL_DIR } = require('./routes/ccl');
+// Eager — middleware used directly via app.use(), not as a route router.
 const { userContextMiddleware } = require('./middleware/userContext');
 const errorHandler = require('./middleware/errorHandler');
+
+// Lazy — every other route deferred to first-request load.
+const keysRouter = lazyRouter('./routes/keys');
+const refreshRouter = lazyRouter('./routes/refresh');
+const matterRequestsRouter = lazyRouter('./routes/matterRequests');
+const matterAuditRouter = lazyRouter('./routes/matter-audit');
+const opponentsRouter = lazyRouter('./routes/opponents');
+const clioContactsRouter = lazyRouter('./routes/clioContacts');
+const clioMattersRouter = lazyRouter('./routes/clioMatters');
+const searchClioContactsRouter = lazyRouter('./routes/searchClioContacts');
+const clioClientQueryRouter = lazyRouter('./routes/clio-client-query');
+const clioClientLookupRouter = lazyRouter('./routes/clio-client-lookup');
+const relatedClientsRouter = lazyRouter('./routes/related-clients');
+const matterOperationsRouter = lazyRouter('./routes/matter-operations');
+const mattersRouter = lazyRouter('./routes/matters');
+const getMattersRouter = lazyRouter('./routes/getMatters');
+const riskAssessmentsRouter = lazyRouter('./routes/riskAssessments');
+const bundleRouter = lazyRouter('./routes/bundle');
+const cclAiRouter = lazyRouter('./routes/ccl-ai');
+const commsFrameworkRouter = lazyRouter('./routes/comms-framework');
+const promptCoachRouter = lazyRouter('./routes/prompt-coach');
+const cclAdminRouter = lazyRouter('./routes/ccl-admin');
+const formsAiRouter = lazyRouter('./routes/formsAi');
+
+const updateEnquiryPOCRouter = lazyRouter('./routes/updateEnquiryPOC');
+const pitchesRouter = lazyRouter('./routes/pitches');
+const paymentsRouter = lazyRouter('./routes/payments');
+const instructionDetailsRouter = lazyRouter('./routes/instruction-details');
+const instructionsRouter = lazyRouter('./routes/instructions');
+const updateInstructionStatusRouter = lazyRouter('./routes/updateInstructionStatus');
+const documentsRouter = lazyRouter('./routes/documents');
+const demoDocumentsRouter = lazyRouter('./routes/demo-documents');
+const prospectDocumentsRouter = lazyRouter('./routes/prospect-documents');
+const docRequestDealsRouter = lazyRouter('./routes/doc-request-deals');
+const docWorkspaceRouter = lazyRouter('./routes/doc-workspace');
+const enquiriesUnifiedRouter = lazyRouter('./routes/enquiries-unified');
+const mattersUnifiedRouter = lazyRouter('./routes/mattersUnified');
+const verifyIdRouter = lazyRouter('./routes/verify-id');
+const testDbRouter = lazyRouter('./routes/test-db');
+const teamLookupRouter = lazyRouter('./routes/team-lookup');
+const teamDataRouter = lazyRouter('./routes/teamData');
+const userDataRouter = lazyRouter('./routes/userData');
+const pitchTeamRouter = lazyRouter('./routes/pitchTeam');
+const fileMapRouter = lazyRouter('./routes/fileMap');
+const paymentLinkRouter = lazyRouter('./routes/paymentLink');
+const stripeWebhookRouter = lazyRouter('./routes/stripeWebhook');
+const clioWebhookRouter = lazyRouter('./routes/clio-webhook');
+const opsRouter = lazyRouter('./routes/ops');
+const sendEmailRouter = lazyRouter('./routes/sendEmail');
+const emailSignatureRouter = lazyRouter('./routes/emailSignature');
+const demoCheatSheetRouter = lazyRouter('./routes/demoCheatSheet');
+const createDraftRouter = lazyRouter('./routes/createDraft');
+const forwardEmailRouter = lazyRouter('./routes/forwardEmail');
+const searchInboxRouter = lazyRouter('./routes/searchInbox');
+const callrailCallsRouter = lazyRouter('./routes/callrailCalls');
+const dubberCallsRouter = lazyRouter('./routes/dubberCalls');
+const homeJourneyRouter = lazyRouter('./routes/home-journey');
+const attendanceRouter = lazyRouter('./routes/attendance');
+const resourcesAnalyticsRouter = lazyRouter('./routes/resources-analytics');
+const resourcesCoreRouter = lazyRouter('./routes/resources-core');
+const reportingRouter = lazyRouter('./routes/reporting');
+const reportingStreamRouter = lazyRouter('./routes/reporting-stream');
+const homeMetricsStreamRouter = lazyRouter('./routes/home-metrics-stream');
+const complianceRouter = lazyRouter('./routes/compliance');
+const homeWipRouter = lazyRouter('./routes/home-wip');
+const homeEnquiriesRouter = lazyRouter('./routes/home-enquiries');
+const mattersNewSpaceRouter = lazyRouter('./routes/mattersNewSpace');
+const poidRouter = lazyRouter('./routes/poid');
+const futureBookingsRouter = lazyRouter('./routes/futureBookings');
+const outstandingBalancesRouter = lazyRouter('./routes/outstandingBalances');
+const matterMetricsRouter = lazyRouter('./routes/matter-metrics');
+const transactionsRouter = lazyRouter('./routes/transactions');
+const transactionsV2Router = lazyRouter('./routes/transactionsV2');
+const marketingMetricsRouter = lazyRouter('./routes/marketing-metrics');
+const cachePreheaterRouter = lazyRouter('./routes/cache-preheater');
+const clearCacheRouter = lazyRouter('./routes/clearCache');
+const teamsActivityTrackingRouter = lazyRouter('./routes/teamsActivityTracking');
+const pitchTrackingRouter = lazyRouter('./routes/pitchTracking');
+const enquiryEnrichmentRouter = lazyRouter('./routes/enquiryEnrichment');
+const peopleSearchRouter = lazyRouter('./routes/people-search');
+const claimEnquiryRouter = lazyRouter('./routes/claimEnquiry');
+const pipelineActivityRouter = lazyRouter('./routes/pipelineActivity');
+const responseMetricsRouter = lazyRouter('./routes/responseMetrics');
+const receptionKpisRouter = lazyRouter('./routes/receptionKpis');
+const rateChangesRouter = lazyRouter('./routes/rate-changes');
+const cclDateRouter = lazyRouter('./routes/ccl-date');
+const cclOpsRouter = lazyRouter('./routes/ccl-ops');
+const cclDryRunRouter = lazyRouter('./routes/ccl-dry-run');
+const expertsRouter = lazyRouter('./routes/experts');
+const counselRouter = lazyRouter('./routes/counsel');
+const syncInstructionClientRouter = lazyRouter('./routes/sync-instruction-client');
+const techTicketsRouter = lazyRouter('./routes/techTickets');
+const signalsRouter = lazyRouter('./routes/signals');
+const logsStreamRouter = lazyRouter('./routes/logs-stream');
+const telemetryRouter = lazyRouter('./routes/telemetry');
+const formIntentRouter = lazyRouter('./routes/form-intent');
+const auditRouter = lazyRouter('./routes/audit');
+const todoRouter = lazyRouter('./routes/todo');
+const bookSpaceRouter = lazyRouter('./routes/bookSpace');
+const financialTaskRouter = lazyRouter('./routes/financialTask');
+const activityFeedRouter = lazyRouter('./routes/activity-feed');
+const releaseNotesRouter = lazyRouter('./routes/release-notes');
+const stashBriefsRouter = lazyRouter('./routes/stash-briefs');
+const devConsoleRouter = lazyRouter('./routes/dev-console');
+const devRoadmapRouter = lazyRouter('./routes/dev-roadmap');
+const opsQueueRouter = lazyRouter('./routes/opsQueue');
+const processHubRouter = lazyRouter('./routes/processHub');
+const dataOperationsRouter = lazyRouter(() => require('./routes/dataOperations').router);
+const yoyComparisonRouter = lazyRouter('./routes/yoy-comparison');
+const formHealthCheckRouter = lazyRouter('./routes/formHealthCheck');
+const notableCaseInfoRouter = lazyRouter('./routes/notableCaseInfo');
+const enquiriesLookupRouter = lazyRouter('./routes/enquiriesLookup');
+const teamsBotRouter = lazyRouter('./routes/teamsBot');
+const teamsNotifyRouter = lazyRouter('./routes/teamsNotify');
+const activityCardLabRouter = lazyRouter('./routes/activity-card-lab');
+const opsPulseRouter = lazyRouter(() => require('./routes/ops-pulse').router);
+const opsChecksRouter = lazyRouter('./routes/ops-checks');
+const systemTriageRouter = lazyRouter('./routes/system-triage');
+const matterReplayRouter = lazyRouter('./routes/matter-replay');
+const operatorActionsRouter = lazyRouter('./routes/operator-actions');
+const accessRouter = lazyRouter('./routes/access');
 _bootMark('routes:require:done');
 
 const isProd = process.env.NODE_ENV === 'production';
@@ -720,6 +755,27 @@ app.use(userContextMiddleware);
 const requireUser = require('./middleware/requireUser');
 app.use(requireUser);
 
+function isLocalCclRequest(req) {
+    const host = String(req.headers.host || req.hostname || '').toLowerCase();
+    return host.startsWith('localhost') || host.startsWith('127.0.0.1') || host.startsWith('[::1]') || host === '::1';
+}
+
+function guardCclOperations(req, res, next) {
+    if (isLocalCclRequest(req)) return next();
+    trackEvent('CCL.Operations.Disabled.Blocked', {
+        operation: 'guardCclOperations',
+        triggeredBy: req.user?.initials || req.user?.email || 'unknown',
+        method: req.method,
+        route: req.originalUrl || req.url,
+        host: req.headers.host || '',
+    });
+    return res.status(403).json({
+        ok: false,
+        code: 'CCL_DISABLED',
+        error: 'CCL operations are disabled outside local development while ZDR/LPP review is ongoing.',
+    });
+}
+
 app.use('/api/keys', keysRouter);
 app.use('/api/refresh', refreshRouter);
 app.use('/api/matter-requests', matterRequestsRouter);
@@ -747,14 +803,14 @@ app.use('/api/getAllMatters', (req, res) => {
         replacement: '/api/matters-unified'
     });
 });
-app.use('/api/ccl', cclRouter);
-app.use('/api/ccl-ai', cclAiRouter);
+app.use('/api/ccl', guardCclOperations, cclRouter);
+app.use('/api/ccl-ai', guardCclOperations, cclAiRouter);
 app.use('/api/ai', commsFrameworkRouter);
 app.use('/api/ai', promptCoachRouter);
 app.use('/api/forms-ai', formsAiRouter);
-app.use('/api/ccl-admin', cclAdminRouter);
-app.use('/api/ccl-ops', cclOpsRouter);
-app.use('/api/ccl-dry-run', cclDryRunRouter);
+app.use('/api/ccl-admin', guardCclOperations, cclAdminRouter);
+app.use('/api/ccl-ops', guardCclOperations, cclOpsRouter);
+app.use('/api/ccl-dry-run', guardCclOperations, cclDryRunRouter);
 app.use('/api/enquiries-unified', enquiriesUnifiedRouter);
 app.use('/api/home-wip', homeWipRouter);
 app.use('/api/home-enquiries', homeEnquiriesRouter);
@@ -764,6 +820,7 @@ app.use('/api/updateEnquiryPOC', updateEnquiryPOCRouter);
 app.use('/api/claimEnquiry', claimEnquiryRouter);
 app.use('/api/pipeline-activity', pipelineActivityRouter);
 app.use('/api/response-metrics', responseMetricsRouter);
+app.use('/api/reporting', receptionKpisRouter);
 app.use('/api/matters-unified', mattersUnifiedRouter);
 app.use('/api/ops', opsRouter);
 // Email route (server-based). Expose under both /api and / to match existing callers.
@@ -829,6 +886,8 @@ app.use('/api/teams-notify', teamsNotifyRouter);
 app.use('/api/activity-card-lab', activityCardLabRouter);
 app.use('/api/ops-pulse', opsPulseRouter);
 app.use('/api/ops-checks', opsChecksRouter);
+app.use('/api/system-triage', systemTriageRouter);
+app.use('/api/matter-replay', matterReplayRouter);
 
 // In-app operator actions (B1) — first-class, audited replacements for
 // LZ-only tools/*.mjs one-offs. Phase A: dev-owner only, person lookup pilot.
@@ -841,7 +900,7 @@ app.use('/api/access', accessRouter);
 app.use('/api/rate-changes', rateChangesRouter);
 
 // CCL Date operation (Clio + legacy SQL)
-app.use('/api/ccl-date', cclDateRouter);
+app.use('/api/ccl-date', guardCclOperations, cclDateRouter);
 
 // Expert and Counsel directories
 app.use('/api/experts', expertsRouter);
@@ -857,6 +916,12 @@ app.use('/api/signals', signalsRouter);
 
 // Telemetry endpoint for pitch builder and client-side event tracking
 app.use('/api/telemetry', telemetryRouter);
+
+// Form intent beacon: records the moment a user presses submit on any form,
+// BEFORE the real POST fires. Orphan rows surface lost submissions. See
+// docs/notes/OPERATOR_GOD_MODE_SYSTEM_TAB_PRESSURE_RELEASE_VALVE.md (P1).
+app.use('/api/forms/intent', formIntentRouter);
+app.use('/api/audit', auditRouter);
 
 // Hub ToDo registry (HOME_TODO_SINGLE_PICKUP_SURFACE) — dbo.hub_todo on
 // helix-operations. Feeds Home immediate-actions bar + activity feed from
@@ -883,6 +948,9 @@ app.use('/api/form-health', formHealthCheckRouter);
 
 // Notable case info proxy (records + forwards to downstream Azure Function)
 app.use('/api/notable-case-info', notableCaseInfoRouter);
+
+// Lightweight enquiry/prospect lookup for shared form pickers
+app.use('/api/enquiries/lookup', enquiriesLookupRouter);
 
 // Unified process definitions and submission feed foundation
 app.use('/api/process-hub', processHubRouter);
@@ -915,7 +983,7 @@ app.use('/api/transactions', transactionsRouter);
 app.use('/api/transactions-v2', transactionsV2Router);
 app.use('/api/migration', require('./routes/legacyMigration'));
 
-app.use('/ccls', express.static(CCL_DIR));
+app.use('/ccls', guardCclOperations, express.static(CCL_DIR));
 
 // Temporary debug helper: allow GET /api/update-deal?dealId=...&ServiceDescription=...&Amount=...
 app.get('/api/update-deal', async (req, res) => {

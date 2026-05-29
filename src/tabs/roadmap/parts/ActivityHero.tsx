@@ -4,7 +4,7 @@ import React from 'react';
 import { colours } from '../../../app/styles/colours';
 import KpiTile from './KpiTile';
 
-export type ActivityLens = 'all' | 'forms' | 'matters' | 'sync' | 'checks' | 'errors' | 'trace' | 'signals' | 'briefs' | 'forge' | 'actions' | 'mechanisms';
+export type ActivityLens = 'triage' | 'all' | 'forms' | 'matters' | 'sync' | 'checks' | 'errors' | 'trace' | 'signals' | 'briefs' | 'forge' | 'actions' | 'mechanisms' | 'audit';
 
 export type KpiGroup = 'health' | 'workload' | 'performance';
 

@@ -3,6 +3,7 @@
 // Protected by passcode guard
 
 import React, { useState, useCallback } from 'react';
+import { recordIntent } from '../utils/recordIntent';
 import { Stack } from '@fluentui/react/lib/Stack';
 import { Text } from '@fluentui/react/lib/Text';
 import { TextField } from '@fluentui/react/lib/TextField';
@@ -102,14 +103,16 @@ const TechIdeaFormContent: React.FC<TechIdeaFormProps> = ({
 
     try {
       const baseUrl = getApiBase();
+      const ideaPayload = {
+        ...formData,
+        submitted_by: currentUser?.FullName || 'Unknown',
+        submitted_by_initials: currentUser?.Initials || '',
+      };
+      const clientSubmissionId = await recordIntent({ formKey: 'tech-idea', payload: ideaPayload });
       const response = await fetch(`${baseUrl}/api/tech-tickets/idea`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...formData,
-          submitted_by: currentUser?.FullName || 'Unknown',
-          submitted_by_initials: currentUser?.Initials || '',
-        }),
+        body: JSON.stringify({ ...ideaPayload, clientSubmissionId }),
       });
 
       if (!response.ok) {

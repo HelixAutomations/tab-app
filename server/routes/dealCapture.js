@@ -3,6 +3,7 @@ const { loggers } = require('../utils/logger');
 const { emitEvent } = require('../utils/eventEmitter');
 const { getPool } = require('../utils/db');
 const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
+const { queuePitchLinkNotification } = require('../utils/pitchTeamsNotifications');
 
 const log = loggers.payments.child('DealCapture');
 
@@ -41,7 +42,6 @@ module.exports = async (req, res) => {
     pitchedBy,
     isMultiClient,
     leadClientEmail,
-    leadClientId,
     clients = [],
     passcode: providedPasscode,
     instructionRef: providedInstructionRef,
@@ -50,6 +50,8 @@ module.exports = async (req, res) => {
     emailBodyHtml,
     reminders,
     notes,
+    clientName,
+    contactName,
     dealKind: providedDealKind,
     source,
     firstName,
@@ -234,6 +236,30 @@ module.exports = async (req, res) => {
       areaOfWork: finalAreaOfWork,
       passcode,
       dealKind: resolvedDealKind,
+    });
+
+    queuePitchLinkNotification({
+      req,
+      dealId,
+      instructionRef,
+      passcode,
+      instructionsUrl,
+      amount: finalAmount,
+      areaOfWork: finalAreaOfWork,
+      serviceDescription: finalServiceDescription,
+      pitchedBy: finalPitchedBy,
+      linkOnly: Boolean(linkOnly),
+      dealKind: resolvedDealKind,
+      status: resolvedStatus,
+      firstName,
+      lastName,
+      leadClientEmail,
+      contactEmail,
+      email: req.body.email,
+      clientName,
+      contactName,
+      emailRecipients: req.body.emailRecipients,
+      requestedBy: req.user?.fullName || req.user?.initials || finalPitchedBy,
     });
 
     const durationMs = Date.now() - startedAt;

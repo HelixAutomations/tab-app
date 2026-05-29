@@ -1,14 +1,13 @@
 // src/tabs/roadmap/hooks/useActivityLayout.ts — persisted layout state for the Activity tab
 //
 // Owns lens choice, layer visibility, tools-drawer state, and cross-lens drill-in selectors.
-// Persists to localStorage (`helix:activity:layout:v1`) and reflects lens/session in the URL
-// query string for shareable deep-links.
+// Persists to localStorage (`helix:activity:layout:v1`) without mutating the URL.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ActivityLens } from '../parts/ActivityHero';
 
 const STORAGE_KEY = 'helix:activity:layout:v1';
-const VALID_LENSES: ActivityLens[] = ['all', 'forms', 'matters', 'sync', 'checks', 'errors', 'trace', 'briefs', 'forge', 'mechanisms'];
+const VALID_LENSES: ActivityLens[] = ['triage', 'all', 'forms', 'matters', 'sync', 'checks', 'errors', 'trace', 'signals', 'briefs', 'forge', 'actions', 'mechanisms', 'audit'];
 
 export type LayerKey = 'presence' | 'sessions' | 'apiHeat' | 'scheduler' | 'alerts';
 export type ToolsTab = 'releaseNotes' | 'apiHeat' | 'cardLab' | 'bootTrace';
@@ -65,38 +64,20 @@ function readPersisted(): Partial<ActivityLayoutState> {
   }
 }
 
-function readQuery(): { lens?: ActivityLens; sessionId?: string; errorTs?: number } {
-  if (typeof window === 'undefined') return {};
-  try {
-    const params = new URLSearchParams(window.location.search);
-    const out: { lens?: ActivityLens; sessionId?: string; errorTs?: number } = {};
-    const lens = params.get('lens');
-    if (isLens(lens)) out.lens = lens;
-    const sessionId = params.get('session');
-    if (sessionId) out.sessionId = sessionId;
-    const errorTs = params.get('errorTs');
-    if (errorTs && /^\d+$/.test(errorTs)) out.errorTs = Number(errorTs);
-    return out;
-  } catch {
-    return {};
-  }
-}
-
-function writeQuery(lens: ActivityLens, sessionId: string | null, errorTs: number | null): void {
+function clearLegacyQueryState(): void {
   if (typeof window === 'undefined') return;
   try {
     const params = new URLSearchParams(window.location.search);
-    if (lens === 'all') params.delete('lens');
-    else params.set('lens', lens);
-    if (sessionId) params.set('session', sessionId);
-    else params.delete('session');
-    if (errorTs) params.set('errorTs', String(errorTs));
-    else params.delete('errorTs');
+    const hadLegacyState = params.has('lens') || params.has('session') || params.has('errorTs');
+    if (!hadLegacyState) return;
+    params.delete('lens');
+    params.delete('session');
+    params.delete('errorTs');
     const next = params.toString();
     const url = `${window.location.pathname}${next ? `?${next}` : ''}${window.location.hash}`;
     window.history.replaceState(null, '', url);
   } catch {
-    // ignore — URL state is best-effort
+    // ignore, URL cleanup is best-effort
   }
 }
 
@@ -113,10 +94,8 @@ export interface ActivityLayoutControls extends ActivityLayoutState {
 export function useActivityLayout(): ActivityLayoutControls {
   const persistedRef = useRef<Partial<ActivityLayoutState> | null>(null);
   if (persistedRef.current === null) persistedRef.current = readPersisted();
-  const queryRef = useRef<ReturnType<typeof readQuery> | null>(null);
-  if (queryRef.current === null) queryRef.current = readQuery();
 
-  const initialLens: ActivityLens = queryRef.current.lens ?? persistedRef.current.lens ?? 'all';
+  const initialLens: ActivityLens = persistedRef.current.lens ?? 'triage';
   const initialLayers: LayerKey[] = persistedRef.current.layers ?? DEFAULT_LAYERS;
   const initialToolsOpen = persistedRef.current.toolsOpen ?? false;
   const initialToolsTab: ToolsTab = persistedRef.current.toolsTab ?? 'releaseNotes';
@@ -125,8 +104,12 @@ export function useActivityLayout(): ActivityLayoutControls {
   const [layers, setLayersState] = useState<LayerKey[]>(initialLayers);
   const [toolsOpen, setToolsOpenState] = useState<boolean>(initialToolsOpen);
   const [toolsTab, setToolsTabState] = useState<ToolsTab>(initialToolsTab);
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(queryRef.current.sessionId ?? null);
-  const [selectedErrorTs, setSelectedErrorTs] = useState<number | null>(queryRef.current.errorTs ?? null);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const [selectedErrorTs, setSelectedErrorTs] = useState<number | null>(null);
+
+  useEffect(() => {
+    clearLegacyQueryState();
+  }, []);
 
   // Persist non-selection state to localStorage
   useEffect(() => {
@@ -138,11 +121,6 @@ export function useActivityLayout(): ActivityLayoutControls {
       // quota / private mode — ignore
     }
   }, [lens, layers, toolsOpen, toolsTab]);
-
-  // Reflect lens + selections in the URL
-  useEffect(() => {
-    writeQuery(lens, selectedSessionId, selectedErrorTs);
-  }, [lens, selectedSessionId, selectedErrorTs]);
 
   const setLens = useCallback((next: ActivityLens) => {
     setLensState(next);

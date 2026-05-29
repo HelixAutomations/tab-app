@@ -18,6 +18,7 @@ if (typeof fetch === 'undefined') {
 }
 
 require('dotenv').config({ path: path.join(__dirname, '../.env'), override: false });
+const { trackEvent } = require('./utils/appInsights');
 const express = require('express');
 const morgan = require('morgan');
 const cors = require('cors');
@@ -207,14 +208,35 @@ app.use('/api/enquiry-enrichment', enquiryEnrichmentRouter);
 app.use('/api/rate-changes', rateChangesRouter);
 
 // CCL: draft management, AI fill, ops (Clio upload, support tickets)
-app.use('/api/ccl', cclRouter);
-app.use('/api/ccl-ai', cclAiRouter);
-app.use('/api/ccl-admin', cclAdminRouter);
-app.use('/api/ccl-ops', cclOpsRouter);
-app.use('/ccls', express.static(CCL_DIR));
+function isLocalCclRequest(req) {
+    const host = String(req.headers.host || req.hostname || '').toLowerCase();
+    return host.startsWith('localhost') || host.startsWith('127.0.0.1') || host.startsWith('[::1]') || host === '::1';
+}
+
+function guardCclOperations(req, res, next) {
+    if (isLocalCclRequest(req)) return next();
+    trackEvent('CCL.Operations.Disabled.Blocked', {
+        operation: 'guardCclOperations',
+        triggeredBy: req.user?.initials || req.user?.email || 'unknown',
+        method: req.method,
+        route: req.originalUrl || req.url,
+        host: req.headers.host || '',
+    });
+    return res.status(403).json({
+        ok: false,
+        code: 'CCL_DISABLED',
+        error: 'CCL operations are disabled outside local development while ZDR/LPP review is ongoing.',
+    });
+}
+
+app.use('/api/ccl', guardCclOperations, cclRouter);
+app.use('/api/ccl-ai', guardCclOperations, cclAiRouter);
+app.use('/api/ccl-admin', guardCclOperations, cclAdminRouter);
+app.use('/api/ccl-ops', guardCclOperations, cclOpsRouter);
+app.use('/ccls', guardCclOperations, express.static(CCL_DIR));
 
 // CCL Date operation (Clio + legacy SQL)
-app.use('/api/ccl-date', cclDateRouter);
+app.use('/api/ccl-date', guardCclOperations, cclDateRouter);
 
 // Expert and Counsel directories
 app.use('/api/experts', expertsRouter);

@@ -314,6 +314,35 @@ body.theme-dark .ms-Dropdown-caretDown,
   color: #94a3b8 !important;
 }
 
+.forms-hub[data-theme-mode="dark"] .ms-TextField-fieldGroup,
+.forms-hub[data-theme-mode="dark"] .ms-TextField-field {
+  background-color: var(--surface-card) !important;
+}
+
+.forms-hub[data-theme-mode="dark"] .ms-TextField-fieldGroup {
+  border-color: var(--home-tile-border) !important;
+}
+
+.forms-hub[data-theme-mode="dark"] .ms-TextField-fieldGroup:hover,
+.forms-hub[data-theme-mode="dark"] .ms-TextField-fieldGroup:focus-within {
+  border-color: var(--home-tile-border-hover) !important;
+}
+
+.forms-hub[data-theme-mode="dark"] .ms-Dropdown {
+  background-color: var(--surface-card-hover) !important;
+  border-color: var(--home-tile-border) !important;
+}
+
+.forms-hub[data-theme-mode="dark"] .ms-Dropdown:hover,
+.forms-hub[data-theme-mode="dark"] .ms-Dropdown:focus-within {
+  border-color: var(--home-tile-border-hover) !important;
+}
+
+.forms-hub[data-theme-mode="dark"] .ms-Dropdown-caretDown,
+.forms-hub[data-theme-mode="dark"] .ms-Dropdown-caretDownWrapper {
+  color: var(--text-muted) !important;
+}
+
 /* =======================================================
     HOVER MICRO-INTERACTIONS
    ======================================================= */

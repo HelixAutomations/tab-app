@@ -1,9 +1,10 @@
 import React, { useState, useMemo, useCallback, forwardRef, useImperativeHandle, useEffect } from 'react';
 import type { CSSProperties } from 'react';
-import { Icon } from '@fluentui/react/lib/Icon';
 import { DefaultButton } from '@fluentui/react/lib/Button';
 import { Spinner, SpinnerSize } from '@fluentui/react/lib/Spinner';
-import { colours } from '../../app/styles/colours';
+import type { IconType } from 'react-icons';
+import { FiActivity, FiBriefcase, FiClock, FiHome, FiMoreHorizontal, FiNavigation, FiSend, FiShield, FiUser } from 'react-icons/fi';
+import { colours, withAlpha } from '../../app/styles/colours';
 import { isSameDay } from 'date-fns';
 
 const WEEK_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'] as const;
@@ -56,13 +57,13 @@ interface PersonalAttendanceConfirmProps {
 
 type StatusType = 'office' | 'wfh' | 'away' | 'sick' | 'ooo' | 'unset';
 
-const STATUS_CONFIG: Record<StatusType, { label: string; shortLabel: string; color: string; icon: string; darkColor: string }> = {
-    office: { label: 'In Office', shortLabel: 'Office', color: colours.helixBlue, darkColor: colours.highlight, icon: 'CityNext' },
-    wfh: { label: 'Work From Home', shortLabel: 'WFH', color: colours.green, darkColor: colours.green, icon: 'Home' },
-    away: { label: 'Away / Leave', shortLabel: 'Away', color: colours.greyText, darkColor: colours.subtleGrey, icon: 'Airplane' },
-    sick: { label: 'Off Sick', shortLabel: 'Sick', color: colours.cta, darkColor: colours.cta, icon: 'Health' },
-    ooo: { label: 'Out of Office', shortLabel: 'OOO', color: colours.cta, darkColor: colours.cta, icon: 'Clock' },
-    unset: { label: 'Not Set', shortLabel: 'Select', color: colours.greyText, darkColor: colours.subtleGrey, icon: 'More' },
+const STATUS_CONFIG: Record<StatusType, { label: string; shortLabel: string; color: string; Icon: IconType; darkColor: string }> = {
+    office: { label: 'In Office', shortLabel: 'Office', color: colours.helixBlue, darkColor: colours.highlight, Icon: FiBriefcase },
+    wfh: { label: 'Work From Home', shortLabel: 'WFH', color: colours.green, darkColor: colours.green, Icon: FiHome },
+    away: { label: 'Away / Leave', shortLabel: 'Away', color: colours.greyText, darkColor: colours.subtleGrey, Icon: FiNavigation },
+    sick: { label: 'Off Sick', shortLabel: 'Sick', color: colours.cta, darkColor: colours.cta, Icon: FiActivity },
+    ooo: { label: 'Out of Office', shortLabel: 'OOO', color: colours.orange, darkColor: colours.orange, Icon: FiClock },
+    unset: { label: 'Not Set', shortLabel: 'Select', color: colours.highlight, darkColor: colours.highlight, Icon: FiMoreHorizontal },
 };
 
 const PersonalAttendanceConfirm = forwardRef<
@@ -331,21 +332,30 @@ const PersonalAttendanceConfirm = forwardRef<
     const handleSave = async () => {
         if (saving) return;
         setSaving(true);
-        // Safety fallback ONLY — the parent saveAttendance already aborts its own
-        // fetch after its own timeout. This is a last-resort so the button never
-        // wedges if the parent promise is lost entirely. We also close the modal
-        // here so the user is never trapped behind a frozen dialog.
+        const perWeekTimeoutMs = 35000;
+        const saveWithTimeout = (weekStart: string, days: string, initials?: string): Promise<void> => {
+            let timeoutId: number | undefined;
+            const savePromise = onSave(weekStart, days, initials);
+            const timeoutPromise = new Promise<void>((_, reject) => {
+                timeoutId = window.setTimeout(() => reject(new Error('Attendance save timed out')), perWeekTimeoutMs);
+            });
+            return Promise.race([savePromise, timeoutPromise]).finally(() => {
+                if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+            });
+        };
         const safetyTimer = window.setTimeout(() => {
             setSaving(false);
-            if (onShowToast) onShowToast('Saving took too long', 'error', 'Please try again — network may be slow.');
+            if (onShowToast) onShowToast('Saving took too long', 'error', 'Please try again. The attendance service may be slow.');
             try { onClose(); } catch { /* swallow */ }
-        }, 30000);
+        }, 75000);
         try {
             const weekStarts = [currentWeekStart, nextWeekStart];
+            let savedWeeks = 0;
             for (const weekStart of weekStarts) {
                 const dayStatuses = localAttendance[weekStart] || {};
                 const entries = Object.entries(dayStatuses);
                 if (entries.length === 0) continue; // skip weeks with no data
+                if (!entries.some(([, status]) => status !== 'unset')) continue; // skip untouched picker weeks
                 const dayStrings = entries.map(([dayName, status]) => {
                     const dayMap: Record<string, string> = {
                         Monday: 'Mon', Tuesday: 'Tue', Wednesday: 'Wed', Thursday: 'Thu', Friday: 'Fri',
@@ -355,7 +365,13 @@ const PersonalAttendanceConfirm = forwardRef<
                 });
                 const days = dayStrings.join(',');
                 if (!days) continue;
-                await onSave(weekStart, days, selectedEmployee ? activeInitials : undefined);
+                await saveWithTimeout(weekStart, days, selectedEmployee ? activeInitials : undefined);
+                savedWeeks += 1;
+            }
+            if (savedWeeks === 0) {
+                setSaving(false);
+                onShowToast?.('Choose at least one attendance day', 'warning', 'Select a status before submitting.');
+                return;
             }
             // Reset saving BEFORE closing so the button resets even if the parent is
             // slow to unmount the modal.
@@ -414,18 +430,19 @@ const PersonalAttendanceConfirm = forwardRef<
     const getDayCardStyle = (status: StatusType, isLeave: boolean, isWeekend: boolean, isToday: boolean): CSSProperties => {
         const config = STATUS_CONFIG[status];
         const statusColor = isLeave ? colours.greyText : (isDarkMode ? config.darkColor : config.color);
+        const isUnset = status === 'unset';
         
-        let bgColor = isDarkMode ? 'rgba(6, 23, 51, 0.5)' : 'rgba(255, 255, 255, 0.5)';
+        let bgColor = isDarkMode ? withAlpha(colours.dark.cardBackground, 0.72) : withAlpha(colours.highlightBlue, 0.34);
         if (isWeekend) {
-            bgColor = isDarkMode ? 'rgba(0, 0, 0, 0.2)' : 'rgba(0, 0, 0, 0.03)';
-        } else if (!isLeave) {
-            bgColor = isDarkMode ? `rgba(${hexToRgb(statusColor)}, 0.15)` : `rgba(${hexToRgb(statusColor)}, 0.1)`;
+            bgColor = isDarkMode ? withAlpha(colours.websiteBlue, 0.45) : withAlpha(colours.grey, 0.75);
+        } else if (!isLeave && !isUnset) {
+            bgColor = isDarkMode ? `rgba(${hexToRgb(statusColor)}, 0.12)` : `rgba(${hexToRgb(statusColor)}, 0.08)`;
         }
 
         return {
             padding: '8px',
             background: bgColor,
-            border: `1px solid ${isToday ? (isDarkMode ? colours.highlight : colours.highlight) : (isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)')}`,
+            border: `1px solid ${isToday ? colours.highlight : (isDarkMode ? withAlpha(colours.highlight, 0.16) : withAlpha(colours.helixBlue, 0.14))}`,
             borderLeft: isWeekend ? undefined : `3px solid ${statusColor}`,
             borderRadius: 0,
             textAlign: 'center',
@@ -450,6 +467,7 @@ const PersonalAttendanceConfirm = forwardRef<
     const statusBadgeStyle = (status: StatusType): CSSProperties => {
         const config = STATUS_CONFIG[status];
         const statusColor = isDarkMode ? config.darkColor : config.color;
+        const isUnset = status === 'unset';
         return {
             display: 'flex',
             alignItems: 'center',
@@ -459,7 +477,10 @@ const PersonalAttendanceConfirm = forwardRef<
             fontSize: '10px',
             fontWeight: 600,
             color: statusColor,
-            background: isDarkMode ? `rgba(${hexToRgb(statusColor)}, 0.2)` : `rgba(${hexToRgb(statusColor)}, 0.15)`,
+            background: isUnset
+                ? (isDarkMode ? withAlpha(colours.highlight, 0.12) : withAlpha(colours.highlightBlue, 0.72))
+                : (isDarkMode ? `rgba(${hexToRgb(statusColor)}, 0.18)` : `rgba(${hexToRgb(statusColor)}, 0.12)`),
+            border: `1px solid ${isUnset ? withAlpha(colours.highlight, isDarkMode ? 0.22 : 0.18) : 'transparent'}`,
             borderRadius: 0,
             textTransform: 'uppercase',
             letterSpacing: '0.3px',
@@ -471,8 +492,8 @@ const PersonalAttendanceConfirm = forwardRef<
         top: '100%',
         left: 0,
         right: 0,
-        background: isDarkMode ? colours.dark.sectionBackground : '#FFFFFF',
-        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : '#E5E7EB'}`,
+        background: isDarkMode ? colours.dark.sectionBackground : colours.sectionBackground,
+        border: `1px solid ${isDarkMode ? withAlpha(colours.highlight, 0.22) : withAlpha(colours.helixBlue, 0.14)}`,
         borderRadius: 0,
         boxShadow: isDarkMode ? '0 4px 12px rgba(0, 0, 0, 0.4)' : '0 2px 8px rgba(0, 0, 0, 0.12)',
         zIndex: 10,
@@ -489,7 +510,7 @@ const PersonalAttendanceConfirm = forwardRef<
             cursor: 'pointer',
             borderRadius: 0,
             background: isSelected 
-                ? (isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.1)')
+                ? (isDarkMode ? withAlpha(colours.highlight, 0.14) : withAlpha(colours.highlightBlue, 0.72))
                 : 'transparent',
             color: isDarkMode ? colours.dark.text : colours.light.text,
             fontSize: '12px',
@@ -550,8 +571,8 @@ const PersonalAttendanceConfirm = forwardRef<
                 <div style={{
                     padding: '12px 14px',
                     marginBottom: '16px',
-                    background: isDarkMode ? 'rgba(255, 140, 0, 0.08)' : 'rgba(255, 140, 0, 0.06)',
-                    border: `1px solid ${isDarkMode ? 'rgba(255, 140, 0, 0.2)' : 'rgba(255, 140, 0, 0.18)'}`,
+                    background: isDarkMode ? withAlpha(colours.dark.cardBackground, 0.58) : withAlpha(colours.highlightBlue, 0.42),
+                    border: `1px solid ${isDarkMode ? withAlpha(colours.highlight, 0.18) : withAlpha(colours.helixBlue, 0.12)}`,
                     borderRadius: 0,
                 }}>
                     {/* Header row */}
@@ -561,15 +582,15 @@ const PersonalAttendanceConfirm = forwardRef<
                             alignItems: 'center',
                             gap: '5px',
                             padding: '3px 8px',
-                            background: isDarkMode ? 'rgba(255, 140, 0, 0.2)' : 'rgba(255, 140, 0, 0.18)',
+                            background: isDarkMode ? withAlpha(colours.highlight, 0.16) : withAlpha(colours.highlightBlue, 0.8),
                             borderRadius: 0,
                             fontSize: '9px',
                             fontWeight: 700,
                             textTransform: 'uppercase',
                             letterSpacing: '0.5px',
-                            color: colours.orange,
+                            color: colours.highlight,
                         }}>
-                            <Icon iconName="Shield" style={{ fontSize: '10px' }} />
+                            <FiShield size={10} aria-hidden="true" />
                             Admin
                         </div>
                         <span style={{ 
@@ -599,11 +620,11 @@ const PersonalAttendanceConfirm = forwardRef<
                                 gap: '4px',
                                 padding: '4px 10px',
                                 background: !selectedEmployee 
-                                    ? (isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)')
-                                    : (isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)'),
+                                    ? (isDarkMode ? withAlpha(colours.highlight, 0.18) : withAlpha(colours.highlightBlue, 0.8))
+                                    : (isDarkMode ? withAlpha(colours.dark.cardBackground, 0.66) : withAlpha(colours.grey, 0.86)),
                                 border: `1px solid ${!selectedEmployee 
                                     ? colours.highlight
-                                    : (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)')}`,
+                                    : (isDarkMode ? withAlpha(colours.highlight, 0.12) : withAlpha(colours.helixBlue, 0.1))}`,
                                 borderRadius: 0,
                                 fontSize: '11px',
                                 fontWeight: !selectedEmployee ? 600 : 500,
@@ -614,7 +635,7 @@ const PersonalAttendanceConfirm = forwardRef<
                                 transition: 'all 0.15s ease',
                             }}
                         >
-                            <Icon iconName="Contact" style={{ fontSize: '10px' }} />
+                            <FiUser size={10} aria-hidden="true" />
                             Me ({ownInitials})
                         </button>
 
@@ -632,11 +653,11 @@ const PersonalAttendanceConfirm = forwardRef<
                                         gap: '4px',
                                         padding: '4px 10px',
                                         background: isSelected 
-                                            ? (isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)')
-                                            : (isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)'),
+                                                    ? (isDarkMode ? withAlpha(colours.highlight, 0.18) : withAlpha(colours.highlightBlue, 0.8))
+                                                    : (isDarkMode ? withAlpha(colours.dark.cardBackground, 0.66) : withAlpha(colours.grey, 0.86)),
                                         border: `1px solid ${isSelected 
                                             ? colours.highlight
-                                            : (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)')}`,
+                                                    : (isDarkMode ? withAlpha(colours.highlight, 0.12) : withAlpha(colours.helixBlue, 0.1))}`,
                                         borderRadius: 0,
                                         fontSize: '11px',
                                         fontWeight: isSelected ? 600 : 500,
@@ -662,7 +683,8 @@ const PersonalAttendanceConfirm = forwardRef<
                             gap: '12px',
                             marginTop: '10px',
                             padding: '8px 10px',
-                            background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)',
+                            background: isDarkMode ? withAlpha(colours.highlight, 0.1) : withAlpha(colours.highlightBlue, 0.58),
+                            border: `1px solid ${isDarkMode ? withAlpha(colours.highlight, 0.14) : withAlpha(colours.helixBlue, 0.1)}`,
                             borderRadius: 0,
                             fontSize: '11px',
                         }}>
@@ -681,8 +703,8 @@ const PersonalAttendanceConfirm = forwardRef<
                 <div style={{
                     marginBottom: '16px',
                     padding: '10px 14px',
-                    background: isDarkMode ? 'rgba(6, 23, 51, 0.5)' : 'rgba(255, 255, 255, 0.5)',
-                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)'}`,
+                    background: isDarkMode ? withAlpha(colours.dark.cardBackground, 0.58) : withAlpha(colours.highlightBlue, 0.42),
+                    border: `1px solid ${isDarkMode ? withAlpha(colours.highlight, 0.14) : withAlpha(colours.helixBlue, 0.1)}`,
                     borderRadius: 0,
                 }}>
                     <div style={{ fontSize: '11px', color: isDarkMode ? 'rgba(243, 244, 246, 0.6)' : 'rgba(6, 23, 51, 0.6)' }}>
@@ -703,6 +725,7 @@ const PersonalAttendanceConfirm = forwardRef<
                 {calendarDays.filter(d => !d.isWeekend).map((dayInfo, idx) => {
                     const isToday = isSameDay(dayInfo.date, new Date());
                     const config = STATUS_CONFIG[dayInfo.status];
+                    const StatusIcon = config.Icon;
                     const isSelected = selectedCell?.week === dayInfo.weekStart && selectedCell?.day === dayInfo.dayName;
 
                     return (
@@ -712,7 +735,7 @@ const PersonalAttendanceConfirm = forwardRef<
                             style={getDayCardStyle(dayInfo.status, dayInfo.isLeave, false, isToday)}
                             onMouseEnter={(e) => {
                                 if (!dayInfo.isLeave) {
-                                    e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.15)';
+                                    e.currentTarget.style.background = isDarkMode ? withAlpha(colours.highlight, 0.18) : withAlpha(colours.highlightBlue, 0.78);
                                     e.currentTarget.style.borderColor = isDarkMode ? colours.highlight : colours.highlight;
                                 }
                             }}
@@ -720,7 +743,8 @@ const PersonalAttendanceConfirm = forwardRef<
                                 if (!dayInfo.isLeave) {
                                     const originalStyle = getDayCardStyle(dayInfo.status, dayInfo.isLeave, false, isToday);
                                     e.currentTarget.style.background = originalStyle.background as string;
-                                    e.currentTarget.style.borderColor = (originalStyle.border as string).split(' ')[2];
+                                    e.currentTarget.style.border = originalStyle.border as string;
+                                    e.currentTarget.style.borderLeft = originalStyle.borderLeft as string;
                                 }
                             }}
                         >
@@ -746,7 +770,7 @@ const PersonalAttendanceConfirm = forwardRef<
                                 </div>
                             ) : (
                                 <div style={statusBadgeStyle(dayInfo.status)}>
-                                    <Icon iconName={config.icon} style={{ fontSize: '10px' }} />
+                                    <StatusIcon size={10} aria-hidden="true" />
                                     {config.shortLabel}
                                 </div>
                             )}
@@ -756,6 +780,7 @@ const PersonalAttendanceConfirm = forwardRef<
                                 <div style={statusSelectorStyle} onClick={(e) => e.stopPropagation()}>
                                     {(['office', 'wfh', 'away', 'sick', 'ooo'] as StatusType[]).map(status => {
                                         const statusConfig = STATUS_CONFIG[status];
+                                        const OptionIcon = statusConfig.Icon;
                                         const statusColor = isDarkMode ? statusConfig.darkColor : statusConfig.color;
                                         const isCurrentStatus = dayInfo.status === status;
                                         return (
@@ -765,7 +790,7 @@ const PersonalAttendanceConfirm = forwardRef<
                                                 style={statusOptionStyle(status, isCurrentStatus)}
                                                 onMouseEnter={(e) => {
                                                     if (!isCurrentStatus) {
-                                                        e.currentTarget.style.background = isDarkMode ? 'rgba(55, 65, 81, 0.6)' : '#F3F4F6';
+                                                        e.currentTarget.style.background = isDarkMode ? withAlpha(colours.highlight, 0.1) : withAlpha(colours.highlightBlue, 0.62);
                                                     }
                                                 }}
                                                 onMouseLeave={(e) => {
@@ -778,13 +803,14 @@ const PersonalAttendanceConfirm = forwardRef<
                                                     width: '20px',
                                                     height: '20px',
                                                     borderRadius: 0,
-                                                    backgroundColor: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)',
+                                                    backgroundColor: isDarkMode ? withAlpha(colours.dark.cardBackground, 0.82) : withAlpha(colours.highlightBlue, 0.54),
+                                                    border: `1px solid ${isDarkMode ? withAlpha(colours.highlight, 0.1) : withAlpha(colours.helixBlue, 0.08)}`,
                                                     display: 'flex',
                                                     alignItems: 'center',
                                                     justifyContent: 'center',
                                                     flexShrink: 0,
                                                 }}>
-                                                    <Icon iconName={statusConfig.icon} style={{ fontSize: '11px', color: statusColor }} />
+                                                    <OptionIcon size={11} color={statusColor} aria-hidden="true" />
                                                 </div>
                                                 <span>{statusConfig.shortLabel}</span>
                                             </div>
@@ -801,6 +827,7 @@ const PersonalAttendanceConfirm = forwardRef<
             <div style={quickActionsStyle}>
                 {(['office', 'wfh', 'away', 'sick', 'ooo'] as StatusType[]).map(status => {
                     const config = STATUS_CONFIG[status];
+                    const ActionIcon = config.Icon;
                     const color = isDarkMode ? config.darkColor : config.color;
                     return (
                         <button
@@ -814,7 +841,7 @@ const PersonalAttendanceConfirm = forwardRef<
                             onMouseEnter={(e) => e.currentTarget.style.opacity = '0.85'}
                             onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
                         >
-                            <Icon iconName={config.icon} style={{ fontSize: '10px' }} />
+                            <ActionIcon size={10} aria-hidden="true" />
                             All {config.shortLabel}
                         </button>
                     );
@@ -827,7 +854,6 @@ const PersonalAttendanceConfirm = forwardRef<
                     text={saving ? 'Saving...' : 'Submit'}
                     onClick={handleSave} 
                     disabled={saving}
-                    iconProps={saving ? undefined : { iconName: 'Send' }}
                     styles={{
                         root: {
                             height: '24px',
@@ -848,15 +874,16 @@ const PersonalAttendanceConfirm = forwardRef<
                             opacity: isDarkMode ? 1 : 0.85,
                         },
                         rootDisabled: {
-                            backgroundColor: isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(0, 0, 0, 0.1)',
-                            color: isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(0, 0, 0, 0.3)',
-                            border: isDarkMode ? '1px solid rgba(148, 163, 184, 0.2)' : 'none',
+                            backgroundColor: isDarkMode ? withAlpha(colours.highlight, 0.08) : withAlpha(colours.highlightBlue, 0.7),
+                            color: isDarkMode ? withAlpha(colours.highlight, 0.48) : withAlpha(colours.helixBlue, 0.48),
+                            border: isDarkMode ? `1px solid ${withAlpha(colours.highlight, 0.16)}` : 'none',
                         },
                         label: {
                             fontWeight: 600,
                         }
                     }}
                 >
+                    {!saving && <FiSend size={10} style={{ marginRight: '8px' }} aria-hidden="true" />}
                     {saving && <Spinner size={SpinnerSize.xSmall} style={{ marginRight: '8px' }} />}
                 </DefaultButton>
                 <DefaultButton 

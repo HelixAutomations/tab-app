@@ -1,8 +1,9 @@
 import React from 'react';
-import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
 import { Spinner, SpinnerSize } from '@fluentui/react/lib/Spinner';
-import { Icon } from '@fluentui/react/lib/Icon';
+import type { IconType } from 'react-icons';
+import { FiAlertCircle, FiAlertTriangle, FiCheckCircle, FiInfo } from 'react-icons/fi';
 import { CSSTransition } from 'react-transition-group';
+import { colours } from '../../../app/styles/colours';
 import '../../../app/styles/toast.css';
 
 interface OperationStatusToastProps {
@@ -32,34 +33,32 @@ const OperationStatusToast: React.FC<OperationStatusToastProps> = ({
 }) => {
   const nodeRef = React.useRef<HTMLDivElement>(null);
 
-  const messageBarType = type === 'success' 
-    ? MessageBarType.success 
-    : type === 'error' 
-    ? MessageBarType.error 
-    : type === 'warning'
-    ? MessageBarType.warning
-    : MessageBarType.info;
-
-  const getTypeIcon = () => {
-    if (icon) return icon;
+  const getTypeIcon = (): IconType => {
+    const requested = String(icon || '').toLowerCase();
+    if (requested.includes('check') || requested.includes('accept')) return FiCheckCircle;
+    if (requested.includes('error') || requested.includes('blocked')) return FiAlertCircle;
+    if (requested.includes('warning')) return FiAlertTriangle;
+    if (requested.includes('info')) return FiInfo;
     switch (type) {
-      case 'success': return 'CheckMark';
-      case 'error': return 'ErrorBadge';
-      case 'warning': return 'Warning';
-      case 'info': return 'Info';
-      default: return 'Info';
+      case 'success': return FiCheckCircle;
+      case 'error': return FiAlertCircle;
+      case 'warning': return FiAlertTriangle;
+      case 'info': return FiInfo;
+      default: return FiInfo;
     }
   };
 
   const getTypeColor = () => {
     switch (type) {
-      case 'success': return '#20b26c';  // colours.green
-      case 'error': return '#D65541';    // colours.cta
-      case 'warning': return '#FF8C00';  // colours.orange
-      case 'info': return '#3690CE';     // colours.highlight
-      default: return '#3690CE';
+      case 'success': return colours.green;
+      case 'error': return colours.cta;
+      case 'warning': return colours.orange;
+      case 'info': return colours.highlight;
+      default: return colours.highlight;
     }
   };
+
+  const TypeIcon = getTypeIcon();
 
   return (
     <CSSTransition in={visible} timeout={300} classNames="toast" unmountOnExit nodeRef={nodeRef}>
@@ -129,16 +128,7 @@ const OperationStatusToast: React.FC<OperationStatusToastProps> = ({
                   }} 
                 />
               ) : (
-                <Icon 
-                  iconName={getTypeIcon()} 
-                  styles={{ 
-                    root: { 
-                      fontSize: '18px', 
-                      color: getTypeColor(),
-                      fontWeight: 600
-                    } 
-                  }} 
-                />
+                <TypeIcon size={18} color={getTypeColor()} strokeWidth={2.4} aria-hidden="true" />
               )}
             </div>
             

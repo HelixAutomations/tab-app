@@ -24,7 +24,7 @@ import type {
   ReadinessPayload,
 } from './readiness.types';
 import {
-  MANAGEMENT_PRESSURE_TEST_CHECK_IDS,
+  MANAGEMENT_ENTRY_CHECK_IDS,
   READINESS_SIMULATION_CHANGED_EVENT,
   applyReadinessSimulation,
   formatReadinessBlockerDetail,
@@ -59,7 +59,7 @@ const initialState: FetchState = {
 };
 
 const getScopedChecks = (payload: ReadinessPayload | null): ReadinessCheck[] => (
-  payload?.checks.filter((check) => MANAGEMENT_PRESSURE_TEST_CHECK_IDS.includes(check.id)) ?? []
+  payload?.checks.filter((check) => MANAGEMENT_ENTRY_CHECK_IDS.includes(check.id)) ?? []
 );
 
 const isPreflightUnknown = (check: ReadinessCheck | null): boolean => {
@@ -85,6 +85,9 @@ const compactReason = (check: ReadinessCheck): string => {
   if (check.reason === 'snapshot-stale') return 'Refresh to verify';
   if (check.reason === 'minor-drift-aged-snapshot') return 'Refresh to confirm';
   if (check.reason === 'drift-exceeds-absolute' || check.reason === 'drift-exceeds-pct') return 'Drift vs Clio';
+  if (check.reason === 'current-fill-failed') return 'WIP or collected fill failed';
+  if (check.reason === 'current-fill-overdue') return 'WIP or collected fill overdue';
+  if (check.reason === 'no-current-fill') return 'No recent WIP or collected fill';
   if (check.reason === 'hot-failed') return 'Scheduler failed';
   if (check.reason === 'hot-overdue') return 'Scheduler overdue';
   if (check.reason === 'no-hot-run') return 'No recent run';

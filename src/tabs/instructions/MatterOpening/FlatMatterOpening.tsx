@@ -39,6 +39,7 @@ import idVerifications from '../../../localData/localIdVerifications.json';
 import { sharedPrimaryButtonStyles, sharedDefaultButtonStyles } from '../../../app/styles/ButtonStyles';
 import { clearMatterOpeningDraft, completeMatterOpening } from '../../../app/functionality/matterOpeningUtils';
 import MatterOpenedHandoff from '../../../components/modern/matter-opening/MatterOpenedHandoff';
+import { isCclOperationsAvailable } from '../../../app/admin';
 
 // Local implementation of useDraftedState (draft persistence DISABLED to remove resume complexity)
 const DISABLE_DRAFT_PERSISTENCE = true;
@@ -940,6 +941,7 @@ const FlatMatterOpening: React.FC<FlatMatterOpeningProps> = ({
     const [processingLogs, setProcessingLogs] = useState<string[]>([]);
     const [generatedCclUrl, setGeneratedCclUrl] = useState<string>('');
     const [backendCclQueuedAt, setBackendCclQueuedAt] = useState<string>('');
+    const cclOperationsAvailable = isCclOperationsAvailable();
     const [operationEvents, setOperationEvents] = useState<Array<{ index: number; label: string; phase: string; url?: string; method?: string; status?: number; payloadSummary?: string; responseSummary?: string }>>([]);
     const [openedMatterId, setOpenedMatterId] = useState<string | null>(null);
 
@@ -1889,7 +1891,7 @@ const handleClearAll = () => {
             setOpenedMatterId('HELIX01-01');
             completeMatterOpening();
 
-            // Fire real CCL endpoints against demo data so the user can preview a real CCL
+            if (cclOperationsAvailable) {
             try {
                 const formData = generateSampleJson();
                 const cclPayload = {
@@ -1945,6 +1947,9 @@ const handleClearAll = () => {
             } catch (cclErr) {
                 console.warn('[Demo] CCL generation failed (non-blocking):', cclErr);
                 setProcessingLogs(prev => [...prev, `[!] CCL generation skipped: ${cclErr instanceof Error ? cclErr.message : 'unknown error'}`]);
+            }
+            } else {
+                setProcessingLogs(prev => [...prev, '[ok] CCL clipped for ZDR/LPP containment.']);
             }
         }
 
@@ -2041,17 +2046,12 @@ const handleClearAll = () => {
             return { url: '' };
         }
 
-        // Validate required Asana credentials are present
+        // Asana is optional for matter opening; Clio should continue without it.
         const user = workingUserData[0];
         if (!user.ASANASecret && !user.ASANA_Secret) {
             const errorMsg = 'Asana credentials missing from user profile. Please contact support.';
-            setFailureSummary(`Failed at: Pre-validation - ${errorMsg}`);
-            setProcessingLogs([`[x] Pre-validation: ${errorMsg}`]);
-            setProcessingSteps(prev => prev.map((s, idx) => idx === 0 ? { ...s, status: 'error', message: errorMsg } : s));
-            setDebugInspectorOpen(true);
-            console.error('[FlatMatterOpening] Asana credentials validation failed:', { user });
-            reportMatterTelemetry('PreValidation.Failed', { error: errorMsg, phase: 'asanaCredentials' });
-            return { url: '' };
+            console.warn('[FlatMatterOpening] Asana credentials unavailable; continuing matter opening');
+            reportMatterTelemetry('PreValidation.Warning', { warning: errorMsg, phase: 'asanaCredentials' });
         }
 
         setIsProcessing(true);
@@ -2086,7 +2086,7 @@ const handleClearAll = () => {
                 if (typeof result === 'object' && result.url) {
                     url = result.url;
                 }
-                if (typeof result === 'object' && result.cclQueuedAt) {
+                if (cclOperationsAvailable && typeof result === 'object' && result.cclQueuedAt) {
                     setBackendCclQueuedAt(result.cclQueuedAt);
                 }
             }
@@ -2277,12 +2277,13 @@ ${JSON.stringify(debugInfo, null, 2)}
         if (!instructionRef || !Array.isArray(instructionRecords)) return null;
         return (instructionRecords as any[]).find(r => r?.InstructionRef === instructionRef) || null;
     }, [instructionRecords, instructionRef]);
-    const cclGeneratedAtRaw =
+    const cclGeneratedAtRaw = cclOperationsAvailable ? (
         currentInstructionRecord?.CCL_date ||
         currentInstructionRecord?.CCLDate ||
         currentInstructionRecord?.ccl_date ||
         currentInstructionRecord?.cclDate ||
-        '';
+        ''
+    ) : '';
     const cclGeneratedAtLabel = useMemo(() => {
         if (!cclGeneratedAtRaw) return '';
         const parsed = new Date(cclGeneratedAtRaw);
@@ -2295,7 +2296,7 @@ ${JSON.stringify(debugInfo, null, 2)}
             minute: '2-digit'
         });
     }, [cclGeneratedAtRaw]);
-    const cclQueuedAtRaw = backendCclQueuedAt || '';
+    const cclQueuedAtRaw = cclOperationsAvailable ? backendCclQueuedAt || '' : '';
     const cclStatusTimestamp = cclGeneratedAtLabel || cclQueuedAtRaw || '';
     const cclWorkflowStatus: 'generated' | 'queued' | 'pending' = cclGeneratedAtRaw
         ? 'generated'
@@ -2570,7 +2571,7 @@ ${JSON.stringify(debugInfo, null, 2)}
                         : undefined
                 }
                 rightActions={
-                    instructionRef ? (
+                    instructionRef && cclOperationsAvailable ? (
                         <div
                             title={cclStatusTimestamp ? `Updated ${cclStatusTimestamp}` : 'CCL automation status'}
                             style={{
@@ -2616,7 +2617,7 @@ ${JSON.stringify(debugInfo, null, 2)}
         return () => {
             setContent(null);
         };
-    }, [setContent, currentStep, clientsStepComplete, matterStepComplete, summaryConfirmed, hasDataToClear, getFieldCount, showPoidSelection, pendingClientType, selectedPoidIds, poidSearchTerm, handleBackToClients, handleBackToForm, handleGoToReview, handleClearAll, handleGoBack, isDarkMode, instructionRef, cclStatusTimestamp, cclWorkflowStatus]);
+    }, [setContent, currentStep, clientsStepComplete, matterStepComplete, summaryConfirmed, hasDataToClear, getFieldCount, showPoidSelection, pendingClientType, selectedPoidIds, poidSearchTerm, handleBackToClients, handleBackToForm, handleGoToReview, handleClearAll, handleGoBack, isDarkMode, instructionRef, cclOperationsAvailable, cclStatusTimestamp, cclWorkflowStatus]);
 
     // Render the horizontal sliding carousel
     return (
@@ -5123,7 +5124,7 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                                         <path d="M5 12h14m-6-6l6 6-6 6" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
                                                                     </svg>
                                                                 </button>
-                                                                {generatedCclUrl && (
+                                                                {cclOperationsAvailable && generatedCclUrl && (
                                                                     <a
                                                                         href={generatedCclUrl}
                                                                         target="_blank"
@@ -5152,7 +5153,7 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                               * so demo and real runs are indistinguishable from the user's
                                                               * perspective \u2014 whatever actually landed in CclContent for this
                                                               * matter is what shows. See CCL_BACKEND_CHAIN brief Phase D. */}
-                                                            {openedMatterId && (
+                                                            {cclOperationsAvailable && openedMatterId && (
                                                                 <MatterOpenedHandoff
                                                                     openedMatterId={openedMatterId}
                                                                     matterOpenSucceeded={true}

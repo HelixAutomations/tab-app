@@ -1,17 +1,23 @@
 .pitch-external-form {
   display: grid;
-  gap: var(--spacing-lg);
+  gap: 0;
+  background: var(--home-card-bg);
+  border: 1px solid var(--home-card-border);
+  border-radius: 0;
+  box-shadow: var(--home-card-shadow);
   color: var(--text-primary);
   font-family: var(--font-primary);
+  overflow: hidden;
 }
 
 .pitch-external-form__intro {
   display: grid;
   gap: var(--spacing-xs);
-  padding: var(--spacing-md) var(--spacing-lg);
-  background: var(--surface-section);
-  border: 1px solid var(--border-base);
-  border-left: 2px solid var(--helix-highlight);
+  padding: 1rem 1.5rem;
+  background: var(--home-strip-bg);
+  border: 0;
+  border-bottom: 1px solid var(--home-strip-border);
+  border-left: 3px solid var(--helix-highlight);
   border-radius: 0;
 }
 
@@ -31,6 +37,33 @@
   line-height: 1.45;
 }
 
+.pitch-external-form__content {
+  display: grid;
+  gap: var(--spacing-lg);
+  padding: 1.5rem;
+}
+
+.pitch-external-form__section {
+  display: grid;
+  gap: var(--spacing-md);
+  padding: 1.25rem;
+  background: var(--home-tile-bg);
+  border: 1px solid var(--home-tile-border);
+  border-radius: 0;
+}
+
+.pitch-external-form__section-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  margin: 0;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--home-row-border);
+  color: var(--helix-highlight);
+  font-size: 14px;
+  font-weight: 600;
+}
+
 .pitch-external-form__grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -48,15 +81,51 @@
 
 .pitch-external-form__input {
   width: 100%;
+  min-height: 44px;
   box-sizing: border-box;
+  background: var(--surface-card);
+  border: 1px solid var(--home-tile-border);
+  color: var(--text-primary);
+  font-size: 14px;
+  padding: 8px 12px;
+}
+
+.pitch-external-form .helix-label {
+  margin-bottom: 2px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.pitch-external-form__input:focus {
+  border-color: var(--helix-highlight);
+  outline: none;
+}
+
+select.pitch-external-form__input {
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--text-muted) 50%),
+    linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
+  background-position: calc(100% - 18px) 50%, calc(100% - 12px) 50%;
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+  padding-right: 30px;
+}
+
+select.pitch-external-form__input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .pitch-external-form__error {
   margin: 0;
   padding: var(--spacing-sm) var(--spacing-md);
   color: var(--helix-cta);
-  background: var(--surface-section);
+  background: var(--surface-card);
   border: 1px solid var(--helix-cta);
+  border-left: 3px solid var(--helix-cta);
   border-radius: 0;
   font-size: 13px;
   line-height: 1.4;
@@ -66,9 +135,9 @@
   display: grid;
   gap: var(--spacing-sm);
   padding: var(--spacing-md);
-  background: var(--surface-section);
-  border: 1px solid var(--border-strong);
-  border-left: 2px solid var(--helix-highlight);
+  background: var(--home-tile-bg);
+  border: 1px solid var(--home-tile-border);
+  border-left: 3px solid var(--helix-highlight);
   border-radius: 0;
 }
 

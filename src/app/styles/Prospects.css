@@ -95,7 +95,7 @@
 }
 
 [data-theme="dark"] .enq-queue-skeleton__row {
-  background: color-mix(in srgb, var(--surface-section) 72%, var(--surface-card) 28%);
+  background: color-mix(in srgb, var(--surface-nav) 62%, var(--surface-section) 38%);
 }
 
 .enq-queue-skeleton__timeline,
@@ -1344,6 +1344,17 @@
 }
 
 /* Row parity ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â subtle entries sitting on a brighter table canvas */
+:root,
+[data-theme="light"] {
+  --prospect-enquiry-row-bg: rgba(13, 47, 96, 0.024);
+  --prospect-enquiry-row-hover-bg: rgba(var(--highlight-rgb), 0.08);
+}
+
+[data-theme="dark"] {
+  --prospect-enquiry-row-bg: color-mix(in srgb, var(--surface-nav) 62%, var(--surface-section) 38%);
+  --prospect-enquiry-row-hover-bg: color-mix(in srgb, var(--surface-nav) 42%, var(--surface-section) 58%);
+}
+
 .prospect-row[data-row-parity="even"],
 .prospect-row[data-row-parity="odd"] {
   background: rgba(13, 47, 96, 0.024);
@@ -1354,12 +1365,28 @@
   background: color-mix(in srgb, var(--surface-section) 72%, var(--surface-card) 28%);
 }
 
+[data-theme="dark"] .enquiry-row[data-row-parity="even"],
+[data-theme="dark"] .enquiry-row[data-row-parity="odd"] {
+  background: var(--prospect-enquiry-row-bg);
+}
+
+[data-theme="dark"] .prospect-group-row[data-row-parity="even"],
+[data-theme="dark"] .prospect-group-row[data-row-parity="odd"] {
+  background: var(--prospect-enquiry-row-bg);
+}
+
 /* Hover ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â accent-tinted bg + lift (composition pattern) */
 .prospect-row:hover {
   background: rgba(var(--highlight-rgb), 0.08);
 }
 [data-theme="dark"] .prospect-row:hover {
   background: var(--surface-card);
+}
+[data-theme="dark"] .enquiry-row:hover {
+  background: var(--prospect-enquiry-row-hover-bg);
+}
+[data-theme="dark"] .prospect-group-row:hover {
+  background: var(--prospect-enquiry-row-hover-bg);
 }
 
 /* enquiry-row ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â semantic hook for single (non-grouped) enquiry rows */
@@ -1649,6 +1676,9 @@
 [data-theme="dark"] .enquiry-row--css-hover:hover,
 [data-theme="dark"] .pipeline-row-hover {
   background: var(--surface-card) !important;
+}
+[data-theme="dark"] .enquiry-row--css-hover:hover {
+  background: var(--prospect-enquiry-row-hover-bg) !important;
 }
 
 .enquiry-row--css-hover:hover,

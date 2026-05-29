@@ -17,7 +17,7 @@ import { DEFAULT_CCL_TEMPLATE, generateTemplateContent, type GenerationOptions }
 import CclOverrideRerunModal from './ccl/CclOverrideRerunModal';
 import { getCanonicalCclLabel, getCanonicalCclStage, isCompileOnlyCclStatus, type CclStatus } from './ccl/cclStatus';
 import createCclReviewApprovalHandler from './ccl/useCclReviewApprovalFlow';
-import { isCclUser, isDevGroupOrHigher } from '../../app/admin';
+import { isCclOperationsAvailable, isCclUser, isDevGroupOrHigher } from '../../app/admin';
 import HomePipelineStrip, { type HomePipelineStripItem } from '../../components/HomePipelineStrip';
 import { buildPitchScenarioStripItems } from '../../components/pitchScenarioPresentation';
 import { DocumentRenderer } from '../../tabs/instructions/ccl/DocumentRenderer';
@@ -1183,7 +1183,8 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
     measureDashboardLayout();
   }, [measureDashboardLayout]);
   const isNarrow = dashboardWidthBand === 'xs' || dashboardWidthBand === 'sm';
-  const canSeeCcl = isCclUser(userInitials);
+  const cclOperationsAvailable = isCclOperationsAvailable({ viewAsProd });
+  const canSeeCcl = cclOperationsAvailable && isCclUser(userInitials, { viewAsProd });
   // Dev panel inside the CCL review modal: LZ + AC see it everywhere
   // (staging / prod), plus anyone running on localhost. Prevents the
   // previous behaviour where the hostname-only gate hid the panel from
@@ -2194,6 +2195,18 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
     if (!secondaryFetchesReady || !isActive) {
       return;
     }
+    if (!cclOperationsAvailable) {
+      const nextCclMap = demoModeActive && demoMatterIds.length > 0
+        ? buildDemoCclMap(demoMatterIds)
+        : {};
+      setCclMap(nextCclMap);
+      setCclStatusResolvingByMatter({});
+      setCclStatusResolvedByMatter({});
+      if (demoModeActive && demoMatterIds.length > 0) {
+        seedDemoDraftCache(demoMatterIds);
+      }
+      return;
+    }
     if (!recentMatters || recentMatters.length === 0) {
       setCclMap({});
       setCclStatusResolvingByMatter({});
@@ -2283,7 +2296,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
         }
       });
     return () => { cancelled = true; };
-  }, [recentMatters, demoModeActive, demoMatterIds, buildDemoCclMap, seedDemoDraftCache, secondaryFetchesReady, isActive]);
+  }, [recentMatters, demoModeActive, demoMatterIds, buildDemoCclMap, seedDemoDraftCache, secondaryFetchesReady, isActive, cclOperationsAvailable]);
 
   const displayMatters = React.useMemo(() => {
     const list = [...recentMatters];
@@ -4290,6 +4303,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
 
   React.useEffect(() => {
     const handleOpenHomeCclReview = (event: Event) => {
+      if (!canSeeCcl) return;
       const detail = (event as CustomEvent<{ matterId?: string; openInspector?: boolean; autoRunAi?: boolean; skipIntro?: boolean }>).detail;
       setHomeReviewRequest({
         requestedAt: Date.now(),
@@ -4302,7 +4316,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
 
     window.addEventListener('openHomeCclReview', handleOpenHomeCclReview);
     return () => window.removeEventListener('openHomeCclReview', handleOpenHomeCclReview);
-  }, []);
+  }, [canSeeCcl]);
 
   React.useEffect(() => {
     const requestAt = homeReviewRequest?.requestedAt;

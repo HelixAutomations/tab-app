@@ -198,6 +198,7 @@ router.post('/learning-dev', requireInitials, async (req, res) => {
       lane: 'Log',
       payload: req.body,
       summary: `L&D plan ${year} — ${full_name}`.slice(0, 400),
+      clientSubmissionId: req.body?.clientSubmissionId || null,
     });
 
     const record = await withRequest(getConnectionString(), async (request) => {
@@ -272,6 +273,7 @@ router.post('/learning-dev/activity', requireInitials, async (req, res) => {
       lane: 'Log',
       payload: req.body,
       summary: `L&D activity — ${title}`.slice(0, 400),
+      clientSubmissionId: req.body?.clientSubmissionId || null,
     });
 
     const record = await withRequest(getConnectionString(), async (request) => {
@@ -541,6 +543,7 @@ router.post('/undertakings', requireInitials, async (req, res) => {
       lane: 'Log',
       payload: req.body,
       summary: `Undertaking to ${given_to}: ${String(description).slice(0, 200)}`.slice(0, 400),
+      clientSubmissionId: req.body?.clientSubmissionId || null,
     });
 
     const record = await withRequest(getConnectionString(), async (request) => {
@@ -730,6 +733,7 @@ router.post('/complaints', requireInitials, async (req, res) => {
       lane: 'Log',
       payload: req.body,
       summary: `Complaint from ${complainant} re ${respondent}`.slice(0, 400),
+      clientSubmissionId: req.body?.clientSubmissionId || null,
     });
 
     const record = await withRequest(getConnectionString(), async (request) => {

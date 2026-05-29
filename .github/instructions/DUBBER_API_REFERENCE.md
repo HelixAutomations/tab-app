@@ -1,5 +1,7 @@
 # Dubber API Reference
 
+Last verified: 2026-05-23
+
 Captured from developer.dubber.net (26 Mar 2026). Portal requires Mashery login — this file is the offline reference.
 
 ## Auth Status — CONFIRMED WORKING (26 Mar 2026)

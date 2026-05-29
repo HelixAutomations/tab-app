@@ -52,6 +52,7 @@ router.get('/', async (req, res) => {
       cclAutopilotCount: opLogCounts.cclAutopilot || 0,
       emailSearchCount: opLogCounts.emailSearch || 0,
       emailForwardCount: opLogCounts.emailForward || 0,
+      matterOpeningCount: opLogCounts.matterOpening || 0,
       durationMs,
     });
     trackMetric('ActivityFeed.Fetch.Duration', durationMs, {

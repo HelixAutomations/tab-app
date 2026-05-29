@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { recordIntent } from '../utils/recordIntent';
 
 type FinancialFormValues = Record<string, unknown>;
 
@@ -51,10 +52,11 @@ export function useFinancialFormSubmit({ formType, initials }: UseFinancialFormS
       }
 
       try {
+        const clientSubmissionId = await recordIntent({ formKey: 'financial-task', payload });
         const response = await fetch('/api/financial-task', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
+          body: JSON.stringify({ ...payload, clientSubmissionId }),
         });
 
         if (!response.ok) {

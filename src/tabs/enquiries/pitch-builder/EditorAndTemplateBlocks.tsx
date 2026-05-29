@@ -7,7 +7,7 @@ import { Pivot, PivotItem } from '@fluentui/react/lib/Pivot';
 import { TextField } from '@fluentui/react/lib/TextField';
 import { FaBolt, FaEdit, FaFileAlt, FaEraser, FaInfoCircle, FaThumbtack, FaCalculator, FaExclamationTriangle, FaEnvelope, FaPaperPlane, FaChevronDown, FaChevronUp, FaCopy, FaEye, FaCheck, FaTimes, FaUsers, FaArrowLeft, FaPoundSign, FaUndo, FaRedo } from 'react-icons/fa';
 import DealCapture from './DealCapture';
-import PitchTypeformWizard, { PitchWizardStepDescriptor, PitchWizardStepId } from './PitchTypeformWizard';
+import PitchTypeformWizard, { PitchWizardStepDescriptor, PitchWizardStepId, PitchWizardStepStatus } from './PitchTypeformWizard';
 import { colours } from '../../../app/styles/colours';
 import { TemplateBlock } from '../../../app/customisation/ProductionTemplateBlocks';
 import { placeholderSuggestions } from '../../../app/customisation/InsertSuggestions';
@@ -1539,6 +1539,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
   const latestBodyRef = useRef(body);
   latestBodyRef.current = body;
   const amountSyncFlightRef = useRef<string | null>(null);
+  const subjectStepRef = useRef<HTMLDivElement | null>(null);
+  const subjectInputRef = useRef<HTMLInputElement | null>(null);
 
   // Track selectedScenarioId changes and notify parent
   useEffect(() => {
@@ -1547,7 +1549,10 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
     }
   }, [selectedScenarioId, onScenarioChange]);
 
-  const [isTemplatesCollapsed, setIsTemplatesCollapsed] = useState(false); // Start expanded for immediate selection
+  // Collapse the scenario picker by default when a scenario was already chosen
+  // upstream (e.g. workbench pitch-tab empty-state picker), so it doesn't reappear
+  // above the Subject/Body steps.
+  const [isTemplatesCollapsed, setIsTemplatesCollapsed] = useState(!!initialScenario);
   const [isScopeCollapsed, setIsScopeCollapsed] = useState(false);
   const [isAmountCollapsed, setIsAmountCollapsed] = useState(false);
   const [isSubjectCollapsed, setIsSubjectCollapsed] = useState(false);
@@ -1583,6 +1588,20 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
   const [editableCc, setEditableCc] = useState<string>(cc || '');
   // Rich text mode is always enabled for WYSIWYG experience
   const richTextMode = true;
+
+  const focusSubjectComposer = useCallback(() => {
+    setIsSubjectCollapsed(false);
+    setIsSubjectEditing(true);
+    setWizardIndex((idx) => Math.max(idx, 1));
+    if (typeof window === 'undefined') return;
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        subjectStepRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        subjectInputRef.current?.focus();
+        subjectInputRef.current?.select();
+      });
+    });
+  }, []);
 
   // Update allPlaceholdersSatisfied state when body or subject changes
   useEffect(() => {
@@ -1632,14 +1651,21 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
     const subjectReady = !!subject && subject !== 'Your Enquiry - Helix Law';
     const scopeReady = !!scopeDescription && scopeDescription.trim().length > 0;
     const feeReady = !!amountValue && parseFloat(amountValue) > 0;
+    const bodyReady = htmlToPlainText(body || '').length > 0 && allPlaceholdersSatisfied;
     const scenarioPicked = !!selectedScenarioId;
+    const stepStatus = (stepIndex: number, ready: boolean): PitchWizardStepStatus => {
+      if (!scenarioPicked && stepIndex > 0) return 'pending';
+      if (stepIndex < wizardIndex) return ready ? 'done' : 'attention';
+      if (stepIndex === wizardIndex) return 'active';
+      return 'pending';
+    };
     const steps: PitchWizardStepDescriptor[] = [
       {
         id: 'scenario',
         label: 'Scenario',
         question: 'Which template fits this enquiry?',
         hint: 'Pick the path that matches where the conversation is right now.',
-        status: scenarioPicked ? 'done' : 'active',
+        status: stepStatus(0, scenarioPicked),
       },
     ];
     steps.push({
@@ -1647,16 +1673,18 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
       label: 'Subject',
       question: 'What is the email subject?',
       hint: 'Keep it short and recognisable in the recipient\u2019s inbox.',
-      status: !scenarioPicked ? 'pending' : (subjectReady ? 'done' : 'active'),
+      status: stepStatus(1, subjectReady),
     });
+    let stepIndex = 2;
     if (!isBeforeCallCall) {
       steps.push({
         id: 'scope',
         label: 'Scope',
         question: 'Describe the scope of work',
         hint: 'Internal scope summary used to capture the deal. Replace the placeholder with bespoke wording, or switch to the standard payment-on-account line.',
-        status: !scenarioPicked ? 'pending' : (scopeReady ? 'done' : 'active'),
+        status: stepStatus(stepIndex, scopeReady),
       });
+      stepIndex += 1;
     }
     if (!isBeforeCallCall) {
       steps.push({
@@ -1666,8 +1694,9 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
         hint: isCfa
           ? 'CFA matters carry no upfront fee. The client only completes ID checks and can upload supporting documents from the success page.'
           : 'Pick a preset or open custom for a specific amount.',
-        status: !scenarioPicked ? 'pending' : (isCfa || feeReady ? 'done' : 'active'),
+        status: stepStatus(stepIndex, isCfa || feeReady),
       });
+      stepIndex += 1;
     }
     steps.push({
       id: 'body',
@@ -1678,10 +1707,10 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
       hint: isCfa
         ? 'CFA is processed under our alternative no-win-no-fee assessment. No payment on account is taken at this stage.'
         : 'Resolve any highlighted placeholders, then send when ready.',
-      status: !scenarioPicked ? 'pending' : (allPlaceholdersSatisfied ? 'done' : 'active'),
+      status: stepStatus(stepIndex, bodyReady),
     });
     return steps;
-  }, [selectedScenarioId, subject, scopeDescription, amountValue, isBeforeCallCall, isCfa, allPlaceholdersSatisfied]);
+  }, [selectedScenarioId, subject, scopeDescription, amountValue, body, isBeforeCallCall, isCfa, allPlaceholdersSatisfied, wizardIndex]);
 
   // Clamp wizard index when step list shrinks (e.g. scenario change drops fee)
   React.useEffect(() => {
@@ -1809,6 +1838,61 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
   }, [userData, enquiry, amount, passcode]);
   // Track the last body we injected from a scenario so we can safely refresh on scenario edits
   const lastScenarioBodyRef = useRef<string>('');
+
+  // When a scenario was preselected upstream (e.g. workbench pitch-tab picker), compose
+  // the scenario body once on mount so the wizard lands on Subject/Body with the email
+  // already drafted, matching the behaviour of clicking the scenario tile manually.
+  const didApplyInitialScenarioRef = useRef(false);
+  useEffect(() => {
+    if (didApplyInitialScenarioRef.current) return;
+    if (!initialScenario) return;
+    const s = SCENARIOS?.find(sc => sc.id === initialScenario);
+    if (!s) return;
+    didApplyInitialScenarioRef.current = true;
+    try {
+      setSelectedScenarioId(s.id);
+      setSubject(s.subject || 'Your Enquiry - Helix Law');
+      const raw = stripDashDividers(s.body);
+      const e = enquiry as any;
+      const first = e?.First_Name ?? e?.first_name ?? e?.FirstName ?? e?.firstName ?? e?.Name?.split?.(' ')?.[0] ?? e?.ContactName?.split?.(' ')?.[0] ?? '';
+      const greetingName = String(first || '').trim() || 'there';
+      const composed = raw.startsWith('Hello ')
+        ? raw
+        : raw.startsWith('Hi ')
+          ? raw.replace(/^Hi\s+/, 'Hello ')
+          : `Hello ${greetingName},\n\n${raw}`;
+      let projected = applyRateRolePlaceholders(composed);
+      const currentAmount = s.id === 'cfa' ? '0.99' : amountValue;
+      if (currentAmount && parseFloat(currentAmount) > 0) {
+        const formattedAmt = `${GBP_SYMBOL}${parseFloat(currentAmount).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        projected = projected.replace(/\[INSERT\](\s*\+?\s*VAT)/gi, `<span class="placeholder-edited" data-original="[INSERT]">${formattedAmt}</span>$1`);
+      }
+      lastScenarioBodyRef.current = projected;
+      setBody(projected);
+      const firstBlock = templateBlocks?.[0];
+      if (firstBlock?.title) {
+        setBlockContents(prev => ({ ...prev, [firstBlock.title]: projected }));
+      }
+      if (s.id.startsWith('before-call')) {
+        if (!scopeDescription || scopeDescription.trim() === '') {
+          const placeholderDesc = 'Initial informal steer; scope to be confirmed after call';
+          setScopeDescription(placeholderDesc);
+          onScopeDescriptionChange?.(placeholderDesc);
+        }
+      }
+      if (s.id === 'cfa') {
+        const cfaDesc = 'CFA enquiry - initial response only';
+        setScopeDescription(cfaDesc);
+        onScopeDescriptionChange?.(cfaDesc);
+        setAmountValue('0.99');
+        onAmountChange?.('0.99');
+      }
+      focusSubjectComposer();
+    } catch (error) {
+      console.error('[PitchBuilder] Error applying preselected scenario:', error);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialScenario]);
   
   // Track the last passcode so we can re-process the editor content when it becomes available
   const lastPasscodeRef = useRef<string>('');
@@ -2804,6 +2888,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                       e.stopPropagation();
                       try {
                         setSelectedScenarioId(s.id);
+                        setSubject(s.subject || 'Your Enquiry - Helix Law');
                         setIsTemplatesCollapsed(true);
                         // Auto-advance the typeform wizard to subject step on scenario pick.
                         setWizardIndex(idx => Math.max(idx, 1));
@@ -2855,6 +2940,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                         setAmountValue('0.99');
                         onAmountChange?.('0.99');
                       }
+                      focusSubjectComposer();
                       
                     } catch (error) {
                       console.error('[PitchBuilder] Error in scenario selection:', error);
@@ -2887,12 +2973,9 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                       boxShadow: selectedScenarioId === s.id
                         ? (isDarkMode ? '0 8px 24px rgba(2, 6, 17, 0.6), 0 0 0 1px rgba(125, 211, 252, 0.1) inset' : '0 4px 16px rgba(15, 23, 42, 0.12), 0 0 0 1px rgba(54, 144, 206, 0.08) inset')
                         : (isDarkMode ? '0 4px 16px rgba(4, 9, 20, 0.42)' : '0 2px 10px rgba(13, 47, 96, 0.05)'),
-                      opacity: isPitchFlowLocked ? 0.5 : 0,
-                      animationFillMode: 'forwards',
+                      opacity: isPitchFlowLocked ? 0.5 : 1,
                       overflow: 'hidden',
-                      fontFamily: 'inherit',
-                      animation: `cascadeIn 0.5s ease-out ${index * 0.15}s both`,
-                      backdropFilter: 'blur(8px)'
+                      fontFamily: 'inherit'
                     }}
                     onMouseEnter={(e) => {
                       if (isPitchFlowLocked) return;
@@ -3142,6 +3225,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
             
             {/* Step 2: Subject Line Section */}
             <div
+              ref={subjectStepRef}
               className="pitch-step-shell"
               data-wizard-step="subject"
               data-collapsed={isSubjectCollapsed}
@@ -3308,6 +3392,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 ) : (
                   <div style={{ flex: 1 }}>
                     <input
+                      ref={subjectInputRef}
                       type="text"
                       value={subject}
                       onChange={(e) => setSubject(e.target.value)}

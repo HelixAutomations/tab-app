@@ -6,7 +6,8 @@ const {
   markComplete,
   markFailed,
 } = require('../utils/formSubmissionLog');
-const { trackException } = require('../utils/appInsights');
+const { withRequest } = require('../utils/db');
+const { trackEvent, trackException } = require('../utils/appInsights');
 // Ensure a fetch implementation is available.  In some production
 // environments the global `fetch` API is missing which would cause the
 // route handler to throw a ReferenceError.  Fallback to `node-fetch` when
@@ -42,6 +43,58 @@ function findUserByName(name) {
     }) || null;
 }
 
+function readAsanaCredentials(userData) {
+    if (!userData || typeof userData !== 'object') {
+        return { clientId: null, clientSecret: null, refreshToken: null };
+    }
+    return {
+        clientId: userData.ASANAClientID || userData.ASANAClient_ID || null,
+        clientSecret: userData.ASANASecret || userData.ASANA_Secret || null,
+        refreshToken: userData.ASANARefreshToken || userData.ASANARefresh_Token || null,
+    };
+}
+
+async function lookupAsanaCredentials(requestUser, fallbackUser) {
+    const connectionString = process.env.SQL_CONNECTION_STRING;
+    if (!connectionString) return null;
+
+    const email = String(requestUser?.email || fallbackUser?.Email || fallbackUser?.email || '').trim().toLowerCase();
+    const initials = String(requestUser?.initials || fallbackUser?.Initials || fallbackUser?.initials || '').trim().toUpperCase();
+    if (!email && !initials) return null;
+
+    try {
+        const result = await withRequest(connectionString, async (request, sql) => {
+            let query = `
+                SELECT TOP 1
+                    [ASANAClient_ID] AS clientId,
+                    [ASANASecret] AS clientSecret,
+                    [ASANARefreshToken] AS refreshToken
+                FROM dbo.team
+                WHERE 1 = 1
+            `;
+            if (email) {
+                request.input('email', sql.VarChar(255), email);
+                query += ' AND LOWER([Email]) = @email';
+            }
+            if (initials) {
+                request.input('initials', sql.VarChar(10), initials);
+                query += ' AND UPPER([Initials]) = @initials';
+            }
+            return request.query(query);
+        });
+        const row = result?.recordset?.[0];
+        if (!row) return null;
+        return {
+            clientId: row.clientId || null,
+            clientSecret: row.clientSecret || null,
+            refreshToken: row.refreshToken || null,
+        };
+    } catch (err) {
+        trackException(err, { phase: 'bundle.asanaCredentialsLookup', initials: initials || null });
+        return null;
+    }
+}
+
 router.post('/', async (req, res) => {
     const {
         name,
@@ -70,6 +123,7 @@ router.post('/', async (req, res) => {
             lane: 'Request',
             payload: req.body,
             summary: `Bundle: ${matterReference} — ${name}`.slice(0, 400),
+            clientSubmissionId: req.body?.clientSubmissionId || null,
         });
     } catch (logErr) {
         trackException(logErr, { phase: 'bundle.recordSubmission' });
@@ -80,16 +134,20 @@ router.post('/', async (req, res) => {
     // additional database lookups in production.
     // Support both camelCase and snake_case field names for compatibility
     const userData = user || req.body;
-    const clientId = userData.ASANAClientID || userData.ASANAClient_ID;
-    const clientSecret = userData.ASANASecret || userData.ASANA_Secret;
-    const refreshToken = userData.ASANARefreshToken || userData.ASANARefresh_Token;
+    let { clientId, clientSecret, refreshToken } = readAsanaCredentials(userData);
+    if (!clientId || !clientSecret || !refreshToken) {
+        const resolved = await lookupAsanaCredentials(req.user, userData);
+        clientId = clientId || resolved?.clientId;
+        clientSecret = clientSecret || resolved?.clientSecret;
+        refreshToken = refreshToken || resolved?.refreshToken;
+    }
 
     if (!clientId || !clientSecret || !refreshToken) {
-        console.error('Asana credentials missing:', { 
+        trackEvent('Bundle.AsanaCredentials.Unavailable', {
             hasClientId: !!clientId, 
             hasSecret: !!clientSecret, 
             hasRefreshToken: !!refreshToken,
-            availableFields: Object.keys(userData).filter(k => k.includes('ASANA'))
+            initials: req.user?.initials || userData?.Initials || userData?.initials || null,
         });
         return res.status(500).json({ error: 'Asana credentials not found' });
     }

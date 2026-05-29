@@ -8,6 +8,7 @@ const { loadAllBriefs, statusFor, daysSince, titleFromContent, STATUS } = requir
 const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
 const access = require('../utils/access');
 const { ASANA_BASE_URL, ASANA_WORKSPACE_ID, ASANA_TECH_AUTOMATIONS_PROJECT_ID, resolveAsanaAccessToken } = require('../utils/asana');
+const { inspectTask: inspectAsanaTask, extractAsanaTaskGid } = require('../utils/asanaTasks');
 const { listActions } = require('../operatorActions/registry');
 
 require('../operatorActions/person-lookup');
@@ -22,6 +23,7 @@ require('../operatorActions/ccl-lookup');
 require('../operatorActions/tiller-verify');
 require('../operatorActions/validate-instructions');
 require('../operatorActions/matter-oneoff-replay');
+require('../operatorActions/asana-task-inspector');
 
 const router = express.Router();
 const GENERATED_MARKER = 'AUTO-GENERATED - do not edit.';
@@ -575,6 +577,110 @@ router.get('/asana/tech-automations', requireForgeReader, async (req, res) => {
     trackException(err, { operation: 'DevConsole.Asana.ProjectMirror', phase: 'fetch', viewMode, projectId });
     trackEvent('DevConsole.Asana.ProjectMirror.Failed', { operation: 'asana-project-mirror', actor, viewMode, projectId, error: err.message });
     res.status(500).json({ success: false, error: err.message || 'Failed to fetch Asana project tasks.' });
+  }
+});
+
+// ─── Asana task inspector (read-only) ──────────────────────────────────────
+// LZ + AC can inspect any Asana task they have read access to. Accepts either
+// a task gid or any flavour of Asana task URL via ?taskId or ?taskUrl.
+// Cached for 60s per (initials, taskGid).
+
+const asanaTaskInspectorCache = new Map();
+const ASANA_TASK_INSPECTOR_CACHE_TTL = 60_000;
+
+router.get('/asana/task', requireForgeReader, async (req, res) => {
+  const startedAt = Date.now();
+  const actor = readActor(req);
+  const viewMode = readViewMode(req);
+  const lookupInitials = readAsanaLookupInitials(req).toUpperCase();
+  const rawInput = String(req.query?.taskId || req.query?.taskUrl || '').trim();
+  const taskGid = extractAsanaTaskGid(rawInput);
+
+  trackEvent('DevConsole.Asana.TaskInspector.Started', {
+    operation: 'asana-task-inspector',
+    actor,
+    viewMode,
+    hasInput: String(Boolean(rawInput)),
+  });
+
+  if (!taskGid) {
+    trackEvent('DevConsole.Asana.TaskInspector.Skipped', {
+      operation: 'asana-task-inspector',
+      reason: 'no_task_gid',
+      actor,
+      viewMode,
+    });
+    return res.status(400).json({
+      success: false,
+      error: 'Provide ?taskId=<gid> or ?taskUrl=<asana task URL>',
+    });
+  }
+
+  try {
+    const cacheKey = `${lookupInitials}::${taskGid}`;
+    const cached = asanaTaskInspectorCache.get(cacheKey);
+    if (cached?.data && Date.now() < cached.expires) {
+      trackEvent('DevConsole.Asana.TaskInspector.CacheHit', {
+        operation: 'asana-task-inspector',
+        actor,
+        viewMode,
+        taskGid,
+      });
+      return res.json({ ...cached.data, cached: true });
+    }
+
+    const accessToken = await resolveRequestAsanaAccessToken(req, lookupInitials);
+    if (!accessToken) {
+      trackEvent('DevConsole.Asana.TaskInspector.Failed', {
+        operation: 'asana-task-inspector',
+        reason: 'no_token',
+        actor,
+        viewMode,
+        taskGid,
+      });
+      return res.status(500).json({ success: false, error: 'Unable to acquire Asana access token.' });
+    }
+
+    const inspection = await inspectAsanaTask({ accessToken, taskGid });
+    const payload = {
+      success: true,
+      generatedAt: new Date().toISOString(),
+      input: rawInput,
+      ...inspection,
+    };
+    asanaTaskInspectorCache.set(cacheKey, {
+      data: payload,
+      expires: Date.now() + ASANA_TASK_INSPECTOR_CACHE_TTL,
+    });
+
+    const durationMs = Date.now() - startedAt;
+    trackMetric('DevConsole.Asana.TaskInspector.Duration', durationMs, {
+      operation: 'asana-task-inspector',
+      viewMode,
+    });
+    trackEvent('DevConsole.Asana.TaskInspector.Completed', {
+      operation: 'asana-task-inspector',
+      actor,
+      viewMode,
+      taskGid,
+      durationMs,
+      storyCount: String(inspection.stories.length),
+      subtaskCount: String(inspection.subtasks.length),
+      warnings: String(inspection.warnings.length),
+    });
+    res.json(payload);
+  } catch (err) {
+    const status = Number(err.status) || 500;
+    trackException(err, { operation: 'DevConsole.Asana.TaskInspector', phase: 'fetch', viewMode, taskGid });
+    trackEvent('DevConsole.Asana.TaskInspector.Failed', {
+      operation: 'asana-task-inspector',
+      actor,
+      viewMode,
+      taskGid,
+      status: String(status),
+      error: err.message,
+    });
+    res.status(status).json({ success: false, error: err.message || 'Failed to inspect Asana task.' });
   }
 });
 

@@ -2,6 +2,7 @@
 // Calendar-based annual leave booking with full team visibility
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { recordIntent } from '../utils/recordIntent';
 import { Stack } from '@fluentui/react/lib/Stack';
 import { Text } from '@fluentui/react/lib/Text';
 import { DefaultButton, IconButton, PrimaryButton } from '@fluentui/react/lib/Button';
@@ -683,10 +684,11 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
         admin_status: manualStatus,
       };
 
+      const clientSubmissionId = await recordIntent({ formKey: 'annual-leave-admin', payload });
       const response = await fetch('/api/attendance/annual-leave', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify({ ...payload, clientSubmissionId })
       });
 
       const result = await response.json().catch(() => ({}));
@@ -1266,10 +1268,11 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
         exam_details: ''
       };
 
+      const clientSubmissionId = await recordIntent({ formKey: 'annual-leave-request', payload });
       const response = await fetch('/api/attendance/annual-leave', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify({ ...payload, clientSubmissionId })
       });
 
       if (!response.ok) {

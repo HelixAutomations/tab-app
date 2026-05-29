@@ -99,6 +99,9 @@ const FormEmbed: React.FC<FormEmbedProps> = ({ link, userData, teamData, matters
             ) : link.fields ? (
                 <BespokeForm
                     key={formKey}
+                    title={link.title}
+                    subtitle={link.description}
+                    iconName={link.icon}
                     fields={link.fields.map((f) => ({ ...f, name: f.label }))}
                     onSubmit={handleFinancialSubmit}
                     onCancel={() => { }}

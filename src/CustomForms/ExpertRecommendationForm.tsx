@@ -3,6 +3,7 @@
 // Protected by passcode guard
 
 import React, { useState, useCallback } from 'react';
+import { recordIntent } from '../utils/recordIntent';
 import { Stack } from '@fluentui/react/lib/Stack';
 import { Text } from '@fluentui/react/lib/Text';
 import { TextField } from '@fluentui/react/lib/TextField';
@@ -131,14 +132,16 @@ const ExpertRecommendationFormContent: React.FC<ExpertRecommendationFormProps> =
 
     try {
       const baseUrl = getApiBase();
+      const expertPayload = {
+        ...formData,
+        created_by: currentUser?.FullName || 'Unknown',
+        created_by_initials: currentUser?.Initials || '',
+      };
+      const clientSubmissionId = await recordIntent({ formKey: 'expert-recommendation', payload: expertPayload });
       const response = await fetch(`${baseUrl}/api/experts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...formData,
-          created_by: currentUser?.FullName || 'Unknown',
-          created_by_initials: currentUser?.Initials || '',
-        }),
+        body: JSON.stringify({ ...expertPayload, clientSubmissionId }),
       });
 
       if (!response.ok) {
@@ -201,8 +204,8 @@ const ExpertRecommendationFormContent: React.FC<ExpertRecommendationFormProps> =
         <div style={getFormHeaderStyle(isDarkMode, accentColor)}>
           <Stack horizontal horizontalAlign="space-between" verticalAlign="center">
             <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 12 }}>
-              <Icon iconName="ContactCard" style={{ fontSize: 22, color: accentColor }} />
-              <Text variant="xLarge" style={getFormHeaderTitleStyle(isDarkMode)}>
+              <Icon iconName="ContactCard" style={{ fontSize: 20, color: accentColor }} />
+              <Text style={getFormHeaderTitleStyle(isDarkMode)}>
                 Expert Recommendation
               </Text>
             </Stack>

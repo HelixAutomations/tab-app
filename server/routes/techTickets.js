@@ -11,6 +11,7 @@
 const express = require('express');
 const sql = require('mssql');
 const { withRequest, getPool } = require('../utils/db');
+const { trackRouteException } = require('../utils/errorContext');
 const {
   recordSubmission,
   recordStep,
@@ -639,6 +640,7 @@ router.post('/idea', async (req, res) => {
       lane: 'Request',
       payload: req.body,
       summary: `Tech idea: ${title}`.slice(0, 400),
+      clientSubmissionId: req.body?.clientSubmissionId || null,
     });
 
     // Get LZ's Asana user ID for collaborator
@@ -753,6 +755,11 @@ router.post('/idea', async (req, res) => {
     }
     const serialized = serializeUnknownError(error);
     console.error('[tech-tickets] Idea submission error:', serialized);
+    trackRouteException(error instanceof Error ? error : new Error(serialized.message || 'tech-idea failed'), req, {
+      operation: 'createTechIdea',
+      formKey: 'tech-idea',
+      submissionId,
+    });
     const status = (error && error.status) ? error.status : 500;
     const code = (error && error.code) ? error.code : 'TECH_TICKET_CREATE_FAILED';
     const details = serialized.message;
@@ -809,6 +816,7 @@ router.post('/problem', async (req, res) => {
       lane: 'Escalate',
       payload: req.body,
       summary: `Tech problem [${system}]: ${summary}`.slice(0, 400),
+      clientSubmissionId: req.body?.clientSubmissionId || null,
     });
 
     const notes = [
@@ -938,6 +946,11 @@ router.post('/problem', async (req, res) => {
     }
     const serialized = serializeUnknownError(error);
     console.error('[tech-tickets] Problem submission error:', serialized);
+    trackRouteException(error instanceof Error ? error : new Error(serialized.message || 'tech-problem failed'), req, {
+      operation: 'createTechProblem',
+      formKey: 'tech-problem',
+      submissionId,
+    });
     const status = (error && error.status) ? error.status : 500;
     const code = (error && error.code) ? error.code : 'TECH_TICKET_CREATE_FAILED';
     const details = serialized.message;

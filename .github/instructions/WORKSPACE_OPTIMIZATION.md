@@ -1,5 +1,7 @@
 # Workspace Optimization Guide
 
+Last verified: 2026-05-23
+
 ## Philosophy
 
 This project has evolved organically. New code should follow these principles:

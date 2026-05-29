@@ -2200,13 +2200,38 @@ router.get('/dubberCalls/activities', async (req, res) => {
  * Generate an AI attendance note from a call transcript.
  * Returns { note: { summary, topics, actionItems, duration, date, parties } }
  */
+// LPP / confidentiality: AI generation only runs locally (any dev), or in
+// production for LZ. Everyone else must use manual intake. Save / Clio /
+// NetDocs paths remain open to everyone — only this transcript hop is gated.
+const AI_ATTENDANCE_ALLOWLIST = new Set(['LZ']);
+function isLocalRequest(req) {
+  const host = String(req?.headers?.host || '').toLowerCase();
+  return host.startsWith('localhost') || host.startsWith('127.0.0.1') || host.startsWith('[::1]');
+}
+
 router.post('/dubberCalls/:recordingId/attendance-note', async (req, res) => {
   const reqId = randomUUID();
   const started = Date.now();
   try {
     const recordingId = String(req.params.recordingId || '').trim();
     if (!recordingId) return res.status(400).json({ error: 'Missing recordingId' });
-    trackEvent('Dubber.AttendanceNote.Generate.Started', { reqId, recordingId, triggeredBy: 'home-call-centre' });
+
+    const callerInitials = resolveSavedByInitials(req, '');
+    const localCall = isLocalRequest(req);
+    if (!localCall && !AI_ATTENDANCE_ALLOWLIST.has(callerInitials)) {
+      trackEvent('Dubber.AttendanceNote.AiDisabled.Blocked', {
+        reqId,
+        recordingId,
+        callerInitials: callerInitials || 'unknown',
+        host: String(req?.headers?.host || ''),
+      });
+      return res.status(403).json({
+        error: 'AI attendance note generation is disabled for this user',
+        code: 'AI_DISABLED',
+      });
+    }
+
+    trackEvent('Dubber.AttendanceNote.Generate.Started', { reqId, recordingId, triggeredBy: 'home-call-centre', callerInitials: callerInitials || 'local' });
 
     const pool = await instrPool();
 
@@ -2666,6 +2691,7 @@ router.post('/dubberCalls/:recordingId/save-note', async (req, res) => {
             ...req.body,
           },
           summary: `Call attendance note — ${matterRef || recordingId}`.slice(0, 400),
+          clientSubmissionId: req.body?.clientSubmissionId || null,
         });
 
         if (submissionId) {

@@ -1,5 +1,48 @@
 # Database Schema Reference
 
+Last verified: 2026-05-23
+
+## Instant lookups (one-liners)
+
+`tools/instant-lookup.mjs` resolves Key Vault passwords automatically and fails fast on auth hangs. Use it instead of ad-hoc `node -e` SQL.
+
+```bash
+node tools/instant-lookup.mjs passcode 37693
+node tools/instant-lookup.mjs enquiry 12345
+node tools/instant-lookup.mjs deal 898
+node tools/instant-lookup.mjs instruction HLX-00898-37693
+node tools/instant-lookup.mjs person "Luke Test"
+node tools/instant-lookup.mjs pipeline HLX-00898-37693
+node tools/instant-lookup.mjs --plan person "Luke Test"
+```
+
+Name-lookup discipline:
+- *Pipeline* (legacy space / end-to-end chain): use `pipeline`.
+- *Person/enquiry record* by name (Core Data): use `person`.
+- Never expand to deals/instructions unless explicitly asked.
+
+Always confirm intent in chat first. Default to the real command (no `--plan`); use `--plan` only when explicitly asked for a dry-run.
+
+## Matter opening one-off replay
+
+```bash
+node tools/run-matter-oneoff.mjs HLX-30038-73942 RCH --fee-earner "Ryan Choi" --originating "Ryan Choi" --supervising "Alex"
+node tools/run-matter-oneoff.mjs HLX-30038-73942 RCH --dry-run
+```
+
+The one-off handles Company client types (populates `company_details` from Instructions) and pulls EID verification from `IdVerifications` automatically. Override practice area with `--practice-area "Contract Dispute"` (AreaOfWork ≠ Clio practice area).
+
+Re-opening a matter under corrected details:
+1. Update Instructions record (CompanyName, CompanyNumber, clear ClientId/MatterId).
+2. Delete old Matters rows from BOTH Instructions DB and Core Data DB.
+3. Confirm old Clio contact/matter deleted by ops.
+4. Run the one-off with `--practice-area` override.
+5. Patch Clio contact with missing EID custom fields if needed (235699=ID type, 235702=expiry, 286228=Tiller ID).
+
+## Avoid `node -e` for non-trivial commands
+
+PowerShell escaping breaks `node -e` with backticks, nested quotes, or template literals (symptom: `SyntaxError: Invalid or unexpected token`). For anything with SQL, Key Vault, or async chains, write a temp file in `scripts/` (gitignored), run it, then delete it.
+
 ## CRITICAL: Database Connection Patterns
 
 ### Instructions Database (Primary)
@@ -79,6 +122,13 @@ This document describes the key database tables, their relationships, and import
 5. Legacy enquiry (fallback): match `enquiries.ID = Deals.ProspectId`
 
 **Key rule**: `Deals.ProspectId` is the ActiveCampaign contact ID. For new-space records, this maps to `acid`, NOT `id`.
+
+## Current Risk Assessment Lookup (CRITICAL)
+
+- Home Risk Finder and matter-ref risk lookup must resolve the display ref through Instructions `dbo.Matters`, then use the resolved `InstructionRef` to read the same workbench records used by the Prospects risk tile.
+- Workbench risk rows live in Instructions `dbo.RiskAssessment`. InlineWorkbench saves `MatterId` as the `InstructionRef`, with `InstructionRef` also populated, so lookup by the resolved instruction ref, not by display ref or Clio matter id alone.
+- Exported file-review notes must include ID status from Instructions `dbo.IDVerifications` using the same `InstructionRef`.
+- Do not treat Core Data `dbo.[periodic-compliance]` as the Home Risk Finder source. That table can miss workbench-saved assessments.
 
 **POC field contract (CRITICAL — unclaimed detection)**
 

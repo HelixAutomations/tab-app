@@ -72,8 +72,9 @@ import { hasActivePitchBuilder } from '../../app/functionality/pitchBuilderUtils
 import { normalizeMatterData } from '../../utils/matterNormalization';
 // Local JSON fixtures loaded dynamically (only when REACT_APP_USE_LOCAL_DATA=true) to keep ~75KB out of the production bundle
 import { checkIsLocalDev } from '../../utils/useIsLocalDev';
-import { canSeeFirmWideHomeData, canSeePrivateHubControls, isAdminUser, isDevOwner, isHomeFirmWideBuiltIn, HOME_FIRM_WIDE_ADMIN_OPT_IN_KEY } from '../../app/admin';
+import { canSeeFirmWideHomeData, canSeePrivateHubControls, isAdminUser, isHomeFirmWideBuiltIn, HOME_FIRM_WIDE_ADMIN_OPT_IN_KEY, isCclOperationsAvailable } from '../../app/admin';
 import { useFirstHydration } from '../../utils/useFirstHydration';
+import { LocalSupportSettings } from '../../app/localSupportMode';
 
 // Enhanced components
 import SectionCard from './SectionCard';
@@ -85,6 +86,8 @@ import QuickActionsBar from './QuickActionsBar';
 import { getQuickActionIcon } from './QuickActionsCard.icons';
 import ImmediateActionsBar from './ImmediateActionsBar';
 import LDRecordPanel, { LDRecordIcon } from './LDRecordPanel';
+import HomeQuietPanel from './HomeQuietPanel';
+import RiskAssessmentFinderPanel from './RiskAssessmentFinderPanel';
 import { trackClientEvent } from '../../utils/telemetry';
 import type { ImmediateActionCategory } from './ImmediateActionChip';
 import { enrichImmediateActions, type HomeImmediateAction, type ToDoCard, type TodoExpansionListRow } from './ImmediateActionModel';
@@ -205,6 +208,7 @@ interface HomeProps {
   demoModeEnabled?: boolean;
   isActive?: boolean;
   isSwitchingUser?: boolean;
+  localSupportSettings?: LocalSupportSettings;
 }
 
 interface HomeCclReviewRequest {
@@ -217,6 +221,7 @@ interface HomeCclReviewRequest {
 interface QuickLink {
   title: string;
   icon: string;
+  previewOnly?: boolean;
 }
 
 interface Person {
@@ -354,6 +359,7 @@ const quickActionOrder: Record<string, number> = {
   'Review ID': 6,
   'Verify ID': 6,
   'Assess Risk': 7,
+  'Find Risk Assessment': 7,
   'CCL Service': 8,
   'Review CCL': 8,
 
@@ -362,7 +368,7 @@ const quickActionOrder: Record<string, number> = {
   'Save Telephone Note': 11,
   'Save Attendance Note': 12,
   'Request ID': 13,
-  'Pitch External': 13,
+  'New Pitch': 13,
   'Open a Matter': 14,
   'Request Annual Leave': 15,
   'Log L&D': 15,
@@ -376,12 +382,27 @@ const quickActionOrder: Record<string, number> = {
 const quickActions: QuickLink[] = [
   { title: 'Update Attendance', icon: 'Attendance' },
   { title: 'Create a Task', icon: 'Checklist' },
-  { title: 'Save Telephone Note', icon: 'Comment' },
   { title: 'Request Annual Leave', icon: 'PalmTree' }, // Icon resolved to umbrella for consistency
   { title: 'Book Space', icon: 'Room' },
   { title: 'Verify ID', icon: 'ContactCard' },
   { title: 'Log L&D', icon: 'Education' },
 ];
+
+const quickActionDisplayOrder: Record<string, number> = {
+  'Update Attendance': 1,
+  'Request Annual Leave': 2,
+  'Book Space': 3,
+  'Create a Task': 4,
+  'New Pitch': 5,
+  'New Matter': 6,
+  'Open Matter': 6,
+  'Open a Matter': 6,
+  'Verify ID': 7,
+  'Request ID': 7,
+  'Find Risk Assessment': 8,
+  'Assess Risk': 8,
+  'Log L&D': 9,
+};
 
 //////////////////////
 // Styles
@@ -841,7 +862,7 @@ const CognitoForm: React.FC<{ dataKey: string; dataForm: string }> = ({ dataKey,
 // Home Component
 //////////////////////
 
-const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsingSnapshot = false, enquiriesLiveRefreshInFlight = false, enquiriesLastLiveSyncAt = null, matters: providedMatters, instructionData: propInstructionData, onAllMattersFetched, onOutstandingBalancesFetched, onTransactionsFetched, teamData, onBoardroomBookingsFetched, onSoundproofBookingsFetched, isInMatterOpeningWorkflow = false, onImmediateActionsChange, originalAdminUser, featureToggles = {}, onFeatureToggle, demoModeEnabled = false, isActive = true, isSwitchingUser = false }) => {
+const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsingSnapshot = false, enquiriesLiveRefreshInFlight = false, enquiriesLastLiveSyncAt = null, matters: providedMatters, instructionData: propInstructionData, onAllMattersFetched, onOutstandingBalancesFetched, onTransactionsFetched, teamData, onBoardroomBookingsFetched, onSoundproofBookingsFetched, isInMatterOpeningWorkflow = false, onImmediateActionsChange, originalAdminUser, featureToggles = {}, onFeatureToggle, demoModeEnabled = false, isActive = true, isSwitchingUser = false, localSupportSettings }) => {
   const { isDarkMode, toggleTheme } = useTheme();
   const hasAdminContext = isAdminUser(userData?.[0]) || isAdminUser(originalAdminUser || null);
   const canUseOpsQueuePreview =
@@ -854,6 +875,9 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
   const inTeams = isInTeams();
   const useLocalData =
     process.env.REACT_APP_USE_LOCAL_DATA === 'true';
+  const localSupportDataScope = localSupportSettings?.dataScope || 'team';
+  const localSupportNoData = localSupportDataScope === 'none';
+  const localSupportAllowTeamData = localSupportDataScope === 'team';
 
   React.useLayoutEffect(() => {
     if (!isActive) {
@@ -1154,7 +1178,9 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
     } catch { /* ignore */ }
   }, [LAYOUT_TOGGLE_KEYS.rightPanelMode]);
   const isProductionPreview = featureToggles.viewAsProd === true;
-  const opsQueuePreviewEnabled = canUseOpsQueuePreview && featureToggles.showOpsQueue === true && !isProductionPreview;
+  const localOpsWorkbenchPreviewEnabled = checkIsLocalDev(featureToggles);
+  const opsQueuePreviewEnabled = canUseOpsQueuePreview && (localOpsWorkbenchPreviewEnabled || featureToggles.showOpsQueue === true) && !isProductionPreview;
+  const showOpsWorkbenchOnHome = opsQueuePreviewEnabled && (localOpsWorkbenchPreviewEnabled || !hideAsanaAndTransactions);
 
   // Consolidation 2026-04-21: the Home layout overlay is gone. CommandDeck
   // (via HubToolsChip) is now the single surface for these toggles. It writes
@@ -1251,7 +1277,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
     || allMattersError != null;
   const dashboardSectionReady = hasStartedParallelFetch && !isLoadingWipClio;
   const teamSectionReady = hasStartedParallelFetch && !isLoadingAttendance;
-  const opsSectionReady = !opsQueuePreviewEnabled || hideAsanaAndTransactions || homeDataReady;
+  const opsSectionReady = !showOpsWorkbenchOnHome || homeDataReady;
 
   // Dev-only diagnostics for Time Metrics (WIP daily totals)
   const lastTimeMetricsLogRef = useRef<string>('');
@@ -1275,6 +1301,8 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
 
   // Reset ref for QuickActionsBar to clear selection when panels close
   const resetQuickActionsSelectionRef = useRef<(() => void) | null>(null);
+  const isLocalhost = checkIsLocalDev(featureToggles);
+  const cclOperationsAvailable = isCclOperationsAvailable({ viewAsProd: Boolean(featureToggles?.viewAsProd) });
 
   const [timeMetricsCollapsed, setTimeMetricsCollapsed] = useState(false);
   const [conversionMetricsCollapsed, setConversionMetricsCollapsed] = useState(false);
@@ -1283,6 +1311,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
   const [demoCclDraftExists, setDemoCclDraftExists] = useState(false);
   const [homeCclReviewRequest, setHomeCclReviewRequest] = useState<HomeCclReviewRequest | null>(null);
   useEffect(() => {
+    if (!cclOperationsAvailable) return;
     if (!demoModeEnabled) return;
     const checkDemoCcl = async () => {
       try {
@@ -1295,7 +1324,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
       } catch { /* silent */ }
     };
     checkDemoCcl();
-  }, [demoModeEnabled]);
+  }, [cclOperationsAvailable, demoModeEnabled]);
 
   // Consider immediate actions 'ready' only after we've actually started the parallel fetch.
   // This avoids an initial "All caught up" flash before attendance-derived actions appear.
@@ -1449,7 +1478,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
       return 'mine';
     }
   });
-  const canSeeTodoGodView = canSeeFirmWideHomeData(userData?.[0]);
+  const canSeeTodoGodView = localSupportAllowTeamData && canSeeFirmWideHomeData(userData?.[0]);
 
   const immediateActionsReady = hasStartedParallelFetch
     && !isActionsLoading
@@ -1691,6 +1720,12 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
     if (!homeDataReady) {
       return;
     }
+    if (localSupportNoData) {
+      setPendingDocActions([]);
+      setPendingTransfers([]);
+      setPendingDocActionsLoading(false);
+      return;
+    }
     const idle: number = typeof window !== 'undefined' && typeof (window as any).requestIdleCallback === 'function'
       ? (window as any).requestIdleCallback(() => { fetchPendingDocActions(); fetchPendingTransfers(); }, { timeout: 4000 })
       : window.setTimeout(() => { fetchPendingDocActions(); fetchPendingTransfers(); }, 600);
@@ -1701,7 +1736,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
         window.clearTimeout(idle);
       }
     };
-  }, [homeDataReady, fetchPendingDocActions, fetchPendingTransfers]);
+  }, [homeDataReady, fetchPendingDocActions, fetchPendingTransfers, localSupportNoData]);
 
   // Rate change notification modal state
   const [showRateChangeModal, setShowRateChangeModal] = useState<boolean>(false);
@@ -1942,6 +1977,11 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
       return;
     }
 
+    if (localSupportNoData) {
+      setIsLoadingRecovered(false);
+      return;
+    }
+
     let isMounted = true;
     let intervalId: ReturnType<typeof setInterval> | null = null;
 
@@ -1954,7 +1994,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
       }
 
       const currentUserData = userData[0];
-      const isFirmWide = canSeeFirmWideHomeData(currentUserData) && !originalAdminUser;
+      const isFirmWide = localSupportAllowTeamData && canSeeFirmWideHomeData(currentUserData) && !originalAdminUser;
       let userClioId = currentUserData?.['Clio ID'] ? String(currentUserData['Clio ID']) : null;
       let userEntraId = currentUserData?.['Entra ID'] || currentUserData?.EntraID 
         ? String(currentUserData['Entra ID'] || currentUserData.EntraID) 
@@ -2075,11 +2115,15 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
       document.removeEventListener('visibilitychange', handleVisibility);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isActive, userData?.[0]?.EntraID, userData?.[0]?.['Entra ID'], userData?.[0]?.Initials, userData?.[0]?.['Clio ID']]);
+  }, [isActive, localSupportAllowTeamData, localSupportNoData, userData?.[0]?.EntraID, userData?.[0]?.['Entra ID'], userData?.[0]?.Initials, userData?.[0]?.['Clio ID']]);
 
   // Refresh time metrics callback - clears cache and re-fetches WIP and recovered fees
   const handleRefreshTimeMetrics = useCallback(async () => {
     if (demoModeEnabled) {
+      setIsRefreshingTimeMetrics(false);
+      return;
+    }
+    if (localSupportNoData) {
       setIsRefreshingTimeMetrics(false);
       return;
     }
@@ -2110,7 +2154,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
         (async () => {
           try {
             // Dev-owner god mode: fetch team-aggregated WIP (unless user has switched to another person)
-            const useTeamEndpoint = canSeeFirmWideHomeData(currentUserData) && !originalAdminUser;
+            const useTeamEndpoint = localSupportAllowTeamData && canSeeFirmWideHomeData(currentUserData) && !originalAdminUser;
             const wipUrl = useTeamEndpoint
               ? '/api/home-wip/team'
               : userEntraId ? `/api/home-wip?entraId=${encodeURIComponent(userEntraId)}` : null;
@@ -2197,7 +2241,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
     } catch {
       return false;
     }
-  }, [demoModeEnabled]);
+  }, [demoModeEnabled, localSupportAllowTeamData, localSupportNoData, originalAdminUser, userData]);
 
   // Recent new-space matters for the operations dashboard
   const recentMatters = useMemo(() => {
@@ -2371,13 +2415,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
     return `${mondayName}, ${mondayStr} - ${sundayName}, ${sundayStr}`;
   };
   
-  const getNextWeekKey = (): string => {
-    const currentMonday = getMondayOfCurrentWeek();
-    const nextMonday = new Date(currentMonday);
-    nextMonday.setDate(currentMonday.getDate() + 7);
-    return generateWeekKey(nextMonday);
-  };
-
   const mapAnnualLeaveArray = (raw: unknown): AnnualLeaveRecord[] => {
     if (!Array.isArray(raw)) return [];
     return raw.map((rec: any) => {
@@ -2478,10 +2515,11 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
     }
   }, [rawUserInitials]);
   const userInitials = rawUserInitials || storedUserInitials.current || '';
+  const canSeeUnreadyHomeActions = isLocalhost || String(userInitials || '').trim().toUpperCase() === 'LZ';
 
   const fetchTodoRegistryCards = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
     const ownerInitials = String(userInitials || '').trim().toUpperCase();
-    const useAllScope = canSeeTodoGodView && homeTodoScope === 'all';
+    const useAllScope = localSupportAllowTeamData && canSeeTodoGodView && homeTodoScope === 'all';
     if (!ownerInitials && !useAllScope) {
       todoRegistryFetchAbortRef.current?.abort();
       todoRegistryFetchAbortRef.current = null;
@@ -2532,7 +2570,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
         setIsLoadingTodoRegistry(false);
       }
     }
-  }, [userInitials, canSeeTodoGodView, homeTodoScope]);
+  }, [userInitials, canSeeTodoGodView, homeTodoScope, localSupportAllowTeamData]);
 
   useEffect(() => {
     return () => {
@@ -2543,9 +2581,16 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
 
   useEffect(() => {
     if (!isActive) return;
+    if (localSupportNoData) {
+      todoRegistryFetchAbortRef.current?.abort();
+      todoRegistryFetchAbortRef.current = null;
+      setTodoRegistryCards([]);
+      setIsLoadingTodoRegistry(false);
+      return;
+    }
 
     const ownerInitials = String(userInitials || '').trim().toUpperCase();
-    const useAllScope = canSeeTodoGodView && homeTodoScope === 'all';
+    const useAllScope = localSupportAllowTeamData && canSeeTodoGodView && homeTodoScope === 'all';
     if (!ownerInitials && !useAllScope) {
       setTodoRegistryCards([]);
       setIsLoadingTodoRegistry(false);
@@ -2560,12 +2605,12 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
     }, 60000);
 
     return () => window.clearInterval(intervalId);
-  }, [fetchTodoRegistryCards, isActive, userInitials, canSeeTodoGodView, homeTodoScope]);
+  }, [fetchTodoRegistryCards, isActive, userInitials, canSeeTodoGodView, homeTodoScope, localSupportAllowTeamData, localSupportNoData]);
 
   // Realtime To Do strip queue — SSE channel from server/utils/todoStream.js.
   // Brief: docs/notes/STAGING_WALKTHROUGH_CALL_2026_05_11_TO_DO_STRIP_REALTIME_FOCUS_PLUS_PARKED_ITEMS.md
-  const todoStreamEnabled = isActive && (
-    !!String(userInitials || '').trim() || (canSeeTodoGodView && homeTodoScope === 'all')
+  const todoStreamEnabled = !localSupportNoData && isActive && (
+    !!String(userInitials || '').trim() || (localSupportAllowTeamData && canSeeTodoGodView && homeTodoScope === 'all')
   );
   const { status: todoStreamStatus } = useRealtimeChannel(
     '/api/todo/stream',
@@ -2651,7 +2696,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
     {
       event: 'annualLeave.changed',
       name: 'annualLeave',
-      enabled: !!userInitials && isActive && homeDataReady && isPageVisible,
+      enabled: !!userInitials && isActive && homeDataReady && isPageVisible && !localSupportNoData,
       debounceMs: 350,
       onChange: () => {
         setAnnualLeavePulseNonce((n) => n + 1);
@@ -2670,7 +2715,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
     {
       event: 'dataOps.synced',
       name: 'dataOps',
-      enabled: !!userInitials && isActive && homeDataReady && isPageVisible,
+      enabled: !!userInitials && isActive && homeDataReady && isPageVisible && !localSupportNoData,
       debounceMs: 500,
       onChange: () => {
         setDataOpsPulseNonce((n) => n + 1);
@@ -2690,7 +2735,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
     {
       event: 'attendance.changed',
       name: 'attendance',
-      enabled: !!userInitials && isActive && homeDataReady && isPageVisible,
+      enabled: !!userInitials && isActive && homeDataReady && isPageVisible && !localSupportNoData,
       debounceMs: 350,
       onChange: async (payload) => {
         const initials = payload?.initials ? String(payload.initials).toUpperCase() : null;
@@ -3175,8 +3220,19 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
       return;
     }
 
+    if (localSupportNoData) {
+      setHasStartedParallelFetch(true);
+      setIsLoadingAttendance(false);
+      setIsLoadingAnnualLeave(false);
+      setIsLoadingWipClio(false);
+      setIsLoadingEnquiryMetrics(false);
+      setIsLoadingHomeMatters(false);
+      setIsActionsLoading(false);
+      return;
+    }
+
     // Home firm-wide users still need live WIP even in local-data mode.
-    const devOwnerLocal = useLocalData && canSeeFirmWideHomeData(userData?.[0]);
+    const devOwnerLocal = useLocalData && localSupportAllowTeamData && canSeeFirmWideHomeData(userData?.[0]);
 
     if (useLocalData && !devOwnerLocal) {
       setHasStartedParallelFetch(true);
@@ -3419,7 +3475,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
         });
 
       // Home firm-wide scope: use the team aggregate endpoint on boot unless a user switch is active.
-      const useTeamWip = canSeeFirmWideHomeData(userData?.[0]) && !originalAdminUser;
+      const useTeamWip = localSupportAllowTeamData && canSeeFirmWideHomeData(userData?.[0]) && !originalAdminUser;
       const wipFetchUrl = useTeamWip
         ? '/api/home-wip/team'
         : entraId ? `/api/home-wip?entraId=${encodeURIComponent(entraId)}` : null;
@@ -3526,7 +3582,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
       // Deferred out of the primary boot wave so the critical Attendance/WIP
       // path does not compete with this secondary card for SQL/browser budget.
       const fullName = userData[0]?.FullName || '';
-      const isOwner = canSeeFirmWideHomeData(userData[0]);
+      const isOwner = localSupportAllowTeamData && canSeeFirmWideHomeData(userData[0]);
       const mattersQueryName = isOwner ? '' : fullName;
       const mattersUrl = `/api/matters-new-space?limit=50${mattersQueryName ? `&fullName=${encodeURIComponent(mattersQueryName)}` : ''}`;
       const runMattersRequest = () => fetch(mattersUrl, { headers: { Accept: 'application/json' } })
@@ -3588,7 +3644,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
         }
       }
     };
-  }, [isActive, userData?.[0]?.EntraID, userData?.[0]?.['Entra ID'], userData?.[0]?.Email, useLocalData, teamData, homeLoadRetryNonce]);
+  }, [isActive, userData?.[0]?.EntraID, userData?.[0]?.['Entra ID'], userData?.[0]?.Email, useLocalData, teamData, homeLoadRetryNonce, localSupportAllowTeamData, localSupportNoData]);
 
   // ═════════════════════════════════════════════════════════════════════════════
   // LEGACY EFFECTS BELOW - Now skipped when parallel fetch completes
@@ -3872,7 +3928,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
   // Transactions removed — Home doesn't render raw transactions (only in useLocalData dev mode).
   // Fees Recovered uses /api/reporting/management-datasets instead.
   useHomeMetricsStream({
-    autoStart: !demoModeEnabled && isActive && homeDataReady,
+    autoStart: !demoModeEnabled && isActive && homeDataReady && localSupportAllowTeamData && !localSupportNoData,
     metrics: ['futureBookings', 'outstandingBalances'],
     bypassCache: false,
     onMetric: (name, data) => {
@@ -3949,17 +4005,13 @@ const matchingTeamMember = attendanceTeam.find(
 
 const attendanceName = matchingTeamMember ? matchingTeamMember.First : '';
 
-const currentUserRecord = attendanceRecords.find(
-  (record: any) => (record.Initials || '').toLowerCase() === userInitials.toLowerCase()
-);
-
 //////////////////////////////
 // Updated Confirmation Check
 //////////////////////////////
 const now = new Date();
-const isThursdayAfterMidday = now.getDay() === 4 && now.getHours() >= 12;
   const currentKey = generateWeekKey(getMondayOfCurrentWeek());
-  const nextKey = getNextWeekKey();
+  const relevantWeekKey = currentKey;
+  const isWeekday = now.getDay() >= 1 && now.getDay() <= 5;
 
 const transformedAttendanceRecords = useMemo(() => {
   if (!attendanceRecords.length) return [];
@@ -4117,7 +4169,8 @@ const handleAttendanceUpdated = (updatedRecords: AttendanceRecord[]) => {
     // connection pool, so we give the save 20s before aborting. Without this
     // the fetch could hang indefinitely and trap the user in the modal.
     const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), 20000);
+    const timeoutMs = 30000;
+    const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
     let res: Response;
     try {
       res = await fetch(url, {
@@ -4126,13 +4179,25 @@ const handleAttendanceUpdated = (updatedRecords: AttendanceRecord[]) => {
         body: JSON.stringify(payload),
         signal: controller.signal,
       });
+    } catch (fetchError) {
+      if (fetchError instanceof DOMException && fetchError.name === 'AbortError') {
+        throw new Error(`Attendance save timed out after ${Math.round(timeoutMs / 1000)}s`);
+      }
+      throw fetchError;
     } finally {
       window.clearTimeout(timeoutId);
     }
   debugLog('API status:', res.status);
     if (!res.ok) {
       console.error('🔍 API call failed with status:', res.status);
-      throw new Error(`Failed to save attendance: ${res.status}`);
+      let serverDetail = '';
+      try {
+        const errorJson = await res.clone().json();
+        serverDetail = String(errorJson?.error || errorJson?.message || '').trim();
+      } catch {
+        try { serverDetail = (await res.text()).trim(); } catch { /* ignore */ }
+      }
+      throw new Error(serverDetail ? `Failed to save attendance: ${res.status} (${serverDetail})` : `Failed to save attendance: ${res.status}`);
     }
     const json = await res.json();
   debugLog('API json:', json);
@@ -4175,14 +4240,8 @@ const handleAttendanceUpdated = (updatedRecords: AttendanceRecord[]) => {
   }
 };
 
-
-// Decide which week we consider "the relevant week"
-  const relevantWeekKey = isThursdayAfterMidday ? nextKey : currentKey;
-
-  // Use checkIsLocalDev - respects "View as Production" toggle
-  const isLocalhost = checkIsLocalDev(featureToggles);
-
   const openHomeCclReview = useCallback((matterId?: string) => {
+    if (!cclOperationsAvailable) return;
     setHomeCclReviewRequest({
       requestedAt: Date.now(),
       matterId,
@@ -4197,7 +4256,7 @@ const handleAttendanceUpdated = (updatedRecords: AttendanceRecord[]) => {
     } catch (error) {
       console.error('Failed to dispatch CCL expand event:', error);
     }
-  }, []);
+  }, [cclOperationsAvailable]);
 
   const openEnquiryById = useCallback((enquiryId?: string, detail: Record<string, unknown> = {}) => {
     const normalizedEnquiryId = String(enquiryId || '').trim();
@@ -4240,33 +4299,39 @@ const handleAttendanceUpdated = (updatedRecords: AttendanceRecord[]) => {
     return `${year}-${month}-${day}`;
   };
 
-  const relevantMonday = (() => {
-    const monday = getMondayOfCurrentWeek();
-    if (isThursdayAfterMidday) monday.setDate(monday.getDate() + 7);
-    return monday;
-  })();
-
-  // If currentUserRecord is not found (user not in attendance data), treat as confirmed to avoid nagging.
-  // We consider the week "confirmed" if:
-  // - there's an explicit Confirmed_At timestamp (e.g. updateAttendance response), OR
-  // - getAttendance returned a week entry for the relevant week key.
-  const hasConfirmedWeekEntry = Boolean(
-    (currentUserRecord as any)?.Confirmed_At ||
-    (currentUserRecord as any)?.weeks?.[relevantWeekKey]?.attendance?.trim()
-  );
+  // Current-week only. The To Do prompt should not disappear just because the
+  // user is local, missing from the fetched rows, or already planned next week.
+  const hasConfirmedCurrentWeekEntry = attendanceRecords.some((rec: any) => {
+    const initials = (rec?.Initials || '').toLowerCase();
+    if (!initials || initials !== userInitials.toLowerCase()) return false;
+    return Boolean(rec?.weeks?.[currentKey]?.attendance?.trim());
+  });
 
   // Also support the "week row" format inserted by saveAttendance (Initials + Week_Start).
-  const relevantWeekStartIso = toIsoDate(relevantMonday);
-  const hasConfirmedWeekRow = attendanceRecords.some((rec: any) => {
+  const currentWeekStartIso = toIsoDate(getMondayOfCurrentWeek());
+  const hasConfirmedCurrentWeekRow = attendanceRecords.some((rec: any) => {
     const initials = (rec?.Initials || '').toLowerCase();
     const weekStart = normalizeDate(rec?.Week_Start);
     if (!initials || !weekStart) return false;
     if (initials !== userInitials.toLowerCase()) return false;
-    if (weekStart !== relevantWeekStartIso) return false;
+    if (weekStart !== currentWeekStartIso) return false;
     return Boolean(rec?.Confirmed_At || rec?.Attendance_Days);
   });
 
-  const currentUserConfirmed = isLocalhost || !currentUserRecord || hasConfirmedWeekEntry || hasConfirmedWeekRow;
+  const hasAttendanceIdentity = Boolean(userInitials.trim());
+  const currentUserConfirmed = !hasAttendanceIdentity || hasConfirmedCurrentWeekEntry || hasConfirmedCurrentWeekRow;
+  const shouldShowAttendanceConfirmTodo = isWeekday && !currentUserConfirmed;
+  const currentWeekTodoMeta = (() => {
+    const monday = getMondayOfCurrentWeek();
+    const friday = new Date(monday);
+    friday.setDate(monday.getDate() + 4);
+    const sameMonth = monday.getMonth() === friday.getMonth() && monday.getFullYear() === friday.getFullYear();
+    const start = sameMonth
+      ? monday.toLocaleDateString('en-GB', { day: 'numeric' })
+      : monday.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    const end = friday.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    return `Week ${getISOWeek(monday)} - ${start}-${end}`;
+  })();
   // Calculate actionable instruction summaries (needs isLocalhost)
   const actionableSummaries = useMemo(() => {
     const result = getActionableInstructions(instructionData, isLocalhost);
@@ -4568,7 +4633,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     const firmMattersOpenedCount = liveFirmMattersOpenedCount ?? derivedFirmMattersOpenedCount;
 
     useEffect(() => {
-      if (!isActive || demoModeEnabled || useLocalData || !homeDataReady) return;
+      if (!isActive || demoModeEnabled || useLocalData || !homeDataReady || localSupportNoData) return;
       const fullName = userResponsibleName.trim();
       if (!fullName) return;
 
@@ -4612,7 +4677,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
           window.clearTimeout(idle);
         }
       };
-    }, [demoModeEnabled, homeDataReady, homeMatterOpenedCountsKey, isActive, matterOpenedCountsRange.endDate, matterOpenedCountsRange.startDate, useLocalData, userResponsibleName]);
+    }, [demoModeEnabled, homeDataReady, homeMatterOpenedCountsKey, isActive, localSupportNoData, matterOpenedCountsRange.endDate, matterOpenedCountsRange.startDate, useLocalData, userResponsibleName]);
 
     const mattersResolvedForConversion = Array.isArray(providedMatters) || allMatters !== null || !!allMattersError;
 
@@ -6324,6 +6389,22 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
 
   type BookingItem = typeof bookingsNeeded[number];
 
+  const actionableLeaveBookings = useMemo<BookingItem[]>(
+    () => bookingsNeeded.filter((item) => {
+      const status = String(item.status || '').toLowerCase();
+      return status === 'approved' || status === 'rejected';
+    }),
+    [bookingsNeeded]
+  );
+
+  const pendingLeaveRequests = useMemo<BookingItem[]>(
+    () => bookingsNeeded.filter((item) => {
+      const status = String(item.status || '').toLowerCase();
+      return status === 'requested' || status === 'pending';
+    }),
+    [bookingsNeeded]
+  );
+
   // Quick action button styles
   const approveButtonStyles = {
     root: {
@@ -6566,8 +6647,12 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
   );
 
   const handleBookLeaveClick = React.useCallback(() => {
-    openBookLeavePanel(bookingsNeeded);
-  }, [bookingsNeeded, openBookLeavePanel]);
+    openBookLeavePanel(actionableLeaveBookings);
+  }, [actionableLeaveBookings, openBookLeavePanel]);
+
+  const handlePendingLeaveClick = React.useCallback(() => {
+    openBookLeavePanel(pendingLeaveRequests);
+  }, [openBookLeavePanel, pendingLeaveRequests]);
 
   const handleBookLeavePreviewClick = React.useCallback(() => {
     const todayIso = new Date().toISOString();
@@ -6626,45 +6711,62 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         count: approvalsNeeded.length,
       });
     }
-    if (bookingsNeeded.length > 0) {
-      // Format date nicely (e.g., "15 Jan")
-      const formatShortDate = (dateStr: string) => {
-        if (!dateStr) return '';
-        const d = new Date(dateStr);
-        return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-      };
-      
-      // Count approved items
-      const approvedCount = bookingsNeeded.filter(b => b.status === 'approved').length;
-      const first = bookingsNeeded[0];
+    const formatShortDate = (dateStr: string) => {
+      if (!dateStr) return '';
+      const d = new Date(dateStr);
+      return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    };
+
+    const formatLeaveActionSubtitle = (items: BookingItem[], statusLabel: string) => {
+      const first = items[0];
       const startFormatted = formatShortDate(first?.start_date || '');
       const endFormatted = formatShortDate(first?.end_date || '');
-      
-      // Build subtitle: "Approved · 15 Jan - 18 Jan" or "2 approved · 15 Jan +1 more"
-      const statusLabel = approvedCount > 0 
-        ? (approvedCount === bookingsNeeded.length ? 'Approved' : `${approvedCount} approved`)
-        : 'Pending';
-      const dateRange = bookingsNeeded.length > 1
-        ? `${startFormatted} +${bookingsNeeded.length - 1} more`
-        : (startFormatted === endFormatted ? startFormatted : `${startFormatted} – ${endFormatted}`);
-      const subtitle = `${statusLabel} · ${dateRange}`;
+      const dateRange = items.length > 1
+        ? `${startFormatted} +${items.length - 1} more`
+        : (startFormatted === endFormatted ? startFormatted : `${startFormatted} - ${endFormatted}`);
+      return `${statusLabel} · ${dateRange}`;
+    };
+
+    if (actionableLeaveBookings.length > 0) {
+      // Format date nicely (e.g., "15 Jan")
+      const approvedCount = actionableLeaveBookings.filter(b => String(b.status || '').toLowerCase() === 'approved').length;
+      const rejectedCount = actionableLeaveBookings.filter(b => String(b.status || '').toLowerCase() === 'rejected').length;
+      const statusLabel = rejectedCount > 0 && approvedCount === 0
+        ? 'Action needed'
+        : approvedCount === actionableLeaveBookings.length
+          ? 'Approved'
+          : `${approvedCount} approved`;
+      const subtitle = formatLeaveActionSubtitle(actionableLeaveBookings, statusLabel);
       actions.push({
         title: 'Book Requested Leave',
         subtitle,
         onClick: handleBookLeaveClick,
         icon: 'Timer',
         category: 'standard',
-        count: bookingsNeeded.length,
+        count: actionableLeaveBookings.length,
+      });
+    }
+
+    if (pendingLeaveRequests.length > 0) {
+      actions.push({
+        title: 'Annual Leave Pending',
+        subtitle: formatLeaveActionSubtitle(pendingLeaveRequests, 'Awaiting approval'),
+        onClick: handlePendingLeaveClick,
+        icon: 'Timer',
+        category: 'warning',
+        count: pendingLeaveRequests.length,
       });
     }
     return actions;
   }, [
     isApprover,
     approvalsNeeded,
-    bookingsNeeded,
+    actionableLeaveBookings,
+    pendingLeaveRequests,
     handleTestApproveLeaveClick,
     handleApproveLeaveClick,
     handleBookLeaveClick,
+    handlePendingLeaveClick,
     handleBookLeavePreviewClick,
     isLocalhost,
     demoModeEnabled,
@@ -6705,7 +6807,8 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
       'Confirm Attendance': { shortTitle: 'Confirm Attendance', description: 'Plan your 14-day schedule' },
       'Book Space': { shortTitle: 'Book Room', description: 'Reserve a meeting room or workspace' },
       'Verify ID': { shortTitle: 'Verify ID', description: 'Run a Tiller identity verification (address + PEP & sanctions)' },
-      'Pitch External': { shortTitle: 'Pitch External', description: 'Create a direct or referral Instruct link' },
+      'Find Risk Assessment': { shortTitle: 'Matter ref', description: '' },
+      'New Pitch': { shortTitle: 'New Pitch', description: 'Create a new contact and attach an Instruct pitch link' },
       'Log L&D': { shortTitle: 'Log L&D', description: 'Record a learning & development activity or plan' },
       'Team Attendance': { shortTitle: 'Team Leave', description: 'View who is away, upcoming leave, and leave history' },
       'Team Leave': { shortTitle: 'Team Leave', description: 'View who is away, upcoming leave, and leave history' },
@@ -6905,6 +7008,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         );
         break;
       case 'Verify ID':
+        setBespokePanelWidth('760px');
         content = (
           <Suspense fallback={<ModalSkeleton variant="generic" />}>
             <VerificationCheckForm
@@ -6924,12 +7028,26 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
           </Suspense>
         );
         break;
-      case 'Pitch External':
-        setBespokePanelWidth('560px');
+      case 'Find Risk Assessment':
+        setBespokePanelWidth('760px');
+        content = (
+          <RiskAssessmentFinderPanel
+            onClose={() => {
+              setIsBespokePanelOpen(false);
+              setBespokePanelContent(null);
+              resetQuickActionsSelection();
+            }}
+            onShowToast={showToast}
+          />
+        );
+        break;
+      case 'New Pitch':
+        setBespokePanelWidth('640px');
         content = (
           <PitchExternalForm
             currentUserInitials={userInitials}
             currentUserEmail={currentUserEmail || undefined}
+            teamData={teamData ?? null}
             onClose={() => {
               setIsBespokePanelOpen(false);
               setBespokePanelContent(null);
@@ -7084,7 +7202,9 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
           };
         };
 
-        return todoRegistryCards.map((card) => {
+        return todoRegistryCards
+          .filter(card => cclOperationsAvailable || card.kind !== 'review-ccl')
+          .map((card) => {
           const payload = asRecord(card.payload);
 
           if (card.kind === 'review-ccl') {
@@ -7262,15 +7382,13 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
             },
           });
         });
-      }, [handleApproveLdTodo, openHomeCclReview, openRegisterTodoPanel, todoRegistryCards, canSeeTodoGodView, homeTodoScope]);
+      }, [handleApproveLdTodo, openHomeCclReview, openRegisterTodoPanel, todoRegistryCards, canSeeTodoGodView, homeTodoScope, cclOperationsAvailable]);
   const immediateActionsList: Action[] = useMemo(() => {
     const actions: Action[] = [];
-    if (!isLoadingAttendance && (demoModeEnabled || !currentUserConfirmed)) {
-      // Show today's date as the detail
-      const todayFormatted = new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+    if (!isLoadingAttendance && (demoModeEnabled || shouldShowAttendanceConfirmTodo)) {
       actions.push({
         title: 'Confirm Attendance',
-        subtitle: todayFormatted,
+        subtitle: currentWeekTodoMeta,
         icon: 'Attendance',
         onClick: () => handleActionClick({ title: 'Confirm Attendance', icon: 'Attendance' }),
         category: 'critical',
@@ -7279,7 +7397,8 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     // Resume prompts (pitch / matter) suppressed intentionally; cached data remains for manual navigation
     
     // Add grouped instruction actions (replaces old single "Review Instructions" action)
-    if (!instructionsActionDone && (userInitials === 'LZ' || isLocalhost)) {
+    const canSeeAllGroupedInstructionActions = userInitials === 'LZ' || isLocalhost;
+    if (!instructionsActionDone && (canSeeAllGroupedInstructionActions || groupedInstructionActions['Verify ID'])) {
       const instructionCategoryFor = (actionType: string): ImmediateActionCategory => {
         if (['Verify ID', 'Review ID', 'Review', 'Open Matter'].includes(actionType)) {
           return 'standard';
@@ -7288,6 +7407,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
       };
 
       Object.entries(groupedInstructionActions).forEach(([actionType, { count, icon, disabled, sampleDetail, firstSummary }]) => {
+        if (!canSeeAllGroupedInstructionActions && actionType !== 'Verify ID') return;
         const title = actionType;
         // Show client name or "+X more" if multiple
         const subtitle = count > 1 
@@ -7346,11 +7466,10 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     // Rate Change Notices removed from immediate actions - now only accessible via UserBubble (localhost only)
 
     // Add pending document allocation actions (files in Holding).
-    // Holding-folder filing is an LZ-only triage tool: the rest of the firm
-    // shouldn't be encouraged to drop files into the Holding area when the
-    // matter is open and ND is the canonical destination. The endpoint stays
-    // alive (firm-wide blob scan) but the Home card is gated to LZ.
-    const showHoldingCard = isDevOwner(userData?.[0]);
+    // Document allocation and transfer are still in preview: keep them local,
+    // plus Luke in production, until the workflow is ready for wider rollout.
+    const canSeeDocumentTodoCards = isLocalhost || String(userInitials || '').trim().toUpperCase() === 'LZ';
+    const showHoldingCard = canSeeDocumentTodoCards;
     const ownedEnquiryIds = (() => {
       if (showHoldingCard) return null;
       const initials = (userInitials || '').toUpperCase().trim();
@@ -7437,9 +7556,8 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
 
     // Transfer Documents card — instructions where a matter is open but at
     // least one document hasn't been pushed to ND yet. Backed by SQL on
-    // dbo.Documents (TransferredToNdAt IS NULL), not a blob scan. Visible to
-    // everyone, but non-firm-wide users only see rows owned by their initials
-    // (HelixContact match).
+    // dbo.Documents (TransferredToNdAt IS NULL), not a blob scan. Preview
+    // visibility matches Allocate Documents; row scoping still follows Home.
     const canSeeAllTransfers = canSeeFirmWideHomeData(userData?.[0]);
     const scopedPendingTransfers = canSeeAllTransfers
       ? pendingTransfers
@@ -7448,7 +7566,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
           const owner = (r.helixContact || '').toUpperCase().trim();
           return me && owner && me === owner;
         });
-    if (scopedPendingTransfers.length > 0) {
+    if (canSeeDocumentTodoCards && scopedPendingTransfers.length > 0) {
       const totalDocs = scopedPendingTransfers.reduce((sum, r) => sum + (r.pendingCount || 0), 0);
       const first = scopedPendingTransfers[0];
       const firstClient = (first.companyName
@@ -7553,95 +7671,101 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         }
       };
 
-      // enquiry-kind expansion — blue accent (or Commercial accent via aow)
-      actions.push({
-        title: 'Allocate Documents',
-        subtitle: `Demo · ${REHEARSAL_CLIENT}`,
-        icon: 'DocumentSet',
-        count: 3,
-        onClick: openRehearsalEnquiry,
-        category: 'standard',
-        expansion: {
-          kind: 'enquiry',
-          primary: REHEARSAL_CLIENT,
-          secondary: '3 files awaiting allocation',
-          aow: 'Commercial',
-          description: 'Files dropped into this enquiry\'s holding area are waiting to be assigned to the active workspace.',
-          fields: [
-            { label: 'Enquiry ref', value: REHEARSAL_PROSPECT_ID },
-            { label: 'In holding', value: '3 files' },
-            { label: 'POC', value: 'LZ' },
-            { label: 'Area', value: 'Commercial' },
-          ],
-          actions: [
-            { label: 'Open enquiry', onClick: openRehearsalEnquiry, tone: 'primary' },
-          ],
-        },
-      });
+      if (canSeeDocumentTodoCards) {
+        // enquiry-kind expansion, blue accent (or Commercial accent via aow)
+        actions.push({
+          title: 'Allocate Documents',
+          subtitle: `Demo · ${REHEARSAL_CLIENT}`,
+          icon: 'DocumentSet',
+          count: 3,
+          onClick: openRehearsalEnquiry,
+          category: 'standard',
+          expansion: {
+            kind: 'enquiry',
+            primary: REHEARSAL_CLIENT,
+            secondary: '3 files awaiting allocation',
+            aow: 'Commercial',
+            description: 'Files dropped into this enquiry\'s holding area are waiting to be assigned to the active workspace.',
+            fields: [
+              { label: 'Enquiry ref', value: REHEARSAL_PROSPECT_ID },
+              { label: 'In holding', value: '3 files' },
+              { label: 'POC', value: 'LZ' },
+              { label: 'Area', value: 'Commercial' },
+            ],
+            actions: [
+              { label: 'Open enquiry', onClick: openRehearsalEnquiry, tone: 'primary' },
+            ],
+          },
+        });
+      }
 
-      // matter-kind expansion — green accent
-      actions.push({
-        title: 'Verify ID',
-        subtitle: `Demo · ${REHEARSAL_CLIENT}`,
-        icon: 'ContactCard',
-        count: 1,
-        onClick: openRehearsalInstruction,
-        category: 'critical',
-        expansion: {
-          kind: 'matter',
-          primary: REHEARSAL_CLIENT,
-          secondary: 'Pre-action commercial debt recovery',
-          description: 'Run a Tiller identity verification against the rehearsal instruction. Demo is wired to the seed (HLX-27367-94842) — opens the real workflow, no Clio writes.',
-          fields: [
-            { label: 'Instruction', value: REHEARSAL_INSTRUCTION_REF },
-            { label: 'Service', value: 'Commercial debt recovery' },
-            { label: 'Next step', value: 'Verify ID' },
-            { label: 'EID status', value: 'Passed (rehearsal)' },
-          ],
-          actions: [
-            { label: 'Open workflow', onClick: openRehearsalInstruction, tone: 'primary' },
-          ],
-        },
-      });
-
-      // list-kind expansion — Transfer Documents queue, two demo rows.
-      const demoTransferRows: TodoExpansionListRow[] = [
-        {
-          id: REHEARSAL_INSTRUCTION_REF,
-          primary: REHEARSAL_CLIENT,
-          secondary: `${REHEARSAL_INSTRUCTION_REF} · matter 30038`,
-          badge: '4 files',
-          ownerInitials: 'LZ',
+      if (canSeeUnreadyHomeActions) {
+        // matter-kind expansion, green accent
+        actions.push({
+          title: 'Verify ID',
+          subtitle: `Demo · ${REHEARSAL_CLIENT}`,
+          icon: 'ContactCard',
+          count: 1,
           onClick: openRehearsalInstruction,
-          aow: 'Commercial',
-        },
-        {
-          id: 'HLX-27367-94843',
-          primary: 'Demo Construction Ltd',
-          secondary: 'HLX-27367-94843 · matter 30039',
-          badge: '2 files',
-          ownerInitials: 'AC',
-          onClick: openRehearsalInstruction,
-          aow: 'Construction',
-        },
-      ];
-      actions.push({
-        title: 'Transfer Documents',
-        subtitle: `Demo · 2 instructions`,
-        icon: 'Send',
-        count: 6,
-        onClick: openRehearsalInstruction,
-        category: 'standard',
-        expansion: {
-          kind: 'list',
-          primary: '2 instructions awaiting transfer',
-          secondary: '6 files across 2 matters',
-          description: 'Documents on instructions where a matter is open but the file hasn\'t reached ND yet. Open one to push it across.',
-          list: demoTransferRows,
-        },
-      });
+          category: 'critical',
+          expansion: {
+            kind: 'matter',
+            primary: REHEARSAL_CLIENT,
+            secondary: 'Pre-action commercial debt recovery',
+            description: 'Run a Tiller identity verification against the rehearsal instruction. Demo is wired to the seed (HLX-27367-94842), opens the real workflow, no Clio writes.',
+            fields: [
+              { label: 'Instruction', value: REHEARSAL_INSTRUCTION_REF },
+              { label: 'Service', value: 'Commercial debt recovery' },
+              { label: 'Next step', value: 'Verify ID' },
+              { label: 'EID status', value: 'Passed (rehearsal)' },
+            ],
+            actions: [
+              { label: 'Open workflow', onClick: openRehearsalInstruction, tone: 'primary' },
+            ],
+          },
+        });
+      }
 
-      // generic-kind expansion — neutral accent, no aow, no primary-entity navigation
+      if (canSeeDocumentTodoCards) {
+        // list-kind expansion, Transfer Documents queue, two demo rows.
+        const demoTransferRows: TodoExpansionListRow[] = [
+          {
+            id: REHEARSAL_INSTRUCTION_REF,
+            primary: REHEARSAL_CLIENT,
+            secondary: `${REHEARSAL_INSTRUCTION_REF} · matter 30038`,
+            badge: '4 files',
+            ownerInitials: 'LZ',
+            onClick: openRehearsalInstruction,
+            aow: 'Commercial',
+          },
+          {
+            id: 'HLX-27367-94843',
+            primary: 'Demo Construction Ltd',
+            secondary: 'HLX-27367-94843 · matter 30039',
+            badge: '2 files',
+            ownerInitials: 'AC',
+            onClick: openRehearsalInstruction,
+            aow: 'Construction',
+          },
+        ];
+        actions.push({
+          title: 'Transfer Documents',
+          subtitle: `Demo · 2 instructions`,
+          icon: 'Send',
+          count: 6,
+          onClick: openRehearsalInstruction,
+          category: 'standard',
+          expansion: {
+            kind: 'list',
+            primary: '2 instructions awaiting transfer',
+            secondary: '6 files across 2 matters',
+            description: 'Documents on instructions where a matter is open but the file hasn\'t reached ND yet. Open one to push it across.',
+            list: demoTransferRows,
+          },
+        });
+      }
+
+      if (cclOperationsAvailable) {
       actions.push({
         title: `Review CCL · ${REHEARSAL_INSTRUCTION_REF}`,
         subtitle: `${REHEARSAL_CLIENT} \u2013 Commercial`,
@@ -7665,6 +7789,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
           ],
         },
       });
+      }
     }
 
     // Normalize titles (strip count suffix like " (3)") when sorting
@@ -7676,7 +7801,8 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     return enrichImmediateActions(actions);
   }, [
     isLoadingAttendance,
-    currentUserConfirmed,
+    shouldShowAttendanceConfirmTodo,
+    currentWeekTodoMeta,
     demoModeEnabled,
     hasActiveMatter,
     instructionData,
@@ -7688,6 +7814,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     hasActivePitch,
     userInitials,
     isLocalhost,
+    canSeeUnreadyHomeActions,
     pendingDocActions,
     pendingTransfers,
     enquiries,
@@ -7860,15 +7987,15 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     // Dev preview: LZ + AC see "New Matter" everywhere (incl. prod) so they can exercise the flow against real data.
     // Backend chain is still STUBBED (Phase 2 pending) — payload validates and returns simulated:true; no Clio side effects.
     // Promote to isAdminUser() once Phase 2 ships, then to everyone after a week of clean runs.
-    const isLzOrAc = ['LZ', 'AC'].includes(userInitials.toUpperCase());
     if (isLocalhost) {
       actions.push({ title: 'New Matter', icon: 'OpenFolderHorizontal' });
     }
-    if (isLzOrAc) {
-      actions.push({ title: 'Pitch External', icon: 'Presentation' });
+    if (isLocalhost || userInitials === 'LZ' || userInitials === 'EA') {
+      actions.push({ title: 'Find Risk Assessment', icon: 'Search' });
     }
+    actions.push({ title: 'New Pitch', icon: 'AddContact' });
     actions.sort(
-      (a, b) => (quickActionOrder[a.title] || 99) - (quickActionOrder[b.title] || 99)
+      (a, b) => (quickActionDisplayOrder[a.title] || 99) - (quickActionDisplayOrder[b.title] || 99)
     );
     return actions;
   }, [userInitials, isLocalhost]);
@@ -8221,6 +8348,14 @@ const conversionRate = displayEnquiriesMonthToDate
     (sum, a) => sum + ((a as { count?: number }).count ?? 1),
     0
   );
+  const userTouchedRightPanelRef = useRef(false);
+  useEffect(() => {
+    if (homeRightPanelMode !== 'todo') return;
+    if (todoCountForPanel > 0) return;
+    if (userTouchedRightPanelRef.current) return;
+    setHomeRightPanelMode('auto');
+  }, [homeRightPanelMode, setHomeRightPanelMode, todoCountForPanel]);
+
   const effectiveRightPanel: 'todo' | 'ldRecord' = (() => {
     if (homeRightPanelMode === 'todo') return 'todo';
     if (homeRightPanelMode === 'ldRecord') return 'ldRecord';
@@ -8266,6 +8401,7 @@ const conversionRate = displayEnquiriesMonthToDate
             type="button"
             onClick={(e) => {
               e.stopPropagation();
+              userTouchedRightPanelRef.current = true;
               // Click toggles: locking to selected, or returning to auto if
               // the user clicks the currently-locked segment.
               if (locked) setHomeRightPanelMode('auto');
@@ -8388,6 +8524,14 @@ const conversionRate = displayEnquiriesMonthToDate
             pipeline column for the `todoSlot` below (50/50 with Conversion). */}
         <div className={`${dashboardSectionReady ? 'home-cascade-1' : 'home-cascade-pending'} home-stable-shell home-stable-shell-dashboard`}>
           <div className="home-stable-shell-panel home-stable-shell-live">
+            {localSupportNoData ? (
+              <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <span style={{ fontSize: 12, fontWeight: 800, color: isDarkMode ? colours.dark.text : colours.websiteBlue }}>Fast shell active</span>
+                <span style={{ fontSize: 11, color: isDarkMode ? colours.subtleGrey : colours.greyText, lineHeight: 1.45 }}>
+                  Live Home datasets are paused. Open Session Tools to switch to Enquiries, Matters, Reports, or Full live when you need data.
+                </span>
+              </div>
+            ) : (
             <LivePulse nonce={dataOpsPulseNonce} variant="border">
             <OperationsDashboard
               metrics={displayTimeMetrics}
@@ -8436,25 +8580,36 @@ const conversionRate = displayEnquiriesMonthToDate
                 ? <LDRecordIcon size={10} className="home-section-header-icon" />
                 : undefined}
               todoSlot={replacePipelineAndMatters ? (
-                effectiveRightPanel === 'ldRecord' ? (
-                  <LDRecordPanel
-                    userInitials={userInitials}
-                    canViewAll={canSeeTodoGodView}
-                    scope={ldScope}
-                    isDarkMode={isDarkMode}
-                    onOpenFullRecord={openLDFullRecord}
-                    onOpenLDForm={() => openLDFullRecord()}
-                  />
-                ) : (
-                  <ImmediateActionsBar
-                    isDarkMode={isDarkMode}
-                    immediateActionsReady={immediateActionsReady}
-                    immediateActionsList={displayImmediateActionsList}
-                    highlighted={Boolean(homeCclReviewRequest)}
-                    seamless={true}
-                    enableSuggestedNext={isLocalhost}
-                  />
-                )
+                <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ display: effectiveRightPanel === 'ldRecord' ? 'block' : 'none' }}>
+                    <LDRecordPanel
+                      userInitials={userInitials}
+                      canViewAll={canSeeTodoGodView}
+                      scope={ldScope}
+                      isDarkMode={isDarkMode}
+                      onOpenFullRecord={openLDFullRecord}
+                      onOpenLDForm={() => openLDFullRecord()}
+                    />
+                  </div>
+                  <div style={{ display: effectiveRightPanel === 'todo' ? 'flex' : 'none', flex: 1, minHeight: 0 }}>
+                    <ImmediateActionsBar
+                      isDarkMode={isDarkMode}
+                      immediateActionsReady={immediateActionsReady}
+                      immediateActionsList={displayImmediateActionsList}
+                      highlighted={Boolean(homeCclReviewRequest)}
+                      seamless={true}
+                      enableSuggestedNext={isLocalhost}
+                      emptyCompanion={todoCountForPanel === 0 ? (
+                        <HomeQuietPanel
+                          userInitials={userInitials}
+                          isDarkMode={isDarkMode}
+                          futureLeaveRecords={futureLeaveRecords}
+                          futureBookings={futureBookings}
+                        />
+                      ) : undefined}
+                    />
+                  </div>
+                </div>
               ) : null}
               todoScopeSlot={replacePipelineAndMatters ? (
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
@@ -8465,13 +8620,13 @@ const conversionRate = displayEnquiriesMonthToDate
               ) : null}
             />
             </LivePulse>
+            )}
           </div>
         </div>
 
-        {/* Operations queue — DEV PREVIEW: hidden by default and only mounted when
-            private Hub Tools opt it in. Also hidden when the
-            `hideAsanaAndTransactions` layout toggle is on. */}
-        {!hideAsanaAndTransactions && opsQueuePreviewEnabled && (() => {
+        {/* Operations queue — local phasing surface. Local dev forces it on so the workbench stays visible;
+          production remains controlled by the private Hub Tools gate. */}
+        {showOpsWorkbenchOnHome && (() => {
           const userRole = (userData?.[0]?.Role || '').toLowerCase();
           const isOpsRole = /operations|ops|tech|technology/i.test(userRole);
           const userIsAdmin = isAdminUser(userData?.[0]) || isOpsRole;
@@ -8487,7 +8642,7 @@ const conversionRate = displayEnquiriesMonthToDate
                   isAdmin={userIsAdmin || canUseOpsQueuePreview}
                   isV2User={canUseOpsQueuePreview}
                   isDevOwner={canSeeFirmWideHomeData(userData?.[0])}
-                  showHomeOpsCclDates={featureToggles.showHomeOpsCclDates === true && !isProductionPreview}
+                  showHomeOpsCclDates={featureToggles.showHomeOpsCclDates === true && !isProductionPreview && cclOperationsAvailable}
                   isActive={isActive}
                 />
                 </LivePulse>

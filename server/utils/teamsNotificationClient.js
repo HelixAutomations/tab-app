@@ -21,7 +21,18 @@ let cachedBotExpiry = 0; // Unix ms
 // ── Bot identity ─────────────────────────────────────────────
 const BOT_APP_ID = '3d935d23-349e-4502-a9c0-6f5ca48d5d33';
 const BOT_CONNECTOR_BASE = 'https://smba.trafficmanager.net/apis';
-const ALLOWED_DM_RECIPIENTS = ['lz@helix-law.com'];
+const DEFAULT_ALLOWED_DM_RECIPIENTS = ['lz@helix-law.com', 'ea@helix-law.com'];
+function parseAllowedDmRecipients() {
+  const configured = String(process.env.TEAMS_NOTIFY_ALLOWED_DM_RECIPIENTS || '').trim();
+  if (!configured) return DEFAULT_ALLOWED_DM_RECIPIENTS;
+  const parsed = configured
+    .split(/[;,]/)
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+  return parsed.length ? Array.from(new Set(parsed)) : DEFAULT_ALLOWED_DM_RECIPIENTS;
+}
+const ALLOWED_DM_RECIPIENTS = parseAllowedDmRecipients();
+const ALLOW_ALL_DM_RECIPIENTS = ALLOWED_DM_RECIPIENTS.includes('*');
 
 // ── Channel routes (mirrors enquiry-processing-v2 ChannelResolver) ──
 const PRIMARY_TEAM_ID = 'b7d73ffb-70b5-45d6-9940-8f9cc7762135';
@@ -303,7 +314,7 @@ function buildDmConversationId(userAadId) {
 // ── Send Adaptive Card to a user's DM ────────────────────────
 async function sendCardToDM(userEmail, card, summary = 'Notification') {
   const emailLower = (userEmail || '').toLowerCase().trim();
-  if (!ALLOWED_DM_RECIPIENTS.includes(emailLower)) {
+  if (!ALLOW_ALL_DM_RECIPIENTS && !ALLOWED_DM_RECIPIENTS.includes(emailLower)) {
     const msg = `DM blocked: ${emailLower} is not in ALLOWED_DM_RECIPIENTS`;
     log.warn(`[TeamsNotify] ${msg}`);
     trackEvent('TeamsNotification.DM.Blocked', { email: emailLower });

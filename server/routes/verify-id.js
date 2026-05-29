@@ -7,6 +7,7 @@ const router = express.Router();
 // Import our copied Tiller integration utilities
 const { submitVerification, submitRawVerification, buildTillerPayload } = require('../utils/tillerApi');
 const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
+const { trackRouteException } = require('../utils/errorContext');
 const { insertIDVerification } = require('../utils/idVerificationDb');
 const { deleteCachePattern, CACHE_CONFIG } = require('../utils/redisClient');
 
@@ -983,26 +984,80 @@ router.get('/adhoc/instructions', async (req, res) => {
  * submitting. No Tiller call, no DB writes.
  */
 router.get('/adhoc/prefill/:instructionRef', async (req, res) => {
-  const { instructionRef } = req.params;
+  const instructionRef = String(req.params.instructionRef || '').trim();
+  const operation = 'VerifyId.AdhocPrefill';
+  const startedAt = Date.now();
   if (!instructionRef) return res.status(400).json({ error: 'Missing instructionRef' });
+
+  const compactRef = instructionRef.replace(/[\s\-/]/g, '').toUpperCase();
+  const compactSql = (column) => `UPPER(REPLACE(REPLACE(REPLACE(${column}, '-', ''), ' ', ''), '/', ''))`;
+
+  trackEvent('VerifyId.AdhocPrefill.Started', {
+    operation,
+    triggeredBy: req.user?.initials || req.user?.email || 'unknown',
+    inputLength: String(instructionRef.length),
+  });
 
   try {
     const result = await runInstructionQuery((request, s) =>
       request
         .input('ref', s.NVarChar, instructionRef)
+        .input('compactRef', s.NVarChar, compactRef)
         .query(`
+          WITH MatterMatches AS (
+            SELECT TOP 10 m.InstructionRef, m.MatterID, m.DisplayNumber, m.OpenDate
+            FROM dbo.Matters m
+            WHERE m.InstructionRef = @ref
+               OR m.MatterID = @ref
+               OR m.DisplayNumber = @ref
+               OR ${compactSql('m.InstructionRef')} = @compactRef
+               OR ${compactSql('m.MatterID')} = @compactRef
+               OR ${compactSql('m.DisplayNumber')} = @compactRef
+            ORDER BY m.OpenDate DESC
+          ), CandidateRefs AS (
+            SELECT @ref AS InstructionRef
+            UNION
+            SELECT InstructionRef FROM MatterMatches WHERE InstructionRef IS NOT NULL
+          )
           SELECT
             i.InstructionRef, i.ClientId, i.Email,
             i.FirstName, i.LastName, i.CompanyName,
             i.Title, i.Gender, i.DOB, i.Phone, i.Nationality,
             i.PassportNumber, i.DriversLicenseNumber,
             i.HouseNumber, i.Street, i.City, i.County, i.Postcode,
-            i.Country, i.CountryCode
+            i.Country, i.CountryCode,
+            i.MatterId,
+            mm.DisplayNumber AS ResolvedDisplayNumber
           FROM Instructions i
-          WHERE i.InstructionRef = @ref
+          OUTER APPLY (
+            SELECT TOP 1 DisplayNumber
+            FROM MatterMatches m
+            WHERE m.InstructionRef = i.InstructionRef
+               OR m.MatterID = i.MatterId
+            ORDER BY m.OpenDate DESC
+          ) mm
+          WHERE i.InstructionRef IN (SELECT InstructionRef FROM CandidateRefs)
+             OR i.MatterId = @ref
+             OR ${compactSql('i.InstructionRef')} = @compactRef
+             OR ${compactSql('i.MatterId')} = @compactRef
+          ORDER BY CASE
+            WHEN i.InstructionRef = @ref THEN 0
+            WHEN ${compactSql('i.InstructionRef')} = @compactRef THEN 1
+            WHEN i.MatterId = @ref THEN 2
+            WHEN ${compactSql('i.MatterId')} = @compactRef THEN 3
+            ELSE 4
+          END, i.SubmissionDate DESC
         `)
     );
     if (!result.recordset?.length) {
+      const durationMs = Date.now() - startedAt;
+      trackEvent('VerifyId.AdhocPrefill.Completed', {
+        operation,
+        triggeredBy: req.user?.initials || req.user?.email || 'unknown',
+        status: 'not-found',
+        durationMs: String(durationMs),
+      });
+      trackMetric('VerifyId.AdhocPrefill.Duration', durationMs, { operation, status: 'not-found' });
       return res.status(404).json({ error: 'Instruction not found', instructionRef });
     }
     const r = result.recordset[0];
@@ -1046,9 +1101,21 @@ router.get('/adhoc/prefill/:instructionRef', async (req, res) => {
       ? (r.DOB instanceof Date ? r.DOB.toISOString().slice(0, 10) : String(r.DOB).slice(0, 10))
       : '';
 
+    const durationMs = Date.now() - startedAt;
+    trackEvent('VerifyId.AdhocPrefill.Completed', {
+      operation,
+      triggeredBy: req.user?.initials || req.user?.email || 'unknown',
+      status: 'found',
+      durationMs: String(durationMs),
+    });
+    trackMetric('VerifyId.AdhocPrefill.Duration', durationMs, { operation, status: 'found' });
+
     return res.json({
+      inputRef: instructionRef,
       instructionRef: r.InstructionRef,
       clientId: r.ClientId || null,
+      matterId: r.MatterId || null,
+      displayNumber: r.ResolvedDisplayNumber || null,
       companyName: r.CompanyName || '',
       prefill: {
         title: r.Title || '',
@@ -1078,6 +1145,13 @@ router.get('/adhoc/prefill/:instructionRef', async (req, res) => {
   } catch (error) {
     const transient = isTransientSqlError(error);
     trackException(error, { operation: 'adhocPrefill', phase: 'readInstruction', entity: 'Instruction' });
+    const durationMs = Date.now() - startedAt;
+    trackEvent('VerifyId.AdhocPrefill.Failed', {
+      operation,
+      triggeredBy: req.user?.initials || req.user?.email || 'unknown',
+      error: error.message,
+      durationMs: String(durationMs),
+    });
     return res.status(transient ? 503 : 500).json({ error: 'Prefill failed', details: error.message, transient });
   }
 });
@@ -1299,6 +1373,7 @@ router.post('/adhoc', async (req, res) => {
       lane: 'Verification',
       payload: body,
       summary: `EID: ${firstName} ${lastName}${instructionRef ? ` (${instructionRef})` : ''}${legacyTag}`.slice(0, 400),
+      clientSubmissionId: body?.clientSubmissionId || req.body?.clientSubmissionId || null,
     });
   } catch (logErr) {
     trackException(logErr, { phase: 'verifyAdhoc.recordSubmission' });
@@ -1347,7 +1422,7 @@ router.post('/adhoc', async (req, res) => {
           console.warn('[verify-id adhoc] Cache invalidation failed:', cacheErr?.message || cacheErr);
         }
       } catch (persistErr) {
-        trackException(persistErr, { operation: 'adhoc', phase: 'insertIDVerification', entity: 'IDVerifications', instructionRef });
+        trackRouteException(persistErr, req, { operation: 'adhoc', phase: 'insertIDVerification', entity: 'IDVerifications', instructionRef, formKey: 'verification', submissionId });
         await recordStep(submissionId, {
           name: 'idVerifications.insert',
           status: 'failed',
@@ -1381,7 +1456,7 @@ router.post('/adhoc', async (req, res) => {
       response: tillerResponse,
     });
   } catch (error) {
-    trackException(error, { operation: 'adhoc', phase: 'tillerSubmit', entity: 'AdhocVerification' });
+    trackRouteException(error, req, { operation: 'adhoc', phase: 'tillerSubmit', entity: 'AdhocVerification', formKey: 'verification', submissionId, instructionRef });
     trackEvent('Verify.Adhoc.Failed', { operation: 'adhoc', triggeredBy, ref, error: error.message, linkedInstruction: instructionRef || '' });
     await markFailed(submissionId, { lastEvent: 'tiller.submit:failed', error });
     const validationErrors = error?.response?.data?.ValidationErrors;

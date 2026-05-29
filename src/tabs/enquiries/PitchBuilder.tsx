@@ -1411,30 +1411,24 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
   const [sectionSelections, setSectionSelections] = useState<Record<string, string[]>>({});
   const [sectionContent, setSectionContent] = useState<Record<string, string>>({});
   const [body, setBodyState] = useState<string>('');
+  const bodyRef = useRef(body);
+  useEffect(() => {
+    bodyRef.current = body;
+  }, [body]);
 
   function setBody(newBody: string | ((prevBody: string) => string)) {
-    const resolvedBody = typeof newBody === 'function' ? newBody(body) : newBody;
+    const resolvedBody = typeof newBody === 'function' ? newBody(bodyRef.current) : newBody;
+    bodyRef.current = resolvedBody;
     setBodyState(resolvedBody);
-
-    // Trigger change detection for precise highlighting
-    setTimeout(() => {
-      const { blocks, snippets } = computeSnippetChanges();
-      setEditedBlocks(blocks);
-      setEditedSnippets(snippets);
-    }, 100);
+    scheduleSnippetChangeDetection(100);
   }
 
   // Internal function for programmatic changes that shouldn't trigger undo saves
   function setBodyInternal(newBody: string | ((prevBody: string) => string)) {
-    const resolvedBody = typeof newBody === 'function' ? newBody(body) : newBody;
+    const resolvedBody = typeof newBody === 'function' ? newBody(bodyRef.current) : newBody;
+    bodyRef.current = resolvedBody;
     setBodyState(resolvedBody);
-
-    // Trigger change detection for precise highlighting
-    setTimeout(() => {
-      const { blocks, snippets } = computeSnippetChanges();
-      setEditedBlocks(blocks);
-      setEditedSnippets(snippets);
-    }, 100);
+    scheduleSnippetChangeDetection(100);
   }
 
   // Create a React-compatible setState wrapper
@@ -1444,6 +1438,10 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
 
   // Only clear the body on the very first mount, not after scenario injection or async loads
   useEffect(() => {
+    if (initialScenario) {
+      bodyHasBeenSeeded.current = true;
+      return;
+    }
     if (!bodyHasBeenSeeded.current && (!body || body.trim() === '')) {
       setBody('');
       if (bodyEditorRef.current) {
@@ -1451,7 +1449,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
       }
       bodyHasBeenSeeded.current = true;
     }
-  }, [body, setBody]);
+  }, [body, initialScenario, setBody]);
 
   // Disable automatic insertion of default blocks for v1
   /*
@@ -1583,6 +1581,10 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
   const [redoStack, setRedoStack] = useState<string[]>([]);
   const [isUndoRedoOperation, setIsUndoRedoOperation] = useState<boolean>(false);
   const [undoInitialized, setUndoInitialized] = useState<boolean>(false);
+  const isUndoRedoOperationRef = useRef(isUndoRedoOperation);
+  useEffect(() => {
+    isUndoRedoOperationRef.current = isUndoRedoOperation;
+  }, [isUndoRedoOperation]);
 
   // Navigator is now owned by Enquiries detail view; remove PitchBuilder-specific Navigator bar to avoid duplication.
 
@@ -1684,6 +1686,69 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
   // For the body editor
   const savedSelection = useRef<Range | null>(null);
   const inputTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const snippetChangeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const bodyStateFrameRef = useRef<number | null>(null);
+  const pendingBodyStateRef = useRef<string | null>(null);
+  const computeSnippetChangesRef = useRef(() => ({
+    blocks: {} as { [key: string]: boolean },
+    snippets: {} as { [key: string]: { [label: string]: boolean } },
+  }));
+  const saveToUndoStackRef = useRef(saveToUndoStack);
+
+  useEffect(() => {
+    computeSnippetChangesRef.current = computeSnippetChanges;
+    saveToUndoStackRef.current = saveToUndoStack;
+  });
+
+  useEffect(() => () => {
+    if (inputTimeoutRef.current) {
+      clearTimeout(inputTimeoutRef.current);
+      inputTimeoutRef.current = null;
+    }
+    if (snippetChangeTimeoutRef.current) {
+      clearTimeout(snippetChangeTimeoutRef.current);
+      snippetChangeTimeoutRef.current = null;
+    }
+    if (bodyStateFrameRef.current !== null) {
+      window.cancelAnimationFrame(bodyStateFrameRef.current);
+      bodyStateFrameRef.current = null;
+    }
+  }, []);
+
+  function scheduleSnippetChangeDetection(delayMs = 250) {
+    if (snippetChangeTimeoutRef.current) {
+      clearTimeout(snippetChangeTimeoutRef.current);
+    }
+
+    snippetChangeTimeoutRef.current = setTimeout(() => {
+      snippetChangeTimeoutRef.current = null;
+      const { blocks, snippets } = computeSnippetChangesRef.current();
+      setEditedBlocks(blocks);
+      setEditedSnippets(snippets);
+    }, delayMs);
+  }
+
+  function scheduleBodyStateSync(nextBody: string) {
+    bodyRef.current = nextBody;
+    pendingBodyStateRef.current = nextBody;
+    if (bodyStateFrameRef.current !== null) return;
+
+    const flush = () => {
+      bodyStateFrameRef.current = null;
+      const queuedBody = pendingBodyStateRef.current;
+      pendingBodyStateRef.current = null;
+      if (queuedBody !== null) {
+        setBodyState(queuedBody);
+      }
+    };
+
+    if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+      flush();
+      return;
+    }
+
+    bodyStateFrameRef.current = window.requestAnimationFrame(flush);
+  }
 
   useEffect(() => {
     const editor = bodyEditorRef.current;
@@ -1886,30 +1951,25 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
       });
     };
 
-    const handleInput = (e: Event) => {
+    const handleInput = () => {
       // Capture the current DOM content and save it to undo stack BEFORE React state updates
       const currentDOMContent = editor.innerHTML;
+      const previousBody = bodyRef.current;
 
       // Save to undo stack (debounced) - this captures the state BEFORE the input change
-      if (!isUndoRedoOperation && body && body.trim() && currentDOMContent !== body) {
+      if (!isUndoRedoOperationRef.current && previousBody && previousBody.trim() && currentDOMContent !== previousBody) {
         if (inputTimeoutRef.current) {
           clearTimeout(inputTimeoutRef.current);
         }
 
         inputTimeoutRef.current = setTimeout(() => {
-          saveToUndoStack(body); // Save the React state (which is the previous state)
+          inputTimeoutRef.current = null;
+          saveToUndoStackRef.current(previousBody); // Save the previous state
         }, 300); // Shorter debounce for better responsiveness
       }
 
-      // Update body state immediately to reflect the change
-      setBodyState(currentDOMContent);
-
-      // Trigger precise highlighting detection (debounced)
-      setTimeout(() => {
-        const { blocks, snippets } = computeSnippetChanges();
-        setEditedBlocks(blocks);
-        setEditedSnippets(snippets);
-      }, 100);
+      scheduleBodyStateSync(currentDOMContent);
+      scheduleSnippetChangeDetection(250);
     };
 
     const handleDblClick = (e: MouseEvent) => {
@@ -1938,7 +1998,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
       editor.removeEventListener('dblclick', handleDblClick);
       editor.removeEventListener('keydown', handleKeyDown, true);
     };
-  }, [body, isUndoRedoOperation]);
+  }, []);
 
   /**
    * Save the user's cursor selection in the contentEditable, so we can insert text at that exact spot.
@@ -3001,6 +3061,10 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
         areaOfWork: enquiry.Area_of_Work,
         prospectId: resolvedProspectId,
         pitchedBy: userInitials,
+        firstName: enquiry.First_Name || '',
+        lastName: enquiry.Last_Name || '',
+        clientName: [enquiry.First_Name, enquiry.Last_Name].filter(Boolean).join(' ') || enquiry.Email || '',
+        contactEmail: enquiry.Email,
         isMultiClient: isMultiClientFlag,
         leadClientEmail: enquiry.Email,
         // LeadClientId must mirror prospectId for single-client deals

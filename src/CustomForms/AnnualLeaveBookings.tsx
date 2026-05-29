@@ -766,7 +766,12 @@ const AnnualLeaveBookings: React.FC<AnnualLeaveBookingsProps> = ({ bookings, onC
     );
   };
 
-  const pendingCount = localBookings.filter(b => !animatingOut.has(b.id)).length;
+  const visibleBookings = localBookings.filter(b => !animatingOut.has(b.id));
+  const pendingCount = visibleBookings.length;
+  const isPendingOnly = visibleBookings.length > 0 && visibleBookings.every((entry) => {
+    const status = String(entry.status || '').toLowerCase();
+    return status === 'requested' || status === 'pending';
+  });
 
   return (
     <>
@@ -801,11 +806,13 @@ const AnnualLeaveBookings: React.FC<AnnualLeaveBookingsProps> = ({ bookings, onC
       <BespokePanel
         isOpen={true}
         onClose={onClose}
-        title="Book Requested Leave"
+        title={isPendingOnly ? 'Annual Leave Pending' : 'Book Requested Leave'}
         description={
           pendingCount === 0
             ? 'No leave requests to process'
-            : `${pendingCount} request${pendingCount !== 1 ? 's' : ''} ready to book`
+            : isPendingOnly
+              ? `${pendingCount} request${pendingCount !== 1 ? 's' : ''} awaiting approval`
+              : `${pendingCount} request${pendingCount !== 1 ? 's' : ''} ready to book`
         }
         isDarkMode={isDarkMode}
         variant="modal"

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { recordIntent } from '../utils/recordIntent';
 // invisible change
 import { Stack } from '@fluentui/react/lib/Stack';
 import { Text } from '@fluentui/react/lib/Text';
@@ -367,10 +368,11 @@ const BookSpaceForm: React.FC<BookSpaceFormProps> = ({
       ...data,
       booking_time: finalTimeStr,
     };
+    const clientSubmissionId = await recordIntent({ formKey: 'book-space', payload: finalPayload });
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(finalPayload),
+      body: JSON.stringify({ ...finalPayload, clientSubmissionId }),
     });
     if (!response.ok) {
       throw new Error(`Booking failed with status ${response.status}`);

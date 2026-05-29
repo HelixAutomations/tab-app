@@ -4,17 +4,157 @@ const { PRACTICE_AREAS } = require('../utils/clioConstants');
 const { loggers } = require('../utils/logger');
 const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
 const { shouldDryRunClio, syntheticClioContactResult } = require('../utils/rehearsalGuard');
+const opLog = require('../utils/opLog');
 
 const router = express.Router();
 const log = loggers.clio.child('Contacts');
+
+const MONTHS = {
+    jan: 1, january: 1,
+    feb: 2, february: 2,
+    mar: 3, march: 3,
+    apr: 4, april: 4,
+    may: 5,
+    jun: 6, june: 6,
+    jul: 7, july: 7,
+    aug: 8, august: 8,
+    sep: 9, sept: 9, september: 9,
+    oct: 10, october: 10,
+    nov: 11, november: 11,
+    dec: 12, december: 12,
+};
+
+function isRealDate(year, month, day) {
+    const date = new Date(Date.UTC(year, month - 1, day));
+    return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+
+function toIsoDate(year, month, day) {
+    return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function validateDateParts(year, month, day) {
+    const currentYear = new Date().getUTCFullYear();
+    if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
+        return { ok: false, reason: 'Date of birth is not a complete date' };
+    }
+    if (year < 1900 || year > currentYear) {
+        return { ok: false, reason: 'Date of birth year is outside the accepted range' };
+    }
+    if (!isRealDate(year, month, day)) {
+        return { ok: false, reason: 'Date of birth is not a real calendar date' };
+    }
+    return { ok: true, value: toIsoDate(year, month, day) };
+}
+
+function normaliseDateOfBirth(value) {
+    if (value == null || value === '') return { ok: true, value: null, normalised: false };
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+        return validateDateParts(value.getUTCFullYear(), value.getUTCMonth() + 1, value.getUTCDate());
+    }
+
+    const raw = String(value || '').trim();
+    if (!raw) return { ok: true, value: null, normalised: false };
+    const cleaned = raw.replace(/\s*\([^)]*\)\s*$/, '').trim();
+
+    let match = cleaned.match(/^(\d{4})-(\d{2})-(\d{2})(?:T.*)?$/);
+    if (match) {
+        const validated = validateDateParts(Number(match[1]), Number(match[2]), Number(match[3]));
+        return { ...validated, normalised: validated.ok && validated.value !== cleaned.slice(0, 10) };
+    }
+
+    match = cleaned.match(/^(\d{1,2})[\s/-]([A-Za-z]{3,9}|\d{1,2})[\s/-](\d{4})$/);
+    if (match) {
+        const day = Number(match[1]);
+        const monthToken = String(match[2]).toLowerCase();
+        const month = /^\d+$/.test(monthToken) ? Number(monthToken) : MONTHS[monthToken];
+        const validated = validateDateParts(Number(match[3]), month, day);
+        return { ...validated, normalised: true };
+    }
+
+    return { ok: false, reason: 'Date of birth format is not recognised' };
+}
+
+function normaliseClientDates(clients) {
+    let normalisedCount = 0;
+    const invalid = [];
+    const nextClients = clients.map((client, index) => {
+        const dob = normaliseDateOfBirth(client.date_of_birth);
+        if (!dob.ok) {
+            invalid.push({ index, reason: dob.reason });
+            return client;
+        }
+        if (dob.normalised) normalisedCount += 1;
+        return { ...client, date_of_birth: dob.value };
+    });
+    return { clients: nextClients, invalid, normalisedCount };
+}
+
+function appendMatterOpeningActivity({ status, title, summary, instructionRef, initials, traceId, step, error }) {
+    opLog.append({
+        type: 'activity.matter-opening',
+        source: 'matter-opening',
+        status,
+        title,
+        summary,
+        instructionRef: instructionRef || '',
+        initials: initials || '',
+        traceId: traceId || '',
+        step: step || '',
+        error: error || null,
+    });
+}
 
 router.post('/', async (req, res) => {
     const startTime = Date.now();
     const { formData, initials } = req.body || {};
     const instructionRef = formData?.matter_details?.instruction_ref || 'unknown';
+    const traceId = String(req.headers['x-matter-trace-id'] || '');
     if (!formData || !initials) {
-        trackEvent('MatterOpening.ClioContact.ValidationFailed', { instructionRef, reason: 'Missing formData or initials' });
+        trackEvent('MatterOpening.ClioContact.ValidationFailed', { instructionRef, reason: 'Missing formData or initials', traceId });
         return res.status(400).json({ error: 'Missing data' });
+    }
+
+    trackEvent('MatterOpening.ClioContact.Started', { instructionRef, initials, clientType: formData?.matter_details?.client_type || '', traceId });
+    const type = formData.matter_details?.client_type || 'Individual';
+    let clients = formData.client_information || [];
+    clients = clients.filter(c =>
+        c.first_name || c.first || c.last_name || c.last || (c.company_details && c.company_details.name)
+    );
+    const dateValidation = normaliseClientDates(clients);
+    clients = dateValidation.clients;
+
+    if (dateValidation.invalid.length) {
+        const message = 'Client date of birth is invalid. Please correct the DOB before opening the matter.';
+        const validationError = new Error(message);
+        trackException(validationError, { component: 'MatterOpening', operation: 'ClioContact', phase: 'dobValidation', instructionRef, initials, traceId });
+        trackEvent('MatterOpening.ClioContact.ValidationFailed', {
+            instructionRef,
+            initials,
+            reason: 'Invalid client date of birth',
+            invalidDobCount: String(dateValidation.invalid.length),
+            traceId,
+        });
+        appendMatterOpeningActivity({
+            status: 'error',
+            title: 'Matter opening blocked before Clio contact',
+            summary: message,
+            instructionRef,
+            initials,
+            traceId,
+            step: 'Clio Contact Created/Updated',
+            error: 'INVALID_CLIENT_DOB',
+        });
+        return res.status(400).json({ error: 'Invalid client date of birth', detail: message, code: 'INVALID_CLIENT_DOB', traceId });
+    }
+
+    if (dateValidation.normalisedCount > 0) {
+        trackEvent('MatterOpening.ClioContact.DateOfBirthNormalised', {
+            instructionRef,
+            initials,
+            normalisedCount: String(dateValidation.normalisedCount),
+            traceId,
+        });
     }
 
     // Phase C1 — short-circuit Clio writes for rehearsal/demo refs when the
@@ -22,7 +162,7 @@ router.post('/', async (req, res) => {
     // payload so downstream steps (matter creation) still succeed end-to-end.
     if (shouldDryRunClio(instructionRef)) {
         const clientType = formData?.matter_details?.client_type || 'Person';
-        const clientCount = Array.isArray(formData?.client_information) ? formData.client_information.length : 1;
+        const clientCount = clients.length || 1;
         const results = syntheticClioContactResult({ instructionRef, clientType, count: clientCount });
         trackEvent('Demo.Clio.WriteSkipped', {
             instructionRef,
@@ -31,11 +171,11 @@ router.post('/', async (req, res) => {
             seed: 'rehearsal',
             clientType,
             contactCount: String(results.length),
+            traceId,
         });
         return res.json({ ok: true, results, dryRun: true });
     }
 
-    trackEvent('MatterOpening.ClioContact.Started', { instructionRef, initials, clientType: formData?.matter_details?.client_type || '' });
     try {
         // Fetch Clio credentials
         const clientId = await getSecret(`${initials.toLowerCase()}-clio-v1-clientid`);
@@ -77,11 +217,6 @@ router.post('/', async (req, res) => {
         }
 
         const results = [];
-        let clients = formData.client_information || [];
-        clients = clients.filter(c =>
-            c.first_name || c.first || c.last_name || c.last || (c.company_details && c.company_details.name)
-        );
-        const type = formData.matter_details?.client_type || 'Individual';
 
         // Map an individual client to Clio Person payload
         function mapPerson(client) {
@@ -369,21 +504,31 @@ router.post('/', async (req, res) => {
             }
         }
         if (failed.length) {
-            trackEvent('MatterOpening.ClioContact.PartialFailure', { instructionRef, initials, failedCount: String(failed.length), errors: failed.join('; ') });
+            trackEvent('MatterOpening.ClioContact.PartialFailure', { instructionRef, initials, failedCount: String(failed.length), errors: failed.join('; '), traceId });
         }
 
         // Only return contact upsert results. Matter creation happens in /api/clio-matters step.
         const durationMs = Date.now() - startTime;
         log.op('contacts:synced', { count: results.length, type, failed: failed.length });
-        trackEvent('MatterOpening.ClioContact.Completed', { instructionRef, initials, contactCount: String(results.length), clientType: type, durationMs: String(durationMs) });
+        trackEvent('MatterOpening.ClioContact.Completed', { instructionRef, initials, contactCount: String(results.length), clientType: type, durationMs: String(durationMs), traceId });
         trackMetric('MatterOpening.ClioContact.Duration', durationMs, { instructionRef });
         res.json({ ok: true, results });
     } catch (err) {
         const durationMs = Date.now() - startTime;
         log.fail('contacts:sync', err, { initials });
-        trackException(err, { component: 'MatterOpening', operation: 'ClioContact', phase: 'contactSync', instructionRef, initials });
-        trackEvent('MatterOpening.ClioContact.Failed', { instructionRef, initials, error: err.message, durationMs: String(durationMs) });
-        res.status(500).json({ error: 'Failed to sync contacts' });
+        trackException(err, { component: 'MatterOpening', operation: 'ClioContact', phase: 'contactSync', instructionRef, initials, traceId });
+        trackEvent('MatterOpening.ClioContact.Failed', { instructionRef, initials, error: err.message, durationMs: String(durationMs), traceId });
+        appendMatterOpeningActivity({
+            status: 'error',
+            title: 'Matter opening failed at Clio contact',
+            summary: err.message || 'Clio contact sync failed',
+            instructionRef,
+            initials,
+            traceId,
+            step: 'Clio Contact Created/Updated',
+            error: err.message || 'Clio contact sync failed',
+        });
+        res.status(500).json({ error: 'Failed to sync contacts', detail: err.message, traceId });
     }
 });
 

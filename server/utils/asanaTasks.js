@@ -2,10 +2,35 @@
 //
 // Thin task-level wrappers over Asana's REST API for the Operator Actions
 // surface (B1, Phase B). Authentication reuses resolveAsanaAccessToken from
-// server/utils/asana.js — same per-user OAuth refresh path the rest of the
+// server/utils/asana.js, same per-user OAuth refresh path the rest of the
 // app uses.
 
 const { ASANA_BASE_URL, resolveAsanaAccessToken } = require('./asana');
+
+// Asana task URLs come in a few shapes. We accept any of them plus a bare gid.
+// Examples:
+//   https://app.asana.com/0/1204962032378888/1207890123456789
+//   https://app.asana.com/0/1204962032378888/1207890123456789/f
+//   https://app.asana.com/1/1203336123398249/project/1204962032378888/task/1207890123456789
+//   https://app.asana.com/1/1203336123398249/inbox/0/item/1207890123456789
+//   1207890123456789
+function extractAsanaTaskGid(input) {
+  if (!input) return null;
+  const raw = String(input).trim();
+  if (!raw) return null;
+  if (/^\d{6,}$/.test(raw)) return raw;
+  const patterns = [
+    /\/task\/(\d{6,})/,
+    /\/item\/(\d{6,})/,
+    /\/0\/\d+\/(\d{6,})/,
+    /\/(\d{12,})(?:[/?#]|$)/,
+  ];
+  for (const re of patterns) {
+    const match = raw.match(re);
+    if (match && match[1]) return match[1];
+  }
+  return null;
+}
 
 async function asanaFetch(path, accessToken, init = {}) {
   const headers = {
@@ -76,8 +101,197 @@ async function createTaskInSection({
   return result?.data || null;
 }
 
+// ─── Read-only inspector helpers ───────────────────────────────────────────
+
+const TASK_OPT_FIELDS = [
+  'gid', 'name', 'completed', 'completed_at', 'created_at', 'modified_at',
+  'due_on', 'due_at', 'start_on', 'notes', 'permalink_url', 'resource_subtype',
+  'assignee.gid', 'assignee.name', 'assignee.email',
+  'parent.gid', 'parent.name',
+  'projects.gid', 'projects.name',
+  'memberships.project.gid', 'memberships.project.name',
+  'memberships.section.gid', 'memberships.section.name',
+  'tags.gid', 'tags.name', 'tags.color',
+  'followers.gid', 'followers.name',
+  'custom_fields.gid', 'custom_fields.name', 'custom_fields.display_value', 'custom_fields.type',
+].join(',');
+
+const STORY_OPT_FIELDS = [
+  'gid', 'type', 'resource_subtype', 'created_at', 'text', 'html_text',
+  'created_by.gid', 'created_by.name',
+  'is_edited', 'is_pinned',
+].join(',');
+
+const SUBTASK_OPT_FIELDS = [
+  'gid', 'name', 'completed', 'completed_at', 'due_on', 'permalink_url',
+  'assignee.gid', 'assignee.name',
+].join(',');
+
+async function getTask({ accessToken, taskGid }) {
+  if (!taskGid) throw new Error('taskGid is required');
+  const result = await asanaFetch(
+    `/tasks/${encodeURIComponent(taskGid)}?opt_fields=${encodeURIComponent(TASK_OPT_FIELDS)}`,
+    accessToken,
+  );
+  return result?.data || null;
+}
+
+async function getTaskStories({ accessToken, taskGid, limit = 50 }) {
+  if (!taskGid) throw new Error('taskGid is required');
+  const cap = Math.max(1, Math.min(100, Number(limit) || 50));
+  const result = await asanaFetch(
+    `/tasks/${encodeURIComponent(taskGid)}/stories?limit=${cap}&opt_fields=${encodeURIComponent(STORY_OPT_FIELDS)}`,
+    accessToken,
+  );
+  return Array.isArray(result?.data) ? result.data : [];
+}
+
+async function getTaskSubtasks({ accessToken, taskGid, limit = 50 }) {
+  if (!taskGid) throw new Error('taskGid is required');
+  const cap = Math.max(1, Math.min(100, Number(limit) || 50));
+  const result = await asanaFetch(
+    `/tasks/${encodeURIComponent(taskGid)}/subtasks?limit=${cap}&opt_fields=${encodeURIComponent(SUBTASK_OPT_FIELDS)}`,
+    accessToken,
+  );
+  return Array.isArray(result?.data) ? result.data : [];
+}
+
+function normaliseTask(raw) {
+  if (!raw) return null;
+  return {
+    gid: String(raw.gid || ''),
+    name: raw.name || '',
+    completed: Boolean(raw.completed),
+    completedAt: raw.completed_at || null,
+    createdAt: raw.created_at || null,
+    modifiedAt: raw.modified_at || null,
+    dueOn: raw.due_on || null,
+    dueAt: raw.due_at || null,
+    startOn: raw.start_on || null,
+    notes: typeof raw.notes === 'string' ? raw.notes.slice(0, 8000) : '',
+    url: raw.permalink_url || null,
+    resourceSubtype: raw.resource_subtype || null,
+    assignee: raw.assignee ? {
+      gid: String(raw.assignee.gid || ''),
+      name: raw.assignee.name || '',
+      email: raw.assignee.email || null,
+    } : null,
+    parent: raw.parent ? {
+      gid: String(raw.parent.gid || ''),
+      name: raw.parent.name || '',
+    } : null,
+    projects: Array.isArray(raw.projects) ? raw.projects.map((p) => ({
+      gid: String(p.gid || ''),
+      name: p.name || '',
+    })) : [],
+    memberships: Array.isArray(raw.memberships) ? raw.memberships.map((m) => ({
+      project: m.project ? { gid: String(m.project.gid || ''), name: m.project.name || '' } : null,
+      section: m.section ? { gid: String(m.section.gid || ''), name: m.section.name || '' } : null,
+    })) : [],
+    tags: Array.isArray(raw.tags) ? raw.tags.map((t) => ({
+      gid: String(t.gid || ''),
+      name: t.name || '',
+      color: t.color || null,
+    })) : [],
+    followers: Array.isArray(raw.followers) ? raw.followers.map((f) => ({
+      gid: String(f.gid || ''),
+      name: f.name || '',
+    })) : [],
+    customFields: Array.isArray(raw.custom_fields) ? raw.custom_fields
+      .filter((f) => f && f.display_value !== null && f.display_value !== '')
+      .map((f) => ({
+        gid: String(f.gid || ''),
+        name: f.name || '',
+        type: f.type || null,
+        value: f.display_value || '',
+      })) : [],
+  };
+}
+
+function normaliseStory(raw) {
+  if (!raw) return null;
+  const text = typeof raw.text === 'string' ? raw.text.slice(0, 4000) : '';
+  return {
+    gid: String(raw.gid || ''),
+    type: raw.type || null,
+    resourceSubtype: raw.resource_subtype || null,
+    createdAt: raw.created_at || null,
+    createdBy: raw.created_by ? {
+      gid: String(raw.created_by.gid || ''),
+      name: raw.created_by.name || '',
+    } : null,
+    isEdited: Boolean(raw.is_edited),
+    isPinned: Boolean(raw.is_pinned),
+    text,
+  };
+}
+
+function normaliseSubtask(raw) {
+  if (!raw) return null;
+  return {
+    gid: String(raw.gid || ''),
+    name: raw.name || '',
+    completed: Boolean(raw.completed),
+    completedAt: raw.completed_at || null,
+    dueOn: raw.due_on || null,
+    url: raw.permalink_url || null,
+    assignee: raw.assignee ? {
+      gid: String(raw.assignee.gid || ''),
+      name: raw.assignee.name || '',
+    } : null,
+  };
+}
+
+// One-shot inspector: fetches task + stories + subtasks in parallel and
+// returns a normalised payload. Failures on stories/subtasks degrade
+// gracefully (empty array + warning) rather than failing the whole call.
+async function inspectTask({ accessToken, taskGid, storyLimit = 50, subtaskLimit = 50 }) {
+  // Callers normally pre-extract via extractAsanaTaskGid, but accept raw URLs
+  // here too so the operator action and ad-hoc callers don't have to.
+  const gid = /^\d{6,}$/.test(String(taskGid || '').trim()) ? String(taskGid).trim() : extractAsanaTaskGid(taskGid);
+  if (!gid) {
+    const err = new Error('Could not extract Asana task gid from input');
+    err.status = 400;
+    throw err;
+  }
+
+  const warnings = [];
+
+  const task = await getTask({ accessToken, taskGid: gid });
+  if (!task) {
+    const err = new Error(`Asana task ${gid} not found`);
+    err.status = 404;
+    throw err;
+  }
+
+  const [storiesRaw, subtasksRaw] = await Promise.all([
+    getTaskStories({ accessToken, taskGid: gid, limit: storyLimit }).catch((err) => {
+      warnings.push(`stories: ${err.message}`);
+      return [];
+    }),
+    getTaskSubtasks({ accessToken, taskGid: gid, limit: subtaskLimit }).catch((err) => {
+      warnings.push(`subtasks: ${err.message}`);
+      return [];
+    }),
+  ]);
+
+  return {
+    taskGid: gid,
+    task: normaliseTask(task),
+    stories: storiesRaw.map(normaliseStory).filter(Boolean),
+    subtasks: subtasksRaw.map(normaliseSubtask).filter(Boolean),
+    warnings,
+  };
+}
+
 module.exports = {
   resolveAsanaAccessToken,
+  asanaFetch,
+  extractAsanaTaskGid,
   addCommentToTask,
   createTaskInSection,
+  getTask,
+  getTaskStories,
+  getTaskSubtasks,
+  inspectTask,
 };

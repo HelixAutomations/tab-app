@@ -44,6 +44,7 @@
   --surface-section: #FFFFFF;
   --surface-card: #ffffff;
   --surface-card-hover: #f0f5fa;
+  --surface-card-raised: #f4f7fc;
   --surface-input: #F4F4F6;
   --surface-nav: #FFFFFF;
   --nav-border: rgba(0, 0, 0, 0.06);
@@ -121,6 +122,7 @@
   --surface-section: #061733;
   --surface-card: #0a2040;
   --surface-card-hover: #0d2850;
+  --surface-card-raised: #102d5a;
   --surface-input: #374151;
   --surface-nav: #000319;
   --nav-border: rgba(255, 255, 255, 0.06);
@@ -154,6 +156,7 @@
   --surface-section: #1a1a1a;
   --surface-card: #1a1a1a;
   --surface-card-hover: #333333;
+  --surface-card-raised: #222222;
   --surface-input: #333333;
 
   --border-base: #ffffff;

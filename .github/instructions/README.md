@@ -1,5 +1,7 @@
 # Instruction Files Index
 
+Last verified: 2026-05-23
+
 This directory contains architectural and reference documentation for the Helix Hub application. These documents are designed to help AI agents and developers quickly understand the system structure, data flows, and integration patterns.
 
 ---

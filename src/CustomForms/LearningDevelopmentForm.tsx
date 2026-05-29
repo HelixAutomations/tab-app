@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { recordIntent } from '../utils/recordIntent';
 import { Stack } from '@fluentui/react/lib/Stack';
 import { Text } from '@fluentui/react/lib/Text';
 import { TextField } from '@fluentui/react/lib/TextField';
@@ -14,7 +15,6 @@ import {
   getFormScrollContainerStyle,
   getFormCardStyle,
   getFormHeaderStyle,
-  getFormHeaderTitleStyle,
   getFormHeaderSubtitleStyle,
   getFormContentStyle,
   getFormSectionStyle,
@@ -91,7 +91,7 @@ const fmtDate = (d: string | null) => {
   catch { return String(d); }
 };
 
-const LearningDevelopmentForm: React.FC<LearningDevelopmentFormProps> = ({ userData, teamData, onBack, onSubmitSuccess, onSubmitError }) => {
+const LearningDevelopmentForm: React.FC<LearningDevelopmentFormProps> = ({ userData, teamData, onSubmitSuccess, onSubmitError }) => {
   const { isDarkMode } = useTheme();
   const readiness = useFormReadinessPulse('learning-dev-plan');
   const currentUser = userData?.[0] || null;
@@ -174,16 +174,18 @@ const LearningDevelopmentForm: React.FC<LearningDevelopmentFormProps> = ({ userD
       const matchedUser = (teamData || []).find((member) => String(member.Initials || '').trim().toUpperCase() === targetInitials);
       const fullName = String(matchedUser?.['Full Name'] || matchedUser?.First || targetInitials);
       const baseUrl = getApiBase();
+      const planPayload = {
+        target_initials: targetInitials,
+        full_name: fullName,
+        year: currentYear,
+        target_hours: parseFloat(planForm.target_hours) || 16,
+        notes: planForm.notes || null,
+      };
+      const clientSubmissionId = await recordIntent({ formKey: 'learning-dev-plan', payload: planPayload });
       const response = await fetch(`${baseUrl}/api/registers/learning-dev`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...requestHeaders },
-        body: JSON.stringify({
-          target_initials: targetInitials,
-          full_name: fullName,
-          year: currentYear,
-          target_hours: parseFloat(planForm.target_hours) || 16,
-          notes: planForm.notes || null,
-        }),
+        body: JSON.stringify({ ...planPayload, clientSubmissionId }),
       });
 
       const payload = await response.json().catch(() => ({}));
@@ -220,19 +222,21 @@ const LearningDevelopmentForm: React.FC<LearningDevelopmentFormProps> = ({ userD
 
     try {
       const baseUrl = getApiBase();
+      const activityPayload = {
+        plan_id: myPlan.id,
+        activity_date: activityForm.activity_date,
+        title: activityForm.title.trim(),
+        description: activityForm.description.trim() || null,
+        category: activityForm.category || null,
+        hours: parseFloat(activityForm.hours) || 0,
+        provider: activityForm.provider.trim() || null,
+        evidence_url: activityForm.evidence_url.trim() || null,
+      };
+      const clientSubmissionId = await recordIntent({ formKey: 'learning-dev-activity', payload: activityPayload });
       const response = await fetch(`${baseUrl}/api/registers/learning-dev/activity`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...requestHeaders },
-        body: JSON.stringify({
-          plan_id: myPlan.id,
-          activity_date: activityForm.activity_date,
-          title: activityForm.title.trim(),
-          description: activityForm.description.trim() || null,
-          category: activityForm.category || null,
-          hours: parseFloat(activityForm.hours) || 0,
-          provider: activityForm.provider.trim() || null,
-          evidence_url: activityForm.evidence_url.trim() || null,
-        }),
+        body: JSON.stringify({ ...activityPayload, clientSubmissionId }),
       });
 
       const payload = await response.json().catch(() => ({}));
@@ -404,26 +408,14 @@ const LearningDevelopmentForm: React.FC<LearningDevelopmentFormProps> = ({ userD
         <div style={getFormHeaderStyle(isDarkMode, accentColor)}>
           <Stack horizontal horizontalAlign="space-between" verticalAlign="center">
             <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 12 }}>
-              <Icon iconName="Education" style={{ fontSize: 22, color: accentColor }} />
-              <div>
-                <Text variant="xLarge" style={getFormHeaderTitleStyle(isDarkMode)}>
-                  Learning & Development
-                </Text>
-                <Text style={getFormHeaderSubtitleStyle(isDarkMode)}>
-                  {myPlan
-                    ? `${currentYear} plan · ${parseFloat(myPlan.total_hours || 0).toFixed(1)}h of ${myPlan.target_hours || 16}h target`
-                    : `Create your ${currentYear} CPD plan to start logging activities.`}
-                </Text>
-              </div>
+              <Icon iconName="Education" style={{ fontSize: 20, color: accentColor }} />
+              <Text style={getFormHeaderSubtitleStyle(isDarkMode)}>
+                {myPlan
+                  ? `${currentYear} plan · ${parseFloat(myPlan.total_hours || 0).toFixed(1)}h of ${myPlan.target_hours || 16}h target`
+                  : `Create your ${currentYear} CPD plan to start logging activities.`}
+              </Text>
             </Stack>
-            {onBack ? (
-              <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 10 }}>
-                <FormReadinessCue state={readiness.state} detail={readiness.detail} readyAnnouncement="Learning & development form ready" />
-                <DefaultButton text="Back" onClick={onBack} styles={getFormDefaultButtonStyles(isDarkMode)} />
-              </Stack>
-            ) : (
-              <FormReadinessCue state={readiness.state} detail={readiness.detail} readyAnnouncement="Learning & development form ready" />
-            )}
+            <FormReadinessCue state={readiness.state} detail={readiness.detail} readyAnnouncement="Learning & development form ready" />
           </Stack>
         </div>
 

@@ -37,6 +37,10 @@
   align-items: start;
 }
 
+.activity-shell--triage {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .activity-shell-rail {
   position: sticky;
   top: 12px;
@@ -1402,6 +1406,519 @@
   color: var(--text-muted);
 }
 
+/* ── Asana task inspector ─────────────────────────────────────────────────── */
+
+.activity-dev-console--roadmap .activity-asana-inspector,
+.activity-asana-inspector {
+  margin-top: 24px;
+}
+
+.activity-asana-inspector-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.activity-asana-inspector-title h3 {
+  margin: 0;
+  font-size: 14px;
+  letter-spacing: 0.02em;
+  color: var(--text-primary);
+}
+
+.activity-asana-inspector-title small {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.activity-asana-inspector-pill {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 4px 8px;
+  border: 1px solid var(--border-base);
+  color: var(--text-muted);
+  background: var(--surface-section);
+  border-radius: 0;
+}
+
+.activity-asana-inspector-form {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.activity-asana-inspector-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.activity-asana-inspector-field span {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.activity-asana-inspector-field input {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--text-primary);
+  background: var(--surface-section);
+  border: 1px solid var(--border-base);
+  border-radius: 0;
+  outline: none;
+  transition: border-color 120ms ease;
+}
+
+.activity-asana-inspector-field input:focus {
+  border-color: var(--helix-highlight);
+}
+
+.activity-asana-inspector-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.activity-asana-inspector-actions button {
+  padding: 8px 14px;
+  font-size: 12px;
+  font-family: inherit;
+  letter-spacing: 0.02em;
+  color: #fff;
+  background: var(--helix-highlight);
+  border: 1px solid var(--helix-highlight);
+  border-radius: 0;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.activity-asana-inspector-actions button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.activity-asana-inspector-actions button.activity-asana-inspector-clear {
+  background: transparent;
+  color: var(--text-muted);
+  border-color: var(--border-base);
+}
+
+.activity-asana-inspector-status {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.activity-asana-inspector-status--error {
+  color: var(--helix-cta);
+}
+
+.activity-asana-inspector-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.activity-asana-inspector-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  background: var(--surface-card);
+  border: 1px solid var(--border-base);
+  border-radius: 0;
+}
+
+.activity-asana-inspector-card-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.activity-asana-inspector-card-title a,
+.activity-asana-inspector-card-title strong {
+  color: var(--text-primary);
+  text-decoration: none;
+  font-size: 14px;
+}
+
+.activity-asana-inspector-card-title a:hover {
+  color: var(--helix-highlight);
+}
+
+.activity-asana-inspector-status-chip {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border: 1px solid var(--border-base);
+  border-radius: 0;
+  color: var(--text-muted);
+}
+
+.activity-asana-inspector-status-chip--open {
+  border-color: var(--helix-highlight);
+  color: var(--helix-highlight);
+}
+
+.activity-asana-inspector-status-chip--done {
+  border-color: var(--helix-green);
+  color: var(--helix-green);
+}
+
+.activity-asana-inspector-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px 16px;
+  margin: 0;
+}
+
+.activity-asana-inspector-meta > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.activity-asana-inspector-meta dt {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.activity-asana-inspector-meta dd {
+  font-size: 12px;
+  color: var(--text-primary);
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-asana-inspector-meta code {
+  font-family: 'JetBrains Mono', 'Consolas', monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.activity-asana-inspector-projects {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+
+.activity-asana-inspector-projects li {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.activity-asana-inspector-projects strong {
+  color: var(--text-primary);
+}
+
+.activity-asana-inspector-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+}
+
+.activity-asana-inspector-tags span {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 3px 7px;
+  border: 1px solid var(--border-base);
+  color: var(--text-muted);
+  border-radius: 0;
+}
+
+.activity-asana-inspector-custom-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 6px 16px;
+  margin: 0;
+  padding-top: 4px;
+  border-top: 1px solid var(--border-base);
+}
+
+.activity-asana-inspector-custom-fields > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.activity-asana-inspector-custom-fields dt {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.activity-asana-inspector-custom-fields dd {
+  font-size: 12px;
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.activity-asana-inspector-notes summary {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.activity-asana-inspector-notes pre {
+  margin: 6px 0 0;
+  padding: 10px;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--text-primary);
+  background: var(--surface-section);
+  border: 1px solid var(--border-base);
+  border-radius: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.activity-asana-inspector-subsection {
+  background: var(--surface-card);
+  border: 1px solid var(--border-base);
+  padding: 12px 14px;
+  border-radius: 0;
+}
+
+.activity-asana-inspector-subsection-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.activity-asana-inspector-subsection-head strong {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+}
+
+.activity-asana-inspector-subsection-head span {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.activity-asana-inspector-subtasks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.activity-asana-inspector-subtask {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 8px 0;
+  border-top: 1px solid var(--border-base);
+}
+
+.activity-asana-inspector-subtask:first-child {
+  border-top: 0;
+}
+
+.activity-asana-inspector-check {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-top: 2px;
+  border: 1px solid var(--border-base);
+  border-radius: 0;
+  flex-shrink: 0;
+}
+
+.activity-asana-inspector-check--done {
+  background: var(--helix-green);
+  border-color: var(--helix-green);
+}
+
+.activity-asana-inspector-subtask--done .activity-asana-inspector-subtask-main a,
+.activity-asana-inspector-subtask--done .activity-asana-inspector-subtask-main span {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.activity-asana-inspector-subtask-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.activity-asana-inspector-subtask-main a,
+.activity-asana-inspector-subtask-main span {
+  font-size: 12px;
+  color: var(--text-primary);
+  text-decoration: none;
+}
+
+.activity-asana-inspector-subtask-main a:hover {
+  color: var(--helix-highlight);
+}
+
+.activity-asana-inspector-subtask-main small {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.activity-asana-inspector-stories {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.activity-asana-inspector-story {
+  padding: 8px 0;
+  border-top: 1px solid var(--border-base);
+}
+
+.activity-asana-inspector-story:first-child {
+  border-top: 0;
+}
+
+.activity-asana-inspector-story-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.activity-asana-inspector-story-meta strong {
+  color: var(--text-primary);
+}
+
+.activity-asana-inspector-story p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.activity-asana-inspector-warnings {
+  background: var(--surface-section);
+  border: 1px solid var(--border-base);
+  padding: 10px 12px;
+  border-radius: 0;
+}
+
+.activity-asana-inspector-warnings strong {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--helix-cta);
+  margin-bottom: 4px;
+}
+
+.activity-asana-inspector-warnings ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.activity-asana-inspector-footnote {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* Structural loading skeleton — mirrors the settled card + subsection layout
+   so the panel height does not jump when real data arrives. */
+.activity-asana-inspector-body--skeleton {
+  pointer-events: none;
+  user-select: none;
+}
+
+.activity-asana-inspector-skeleton {
+  display: inline-block;
+  background: linear-gradient(
+    90deg,
+    var(--surface-section) 0%,
+    var(--surface-card-hover, var(--surface-section)) 50%,
+    var(--surface-section) 100%
+  );
+  background-size: 200% 100%;
+  animation: helix-asana-inspector-shimmer 1400ms ease-in-out infinite;
+  border-radius: 0;
+  height: 12px;
+  width: 100%;
+  min-width: 60px;
+  vertical-align: middle;
+}
+
+.activity-asana-inspector-skeleton--title {
+  height: 16px;
+  width: 60%;
+  max-width: 320px;
+}
+
+.activity-asana-inspector-skeleton--chip {
+  height: 18px;
+  width: 72px;
+}
+
+.activity-asana-inspector-skeleton--value {
+  height: 12px;
+  width: 80%;
+}
+
+.activity-asana-inspector-skeleton--row {
+  height: 12px;
+  width: 70%;
+}
+
+.activity-asana-inspector-skeleton--meta {
+  height: 10px;
+  width: 45%;
+}
+
+@keyframes helix-asana-inspector-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .activity-asana-inspector-skeleton {
+    animation: none;
+  }
+}
+
 .activity-whiteboard-card--readonly {
   cursor: default;
 }
@@ -1421,5 +1938,14 @@
 
   .activity-asana-mirror-controls {
     justify-content: space-between;
+  }
+
+  .activity-asana-inspector-form {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .activity-asana-inspector-actions {
+    justify-content: flex-end;
   }
 }

@@ -6,6 +6,7 @@ import cclIcon from '../../../assets/ccl.svg';
 import netdocsIcon from '../../../assets/netdocuments.svg';
 import helixBlueMark from '../../../assets/dark blue mark.svg';
 import { resolveMatterPracticeArea } from './config';
+import { isCclOperationsAvailable } from '../../../app/admin';
 
 // locally cached values so refresh endpoints can be called in sequence
 let acToken = '';
@@ -144,7 +145,24 @@ function truncate(text: string, max = 600): string {
     return text.length > max ? text.slice(0, max) + '…' : text;
 }
 
-export const processingActions: ProcessingAction[] = [
+async function readApiError(resp: Response, fallback: string): Promise<string> {
+    try {
+        const contentType = resp.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+            const body = await resp.clone().json();
+            const detail = body?.detail || body?.details || body?.message || body?.error;
+            const trace = body?.traceId ? ` Trace: ${body.traceId}.` : '';
+            if (detail) return `${String(detail)}${trace}`;
+        }
+        const text = await resp.clone().text();
+        if (text) return `${truncate(text, 240)}${resp.status ? ` (${resp.status})` : ''}`;
+    } catch {
+        // Fall through to fallback.
+    }
+    return `${fallback}${resp.status ? ` (${resp.status})` : ''}`;
+}
+
+const allProcessingActions: ProcessingAction[] = [
     {
         label: 'Retrieve ActiveCampaign Token',
         icon: activeIcon,
@@ -214,7 +232,8 @@ export const processingActions: ProcessingAction[] = [
             const id = userData?.[0]?.ASANAClientID || userData?.[0]?.ASANAClient_ID;
             if (!id) {
                 console.warn('⚠️ [processingActions] Asana Client ID missing from user profile');
-                throw new Error('Asana Client ID missing from user profile. Please contact support to configure Asana integration.');
+                asanaClientId = '';
+                return 'Skipped - Asana Client ID not configured';
             }
             asanaClientId = id;
             return 'Client ID retrieved';
@@ -227,7 +246,8 @@ export const processingActions: ProcessingAction[] = [
             const secret = userData?.[0]?.ASANASecret || userData?.[0]?.ASANA_Secret;
             if (!secret) {
                 console.warn('⚠️ [processingActions] Asana Secret missing from user profile');
-                throw new Error('Asana Secret missing from user profile. Please contact support to configure Asana integration.');
+                asanaSecret = '';
+                return 'Skipped - Asana Secret not configured';
             }
             asanaSecret = secret;
             return 'Secret retrieved';
@@ -240,7 +260,8 @@ export const processingActions: ProcessingAction[] = [
             const token = userData?.[0]?.ASANARefreshToken || userData?.[0]?.ASANARefresh_Token;
             if (!token) {
                 console.warn('⚠️ [processingActions] Asana Refresh Token missing from user profile');
-                throw new Error('Asana Refresh Token missing from user profile. Please contact support to configure Asana integration.');
+                asanaRefreshToken = '';
+                return 'Skipped - Asana Refresh Token not configured';
             }
             asanaRefreshToken = token;
             return 'Refresh Token retrieved';
@@ -250,13 +271,19 @@ export const processingActions: ProcessingAction[] = [
         label: 'Refresh Asana Access Token',
         icon: asanaIcon,
         run: async () => {
+            if (!asanaClientId || !asanaSecret || !asanaRefreshToken) {
+                return 'Skipped - Asana credentials unavailable';
+            }
             const payload = { clientId: asanaClientId, clientSecret: asanaSecret, refreshToken: asanaRefreshToken };
             const resp = await instrumentedFetch('Refresh Asana Access Token', '/api/refresh/asana', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             }, payload);
-            if (!resp.ok) throw new Error('Asana token refresh failed');
+            if (!resp.ok) {
+                console.warn('⚠️ [processingActions] Asana token refresh failed; continuing matter opening');
+                return 'Skipped - Asana token refresh unavailable';
+            }
             return 'Access token refreshed';
         }
     },
@@ -333,7 +360,7 @@ export const processingActions: ProcessingAction[] = [
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             }, payload);
-            if (!resp.ok) throw new Error('Failed to sync Clio contact');
+            if (!resp.ok) throw new Error(await readApiError(resp, 'Failed to sync Clio contact'));
             const data = await resp.json();
             if (!data.ok) throw new Error(data.error || 'Failed to sync Clio contact');
             const names: string[] = [];
@@ -378,7 +405,7 @@ export const processingActions: ProcessingAction[] = [
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             }, payload);
-            if (!resp.ok) throw new Error('Failed to create Clio matter');
+            if (!resp.ok) throw new Error(await readApiError(resp, 'Failed to create Clio matter'));
             const data = await resp.json();
             if (!data.ok) throw new Error(data.error || 'Failed to create Clio matter');
             const id = data.matterId || data.matter?.id || null;
@@ -624,6 +651,10 @@ export const processingActions: ProcessingAction[] = [
     //   (b) the Home `review-ccl` hub_todo (always emitted after generation).
     // Both converge on /api/ccl-ops/upload-nd triggered by a user click.
 ];
+
+export const processingActions: ProcessingAction[] = allProcessingActions.filter(action => (
+    isCclOperationsAvailable() || !action.label.startsWith('CCL ')
+));
 
 // invisible change 2.2
 

@@ -37,6 +37,9 @@ const TEAM_PREWARM_INTERVAL_MS = Number(
   process.env.HOME_WIP_TEAM_PREWARM_INTERVAL_MS
   ?? 90 * 1000,
 );
+const TEAM_CLIO_CONCURRENCY = Math.max(1, Number(process.env.HOME_WIP_TEAM_CLIO_CONCURRENCY || 3));
+const CLIO_RATE_LIMIT_MAX_RETRIES = Math.max(0, Number(process.env.HOME_WIP_CLIO_RATE_LIMIT_RETRIES || 2));
+const CLIO_RATE_LIMIT_FALLBACK_RETRY_MS = Math.max(1000, Number(process.env.HOME_WIP_CLIO_RATE_LIMIT_RETRY_MS || 20000));
 
 // In-memory fallback when Redis unavailable
 const memoryCache = new Map();
@@ -137,7 +140,7 @@ async function fetchUserWipTwoWeeks(connectionString, entraId) {
  * Fetch two weeks of WIP data when Clio ID is already known.
  * Skips the resolveClioId SQL query.
  */
-async function fetchUserWipTwoWeeksWithClioId(clioId) {
+async function fetchUserWipTwoWeeksWithClioId(clioId, options = {}) {
   // Calculate date ranges
   const { currentStart, currentEnd, lastStart, lastEnd } = getTwoWeekBounds();
 
@@ -159,10 +162,17 @@ async function fetchUserWipTwoWeeksWithClioId(clioId) {
     }
   };
 
-  const [currentActivities, lastActivities] = await Promise.all([
-    fetchWeek(currentStart, currentEnd),
-    fetchWeek(lastStart, lastEnd),
-  ]);
+  let currentActivities;
+  let lastActivities;
+  if (options.sequential) {
+    currentActivities = await fetchWeek(currentStart, currentEnd);
+    lastActivities = await fetchWeek(lastStart, lastEnd);
+  } else {
+    [currentActivities, lastActivities] = await Promise.all([
+      fetchWeek(currentStart, currentEnd),
+      fetchWeek(lastStart, lastEnd),
+    ]);
+  }
 
   // Aggregate to daily totals
   const currentDaily = aggregateDailyTotals(currentActivities, currentStart, currentEnd);
@@ -440,41 +450,76 @@ async function fetchClioActivities(accessToken, clioId, startDate, endDate) {
       offset: offset.toString(),
     });
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
+    let rateLimitRetries = 0;
+    while (true) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
 
-    try {
-      const resp = await fetch(`${baseUrl}?${params}`, {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        signal: controller.signal,
-      });
-      clearTimeout(timeout);
+      try {
+        const resp = await fetch(`${baseUrl}?${params}`, {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
 
-      if (!resp.ok) {
-        const error = new Error(`Clio API error: ${resp.status}`);
-        error.status = resp.status;
-        throw error;
-      }
+        if (resp.status === 429 && rateLimitRetries < CLIO_RATE_LIMIT_MAX_RETRIES) {
+          rateLimitRetries++;
+          const retryMs = getClioRetryAfterMs(resp);
+          trackEvent('HomeWip.Clio.RateLimited', {
+            operation: 'fetch-activities',
+            clioId: String(clioId),
+            retryMs: String(retryMs),
+            retry: String(rateLimitRetries),
+          });
+          await delay(retryMs);
+          continue;
+        }
 
-      const data = await resp.json();
-      if (data.data && Array.isArray(data.data)) {
-        activities.push(...data.data);
-      }
+        if (!resp.ok) {
+          const errorText = await resp.text().catch(() => '');
+          const error = new Error(`Clio API error: ${resp.status}${errorText ? ` - ${errorText}` : ''}`);
+          error.status = resp.status;
+          throw error;
+        }
 
-      if (!data.meta?.paging?.next || data.data.length < limit) {
+        const data = await resp.json();
+        if (data.data && Array.isArray(data.data)) {
+          activities.push(...data.data);
+        }
+
+        if (!data.meta?.paging?.next || data.data.length < limit) {
+          return activities;
+        }
+        offset += limit;
         break;
+      } catch (err) {
+        clearTimeout(timeout);
+        throw err;
       }
-      offset += limit;
-    } catch (err) {
-      clearTimeout(timeout);
-      throw err;
     }
   }
+}
 
-  return activities;
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function getClioRetryAfterMs(response) {
+  const raw = response.headers?.get?.('retry-after');
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds) && seconds > 0) {
+    return Math.max(1000, seconds * 1000);
+  }
+
+  const retryAt = raw ? Date.parse(raw) : NaN;
+  if (Number.isFinite(retryAt)) {
+    return Math.max(1000, retryAt - Date.now());
+  }
+
+  return CLIO_RATE_LIMIT_FALLBACK_RETRY_MS;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -613,7 +658,7 @@ async function buildTeamAggregateData(connectionString) {
     };
   }
 
-  const CONCURRENCY = 8;
+  const CONCURRENCY = TEAM_CLIO_CONCURRENCY;
   const results = [];
   for (let i = 0; i < teamMembers.length; i += CONCURRENCY) {
     const chunk = teamMembers.slice(i, i + CONCURRENCY);
@@ -625,7 +670,7 @@ async function buildTeamAggregateData(connectionString) {
         return getCached(userCacheKey).then((userCached) => {
           if (userCached && !userCached.stale) return userCached.data;
           if (inflightRequests.has(userCacheKey)) return inflightRequests.get(userCacheKey);
-          const inFlight = fetchUserWipTwoWeeksWithClioId(clioId).then((freshData) => {
+          const inFlight = fetchUserWipTwoWeeksWithClioId(clioId, { sequential: true }).then((freshData) => {
             setCached(userCacheKey, freshData).catch(() => {});
             return freshData;
           }).finally(() => inflightRequests.delete(userCacheKey));

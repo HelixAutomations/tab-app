@@ -1,5 +1,7 @@
 # Clio API Integration Reference
 
+Last verified: 2026-05-23
+
 > Last verified: 2025-12-30
 
 ## Overview

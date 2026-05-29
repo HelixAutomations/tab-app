@@ -60,6 +60,7 @@ interface ImmediateActionsBarProps {
   highlighted?: boolean;
   seamless?: boolean;
   enableSuggestedNext?: boolean;
+  emptyCompanion?: React.ReactNode;
   /** Optional control rendered in the bar header (LZ-only god-view scope toggle). */
   scopeSlot?: React.ReactNode;
 }
@@ -85,6 +86,7 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
   highlighted = false,
   seamless = false,
   enableSuggestedNext = false,
+  emptyCompanion,
   scopeSlot,
 }) => {
   const { isDarkMode: contextDarkMode } = useTheme();
@@ -374,8 +376,15 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
     if (isCompact && !seamless) return null;
     return (
       <Section isDark={isDark} seamless={seamless} quiet>
-        <div style={{ flex: seamless ? 1 : undefined, display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', minHeight: seamless ? '100%' : 64 }}>
-          <EmptyState isDark={isDark}>All caught up</EmptyState>
+        <div style={{ flex: seamless ? 1 : undefined, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', width: '100%', minHeight: seamless ? '100%' : 64 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', minHeight: 34 }}>
+            <EmptyState isDark={isDark}>All caught up</EmptyState>
+          </div>
+          {emptyCompanion && (
+            <div style={{ marginTop: 10, width: '100%', maxWidth: 332 }}>
+              {emptyCompanion}
+            </div>
+          )}
         </div>
       </Section>
     );

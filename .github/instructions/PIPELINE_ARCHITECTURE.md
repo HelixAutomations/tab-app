@@ -1,5 +1,7 @@
 # Pipeline Architecture — Prospect to Portal
 
+Last verified: 2026-05-23
+
 > The end-to-end product pipeline. How a website visitor becomes a managed matter with a client-facing portal. Every space, every handshake, every data table that bridges them.
 
 ---

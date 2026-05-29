@@ -1,15 +1,17 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { FiPhone, FiPhoneIncoming, FiPhoneOutgoing, FiFileText, FiClock, FiCheck, FiLink, FiX, FiRefreshCw, FiChevronRight, FiChevronDown, FiEdit3, FiSave, FiUploadCloud, FiSearch, FiMail, FiCode, FiDownload, FiUsers, FiUser } from 'react-icons/fi';
 import { colours, withAlpha } from '../../app/styles/colours';
-import { canSeeFirmWideHomeData, isAdminUser } from '../../app/admin';
+import { canSeeFirmWideHomeData, isAdminUser, isDevOwner } from '../../app/admin';
 import { useFreshIds } from '../../hooks/useFreshIds';
 import clioLogo from '../../assets/clio.svg';
 import { disposeOnHmr, onServerBounced } from '../../utils/devHmr';
 import { useRealtimeChannel } from '../../hooks/useRealtimeChannel';
 import { buildRequestAuthHeaders } from '../../utils/requestAuthContext';
+import { recordIntent } from '../../utils/recordIntent';
 import AttendanceNoteBox, { type AttendanceNoteAttendee, type AttendanceNoteBoxPayload, type AttendanceNoteBoxSaveLegStatus, type AttendanceNoteTeamOption, type AttendanceNoteTarget } from './AttendanceNoteBox';
 import SavedAttendanceNoteCard from './SavedAttendanceNoteCard';
-import type { ProspectLookupOption } from '../matter-lookup/ProspectLookup';
+import MatterLookup, { type MatterLookupOption } from '../matter-lookup/MatterLookup';
+import ProspectLookup, { type ProspectLookupOption } from '../matter-lookup/ProspectLookup';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface CallRecord {
@@ -193,6 +195,7 @@ interface CallsAndNotesProps {
 }
 
 type JourneyFilter = 'all' | 'external' | 'internal' | 'notes' | 'activity' | 'emails';
+type ManualDraftStep = 'idle' | 'choose-target' | 'lookup' | 'draft';
 
 type CallCueKind = 'time' | 'file' | 'attendance';
 
@@ -261,13 +264,22 @@ function usablePartyLabel(value?: string | null): string | null {
   return GENERIC_CALL_PARTY_LABELS.has(normalized) ? null : label;
 }
 
+function callSidePartyName(call: CallRecord, side: 'from' | 'to'): string | null {
+  const label = side === 'from' ? call.from_label : call.to_label;
+  const party = side === 'from' ? call.from_party : call.to_party;
+  return usablePartyLabel(label) || usablePartyLabel(party);
+}
+
 function externalPartyName(call: CallRecord): string {
   const isInbound = call.call_type === 'inbound';
-  const label = isInbound ? call.from_label : call.to_label;
-  const party = isInbound ? call.from_party : call.to_party;
+  if (call.is_internal === true) {
+    const internalParty = callSidePartyName(call, isInbound ? 'from' : 'to');
+    if (internalParty) return `${isInbound ? 'From' : 'To'} ${internalParty}`;
+    return isInbound ? 'Internal caller' : 'Internal meeting';
+  }
   const resolvedName = usablePartyLabel(call.resolved_name);
   if (resolvedName) return resolvedName;
-  const explicitLabel = usablePartyLabel(label) || usablePartyLabel(party);
+  const explicitLabel = callSidePartyName(call, isInbound ? 'from' : 'to');
   if (explicitLabel) return explicitLabel;
   return call.is_meeting_like ? 'External recording' : 'Unknown caller';
 }
@@ -827,6 +839,47 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
     const hostname = window.location.hostname;
     return hostname === 'localhost' || hostname === '127.0.0.1';
   }, [viewAsProd]);
+  // AI-assisted attendance notes are gated for LPP/confidentiality. Available
+  // to everyone on localhost (dev) and to LZ in production. Everyone else
+  // gets manual intake only; the server also enforces this with a 403.
+  const aiAssistAvailable = React.useMemo(() => {
+    if (viewAsProd) return false;
+    if (typeof window !== 'undefined') {
+      const hostname = window.location.hostname;
+      if (hostname === 'localhost' || hostname === '127.0.0.1') return true;
+    }
+    return isDevOwner({ Initials: userInitials, Email: userEmail });
+  }, [userEmail, userInitials, viewAsProd]);
+  const aiAssistStorageKey = React.useMemo(() => `home-call-centre-ai-assist:${(userInitials || 'anon').toUpperCase()}`, [userInitials]);
+  const [aiAssistEnabled, setAiAssistEnabledState] = useState<boolean>(() => {
+    try {
+      if (typeof window === 'undefined') return false;
+      return window.localStorage.getItem(`home-call-centre-ai-assist:${(undefined as unknown as string) || 'anon'}`) === 'true';
+    } catch { return false; }
+  });
+  // Re-hydrate per-user once initials are known.
+  useEffect(() => {
+    try {
+      if (typeof window === 'undefined') return;
+      const v = window.localStorage.getItem(aiAssistStorageKey);
+      setAiAssistEnabledState(v === 'true');
+    } catch { /* ignore */ }
+  }, [aiAssistStorageKey]);
+  const handleAiAssistChange = useCallback((next: boolean) => {
+    setAiAssistEnabledState(next);
+    try {
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(aiAssistStorageKey, next ? 'true' : 'false');
+      }
+    } catch { /* ignore */ }
+    try {
+      void fetch('/api/telemetry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event: 'Dubber.AttendanceNote.AiAssist.Toggled', properties: { enabled: String(next), userInitials: userInitials || '' } }),
+      }).catch(() => {});
+    } catch { /* ignore */ }
+  }, [aiAssistStorageKey, userInitials]);
   const demoModeActive = React.useMemo(() => {
     if (demoModeEnabled) return true;
     try {
@@ -844,6 +897,11 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
   const muted = isDarkMode ? colours.subtleGrey : colours.greyText;
   const hoverBg = isDarkMode ? 'rgba(54,144,206,0.06)' : 'rgba(13,47,96,0.03)';
   const tabActiveBg = isDarkMode ? 'rgba(54,144,206,0.04)' : 'rgba(13,47,96,0.015)';
+  const transcriptText = isDarkMode ? colours.dark.text : colours.darkBlue;
+  const transcriptSurface = isDarkMode ? withAlpha(colours.dark.cardBackground, 0.72) : withAlpha(colours.grey, 0.7);
+  const transcriptSoftSurface = isDarkMode ? withAlpha(colours.dark.sectionBackground, 0.66) : withAlpha(colours.grey, 0.52);
+  const transcriptAccentSurface = isDarkMode ? withAlpha(colours.highlight, 0.08) : withAlpha(colours.highlight, 0.07);
+  const transcriptBorder = isDarkMode ? withAlpha(colours.highlight, 0.14) : withAlpha(colours.helixBlue, 0.1);
   const clioLogoFilter = isDarkMode ? 'brightness(0) invert(1)' : 'none';
   const callsToggleChrome = React.useMemo(() => ({
     shellBorder: isDarkMode ? withAlpha(colours.highlight, 0.2) : withAlpha(colours.helixBlue, 0.14),
@@ -880,7 +938,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
   }, [canUseAllView, journeyScopeStorageKey, startsInAllView, useDemoJourneySeed]);
   const [selectedJourneyScope, setSelectedJourneyScope] = useState<'user' | 'all'>(() => defaultJourneyScope);
   // Call Centre is the default surface for everyone. Keep the broader journey
-  // plumbing intact for future note/email filing, but show external calls only.
+  // plumbing intact for future note/email filing, but present call rows only.
   const defaultJourneyFilter: JourneyFilter = 'external';
   const [journeyFilter, setJourneyFilter] = useState<JourneyFilter>(defaultJourneyFilter);
   const [selectedCallId, setSelectedCallId] = useState<string | null>(null);
@@ -895,6 +953,13 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [attendanceSaveLegs, setAttendanceSaveLegs] = useState<AttendanceNoteBoxSaveLegStatus[]>([]);
   const [filingTarget, setFilingTarget] = useState<AttendanceNoteTarget>('matter');
+  const [manualDraftStep, setManualDraftStep] = useState<ManualDraftStep>('idle');
+  const [manualDraftTarget, setManualDraftTarget] = useState<AttendanceNoteTarget | null>(null);
+  const [manualPromptHovered, setManualPromptHovered] = useState(false);
+  const [manualMatterTerm, setManualMatterTerm] = useState('');
+  const [manualMatterSelection, setManualMatterSelection] = useState<MatterLookupOption | null>(null);
+  const [manualProspectTerm, setManualProspectTerm] = useState('');
+  const [manualProspectSelection, setManualProspectSelection] = useState<ProspectLookupOption | null>(null);
   const [hoveredCallCue, setHoveredCallCue] = useState<HoveredCallCue | null>(null);
   // Synthetic recording id for standalone "manual" attendance notes (no call selected).
   // Regenerated after each successful save to start a fresh draft.
@@ -1023,6 +1088,23 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
       .slice(0, limit);
   }, [localMatterLookupOptions]);
 
+  const rotateManualRecordingId = useCallback(() => {
+    try {
+      const u = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      setManualRecordingId(`manual-${u}`);
+    } catch { setManualRecordingId(`manual-${Date.now()}`); }
+  }, []);
+
+  const resetManualDraft = useCallback((rotateDraftId = false) => {
+    setManualDraftStep('idle');
+    setManualDraftTarget(null);
+    setManualMatterTerm('');
+    setManualMatterSelection(null);
+    setManualProspectTerm('');
+    setManualProspectSelection(null);
+    if (rotateDraftId) rotateManualRecordingId();
+  }, [rotateManualRecordingId]);
+
   const resetSelectedWorkspace = useCallback(() => {
     setGeneratedNote(null);
     setNoteDetailOpen(false);
@@ -1048,7 +1130,8 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
       matterChainLoading: false,
       matterChainRef: null,
     });
-  }, []);
+    resetManualDraft(false);
+  }, [resetManualDraft]);
 
   // Close matter dropdown on outside click
   useEffect(() => {
@@ -1433,6 +1516,46 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
     setUploadError(null);
     setPipeline({ saving: false, saved: false, blobUrl: null, uploading: false, uploaded: false, ndResult: null, linkedMatterRef: null, matterChainLoading: true, matterChainRef: null });
     setMatterSearch('');
+    // Manual intake path: AI gate is off. Skip the attendance-note POST and
+    // open the box with empty narrative fields. Still resolve the matter chain
+    // so the user lands with the right matter prefilled.
+    if (!aiAssistAvailable || !aiAssistEnabled) {
+      try {
+        try {
+          void fetch('/api/telemetry', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ event: 'Dubber.AttendanceNote.ManualIntake.Opened', properties: { recordingId, userInitials: userInitials || '' } }),
+          }).catch(() => {});
+        } catch { /* ignore */ }
+        const chainRes = await fetchWithTimeout(`${dubberApiBaseUrl}/api/dubberCalls/${encodeURIComponent(recordingId)}/matter-chain`, {}, 12000).catch(() => null);
+        if (chainRes?.ok) {
+          const chainData = await chainRes.json();
+          const linkedMatterRef = chainData?.chain?.matter?.displayNumber || chainData?.chain?.instruction?.matterDisplayNumber || chainData?.chain?.instruction?.ref;
+          if (linkedMatterRef) {
+            setPipeline(prev => ({ ...prev, matterChainRef: linkedMatterRef, linkedMatterRef, matterChainLoading: false }));
+            setMatterSearch(linkedMatterRef);
+          } else {
+            const matchedCallItem = journeyItems.find(
+              (j): j is Extract<JourneyItem, { kind: 'call' }> =>
+                j.kind === 'call' && j.call.recording_id === recordingId
+            );
+            const isInternal = matchedCallItem?.call?.is_internal;
+            if (isInternal) {
+              setPipeline(prev => ({ ...prev, matterChainRef: 'HELIX01-01', linkedMatterRef: 'HELIX01-01', matterChainLoading: false }));
+              setMatterSearch('HELIX01-01');
+            } else {
+              setPipeline(prev => ({ ...prev, matterChainLoading: false }));
+            }
+          }
+        } else {
+          setPipeline(prev => ({ ...prev, matterChainLoading: false }));
+        }
+      } finally {
+        setGeneratingNoteFor(null);
+      }
+      return;
+    }
     try {
       const [noteRes, chainRes] = await Promise.all([
         fetchWithTimeout(`${dubberApiBaseUrl}/api/dubberCalls/${encodeURIComponent(recordingId)}/attendance-note`, { method: 'POST' }, 90000),
@@ -1448,6 +1571,11 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
         try {
           const errData = await noteRes.json();
           switch (errData.code) {
+            case 'AI_DISABLED':
+              errorMsg = 'AI assistance is restricted. Switch AI-Assist off to file the note manually.';
+              // Force the toggle off locally so the next attempt is manual.
+              handleAiAssistChange(false);
+              break;
             case 'NO_TRANSCRIPT': errorMsg = 'No transcript available for this call. The recording may still be processing.'; break;
             case 'AI_UNAVAILABLE': errorMsg = 'AI service is temporarily unavailable. Try again in a moment.'; break;
             case 'AI_PARSE_ERROR': errorMsg = 'AI returned an unexpected response. Try again.'; break;
@@ -1490,7 +1618,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
       setNoteGenError(`Connection error — ${msg}`);
     }
     finally { setGeneratingNoteFor(null); }
-  }, [demoJourneySeed.generatedNote, demoModeActive, dubberApiBaseUrl, journeyItems, savedNoteCache, userEmail, userInitials]);
+  }, [aiAssistAvailable, aiAssistEnabled, demoJourneySeed.generatedNote, demoModeActive, dubberApiBaseUrl, handleAiAssistChange, journeyItems, savedNoteCache, userEmail, userInitials]);
 
   // ── Search matters for picker ──
   const searchMatters = useCallback(async (q: string, options?: { includeLegacy?: boolean }) => {
@@ -1648,10 +1776,15 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
       // Topics are admin-only AI metadata (visible to LZ/AC in the UI for QA)
       // and are intentionally NOT persisted to the saved attendance note.
       const persistedNote = { ...noteToSave, topics: [] as string[] };
+      const targetType = matterRef ? 'matter' : 'unknown';
+      const clientSubmissionId = await recordIntent({
+        formKey: 'call-attendance-note',
+        payload: { recordingId, matterRef, targetType },
+      });
       const res = await fetchWithTimeout(`${dubberApiBaseUrl}/api/dubberCalls/${encodeURIComponent(recordingId)}/save-note`, {
         method: 'POST',
         headers: buildRequestAuthHeaders({ 'Content-Type': 'application/json', 'x-user-initials': userInitials }),
-        body: JSON.stringify({ note: persistedNote, matterRef, targetType: matterRef ? 'matter' : 'unknown' }),
+        body: JSON.stringify({ note: persistedNote, matterRef, targetType, clientSubmissionId }),
       }, 30000);
       if (res?.ok) {
         const data = await res.json();
@@ -1877,6 +2010,23 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
     };
   }, [generatedNote, savedNoteCache, selectedCallId, userInitials]);
 
+  const buildManualWorkspaceAttendanceNote = useCallback((payload: AttendanceNoteBoxPayload): AttendanceNote => {
+    const targetLabel = payload.target === 'matter'
+      ? (payload.matterClientName || payload.matterDisplayNumber || 'Client')
+      : (payload.contactName || 'Prospect');
+    return {
+      summary: payload.narrative.trim().slice(0, 500) || `Call with ${targetLabel}`,
+      topics: [],
+      actionItems: payload.actionPoints,
+      attendanceNote: payload.narrative.trim(),
+      duration: Math.max(1, Math.ceil(Math.max(payload.durationSec, 0) / 60)),
+      date: payload.date,
+      parties: { from: targetLabel, to: userInitials || 'Helix' },
+      teamMember: userInitials || null,
+      attendees: payload.attendees,
+    };
+  }, [userInitials]);
+
   const calls = React.useMemo(() => {
     const map = new Map<string, CallRecord>();
     for (const item of journeyItems) {
@@ -2079,9 +2229,10 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
 
     // ── Matter target: existing 3-leg flow ──
     const call = calls.find((entry) => entry.recording_id === payload.recordingId);
-    if (!call) return;
 
-    const noteToPersist = buildWorkspaceAttendanceNote(call, payload);
+    const noteToPersist = call
+      ? buildWorkspaceAttendanceNote(call, payload)
+      : buildManualWorkspaceAttendanceNote(payload);
     setGeneratedNote(noteToPersist);
     setPipeline(prev => ({ ...prev, linkedMatterRef: payload.matterDisplayNumber }));
 
@@ -2126,7 +2277,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
     }
 
     void fetchJourney('full');
-  }, [buildWorkspaceAttendanceNote, calls, dubberApiBaseUrl, fetchJourney, generatedNote, journeyItems, recordClioTimeEntry, saveNote, savedNoteCache, selectedCallId, uploadToND, userEmail, userInitials]);
+  }, [buildManualWorkspaceAttendanceNote, buildWorkspaceAttendanceNote, calls, dubberApiBaseUrl, fetchJourney, generatedNote, journeyItems, recordClioTimeEntry, saveNote, savedNoteCache, selectedCallId, uploadToND, userEmail, userInitials]);
 
   // ── Fetch transcript on demand ──
   const fetchTranscript = useCallback(async (recordingId: string) => {
@@ -2381,6 +2532,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
   const emptyJourneyLabel = React.useMemo(() => {
     switch (journeyFilter) {
       case 'external':
+        if (callCentreEnabled) return resolvedJourneyScope === 'all' ? 'team calls' : 'your calls';
         return resolvedJourneyScope === 'all' ? 'team external calls' : 'your external calls';
       case 'internal':
         return resolvedJourneyScope === 'all' ? 'team internal calls' : 'your internal calls';
@@ -2418,13 +2570,138 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
     fetchTranscript(call.recording_id);
     if (notedIds.has(call.recording_id) || call.attendance) fetchSavedNote(call.recording_id);
   }, [defaultJourneyFilter, fetchSavedNote, fetchTranscript, notedIds, resetSelectedWorkspace]);
-  const streamDateColumnWidth = 48;
+  const streamDateColumnWidth = 58;
   const streamRowGap = 6;
   const streamRowPadding = '6px 8px';
   const streamDetailPadding = '0 8px 6px';
   const streamCardPadding = '6px 8px';
   const streamIconColumnWidth = 14;
   const streamAccessoryColumnWidth = 22;
+  const renderJourneyStamp = (stamp: { primary: string; secondary?: string }) => {
+    const isTodayStamp = stamp.secondary === 'Today';
+    const todayTone = isDarkMode ? '#ffffff' : accent;
+    const timeTone = isTodayStamp ? todayTone : muted;
+    return (
+    <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'flex-start', gap: 3, minWidth: 0, color: muted, lineHeight: 1.08 }}>
+      <span style={{ fontSize: stamp.secondary ? 11 : 9, fontWeight: 800, lineHeight: 1, color: timeTone, fontVariantNumeric: 'tabular-nums', paddingBottom: isTodayStamp ? 2 : 0, boxShadow: isTodayStamp ? `inset 0 -1px 0 ${withAlpha(todayTone, isDarkMode ? 0.32 : 0.34)}` : undefined }}>{stamp.primary}</span>
+      {stamp.secondary ? (
+        <span style={{ fontSize: 9, fontWeight: 500, lineHeight: 1.05, color: muted, opacity: isTodayStamp ? 0.92 : 0.78, letterSpacing: '0.02em' }}>{stamp.secondary}</span>
+      ) : null}
+    </div>
+    );
+  };
+  const manualChoiceButtonRest = isDarkMode ? 'rgba(2,6,23,0.18)' : 'rgba(255,255,255,0.72)';
+  const manualChoiceButtonHover = isDarkMode ? withAlpha(accent, 0.1) : withAlpha(accent, 0.055);
+  const manualPromptDimOpacity = manualPromptHovered ? 1 : 0.5;
+  const manualTargetChoices: Array<{ target: AttendanceNoteTarget; label: string; hint: string; icon: React.ReactNode }> = [
+    { target: 'matter', label: 'Matter', hint: 'Matter number or client name', icon: <FiFileText size={14} /> },
+    { target: 'prospect', label: 'Prospect', hint: 'Name, email or phone', icon: <FiUser size={14} /> },
+  ];
+  const manualPromptPanelStyle: React.CSSProperties = {
+    position: 'relative',
+    width: '100%',
+    maxWidth: 470,
+    minHeight: isNarrow ? 300 : 360,
+    border: '1px solid transparent',
+    background: 'transparent',
+    padding: isNarrow ? '22px 18px' : '28px 30px',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 16,
+    textAlign: 'center',
+    boxShadow: 'none',
+    overflow: 'hidden',
+    transition: 'background 180ms ease, border-color 180ms ease',
+  };
+  const manualChoiceButtonStyle: React.CSSProperties = {
+    minHeight: 82,
+    display: 'grid',
+    gridTemplateRows: 'auto auto',
+    rowGap: 8,
+    alignContent: 'center',
+    justifyItems: 'center',
+    padding: '14px 10px',
+    border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(6,23,51,0.11)'}`,
+    background: manualChoiceButtonRest,
+    color: text,
+    cursor: 'pointer',
+    fontFamily: 'var(--font-primary)',
+    textAlign: 'center',
+    borderRadius: 0,
+    transition: 'background 150ms ease, border-color 150ms ease, transform 120ms ease, box-shadow 180ms ease',
+    boxShadow: 'none',
+  };
+  const manualChoiceLabelStyle: React.CSSProperties = {
+    width: '100%',
+    color: accent,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    fontSize: 11,
+    fontWeight: 800,
+    lineHeight: 1,
+    letterSpacing: '0.08em',
+    textTransform: 'uppercase',
+  };
+  const manualChoiceHintStyle: React.CSSProperties = {
+    width: '100%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: 10,
+    color: muted,
+    lineHeight: 1.25,
+    textAlign: 'center',
+  };
+  const manualLookupWrapStyle: React.CSSProperties = {
+    position: 'relative',
+    zIndex: 2,
+    width: '100%',
+    maxWidth: 430,
+    alignSelf: 'stretch',
+    margin: '0 auto',
+  };
+  const manualLookupInputStyle: React.CSSProperties = {
+    width: '100%',
+    minWidth: 0,
+    boxSizing: 'border-box',
+    fontSize: 13,
+    padding: '10px 12px',
+    background: isDarkMode ? colours.dark.sectionBackground : '#ffffff',
+    border: `1px solid ${isDarkMode ? withAlpha(colours.dark.text, 0.14) : withAlpha(colours.darkBlue, 0.22)}`,
+    color: text,
+  };
+  const manualStepTransitionStyle: React.CSSProperties = {
+    position: 'relative',
+    zIndex: 1,
+    width: '100%',
+    maxWidth: 430,
+    minHeight: isNarrow ? 230 : 250,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 16,
+    animation: 'opsDashRowFade 0.18s ease both',
+  };
+  const setManualChoiceHover = (event: React.MouseEvent<HTMLButtonElement> | React.FocusEvent<HTMLButtonElement>) => {
+    event.currentTarget.style.background = manualChoiceButtonHover;
+    event.currentTarget.style.borderColor = withAlpha(accent, isDarkMode ? 0.34 : 0.24);
+    event.currentTarget.style.boxShadow = `0 0 0 2px ${withAlpha(accent, isDarkMode ? 0.07 : 0.05)}`;
+    event.currentTarget.style.transform = 'translateY(-1px)';
+  };
+  const resetManualChoiceHover = (event: React.MouseEvent<HTMLButtonElement> | React.FocusEvent<HTMLButtonElement>) => {
+    event.currentTarget.style.background = manualChoiceButtonRest;
+    event.currentTarget.style.borderColor = isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(6,23,51,0.11)';
+    event.currentTarget.style.boxShadow = 'none';
+    event.currentTarget.style.transform = 'translateY(0)';
+  };
+  const pressManualControl = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.currentTarget.style.transform = 'translateY(0) scale(0.99)';
+  };
   const syncedJourneyListHeight = callCentreEnabled && !isNarrow
     ? (snappedJourneyListHeight ?? Math.max(Math.floor((rightRailHeight && rightRailHeight > 0 ? rightRailHeight : 560)), 280))
     : (isNarrow ? 360 : 420);
@@ -2447,6 +2724,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
     const rounded = Math.round(amount * 100) / 100;
     return rounded % 1 === 0 ? `£${rounded.toFixed(0)}` : `£${rounded.toFixed(2)}`;
   }, []);
+  const showFilingTargetControl = Boolean(selectedCall);
 
   const filingTargetControl = (
     <div
@@ -2919,7 +3197,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                 type="button"
                 onClick={handleManualJourneyRefresh}
                 disabled={!canManualJourneyRefresh}
-                title={canManualJourneyRefresh ? (callCentreEnabled ? 'Refresh call notes now' : 'Refresh activity now') : `${callCentreEnabled ? 'External Calls' : 'Activity'} ${liveStatusLabel.toLowerCase()}`}
+                title={canManualJourneyRefresh ? (callCentreEnabled ? 'Refresh call notes now' : 'Refresh activity now') : `${callCentreEnabled ? 'Calls' : 'Activity'} ${liveStatusLabel.toLowerCase()}`}
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
@@ -3006,8 +3284,8 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
             if (callCentreEnabled) {
               return (
                 <div style={{ display: 'grid', gridTemplateColumns: !isNarrow ? 'minmax(0, 1fr) minmax(0, 1fr)' : 'minmax(0, 1fr)', borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(6,23,51,0.06)'}` }}>
-                  {renderAttachedHeader({ icon: <FiPhoneIncoming className="home-section-header-icon" />, title: 'External Calls', count: visibleJourneyFilterCounts.external, controls: headerControls })}
-                  {!isNarrow && renderAttachedHeader({ icon: <FiFileText className="home-section-header-icon" />, title: 'Call Filing Workspace', detail: selectedCall ? externalPartyName(selectedCall) : null, controls: filingTargetControl, rightCell: true })}
+                  {renderAttachedHeader({ icon: <FiPhoneIncoming className="home-section-header-icon" />, title: 'Calls', count: visibleJourneyFilterCounts.external, controls: headerControls })}
+                  {!isNarrow && renderAttachedHeader({ icon: <FiFileText className="home-section-header-icon" />, title: 'Call Filing Workspace', detail: selectedCall ? externalPartyName(selectedCall) : null, controls: showFilingTargetControl ? filingTargetControl : null, rightCell: true })}
                 </div>
               );
             }
@@ -3060,7 +3338,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
             })}
           </div>
           )}
-          <div style={{ display: callCentreEnabled ? 'grid' : 'block', gridTemplateColumns: callCentreEnabled && !isNarrow ? 'minmax(0, 1fr) minmax(0, 1fr)' : '1fr', alignItems: callCentreEnabled && !isNarrow ? 'stretch' : 'start', flex: 1, minHeight: 0 }}>
+          <div style={{ display: callCentreEnabled ? 'grid' : 'block', gridTemplateColumns: callCentreEnabled && !isNarrow ? 'minmax(0, 1fr) minmax(0, 1fr)' : '1fr', alignItems: 'start', flex: 1, minHeight: 0 }}>
           <div ref={scrollRef} className="ops-dash-scroll" style={{ minHeight: 0, overflowY: 'auto', overflowX: 'hidden', maxHeight: syncedJourneyListHeight, height: callCentreEnabled && !isNarrow ? syncedJourneyListHeight : undefined, borderRight: callCentreEnabled && !isNarrow ? `1px solid ${isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(6,23,51,0.06)'}` : 'none', scrollPaddingBottom: 24 }}>
             {!panelActivated ? (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, gap: 6 }}>
@@ -3268,24 +3546,37 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                       boxSizing: 'border-box',
                       opacity: isUploadingInline ? 0.6 : (canInlineUpload || hasNdCue ? 1 : 0.72),
                     };
+                    const selectCallForFiling = () => {
+                      const nextId = isSelected ? null : call.recording_id;
+                      setSelectedCallId(nextId);
+                      resetSelectedWorkspace();
+                      if (nextId) {
+                        fetchTranscript(call.recording_id);
+                        if (notedIds.has(call.recording_id) || call.attendance) fetchSavedNote(call.recording_id);
+                      }
+                    };
+                    const handleCallCardKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+                      if (event.key !== 'Enter' && event.key !== ' ') return;
+                      const target = event.target as HTMLElement | null;
+                      if (target && target !== event.currentTarget && target.closest('button,a,input,select,textarea')) return;
+                      event.preventDefault();
+                      selectCallForFiling();
+                    };
+                    const selectedCallShadow = isSelected
+                      ? (isDarkMode ? `0 0 0 1px ${withAlpha(accent, 0.22)}, 0 10px 22px rgba(0,0,0,0.26)` : `0 0 0 1px ${withAlpha(accent, 0.18)}, 0 10px 22px rgba(6,23,51,0.1)`)
+                      : 'none';
 
                     return (
                       <div key={item.key} data-journey-item="true" style={{ display: 'flex', flexDirection: 'column' }}>
                         <div data-fresh={freshJourneyKeys.has(item.key) ? 'true' : undefined} style={{ display: 'grid', gridTemplateColumns: `${streamDateColumnWidth}px minmax(0, 1fr)`, gap: streamRowGap, padding: streamRowPadding, borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)'}`, animation: freshJourneyKeys.has(item.key) ? 'opsDashRowFade 0.2s ease both' : undefined }}>
-                          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: 0, color: muted }}>
-                            <span style={{ fontSize: 9, fontWeight: 700, lineHeight: 1.05, color: stamp.secondary ? text : muted }}>{stamp.primary}</span>
-                            <span style={{ fontSize: 7, lineHeight: 1.05, opacity: stamp.secondary ? 0.82 : 0.45 }}>{stamp.secondary || '—'}</span>
-                          </div>
+                          {renderJourneyStamp(stamp)}
                           <div
-                            onClick={() => {
-                              const nextId = isSelected ? null : call.recording_id;
-                              setSelectedCallId(nextId);
-                              resetSelectedWorkspace();
-                              if (nextId) {
-                                fetchTranscript(call.recording_id);
-                                if (notedIds.has(call.recording_id) || call.attendance) fetchSavedNote(call.recording_id);
-                              }
-                            }}
+                            role="button"
+                            tabIndex={0}
+                            aria-pressed={isSelected}
+                            aria-label={`${isSelected ? 'Deselect' : 'Select'} call with ${partyName} for filing`}
+                            onClick={selectCallForFiling}
+                            onKeyDown={handleCallCardKeyDown}
                             style={{
                               padding: streamCardPadding,
                               fontSize: 10,
@@ -3295,10 +3586,15 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                               borderStyle: 'solid',
                               borderWidth: '1px 1px 1px 2px',
                               borderColor: `${isSelected ? accent : cardBorder} ${isSelected ? accent : cardBorder} ${isSelected ? accent : cardBorder} ${isInbound ? colours.green : accent}`,
-                              transition: 'background 0.15s ease, border-color 0.15s ease',
+                              boxShadow: selectedCallShadow,
+                              outline: 'none',
+                              transition: 'background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease',
+                              transform: isSelected ? 'translateX(1px)' : 'translateX(0)',
                             }}
                             onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = hoverBg; }}
                             onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = 'transparent'; }}
+                            onFocus={e => { if (!isSelected) e.currentTarget.style.boxShadow = `0 0 0 2px ${withAlpha(accent, isDarkMode ? 0.24 : 0.18)}`; }}
+                            onBlur={e => { e.currentTarget.style.boxShadow = selectedCallShadow; }}
                           >
                             <div style={{ display: 'grid', gridTemplateColumns: `${streamIconColumnWidth}px minmax(0, 1fr) auto`, alignItems: 'center', gap: 6 }}>
                               <span style={{ display: 'flex', alignItems: 'center' }}>
@@ -3357,38 +3653,52 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                                         : muted;
                                     const cueTooltipStyle: React.CSSProperties = {
                                       position: 'absolute',
-                                      top: 20,
-                                      right: 0,
-                                      zIndex: 40,
-                                      minWidth: 190,
-                                      maxWidth: 250,
-                                      padding: '9px 10px',
+                                      top: 23,
+                                      right: -4,
+                                      zIndex: 70,
+                                      minWidth: 232,
+                                      maxWidth: 292,
+                                      padding: '11px 12px 12px',
                                       background: isDarkMode ? 'rgba(2,6,23,0.96)' : 'rgba(255,255,255,0.96)',
                                       color: text,
                                       border: `1px solid ${isDarkMode ? 'rgba(135,243,243,0.22)' : 'rgba(54,144,206,0.18)'}`,
-                                      boxShadow: isDarkMode ? '0 12px 28px rgba(0,0,0,0.38)' : '0 12px 28px rgba(6,23,51,0.14)',
+                                      boxShadow: isDarkMode ? '0 14px 30px rgba(0,0,0,0.42)' : '0 14px 30px rgba(6,23,51,0.16)',
                                       fontFamily: 'Raleway, sans-serif',
                                       textAlign: 'left',
                                       pointerEvents: 'none',
                                     };
-                                    const cueLineStyle: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 10, lineHeight: 1.35 };
+                                    const cueArrowStyle: React.CSSProperties = {
+                                      position: 'absolute',
+                                      top: -5,
+                                      right: 12,
+                                      width: 8,
+                                      height: 8,
+                                      transform: 'rotate(45deg)',
+                                      background: isDarkMode ? 'rgba(2,6,23,0.96)' : 'rgba(255,255,255,0.96)',
+                                      borderLeft: `1px solid ${isDarkMode ? 'rgba(135,243,243,0.22)' : 'rgba(54,144,206,0.18)'}`,
+                                      borderTop: `1px solid ${isDarkMode ? 'rgba(135,243,243,0.22)' : 'rgba(54,144,206,0.18)'}`,
+                                    };
+                                    const cueLineStyle: React.CSSProperties = { display: 'grid', gridTemplateColumns: '76px minmax(0, 1fr)', alignItems: 'baseline', gap: 10, fontSize: 10, lineHeight: 1.35 };
                                     const renderCueTooltip = (
                                       cue: CallCueKind,
                                       title: string,
                                       status: string,
                                       statusColour: string,
+                                      summary: string,
                                       rows: Array<{ label: string; value: React.ReactNode; valueColour?: string; strong?: boolean }>,
                                     ) => hoveredCallCue?.recordingId === call.recording_id && hoveredCallCue.cue === cue ? (
                                       <div role="tooltip" style={cueTooltipStyle}>
+                                        <span aria-hidden style={cueArrowStyle} />
                                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 7 }}>
                                           <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: accent }}>{title}</span>
                                           <span style={{ fontSize: 9, fontWeight: 800, color: statusColour, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{status}</span>
                                         </div>
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                                        <div style={{ color: muted, fontSize: 10, lineHeight: 1.35, marginBottom: 8 }}>{summary}</div>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                                           {rows.map((row) => (
                                             <div key={row.label} style={cueLineStyle}>
                                               <span style={{ color: muted, textTransform: 'uppercase', letterSpacing: '0.06em', fontSize: 8 }}>{row.label}</span>
-                                              <span style={{ minWidth: 0, color: row.valueColour || text, fontWeight: row.strong ? 700 : 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'right' }}>{row.value}</span>
+                                              <span style={{ minWidth: 0, color: row.valueColour || text, fontWeight: row.strong ? 700 : 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'left' }}>{row.value}</span>
                                             </div>
                                           ))}
                                         </div>
@@ -3431,14 +3741,12 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                                         <span
                                           aria-label={hasTimeEntry ? 'Time recorded' : 'Time pending'}
                                           style={{ ...cueStyle, position: 'relative' }}
-                                          title={hasTimeEntry
-                                            ? `Time recorded · ${units} unit${units === 1 ? '' : 's'}${amountLabel ? ` · ${amountLabel}` : ''}`
-                                            : amountLabel
-                                              ? `Time pending · suggested ${units} unit${units === 1 ? '' : 's'} (${amountLabel}) — record in the workspace below`
-                                              : 'Time pending — record in the workspace below'}
                                           onMouseEnter={() => setHoveredCallCue({ recordingId: call.recording_id, cue: 'time' })}
                                           onMouseLeave={() => setHoveredCallCue(null)}
+                                          onFocus={() => setHoveredCallCue({ recordingId: call.recording_id, cue: 'time' })}
+                                          onBlur={() => setHoveredCallCue(null)}
                                           onClick={(event) => event.stopPropagation()}
+                                          tabIndex={0}
                                         >
                                           <span style={iconWrapStyle}>
                                             <FiClock size={11} style={{ color: timeTone, opacity: hasTimeEntry ? 1 : 0.62 }} />
@@ -3449,7 +3757,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                                               {amountLabel}
                                             </span>
                                           )}
-                                          {renderCueTooltip('time', 'Time', hasTimeEntry ? 'Recorded' : 'Not recorded yet', hasTimeEntry ? colours.green : muted, [
+                                          {renderCueTooltip('time', 'Time entry', hasTimeEntry ? 'Recorded' : 'Pending', hasTimeEntry ? colours.green : muted, hasTimeEntry ? 'A matching Clio time entry has been found for this call.' : 'No matching time entry has been recorded yet. Use the workspace to save the time entry.', [
                                             { label: hasTimeEntry ? 'Entry' : 'Suggested', value: `${units} unit${units === 1 ? '' : 's'} · ${Math.max(0, units * 6)} min`, strong: hasTimeEntry },
                                             { label: 'Value', value: matchingTimeActivity ? formatMoneyValue(matchingTimeActivity.total) || 'Recorded' : amountLabel || 'No value yet', valueColour: hasTimeEntry ? colours.green : muted },
                                             { label: 'Matter', value: matchingTimeActivity?.matter?.display_number || timeEntryMatterRef || 'No matter linked', valueColour: matchingTimeActivity?.matter?.display_number || timeEntryMatterRef ? accent : muted },
@@ -3459,16 +3767,18 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                                         <span
                                           aria-label={hasNdCue ? 'Attendance note filed' : 'File pending'}
                                           style={{ ...cueStyle, position: 'relative' }}
-                                          title={hasNdCue ? 'Attendance note uploaded to NetDocuments' : 'File pending — save in the workspace below'}
                                           onMouseEnter={() => setHoveredCallCue({ recordingId: call.recording_id, cue: 'file' })}
                                           onMouseLeave={() => setHoveredCallCue(null)}
+                                          onFocus={() => setHoveredCallCue({ recordingId: call.recording_id, cue: 'file' })}
+                                          onBlur={() => setHoveredCallCue(null)}
                                           onClick={(event) => event.stopPropagation()}
+                                          tabIndex={0}
                                         >
                                           <span style={iconWrapStyle}>
                                             <FiFileText size={11} style={{ color: fileTone, opacity: hasNdCue ? 1 : 0.62 }} />
                                             <span style={statusDot(hasNdCue, fileTone)} />
                                           </span>
-                                          {renderCueTooltip('file', 'Filing', hasNdCue ? 'Filed' : hasPersistedCraft ? 'Ready' : 'Not filed yet', hasNdCue ? colours.green : hasPersistedCraft ? accent : muted, [
+                                          {renderCueTooltip('file', 'Attendance note', hasNdCue ? 'Filed' : hasPersistedCraft ? 'Ready' : 'Pending', hasNdCue ? colours.green : hasPersistedCraft ? accent : muted, hasNdCue ? 'The attendance note has been uploaded to NetDocuments.' : hasPersistedCraft ? 'The note is saved in the hub and ready for NetDocuments upload.' : 'No attendance note has been saved for this call yet.', [
                                             { label: 'Hub note', value: hasPersistedCraft ? 'Saved' : 'Not saved yet', valueColour: hasPersistedCraft ? colours.green : muted, strong: hasPersistedCraft },
                                             { label: 'NetDocs', value: hasNdCue ? 'Uploaded' : 'Not uploaded yet', valueColour: hasNdCue ? colours.green : muted },
                                             { label: 'Matter', value: inlineUploadMatterRef || 'No matter linked', valueColour: inlineUploadMatterRef ? accent : muted },
@@ -3480,7 +3790,10 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                                           style={{ ...cueStyle, position: 'relative' }}
                                           onMouseEnter={() => setHoveredCallCue({ recordingId: call.recording_id, cue: 'attendance' })}
                                           onMouseLeave={() => setHoveredCallCue(null)}
+                                          onFocus={() => setHoveredCallCue({ recordingId: call.recording_id, cue: 'attendance' })}
+                                          onBlur={() => setHoveredCallCue(null)}
                                           onClick={(event) => event.stopPropagation()}
+                                          tabIndex={0}
                                         >
                                           <span style={iconWrapStyle}>
                                             <FiUsers size={12} style={{ color: attendeeTone, opacity: hasSecondaryAttendees || attendanceContext.userIsSecondary ? 1 : 0.62 }} />
@@ -3491,11 +3804,13 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                                               role="tooltip"
                                               style={cueTooltipStyle}
                                             >
+                                              <span aria-hidden style={cueArrowStyle} />
                                               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 7 }}>
                                                 <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: accent }}>Attendees</span>
                                                 {attendanceContext.userIsSecondary && <span style={{ fontSize: 9, fontWeight: 800, color: colours.orange, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Your sit-in</span>}
                                               </div>
-                                              <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                                              <div style={{ color: muted, fontSize: 10, lineHeight: 1.35, marginBottom: 8 }}>{attendanceContext.userIsSecondary ? 'You are tagged as a supporting attendee for this call.' : hasSecondaryAttendees ? 'This call has additional attendees recorded on the saved note.' : 'Only the primary attendee is currently tagged for this call.'}</div>
+                                              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                                                 {attendanceContext.primaryAttendee && (
                                                   <div style={cueLineStyle}>
                                                     <span style={{ color: text, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{attendeeDisplay(attendanceContext.primaryAttendee)}</span>
@@ -3671,8 +3986,8 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                                   padding: '8px 10px', marginBottom: 6,
                                   fontSize: 10, lineHeight: 1.45,
                                   color: muted,
-                                  background: isDarkMode ? 'rgba(255,255,255,0.035)' : 'rgba(15,23,42,0.035)',
-                                  border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(15,23,42,0.06)'}`,
+                                  background: transcriptSoftSurface,
+                                  border: `1px solid ${transcriptBorder}`,
                                 }}>
                                   No transcript available for this call yet. The recording may still be processing.
                                 </div>
@@ -3688,9 +4003,9 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                                 {aiSummary && (
                                   <div style={{
                                     padding: '8px 10px', marginBottom: 10, fontSize: 11, lineHeight: 1.55,
-                                    color: isDarkMode ? '#d1d5db' : '#374151',
-                                    background: isDarkMode ? 'rgba(54,144,206,0.06)' : 'rgba(13,47,96,0.03)',
-                                    border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.12)' : 'rgba(13,47,96,0.06)'}`,
+                                    color: transcriptText,
+                                    background: transcriptAccentSurface,
+                                    border: `1px solid ${transcriptBorder}`,
                                   }}>
                                     <div style={{ fontSize: 10, fontWeight: 700, color: accent, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>AI Summary</div>
                                     {aiSummary.summary_text}
@@ -3723,13 +4038,13 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                                 </div>
                                 <div style={{
                                   maxHeight: 180, overflowY: 'auto', padding: '8px 10px',
-                                  background: isDarkMode ? 'rgba(0,0,0,0.12)' : 'rgba(0,0,0,0.02)',
-                                  border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)'}`,
+                                  background: transcriptSurface,
+                                  border: `1px solid ${transcriptBorder}`,
                                 }}>
                                   {td.sentences.map((s, si) => (
                                     <div key={si} style={{
                                       fontSize: 11, lineHeight: 1.55, padding: '2px 0',
-                                      color: isDarkMode ? '#d1d5db' : '#374151',
+                                      color: transcriptText,
                                     }}>
                                       <span style={{ color: muted, fontSize: 10, marginRight: 6, fontVariantNumeric: 'tabular-nums' }}>{si + 1}.</span>
                                       {s.content}
@@ -3855,10 +4170,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                     const callStamp = linkedCall ? formatCompactDateTime(linkedCall.start_time_utc) : formatCompactDateTime(note.call_date);
                     return (
                       <div key={item.key} data-journey-item="true" data-fresh={freshJourneyKeys.has(item.key) ? 'true' : undefined} style={{ display: 'grid', gridTemplateColumns: `${streamDateColumnWidth}px minmax(0, 1fr)`, gap: streamRowGap, padding: streamRowPadding, borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)'}`, animation: freshJourneyKeys.has(item.key) ? 'opsDashRowFade 0.2s ease both' : undefined }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: 0, color: muted }}>
-                          <span style={{ fontSize: 9, fontWeight: 700, lineHeight: 1.05, color: stamp.secondary ? text : muted }}>{stamp.primary}</span>
-                          <span style={{ fontSize: 7, lineHeight: 1.05, opacity: stamp.secondary ? 0.82 : 0.45 }}>{stamp.secondary || '—'}</span>
-                        </div>
+                        {renderJourneyStamp(stamp)}
                         <div
                           onClick={() => {
                             if (linkedCall) {
@@ -3914,10 +4226,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
 
                     return (
                       <div key={item.key} data-journey-item="true" data-fresh={freshJourneyKeys.has(item.key) ? 'true' : undefined} style={{ display: 'grid', gridTemplateColumns: `${streamDateColumnWidth}px minmax(0, 1fr)`, gap: streamRowGap, padding: streamRowPadding, borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)'}`, animation: freshJourneyKeys.has(item.key) ? 'opsDashRowFade 0.2s ease both' : undefined }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: 0, color: muted }}>
-                          <span style={{ fontSize: 9, fontWeight: 700, lineHeight: 1.05, color: stamp.secondary ? text : muted }}>{stamp.primary}</span>
-                          <span style={{ fontSize: 7, lineHeight: 1.05, opacity: stamp.secondary ? 0.82 : 0.45 }}>{stamp.secondary || '—'}</span>
-                        </div>
+                        {renderJourneyStamp(stamp)}
                         <div style={{ padding: streamCardPadding, borderStyle: 'solid', borderWidth: '1px 1px 1px 2px', borderColor: `${cardBorder} ${cardBorder} ${cardBorder} ${colours.green}`, background: isDarkMode ? 'rgba(32,178,108,0.05)' : 'rgba(32,178,108,0.03)' }}>
                           <div style={{ display: 'grid', gridTemplateColumns: `${streamIconColumnWidth}px minmax(0, 1fr) auto`, gap: 6, alignItems: 'start' }}>
                             <span style={{ display: 'flex', alignItems: 'center' }}><FiMail size={10} style={{ color: colours.green }} /></span>
@@ -3950,10 +4259,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
 
                   return (
                     <div key={item.key} data-journey-item="true" data-fresh={freshJourneyKeys.has(item.key) ? 'true' : undefined} style={{ display: 'grid', gridTemplateColumns: `${streamDateColumnWidth}px minmax(0, 1fr)`, gap: streamRowGap, padding: streamRowPadding, borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)'}`, animation: freshJourneyKeys.has(item.key) ? 'opsDashRowFade 0.2s ease both' : undefined }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: 0, color: muted }}>
-                        <span style={{ fontSize: 9, fontWeight: 700, lineHeight: 1.05, color: stamp.secondary ? text : muted }}>{stamp.primary}</span>
-                        <span style={{ fontSize: 7, lineHeight: 1.05, opacity: stamp.secondary ? 0.82 : 0.45 }}>{stamp.secondary || '—'}</span>
-                      </div>
+                      {renderJourneyStamp(stamp)}
                       <div style={{ padding: streamCardPadding, borderStyle: 'solid', borderWidth: '1px 1px 1px 2px', borderColor: `${cardBorder} ${cardBorder} ${cardBorder} ${accent}`, background: isDarkMode ? 'rgba(54,144,206,0.04)' : 'rgba(13,47,96,0.02)' }}>
                         <div style={{ display: 'grid', gridTemplateColumns: `${streamIconColumnWidth}px minmax(0, 1fr) auto`, gap: 6, alignItems: 'start' }}>
                           <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}><img src={clioLogo} alt="Clio" style={{ width: 12, height: 12, opacity: isDarkMode ? 0.88 : 0.72, filter: clioLogoFilter }} /></span>
@@ -3987,6 +4293,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
               style={{
                 display: 'flex',
                 flexDirection: 'column',
+                alignSelf: 'start',
                 minHeight: 0,
                 // Let the rail grow with the (always-rendered) filing form.
                 maxHeight: 'none',
@@ -4002,53 +4309,210 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                       <FiFileText className="home-section-header-icon" />
                       <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Call Filing Workspace</span>
                     </span>
-                    {filingTargetControl}
+                    {showFilingTargetControl && filingTargetControl}
                   </div>
-                  {selectedCall && (
-                    <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 10, color: muted, opacity: 0.74, fontWeight: 500 }}>
-                      {externalPartyName(selectedCall)}
-                    </span>
-                  )}
                 </div>
               )}
               {!selectedCall ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0, flex: 1, padding: '10px 10px 12px', overflow: 'hidden' }}>
-                  <div style={{ minHeight: 0, flex: 1, display: 'flex' }}>
-                    <AttendanceNoteBox
-                      variant="embedded"
-                      isDarkMode={isDarkMode}
-                      userInitials={userInitials}
-                      recordingId={manualRecordingId}
-                      initialTarget={filingTarget}
-                      showTargetTabs={false}
-                      showDestinations={showAttendanceDestinations}
-                      callDate={new Date().toISOString()}
-                      durationSec={0}
-                      isBlankDraft
-                      dateEditable
-                      generatedSummary=""
-                      generatedBody=""
-                      actionItems={[]}
-                      prefillMatter={demoWorkspaceMatterPrefill}
-                      matterOptions={localMatterLookupOptions}
-                      recentMatters={localMatterLookupOptions}
-                      recentEnquiries={recentEnquiryOptions}
-                      prefillProspect={demoWorkspaceProspectPrefill}
-                      teamOptions={teamOptions}
-                      saveLegs={attendanceSaveLegs}
-                      saving={workspaceSaving}
-                      hourlyRate={parsedUserRate}
-                      onClose={() => {
-                        setAttendanceSaveLegs([]);
-                        // Rotate the draft id so toggles/state reset cleanly.
-                        try {
-                          const u = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-                          setManualRecordingId(`manual-${u}`);
-                        } catch { setManualRecordingId(`manual-${Date.now()}`); }
-                      }}
-                      onSave={handleAttendanceWorkspaceSave}
-                    />
-                  </div>
+                <div data-helix-region="home/calls-and-notes/start" style={{ display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0, flex: 1, padding: '10px 10px 12px', overflow: 'hidden' }}>
+                  {manualDraftStep === 'draft' && manualDraftTarget ? (
+                    <div style={{ minHeight: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: 8, animation: 'opsDashRowFade 0.18s ease both' }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAttendanceSaveLegs([]);
+                          resetManualDraft(true);
+                          setManualDraftStep('idle');
+                        }}
+                        disabled={workspaceSaving}
+                        style={{ alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 8px', background: 'transparent', border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(6,23,51,0.1)'}`, color: muted, cursor: workspaceSaving ? 'not-allowed' : 'pointer', fontFamily: 'var(--font-primary)', fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', borderRadius: 0 }}
+                      >
+                        <FiChevronRight size={11} style={{ transform: 'rotate(180deg)' }} />
+                        Change target
+                      </button>
+                      <div style={{ minHeight: 0, flex: 1, display: 'flex' }}>
+                        <AttendanceNoteBox
+                          variant="embedded"
+                          isDarkMode={isDarkMode}
+                          userInitials={userInitials}
+                          recordingId={manualRecordingId}
+                          initialTarget={manualDraftTarget}
+                          showTargetTabs={false}
+                          showDestinations={showAttendanceDestinations}
+                          aiAssistAvailable={aiAssistAvailable}
+                          aiAssistEnabled={aiAssistEnabled}
+                          onAiAssistChange={handleAiAssistChange}
+                          callDate={new Date().toISOString()}
+                          durationSec={0}
+                          isBlankDraft
+                          dateEditable
+                          generatedSummary=""
+                          generatedBody=""
+                          actionItems={[]}
+                          prefillMatter={manualDraftTarget === 'matter' ? manualMatterSelection : null}
+                          matterOptions={localMatterLookupOptions}
+                          recentMatters={localMatterLookupOptions}
+                          recentEnquiries={recentEnquiryOptions}
+                          prefillProspect={manualDraftTarget === 'prospect' ? manualProspectSelection : null}
+                          teamOptions={teamOptions}
+                          saveLegs={attendanceSaveLegs}
+                          saving={workspaceSaving}
+                          hourlyRate={parsedUserRate}
+                          onClose={() => {
+                            resetSelectedWorkspace();
+                            resetManualDraft(true);
+                          }}
+                          onSave={handleAttendanceWorkspaceSave}
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ minHeight: 0, flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: isNarrow ? '18px 10px' : '22px 18px' }}>
+                      <div
+                        style={manualPromptPanelStyle}
+                        onMouseEnter={() => setManualPromptHovered(true)}
+                        onMouseLeave={() => setManualPromptHovered(false)}
+                        onFocus={() => setManualPromptHovered(true)}
+                        onBlur={(event) => {
+                          const nextTarget = event.relatedTarget;
+                          if (!(nextTarget instanceof Node) || !event.currentTarget.contains(nextTarget)) setManualPromptHovered(false);
+                        }}
+                      >
+                        {manualDraftStep === 'idle' && (
+                          <div key="manual-idle" style={manualStepTransitionStyle}>
+                            <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 9, maxWidth: 360 }}>
+                              <span style={{ color: manualPromptHovered ? accent : muted, opacity: manualPromptHovered ? 0.92 : 0.42, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'color 180ms ease, opacity 180ms ease, transform 180ms ease', transform: manualPromptHovered ? 'translateY(-1px)' : 'translateY(0)' }}>
+                                <FiPhoneIncoming size={22} />
+                              </span>
+                              <span style={{ fontSize: 15, fontWeight: 800, color: manualPromptHovered ? text : muted, opacity: manualPromptDimOpacity, letterSpacing: '0.01em', transition: 'color 180ms ease, opacity 180ms ease' }}>Select a call from Calls to file</span>
+                            </div>
+                            <div style={{ position: 'relative', zIndex: 1, width: '100%', maxWidth: 360, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto minmax(0, 1fr)', alignItems: 'center', gap: 9, color: muted, opacity: 0.72 }}>
+                              <span style={{ height: 1, background: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(6,23,51,0.09)' }} />
+                              <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.14em', textTransform: 'uppercase' }}>or</span>
+                              <span style={{ height: 1, background: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(6,23,51,0.09)' }} />
+                            </div>
+                            <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, width: '100%', maxWidth: 360 }}>
+                              <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', color: muted, opacity: 0.86 }}>
+                                File without a call
+                              </div>
+                              <div style={{ width: '100%', display: 'grid', gridTemplateColumns: isNarrow ? '1fr' : 'repeat(2, minmax(0, 1fr))', gap: 9 }}>
+                                {manualTargetChoices.map(({ target, label, hint, icon }) => (
+                                  <button
+                                    key={target}
+                                    type="button"
+                                    onClick={() => {
+                                      setFilingTarget(target);
+                                      setManualDraftTarget(target);
+                                      setManualDraftStep('lookup');
+                                    }}
+                                    onMouseEnter={setManualChoiceHover}
+                                    onMouseLeave={resetManualChoiceHover}
+                                    onFocus={setManualChoiceHover}
+                                    onBlur={resetManualChoiceHover}
+                                    onMouseDown={pressManualControl}
+                                    onMouseUp={setManualChoiceHover}
+                                    style={manualChoiceButtonStyle}
+                                  >
+                                    <span style={manualChoiceLabelStyle}>{icon}{label}</span>
+                                    <span style={manualChoiceHintStyle}>{hint}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                        {manualDraftStep === 'choose-target' && (
+                          <div key="manual-choose-target" style={manualStepTransitionStyle}>
+                            <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, maxWidth: 360 }}>
+                              <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.14em', textTransform: 'uppercase', color: muted, opacity: 0.72 }}>File without a call</span>
+                              <span style={{ fontSize: 15, fontWeight: 800, color: text }}>Choose filing target</span>
+                              <span style={{ fontSize: 11, lineHeight: 1.55, color: muted }}>Search the Matter or Prospect first. The note form opens after the record is selected.</span>
+                            </div>
+                            <div style={{ position: 'relative', zIndex: 1, width: '100%', maxWidth: 360, display: 'grid', gridTemplateColumns: isNarrow ? '1fr' : 'repeat(2, minmax(0, 1fr))', gap: 9 }}>
+                              {manualTargetChoices.map(({ target, label, hint, icon }) => (
+                                <button
+                                  key={target}
+                                  type="button"
+                                  onClick={() => {
+                                    setFilingTarget(target);
+                                    setManualDraftTarget(target);
+                                    setManualDraftStep('lookup');
+                                  }}
+                                  onMouseEnter={setManualChoiceHover}
+                                  onMouseLeave={resetManualChoiceHover}
+                                  onFocus={setManualChoiceHover}
+                                  onBlur={resetManualChoiceHover}
+                                  onMouseDown={pressManualControl}
+                                  onMouseUp={setManualChoiceHover}
+                                  style={manualChoiceButtonStyle}
+                                >
+                                  <span style={manualChoiceLabelStyle}>{icon}{label}</span>
+                                  <span style={manualChoiceHintStyle}>{hint}</span>
+                                </button>
+                              ))}
+                            </div>
+                            <button type="button" onClick={() => resetManualDraft(false)} style={{ position: 'relative', zIndex: 1, alignSelf: 'center', background: 'transparent', border: 'none', padding: 0, color: muted, cursor: 'pointer', fontFamily: 'var(--font-primary)', fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Back</button>
+                          </div>
+                        )}
+                        {manualDraftStep === 'lookup' && manualDraftTarget === 'matter' && (
+                          <div key="manual-lookup-matter" style={manualStepTransitionStyle}>
+                            <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, maxWidth: 360 }}>
+                              <span style={{ fontSize: 13, fontWeight: 800, color: text }}>Find the matter first</span>
+                              <span style={{ fontSize: 11, lineHeight: 1.45, color: muted }}>Search by matter number or client name.</span>
+                            </div>
+                            <div style={manualLookupWrapStyle}>
+                              <MatterLookup
+                                value={manualMatterTerm}
+                                onChange={(term) => {
+                                  setManualMatterTerm(term);
+                                  if (manualMatterSelection && term !== manualMatterSelection.displayNumber) setManualMatterSelection(null);
+                                }}
+                                onSelect={(option) => {
+                                  setManualMatterSelection(option);
+                                  setManualMatterTerm(option.displayNumber);
+                                  setManualDraftStep('draft');
+                                }}
+                                matters={localMatterLookupOptions}
+                                recents={localMatterLookupOptions}
+                                isDarkMode={isDarkMode}
+                                placeholder="Type matter number or client name..."
+                                inputStyle={manualLookupInputStyle}
+                              />
+                            </div>
+                            <button type="button" onClick={() => setManualDraftStep('idle')} style={{ alignSelf: 'center', background: 'transparent', border: 'none', padding: 0, color: muted, cursor: 'pointer', fontFamily: 'var(--font-primary)', fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Back</button>
+                          </div>
+                        )}
+                        {manualDraftStep === 'lookup' && manualDraftTarget === 'prospect' && (
+                          <div key="manual-lookup-prospect" style={manualStepTransitionStyle}>
+                            <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, maxWidth: 360 }}>
+                              <span style={{ fontSize: 13, fontWeight: 800, color: text }}>Find the prospect first</span>
+                              <span style={{ fontSize: 11, lineHeight: 1.45, color: muted }}>Search by name, email or phone.</span>
+                            </div>
+                            <div style={manualLookupWrapStyle}>
+                              <ProspectLookup
+                                value={manualProspectTerm}
+                                onChange={(term) => {
+                                  setManualProspectTerm(term);
+                                  if (manualProspectSelection && term !== `${manualProspectSelection.firstName} ${manualProspectSelection.lastName}`.trim()) setManualProspectSelection(null);
+                                }}
+                                onSelect={(option) => {
+                                  const label = `${option.firstName} ${option.lastName}`.trim() || option.email || String(option.id);
+                                  setManualProspectSelection(option);
+                                  setManualProspectTerm(label);
+                                  setManualDraftStep('draft');
+                                }}
+                                isDarkMode={isDarkMode}
+                                recents={recentEnquiryOptions}
+                                placeholder="Search prospect by name, email or phone..."
+                                inputStyle={manualLookupInputStyle}
+                              />
+                            </div>
+                            <button type="button" onClick={() => setManualDraftStep('idle')} style={{ alignSelf: 'center', background: 'transparent', border: 'none', padding: 0, color: muted, cursor: 'pointer', fontFamily: 'var(--font-primary)', fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Back</button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0, flex: 1, padding: '12px 12px 14px', overflow: 'hidden' }}>
@@ -4167,6 +4631,9 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                       initialTarget={filingTarget}
                       showTargetTabs={false}
                       showDestinations={showAttendanceDestinations}
+                      aiAssistAvailable={aiAssistAvailable}
+                      aiAssistEnabled={aiAssistEnabled}
+                      onAiAssistChange={handleAiAssistChange}
                       callDate={selectedCall.start_time_utc}
                       durationSec={selectedCall.duration_seconds || 0}
                       generatedSummary={selectedWorkspaceNote?.summary || ''}

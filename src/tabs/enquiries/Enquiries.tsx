@@ -3362,6 +3362,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   const openEnquiryWorkbench = useCallback((enquiry: Enquiry, tab: 'Pitch' | 'Timeline', options?: { filter?: 'pitch'; workbenchTab?: string }) => {
     setSelectedEnquiry(enquiry);
+    setSelectedPitchScenario(undefined);
     setActiveSubTab(tab);
     setTimelineInitialFilter(options?.filter ?? null);
     setWorkbenchInitialTab(options?.workbenchTab);
@@ -5623,7 +5624,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     (enquiry: Enquiry) => (
       <>
         {activeSubTab === 'Pitch' && (
-          <PitchBuilder 
+          <PitchBuilder
+            key={`${enquiry.ID || (enquiry as any).id || 'enquiry'}:${selectedPitchScenario || 'manual'}`}
             enquiry={enquiry} 
             userData={userData}
             initialScenario={selectedPitchScenario}
@@ -5654,7 +5656,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         )}
       </>
     ),
-  [activeSubTab, userData, isLocalhost, featureToggles, setActiveSubTab, getEnquiryWorkbenchItem, enrichmentMap, timelineInitialFilter, workbenchInitialTab, workbenchHandlers, allEnquiries, teamWideEnquiries, handleSelectEnquiryForTimeline, teamData]
+  [activeSubTab, userData, isLocalhost, featureToggles, setActiveSubTab, getEnquiryWorkbenchItem, enrichmentMap, timelineInitialFilter, workbenchInitialTab, workbenchHandlers, allEnquiries, teamWideEnquiries, handleSelectEnquiryForTimeline, teamData, selectedPitchScenario]
   );
 
   const enquiriesCountPerMember = useMemo(() => {
@@ -7539,7 +7541,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                             const childShowClaimer = childHasClaimer && activeState !== 'Triaged';
                             const childNameCopyKey = `name-${childNoteKey}`;
                             const isChildNameCopied = copiedNameKey === childNameCopyKey;
-                            const childRowBaseBackground = isDarkMode ? colours.dark.background : colours.sectionBackground;
+                            const childRowBaseBackground = isDarkMode ? 'var(--prospect-enquiry-row-bg)' : colours.sectionBackground;
                             const childMutedBorder = isDarkMode ? `${colours.dark.borderColor}8c` : 'rgba(160, 160, 160, 0.28)';
                             const childMutedBackground = isDarkMode ? colours.darkBlue : colours.grey;
                             const childMutedBackgroundHover = isDarkMode ? colours.helixBlue : colours.highlightBlue;

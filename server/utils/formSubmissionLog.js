@@ -65,9 +65,13 @@ function getConnStr() {
  * @param {string} [args.lane]        Optional ProcessLane string for the rail.
  * @param {object} args.payload       The original POST body (will be JSON.stringified).
  * @param {string} [args.summary]     Short human label for the rail row.
+ * @param {string} [args.clientSubmissionId] Optional id minted by the client before
+ *   the real POST fired (operator god-mode P1). When present, persisted on the
+ *   submission row AND used to back-link the matching intent row so orphan
+ *   scans can mark it resolved.
  * @returns {Promise<string|null>}    UUID of the new row, or `null` on failure.
  */
-async function recordSubmission({ formKey, submittedBy, lane = null, payload, summary = null }) {
+async function recordSubmission({ formKey, submittedBy, lane = null, payload, summary = null, clientSubmissionId = null }) {
   const connStr = getConnStr();
   if (!connStr) {
     // Local dev without DB — silently skip.
@@ -84,6 +88,7 @@ async function recordSubmission({ formKey, submittedBy, lane = null, payload, su
   try {
     const payloadJson = JSON.stringify(payload ?? {});
     const stepsJson = JSON.stringify([]);
+    const trimmedClientId = clientSubmissionId ? String(clientSubmissionId).slice(0, 64) : null;
     const result = await withRequest(connStr, async (request, sql) => {
       request.input('form_key', sql.NVarChar(64), formKey);
       request.input('submitted_by', sql.NVarChar(16), submittedBy);
@@ -92,16 +97,43 @@ async function recordSubmission({ formKey, submittedBy, lane = null, payload, su
       request.input('summary', sql.NVarChar(400), summary);
       request.input('processing_status', sql.NVarChar(32), 'queued');
       request.input('processing_steps_json', sql.NVarChar(sql.MAX), stepsJson);
+      request.input('client_submission_id', sql.NVarChar(64), trimmedClientId);
       return request.query(`
         INSERT INTO dbo.form_submissions
-          (form_key, submitted_by, lane, payload_json, summary, processing_status, processing_steps_json)
+          (form_key, submitted_by, lane, payload_json, summary, processing_status, processing_steps_json, client_submission_id)
         OUTPUT INSERTED.id
         VALUES
-          (@form_key, @submitted_by, @lane, @payload_json, @summary, @processing_status, @processing_steps_json);
+          (@form_key, @submitted_by, @lane, @payload_json, @summary, @processing_status, @processing_steps_json, @client_submission_id);
       `);
     });
     const id = result?.recordset?.[0]?.id || null;
-    trackEvent('FormSubmission.Recorded', { formKey, submittedBy, submissionId: id, lane });
+    trackEvent('FormSubmission.Recorded', { formKey, submittedBy, submissionId: id, lane, clientSubmissionId: trimmedClientId });
+
+    // Back-link the matching intent row (operator god-mode P1). Best-effort:
+    // missing column (pre-migration) or missing intent (legacy client) must
+    // not surface as a failure.
+    if (id && trimmedClientId) {
+      try {
+        await withRequest(connStr, async (request, sql) => {
+          request.input('cid', sql.NVarChar(64), trimmedClientId);
+          request.input('sid', sql.UniqueIdentifier, id);
+          await request.query(`
+            IF EXISTS (
+              SELECT 1 FROM sys.tables WHERE name = 'form_submission_intents' AND schema_id = SCHEMA_ID('dbo')
+            )
+            BEGIN
+              UPDATE dbo.form_submission_intents
+              SET matched_submission_id = @sid, matched_at = SYSUTCDATETIME()
+              WHERE client_submission_id = @cid AND matched_submission_id IS NULL;
+            END
+          `);
+        });
+        trackEvent('FormIntent.Matched', { formKey, submittedBy, submissionId: id, clientSubmissionId: trimmedClientId });
+      } catch (matchErr) {
+        trackException(matchErr, { phase: 'recordSubmission.matchIntent', formKey, clientSubmissionId: trimmedClientId });
+      }
+    }
+
     return id;
   } catch (err) {
     trackException(err, { phase: 'recordSubmission', formKey, submittedBy });
@@ -357,6 +389,42 @@ async function archiveSubmission(submissionId) {
   }
 }
 
+/**
+ * List recent submissions for a single user. Used by the System tab Lookup
+ * submodule to answer "what has this person done in the last N hours and what
+ * came back?". Returns the rows sorted newest-first with payload/steps parsed.
+ */
+async function listRecentSubmissionsForUser({ initials, since, limit = 40 }) {
+  const connStr = getConnStr();
+  if (!connStr || !initials) return [];
+  const safeLimit = Math.max(1, Math.min(200, Number(limit) || 40));
+  try {
+    const result = await withRequest(connStr, async (request, sql) => {
+      request.input('initials', sql.NVarChar(16), String(initials).toUpperCase());
+      request.input('since', sql.DateTime2, since instanceof Date ? since : new Date(since));
+      return request.query(`
+        SELECT TOP (${safeLimit}) *
+        FROM dbo.form_submissions
+        WHERE UPPER(submitted_by) = @initials
+          AND submitted_at >= @since
+          AND archived_at IS NULL
+        ORDER BY submitted_at DESC;
+      `);
+    });
+    const rows = result?.recordset || [];
+    return rows.map((row) => {
+      let payload = null;
+      let steps = [];
+      try { payload = row.payload_json ? JSON.parse(row.payload_json) : null; } catch { payload = null; }
+      try { steps = row.processing_steps_json ? JSON.parse(row.processing_steps_json) : []; } catch { steps = []; }
+      return { ...row, payload, steps };
+    });
+  } catch (err) {
+    trackException(err, { phase: 'listRecentSubmissionsForUser', initials });
+    return [];
+  }
+}
+
 module.exports = {
   recordSubmission,
   recordStep,
@@ -364,6 +432,7 @@ module.exports = {
   markComplete,
   markFailed,
   loadSubmission,
+  listRecentSubmissionsForUser,
   bumpRetrigger,
   archiveSubmission,
 };

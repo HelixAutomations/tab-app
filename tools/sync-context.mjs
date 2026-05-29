@@ -15,7 +15,7 @@ const SYNC_CHOICE_ARG = process.argv.find((arg) => arg.startsWith('--sync-choice
 
 const SUBMODULE_TRACKED_BRANCHES = {
   'submodules/instruct-pitch': 'workspace',
-  'submodules/enquiry-processing-v2': 'facebook-lead-processing',
+  'submodules/enquiry-processing-v2': 'main',
 };
 
 function run(cmd) {

@@ -285,10 +285,9 @@ export function useRealtimeChannel<TPayload = unknown>(
         }, { throttleKey: `realtime:${name}:connected`, cooldownMs: 60000 });
       }
       if (next === 'connecting' && name) {
-        // treat as error retry (mirrors prior behaviour)
-        trackClientError('Realtime', `${name}.error`, 'eventsource-error',
+        trackClientEvent('Realtime', `${name}.retrying`,
           { url },
-          { throttleKey: `realtime:${name}:error`, cooldownMs: 30000 });
+          { throttleKey: `realtime:${name}:retrying`, cooldownMs: 30000 });
       }
     };
 

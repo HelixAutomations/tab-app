@@ -4,19 +4,90 @@ applyTo: "server/**"
 
 # Server Rules (auto-attached)
 
-## Telemetry (non-negotiable)
-Every server-side process must emit Application Insights telemetry:
-- `trackEvent('Component.Entity.Started', { operation, triggeredBy })` on start
-- `trackEvent('Component.Entity.Completed', { operation, durationMs })` on success
-- `trackException(error, { operation, phase })` + `trackEvent('...Failed', ...)` on failure
-- `trackMetric('Component.Entity.Duration', durationMs)` for anything worth graphing
+Last verified: 2026-05-23
 
-Import from `../utils/appInsights`.
+## Application Insights telemetry (non-negotiable)
 
-## SQL safety
-- Always use parameterised queries (`pool.request().input('name', sql.NVarChar, value).query(...)`).
-- Never concatenate user input into SQL strings.
-- Use `const pool = await sql.connect(process.env.SQL_CONNECTION_STRING)` for Core Data, `INSTRUCTIONS_SQL_CONNECTION_STRING` for Instructions DB.
+Every server-side process MUST emit telemetry. If a sync fails silently, App Insights is the only way to know what happened.
+
+**How it works:**
+- SDK initialised in `server/index.js` (before Express) via `server/utils/appInsights.js`.
+- Auto-detects `APPLICATIONINSIGHTS_CONNECTION_STRING` in Azure; no-op locally.
+- HTTP requests, exceptions, console output, and dependencies are auto-tracked.
+- Custom events/metrics added at key lifecycle points.
+
+**When adding or modifying any server-side process:**
+
+```javascript
+const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
+
+// On start
+trackEvent('Component.Entity.Started', { operation, triggeredBy, ...context });
+
+// On success
+trackEvent('Component.Entity.Completed', { operation, triggeredBy, durationMs, rowCount, ...context });
+trackMetric('Component.Entity.Duration', durationMs, { operation });
+
+// On failure (MOST IMPORTANT, always track both exception AND event)
+trackException(error, { operation, phase: 'whatWasHappening', entity: 'WhatEntity' });
+trackEvent('Component.Entity.Failed', { operation, error: error.message, ...context });
+```
+
+**Naming convention:** `Component.Entity.Lifecycle`, e.g. `DataOps.CollectedTime.Completed`, `Scheduler.Wip.Hot.Failed`.
+
+**Rules:**
+1. Track BOTH success and failure. Failure paths are most valuable.
+2. Always include `operation`, `triggeredBy`, and date range in properties.
+3. Use `trackException` in every catch block. This is how Azure Alerts find failures.
+4. Use `trackMetric` for anything you'd want to graph (durations, row counts, queue depths).
+5. Properties must be strings (the helper auto-converts).
+6. See `ARCHITECTURE_DATA_FLOW.md` → "Application Insights Telemetry" for KQL queries.
+
+**Currently instrumented:**
+- Data Operations: syncCollectedTime, syncWip (started/completed/validated/failed)
+- Scheduler: all Hot/Warm/Cold tiers for both Collected and WIP
+- Matter Opening Pipeline: opponents, matterRequests, clioContacts, clioMatters (started/completed/failed + duration metrics)
+- Client-side Matter Opening: pre-validation failures, processing step failures, successful completions (via /api/telemetry → trackEvent)
+- HTTP requests: auto-instrumented by SDK
+- Console output: auto-captured as traces
+
+## SQL access (CRITICAL — prefer the helper)
+
+**Default for new code:** import from `server/utils/db.js`, do not import `mssql` directly.
+
+```javascript
+const { withRequest, getPool, sql } = require('../utils/db');
+
+// Simple query
+const rows = await withRequest(process.env.SQL_CONNECTION_STRING, async (request, sql) => {
+  request.input('id', sql.Int, id);
+  const result = await request.query('SELECT * FROM enquiries WHERE ID = @id');
+  return result.recordset;
+});
+```
+
+`db.js` gives you: pooled connection reuse, built-in retry, consistent error shape, one place for App Insights instrumentation. Always parameterise (`request.input('name', sql.NVarChar, value)`). Never concatenate user input into SQL strings.
+
+### Drive-by consolidation rule (compounding hygiene)
+
+There are ~39 legacy sites under `server/` that still do `const sql = require('mssql')` and `await sql.connect(...)` directly. They work fine, but they bypass the helper. **When you are already editing a file that does this**, migrate it to `withRequest` / `getPool` as part of the same change. Do not open a separate PR just to refactor; do not skip the migration just because the file "works". The rule:
+
+- If you touch a function that already calls `sql.connect(...)`, convert that function to `withRequest` before you leave the file.
+- If the file's top imports `mssql` but no longer needs it after your edit, drop the import.
+- If you add a new SQL query anywhere under `server/`, it MUST go through `db.js`. Do not introduce new direct `require('mssql')` sites.
+
+Known legacy sites (audit 2026-05-23, not exhaustive): `server/operatorActions/*-lookup.js`, `server/operatorActions/tiller-verify.js`, `server/operatorActions/matter-oneoff-replay.js`, `server/routes/access.js`, `server/routes/ccl.js`, `server/routes/ccl-ai.js`, `server/routes/counsel.js`, `server/routes/dubberCalls.js`, `server/routes/receptionKpis.js`.
+
+## Key Vault / secrets (CRITICAL — prefer the helper)
+
+**Default for new code:** import from `server/utils/getSecret.js`, do not import `@azure/keyvault-secrets` or `@azure/identity` directly.
+
+```javascript
+const { getSecret } = require('../utils/getSecret');
+const apiKey = await getSecret('clio-api-key');
+```
+
+`getSecret.js` gives you: 7-day dev cache (`.secrets-cache.json`), inflight dedupe, `DefaultAzureCredential` reuse, consistent error logging. Same drive-by consolidation rule applies — when editing a file that imports `@azure/keyvault-secrets` directly, migrate it.
 
 ## Error handling
 - Every Express route must have a try/catch that calls `trackException` and returns a proper status code.

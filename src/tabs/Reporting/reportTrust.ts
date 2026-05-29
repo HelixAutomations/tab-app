@@ -79,6 +79,11 @@ export const MANAGEMENT_PRESSURE_TEST_CHECK_IDS: ReadonlyArray<ReadinessCheckId>
   REPORT_SOURCE_TRUST_MANIFEST.dashboard,
 ).filter((checkId): checkId is ReadinessCheckId => Boolean(checkId));
 
+export const MANAGEMENT_ENTRY_CHECK_IDS: ReadonlyArray<ReadinessCheckId> = [
+  ...MANAGEMENT_PRESSURE_TEST_CHECK_IDS,
+  'dataOpsScheduler',
+];
+
 const isLukeInitials = (initials?: string | null): boolean => (
   typeof initials === 'string' && initials.trim().toUpperCase() === 'LZ'
 );

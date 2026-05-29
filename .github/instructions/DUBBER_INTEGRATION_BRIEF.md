@@ -1,5 +1,7 @@
 # Dubber Integration Brief — Enquiry Platform
 
+Last verified: 2026-05-23
+
 **For**: enquiry-processing-v2 agent  
 **From**: Helix Hub (tab-app) — 26 Mar 2026  
 **Status**: Dubber API confirmed fully operational. Credentials vaulted. Ready for implementation.

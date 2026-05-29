@@ -509,17 +509,26 @@ button.pitch-wizard__progress-chip:focus-visible {
   display: flex;
   gap: 12px;
   justify-content: space-between;
+  min-width: 0;
   padding: 12px 0 12px;
 }
 
 .pitch-typeform__dots {
   align-items: center;
   display: inline-flex;
-  flex-wrap: wrap;
-  gap: 14px;
+  flex-wrap: nowrap;
+  gap: 8px;
   list-style: none;
   margin: 0;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
   padding: 0;
+  scrollbar-width: none;
+}
+
+.pitch-typeform__dots::-webkit-scrollbar {
+  display: none;
 }
 
 .pitch-typeform__dot-item {
@@ -527,6 +536,7 @@ button.pitch-wizard__progress-chip:focus-visible {
   display: inline-flex;
   list-style: none;
   list-style-type: none;
+  position: relative;
 }
 
 .pitch-typeform__dot-item::marker {
@@ -534,33 +544,64 @@ button.pitch-wizard__progress-chip:focus-visible {
   display: none;
 }
 
+.pitch-typeform__dot-item:not(:last-child)::after {
+  background: linear-gradient(90deg, rgba(var(--accent-rgb), 0.08), rgba(var(--accent-rgb), 0.2));
+  content: '';
+  height: 1px;
+  pointer-events: none;
+  position: absolute;
+  right: -9px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 10px;
+  z-index: 0;
+}
+
+.pitch-typeform__dot-item[data-status="done"]:not(:last-child)::after {
+  background: linear-gradient(90deg, rgba(var(--green-rgb), 0.46), rgba(var(--accent-rgb), 0.28));
+}
+
+.pitch-typeform__dot-item[data-status="active"]:not(:last-child)::after {
+  background: linear-gradient(90deg, rgba(var(--accent-rgb), 0.5), rgba(var(--accent-rgb), 0.18));
+}
+
 .pitch-typeform__dot {
   align-items: center;
-  background: transparent;
-  border: 0;
+  background: color-mix(in srgb, var(--surface-card) 88%, var(--surface-input) 12%);
+  border: 1px solid color-mix(in srgb, var(--border-base) 76%, transparent);
+  border-radius: 999px;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--surface-section) 60%, transparent);
   color: var(--text-muted);
   cursor: pointer;
   display: inline-flex;
   font-family: inherit;
   font-size: 11px;
   font-weight: 600;
-  gap: 6px;
-  letter-spacing: 0.02em;
+  gap: 7px;
+  letter-spacing: 0;
   line-height: 1;
-  padding: 4px 6px;
+  min-height: 32px;
+  padding: 4px 10px 4px 5px;
+  position: relative;
   text-transform: uppercase;
-  transition: color 0.16s ease, opacity 0.16s ease;
+  transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, color 0.18s ease, opacity 0.18s ease, transform 0.18s ease;
+  white-space: nowrap;
+  z-index: 1;
 }
 
 .pitch-typeform__dot:disabled {
   cursor: default;
-  opacity: 0.45;
+  opacity: 0.68;
 }
 
 .pitch-typeform__dot:hover:not(:disabled),
 .pitch-typeform__dot:focus-visible:not(:disabled) {
+  background: color-mix(in srgb, var(--surface-card-hover) 74%, var(--surface-card) 26%);
+  border-color: color-mix(in srgb, var(--helix-highlight) 44%, var(--border-base));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--surface-section) 66%, transparent), 0 8px 20px rgba(0, 3, 25, 0.12);
   color: var(--text-primary);
   outline: none;
+  transform: translateY(-1px);
 }
 
 .pitch-typeform__dot-index {
@@ -568,24 +609,46 @@ button.pitch-wizard__progress-chip:focus-visible {
   background: var(--surface-input);
   border: 1px solid var(--border-base);
   border-radius: 999px;
+  box-sizing: border-box;
   color: var(--text-muted);
-  display: inline-flex;
-  font-size: 10px;
-  font-weight: 700;
-  height: 18px;
+  display: grid;
+  flex: 0 0 22px;
+  font-feature-settings: "tnum" 1;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  height: 22px;
   justify-content: center;
-  min-width: 18px;
-  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
-  width: 18px;
+  line-height: 1;
+  min-width: 22px;
+  place-items: center;
+  position: relative;
+  transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, color 0.18s ease, transform 0.18s ease;
+  width: 22px;
 }
 
 .pitch-typeform__dot-item[data-status="done"] .pitch-typeform__dot-index {
-  background: var(--helix-green);
+  background: color-mix(in srgb, var(--helix-green) 16%, var(--surface-card));
   border-color: var(--helix-green);
-  color: var(--surface-card);
+  box-shadow: inset 0 0 0 1px rgba(var(--green-rgb), 0.12);
+  color: transparent;
+}
+
+.pitch-typeform__dot-item[data-status="done"] .pitch-typeform__dot-index::after {
+  border-bottom: 2px solid var(--helix-green);
+  border-right: 2px solid var(--helix-green);
+  content: '';
+  height: 9px;
+  left: 50%;
+  position: absolute;
+  top: 48%;
+  transform: translate(-50%, -50%) rotate(45deg);
+  width: 5px;
 }
 
 .pitch-typeform__dot-item[data-status="done"] .pitch-typeform__dot {
+  background: color-mix(in srgb, var(--helix-green) 8%, var(--surface-card));
+  border-color: color-mix(in srgb, var(--helix-green) 38%, var(--border-base));
   color: var(--text-primary);
 }
 
@@ -593,10 +656,17 @@ button.pitch-wizard__progress-chip:focus-visible {
   background: var(--helix-highlight);
   border-color: var(--helix-highlight);
   color: #fff;
-  height: 22px;
-  min-width: 22px;
-  width: 22px;
-  font-size: 11px;
+}
+
+.pitch-typeform__dot-item[data-status="active"] .pitch-typeform__dot {
+  background: color-mix(in srgb, var(--helix-highlight) 12%, var(--surface-card));
+  border-color: color-mix(in srgb, var(--helix-highlight) 68%, var(--border-base));
+}
+
+.pitch-typeform__dot-item[data-status="attention"] .pitch-typeform__dot-index {
+  background: color-mix(in srgb, var(--helix-orange) 12%, var(--surface-card));
+  border-color: var(--helix-orange);
+  color: var(--helix-orange);
 }
 
 .pitch-typeform__dot-item[data-status="active"][data-done="true"] .pitch-typeform__dot-index {
@@ -1038,7 +1108,24 @@ button.pitch-wizard__progress-chip:focus-visible {
   .pitch-typeform__question { font-size: 19px; }
   .pitch-typeform__footer { grid-template-columns: 1fr 1fr; padding: 10px 0; }
   .pitch-typeform__footer-slot { grid-column: 1 / -1; order: -1; }
+  .pitch-typeform__progress { gap: 10px; }
+  .pitch-typeform__dots { gap: 7px; padding-bottom: 1px; }
+  .pitch-typeform__dot-item:not(:last-child)::after { right: -7px; width: 7px; }
+  .pitch-typeform__dot { min-height: 30px; padding: 4px; }
+  .pitch-typeform__dot-index { flex-basis: 24px; height: 24px; min-width: 24px; width: 24px; }
   .pitch-typeform__dot-label { display: none; }
+}
+
+@media (max-width: 520px) {
+  .pitch-typeform__progress {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .pitch-typeform__progress-meta {
+    justify-content: space-between;
+    width: 100%;
+  }
 }
 
 /* ============================================================
@@ -1166,7 +1253,18 @@ button.pitch-wizard__progress-chip:focus-visible {
 }
 
 .pitch-typeform__dot-item[data-status="active"] .pitch-typeform__dot {
-  transform: translateY(-1px);
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pitch-typeform__progress-rail::after,
+  .pitch-typeform__dot,
+  .pitch-typeform__dot-index,
+  .pitch-typeform__dot-item[data-status="active"] .pitch-typeform__dot-index,
+  .pitch-typeform__dot-item[data-status="done"] .pitch-typeform__dot-index {
+    animation: none !important;
+    transition: none !important;
+  }
 }
 
 /* ============================================================

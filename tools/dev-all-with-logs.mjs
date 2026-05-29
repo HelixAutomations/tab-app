@@ -6,6 +6,7 @@ import path from 'node:path';
 
 const cwd = process.cwd();
 const logsRoot = path.join(cwd, 'logs', 'dev-all');
+const devCleanScript = path.join(cwd, 'tools', 'dev-clean.mjs');
 const now = new Date();
 const runId = now.toISOString().replace(/[.:]/g, '-');
 const runDir = path.join(logsRoot, runId);
@@ -33,6 +34,24 @@ const milestoneMatchers = [
 ];
 
 const dryRun = process.argv.includes('--dry-run');
+
+const DEFAULT_AUTO_CLEAN_THRESHOLD_MB = 500;
+
+function parseAutoCleanThresholdMb(argv, env) {
+  const arg = argv.find((value) => value.startsWith('--auto-clean-threshold-mb='));
+  const argValue = arg ? Number.parseFloat(arg.split('=')[1]) : NaN;
+  const envValue = Number.parseFloat(env.HELIX_DEV_AUTO_CLEAN_THRESHOLD_MB || '');
+
+  if (Number.isFinite(argValue) && argValue > 0) return argValue;
+  if (Number.isFinite(envValue) && envValue > 0) return envValue;
+  return DEFAULT_AUTO_CLEAN_THRESHOLD_MB;
+}
+
+const autoCleanDisabled = process.argv.includes('--no-auto-clean')
+  || process.env.HELIX_DEV_AUTO_CLEAN === '0';
+const forceFullClean = process.argv.includes('--clean-full')
+  || process.env.HELIX_DEV_CLEAN_MODE === 'full';
+const autoCleanThresholdMb = parseAutoCleanThresholdMb(process.argv, process.env);
 
 const DEFAULT_IDLE_TIMEOUT_MINUTES = 120;
 
@@ -215,7 +234,50 @@ async function assertPortsAvailable(ports) {
   }
 }
 
+function runDevClean(args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [devCleanScript, ...args], {
+      cwd,
+      stdio: 'inherit',
+      windowsHide: false,
+    });
+
+    child.once('exit', (code) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      reject(new Error(`dev-clean exited with code ${code ?? 'null'}`));
+    });
+    child.once('error', reject);
+  });
+}
+
+async function runAutoCleanPreflight() {
+  if (autoCleanDisabled) {
+    process.stdout.write('[dev:all] auto-clean skipped (HELIX_DEV_AUTO_CLEAN=0 or --no-auto-clean).\n');
+    return;
+  }
+
+  if (forceFullClean) {
+    process.stdout.write('[dev:all] auto-clean: clearing logs and full webpack/build cache before boot.\n');
+  } else {
+    process.stdout.write(`[dev:all] auto-clean: clearing logs; cache/build only if recoverable > ${autoCleanThresholdMb} MB. Use --clean-full for a full wipe.\n`);
+  }
+
+  await runDevClean(['--logs-only', '--yes']);
+  const heavyArgs = forceFullClean
+    ? ['--keep-logs', '--yes']
+    : ['--keep-logs', '--yes', `--if-over-mb=${autoCleanThresholdMb}`];
+  await runDevClean(heavyArgs);
+}
+
 async function main() {
+  if (!dryRun) {
+    await assertPortsAvailable([8080, 3000]);
+    await runAutoCleanPreflight();
+  }
+
   await mkdir(runDir, { recursive: true });
 
   const startedAtIso = new Date().toISOString();

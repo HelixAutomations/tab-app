@@ -3,6 +3,7 @@
 // Protected by passcode guard
 
 import React, { useState, useCallback } from 'react';
+import { recordIntent } from '../utils/recordIntent';
 import { Stack } from '@fluentui/react/lib/Stack';
 import { Text } from '@fluentui/react/lib/Text';
 import { TextField } from '@fluentui/react/lib/TextField';
@@ -119,25 +120,27 @@ const TechProblemFormContent: React.FC<TechProblemFormProps> = ({
 
     try {
       const baseUrl = getApiBase();
+      const problemPayload = {
+        // Backend contract (server/routes/techTickets.js)
+        system: 'Hub',
+        summary: formData.title,
+        stepsToReproduce: formData.steps_to_reproduce,
+        expectedVsActual: [
+          formData.expected_behavior?.trim() ? `Expected:\n${formData.expected_behavior.trim()}` : null,
+          formData.description?.trim() ? `Actual/Issue:\n${formData.description.trim()}` : null,
+        ].filter(Boolean).join('\n\n'),
+        urgency: mapUrgency(formData.urgency),
+        submittedBy: currentUser?.Initials || '',
+
+        // Legacy payload fields (kept for backwards compatibility / debugging)
+        submitted_by: currentUser?.FullName || 'Unknown',
+        submitted_by_initials: currentUser?.Initials || '',
+      };
+      const clientSubmissionId = await recordIntent({ formKey: 'tech-problem', payload: problemPayload });
       const response = await fetch(`${baseUrl}/api/tech-tickets/problem`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          // Backend contract (server/routes/techTickets.js)
-          system: 'Hub',
-          summary: formData.title,
-          stepsToReproduce: formData.steps_to_reproduce,
-          expectedVsActual: [
-            formData.expected_behavior?.trim() ? `Expected:\n${formData.expected_behavior.trim()}` : null,
-            formData.description?.trim() ? `Actual/Issue:\n${formData.description.trim()}` : null,
-          ].filter(Boolean).join('\n\n'),
-          urgency: mapUrgency(formData.urgency),
-          submittedBy: currentUser?.Initials || '',
-
-          // Legacy payload fields (kept for backwards compatibility / debugging)
-          submitted_by: currentUser?.FullName || 'Unknown',
-          submitted_by_initials: currentUser?.Initials || '',
-        }),
+        body: JSON.stringify({ ...problemPayload, clientSubmissionId }),
       });
 
       if (!response.ok) {

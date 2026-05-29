@@ -2,6 +2,7 @@ const express = require('express');
 const { sql, withRequest } = require('../utils/db');
 const { getClient, getSecret } = require('../utils/getSecret');
 const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
+const { trackRouteException } = require('../utils/errorContext');
 const {
   recordSubmission,
   recordStep,
@@ -14,6 +15,8 @@ const router = express.Router();
 const KV_URI = "https://helix-keys.vault.azure.net/";
 const ONEDRIVE_DRIVE_ID = "b!Yvwb2hcQd0Sccr_JiZEOOEqq1HfNiPFCs8wM4QfDlvVbiAZXWhpCS47xKdZKl8Vd";
 const ASANA_PROJECT_ID = "1203336124217593";
+const ASANA_WORKSPACE_ID = process.env.ASANA_WORKSPACE_ID || "1203336123398249";
+const ASANA_REQUESTED_SECTION_ID = process.env.ASANA_ACCOUNTS_REQUESTED_SECTION_ID || "1203336124217594";
 const PAYMENT_REQUESTS_WEBHOOK_SECRET_NAME = 'payment-request-logic-app-url';
 const SIMPLE_UPLOAD_MAX_BYTES = 4 * 1024 * 1024;
 const UPLOAD_CHUNK_SIZE = 10 * 320 * 1024;
@@ -565,6 +568,7 @@ router.post('/', async (req, res) => {
       lane: 'Request',
       payload: { formType, data: slimPayload },
       summary: `Financial: ${formType}`.slice(0, 400),
+      clientSubmissionId: req.body?.clientSubmissionId || null,
     });
   } catch (logErr) {
     trackException(logErr, { phase: 'financialTask.recordSubmission' });
@@ -713,7 +717,8 @@ router.post('/', async (req, res) => {
     const today = new Date().toISOString().split("T")[0];
     const taskBody = {
       data: {
-        projects: [ASANA_PROJECT_ID],
+        workspace: ASANA_WORKSPACE_ID,
+        memberships: [{ section: ASANA_REQUESTED_SECTION_ID }],
         name: finalTaskName,
         notes: description,
         due_on: today,
@@ -764,7 +769,7 @@ router.post('/', async (req, res) => {
     await recordStep(submissionId, {
       name: 'asana.create',
       status: 'success',
-      output: { taskId: asanaResult?.data?.gid, taskName: finalTaskName },
+      output: { taskId: asanaResult?.data?.gid, taskName: finalTaskName, projectId: ASANA_PROJECT_ID, sectionId: ASANA_REQUESTED_SECTION_ID },
     });
 
     if (pendingAsanaAttachment && asanaResult.data?.gid) {
@@ -881,12 +886,14 @@ router.post('/', async (req, res) => {
       ms: Date.now() - startedAt,
     });
 
-    trackException(error instanceof Error ? error : new Error(String(error)), {
+    trackRouteException(error instanceof Error ? error : new Error(String(error)), req, {
       operation,
       phase: 'route',
       requestId,
       triggeredBy: initials || 'unknown',
       formType: formType || 'unknown',
+      formKey: 'financial-task',
+      submissionId,
     });
     trackEvent('Forms.FinancialTask.Failed', {
       operation,

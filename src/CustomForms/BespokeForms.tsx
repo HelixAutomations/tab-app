@@ -4,14 +4,12 @@
 import React from 'react';
 import { Stack } from '@fluentui/react/lib/Stack';
 import { PrimaryButton, DefaultButton } from '@fluentui/react/lib/Button';
-import { ComboBox } from '@fluentui/react/lib/ComboBox';
-import type { IComboBox, IComboBoxOption } from '@fluentui/react/lib/ComboBox';
 import { Dropdown } from '@fluentui/react/lib/Dropdown';
 import type { IDropdownOption } from '@fluentui/react/lib/Dropdown';
+import { Icon } from '@fluentui/react/lib/Icon';
 import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { colours } from '../app/styles/colours';
-import { componentTokens } from '../app/styles/componentTokens';
-import { getFormPrimaryButtonStyles, getFormDefaultButtonStyles, getDropdownStyles, formFont } from './shared/formStyles';
+import { getFormPrimaryButtonStyles, getFormDefaultButtonStyles, getDropdownStyles, getFormHeaderStyle, getFormHeaderSubtitleStyle, formFont } from './shared/formStyles';
 import { NormalizedMatter } from '../app/functionality/types';
 import { useTheme } from '../app/functionality/ThemeContext';
 import '../app/styles/MultiSelect.css';
@@ -20,6 +18,9 @@ export const INPUT_HEIGHT = 44;
 
 const FIELD_BORDER = '1px solid var(--home-tile-border)';
 const FIELD_BG = 'var(--surface-card)';
+const PICKER_BG = 'var(--surface-card-hover)';
+const FIELD_FRAME_BG = 'var(--home-tile-bg)';
+const FORM_CARD_BG = 'var(--home-card-bg)';
 const FIELD_FG = 'var(--text-primary)';
 const HELP_FG = 'var(--text-muted)';
 const BODY_FG = 'var(--text-body)';
@@ -35,6 +36,13 @@ const baseInputStyle: React.CSSProperties = {
   color: FIELD_FG,
   fontSize: '14px',
   fontFamily: formFont,
+};
+
+const fieldFrameStyle: React.CSSProperties = {
+  background: FIELD_FRAME_BG,
+  border: FIELD_BORDER,
+  padding: '12px',
+  boxSizing: 'border-box',
 };
 
 const fieldLabelStyle: React.CSSProperties = {
@@ -64,7 +72,7 @@ const BespokeFieldLabel: React.FC<{ label: string; required?: boolean }> = ({ la
 export const formContainerStyle = mergeStyles({
   marginTop: '10px',
   padding: '1.5rem',
-  backgroundColor: 'var(--surface-card)',
+  backgroundColor: FORM_CARD_BG,
   borderRadius: 0,
   border: '1px solid var(--home-card-border)',
   boxShadow: 'var(--home-card-shadow)',
@@ -102,7 +110,7 @@ export const dropdownStyle = mergeStyles({
   height: `${INPUT_HEIGHT}px`,
   border: '1px solid var(--home-tile-border)',
   borderRadius: 0,
-  backgroundColor: 'var(--surface-card)',
+  backgroundColor: PICKER_BG,
   display: 'flex',
   alignItems: 'center',
   padding: '0 12px',
@@ -197,7 +205,7 @@ export const amountInputStyle = (hasPrefix: boolean, isDarkMode: boolean) =>
 
 export const toggleStyle = (isDarkMode: boolean) => mergeStyles({
   height: `${INPUT_HEIGHT}px`,
-  backgroundColor: 'var(--surface-card)',
+  backgroundColor: FIELD_FRAME_BG,
   color: 'var(--text-primary)',
   border: '1px solid var(--home-tile-border)',
   borderRadius: 0,
@@ -258,6 +266,10 @@ export interface FormField {
 }
 
 export interface BespokeFormProps {
+  title?: string;
+  subtitle?: string;
+  iconName?: string;
+  accentColor?: string;
   fields: FormField[];
   onSubmit: (values: { [key: string]: any }) => void;
   onCancel: () => void;
@@ -382,7 +394,7 @@ const MatterReferenceDropdown: React.FC<MatterReferenceDropdownProps> = ({
           border: FIELD_BORDER,
           borderRadius: 0,
           fontSize: '14px',
-          backgroundColor: FIELD_BG,
+          backgroundColor: PICKER_BG,
           color: FIELD_FG,
           fontFamily: formFont,
           boxSizing: 'border-box',
@@ -400,7 +412,7 @@ const MatterReferenceDropdown: React.FC<MatterReferenceDropdownProps> = ({
             left: 0,
             right: 0,
             zIndex: 1000,
-            background: 'var(--surface-section)',
+            background: PICKER_BG,
             border: FIELD_BORDER,
             borderTop: 'none',
             boxShadow: 'var(--shadow-overlay, 0 8px 24px rgba(0, 0, 0, 0.4))',
@@ -462,6 +474,10 @@ const MatterReferenceDropdown: React.FC<MatterReferenceDropdownProps> = ({
 };
 
 const BespokeForm: React.FC<BespokeFormProps> = ({
+  title,
+  subtitle,
+  iconName,
+  accentColor = colours.highlight,
   fields,
   onSubmit,
   onCancel,
@@ -543,8 +559,7 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
       <div 
         style={{
           marginTop: '10px',
-          padding: '1.5rem',
-          background: 'var(--surface-card)',
+          background: FORM_CARD_BG,
           borderRadius: 0,
           border: '1px solid var(--home-card-border)',
           boxShadow: 'var(--home-card-shadow)',
@@ -555,7 +570,15 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
           margin: '0 auto',
         }}
       >
-        <Stack tokens={{ childrenGap: 12 }}>
+        {title && (
+          <div style={getFormHeaderStyle(isDarkMode, accentColor)}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              {iconName && <Icon iconName={iconName} style={{ fontSize: '20px', color: accentColor }} />}
+              {subtitle && <div style={getFormHeaderSubtitleStyle(isDarkMode)}>{subtitle}</div>}
+            </div>
+          </div>
+        )}
+        <Stack tokens={{ childrenGap: 12 }} style={{ padding: '1.5rem' }}>
           {(() => {
             // Group fields by their 'group' property for side-by-side rendering
             const groupedFields: { group: string | undefined; fields: { field: FormField; index: number }[] }[] = [];
@@ -584,18 +607,25 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
               if (groupItem.group && groupItem.fields.length > 1) {
                 return (
                   <Stack key={`group-${groupIndex}`} horizontal tokens={{ childrenGap: 16 }} verticalAlign="end">
-                    {groupItem.fields.map(({ field, index }) => (
-                      <div key={index} style={{ flex: 1 }}>
-                        {renderField(field, index)}
-                      </div>
-                    ))}
+                    {groupItem.fields.map(({ field, index }) => renderFieldFrame(field, index, { flex: 1 }))}
                   </Stack>
                 );
               }
               // Render single field
               const { field, index } = groupItem.fields[0];
-              return renderField(field, index);
+              return renderFieldFrame(field, index);
             });
+
+            function renderFieldFrame(field: FormField, index: number, styleOverrides?: React.CSSProperties) {
+              const fieldNode = renderField(field, index);
+              if (!fieldNode) return null;
+
+              return (
+                <div key={`field-frame-${index}`} style={{ ...fieldFrameStyle, ...styleOverrides }}>
+                  {fieldNode}
+                </div>
+              );
+            }
 
             function renderField(field: FormField, index: number) {
             if (
@@ -646,6 +676,7 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
                         }
                       }}
                       disabled={isSubmitting}
+                      dropdownWidth={0}
                       styles={getDropdownStyles(isDarkMode)}
                     />
                     {field.name === 'Payment Type' &&

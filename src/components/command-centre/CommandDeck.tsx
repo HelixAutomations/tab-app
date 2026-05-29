@@ -6,6 +6,13 @@ import { useFreshIds } from '../../hooks/useFreshIds';
 import { buildStreamItem, createLedgerSeed, LEDGER_VISIBLE_STATUSES, prependStoredStreamItem } from '../../tabs/forms/processStreamStore';
 import { streamStatusMeta } from '../../tabs/forms/processHubData';
 import { CommandCentreTokens } from './types';
+import {
+    LOCAL_DATA_SCOPE_OPTIONS,
+    LOCAL_SUPPORT_MODE_OPTIONS,
+    LocalSupportSettings,
+    defaultDataScopeForMode,
+    getLocalSupportModeOption,
+} from '../../app/localSupportMode';
 import './CommandDeck.css';
 
 /* ─── Types ─── */
@@ -70,6 +77,10 @@ export interface CommandDeckProps {
     openReportingUtility: (view: 'logMonitor' | 'dataCentre') => void;
     setShowRefreshModal: (v: boolean) => void;
     // UI
+    isLocalDev?: boolean;
+    localSupportSettings?: LocalSupportSettings;
+    onLocalSupportModeChange?: (mode: LocalSupportSettings['mode']) => void;
+    onLocalSupportDataScopeChange?: (dataScope: LocalSupportSettings['dataScope']) => void;
     isDarkMode: boolean;
     environment: string;
     environmentColour: string;
@@ -148,6 +159,7 @@ const CommandDeck: React.FC<CommandDeckProps> = (props) => {
         onDevDashboard, onErrorTracker, onErrorPreview, onLoadingDebug,
         onDemoPrompts, onMigrationTool, onOpenDemoMatter, onOpenReleaseNotesModal,
         openReportingUtility, setShowRefreshModal,
+        isLocalDev = false, localSupportSettings, onLocalSupportModeChange, onLocalSupportDataScopeChange,
         isDarkMode, environment, environmentColour, sessionElapsed,
         onClose, showToast, tokens,
     } = props;
@@ -156,6 +168,22 @@ const CommandDeck: React.FC<CommandDeckProps> = (props) => {
     const [errorCount, setErrorCount] = useState(0);
     const [recentErrors, setRecentErrors] = useState<TrackedError[]>([]);
     const freshErrorIds = useFreshIds(recentErrors, (err) => err.id);
+    const currentSupportMode = localSupportSettings?.mode || 'full-live';
+    const currentDataScope = localSupportSettings?.dataScope || defaultDataScopeForMode(currentSupportMode);
+    const currentSupportModeOption = getLocalSupportModeOption(currentSupportMode);
+    const showLocalSupportControls = Boolean(isLocalDev && localSupportSettings && onLocalSupportModeChange && onLocalSupportDataScopeChange);
+
+    const handleLocalSupportModeSelect = useCallback((mode: LocalSupportSettings['mode']) => {
+        onLocalSupportModeChange?.(mode);
+        const option = getLocalSupportModeOption(mode);
+        showToast(`${option.label} selected`, 'success');
+    }, [onLocalSupportModeChange, showToast]);
+
+    const handleLocalDataScopeSelect = useCallback((dataScope: LocalSupportSettings['dataScope']) => {
+        onLocalSupportDataScopeChange?.(dataScope);
+        const option = LOCAL_DATA_SCOPE_OPTIONS.find(item => item.id === dataScope);
+        showToast(`${option?.label || 'Data scope'} selected`, dataScope === 'none' ? 'warning' : 'success');
+    }, [onLocalSupportDataScopeChange, showToast]);
 
     // Bump counter so localStorage-backed toggles (UX overlay, Home layout
     // toggles) re-read their state after a click. Without this the write
@@ -456,6 +484,68 @@ const CommandDeck: React.FC<CommandDeckProps> = (props) => {
                             <span className="cmd-deck__status-dot__label">{dataLabel(enquiriesLiveRefreshInFlight, enquiriesUsingSnapshot, enquiriesLastLiveSyncAt)}</span>
                         </div>
                     </div>
+
+                    {showLocalSupportControls && (
+                        <div className="cmd-deck__support" aria-label="Local support mode">
+                            <div className="cmd-deck__support-head">
+                                <div>
+                                    <div className="cmd-deck__section-label">Local support mode</div>
+                                    <div className="cmd-deck__support-summary">
+                                        {currentSupportModeOption.label} · {LOCAL_DATA_SCOPE_OPTIONS.find(option => option.id === currentDataScope)?.label || 'Data'}
+                                    </div>
+                                </div>
+                                <span className="cmd-deck__support-badge">Local only</span>
+                            </div>
+                            <div className="cmd-deck__support-grid" role="radiogroup" aria-label="Support surface">
+                                {LOCAL_SUPPORT_MODE_OPTIONS.map(option => {
+                                    const active = option.id === currentSupportMode;
+                                    const accent = option.id === 'full-live' ? colours.cta : option.id === 'fast-shell' ? colours.green : (isDarkMode ? colours.accent : colours.highlight);
+                                    return (
+                                        <button
+                                            key={option.id}
+                                            type="button"
+                                            role="radio"
+                                            aria-checked={active}
+                                            className={`cmd-deck__support-card${active ? ' cmd-deck__support-card--active' : ''}`}
+                                            style={active ? {
+                                                borderColor: accent,
+                                                background: `color-mix(in srgb, ${accent} 12%, var(--surface-card))`,
+                                            } : undefined}
+                                            title={option.hint}
+                                            onClick={() => handleLocalSupportModeSelect(option.id)}
+                                        >
+                                            <span className="cmd-deck__support-card-title">{option.label}</span>
+                                            <span className="cmd-deck__support-card-copy">{option.hint}</span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                            <div className="cmd-deck__scope-grid" role="radiogroup" aria-label="Local data scope">
+                                {LOCAL_DATA_SCOPE_OPTIONS.map(option => {
+                                    const active = option.id === currentDataScope;
+                                    const accent = option.id === 'team' ? colours.cta : option.id === 'mine' ? colours.highlight : colours.green;
+                                    return (
+                                        <button
+                                            key={option.id}
+                                            type="button"
+                                            role="radio"
+                                            aria-checked={active}
+                                            className={`cmd-deck__scope-chip${active ? ' cmd-deck__scope-chip--active' : ''}`}
+                                            style={active ? {
+                                                borderColor: accent,
+                                                background: `color-mix(in srgb, ${accent} 12%, var(--surface-card))`,
+                                            } : undefined}
+                                            title={option.hint}
+                                            onClick={() => handleLocalDataScopeSelect(option.id)}
+                                        >
+                                            <span>{option.label}</span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                            <div className="cmd-deck__support-note">Live boot scope is applied on reload. Runtime streams and tab warm-up follow this choice immediately.</div>
+                        </div>
+                    )}
 
                     {/* Health detail (inline expand) */}
                     <div className={`cmd-deck__health-detail ${healthExpanded ? 'cmd-deck__health-detail--expanded' : 'cmd-deck__health-detail--collapsed'}`}>

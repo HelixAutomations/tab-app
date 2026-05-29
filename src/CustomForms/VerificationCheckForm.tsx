@@ -4,6 +4,7 @@
 // When linked to an instruction, each submit appends a new row to IDVerifications.
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { recordIntent } from '../utils/recordIntent';
 import { Stack } from '@fluentui/react/lib/Stack';
 import { Text } from '@fluentui/react/lib/Text';
 import { TextField } from '@fluentui/react/lib/TextField';
@@ -23,6 +24,7 @@ import {
   getFormCardStyle,
   getFormHeaderStyle,
   getFormHeaderTitleStyle,
+  getFormHeaderSubtitleStyle,
   getFormContentStyle,
   getFormSectionStyle,
   getFormSectionHeaderStyle,
@@ -37,6 +39,7 @@ import {
   formAccentColors,
 } from './shared/formStyles';
 import FormsStreamLanded from './shared/FormsStreamLanded';
+import './VerificationCheckForm.css';
 
 interface VerificationCheckFormProps {
   currentUser?: UserData;
@@ -49,14 +52,6 @@ interface VerificationCheckFormProps {
    * own header + intro info box so the chrome doesn't double up.
    */
   embedded?: boolean;
-}
-
-interface InstructionPickOption {
-  ref: string;
-  displayName: string;
-  stage?: string | null;
-  sufficient: boolean;
-  missing: string[];
 }
 
 interface FormData {
@@ -78,6 +73,8 @@ interface FormData {
   postcode: string;
   countryCode: string;
 }
+
+type VerificationEntryMode = 'instruction' | 'bespoke' | 'legacy' | null;
 
 interface PriorVerifications {
   count: number;
@@ -252,8 +249,8 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
   const [isPrefilling, setIsPrefilling] = useState(false);
   const [prefillMessage, setPrefillMessage] = useState<string | null>(null);
   const [priorVerifications, setPriorVerifications] = useState<PriorVerifications | null>(null);
-  const [instructionList, setInstructionList] = useState<InstructionPickOption[]>([]);
-  const [isLoadingInstructions, setIsLoadingInstructions] = useState(false);
+  const [entryMode, setEntryMode] = useState<VerificationEntryMode>(null);
+  const [instructionLookupRef, setInstructionLookupRef] = useState('');
   const [submitMessage, setSubmitMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [streamSubmissionId, setStreamSubmissionId] = useState<string | null>(null);
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
@@ -312,14 +309,33 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
     setLegacyQuery('');
     setLegacyResults([]);
     setLegacySelected(null);
+    setEntryMode(null);
+    setInstructionLookupRef('');
     setDataset('new');
+  }, []);
+
+  const startBespokeCheck = useCallback(() => {
+    setFormData(initialFormData);
+    setSubmitMessage(null);
+    setPrefillMessage('Bespoke check selected. This will run ad-hoc and will not file against an instruction.');
+    setPriorVerifications(null);
+    setResponse(null);
+    setPersistedSummary(null);
+    setCorrelationId(null);
+    setHistory([]);
+    setLegacyQuery('');
+    setLegacyResults([]);
+    setLegacySelected(null);
+    setInstructionLookupRef('');
+    setDataset('new');
+    setEntryMode('bespoke');
   }, []);
 
   const handlePrefill = useCallback(async (refArg?: string) => {
     const ref = (refArg ?? formData.instructionRef).trim();
     if (!ref) {
       setPrefillMessage('Pick an instruction from the dropdown first.');
-      return;
+      return false;
     }
     setIsPrefilling(true);
     setPrefillMessage(null);
@@ -358,9 +374,15 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
       const filledFrom = [p.firstName && 'name', p.dob && 'DOB', p.email && 'email', p.postcode && 'address', p.passportNumber && 'passport', p.driversLicenseNumber && 'licence']
         .filter(Boolean).join(', ');
       setPrefillMessage(`Prefilled from ${ref}${filledFrom ? ` — ${filledFrom}` : ''}.`);
+      setInstructionLookupRef(ref);
+      setDataset('new');
+      setEntryMode('instruction');
+      return true;
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Prefill failed';
       setPrefillMessage(`Prefill failed: ${msg}`);
+      setEntryMode('instruction');
+      return false;
     } finally {
       setIsPrefilling(false);
     }
@@ -429,6 +451,7 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
         .filter(Boolean).join(', ');
       const label = json.acid ? `ACID ${json.acid}` : (json.poidId != null ? `POID #${json.poidId}` : 'legacy POID');
       setPrefillMessage(`Prefilled from ${label}${filledFrom ? ` — ${filledFrom}` : ''}. Submission will run ad-hoc (not filed against an instruction).`);
+      setEntryMode('legacy');
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Legacy prefill failed';
       setPrefillMessage(`Legacy prefill failed: ${msg}`);
@@ -437,43 +460,20 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
     }
   }, []);
 
-  // Load recent instructions once on mount for the picklist.
-  useEffect(() => {
-    let cancelled = false;
-    const ctrl = new AbortController();
-    const timeoutId = window.setTimeout(() => ctrl.abort(), 8000);
-    const load = async () => {
-      setIsLoadingInstructions(true);
-      try {
-        const baseUrl = getApiBase();
-        const res = await fetch(`${baseUrl}/api/verify-id/adhoc/instructions?limit=75`, { signal: ctrl.signal });
-        const json = await res.json().catch(() => ({} as any));
-        if (!cancelled && res.ok && Array.isArray(json.instructions)) {
-          setInstructionList(json.instructions);
-        }
-      } catch {
-        // Silent — dropdown just stays empty with a fallback hint.
-      } finally {
-        window.clearTimeout(timeoutId);
-        if (!cancelled) setIsLoadingInstructions(false);
-      }
-    };
-    load();
-    return () => { cancelled = true; ctrl.abort(); window.clearTimeout(timeoutId); };
-  }, []);
-
-  const instructionDropdownOptions = useMemo<IDropdownOption[]>(() => {
-    const opts: IDropdownOption[] = [
-      { key: '', text: '— Ad-hoc (no instruction link) —' },
-    ];
-    instructionList.forEach(i => {
-      const tag = i.sufficient ? 'Ready' : `Missing: ${i.missing.join(', ')}`;
-      opts.push({ key: i.ref, text: `${i.ref} — ${i.displayName}  [${tag}]`, data: i });
-    });
-    return opts;
-  }, [instructionList]);
-
   const handleSubmit = useCallback(async () => {
+        if (!entryMode) {
+          setSubmitMessage({ type: 'error', text: 'Choose an instruction, bespoke check, or legacy POID before running Verify ID.' });
+          return;
+        }
+        if (entryMode === 'instruction' && !formData.instructionRef.trim()) {
+          setSubmitMessage({ type: 'error', text: 'Resolve an instruction before running Verify ID.' });
+          return;
+        }
+        if (entryMode === 'legacy' && !legacySelected) {
+          setSubmitMessage({ type: 'error', text: 'Select a legacy POID before running Verify ID.' });
+          return;
+        }
+
     const requiredFields: Array<{ key: keyof FormData; label: string }> = [
       { key: 'firstName', label: 'First name' },
       { key: 'lastName', label: 'Last name' },
@@ -521,13 +521,14 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
         county: formData.county.trim() || formData.city.trim(),
         postcode: formData.postcode.trim(),
         countryCode: formData.countryCode,
-        legacySource: dataset === 'legacy' && legacySelected ? legacySelected : undefined,
+        legacySource: entryMode === 'legacy' && legacySelected ? legacySelected : undefined,
       };
 
+      const clientSubmissionId = await recordIntent({ formKey: 'verification', payload: body });
       const res = await fetch(`${baseUrl}/api/verify-id/adhoc`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ ...body, clientSubmissionId }),
       });
       const json = await res.json().catch(() => ({} as any));
 
@@ -566,29 +567,30 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
     } finally {
       setIsSubmitting(false);
     }
-  }, [formData, onSubmitError, onSubmitSuccess, loadHistory, dataset, legacySelected]);
+  }, [entryMode, formData, onSubmitError, onSubmitSuccess, loadHistory, legacySelected]);
 
   const resultView = useMemo(() => (response ? summariseResponse(response) : null), [response]);
   const submitterInitials = currentUser?.Initials || '';
+  const canShowIntake = entryMode === 'bespoke'
+    || (entryMode === 'instruction' && Boolean(formData.instructionRef.trim()))
+    || (entryMode === 'legacy' && Boolean(legacySelected));
 
   return (
-    <div style={getFormScrollContainerStyle(isDarkMode)}>
+    <div className="verification-check-form" style={getFormScrollContainerStyle(isDarkMode)} data-helix-region="forms/verify-id">
       <div style={getFormCardStyle(isDarkMode)}>
-        {!embedded && (
-          <div style={getFormHeaderStyle(isDarkMode, accentColor)}>
-            <Stack horizontal horizontalAlign="space-between" verticalAlign="center">
-              <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 12 }}>
-                <Icon iconName="ContactCard" style={{ fontSize: 22, color: accentColor }} />
-                <Text variant="xLarge" style={getFormHeaderTitleStyle(isDarkMode)}>
-                  Verification check
-                </Text>
-              </Stack>
-              {onBack && (
-                <DefaultButton text="Back" onClick={onBack} styles={getFormDefaultButtonStyles(isDarkMode)} />
-              )}
+        <div style={getFormHeaderStyle(isDarkMode, accentColor)}>
+          <Stack horizontal horizontalAlign="space-between" verticalAlign="center">
+            <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 12 }}>
+              <Icon iconName="ContactCard" style={{ fontSize: 22, color: accentColor }} />
+              <Text variant={embedded ? undefined : 'xLarge'} style={embedded ? getFormHeaderSubtitleStyle(isDarkMode) : getFormHeaderTitleStyle(isDarkMode)}>
+                {embedded ? 'Run address verification plus PEP and sanctions screening through Tiller' : 'Verification check'}
+              </Text>
             </Stack>
-          </div>
-        )}
+            {!embedded && onBack && (
+              <DefaultButton text="Back" onClick={onBack} styles={getFormDefaultButtonStyles(isDarkMode)} />
+            )}
+          </Stack>
+        </div>
 
         <div style={getFormContentStyle(isDarkMode)}>
           {submitMessage && (
@@ -620,30 +622,37 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
             </div>
           )}
 
-          {/* Link to instruction (optional) */}
+          {/* Verification source */}
           <div style={getFormSectionStyle(isDarkMode, accentColor)}>
             <div style={getFormSectionHeaderStyle(isDarkMode, accentColor)}>
               <Icon iconName="Link" style={{ fontSize: 16 }} />
-              Link to instruction (optional)
+              Choose source
             </div>
             <Stack tokens={formFieldTokens}>
-              {/* Dataset toggle: new instruction vs legacy POID */}
-              <div style={{ display: 'flex', gap: 0, marginBottom: 4 }}>
-                {(['new', 'legacy'] as const).map((opt) => {
-                  const active = dataset === opt;
+              <div style={{ display: 'flex', gap: 0, marginBottom: 4, flexWrap: 'wrap' }}>
+                {([
+                  { key: 'instruction' as const, label: 'Instruction lookup' },
+                  { key: 'bespoke' as const, label: 'Bespoke check' },
+                  { key: 'legacy' as const, label: 'Legacy POID' },
+                ]).map((opt) => {
+                  const active = entryMode === opt.key;
                   return (
                     <button
-                      key={opt}
+                      key={opt.key}
                       type="button"
                       onClick={() => {
-                        setDataset(opt);
                         setPrefillMessage(null);
                         setPriorVerifications(null);
-                        if (opt === 'new') {
+                        if (opt.key === 'instruction') {
+                          setDataset('new');
+                          setEntryMode('instruction');
                           setLegacySelected(null);
+                        } else if (opt.key === 'bespoke') {
+                          startBespokeCheck();
                         } else {
+                          setDataset('legacy');
+                          setEntryMode('legacy');
                           handleFieldChange('instructionRef', '');
-                          // Browse-friendly default: load recent legacy POID rows when there's no query.
                           if (!legacyQuery.trim() && legacyResults.length === 0) {
                             void handleLegacySearch('');
                           }
@@ -652,11 +661,9 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
                       style={{
                         flex: 1,
                         padding: '8px 12px',
-                        background: active
-                          ? accentColor
-                          : (isDarkMode ? 'rgba(54, 144, 206, 0.08)' : '#F4F4F6'),
-                        color: active ? '#ffffff' : (isDarkMode ? '#f3f4f6' : '#061733'),
-                        border: `1px solid ${active ? accentColor : (isDarkMode ? '#4b5563' : '#d1d5db')}`,
+                        background: active ? accentColor : 'var(--surface-card)',
+                        color: active ? '#ffffff' : 'var(--text-primary)',
+                        border: `1px solid ${active ? accentColor : 'var(--home-tile-border)'}`,
                         borderRadius: 0,
                         cursor: 'pointer',
                         fontSize: 12,
@@ -665,39 +672,50 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
                         textTransform: 'uppercase',
                       }}
                     >
-                      {opt === 'new' ? 'New instruction' : 'Legacy POID'}
+                      {opt.label}
                     </button>
                   );
                 })}
               </div>
 
-              {dataset === 'new' && (
-                <Stack tokens={{ childrenGap: 4 }}>
-                  <Dropdown
-                    label="Instruction reference"
-                    placeholder="Pick an instruction to auto-prefill…"
-                    options={instructionDropdownOptions}
-                    selectedKey={formData.instructionRef}
-                    onChange={(_, opt) => {
-                      const ref = (opt?.key as string) || '';
-                      handleFieldChange('instructionRef', ref);
-                      setPrefillMessage(null);
-                      if (ref) {
-                        void handlePrefill(ref);
-                      } else {
-                        setPriorVerifications(null);
-                      }
+              {!entryMode && (
+                <Text style={{ fontSize: 12, color: 'var(--text-body)' }}>
+                  Resolve a specific instruction first, or choose Bespoke check to run a manual ad-hoc verification.
+                </Text>
+              )}
+
+              {entryMode === 'instruction' && (
+                <Stack horizontal tokens={{ childrenGap: 12 }} verticalAlign="end" wrap>
+                  <Stack.Item grow styles={{ root: { minWidth: 240 } }}>
+                    <TextField
+                      label="Instruction or matter ref"
+                      placeholder="HLX-00000-00000, matter id, or display ref"
+                      value={instructionLookupRef}
+                      onChange={(_, value) => setInstructionLookupRef(value || '')}
+                      styles={getInputStyles(isDarkMode)}
+                    />
+                  </Stack.Item>
+                  <DefaultButton
+                    text={isPrefilling ? 'Resolving...' : 'Resolve'}
+                    disabled={isPrefilling || instructionLookupRef.trim().length < 3}
+                    onClick={() => {
+                      const ref = instructionLookupRef.trim();
+                      if (ref.length >= 3) void handlePrefill(ref);
                     }}
-                    styles={getDropdownStyles(isDarkMode)}
-                    disabled={isPrefilling}
+                    styles={getFormDefaultButtonStyles(isDarkMode)}
                   />
-                  {isLoadingInstructions && (
-                    <ProcessingCue label="Loading instructions" isDarkMode={isDarkMode} />
-                  )}
                 </Stack>
               )}
 
-              {dataset === 'legacy' && (
+              {entryMode === 'bespoke' && (
+                <div style={{ marginTop: 4, padding: '8px 12px', background: 'var(--surface-card)', borderWidth: 1, borderStyle: 'solid', borderColor: 'var(--home-tile-border)', borderLeftWidth: 3, borderLeftColor: accentColor }}>
+                  <Text style={{ fontSize: 12, color: 'var(--text-body)' }}>
+                    Manual ad-hoc mode. Complete the details below and the result will not be filed against an instruction.
+                  </Text>
+                </div>
+              )}
+
+              {entryMode === 'legacy' && (
                 <>
                   <TextField
                     label="Search legacy POID (ACID, POID id, email or name)"
@@ -722,8 +740,8 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
                       style={{
                         maxHeight: 220,
                         overflowY: 'auto',
-                        border: `1px solid ${isDarkMode ? '#4b5563' : '#d1d5db'}`,
-                        background: isDarkMode ? '#081c30' : '#ffffff',
+                        border: '1px solid var(--home-tile-border)',
+                        background: 'var(--surface-card)',
                       }}
                     >
                       {legacyResults.map((row) => {
@@ -742,12 +760,10 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
                               width: '100%',
                               textAlign: 'left',
                               padding: '8px 12px',
-                              background: isSelected
-                                ? (isDarkMode ? 'rgba(54, 144, 206, 0.18)' : '#d6e8ff')
-                                : 'transparent',
+                              background: isSelected ? 'rgba(54, 144, 206, 0.18)' : 'var(--surface-card)',
                               border: 'none',
-                              borderBottom: `1px solid ${isDarkMode ? '#1f2937' : '#e5e7eb'}`,
-                              color: isDarkMode ? '#f3f4f6' : '#061733',
+                              borderBottom: '1px solid var(--home-row-border)',
+                              color: 'var(--text-primary)',
                               cursor: 'pointer',
                               fontSize: 12,
                               borderRadius: 0,
@@ -756,7 +772,7 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
                             <div style={{ fontWeight: 600 }}>
                               {row.first || ''} {row.last || ''}{!row.first && !row.last ? '(no name)' : ''}
                             </div>
-                            <div style={{ color: isDarkMode ? '#A0A0A0' : '#6B6B6B', fontSize: 11, marginTop: 2 }}>
+                            <div style={{ color: 'var(--text-muted)', fontSize: 11, marginTop: 2 }}>
                               {row.acid ? `ACID ${row.acid}` : ''}
                               {row.acid && row.poidId != null ? ' • ' : ''}
                               {row.poidId != null ? `POID #${row.poidId}` : ''}
@@ -770,13 +786,13 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
                     </div>
                   )}
                   {legacyQuery.trim().length >= 2 && !legacyIsSearching && legacyResults.length === 0 && (
-                    <Text style={{ fontSize: 12, color: isDarkMode ? '#A0A0A0' : '#6B6B6B' }}>
+                    <Text style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                       No legacy POID matches for "{legacyQuery.trim()}".
                     </Text>
                   )}
                   {legacySelected && (legacySelected.acid || legacySelected.poidId != null) && (
-                    <div style={{ marginTop: 4, padding: '8px 12px', background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : '#d6e8ff', borderLeft: `3px solid ${accentColor}` }}>
-                      <Text style={{ fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151' }}>
+                    <div style={{ marginTop: 4, padding: '8px 12px', background: 'var(--surface-card)', borderWidth: 1, borderStyle: 'solid', borderColor: 'var(--home-tile-border)', borderLeftWidth: 3, borderLeftColor: accentColor }}>
+                      <Text style={{ fontSize: 12, color: 'var(--text-body)' }}>
                         Source: Legacy POID
                         {legacySelected.acid ? ` (ACID ${legacySelected.acid})` : ''}
                         {legacySelected.poidId != null ? ` [POID #${legacySelected.poidId}]` : ''}. Submission will run ad-hoc and not file against an instruction.
@@ -790,11 +806,11 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
                 <ProcessingCue label="Prefilling" isDarkMode={isDarkMode} />
               )}
               {prefillMessage && (
-                <Text style={{ fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151' }}>{prefillMessage}</Text>
+                <Text style={{ fontSize: 12, color: 'var(--text-body)' }}>{prefillMessage}</Text>
               )}
-              {dataset === 'new' && priorVerifications && priorVerifications.count > 0 && (
-                <div style={{ marginTop: 4, padding: '8px 12px', background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : '#d6e8ff', borderLeft: `3px solid ${accentColor}` }}>
-                  <Text style={{ fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151' }}>
+              {entryMode === 'instruction' && priorVerifications && priorVerifications.count > 0 && (
+                <div style={{ marginTop: 4, padding: '8px 12px', background: 'var(--surface-card)', borderWidth: 1, borderStyle: 'solid', borderColor: 'var(--home-tile-border)', borderLeftWidth: 3, borderLeftColor: accentColor }}>
+                  <Text style={{ fontSize: 12, color: 'var(--text-body)' }}>
                     {priorVerifications.count} verification{priorVerifications.count === 1 ? '' : 's'} already on record for this instruction
                     {priorVerifications.lastResult ? ` (last result: ${priorVerifications.lastResult})` : ''}.
                   </Text>
@@ -803,6 +819,8 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
             </Stack>
           </div>
 
+          {canShowIntake && (
+            <>
           {/* Identity */}
           <div style={getFormSectionStyle(isDarkMode, accentColor)}>
             <div style={getFormSectionHeaderStyle(isDarkMode, accentColor)}>
@@ -810,8 +828,8 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
               Identity
             </div>
             <Stack tokens={formFieldTokens}>
-              <Stack horizontal tokens={{ childrenGap: 16 }}>
-                <Stack.Item styles={{ root: { width: 120 } }}>
+              <Stack horizontal tokens={{ childrenGap: 16 }} verticalAlign="end" wrap>
+                <Stack.Item styles={{ root: { width: 128, minWidth: 112 } }}>
                   <Dropdown
                     label="Title"
                     options={titleOptions}
@@ -820,7 +838,7 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
                     styles={getDropdownStyles(isDarkMode)}
                   />
                 </Stack.Item>
-                <Stack.Item styles={{ root: { width: 140 } }}>
+                <Stack.Item styles={{ root: { width: 148, minWidth: 128 } }}>
                   <Dropdown
                     label="Gender"
                     options={genderOptions}
@@ -829,7 +847,7 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
                     styles={getDropdownStyles(isDarkMode)}
                   />
                 </Stack.Item>
-                <Stack.Item grow>
+                <Stack.Item grow styles={{ root: { minWidth: 180 } }}>
                   <TextField
                     label="First name"
                     required
@@ -838,7 +856,7 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
                     styles={getInputStyles(isDarkMode)}
                   />
                 </Stack.Item>
-                <Stack.Item grow>
+                <Stack.Item grow styles={{ root: { minWidth: 180 } }}>
                   <TextField
                     label="Last name"
                     required
@@ -848,17 +866,15 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
                   />
                 </Stack.Item>
               </Stack>
-              <Stack horizontal tokens={{ childrenGap: 16 }}>
-                <Stack.Item styles={{ root: { width: 220 } }}>
-                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: isDarkMode ? '#f3f4f6' : '#061733', marginBottom: 4 }}>
-                    Date of birth <span style={{ color: '#D65541' }}>*</span>
-                  </label>
-                  <input
+              <Stack horizontal tokens={{ childrenGap: 16 }} verticalAlign="end" wrap>
+                <Stack.Item grow>
+                  <TextField
+                    label="Date of birth"
                     type="date"
+                    required
                     value={formData.dob}
-                    onChange={(e) => handleFieldChange('dob', e.target.value)}
-                    className="helix-input"
-                    style={{ width: '100%', padding: '8px 10px', borderRadius: 0 }}
+                    onChange={(_, v) => handleFieldChange('dob', v || '')}
+                    styles={getInputStyles(isDarkMode)}
                   />
                 </Stack.Item>
                 <Stack.Item grow>
@@ -880,8 +896,8 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
                   />
                 </Stack.Item>
               </Stack>
-              <Stack horizontal tokens={{ childrenGap: 16 }}>
-                <Stack.Item styles={{ root: { width: 320 } }}>
+              <Stack horizontal tokens={{ childrenGap: 16 }} verticalAlign="end">
+                <Stack.Item grow>
                   <Dropdown
                     label="Nationality"
                     required
@@ -903,7 +919,7 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
               Identity documents
             </div>
             <Stack tokens={formFieldTokens}>
-              <Text style={{ fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151' }}>
+              <Text style={{ fontSize: 12, color: 'var(--text-body)' }}>
                 Provide at least one — Tiller requires either a passport or a UK driving licence number to complete the match.
               </Text>
               <Stack horizontal tokens={{ childrenGap: 16 }}>
@@ -937,7 +953,7 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
             </div>
             <Stack tokens={formFieldTokens}>
               <Stack horizontal tokens={{ childrenGap: 16 }}>
-                <Stack.Item styles={{ root: { width: 160 } }}>
+                <Stack.Item grow>
                   <TextField
                     label="Building number"
                     required
@@ -974,7 +990,7 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
                     styles={getInputStyles(isDarkMode)}
                   />
                 </Stack.Item>
-                <Stack.Item styles={{ root: { width: 180 } }}>
+                <Stack.Item grow>
                   <TextField
                     label="Postcode"
                     required
@@ -983,7 +999,7 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
                     styles={getInputStyles(isDarkMode)}
                   />
                 </Stack.Item>
-                <Stack.Item styles={{ root: { width: 220 } }}>
+                <Stack.Item grow>
                   <Dropdown
                     label="Country"
                     required
@@ -1011,6 +1027,8 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
               styles={getFormPrimaryButtonStyles(isDarkMode, accentColor)}
             />
           </Stack>
+            </>
+          )}
 
           {resultView && (
             <div style={{ marginTop: '1.5rem' }}>
@@ -1021,16 +1039,16 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
                 </div>
                 <Stack tokens={{ childrenGap: 14 }}>
                   {correlationId && (
-                    <div style={{ padding: '10px 12px', background: isDarkMode ? 'rgba(54, 144, 206, 0.14)' : '#d6e8ff', borderLeft: `3px solid ${accentColor}` }}>
-                      <Text style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4, color: isDarkMode ? '#A0A0A0' : '#6B6B6B' }}>Tiller correlation ID</Text>
-                      <Text style={{ display: 'block', fontFamily: 'ui-monospace, Menlo, Consolas, monospace', fontSize: 13, color: isDarkMode ? '#f3f4f6' : '#061733' }}>
+                    <div style={{ padding: '10px 12px', background: 'var(--surface-card)', borderWidth: 1, borderStyle: 'solid', borderColor: 'var(--home-tile-border)', borderLeftWidth: 3, borderLeftColor: accentColor }}>
+                      <Text style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4, color: 'var(--text-muted)' }}>Tiller correlation ID</Text>
+                      <Text style={{ display: 'block', fontFamily: 'ui-monospace, Menlo, Consolas, monospace', fontSize: 13, color: 'var(--text-primary)' }}>
                         {correlationId}
                       </Text>
                     </div>
                   )}
                   {persistedSummary && (
-                    <div style={{ padding: '8px 12px', background: isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(32, 178, 108, 0.12)', borderLeft: '3px solid #20b26c' }}>
-                      <Text style={{ fontSize: 12, color: isDarkMode ? '#d1d5db' : '#117a42' }}>
+                    <div style={{ padding: '8px 12px', background: 'var(--surface-card)', borderWidth: 1, borderStyle: 'solid', borderColor: 'var(--home-tile-border)', borderLeftWidth: 3, borderLeftColor: '#20b26c' }}>
+                      <Text style={{ fontSize: 12, color: 'var(--text-body)' }}>
                         Filed against {formData.instructionRef || 'this instruction'}
                         {persistedSummary.checkId ? ` — record ${persistedSummary.checkId}` : ''}.
                       </Text>
@@ -1039,11 +1057,11 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
                   {resultView.summary.map((row, i) => (
                     <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                        <Text style={{ fontWeight: 600, color: isDarkMode ? '#f3f4f6' : '#061733' }}>{row.label}</Text>
+                        <Text style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{row.label}</Text>
                         <span style={resultPillStyle(row.overallResult, isDarkMode)}>{row.overallResult || row.overallStatus || '—'}</span>
                       </div>
                       {row.results && row.results.length > 0 && (
-                        <ul style={{ margin: 0, paddingLeft: 20, color: isDarkMode ? '#d1d5db' : '#374151', fontSize: 13 }}>
+                        <ul style={{ margin: 0, paddingLeft: 20, color: 'var(--text-body)', fontSize: 13 }}>
                           {row.results.map((r, j) => (
                             <li key={j}>
                               <span style={{ fontWeight: 500 }}>{r.name || 'Reason'}:</span>{' '}
@@ -1077,8 +1095,8 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
                         padding: 12,
                         maxHeight: 360,
                         overflow: 'auto',
-                        background: isDarkMode ? '#051525' : '#F4F4F6',
-                        color: isDarkMode ? '#d1d5db' : '#061733',
+                        background: 'var(--surface-card)',
+                        color: 'var(--text-body)',
                         fontSize: 12,
                         fontFamily: 'ui-monospace, Menlo, Consolas, monospace',
                       }}
@@ -1100,14 +1118,14 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
                   Verification history {isLoadingHistory ? <Spinner size={SpinnerSize.xSmall} style={{ marginLeft: 8 }} /> : null}
                 </div>
                 {history.length === 0 ? (
-                  <Text style={{ fontSize: 12, color: isDarkMode ? '#A0A0A0' : '#6B6B6B' }}>
+                  <Text style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                     {isLoadingHistory ? 'Loading…' : 'No prior verifications recorded for this instruction.'}
                   </Text>
                 ) : (
                   <div style={{ overflowX: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                       <thead>
-                        <tr style={{ textAlign: 'left', color: isDarkMode ? '#A0A0A0' : '#6B6B6B', textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                        <tr style={{ textAlign: 'left', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.4 }}>
                           <th style={{ padding: '6px 8px', fontWeight: 600 }}>When</th>
                           <th style={{ padding: '6px 8px', fontWeight: 600 }}>Overall</th>
                           <th style={{ padding: '6px 8px', fontWeight: 600 }}>Address</th>
@@ -1118,7 +1136,7 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
                       </thead>
                       <tbody>
                         {history.map((row, i) => (
-                          <tr key={row.checkId || i} style={{ borderTop: `1px solid ${isDarkMode ? '#374151' : '#e5e7eb'}`, color: isDarkMode ? '#d1d5db' : '#061733' }}>
+                          <tr key={row.checkId || i} style={{ borderTop: '1px solid var(--home-row-border)', color: 'var(--text-body)' }}>
                             <td style={{ padding: '8px 8px' }}>{row.checkedAt || '—'}</td>
                             <td style={{ padding: '8px 8px' }}><span style={resultPillStyle(row.overall, isDarkMode)}>{row.overall || '—'}</span></td>
                             <td style={{ padding: '8px 8px' }}><span style={resultPillStyle(row.address, isDarkMode)}>{row.address || '—'}</span></td>
@@ -1136,7 +1154,7 @@ const VerificationCheckForm: React.FC<VerificationCheckFormProps> = ({ currentUs
           )}
 
           {submitterInitials && (
-            <Text style={{ display: 'block', marginTop: 16, fontSize: 11, color: isDarkMode ? '#A0A0A0' : '#6B6B6B' }}>
+            <Text style={{ display: 'block', marginTop: 16, fontSize: 11, color: 'var(--text-muted)' }}>
               Submitted by {submitterInitials}
             </Text>
           )}

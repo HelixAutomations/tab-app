@@ -123,11 +123,15 @@ function isPlannedReferenceLine(line) {
   return /\b(New file|Create .*file|Extract .*component|Extract .*hook|future|parked|worth a stash|pending|not started|to be created)\b/i.test(text);
 }
 
-function checkFileExists(filePath, referencedIn, lineNumber) {
+const SHIPPED_CLAIM_RE = /\b(ships?|shipped|lives? at|exists? at|implemented (?:in|at)|deployed (?:in|at)|wired up in|now (?:available|live) at)\b/i;
+
+function checkFileExists(filePath, referencedIn, lineNumber, line) {
   const full = path.join(ROOT, filePath.replace(/\//g, path.sep));
   if (!fs.existsSync(full)) {
     const lineDetail = lineNumber ? ` on line ${lineNumber}` : '';
-    addIssue('warn', 'missing-reference', referencedIn, `${filePath} does not exist${lineDetail}`);
+    const level = line && SHIPPED_CLAIM_RE.test(line) ? 'error' : 'warn';
+    const type = level === 'error' ? 'false-shipped-reference' : 'missing-reference';
+    addIssue(level, type, referencedIn, `${filePath} does not exist${lineDetail}`);
   }
 }
 
@@ -145,7 +149,7 @@ function scanForReferences(content, sourceFile) {
       const matches = line.matchAll(pattern);
       for (const [, filePath] of matches) {
         const normalized = normalizeReference(filePath, path.join(ROOT, sourceFile));
-        if (normalized) checkFileExists(normalized, sourceFile, index + 1);
+        if (normalized) checkFileExists(normalized, sourceFile, index + 1, line);
       }
     }
   }
@@ -194,20 +198,44 @@ function checkInstructionCustomization(filePath) {
     addIssue('error', 'frontmatter', file, 'Instruction customization files need YAML frontmatter.');
   }
   const applyTo = frontmatterValue(content, 'applyTo');
+  const allowGlobal = frontmatterValue(content, 'allowGlobalApplyTo') === 'true';
   if (!applyTo) {
     addIssue('error', 'applyTo', file, 'Missing applyTo pattern.');
-  } else if (applyTo === '**') {
-    addIssue('warn', 'broad-applyTo', file, 'applyTo "**" is always loaded. Keep only if this is truly cross-cutting.');
+  } else if (applyTo === '**' && !allowGlobal) {
+    addIssue('warn', 'broad-applyTo', file, 'applyTo "**" is always loaded. Add `allowGlobalApplyTo: true` to the frontmatter if this is intentional.');
   }
 }
+
+const COPILOT_MAX_LINES = 400;
+const REQUIRED_TIER_LABELS = ['Dev Preview', 'Admin', 'Reports', 'Operations User', 'Dev Owner'];
 
 function checkCopilotInstructions() {
   if (!fs.existsSync(COPILOT_INSTRUCTIONS)) return;
   const content = read(COPILOT_INSTRUCTIONS);
   const file = rel(COPILOT_INSTRUCTIONS);
   const lineCount = content.split(/\r?\n/).length;
-  if (lineCount > 700) {
-    addIssue('warn', 'large-always-on-context', file, `${lineCount} lines. Consider moving stable reference material into narrower instruction files.`);
+  if (lineCount > COPILOT_MAX_LINES) {
+    addIssue('warn', 'large-always-on-context', file, `${lineCount} lines (> ${COPILOT_MAX_LINES}). Move stable reference material into narrower instruction files.`);
+  }
+  const missingTiers = REQUIRED_TIER_LABELS.filter((label) => !content.includes(label));
+  if (missingTiers.length > 0) {
+    addIssue('error', 'tier-banner', file, `User Tiers banner missing labels: ${missingTiers.join(', ')}. Five tiers must stay enumerated verbatim.`);
+  }
+  checkDuplicateSectionTitles(content, file);
+}
+
+function checkDuplicateSectionTitles(content, file) {
+  const seen = new Map();
+  const lines = content.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i += 1) {
+    const match = lines[i].match(/^(#{2,3})\s+(.+?)\s*$/);
+    if (!match) continue;
+    const key = `${match[1]} ${match[2].toLowerCase()}`;
+    if (seen.has(key)) {
+      addIssue('warn', 'duplicate-section-title', file, `"${match[2]}" appears twice (lines ${seen.get(key)} and ${i + 1}).`);
+    } else {
+      seen.set(key, i + 1);
+    }
   }
 }
 
@@ -215,6 +243,31 @@ function checkReferenceDocs() {
   const docs = listFiles(INSTRUCTIONS_DIR, (file) => file.endsWith('.md'));
   for (const doc of docs) {
     scanForReferences(read(doc), rel(doc));
+    checkLastVerified(doc);
+  }
+}
+
+const STALE_DAYS = 90;
+const DATED_FILE_SKIP = new Set(['REALTIME_CONTEXT.md', 'ROADMAP.md']);
+
+function checkLastVerified(filePath) {
+  const base = path.basename(filePath);
+  if (DATED_FILE_SKIP.has(base)) return;
+  const file = rel(filePath);
+  const content = read(filePath);
+  const match = content.match(/^Last verified:\s*(\d{4}-\d{2}-\d{2})/m);
+  if (!match) {
+    addIssue('warn', 'missing-last-verified', file, 'No `Last verified: YYYY-MM-DD` line. Add one near the top so agents can spot stale references.');
+    return;
+  }
+  const verified = new Date(match[1] + 'T00:00:00Z');
+  if (Number.isNaN(verified.getTime())) {
+    addIssue('warn', 'invalid-last-verified', file, `Cannot parse "${match[1]}" as a date.`);
+    return;
+  }
+  const ageDays = Math.floor((Date.now() - verified.getTime()) / 86400000);
+  if (ageDays > STALE_DAYS) {
+    addIssue('warn', 'stale-last-verified', file, `Last verified ${ageDays} days ago (> ${STALE_DAYS}). Re-check against source.`);
   }
 }
 

@@ -1,5 +1,7 @@
 # Demo Mode Reference
 
+Last verified: 2026-05-23
+
 Demo mode is a **developer/stakeholder testing tool** toggled via the user bubble. It seeds synthetic data across the entire platform so any surface can be previewed without live data.
 
 ## Purpose

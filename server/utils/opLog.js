@@ -3,7 +3,15 @@ const path = require('path');
 const MAX_EVENTS = 1000;
 const events = [];
 const sessionId = Math.random().toString(36).slice(2);
-const LOG_DIR = path.join(__dirname, '..', 'logs');
+// In dev, __dirname is <repo>/server/utils, so logs land at <repo>/logs (outside the
+// `node --watch-path=server` tree). In prod the deploy flattens server/ to the app
+// root, so __dirname is <approot>/utils and logs land at <approot>/logs. Detect by
+// asking whether the parent dir is literally named "server".
+const PARENT_DIR = path.join(__dirname, '..');
+const IS_DEV_LAYOUT = path.basename(PARENT_DIR) === 'server';
+const LOG_DIR = IS_DEV_LAYOUT
+  ? path.join(PARENT_DIR, '..', 'logs')
+  : path.join(PARENT_DIR, 'logs');
 const LOG_FILE = path.join(LOG_DIR, 'ops.log.jsonl');
 
 function nowIso() {
@@ -57,7 +65,9 @@ function append(event) {
 
 function list({ type, status, limit = 200, since, sessionId: filterSession } = {}) {
   let out = events;
-  if (type) out = out.filter(e => e.type === type);
+  if (type) {
+    out = out.filter(e => type instanceof RegExp ? type.test(e.type) : e.type === type);
+  }
   if (status) out = out.filter(e => e.status === status);
   if (since) out = out.filter(e => e.ts >= since);
   if (filterSession) out = out.filter(e => e.sessionId === filterSession);

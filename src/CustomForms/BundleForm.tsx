@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { recordIntent } from '../utils/recordIntent';
+import { buildRequestAuthHeaders } from '../utils/requestAuthContext';
 import { TextField } from '@fluentui/react/lib/TextField';
 import { PrimaryButton, DefaultButton } from '@fluentui/react/lib/Button';
 import { Stack } from '@fluentui/react/lib/Stack';
@@ -17,7 +19,6 @@ import {
     getFormScrollContainerStyle,
     getFormCardStyle,
     getFormHeaderStyle,
-    getFormHeaderTitleStyle,
     getFormHeaderSubtitleStyle,
     getFormSectionStyle,
     getFormSectionHeaderStyle,
@@ -167,11 +168,12 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
         left: 0,
         right: 0,
         zIndex: 1000,
-        background: isDarkMode ? '#061733' : '#ffffff',
-        border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
+        background: 'var(--surface-card)',
+        border: '1px solid var(--home-tile-border)',
         maxHeight: '300px',
         overflowY: 'auto',
         marginTop: '4px',
+        boxShadow: 'var(--shadow-overlay)',
     };
 
     const matterOptionStyle: React.CSSProperties = {
@@ -305,10 +307,11 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
         }
 
         try {
+            const clientSubmissionId = await recordIntent({ formKey: 'bundle', payload });
             const response = await fetch('/api/bundle', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
+                headers: buildRequestAuthHeaders({ 'Content-Type': 'application/json' }),
+                body: JSON.stringify({ ...payload, clientSubmissionId }),
             });
             
             if (response.ok) {
@@ -350,14 +353,9 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
                                     iconName="Package" 
                                     style={{ fontSize: '20px', color: accentColor }} 
                                 />
-                                <div>
-                                    <Text style={getFormHeaderTitleStyle(isDarkMode)}>
-                                        Bundle Submission
-                                    </Text>
-                                    <Text style={getFormHeaderSubtitleStyle(isDarkMode)}>
-                                        Prepare and route physical document bundles
-                                    </Text>
-                                </div>
+                                <Text style={getFormHeaderSubtitleStyle(isDarkMode)}>
+                                    Prepare and route physical document bundles
+                                </Text>
                             </div>
                             <FormReadinessCue state={readiness.state} detail={readiness.detail} readyAnnouncement="Bundle form ready" />
                         </div>
@@ -390,9 +388,9 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
                                                 style={{
                                                     width: '100%',
                                                     height: '44px',
-                                                    border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
+                                                    border: '1px solid var(--home-tile-border)',
                                                     outline: 'none',
-                                                    background: isDarkMode ? 'rgba(6, 23, 51,0.5)' : '#ffffff',
+                                                    background: 'var(--surface-card-hover)',
                                                     fontFamily: formFont,
                                                     fontSize: '14px',
                                                     padding: '0 40px 0 12px',
@@ -410,7 +408,7 @@ const BundleForm: React.FC<BundleFormProps> = ({ users = [], matters, onBack }) 
                                                     top: '50%',
                                                     transform: 'translateY(-50%)',
                                                     fontSize: '14px',
-                                                    color: isDarkMode ? '#A0A0A0' : '#6B6B6B',
+                                                    color: 'var(--text-muted)',
                                                     pointerEvents: 'none',
                                                 }} 
                                             />

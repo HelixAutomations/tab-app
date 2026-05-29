@@ -14,6 +14,7 @@
 //   node tools/dev-clean.mjs --keep-logs       # keep logs/dev-all and server/logs
 //   node tools/dev-clean.mjs --logs-only       # only delete logs (cheap, no recompile cost)
 //   node tools/dev-clean.mjs --dry-run         # show sizes, change nothing
+//   node tools/dev-clean.mjs --if-over-mb=500  # delete only if selected targets exceed threshold
 //
 // After running, restart `npm run dev:all` (or dev:fast). First boot will be
 // slower (cold webpack compile, ~30-60s) — every boot after is back to normal.
@@ -31,6 +32,16 @@ const dryRun = args.has('--dry-run');
 const skipPrompt = args.has('--yes') || args.has('-y');
 const keepLogs = args.has('--keep-logs');
 const logsOnly = args.has('--logs-only');
+
+function parseThresholdBytes() {
+  const raw = process.argv.slice(2).find((arg) => arg.startsWith('--if-over-mb='));
+  if (!raw) return 0;
+  const value = Number.parseFloat(raw.split('=')[1]);
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  return value * 1024 * 1024;
+}
+
+const minimumRecoverableBytes = parseThresholdBytes();
 
 const heavyTargets = [
   'node_modules/.cache',
@@ -107,6 +118,11 @@ if (dryRun) {
 
 if (grandTotal === 0) {
   console.log('Nothing to clean.');
+  process.exit(0);
+}
+
+if (minimumRecoverableBytes > 0 && grandTotal < minimumRecoverableBytes) {
+  console.log(`Recoverable total below threshold (${fmt(minimumRecoverableBytes)}); nothing deleted.`);
   process.exit(0);
 }
 

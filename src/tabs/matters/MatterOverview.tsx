@@ -12,7 +12,7 @@ import InlineWorkbench from '../instructions/InlineWorkbench';
 import CCLEditor from './ccl/CCLEditor';
 import { buildCclApiUrl } from './ccl/cclAiService';
 import NextStepChip from './components/NextStepChip';
-import { ADMIN_USERS, isCclUser } from '../../app/admin';
+import { ADMIN_USERS, isCclOperationsAvailable, isCclUser } from '../../app/admin';
 import { buildPortalLaunchModel } from '../../utils/portalLaunch';
 import { deriveWorkbenchStageStatuses } from '../../utils/workbenchStatusDerivation';
 import type {
@@ -704,6 +704,7 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
     label: matter.cclDate ? 'Sent' : 'Pending',
     needsAttention: false,
   });
+  const cclOperationsAvailable = isCclOperationsAvailable();
   const [netDocumentsWorkspaceLoading, setNetDocumentsWorkspaceLoading] = React.useState(false);
   const [netDocumentsWorkspaceError, setNetDocumentsWorkspaceError] = React.useState<string | null>(null);
   const [netDocumentsWorkspace, setNetDocumentsWorkspace] = React.useState<MatterNetDocumentsWorkspaceResult | null>(null);
@@ -748,6 +749,15 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
   }, [autoOpenCcl, onCclOpened, showCCLEditor]);
 
   React.useEffect(() => {
+    if (!cclOperationsAvailable) {
+      setCclServiceSummary({
+        stage: matter.cclDate ? 'sent' : 'pending',
+        label: matter.cclDate ? 'Sent' : 'Pending',
+        needsAttention: false,
+      });
+      return;
+    }
+
     const matterId = matter.matterId;
     if (!matterId) {
       setCclServiceSummary({
@@ -798,9 +808,18 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [matter.cclDate, matter.matterId]);
+  }, [cclOperationsAvailable, matter.cclDate, matter.matterId]);
 
   React.useEffect(() => {
+    if (!cclOperationsAvailable) {
+      setHasCclDraft(false);
+      setCclDraftPreview('');
+      setCclDraftFields({});
+      setShowCclDraftPreview(false);
+      setIsCclDraftLoading(false);
+      return;
+    }
+
     const matterKey = matter.matterId || matter.displayNumber;
     if (!matterKey) {
       setHasCclDraft(false);
@@ -854,7 +873,7 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [matter.matterId, matter.displayNumber, showCCLEditor]);
+  }, [cclOperationsAvailable, matter.matterId, matter.displayNumber, showCCLEditor]);
 
   React.useEffect(() => {
     if (!resolvedClioMatterId) {
@@ -1510,7 +1529,7 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
   };
 
   const isAdmin = !!(userInitials && ADMIN_USERS.includes(userInitials.toUpperCase().trim() as any));
-  const canSeeCcl = isCclUser(userInitials);
+  const canSeeCcl = cclOperationsAvailable && isCclUser(userInitials);
   const showNextSteps = isAdmin && !showCCLEditor;
   const [isPortalLaunchOpen, setIsPortalLaunchOpen] = useState(false);
   const instructionPayments = Array.isArray(derivedWorkbenchItem?.payments)

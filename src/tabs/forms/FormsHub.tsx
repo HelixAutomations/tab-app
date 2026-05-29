@@ -188,16 +188,16 @@ export default function FormsHub({
     return userData[0];
   }, [userData]);
 
-  // Dev-preview gate (dev-preview-and-view-as Phase A): the entries rail is
-  // still in active development. Restrict visibility to LZ/AC only; other
-  // admins keep entry-management capability if/when the rail becomes admin-tier.
-  //
-  // Phase B: routed through `useEffectivePermissions` so the dev-owner "View
-  // as" override (Phase C) can flip these flags for rendering preview without
-  // changing the underlying tier helpers. Passthrough behaviour matches the
-  // previous inline checks exactly when no override is active.
+  // Submission stream: diagnostic surface for "what happened to this form?".
+  // Opened up to operations (LZ, AC, KW, EA) so they can assist users when a
+  // submission failed and the form itself can't be recovered. Admin-only
+  // mutators (status changes, form swap) remain gated separately via
+  // `canManageStreamEntries`. Routed through `useEffectivePermissions` so the
+  // dev-owner "View as" override can flip flags without changing tier helpers.
   const effective = useEffectivePermissions(currentUser);
-  const showDevStreamPanel = effective.isLzOrAc;
+  const formsStreamInitials = (currentUser?.Initials || '').toString().toUpperCase().trim();
+  const isFormsStreamOpsUser = ['LZ', 'AC', 'KW', 'EA'].includes(formsStreamInitials);
+  const showDevStreamPanel = effective.isLzOrAc || isFormsStreamOpsUser;
   const canManageStreamEntries = effective.isAdminUser;
 
   const processes = useMemo(() => {
@@ -1080,11 +1080,11 @@ export default function FormsHub({
                 <span>Form entries</span>
                 <span className="forms-hub__section-count">{visibleStreamItems.length}</span>
                 <span
-                  aria-label="Dev preview — visible to LZ and AC only"
+                  aria-label="Submission stream — visible to operations"
                   className="forms-hub__dev-preview-badge"
-                  title="Dev preview — visible to LZ and AC only"
+                  title="Submission stream: visible to LZ, AC, KW, EA. Click a row to inspect what happened."
                 >
-                  Dev preview
+                  Ops view
                 </span>
               </div>
             </div>
@@ -1098,239 +1098,56 @@ export default function FormsHub({
               const statusMeta = streamStatusMeta[item.status];
               const isEditing = editingStreamItemId === item.id;
               const target = formLookup[item.processTitle];
+              const toggleExpand = () => {
+                if (isEditing) {
+                  setEditingStreamItemId(null);
+                } else {
+                  setEditingStreamItemId(item.id);
+                  setIsAddEntryPickerOpen(false);
+                }
+              };
 
               return (
-                <React.Fragment key={item.id}>
-                  <div
-                    aria-disabled={!target}
-                    className={`forms-hub__stream-item${isEditing ? ' forms-hub__stream-item--editing' : ''}`}
-                    data-submission-id={item.submissionId || undefined}
-                    onClick={() => {
-                      if (target) {
-                        handleSelectForm(target);
-                      }
-                    }}
-                    onKeyDown={(event) => {
-                      if (!target) {
-                        return;
-                      }
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault();
-                        handleSelectForm(target);
-                      }
-                    }}
-                    role={target ? 'button' : undefined}
-                    tabIndex={target ? 0 : -1}
-                  >
+                <div
+                  aria-expanded={isEditing}
+                  className={`forms-hub__stream-item${isEditing ? ' forms-hub__stream-item--editing' : ''}`}
+                  data-submission-id={item.submissionId || undefined}
+                  key={item.id}
+                  onClick={toggleExpand}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      toggleExpand();
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
+                >
+                  <span
+                    aria-hidden="true"
+                    className={`forms-hub__stream-item-dot forms-hub__stream-item-dot--${statusMeta.tone}`}
+                  />
+                  <div className="forms-hub__stream-item-main">
+                    <span className="forms-hub__stream-item-title">{item.processTitle}</span>
+                    <span className="forms-hub__stream-item-meta-line">
+                      {formatTimestamp(item.startedAt)}
+                      <span className="forms-hub__stream-item-meta-sep" aria-hidden="true">·</span>
+                      <span className="forms-hub__stream-item-meta-id">{getEntryDisplayId(item)}</span>
+                    </span>
+                  </div>
+                  <div className="forms-hub__stream-item-status">
+                    <span className={`forms-hub__status-pill forms-hub__status-pill--${statusMeta.tone}`}>
+                      {statusMeta.label}
+                    </span>
                     <span
                       aria-hidden="true"
-                      className={`forms-hub__stream-item-dot forms-hub__stream-item-dot--${statusMeta.tone}`}
-                    />
-                    <div className="forms-hub__stream-item-main">
-                      <span className="forms-hub__stream-item-title">{item.processTitle}</span>
-                      <span className="forms-hub__stream-item-meta-line">
-                        {formatTimestamp(item.startedAt)}
-                        <span className="forms-hub__stream-item-meta-sep" aria-hidden="true">·</span>
-                        <span className="forms-hub__stream-item-meta-id">{getEntryDisplayId(item)}</span>
-                      </span>
-                    </div>
-                    <div className="forms-hub__stream-item-status">
-                      <span className={`forms-hub__status-pill forms-hub__status-pill--${statusMeta.tone}`}>
-                        {statusMeta.label}
-                      </span>
-                      {canManageStreamEntries && (
-                        <button
-                          aria-label={isEditing ? 'Close entry editor' : 'Edit entry'}
-                          className="forms-hub__stream-edit"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            if (isEditing) {
-                              setEditingStreamItemId(null);
-                            } else {
-                              setEditingStreamItemId(item.id);
-                              setIsAddEntryPickerOpen(false);
-                            }
-                          }}
-                          type="button"
-                        >
-                          <Icon iconName={isEditing ? 'ChevronUpSmall' : 'Edit'} />
-                        </button>
-                      )}
-                    </div>
+                      className="forms-hub__stream-edit"
+                      style={{ pointerEvents: 'none' }}
+                    >
+                      <Icon iconName={isEditing ? 'ChevronUpSmall' : 'ChevronDownSmall'} />
+                    </span>
                   </div>
-                  {canManageStreamEntries && isEditing && (
-                    <div className="forms-hub__stream-edit-panel">
-                      <div className="forms-hub__stream-edit-header">
-                        <span className="forms-hub__stream-edit-title">Edit entry</span>
-                        <span className="forms-hub__stream-edit-id">{getEntryDisplayId(item)}</span>
-                      </div>
-                      <div className="forms-hub__stream-edit-statuses">
-                        {LEDGER_VISIBLE_STATUSES.map((status) => (
-                          <button
-                            className={`forms-hub__stream-edit-status${item.status === status ? ' forms-hub__stream-edit-status--selected' : ''}`}
-                            key={`status-${item.id}-${status}`}
-                            onClick={() => handleUpdateEntryStatus(item.id, status)}
-                            type="button"
-                          >
-                            <span className={`forms-hub__status-pill forms-hub__status-pill--${streamStatusMeta[status].tone}`}>
-                              {streamStatusMeta[status].label}
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                      <div className="forms-hub__stream-edit-picker">
-                        {addEntrySuggestions.map((form) => (
-                          <button
-                            className={`forms-hub__stream-add-option${item.processTitle === form.title ? ' forms-hub__stream-add-option--selected' : ''}`}
-                            key={`edit-${item.id}-${form.title}`}
-                            onClick={() => handleUpdateEntryForm(item.id, form)}
-                            onMouseEnter={() => setHighlightedFormTitle(form.title)}
-                            onMouseLeave={() => setHighlightedFormTitle((current) => (current === form.title ? null : current))}
-                            type="button"
-                          >
-                            <span className="forms-hub__stream-add-option-icon" style={{ color: getProcessAccent(form.lane) }}>
-                              <Icon iconName={form.icon || 'Document'} />
-                            </span>
-                            <span className="forms-hub__stream-add-option-copy">
-                              <span className="forms-hub__stream-add-option-title">{form.title}</span>
-                              <span className="forms-hub__stream-add-option-meta">{form.lane}</span>
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                      {/* Phase B (B6): payload + step timeline + retrigger. */}
-                      <section
-                        aria-label="Payload and processing"
-                        className="forms-hub__stream-edit-placeholder"
-                      >
-                        <span className="forms-hub__stream-edit-placeholder-label">Payload &amp; processing</span>
-                        {item.submissionId ? (() => {
-                          const detailEntry = submissionDetails[item.submissionId];
-                          const detail = detailEntry?.detail || null;
-                          const steps = detail?.steps || [];
-                          const formKeyForCopy = item.formKey || detail?.formKey || 'unknown';
-                          const retriggerCount = detail?.retriggerCount ?? item.retriggerCount ?? 0;
-                          return (
-                            <>
-                              <span className="forms-hub__stream-edit-placeholder-hint">
-                                form_key: <code>{formKeyForCopy}</code>
-                                {retriggerCount > 0 ? `  ·  retriggered ${retriggerCount}\u00d7` : ''}
-                              </span>
-                              {detailEntry?.loading && (
-                                <span className="forms-hub__stream-edit-placeholder-hint">Loading payload\u2026</span>
-                              )}
-                              {detailEntry?.error && (
-                                <span className="forms-hub__stream-edit-placeholder-hint" style={{ color: 'var(--helix-cta)' }}>
-                                  {detailEntry.error}
-                                </span>
-                              )}
-                              {detail && (
-                                <>
-                                  <pre
-                                    style={{
-                                      background: 'var(--surface-section, rgba(0,0,0,0.18))',
-                                      border: '1px solid var(--border-base, rgba(75,85,99,0.38))',
-                                      color: 'var(--text-body, #d1d5db)',
-                                      fontSize: 11,
-                                      lineHeight: 1.45,
-                                      margin: '6px 0 8px',
-                                      maxHeight: 180,
-                                      overflow: 'auto',
-                                      padding: '8px 10px',
-                                      whiteSpace: 'pre-wrap',
-                                      wordBreak: 'break-word',
-                                    }}
-                                  >
-{JSON.stringify(detail.payload, null, 2)}
-                                  </pre>
-                                  {steps.length > 0 ? (
-                                    <ol style={{ listStyle: 'none', margin: '0 0 8px', padding: 0 }}>
-                                      {steps.map((step, idx) => {
-                                        const tone = step.status === 'success'
-                                          ? 'success'
-                                          : step.status === 'failed'
-                                            ? 'danger'
-                                            : 'active';
-                                        return (
-                                          <li
-                                            key={`${item.submissionId}-step-${idx}`}
-                                            style={{ alignItems: 'flex-start', display: 'flex', fontSize: 12, gap: 8, padding: '2px 0' }}
-                                          >
-                                            <span
-                                              aria-hidden="true"
-                                              className={`forms-hub__stream-item-dot forms-hub__stream-item-dot--${tone}`}
-                                              style={{ marginTop: 4 }}
-                                            />
-                                            <span style={{ flex: 1, color: 'var(--text-body, #d1d5db)' }}>
-                                              <strong style={{ color: 'var(--text-label, #f3f4f6)' }}>{step.name || 'step'}</strong>
-                                              {step.error ? `  \u2014  ${step.error}` : ''}
-                                              {step.at ? (
-                                                <span style={{ color: 'var(--text-help, #A0A0A0)', marginLeft: 8 }}>
-                                                  {formatTimestamp(step.at)}
-                                                </span>
-                                              ) : null}
-                                            </span>
-                                          </li>
-                                        );
-                                      })}
-                                    </ol>
-                                  ) : (
-                                    <span className="forms-hub__stream-edit-placeholder-hint">No steps recorded yet.</span>
-                                  )}
-                                </>
-                              )}
-                              {detailEntry?.retriggerError && (
-                                <span className="forms-hub__stream-edit-placeholder-hint" style={{ color: 'var(--helix-cta)' }}>
-                                  {detailEntry.retriggerError}
-                                </span>
-                              )}
-                              <button
-                                className="forms-hub__chip forms-hub__detail-action"
-                                disabled={detailEntry?.retriggering || detailEntry?.loading}
-                                onClick={() => handleRetrigger(item.submissionId as string)}
-                                type="button"
-                              >
-                                <span>{detailEntry?.retriggering ? 'Retriggering\u2026' : 'Retrigger'}</span>
-                              </button>
-                            </>
-                          );
-                        })() : (
-                          <>
-                            <span className="forms-hub__stream-edit-placeholder-hint">
-                              Local-only entry \u2014 no server payload to retrigger.
-                            </span>
-                            <button
-                              className="forms-hub__chip forms-hub__detail-action forms-hub__chip--disabled"
-                              disabled
-                              title="Retrigger requires a server-backed submission"
-                              type="button"
-                            >
-                              <span>Retrigger</span>
-                            </button>
-                          </>
-                        )}
-                      </section>
-                      <div className="forms-hub__stream-edit-actions">
-                        {target && (
-                          <button
-                            className="forms-hub__chip forms-hub__detail-action forms-hub__detail-action--primary"
-                            onClick={() => handleSelectForm(target)}
-                            type="button"
-                          >
-                            <span>Open form</span>
-                          </button>
-                        )}
-                        <button
-                          className="forms-hub__chip forms-hub__detail-action"
-                          onClick={() => setEditingStreamItemId(null)}
-                          type="button"
-                        >
-                          <span>Close</span>
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </React.Fragment>
+                </div>
               );
             }) : <div className="forms-hub__empty">No active ledger entries yet.</div>}
             {canManageStreamEntries && (
@@ -1377,6 +1194,255 @@ export default function FormsHub({
           </div>
         </aside>
       )}
+      {showDevStreamPanel && editingStreamItemId && (() => {
+        const item = streamItems.find((entry) => entry.id === editingStreamItemId);
+        if (!item) return null;
+        const statusMeta = streamStatusMeta[item.status];
+        const target = formLookup[item.processTitle];
+        const detailEntry = item.submissionId ? submissionDetails[item.submissionId] : undefined;
+        const detail = detailEntry?.detail || null;
+        const steps = detail?.steps || [];
+        const lastFailedStep = [...steps].reverse().find((s) => s.status === 'failed');
+        const formKeyForCopy = item.formKey || detail?.formKey || 'unknown';
+        const retriggerCount = detail?.retriggerCount ?? item.retriggerCount ?? 0;
+        const isFailure = item.status === 'failed' || !!lastFailedStep;
+        const closeModal = () => setEditingStreamItemId(null);
+        return (
+          <div
+            aria-hidden={false}
+            onClick={closeModal}
+            onKeyDown={(event) => { if (event.key === 'Escape') closeModal(); }}
+            role="presentation"
+            style={{
+              alignItems: 'center',
+              background: 'rgba(0, 3, 25, 0.6)',
+              backdropFilter: 'blur(4px)',
+              display: 'flex',
+              inset: 0,
+              justifyContent: 'center',
+              padding: 24,
+              position: 'fixed',
+              zIndex: 9000,
+            }}
+          >
+            <div
+              aria-labelledby="forms-hub-inspector-title"
+              aria-modal="true"
+              onClick={(event) => event.stopPropagation()}
+              role="dialog"
+              style={{
+                background: 'var(--surface-card, #081c30)',
+                border: '1px solid var(--border-strong, rgba(75, 85, 99, 0.55))',
+                borderRadius: 0,
+                boxShadow: '0 24px 64px rgba(0, 0, 0, 0.55)',
+                color: 'var(--text-body, #d1d5db)',
+                display: 'flex',
+                flexDirection: 'column',
+                maxHeight: 'min(720px, 90vh)',
+                maxWidth: 'min(640px, 92vw)',
+                width: '100%',
+              }}
+            >
+              <header
+                style={{
+                  alignItems: 'center',
+                  borderBottom: '1px solid var(--border-base, rgba(75, 85, 99, 0.38))',
+                  display: 'flex',
+                  gap: 12,
+                  justifyContent: 'space-between',
+                  padding: '14px 18px',
+                }}
+              >
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
+                  <span id="forms-hub-inspector-title" style={{ color: 'var(--text-label, #f3f4f6)', fontSize: 14, fontWeight: 600 }}>
+                    {item.processTitle}
+                  </span>
+                  <span style={{ color: 'var(--text-help, #A0A0A0)', fontSize: 11 }}>
+                    {getEntryDisplayId(item)} · {formatTimestamp(item.startedAt)}
+                  </span>
+                </div>
+                <div style={{ alignItems: 'center', display: 'flex', gap: 10 }}>
+                  <span className={`forms-hub__status-pill forms-hub__status-pill--${statusMeta.tone}`}>{statusMeta.label}</span>
+                  <button
+                    aria-label="Close submission details"
+                    className="forms-hub__chip"
+                    onClick={closeModal}
+                    style={{ minWidth: 32 }}
+                    type="button"
+                  >
+                    <Icon iconName="Cancel" />
+                  </button>
+                </div>
+              </header>
+              <div style={{ flex: 1, overflowY: 'auto', padding: '14px 18px' }}>
+                {isFailure && (
+                  <div
+                    role="status"
+                    style={{
+                      background: 'rgba(214, 85, 65, 0.12)',
+                      border: '1px solid rgba(214, 85, 65, 0.45)',
+                      borderRadius: 0,
+                      color: 'var(--text-body, #d1d5db)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      fontSize: 12,
+                      gap: 4,
+                      lineHeight: 1.45,
+                      margin: '0 0 14px',
+                      padding: '10px 12px',
+                    }}
+                  >
+                    <strong style={{ color: 'var(--helix-cta, #D65541)' }}>
+                      {item.status === 'failed' ? 'Submission failed' : 'Step failure recorded'}
+                    </strong>
+                    {lastFailedStep ? (
+                      <span>
+                        <strong style={{ color: 'var(--text-label, #f3f4f6)' }}>{lastFailedStep.name || 'step'}</strong>
+                        {lastFailedStep.error ? `: ${lastFailedStep.error}` : ''}
+                        {lastFailedStep.at ? (
+                          <span style={{ color: 'var(--text-help, #A0A0A0)', marginLeft: 8 }}>
+                            {formatTimestamp(lastFailedStep.at)}
+                          </span>
+                        ) : null}
+                      </span>
+                    ) : (
+                      <span>No step-level error captured. Check payload below or retrigger to retry the pipeline.</span>
+                    )}
+                  </div>
+                )}
+                {item.submissionId ? (
+                  <>
+                    <div style={{ color: 'var(--text-help, #A0A0A0)', fontSize: 11, marginBottom: 6 }}>
+                      form_key: <code style={{ color: 'var(--text-body, #d1d5db)' }}>{formKeyForCopy}</code>
+                      {retriggerCount > 0 ? `  ·  retriggered ${retriggerCount}\u00d7` : ''}
+                    </div>
+                    {detailEntry?.loading && (
+                      <div style={{ color: 'var(--text-help, #A0A0A0)', fontSize: 11, marginBottom: 6 }}>Loading payload\u2026</div>
+                    )}
+                    {detailEntry?.error && (
+                      <div style={{ color: 'var(--helix-cta)', fontSize: 11, marginBottom: 6 }}>{detailEntry.error}</div>
+                    )}
+                    {detail && (
+                      <>
+                        <div style={{ color: 'var(--text-label, #f3f4f6)', fontSize: 11, fontWeight: 600, letterSpacing: '0.04em', margin: '8px 0 4px', textTransform: 'uppercase' }}>Payload</div>
+                        <pre
+                          style={{
+                            background: 'var(--surface-section, rgba(0,0,0,0.18))',
+                            border: '1px solid var(--border-base, rgba(75,85,99,0.38))',
+                            color: 'var(--text-body, #d1d5db)',
+                            fontSize: 11,
+                            lineHeight: 1.45,
+                            margin: '0 0 14px',
+                            maxHeight: 220,
+                            overflow: 'auto',
+                            padding: '10px 12px',
+                            whiteSpace: 'pre-wrap',
+                            wordBreak: 'break-word',
+                          }}
+                        >
+{JSON.stringify(detail.payload, null, 2)}
+                        </pre>
+                        <div style={{ color: 'var(--text-label, #f3f4f6)', fontSize: 11, fontWeight: 600, letterSpacing: '0.04em', margin: '0 0 6px', textTransform: 'uppercase' }}>Steps</div>
+                        {steps.length > 0 ? (
+                          <ol style={{ listStyle: 'none', margin: '0 0 14px', padding: 0 }}>
+                            {steps.map((step, idx) => {
+                              const tone = step.status === 'success' ? 'success' : step.status === 'failed' ? 'danger' : 'active';
+                              return (
+                                <li
+                                  key={`${item.submissionId}-step-${idx}`}
+                                  style={{ alignItems: 'flex-start', display: 'flex', fontSize: 12, gap: 8, padding: '3px 0' }}
+                                >
+                                  <span
+                                    aria-hidden="true"
+                                    className={`forms-hub__stream-item-dot forms-hub__stream-item-dot--${tone}`}
+                                    style={{ marginTop: 4 }}
+                                  />
+                                  <span style={{ color: 'var(--text-body, #d1d5db)', flex: 1 }}>
+                                    <strong style={{ color: 'var(--text-label, #f3f4f6)' }}>{step.name || 'step'}</strong>
+                                    {step.error ? `: ${step.error}` : ''}
+                                    {step.at ? (
+                                      <span style={{ color: 'var(--text-help, #A0A0A0)', marginLeft: 8 }}>{formatTimestamp(step.at)}</span>
+                                    ) : null}
+                                  </span>
+                                </li>
+                              );
+                            })}
+                          </ol>
+                        ) : (
+                          <div style={{ color: 'var(--text-help, #A0A0A0)', fontSize: 11, marginBottom: 14 }}>No steps recorded yet.</div>
+                        )}
+                      </>
+                    )}
+                    {detailEntry?.retriggerError && (
+                      <div style={{ color: 'var(--helix-cta)', fontSize: 11, marginBottom: 8 }}>{detailEntry.retriggerError}</div>
+                    )}
+                  </>
+                ) : (
+                  <div style={{ color: 'var(--text-help, #A0A0A0)', fontSize: 12, padding: '6px 0' }}>
+                    Local-only entry. No server payload recorded for this row.
+                  </div>
+                )}
+                {canManageStreamEntries && (
+                  <div style={{ borderTop: '1px solid var(--border-base, rgba(75, 85, 99, 0.38))', marginTop: 8, paddingTop: 12 }}>
+                    <div style={{ color: 'var(--text-label, #f3f4f6)', fontSize: 11, fontWeight: 600, letterSpacing: '0.04em', margin: '0 0 6px', textTransform: 'uppercase' }}>Set status</div>
+                    <div className="forms-hub__stream-edit-statuses">
+                      {LEDGER_VISIBLE_STATUSES.map((status) => (
+                        <button
+                          className={`forms-hub__stream-edit-status${item.status === status ? ' forms-hub__stream-edit-status--selected' : ''}`}
+                          key={`status-${item.id}-${status}`}
+                          onClick={() => handleUpdateEntryStatus(item.id, status)}
+                          type="button"
+                        >
+                          <span className={`forms-hub__status-pill forms-hub__status-pill--${streamStatusMeta[status].tone}`}>
+                            {streamStatusMeta[status].label}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <footer
+                style={{
+                  alignItems: 'center',
+                  borderTop: '1px solid var(--border-base, rgba(75, 85, 99, 0.38))',
+                  display: 'flex',
+                  gap: 8,
+                  justifyContent: 'flex-end',
+                  padding: '12px 18px',
+                }}
+              >
+                {item.submissionId && (
+                  <button
+                    className="forms-hub__chip forms-hub__detail-action"
+                    disabled={detailEntry?.retriggering || detailEntry?.loading}
+                    onClick={() => handleRetrigger(item.submissionId as string)}
+                    type="button"
+                  >
+                    <span>{detailEntry?.retriggering ? 'Retriggering\u2026' : 'Retrigger pipeline'}</span>
+                  </button>
+                )}
+                {target && (
+                  <button
+                    className="forms-hub__chip forms-hub__detail-action forms-hub__detail-action--primary"
+                    onClick={() => { handleSelectForm(target); closeModal(); }}
+                    type="button"
+                  >
+                    <span>Open form</span>
+                  </button>
+                )}
+                <button
+                  className="forms-hub__chip forms-hub__detail-action"
+                  onClick={closeModal}
+                  type="button"
+                >
+                  <span>Close</span>
+                </button>
+              </footer>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

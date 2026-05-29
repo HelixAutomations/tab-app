@@ -1,5 +1,7 @@
 # CCL (Client Care Letter) — Architecture Reference
 
+Last verified: 2026-05-23
+
 > "The UX should be review of a finished Word doc — user shouldn't see building blocks."  
 > — Alex Cook, June 2025
 

@@ -191,7 +191,8 @@ router.get('/', async (req, res) => {
   }
 
   try {
-    const initials = req.query.initials;
+    const includeAll = ['true', '1', 'yes'].includes(String(req.query.includeAll || '').toLowerCase());
+    const initials = includeAll ? null : req.query.initials;
     const prospectId = req.query.prospectId && Number(req.query.prospectId);
     const instructionRef = req.query.instructionRef;
     const dealId = req.query.dealId && Number(req.query.dealId);

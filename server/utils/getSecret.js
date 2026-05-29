@@ -57,6 +57,7 @@ function getCredential() {
         if (isProduction) {
             credential = new DefaultAzureCredential({
                 additionallyAllowedTenants: ['*'],
+                excludeEnvironmentCredential: true,
                 excludeWorkloadIdentityCredential: true,
                 excludeAzurePowerShellCredential: true,
             });

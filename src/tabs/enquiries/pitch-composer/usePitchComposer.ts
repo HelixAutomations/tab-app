@@ -143,7 +143,8 @@ export function usePitchComposer(
   const [dealState, setDealState] = useState<DealState>({ status: 'idle' });
   const [sendState, setSendState] = useState<SendState>({ status: 'idle' });
   const [toast, setToast] = useState<ToastMessage>(null);
-  const [mode, setMode] = useState<ComposerMode>(null);
+  // Quick Link mode is hidden for now; default straight to scenario email composer.
+  const [mode, setMode] = useState<ComposerMode>('scenario');
 
   // Current user data (first entry)
   const currentUser = useMemo(() => userData?.[0] ?? null, [userData]);
@@ -218,6 +219,13 @@ export function usePitchComposer(
         areaOfWork: enquiry?.Area_of_Work || 'Commercial',
         prospectId: prospectId ? Number(prospectId) : undefined,
         pitchedBy,
+        firstName: enquiry?.First_Name || '',
+        lastName: enquiry?.Last_Name || '',
+        clientName: [enquiry?.First_Name, enquiry?.Last_Name].filter(Boolean).join(' ') || toEmail || enquiry?.Email || '',
+        contactEmail: toEmail || enquiry?.Email || undefined,
+        emailRecipients: {
+          feeEarnerEmail: userEmail || currentUser?.Email || undefined,
+        },
         emailSubject: subject || undefined,
         emailBody: body || undefined,
         emailBodyHtml: '',
@@ -389,7 +397,7 @@ export function usePitchComposer(
   // ── Reset ────────────────────────────────────────────────────────────────
 
   const reset = useCallback(() => {
-    setMode(null);
+    setMode('scenario');
     setSelectedScenario(null);
     setSubject('');
     setBody('');

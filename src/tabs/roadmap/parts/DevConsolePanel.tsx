@@ -6,6 +6,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import RoadmapWhiteboard from './RoadmapWhiteboard';
 import AsanaProjectMirror from './AsanaProjectMirror';
+import AsanaTaskInspector from './AsanaTaskInspector';
 import RoleAccessMatrix from './RoleAccessMatrix';
 import AccessControlsPanel from './AccessControlsPanel';
 
@@ -233,6 +234,7 @@ const DevConsolePanel: React.FC<DevConsolePanelProps> = ({ initials, isDevOwner,
           </div>
         )}
         <AsanaProjectMirror initials={initials} viewMode={viewMode} />
+        <AsanaTaskInspector initials={initials} viewMode={viewMode} />
         <RoadmapWhiteboard initials={initials} readOnly />
       </div>
     );
@@ -309,6 +311,8 @@ const DevConsolePanel: React.FC<DevConsolePanelProps> = ({ initials, isDevOwner,
       <RoadmapWhiteboard initials={initials} />
 
       <AsanaProjectMirror initials={initials} viewMode={viewMode} />
+
+      <AsanaTaskInspector initials={initials} viewMode={viewMode} />
 
       <div className="activity-dev-grid activity-dev-grid--main">
         <Section title="Next deposits" count={data.upgradeCandidates.length}>

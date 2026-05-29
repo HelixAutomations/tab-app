@@ -1,5 +1,7 @@
 # Architecture & Data Flow
 
+Last verified: 2026-05-23
+
 ## Overview
 This document describes the high-level architecture, data flows, and key integration points in the Helix Hub application, with focus on the Instructions and Matter Management system.
 

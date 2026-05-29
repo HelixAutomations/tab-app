@@ -78,6 +78,64 @@ const nullableText = (value: unknown): string | null => {
   return cleaned || null;
 };
 
+const DOB_MONTHS: Record<string, number> = {
+  jan: 1, january: 1,
+  feb: 2, february: 2,
+  mar: 3, march: 3,
+  apr: 4, april: 4,
+  may: 5,
+  jun: 6, june: 6,
+  jul: 7, july: 7,
+  aug: 8, august: 8,
+  sep: 9, sept: 9, september: 9,
+  oct: 10, october: 10,
+  nov: 11, november: 11,
+  dec: 12, december: 12,
+};
+
+const isoDate = (year: number, month: number, day: number): string => (
+  `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+);
+
+const isRealDate = (year: number, month: number, day: number): boolean => {
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+};
+
+const validateDobParts = (year: number, month: number, day: number): { isValid: boolean; value: string | null; reason: string } => {
+  const currentYear = new Date().getUTCFullYear();
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
+    return { isValid: false, value: null, reason: 'DOB is not a complete date' };
+  }
+  if (year < 1900 || year > currentYear) {
+    return { isValid: false, value: null, reason: 'DOB year is outside the accepted range' };
+  }
+  if (!isRealDate(year, month, day)) {
+    return { isValid: false, value: null, reason: 'DOB is not a real calendar date' };
+  }
+  return { isValid: true, value: isoDate(year, month, day), reason: '' };
+};
+
+const normaliseDateOfBirth = (value: unknown): { hasValue: boolean; isValid: boolean; value: string | null; reason: string } => {
+  const raw = text(value);
+  if (!raw) return { hasValue: false, isValid: true, value: null, reason: '' };
+  const cleaned = raw.replace(/\s*\([^)]*\)\s*$/, '').trim();
+
+  let match = cleaned.match(/^(\d{4})-(\d{2})-(\d{2})(?:T.*)?$/);
+  if (match) {
+    return { hasValue: true, ...validateDobParts(Number(match[1]), Number(match[2]), Number(match[3])) };
+  }
+
+  match = cleaned.match(/^(\d{1,2})[\s/-]([A-Za-z]{3,9}|\d{1,2})[\s/-](\d{4})$/);
+  if (match) {
+    const monthToken = match[2].toLowerCase();
+    const month = /^\d+$/.test(monthToken) ? Number(monthToken) : DOB_MONTHS[monthToken];
+    return { hasValue: true, ...validateDobParts(Number(match[3]), month, Number(match[1])) };
+  }
+
+  return { hasValue: true, isValid: false, value: null, reason: 'DOB format is not recognised' };
+};
+
 const normaliseClientType = (value: unknown): MatterOpeningClientType | '' => {
   const candidate = text(value);
   return ALLOWED_CLIENT_TYPES.includes(candidate as MatterOpeningClientType)
@@ -181,19 +239,23 @@ export const buildMatterOpeningPayload = (args: {
     text(matterDetails.area_of_work),
     text(matterDetails.practice_area),
   );
-  const normalizedClients = dedupeClients(args.clientInformation || []).map((client, index) => ({
-    ...client,
-    poid_id: nullableText(client.poid_id),
-    first_name: nullableText(client.first_name),
-    last_name: nullableText(client.last_name),
-    email: nullableText(client.email),
-    best_number: nullableText(client.best_number),
-    display_name: nullableText(client.display_name) || buildDisplayName(client),
-    type: nullableText(client.type) || (deriveEntityType(client) === 'company' ? 'company' : 'individual'),
-    client_role: client.client_role || undefined,
-    participant_source: client.participant_source || args.entryPoint,
-    is_primary: client.is_primary ?? index === 0,
-  }));
+  const normalizedClients = dedupeClients(args.clientInformation || []).map((client, index) => {
+    const dob = normaliseDateOfBirth(client.date_of_birth);
+    return {
+      ...client,
+      poid_id: nullableText(client.poid_id),
+      first_name: nullableText(client.first_name),
+      last_name: nullableText(client.last_name),
+      email: nullableText(client.email),
+      best_number: nullableText(client.best_number),
+      date_of_birth: dob.isValid ? dob.value : nullableText(client.date_of_birth),
+      display_name: nullableText(client.display_name) || buildDisplayName(client),
+      type: nullableText(client.type) || (deriveEntityType(client) === 'company' ? 'company' : 'individual'),
+      client_role: client.client_role || undefined,
+      participant_source: client.participant_source || args.entryPoint,
+      is_primary: client.is_primary ?? index === 0,
+    };
+  });
   const canonicalParticipants = buildCanonicalParticipants(normalizedType || matterDetails.client_type, normalizedClients);
 
   return {
@@ -282,6 +344,12 @@ export const validateMatterOpeningPayload = (payload: any): MatterOpeningValidat
   if (canonicalParticipants.length === 0) {
     suggestions.push('At least one client must be selected or provided');
   }
+  clientInformation.forEach((client: MatterOpeningClientRecord, index: number) => {
+    const dob = normaliseDateOfBirth(client.date_of_birth);
+    if (dob.hasValue && !dob.isValid) {
+      suggestions.push(`Client ${index + 1}: date of birth is invalid. ${dob.reason}.`);
+    }
+  });
   canonicalParticipants.forEach((participant, index) => {
     if (participant.resolution !== 'resolved' && !participant.poidId) {
       suggestions.push(`Client ${index + 1}: participant is missing an identifier or usable name`);

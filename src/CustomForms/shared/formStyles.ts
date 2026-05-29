@@ -15,7 +15,7 @@ export const formFont = "'Raleway', 'Segoe UI', sans-serif";
 // ============================================================================
 
 export const getFormContainerStyle = (isDarkMode: boolean): React.CSSProperties => ({
-  background: 'var(--surface-section)',
+  background: isDarkMode ? 'var(--helix-website-blue)' : 'var(--helix-grey)',
   color: 'var(--text-primary)',
   padding: '1.5rem',
   paddingTop: '2rem',
@@ -30,6 +30,7 @@ export const getFormScrollContainerStyle = (isDarkMode: boolean): React.CSSPrope
   overflowY: 'auto',
   overflowX: 'hidden',
   paddingBottom: '3rem',
+  scrollbarWidth: 'none',
 });
 
 // ============================================================================
@@ -37,7 +38,7 @@ export const getFormScrollContainerStyle = (isDarkMode: boolean): React.CSSPrope
 // ============================================================================
 
 export const getFormCardStyle = (isDarkMode: boolean, accentColor?: string): React.CSSProperties => ({
-  background: 'var(--surface-card)',
+  background: 'var(--home-card-bg)',
   border: '1px solid var(--home-card-border)',
   borderLeft: accentColor ? `3px solid ${accentColor}` : undefined,
   borderRadius: 0,
@@ -59,7 +60,10 @@ export const getFormHeaderStyle = (isDarkMode: boolean, accentColor?: string): R
 });
 
 export const getFormHeaderTitleStyle = (isDarkMode: boolean): React.CSSProperties => ({
+  display: 'block',
+  fontSize: '14px',
   fontWeight: 600,
+  lineHeight: '20px',
   color: 'var(--text-primary)',
 });
 
@@ -166,12 +170,43 @@ export const getInputStyles = (isDarkMode: boolean) => ({
 });
 
 export const getDropdownStyles = (isDarkMode: boolean) => ({
+  root: {
+    selectors: {
+      '.ms-Dropdown': {
+        borderColor: 'var(--home-tile-border)',
+      },
+      '.ms-Dropdown.is-open': {
+        borderBottomColor: 'transparent !important',
+      },
+      '.ms-Dropdown:focus::after': {
+        borderColor: 'transparent',
+      },
+      '.ms-Dropdown-caretDownWrapper': {
+        transition: 'transform 200ms ease',
+        transformOrigin: 'center',
+      },
+      '&.is-open .ms-Dropdown-caretDownWrapper, .ms-Dropdown.is-open .ms-Dropdown-caretDownWrapper': {
+        transform: 'rotate(180deg)',
+      },
+    },
+  },
   dropdown: {
     borderRadius: 0,
     border: '1px solid var(--home-tile-border)',
-    background: 'var(--surface-card)',
+    background: 'var(--surface-card-hover)',
     height: '44px',
     minHeight: '44px',
+    selectors: {
+      ':hover .ms-Dropdown-title': {
+        background: 'transparent',
+      },
+      '&.is-open': {
+        borderBottomColor: 'transparent !important',
+      },
+      '&.is-open .ms-Dropdown-caretDownWrapper': {
+        transform: 'rotate(180deg)',
+      },
+    },
   },
   title: {
     background: 'transparent',
@@ -181,11 +216,22 @@ export const getDropdownStyles = (isDarkMode: boolean) => ({
     height: '42px',
     borderRadius: 0,
     border: 'none',
+    padding: '0 40px 0 12px',
   },
   caretDownWrapper: {
-    color: 'var(--text-muted)',
+    color: 'var(--text-primary)',
     lineHeight: '42px',
     height: '42px',
+    width: '32px',
+    right: 0,
+    top: 0,
+    borderLeft: '1px solid var(--home-tile-border)',
+    background: 'transparent',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transition: 'transform 200ms ease, background 160ms ease',
+    transformOrigin: 'center',
   },
   label: {
     fontWeight: 600 as const,
@@ -196,18 +242,34 @@ export const getDropdownStyles = (isDarkMode: boolean) => ({
   },
   callout: {
     borderRadius: 0,
-    border: '1px solid var(--home-card-border)',
-    background: 'var(--surface-section)',
+    border: '1px solid var(--home-tile-border)',
+    borderTop: 'none',
+    marginTop: '-1px',
+    background: 'var(--surface-card-hover)',
     boxShadow: 'var(--shadow-overlay)',
+    padding: 0,
+    selectors: {
+      '.ms-Callout-main': {
+        background: 'var(--surface-card-hover)',
+      },
+    },
+  },
+  dropdownItemsWrapper: {
+    padding: 0,
   },
   dropdownItems: {
-    background: 'var(--surface-section)',
+    background: 'var(--surface-card-hover)',
+    padding: 0,
   },
   dropdownItem: {
-    background: 'var(--surface-card)',
+    background: 'transparent',
     color: 'var(--text-primary)',
     fontSize: '14px',
     minHeight: '36px',
+    padding: '0 12px',
+    width: '100%',
+    boxSizing: 'border-box',
+    border: 'none',
   },
   dropdownItemSelected: {
     background: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.1)',

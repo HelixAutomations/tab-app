@@ -109,6 +109,9 @@ const compactCheckMessage = (check: ReadinessCheck): string => {
   if (check.reason === 'snapshot-stale') return 'Refresh to verify';
   if (check.reason === 'minor-drift-aged-snapshot') return 'Refresh to confirm';
   if (check.reason === 'drift-exceeds-absolute' || check.reason === 'drift-exceeds-pct') return 'Drift vs Clio';
+  if (check.reason === 'current-fill-failed') return 'WIP or collected fill failed';
+  if (check.reason === 'current-fill-overdue') return 'WIP or collected fill overdue';
+  if (check.reason === 'no-current-fill') return 'No recent WIP or collected fill';
   if (check.reason === 'hot-failed') return 'Scheduler failed';
   if (check.reason === 'hot-overdue') return 'Scheduler overdue';
   if (check.reason === 'no-hot-run') return 'No recent run';

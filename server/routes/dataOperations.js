@@ -1280,6 +1280,17 @@ async function syncCollectedTime(options = {}) {
     // Proceeding would DELETE existing records then INSERT nothing → data loss.
     const reportEntries = Object.entries(downloadData.report_data);
     const hasActualData = reportEntries.some(([, md]) => md.bill_data && md.matter_payment_data && md.line_items_data);
+    let reportLatestPaymentDate = null;
+    let reportRowCount = 0;
+    for (const [, matterData] of reportEntries) {
+      if (!matterData.bill_data || !matterData.matter_payment_data || !matterData.line_items_data) continue;
+      const paymentDate = toIsoDateString(matterData.matter_payment_data.date);
+      const lineCount = Array.isArray(matterData.line_items_data.line_items) ? matterData.line_items_data.line_items.length : 0;
+      reportRowCount += lineCount;
+      if (paymentDate && (!reportLatestPaymentDate || paymentDate > reportLatestPaymentDate)) {
+        reportLatestPaymentDate = paymentDate;
+      }
+    }
     if (!hasActualData && shouldDelete) {
       const durationMs = Date.now() - startedAt;
       logProgress(operationKey, `Clio report empty for ${startDateSql} → ${endDateSql}. Skipping delete to preserve existing data.`);
@@ -1307,6 +1318,36 @@ async function syncCollectedTime(options = {}) {
     const connStr = process.env.SQL_CONNECTION_STRING;
     if (!connStr) throw new Error('SQL_CONNECTION_STRING not configured');
     const pool = await getPool(connStr);
+
+    if (shouldDelete && shouldInsert && reportRowCount > 0 && reportLatestPaymentDate) {
+      const existingMaxResult = await pool.request()
+        .input('startDate', startDateSql)
+        .input('endDate', endDateSql)
+        .query(`SELECT MAX(CAST(${deleteColumn} AS date)) AS latestPaymentDate FROM collectedTime WHERE ${deleteColumn} >= @startDate AND ${deleteColumn} <= @endDate`);
+      const existingLatestPaymentDate = toIsoDateString(existingMaxResult.recordset?.[0]?.latestPaymentDate);
+      if (existingLatestPaymentDate && reportLatestPaymentDate < existingLatestPaymentDate) {
+        const msg = `Freshness guard: Clio report latest payment date ${reportLatestPaymentDate} is older than existing SQL latest ${existingLatestPaymentDate}. Existing data preserved.`;
+        const durationMs = Date.now() - startedAt;
+        logProgress(operationKey, msg);
+        logOperation({
+          operation: operationKey,
+          status: 'error',
+          message: msg,
+          durationMs,
+          triggeredBy,
+          invokedBy,
+          startDate: startDateSql,
+          endDate: endDateSql,
+          deletedRows: 0,
+          insertedRows: 0,
+        });
+        trackEvent('DataOps.CollectedTime.FreshnessGuard', {
+          operation: operationKey, triggeredBy, startDate: startDateSql, endDate: endDateSql,
+          reportLatestPaymentDate, existingLatestPaymentDate,
+        });
+        throw new Error(msg);
+      }
+    }
 
     // ************ DRY RUN MODE ************
     if (dryRun) {
@@ -3193,7 +3234,7 @@ router.get('/month-audit', async (req, res) => {
                insertedRows, deletedRows, durationMs, triggeredBy, invokedBy, ts
         FROM dataOpsLog
         WHERE operation LIKE @syncLike
-          AND status IN ('completed', 'validated', 'error', 'started')
+          AND status IN ('completed', 'validated', 'error', 'failed', 'timeout', 'skipped', 'no-data', 'started')
           AND ts >= DATEADD(MONTH, -24, GETUTCDATE())
         ORDER BY ts DESC
       `);
@@ -3726,7 +3767,7 @@ const SCHEDULER_TIER_DEFS = {
   },
 };
 
-const TIER_LIFECYCLE_STATUSES = new Set(['queued', 'started', 'running', 'completed', 'error', 'timeout', 'skipped']);
+const TIER_LIFECYCLE_STATUSES = new Set(['queued', 'started', 'running', 'completed', 'validated', 'error', 'failed', 'timeout', 'skipped', 'no-data']);
 const SCHEDULER_TIER_META_BY_OPERATION = Object.entries(SCHEDULER_TIER_DEFS).reduce((acc, [entity, tiers]) => {
   Object.entries(tiers).forEach(([tier, config]) => {
     acc[config.operation] = { entity, tier, schedule: config.schedule };

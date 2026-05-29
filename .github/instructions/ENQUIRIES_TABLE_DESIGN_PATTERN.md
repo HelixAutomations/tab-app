@@ -1,5 +1,7 @@
 # Enquiries Table Design Pattern
 
+Last verified: 2026-05-23
+
 ## Overview
 The enquiries table is a sophisticated data grid implementation that serves as the primary interface for managing enquiry data. This pattern should be replicated for other tabular data components throughout the system.
 

@@ -1,31 +1,5 @@
-// invisible change
-//
-// AttendanceNoteBox — Cut 2 of the Call Centre rework.
-//
-// Clio-mirror modal that replaces the inline "generated note" preview when
-// the user clicks "Add to file" on an external call in the Call Centre
-// surface. Presentational-only: the host (CallsAndNotes) passes in the call,
-// the generated note, the matter-chain prefill, and handles
-// the actual Save fork in `onSave`.
-//
-// Fields (mirroring Clio's Create Time Entry box):
-//   • Matter (live lookup via shared MatterLookup)
-//   • Document type ("Attendance Note" — locked for this surface)
-//   • Date (read-only — from the call)
-//   • Duration (read-only — from the call)
-//   • Chargeable time (editable, 6-min units — Clio's native cadence)
-//   • Summary / narrative (editable textarea — defaults to first 500 chars
-//     of the generated note)
-//   • Action points (checklist derived from the generated note)
-//   • Toggles: upload to NetDocuments (on for matter) and record Clio time entry
-//     (opt-in; the endpoint ships in Cut 3 — when off, the Save leg no-ops)
-//
-// Save path: `onSave(payload)` fires once and returns a per-leg status map
-// which the box renders beneath the Save button. The host owns the network
-// calls (existing save-note, existing upload-note-nd, new clio-time-entry
-// in Cut 3, /api/todo/reconcile at the end).
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FiFileText, FiUploadCloud, FiClock, FiX, FiCheck, FiAlertCircle, FiCalendar, FiUser, FiCloud, FiEdit3 } from 'react-icons/fi';
+import { FiFileText, FiUploadCloud, FiClock, FiX, FiCheck, FiAlertCircle, FiCalendar, FiUser, FiCloud, FiEdit3, FiPlus } from 'react-icons/fi';
 import { colours, withAlpha } from '../../app/styles/colours';
 import MatterLookup from '../matter-lookup/MatterLookup';
 import type { MatterLookupOption } from '../matter-lookup/MatterLookup';
@@ -138,6 +112,12 @@ export interface AttendanceNoteBoxProps {
   onGenerateNote?: () => void;
   /** True while the host is generating an attendance note. Locks the form and animates the note icon. */
   generating?: boolean;
+  /** Whether the AI-Assist toggle is visible (LZ in prod, anyone on localhost). */
+  aiAssistAvailable?: boolean;
+  /** Current AI-Assist state. When false, the narrative is a manual intake. */
+  aiAssistEnabled?: boolean;
+  /** Host handler when the user flips the AI-Assist pill. */
+  onAiAssistChange?: (next: boolean) => void;
   /** When true, render the note for review only and block filing/edit controls. */
   readOnly?: boolean;
   /** Optional explanation shown when the form is read-only. */
@@ -239,6 +219,9 @@ export default function AttendanceNoteBox({
   hourlyRate = null,
   onGenerateNote,
   generating = false,
+  aiAssistAvailable = false,
+  aiAssistEnabled = false,
+  onAiAssistChange,
   readOnly = false,
   readOnlyMessage = 'Only the call owner or someone on this call can file this note.',
   attribution = null,
@@ -279,6 +262,14 @@ export default function AttendanceNoteBox({
   const [matterPromptNudge, setMatterPromptNudge] = useState<boolean>(false);
   const [clioPromptNudge, setClioPromptNudge] = useState<boolean>(false);
   const [manualNarrative, setManualNarrative] = useState<boolean>(false);
+  const [narrativePreview, setNarrativePreview] = useState<boolean>(false);
+  const [narrativeSettled, setNarrativeSettled] = useState<boolean>(false);
+  const narrativeSettleTimerRef = useRef<number | null>(null);
+  useEffect(() => () => {
+    if (narrativeSettleTimerRef.current !== null) {
+      window.clearTimeout(narrativeSettleTimerRef.current);
+    }
+  }, []);
   const narrativeTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [dateValue, setDateValue] = useState<string>(() => normaliseDateForClio(callDate || new Date().toISOString()));
   const controlsDisabled = saving || readOnly;
@@ -700,6 +691,74 @@ export default function AttendanceNoteBox({
           text-decoration: underline;
         }
         .atb-root .atb-empty-manual:disabled { cursor: not-allowed; opacity: 0.6; }
+        .atb-root .atb-attendee-trigger {
+          flex-shrink: 0;
+          justify-content: center;
+          min-width: 58px;
+          min-height: 30px;
+          padding: 0 10px;
+          border: 1px solid ${withAlpha(colours.highlight, isDarkMode ? 0.34 : 0.24)};
+          background: linear-gradient(135deg, ${withAlpha(colours.highlight, isDarkMode ? 0.12 : 0.06)} 0%, ${withAlpha(colours.helixBlue, isDarkMode ? 0.16 : 0.06)} 100%);
+          color: ${labelText};
+          cursor: pointer;
+          border-radius: 0;
+          font-size: 10px;
+          font-family: var(--font-primary);
+          font-weight: 700;
+          letter-spacing: 0.05em;
+          text-transform: uppercase;
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          transition: border-color 160ms ease, box-shadow 200ms ease, transform 120ms ease, background 180ms ease, color 160ms ease;
+        }
+        .atb-root .atb-attendee-trigger:hover:not(:disabled),
+        .atb-root .atb-attendee-trigger:focus-visible:not(:disabled) {
+          border-color: ${withAlpha(colours.highlight, isDarkMode ? 0.5 : 0.34)};
+          box-shadow: 0 0 0 2px ${withAlpha(colours.highlight, isDarkMode ? 0.1 : 0.08)};
+          outline: none;
+          transform: translateY(-1px);
+        }
+        .atb-root .atb-attendee-trigger:disabled { cursor: not-allowed; opacity: 0.6; }
+        .atb-root .atb-attendee-trigger.is-open {
+          border-color: ${withAlpha(colours.highlight, isDarkMode ? 0.55 : 0.36)};
+          background: linear-gradient(135deg, ${withAlpha(colours.highlight, isDarkMode ? 0.2 : 0.1)} 0%, ${withAlpha(colours.helixBlue, isDarkMode ? 0.24 : 0.08)} 100%);
+          color: ${isDarkMode ? '#ffffff' : colours.darkBlue};
+          box-shadow: 0 2px 8px ${withAlpha(colours.highlight, isDarkMode ? 0.12 : 0.08)};
+        }
+        .atb-root .atb-attendee-add {
+          min-width: 58px;
+          min-height: 32px;
+          padding: 0 10px;
+          border: 1px solid ${inputBorder};
+          background: ${inputBg};
+          color: ${muted};
+          cursor: not-allowed;
+          border-radius: 0;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 5px;
+          font-family: var(--font-primary);
+          font-size: 10px;
+          font-weight: 700;
+          letter-spacing: 0.05em;
+          text-transform: uppercase;
+          transition: border-color 160ms ease, box-shadow 180ms ease, background 180ms ease, color 160ms ease, transform 120ms ease;
+        }
+        .atb-root .atb-attendee-add.is-ready {
+          border-color: ${withAlpha(colours.highlight, isDarkMode ? 0.55 : 0.36)};
+          background: linear-gradient(135deg, ${withAlpha(colours.highlight, isDarkMode ? 0.2 : 0.1)} 0%, ${withAlpha(colours.helixBlue, isDarkMode ? 0.24 : 0.08)} 100%);
+          color: ${isDarkMode ? '#ffffff' : colours.darkBlue};
+          cursor: pointer;
+          box-shadow: 0 2px 8px ${withAlpha(colours.highlight, isDarkMode ? 0.12 : 0.08)};
+        }
+        .atb-root .atb-attendee-add.is-ready:hover,
+        .atb-root .atb-attendee-add.is-ready:focus-visible {
+          box-shadow: 0 0 0 2px ${withAlpha(colours.highlight, isDarkMode ? 0.1 : 0.08)}, 0 3px 10px ${withAlpha(colours.highlight, isDarkMode ? 0.14 : 0.1)};
+          outline: none;
+          transform: translateY(-1px);
+        }
         .atb-root .atb-date-cell {
           height: 38px;
           display: flex;
@@ -729,9 +788,9 @@ export default function AttendanceNoteBox({
         }
         .atb-root .atb-save.is-ready {
           background: linear-gradient(135deg, ${colours.highlight} 0%, ${withAlpha(colours.highlight, 0.85)} 50%, ${accent} 120%) !important;
-          box-shadow: 0 4px 14px ${withAlpha(colours.highlight, 0.35)}, inset 0 1px 0 rgba(255,255,255,0.18);
+          box-shadow: 0 3px 10px ${withAlpha(colours.highlight, 0.18)}, inset 0 1px 0 rgba(255,255,255,0.14);
         }
-        .atb-root .atb-save.is-ready:hover { transform: translateY(-1px); box-shadow: 0 6px 20px ${withAlpha(colours.highlight, 0.45)}, inset 0 1px 0 rgba(255,255,255,0.22); filter: brightness(1.04); }
+        .atb-root .atb-save.is-ready:hover { transform: translateY(-1px); box-shadow: 0 4px 12px ${withAlpha(colours.highlight, 0.22)}, inset 0 1px 0 rgba(255,255,255,0.18); filter: brightness(1.03); }
         .atb-root .atb-save.is-ready:active { transform: translateY(0); }
         .atb-root .atb-save.is-ready::after {
           content: '';
@@ -753,6 +812,48 @@ export default function AttendanceNoteBox({
         .atb-root .atb-check-box.is-on { border-color: ${colours.green}; background: ${withAlpha(colours.green, 0.18)}; box-shadow: 0 0 0 3px ${withAlpha(colours.green, 0.12)}; }
         .atb-root .atb-check-box svg { animation: atbCheckPop 220ms cubic-bezier(0.22, 1, 0.36, 1) both; }
         .atb-root .atb-tab { transition: background 140ms ease, color 140ms ease, box-shadow 200ms ease; position: relative; }
+        /* Narrative textarea: italic placeholder with subtle opacity so the cue feels like
+           a whispered instruction. Native placeholder disappears on focus. */
+        .atb-root .atb-textarea-narrative::placeholder { font-style: italic; opacity: 0.62; }
+        .atb-root .atb-textarea-narrative::-webkit-input-placeholder { font-style: italic; opacity: 0.62; }
+        /* Settle-on-blur: when the user clicks out of the narrative, briefly flash a
+           soft green inset to signal "captured" before fading back to rest. */
+        @keyframes atbSettle {
+          0% { box-shadow: 0 0 0 2px ${withAlpha(colours.green, 0.32)} inset, 0 0 0 4px ${withAlpha(colours.green, 0.18)}; border-color: ${withAlpha(colours.green, 0.75)}; }
+          55% { box-shadow: 0 0 0 1px ${withAlpha(colours.green, 0.18)} inset, 0 0 0 0 ${withAlpha(colours.green, 0)}; }
+          100% { box-shadow: none; }
+        }
+        .atb-root .atb-textarea-narrative.is-settled { animation: atbSettle 560ms cubic-bezier(0.22, 1, 0.36, 1); }
+        /* Preview frame: gradient that actually flows across the border instead of
+           a static box outline. The wrapper is the gradient surface; the inner panel
+           sits 1px inside so the gradient reads as a moving rim. */
+        @keyframes atbPreviewFlow {
+          0% { background-position: 0% 50%; }
+          100% { background-position: 100% 50%; }
+        }
+        .atb-root .atb-preview-frame {
+          position: relative;
+          padding: 1px;
+          background: linear-gradient(120deg,
+            ${withAlpha(colours.green, 0.55)} 0%,
+            ${withAlpha(colours.highlight, 0.55)} 38%,
+            ${withAlpha(colours.green, 0.55)} 72%,
+            ${withAlpha(colours.highlight, 0.55)} 100%);
+          background-size: 260% 260%;
+          background-position: 0% 50%;
+          animation: atbPreviewFlow 6200ms cubic-bezier(0.22, 1, 0.36, 1) infinite alternate;
+          box-shadow: 0 0 0 1px ${withAlpha(colours.green, 0.08)}, 0 4px 18px ${withAlpha(colours.highlight, 0.10)};
+        }
+        .atb-root .atb-preview-inner {
+          background: ${mutedInputBg};
+          padding: 10px 12px;
+          min-height: 90px;
+          font-size: 12px;
+          line-height: 1.5;
+          font-family: 'Raleway', sans-serif;
+          white-space: pre-wrap;
+          word-break: break-word;
+        }
       `}</style>
       <div style={{ background: isEmbedded ? 'transparent' : panelBg, border: isEmbedded ? 'none' : `1px solid ${panelBorder}`, display: 'flex', flexDirection: 'column', minHeight: 0, maxHeight: isEmbedded ? '100%' : '92vh', overflow: 'hidden' }}>
         {!isEmbedded && (
@@ -947,7 +1048,7 @@ export default function AttendanceNoteBox({
               <div>
                 <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: labelText, marginBottom: 6 }}>Document type</div>
                 <div className="atb-date-cell" style={{ padding: '0 12px', background: mutedInputBg, border: `1px solid ${inputBorder}`, fontSize: 12, color: bodyText }}>
-                  Attendance Note – Telephone Call
+                  Attendance Note: Telephone Call
                 </div>
               </div>
               <div>
@@ -1048,7 +1149,7 @@ export default function AttendanceNoteBox({
                     </div>
                   ) : (
                     <div style={{ padding: '9px 12px', background: mutedInputBg, border: `1px solid ${inputBorder}`, fontSize: 11, color: muted, fontStyle: 'italic' }}>
-                      Non-chargeable — no Clio time entry will be recorded.
+                      Non-chargeable: no Clio time entry will be recorded.
                     </div>
                   )}
                 </div>
@@ -1084,8 +1185,9 @@ export default function AttendanceNoteBox({
                       disabled={saving}
                       aria-expanded={attendeeEditorOpen}
                       aria-label={attendeeEditorOpen ? 'Hide attendee editor' : 'Add attendee'}
-                      style={{ flexShrink: 0, minHeight: 22, padding: '2px 7px', background: 'transparent', border: `1px solid ${withAlpha(inputBorder, 0.75)}`, color: attendeeEditorOpen ? accent : muted, cursor: saving ? 'not-allowed' : 'pointer', borderRadius: 0, fontSize: 10, fontFamily: 'Raleway, sans-serif', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase' }}
+                      className={`atb-attendee-trigger${attendeeEditorOpen ? ' is-open' : ''}`}
                     >
+                      {attendeeEditorOpen ? <FiCheck size={11} aria-hidden /> : <FiPlus size={11} aria-hidden />}
                       {attendeeEditorOpen ? 'Done' : attendees.length > 0 ? 'Edit' : 'Add'}
                     </button>
                   )}
@@ -1126,9 +1228,10 @@ export default function AttendanceNoteBox({
                         onClick={addInternalAttendee}
                         disabled={saving || !internalAttendeeKey}
                         aria-label="Add internal attendee"
-                        style={{ padding: '0 9px', minWidth: 36, background: inputBg, border: `1px solid ${inputBorder}`, color: internalAttendeeKey ? accent : muted, cursor: saving || !internalAttendeeKey ? 'not-allowed' : 'pointer', borderRadius: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                        className={`atb-attendee-add${!saving && internalAttendeeKey ? ' is-ready' : ''}`}
                       >
-                        <FiCheck size={12} aria-hidden />
+                        <FiPlus size={12} aria-hidden />
+                        <span>Add</span>
                       </button>
                     </div>
 
@@ -1154,9 +1257,10 @@ export default function AttendanceNoteBox({
                         onClick={addExternalAttendee}
                         disabled={saving || !externalAttendeeName.trim()}
                         aria-label="Add external attendee"
-                        style={{ padding: '0 9px', minWidth: 36, background: inputBg, border: `1px solid ${inputBorder}`, color: externalAttendeeName.trim() ? accent : muted, cursor: saving || !externalAttendeeName.trim() ? 'not-allowed' : 'pointer', borderRadius: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                        className={`atb-attendee-add${!saving && externalAttendeeName.trim() ? ' is-ready' : ''}`}
                       >
-                        <FiCheck size={12} aria-hidden />
+                        <FiPlus size={12} aria-hidden />
+                        <span>Add</span>
                       </button>
                     </div>
 
@@ -1210,17 +1314,59 @@ export default function AttendanceNoteBox({
                   <FiFileText size={12} aria-hidden style={{ color: generating ? accent : muted }} />
                   Telephone Note
                 </div>
-                {(() => {
-                  const ratio = narrative.length / NARRATIVE_LIMIT;
-                  const counterColour = ratio >= 0.95 ? colours.cta : ratio >= 0.8 ? colours.orange : muted;
-                  return (
-                    <div style={{ fontSize: 10, color: counterColour, fontVariantNumeric: 'tabular-nums', fontWeight: ratio >= 0.8 ? 700 : 500, transition: 'color 160ms ease' }}>
-                      {narrative.length}/{NARRATIVE_LIMIT}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  {aiAssistAvailable && !readOnly && (
+                    <div
+                      style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                      title={aiAssistEnabled
+                        ? 'AI-Assist on. Generates a draft from the call transcript.'
+                        : 'AI-Assist off. You type the note. Transcript is not sent to the AI.'}
+                    >
+                      <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: aiAssistEnabled ? accent : muted, transition: 'color 160ms ease' }}>
+                        AI-Assist
+                      </span>
+                      {renderPillToggle(
+                        aiAssistEnabled,
+                        (next) => { if (onAiAssistChange) onAiAssistChange(next); },
+                        'Toggle AI-Assist (generates note from transcript)'
+                      )}
                     </div>
-                  );
-                })()}
+                  )}
+                  {narrative.trim().length > 0 && !generating && (
+                    <button
+                      type="button"
+                      onClick={() => setNarrativePreview(p => !p)}
+                      aria-pressed={narrativePreview}
+                      aria-label={narrativePreview ? 'Switch back to editing' : 'Preview the note as it will be saved'}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        padding: 0,
+                        fontSize: 10,
+                        letterSpacing: '0.06em',
+                        textTransform: 'uppercase',
+                        color: narrativePreview ? accent : muted,
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        fontFamily: 'Raleway, sans-serif',
+                        transition: 'color 160ms ease',
+                      }}
+                    >
+                      {narrativePreview ? 'Edit' : 'Preview'}
+                    </button>
+                  )}
+                  {(() => {
+                    const ratio = narrative.length / NARRATIVE_LIMIT;
+                    const counterColour = ratio >= 0.95 ? colours.cta : ratio >= 0.8 ? colours.orange : muted;
+                    return (
+                      <div style={{ fontSize: 10, color: counterColour, fontVariantNumeric: 'tabular-nums', fontWeight: ratio >= 0.8 ? 700 : 500, transition: 'color 160ms ease' }}>
+                        {narrative.length}/{NARRATIVE_LIMIT}
+                      </div>
+                    );
+                  })()}
+                </div>
               </div>
-              {generating || (!narrative && !manualNarrative && onGenerateNote) ? (
+              {generating || (aiAssistEnabled && !narrative && !manualNarrative && onGenerateNote) ? (
                 <button
                   type="button"
                   onClick={() => { if (!readOnly && !generating && onGenerateNote) onGenerateNote(); }}
@@ -1259,19 +1405,49 @@ export default function AttendanceNoteBox({
                     )}
                   </span>
                 </button>
+              ) : narrativePreview ? (
+                <div className="atb-preview-frame" role="region" aria-label="Telephone note preview">
+                  <div
+                    className="atb-preview-inner"
+                    style={{ color: narrative.trim() ? bodyText : muted }}
+                  >
+                    {narrative.trim() || 'Nothing to preview yet.'}
+                  </div>
+                </div>
               ) : (
                 <textarea
                   ref={narrativeTextareaRef}
                   value={narrative}
                   onChange={(e) => setNarrative(e.target.value.slice(0, NARRATIVE_LIMIT))}
+                  onBlur={() => {
+                    if (!narrative.trim()) return;
+                    setNarrativeSettled(true);
+                    if (narrativeSettleTimerRef.current !== null) {
+                      window.clearTimeout(narrativeSettleTimerRef.current);
+                    }
+                    narrativeSettleTimerRef.current = window.setTimeout(() => {
+                      setNarrativeSettled(false);
+                      narrativeSettleTimerRef.current = null;
+                    }, 600);
+                  }}
+                  onFocus={() => {
+                    if (narrativeSettleTimerRef.current !== null) {
+                      window.clearTimeout(narrativeSettleTimerRef.current);
+                      narrativeSettleTimerRef.current = null;
+                    }
+                    setNarrativeSettled(false);
+                  }}
                   rows={5}
                   disabled={controlsDisabled || generating}
-                  className="atb-textarea"
+                  className={`atb-textarea atb-textarea-narrative${narrativeSettled ? ' is-settled' : ''}`}
+                  placeholder={aiAssistEnabled
+                    ? 'Edit the generated draft before filing...'
+                    : 'Capture what was discussed, agreed, and any next steps...'}
                   style={{
                     width: '100%',
                     padding: '10px 12px',
                     background: inputBg,
-                    border: `1px solid ${inputBorder}`,
+                    border: `1px dashed ${inputBorder}`,
                     color: text,
                     fontSize: 12,
                     lineHeight: 1.45,
@@ -1423,7 +1599,7 @@ export default function AttendanceNoteBox({
                           style={{ color: iconColour, marginTop: 2, flexShrink: 0, transition: 'color 200ms ease' }}
                         />
                         <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-                          <span style={{ fontSize: 12, color: bodyText, fontWeight: 600 }}>Record Clio time entry</span>
+                          <span style={{ fontSize: 12, color: bodyText, fontWeight: 600 }}>Clio activity (time entry)</span>
                           <span className="atb-dest-caption" style={{ fontSize: 10, color: muted }}>
                             <span
                               key={captionKey}
@@ -1439,6 +1615,20 @@ export default function AttendanceNoteBox({
                     </div>
                   );
                 })()}
+                {/* Always-on confirmation: Clio communication entry is recorded
+                    on every matter file so the call appears on the matter's
+                    Communication tab. Surfacing this distinction reassures the
+                    user that the time entry (Activity) and the call log
+                    (Communication) are two separate Clio objects. */}
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, opacity: 0.85 }}>
+                  <FiFileText size={13} style={{ color: muted, marginTop: 2, flexShrink: 0 }} />
+                  <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                    <span style={{ fontSize: 12, color: bodyText, fontWeight: 600 }}>Clio communication entry</span>
+                    <span className="atb-dest-caption" style={{ fontSize: 10, color: muted }}>
+                      Logged on the matter automatically. Separate from the time entry.
+                    </span>
+                  </div>
+                </div>
               </div>
             ) : (
               <div className="atb-section" style={{ display: 'flex', flexDirection: 'column', gap: 8, borderTop: `1px solid ${panelBorder}`, paddingTop: 10, animationDelay: '220ms' }}>
@@ -1481,7 +1671,7 @@ export default function AttendanceNoteBox({
               type="button"
               onClick={onClose}
               disabled={saving}
-              style={{ background: 'transparent', border: `1px solid ${inputBorder}`, color: labelText, padding: '8px 14px', fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', cursor: saving ? 'not-allowed' : 'pointer', fontFamily: 'Raleway, sans-serif', borderRadius: 0 }}
+              style={{ background: 'transparent', border: `1px solid ${inputBorder}`, color: labelText, padding: '8px 14px', minHeight: 34, fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', cursor: saving ? 'not-allowed' : 'pointer', fontFamily: 'var(--font-primary)', borderRadius: 0 }}
             >
               {isEmbedded ? 'Clear' : 'Cancel'}
             </button>
@@ -1507,11 +1697,14 @@ export default function AttendanceNoteBox({
                 letterSpacing: '0.06em',
                 textTransform: 'uppercase',
                 cursor: canSave ? 'pointer' : 'not-allowed',
-                fontFamily: 'Raleway, sans-serif',
+                fontFamily: 'var(--font-primary)',
                 borderRadius: 0,
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: 6,
+                minHeight: 34,
+                minWidth: 108,
+                justifyContent: 'center',
               }}
             >
               {saving ? (

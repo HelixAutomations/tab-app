@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { colours } from '../../../app/styles/colours';
+import { isCclOperationsAvailable } from '../../../app/admin';
 
 /**
  * MatterOpenedHandoff
@@ -110,6 +111,7 @@ const MatterOpenedHandoff: React.FC<Props> = ({
     onGoToMatter,
     onDismiss,
 }) => {
+    const cclOperationsAvailable = isCclOperationsAvailable();
     const [entry, setEntry] = useState<BatchStatusEntry | null>(null);
     const [fetchedOnce, setFetchedOnce] = useState(false);
     const [retrying, setRetrying] = useState(false);
@@ -125,6 +127,7 @@ const MatterOpenedHandoff: React.FC<Props> = ({
     }, [initialAutopilotStarted, initialAutopilotError]);
 
     const fetchStatus = useCallback(async (matterId: string) => {
+        if (!cclOperationsAvailable) return null;
         try {
             const res = await fetch('/api/ccl/batch-status', {
                 method: 'POST',
@@ -147,11 +150,11 @@ const MatterOpenedHandoff: React.FC<Props> = ({
         } catch {
             return null;
         }
-    }, []);
+    }, [cclOperationsAvailable]);
 
     // Poll loop — only runs when matter opened successfully
     useEffect(() => {
-        if (!matterOpenSucceeded || !openedMatterId || !autopilotStarted) return;
+        if (!cclOperationsAvailable || !matterOpenSucceeded || !openedMatterId || !autopilotStarted) return;
         let cancelled = false;
         let timer: ReturnType<typeof setTimeout> | null = null;
         startedAtRef.current = Date.now();
@@ -179,9 +182,10 @@ const MatterOpenedHandoff: React.FC<Props> = ({
             cancelled = true;
             if (timer) clearTimeout(timer);
         };
-    }, [matterOpenSucceeded, openedMatterId, fetchStatus, autopilotStarted]);
+    }, [cclOperationsAvailable, matterOpenSucceeded, openedMatterId, fetchStatus, autopilotStarted]);
 
     const handleRetryAutopilot = useCallback(async () => {
+        if (!cclOperationsAvailable) return;
         if (!openedMatterId) return;
         setRetrying(true);
         setRetryError(null);
@@ -214,12 +218,13 @@ const MatterOpenedHandoff: React.FC<Props> = ({
         } finally {
             setRetrying(false);
         }
-    }, [openedMatterId, feeEarnerEmail, fetchStatus]);
+    }, [cclOperationsAvailable, openedMatterId, feeEarnerEmail, fetchStatus]);
 
     const stage = canonicalStage(entry);
     const needsAttention = !!entry?.needsAttention || (entry?.unresolvedCount ?? 0) > 0 || String(entry?.confidence || '').toLowerCase() === 'fallback';
 
     const handleOpenReviewRail = useCallback(() => {
+        if (!cclOperationsAvailable) return;
         if (!openedMatterId) return;
         // When the draft is already settled needing attention, skip the
         // "Begin review" intro card and land directly on the field-fix view.
@@ -232,7 +237,7 @@ const MatterOpenedHandoff: React.FC<Props> = ({
                 detail: { matterId: openedMatterId, openInspector: true, autoRunAi: false, skipIntro },
             }));
         }, 400);
-    }, [openedMatterId, needsAttention, stage]);
+    }, [cclOperationsAvailable, openedMatterId, needsAttention, stage]);
 
     const tone: HandoffTone = useMemo(() => {
         if (!matterOpenSucceeded) return 'blocked';
@@ -248,7 +253,7 @@ const MatterOpenedHandoff: React.FC<Props> = ({
         return 'working';
     }, [matterOpenSucceeded, fetchedOnce, timedOut, entry, needsAttention, stage, autopilotStarted]);
 
-    if (!matterOpenSucceeded) return null;
+    if (!cclOperationsAvailable || !matterOpenSucceeded) return null;
 
     const stepDefs: { key: CclStage; label: string }[] = [
         { key: 'compiled', label: 'Compile context' },

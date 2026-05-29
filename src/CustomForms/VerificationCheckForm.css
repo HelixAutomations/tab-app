@@ -1,0 +1,28 @@
+.verification-check-form .ms-TextField-fieldGroup,
+.verification-check-form .ms-TextField-field,
+.verification-check-form .ms-Dropdown,
+.verification-check-form .ms-Dropdown-title {
+  background-color: var(--surface-card) !important;
+}
+
+.verification-check-form .ms-TextField-fieldGroup,
+.verification-check-form .ms-Dropdown {
+  border-color: var(--home-tile-border) !important;
+}
+
+.verification-check-form .ms-TextField-fieldGroup:hover,
+.verification-check-form .ms-TextField-fieldGroup:focus-within,
+.verification-check-form .ms-Dropdown:hover,
+.verification-check-form .ms-Dropdown.is-open {
+  border-color: var(--home-tile-border-hover) !important;
+}
+
+.verification-check-form .ms-TextField-field,
+.verification-check-form .ms-Dropdown-title {
+  color: var(--text-primary) !important;
+}
+
+.verification-check-form .ms-TextField-field::placeholder,
+.verification-check-form .ms-Dropdown-titleIsPlaceHolder {
+  color: var(--text-muted) !important;
+}

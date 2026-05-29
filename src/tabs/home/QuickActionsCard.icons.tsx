@@ -16,6 +16,8 @@ import {
 import {
   AiOutlinePlus,
   AiFillPlusSquare,
+  AiOutlineUserAdd,
+  AiFillContacts,
 } from 'react-icons/ai';
 import {
   MdOutlineEventSeat,
@@ -63,6 +65,7 @@ const iconMap: Record<string, { outline: IconComponent; filled: IconComponent }>
   ConstructionCone: { outline: MdOutlineConstruction, filled: MdConstruction },
   Presentation: { outline: MdOutlineSlideshow, filled: MdSlideshow },
   Attendance: { outline: MdOutlineLocationOn, filled: MdLocationOn },
+  AddContact: { outline: AiOutlineUserAdd, filled: AiFillContacts },
 };
 
 export function getQuickActionIcons(iconName: string): {

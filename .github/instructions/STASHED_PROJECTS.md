@@ -1,5 +1,7 @@
 # Stashed Projects — protocol
 
+Last verified: 2026-05-23
+
 The "stash" routine lets the user park a fully-scoped piece of work as a self-contained brief that any future agent (or the user on a different day) can pick up cold and execute without prior context. It exists because the user is often mid-flow on something else when a new architectural piece surfaces — the routine captures the work without forcing a context switch.
 
 ## Trigger phrases (CRITICAL — recognise any of these)
@@ -38,7 +40,25 @@ If the request is ambiguous (e.g. just "save this"), confirm with one short ques
 - `refresh submodules`
 - `check submodule status` (maps to choice 4 — check only, no sync)
 
-**Behaviour:** run the existing 0–4 sync menu (see Session Start in `copilot-instructions.md`). **Do not** run this menu unprompted on session start — only when a trigger phrase fires.
+**Behaviour:** ask the user to pick one option, then run exactly one command. Do not run this menu unprompted on session start — only when a trigger phrase fires.
+
+```
+Pick one:
+0) No sync
+1) Sync all
+2) Sync instruct-pitch only
+3) Sync enquiry-processing-v2 only
+4) Check current position first (no sync)
+```
+
+Mapping:
+- `0` → `node tools/sync-context.mjs --sync-choice=none`
+- `1` → `node tools/sync-context.mjs --sync-choice=all`
+- `2` → `node tools/sync-context.mjs --sync-choice=instruct-pitch`
+- `3` → `node tools/sync-context.mjs --sync-choice=enquiry-processing-v2`
+- `4` → `node tools/sync-context.mjs --sync-choice=check`
+
+Output is written to `.github/instructions/REALTIME_CONTEXT.md`.
 
 ### D) Check stash overlap (manual or automatic)
 **Canonical:** `check stash overlap`

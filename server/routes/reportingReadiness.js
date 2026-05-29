@@ -43,12 +43,15 @@ const ANNUAL_LEAVE_MAX_AGE_S = 24 * 60 * 60;           // 24 h
 const DRIFT_ABS_THRESHOLD = 500;                       // £500
 const DRIFT_PCT_THRESHOLD = 1;                         // 1 %
 
-// Hot-tier cadence per entity (ms). If the most recent successful Hot run is
-// older than 2× cadence, the scheduler check is treated as blocked.
-const HOT_TIER_CADENCE_MS = {
-  CollectedTime: 30 * 60 * 1000,    // 30 min
-  Wip: 30 * 60 * 1000,              // 30 min
+// Current-month fill cadence per entity (ms). If the latest effective fill is
+// older than 2x cadence, the Management Dashboard entry check is blocked.
+const CURRENT_FILL_CADENCE_MS = {
+  collected: 60 * 60 * 1000,
+  wip: 60 * 60 * 1000,
 };
+
+const TERMINAL_FAILURE_STATUSES = new Set(['error', 'failed', 'timeout']);
+const TERMINAL_SUCCESS_STATUSES = new Set(['completed', 'validated']);
 
 // In-memory cache for the assembled payload + per-check last-good cache.
 let payloadCache = { value: null, expiresAt: 0 };
@@ -169,10 +172,9 @@ function evaluateParityFromSnapshot({ id, label, scope, sourceCheckKeys }) {
     .sort((a, b) => (a.month || '').localeCompare(b.month || ''));
 
   // Pick worst row (largest abs delta). Falls back to legacy single-row representative if
-  // no per-month rows are present (e.g. older snapshots before A1).
-  // Exclude the current (in-flight) month from verdict math — it is partial by definition,
-  // drift mid-month is expected. It still appears in `findings` for display.
-  const verdictPool = scoped.filter((c) => c.isCurrent !== true);
+  // no per-month rows are present (e.g. older snapshots before A1). Current-period drift
+  // is included because the Management Dashboard depends on current MTD/WTD figures.
+  const verdictPool = scoped;
   const sortedByDrift = [...verdictPool].sort((a, b) => Math.abs(Number(b.delta) || 0) - Math.abs(Number(a.delta) || 0));
   const worst = sortedByDrift.find((c) => Math.abs(Number(c.delta) || 0) > 0);
   const errored = verdictPool.find((c) => c.status === 'error' || c.status === 'warn' || c.status === 'monitor');
@@ -370,21 +372,34 @@ async function evaluateDataOpsScheduler() {
   const issues = [];
   let oldestAgeS = null;
 
-  for (const [entity, tiers] of Object.entries(snapshot.tiers)) {
-    const cadence = HOT_TIER_CADENCE_MS[entity];
-    if (!cadence) continue;
-    const hot = tiers?.hot?.lastRun;
-    if (!hot) {
-      issues.push({ entity, reason: 'no-hot-run' });
+  for (const [entity, cadence] of Object.entries(CURRENT_FILL_CADENCE_MS)) {
+    const currentTier = snapshot.tiers?.[entity]?.currentHourly?.lastRun || null;
+    const recentRuns = Array.isArray(snapshot.recentRuns) ? snapshot.recentRuns : [];
+    const latestRepairRun = recentRuns
+      .filter((run) => run.entity === entity && (TERMINAL_SUCCESS_STATUSES.has(run.status) || TERMINAL_FAILURE_STATUSES.has(run.status)))
+      .sort((a, b) => Number(b.ts || 0) - Number(a.ts || 0))[0] || null;
+    const latest = [currentTier, latestRepairRun]
+      .filter(Boolean)
+      .sort((a, b) => Number(b.ts || 0) - Number(a.ts || 0))[0] || null;
+
+    if (!latest) {
+      issues.push({ entity, tier: 'currentHourly', reason: 'no-current-fill' });
       continue;
     }
-    const ageMs = now - hot.ts;
+
+    const ageMs = now - Number(latest.ts || 0);
     const ageS = Math.round(ageMs / 1000);
     if (oldestAgeS == null || ageS > oldestAgeS) oldestAgeS = ageS;
-    if (hot.status === 'error' || hot.status === 'failed') {
-      issues.push({ entity, reason: 'hot-failed', ageSeconds: ageS });
+    if (TERMINAL_FAILURE_STATUSES.has(latest.status)) {
+      issues.push({
+        entity,
+        tier: 'currentHourly',
+        reason: 'current-fill-failed',
+        ageSeconds: ageS,
+        message: latest.message || null,
+      });
     } else if (ageMs > cadence * 2) {
-      issues.push({ entity, reason: 'hot-overdue', ageSeconds: ageS });
+      issues.push({ entity, tier: 'currentHourly', reason: 'current-fill-overdue', ageSeconds: ageS });
     }
   }
 
@@ -396,10 +411,10 @@ async function evaluateDataOpsScheduler() {
     status,
     ageSeconds: oldestAgeS,
     source: 'snapshot',
-    measured: { issues: issues.length },
+    measured: { issues: issues.length, firstIssueEntity: issues[0]?.entity || null },
     reason: issues[0]?.reason || null,
     message: status === 'blocked'
-      ? `Scheduler issues: ${issues.map((i) => `${i.entity}:${i.reason}`).join(', ')}`
+      ? `Scheduler fill issues: ${issues.map((i) => `${i.entity}:${i.reason}${i.message ? ` (${i.message})` : ''}`).join(', ')}`
       : null,
     remediation: status === 'blocked' ? 'check-scheduler-logs' : null,
   });

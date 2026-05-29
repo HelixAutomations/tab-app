@@ -3,7 +3,6 @@
 
 import React, { ReactNode, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { IconButton } from '@fluentui/react/lib/Button';
 import { Text } from '@fluentui/react/lib/Text';
 import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { colours } from '../styles/colours';
@@ -106,6 +105,43 @@ const getContentStyle = () =>
     flexGrow: 1,
   });
 
+const getCloseButtonStyle = (isDarkMode: boolean) =>
+  mergeStyles({
+    appearance: 'none',
+    width: 32,
+    height: 32,
+    border: 0,
+    borderRadius: 0,
+    background: 'transparent',
+    color: isDarkMode ? colours.dark.text : colours.light.text,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 0,
+    cursor: 'pointer',
+    lineHeight: 0,
+    flexShrink: 0,
+    ':hover': {
+      backgroundColor: isDarkMode
+        ? 'rgba(255, 255, 255, 0.1)'
+        : 'rgba(0, 0, 0, 0.05)',
+    },
+    ':focus-visible': {
+      outline: `2px solid ${colours.highlight}`,
+      outlineOffset: 2,
+    },
+  });
+
+const getCloseIconLineStyle = (rotation: number) =>
+  mergeStyles({
+    position: 'absolute',
+    width: 14,
+    height: 1.5,
+    borderRadius: 999,
+    background: 'currentColor',
+    transform: `rotate(${rotation}deg)`,
+  });
+
 const BespokePanel: React.FC<BespokePanelProps> = ({ 
   isOpen, 
   onClose, 
@@ -122,15 +158,43 @@ const BespokePanel: React.FC<BespokePanelProps> = ({
   const [isClosing, setIsClosing] = useState<boolean>(false);
   const [isVisible, setIsVisible] = useState<boolean>(false);
   const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(null);
+  const scrollLockRef = useRef<{
+    bodyOverflow: string;
+    bodyPaddingRight: string;
+    htmlScrollbarGutter: string;
+  } | null>(null);
+
+  const lockDocumentScroll = () => {
+    if (scrollLockRef.current || typeof window === 'undefined') return;
+    const body = document.body;
+    const htmlEl = document.documentElement;
+    const scrollbarWidth = Math.max(0, window.innerWidth - htmlEl.clientWidth);
+
+    scrollLockRef.current = {
+      bodyOverflow: body.style.overflow,
+      bodyPaddingRight: body.style.paddingRight,
+      htmlScrollbarGutter: htmlEl.style.scrollbarGutter,
+    };
+
+    body.style.overflow = 'hidden';
+    if (scrollbarWidth > 0) {
+      const currentPadding = Number.parseFloat(window.getComputedStyle(body).paddingRight || '0') || 0;
+      body.style.paddingRight = `${currentPadding + scrollbarWidth}px`;
+    }
+  };
+
+  const unlockDocumentScroll = () => {
+    const previous = scrollLockRef.current;
+    if (!previous) return;
+    document.body.style.overflow = previous.bodyOverflow;
+    document.body.style.paddingRight = previous.bodyPaddingRight;
+    document.documentElement.style.scrollbarGutter = previous.htmlScrollbarGutter;
+    scrollLockRef.current = null;
+  };
 
   useEffect(() => {
     if (isOpen) {
-      // Simple scroll prevention without layout shift
-      document.body.style.overflow = 'hidden';
-      // Stabilize layout when scrollbar disappears
-      const htmlEl = document.documentElement;
-      const prevGutter = htmlEl.style.scrollbarGutter;
-      htmlEl.style.scrollbarGutter = 'stable';
+      lockDocumentScroll();
       setIsVisible(true);
     } else if (isVisible && !isOpen) {
       handleClose();
@@ -160,10 +224,7 @@ const BespokePanel: React.FC<BespokePanelProps> = ({
     
     setIsClosing(true);
     setTimeout(() => {
-      // Simply restore scroll
-      document.body.style.overflow = '';
-      const htmlEl = document.documentElement;
-      htmlEl.style.scrollbarGutter = '';
+      unlockDocumentScroll();
       
       setIsClosing(false);
       setIsVisible(false);
@@ -187,6 +248,8 @@ const BespokePanel: React.FC<BespokePanelProps> = ({
       document.removeEventListener('keydown', handleEsc);
     };
   }, [isVisible, isClosing]);
+
+  useEffect(() => () => unlockDocumentScroll(), []);
 
   if (!isVisible) return null;
 
@@ -253,21 +316,27 @@ const BespokePanel: React.FC<BespokePanelProps> = ({
               )}
             </div>
           </div>
-          <IconButton
-            iconProps={{ iconName: 'Cancel' }}
-            ariaLabel="Close Panel"
+          <button
+            type="button"
+            aria-label="Close panel"
             onClick={handleClose}
-            styles={{
-              root: {
-                color: isDarkMode ? colours.dark.text : colours.light.text,
-                ':hover': {
-                  backgroundColor: isDarkMode
-                    ? 'rgba(255, 255, 255, 0.1)'
-                    : 'rgba(0, 0, 0, 0.05)',
-                },
-              },
-            }}
-          />
+            className={getCloseButtonStyle(isDarkMode)}
+          >
+            <span
+              aria-hidden="true"
+              style={{
+                position: 'relative',
+                width: 16,
+                height: 16,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <span className={getCloseIconLineStyle(45)} />
+              <span className={getCloseIconLineStyle(-45)} />
+            </span>
+          </button>
         </div>
         <div className={getContentStyle()}>{children}</div>
       </div>
