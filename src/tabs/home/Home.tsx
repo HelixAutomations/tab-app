@@ -30,7 +30,7 @@ import type { IColumn } from '@fluentui/react/lib/DetailsList';
 import { Persona, PersonaSize } from '@fluentui/react/lib/Persona';
 import { Icon } from '@fluentui/react/lib/Icon';
 import { Toggle } from '@fluentui/react/lib/Toggle';
-import { FaCheck } from 'react-icons/fa';
+import { FaCheck, FaExternalLinkAlt } from 'react-icons/fa';
 import { colours, withAlpha } from '../../app/styles/colours';
 // Removed legacy MetricCard usage
 import { useHomeMetricsStream } from '../../hooks/useHomeMetricsStream';
@@ -73,6 +73,7 @@ import { normalizeMatterData } from '../../utils/matterNormalization';
 // Local JSON fixtures loaded dynamically (only when REACT_APP_USE_LOCAL_DATA=true) to keep ~75KB out of the production bundle
 import { checkIsLocalDev } from '../../utils/useIsLocalDev';
 import { canSeeFirmWideHomeData, canSeePrivateHubControls, isAdminUser, isHomeFirmWideBuiltIn, HOME_FIRM_WIDE_ADMIN_OPT_IN_KEY, isCclOperationsAvailable } from '../../app/admin';
+import { INTERNAL_POLICY_LINKS } from '../../app/customisation/InternalPolicies';
 import { useFirstHydration } from '../../utils/useFirstHydration';
 import { LocalSupportSettings } from '../../app/localSupportMode';
 
@@ -80,8 +81,6 @@ import { LocalSupportSettings } from '../../app/localSupportMode';
 import SectionCard from './SectionCard';
 // Removed legacy Enhanced metrics components
 
-// NEW: Import the updated QuickActionsCard component
-import QuickActionsCard from './QuickActionsCard';
 import QuickActionsBar from './QuickActionsBar';
 import { getQuickActionIcon } from './QuickActionsCard.icons';
 import ImmediateActionsBar from './ImmediateActionsBar';
@@ -89,6 +88,7 @@ import LDRecordPanel, { LDRecordIcon } from './LDRecordPanel';
 import HomeQuietPanel from './HomeQuietPanel';
 import RiskAssessmentFinderPanel from './RiskAssessmentFinderPanel';
 import { trackClientEvent } from '../../utils/telemetry';
+import { recordProcessEvent, type ProcessStreamLane } from '../../utils/processStreamEvents';
 import type { ImmediateActionCategory } from './ImmediateActionChip';
 import { enrichImmediateActions, type HomeImmediateAction, type ToDoCard, type TodoExpansionListRow } from './ImmediateActionModel';
 import { getActionableInstructions } from './InstructionsPrompt.helpers';
@@ -402,6 +402,28 @@ const quickActionDisplayOrder: Record<string, number> = {
   'Find Risk Assessment': 8,
   'Assess Risk': 8,
   'Log L&D': 9,
+};
+
+const quickActionStreamLane: Record<string, ProcessStreamLane> = {
+  'Update Attendance': 'Log',
+  'Confirm Attendance': 'Log',
+  'Create a Task': 'Request',
+  'Request CollabSpace': 'Request',
+  'Save Telephone Note': 'Log',
+  'Save Attendance Note': 'Log',
+  'Request ID': 'Request',
+  'Request Annual Leave': 'Request',
+  'Book Space': 'Request',
+  'Verify ID': 'Request',
+  'Find Risk Assessment': 'Find',
+  'New Pitch': 'Start',
+  'New Matter': 'Start',
+  'Open Matter': 'Start',
+  'Open a Matter': 'Start',
+  'Log L&D': 'Log',
+  'Assess Risk': 'Request',
+  'CCL Service': 'Request',
+  'Review CCL': 'Request',
 };
 
 //////////////////////
@@ -6782,6 +6804,16 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     }
   }, []);
   const handleActionClick = useCallback((action: { title: string; icon: string }) => {
+    void recordProcessEvent({
+      formKey: 'home-quick-action',
+      lane: quickActionStreamLane[action.title] || 'Start',
+      summary: `Quick action opened: ${action.title}`,
+      eventName: 'quick-action.opened',
+      initials: userInitials || userData?.[0]?.Initials || null,
+      source: 'home',
+      payload: { actionTitle: action.title },
+    });
+
     // Localhost-gated: open the shared OpenAnotherMatterModal directly (no bespoke panel).
     if (action.title === 'New Matter') {
       setShowOpenAnotherMatter(true);
@@ -8456,8 +8488,59 @@ const conversionRate = displayEnquiriesMonthToDate
     </div>
   ) : null;
 
+  const internalPolicyStrip = (
+    <section
+      data-helix-region="home/internal-policies"
+      style={{
+        display: 'grid',
+        gridTemplateColumns: 'minmax(180px, 0.55fr) minmax(0, 1.45fr)',
+        gap: 12,
+        alignItems: 'stretch',
+        padding: '12px 14px',
+        margin: '0 12px 12px',
+        border: `1px solid ${isDarkMode ? withAlpha(colours.highlight, 0.18) : withAlpha(colours.helixBlue, 0.14)}`,
+        background: isDarkMode ? withAlpha(colours.dark.sectionBackground, 0.74) : withAlpha(colours.grey, 0.72),
+        fontFamily: 'var(--font-primary)',
+      }}
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 3, minWidth: 0 }}>
+        <span style={{ fontSize: 12.5, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.websiteBlue }}>
+          Core risk policies
+        </span>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(132px, 1fr))', gap: 8 }}>
+        {INTERNAL_POLICY_LINKS.map((policy) => (
+          <a
+            key={policy.key}
+            href={policy.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 8,
+              minHeight: 40,
+              padding: '8px 10px',
+              border: `1px solid ${isDarkMode ? withAlpha(colours.highlight, 0.16) : withAlpha(colours.helixBlue, 0.12)}`,
+              background: isDarkMode ? withAlpha(colours.dark.cardBackground, 0.74) : withAlpha('#ffffff', 0.82),
+              color: isDarkMode ? colours.dark.text : colours.websiteBlue,
+              textDecoration: 'none',
+              fontSize: 11,
+              fontWeight: 700,
+              lineHeight: 1.2,
+            }}
+          >
+            <span>{policy.shortTitle}</span>
+            <FaExternalLinkAlt size={9} style={{ flexShrink: 0, color: isDarkMode ? colours.accent : colours.highlight }} />
+          </a>
+        ))}
+      </div>
+    </section>
+  );
+
   return (
-    <div className={`home-root ${containerStyle(isDarkMode)}`}>
+    <div className={`home-root ${containerStyle(isDarkMode)}`} data-helix-region="tab/home">
       <style>{`
         @keyframes spin {
           0% { transform: rotate(0deg); }
@@ -8652,7 +8735,7 @@ const conversionRate = displayEnquiriesMonthToDate
         })()}
 
         {/* Team insight — attendance + leave in one panel */}
-        <div className={`${teamSectionReady ? 'home-cascade-3' : 'home-cascade-pending'} home-stable-shell home-stable-shell-team`} style={{ padding: '0 6px 6px 6px' }}>
+        <div className={`${teamSectionReady ? 'home-cascade-3' : 'home-cascade-pending'} home-stable-shell home-stable-shell-team`} style={{ padding: '0 12px 10px', boxSizing: 'border-box' }}>
             <Suspense fallback={
               <HomeTeamInsightSkeleton isDarkMode={isDarkMode} />
             }>
@@ -8723,6 +8806,8 @@ const conversionRate = displayEnquiriesMonthToDate
               </div>
             </Suspense>
         </div>
+
+        {internalPolicyStrip}
       </div>
 
       {/* Transactions & Balances - only show in local environment; hidden by the

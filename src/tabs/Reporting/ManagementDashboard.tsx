@@ -1703,6 +1703,20 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     )
   ), [sortedMetricsByMember]);
 
+  const yoyCollectedUserIds = useMemo(() => (
+    visibleMembers
+      .map((member) => member.clioId)
+      .filter((clioId): clioId is string => Boolean(clioId))
+  ), [visibleMembers]);
+
+  const isFinancialYearToDateRange = useMemo(() => {
+    if (!activeStart || !activeEnd || activeStart > activeEnd) return false;
+    const financialYearStartYear = activeEnd.getMonth() >= 3 ? activeEnd.getFullYear() : activeEnd.getFullYear() - 1;
+    return activeStart.getFullYear() === financialYearStartYear
+      && activeStart.getMonth() === 3
+      && activeStart.getDate() === 1;
+  }, [activeEnd, activeStart]);
+
   const summaryTotals = useMemo(() => {
     const wipAggregates = filteredWip.reduce(
       (acc, record) => ({
@@ -3181,7 +3195,14 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
 
       {/* Year-over-Year comparison */}
       <div className="dashboard-yoy-section" style={{ marginTop: 24 }}>
-        <YearOverYearComparison />
+        <YearOverYearComparison
+          anchorDate={activeEnd}
+          collectedUserIds={yoyCollectedUserIds}
+          includeDisbursements={includeDisbursements}
+          currentCollectedOverride={isFinancialYearToDateRange ? totals.collected : undefined}
+          currentCollectedDisplayOverride={isFinancialYearToDateRange ? formatCurrency(totals.collected) : undefined}
+          currentCollectedBasisLabel="Table total basis"
+        />
       </div>
 
       {/* Processing Modal Overlay */}

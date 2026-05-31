@@ -1,0 +1,1 @@
+2026-05-30 / Revamp claimed queue empty state / The Prospects claimed queue empty state now uses a clean Helix mark, concise no-enquiries copy, a subtle auto-check pulse, a manual refresh action, and a quiet background retry while the claimed queue is empty. (~ src/tabs/enquiries/Enquiries.tsx, ~ src/app/styles/Prospects.css)

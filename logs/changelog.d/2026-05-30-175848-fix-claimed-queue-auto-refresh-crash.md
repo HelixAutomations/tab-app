@@ -1,0 +1,1 @@
+2026-05-30 / Fix claimed queue auto-refresh crash / Moved the claimed queue auto-refresh effect below the filtered enquiries memo so the empty-state watcher no longer reads filteredEnquiries before initialization. (~ src/tabs/enquiries/Enquiries.tsx)

@@ -308,16 +308,23 @@ This is the compounding mechanism. Each session should leave the instruction sur
 
 ## Logging (CRITICAL — agents MUST do this)
 
-**Every substantial task MUST get a changelog entry in `logs/changelog.md`.**
-This is non-negotiable. The release notes UI is powered entirely by this file — if you don't log it, the work is invisible to users.
+**Every substantial task MUST get a guarded changelog entry.**
+This is non-negotiable. The release notes UI is powered by `logs/changelog.md`; the guarded writer keeps that file rebuilt from unique fragments so parallel chats do not overwrite each other's entries.
 
 **Format** (one line per logical change, newest first at top of file):
 ```
 YYYY-MM-DD / Short title / Description of what changed. (~ changed/file.ts, + new/file.ts, - deleted/file.ts)
 ```
 
+**Command**:
+```
+npm run changelog:add -- --title "Short title" --description "Description of what changed." --files "~ changed/file.ts, + new/file.ts"
+```
+
 **Rules:**
 - Log at the END of the task, after edits are confirmed working.
+- Do not hand-edit `logs/changelog.md` for normal work. Use `npm run changelog:add`; it writes a unique `logs/changelog.d/*.md` fragment first, then rebuilds `logs/changelog.md`.
+- If a stale accepted edit overwrites `logs/changelog.md`, run `npm run changelog:rebuild`. Use `npm run changelog:check` to detect missing fragment entries.
 - One entry per logical change (not per file). Group related file changes.
 - Date = today's date, not the date you started.
 - Title = concise imperative phrase (e.g. "Fix risk colour source", not "Fixed the risk colours").

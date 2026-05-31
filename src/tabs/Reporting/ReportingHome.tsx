@@ -67,6 +67,15 @@ import ReceptionReport from './ReceptionReport';
 import EnquiryLedgerReport from './EnquiryLedgerReport';
 import ReportCard from './ReportCard';
 
+// Reception report is locked to call-taker-owning partners only.
+// Source of truth for who can see it; mirrored in the tab strip, the card grid,
+// and the in-view lock screen below.
+const RECEPTION_REPORT_ALLOWED_INITIALS = ['LZ', 'AC', 'JW'];
+const canSeeReceptionReport = (initials: string | null | undefined): boolean => {
+  const value = (initials || '').trim().toUpperCase();
+  return value !== '' && RECEPTION_REPORT_ALLOWED_INITIALS.includes(value);
+};
+
 // Add spinner animation CSS
 const spinnerStyle = `
 @keyframes spin {
@@ -3004,6 +3013,9 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     // AVAILABLE_REPORTS entries marked tier: 'prod'.
     const PROD_TAB_KEYS = ['dashboard', 'receptionReport'];
     const visibleTabs = REPORT_NAV_TABS.filter((tab) => {
+      if (tab.key === 'receptionReport' && !canSeeReceptionReport(initials)) {
+        return false;
+      }
       if (tab.key === 'enquiryLedger') {
         return canViewEnquiryLedger;
       }
@@ -4938,6 +4950,9 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     };
 
     const visibleCards = reportCards.filter((card) => {
+      if (card.key === 'receptionReport' && !canSeeReceptionReport(userInitialsForGate)) {
+        return false;
+      }
       if (card.key === 'enquiryLedger') {
         return canViewEnquiryLedger;
       }
@@ -6387,6 +6402,58 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
   }
 
   if (activeView === 'receptionReport') {
+    if (!canSeeReceptionReport(userInitialsForGate)) {
+      return (
+        <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
+          <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={{ padding: 24 }}>
+            <div
+              role="alert"
+              aria-live="polite"
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 12,
+                maxWidth: 520,
+                margin: '40px auto',
+                padding: 24,
+                border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(6,23,51,0.10)'}`,
+                background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(247,249,252,0.85)',
+                color: isDarkMode ? '#e9ecf1' : '#061733',
+                fontFamily: 'Raleway, sans-serif',
+              }}
+            >
+              <span style={{ fontSize: 13, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--helix-highlight, #3690CE)' }}>
+                Reception report
+              </span>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Locked</h2>
+              <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5 }}>
+                This report is limited to LZ, AC, and JW. Speak to one of them if you need a copy of the figures.
+              </p>
+              <div>
+                <button
+                  type="button"
+                  onClick={handleBackToOverview}
+                  style={{
+                    appearance: 'none',
+                    border: `1px solid var(--helix-highlight, #3690CE)`,
+                    background: 'transparent',
+                    color: 'var(--helix-highlight, #3690CE)',
+                    fontFamily: 'Raleway, sans-serif',
+                    fontWeight: 700,
+                    fontSize: 12,
+                    letterSpacing: '0.04em',
+                    padding: '6px 12px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Back to Reports
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
         <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>

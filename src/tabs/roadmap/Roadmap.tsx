@@ -16,7 +16,10 @@ import FocalSurface from './parts/FocalSurface';
 import SideRail from './parts/SideRail';
 import ToolsDrawer from './parts/ToolsDrawer';
 import SystemErrorsView from './system/SystemErrorsView';
+import SystemActivityView from './system/SystemActivityView';
 import MatterReplayView from './system/MatterReplayView';
+import SystemInfrastructureView from './system/SystemInfrastructureView';
+import SystemAuditPackView from './system/SystemAuditPackView';
 import { PROCESS_STREAM_UPDATED_EVENT } from '../forms/processStreamStore';
 import { useOpsPulse } from './hooks/useOpsPulse';
 import { useActivityLayout } from './hooks/useActivityLayout';
@@ -127,7 +130,7 @@ const containerStyles = (isDarkMode: boolean): React.CSSProperties => ({
   transition: 'background-color 0.2s',
 });
 
-type SystemMode = 'entry' | 'errors' | 'matter-replay' | 'dashboard';
+type SystemMode = 'entry' | 'errors' | 'matter-replay' | 'activity' | 'infrastructure' | 'audit-pack' | 'dashboard';
 
 const SystemChoiceButton: React.FC<{
   label: string;
@@ -168,12 +171,56 @@ const SystemChoiceButton: React.FC<{
   </button>
 );
 
+const SystemInfoButton: React.FC<{
+  label: string;
+  description: string;
+  isDarkMode: boolean;
+  accent: string;
+  onClick: () => void;
+}> = ({ label, description, isDarkMode, accent, onClick }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    style={{
+      minHeight: 118,
+      border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+      borderLeft: `4px solid ${accent}`,
+      background: isDarkMode ? 'rgba(255,255,255,0.035)' : 'rgba(255,255,255,0.68)',
+      color: isDarkMode ? colours.dark.text : colours.light.text,
+      cursor: 'pointer',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'flex-start',
+      justifyContent: 'center',
+      gap: 8,
+      padding: '18px 20px',
+      fontFamily: 'Raleway, sans-serif',
+      textAlign: 'left',
+      transition: 'transform 0.14s ease, border-color 0.14s ease, background 0.14s ease',
+    }}
+    onMouseEnter={(event) => {
+      event.currentTarget.style.transform = 'translateY(-1px)';
+      event.currentTarget.style.borderColor = accent;
+    }}
+    onMouseLeave={(event) => {
+      event.currentTarget.style.transform = 'translateY(0)';
+      event.currentTarget.style.borderColor = isDarkMode ? colours.dark.border : colours.light.border;
+    }}
+  >
+    <span style={{ fontSize: 16, fontWeight: 900, letterSpacing: '0.2px', textTransform: 'uppercase' }}>{label}</span>
+    <span style={{ fontSize: 12, lineHeight: 1.5, color: isDarkMode ? '#d1d5db' : colours.greyText }}>{description}</span>
+  </button>
+);
+
 const SystemEntry: React.FC<{
   isDarkMode: boolean;
   onOpenErrors: () => void;
   onOpenMatterReplay: () => void;
+  onOpenActivity: () => void;
+  onOpenInfrastructure: () => void;
+  onOpenAuditPack: () => void;
   onOpenDashboard: () => void;
-}> = ({ isDarkMode, onOpenErrors, onOpenMatterReplay, onOpenDashboard }) => {
+}> = ({ isDarkMode, onOpenErrors, onOpenMatterReplay, onOpenActivity, onOpenInfrastructure, onOpenAuditPack, onOpenDashboard }) => {
   const textColour = isDarkMode ? colours.dark.text : colours.light.text;
   const mutedColour = isDarkMode ? '#d1d5db' : colours.greyText;
 
@@ -186,7 +233,7 @@ const SystemEntry: React.FC<{
         placeItems: 'center',
       }}
     >
-      <div style={{ width: 'min(760px, 100%)' }}>
+      <div style={{ width: 'min(960px, 100%)' }}>
         <div style={{ marginBottom: 22 }}>
           <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px', color: mutedColour }}>
             System
@@ -198,7 +245,31 @@ const SystemEntry: React.FC<{
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14 }}>
           <SystemChoiceButton label="Errors" isDarkMode={isDarkMode} accent={colours.cta} onClick={onOpenErrors} />
           <SystemChoiceButton label="Matter Replay" isDarkMode={isDarkMode} accent={colours.orange} onClick={onOpenMatterReplay} />
+          <SystemChoiceButton label="Activity" isDarkMode={isDarkMode} accent={colours.green} onClick={onOpenActivity} />
           <SystemChoiceButton label="Dashboard" isDarkMode={isDarkMode} accent={colours.highlight} onClick={onOpenDashboard} />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '24px 0 12px' }}>
+          <div style={{ height: 1, flex: 1, background: isDarkMode ? colours.dark.border : colours.light.border, opacity: 0.7 }} />
+          <div style={{ fontSize: 10, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.8px', color: mutedColour }}>
+            Information
+          </div>
+          <div style={{ height: 1, flex: 1, background: isDarkMode ? colours.dark.border : colours.light.border, opacity: 0.7 }} />
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
+          <SystemInfoButton
+            label="Infrastructure"
+            description="A tenant-first map of resource groups, apps and data, with Team Hub as the first resource drill-down."
+            isDarkMode={isDarkMode}
+            accent={colours.accent}
+            onClick={onOpenInfrastructure}
+          />
+          <SystemInfoButton
+            label="Audit Pack"
+            description="A modular evidence pack across the tenant. AI confidentiality, providers, app packs and open actions in one place."
+            isDarkMode={isDarkMode}
+            accent={colours.green}
+            onClick={onOpenAuditPack}
+          />
         </div>
       </div>
     </section>
@@ -371,6 +442,24 @@ const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, 
     setLens('triage');
     setShowAdvancedLenses(false);
     setSystemMode('matter-replay');
+  }, [setLens]);
+
+  const handleOpenActivity = useCallback(() => {
+    setLens('triage');
+    setShowAdvancedLenses(false);
+    setSystemMode('activity');
+  }, [setLens]);
+
+  const handleOpenInfrastructure = useCallback(() => {
+    setLens('triage');
+    setShowAdvancedLenses(false);
+    setSystemMode('infrastructure');
+  }, [setLens]);
+
+  const handleOpenAuditPack = useCallback(() => {
+    setLens('triage');
+    setShowAdvancedLenses(false);
+    setSystemMode('audit-pack');
   }, [setLens]);
 
   const handleOpenDashboard = useCallback(() => {
@@ -592,7 +681,7 @@ const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, 
     return (
       <ActivityProvider value={layout}>
         <div style={containerStyles(isDarkMode)}>
-          <SystemEntry isDarkMode={isDarkMode} onOpenErrors={handleOpenErrors} onOpenMatterReplay={handleOpenMatterReplay} onOpenDashboard={handleOpenDashboard} />
+          <SystemEntry isDarkMode={isDarkMode} onOpenErrors={handleOpenErrors} onOpenMatterReplay={handleOpenMatterReplay} onOpenActivity={handleOpenActivity} onOpenInfrastructure={handleOpenInfrastructure} onOpenAuditPack={handleOpenAuditPack} onOpenDashboard={handleOpenDashboard} />
         </div>
       </ActivityProvider>
     );
@@ -622,6 +711,51 @@ const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, 
             isDarkMode={isDarkMode}
             onBack={resetToSystemEntry}
             onOpenDashboard={handleOpenDashboard}
+          />
+        </div>
+      </ActivityProvider>
+    );
+  }
+
+  if (showLiveMonitor && systemMode === 'activity') {
+    return (
+      <ActivityProvider value={layout}>
+        <div style={containerStyles(isDarkMode)}>
+          <SystemActivityView
+            viewerInitials={userInitials || null}
+            isDarkMode={isDarkMode}
+            onBack={resetToSystemEntry}
+            onOpenDashboard={handleOpenDashboard}
+          />
+        </div>
+      </ActivityProvider>
+    );
+  }
+
+  if (showLiveMonitor && systemMode === 'infrastructure') {
+    return (
+      <ActivityProvider value={layout}>
+        <div style={containerStyles(isDarkMode)}>
+          <SystemInfrastructureView
+            isDarkMode={isDarkMode}
+            onBack={resetToSystemEntry}
+            onOpenDashboard={handleOpenDashboard}
+            onOpenAuditPack={handleOpenAuditPack}
+          />
+        </div>
+      </ActivityProvider>
+    );
+  }
+
+  if (showLiveMonitor && systemMode === 'audit-pack') {
+    return (
+      <ActivityProvider value={layout}>
+        <div style={containerStyles(isDarkMode)}>
+          <SystemAuditPackView
+            isDarkMode={isDarkMode}
+            onBack={resetToSystemEntry}
+            onOpenDashboard={handleOpenDashboard}
+            onOpenInfrastructure={handleOpenInfrastructure}
           />
         </div>
       </ActivityProvider>

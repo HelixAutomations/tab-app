@@ -53,6 +53,10 @@ function push(entry: CallLogEntry) {
         return;
     }
 
+    if (path === '/api/cache-preheater/preheat') {
+        return;
+    }
+
     if (entry.status == null || entry.status >= 500) {
         trackClientError('Network', 'request-failed', `${entry.method} ${path} failed`, {
             path,

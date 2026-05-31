@@ -27,6 +27,13 @@
 
 const { withRequest } = require('./db');
 const { trackEvent, trackException } = require('./appInsights');
+const {
+  getFormSubmissionSchema,
+  clearFormSubmissionSchemaCache,
+  isMissingFormSubmissionOptionalColumnError,
+  isMissingFormIntentSchemaError,
+} = require('./formSubmissionSchema');
+const { markProcessHubSubmissionRecorded } = require('./processHubAuditContext');
 
 /**
  * Resolve the form-submission DB connection string at call time.
@@ -71,7 +78,7 @@ function getConnStr() {
  *   scans can mark it resolved.
  * @returns {Promise<string|null>}    UUID of the new row, or `null` on failure.
  */
-async function recordSubmission({ formKey, submittedBy, lane = null, payload, summary = null, clientSubmissionId = null }) {
+async function recordSubmission({ formKey, submittedBy, lane = null, payload, summary = null, clientSubmissionId = null, kind = 'form' }) {
   const connStr = getConnStr();
   if (!connStr) {
     // Local dev without DB — silently skip.
@@ -89,49 +96,105 @@ async function recordSubmission({ formKey, submittedBy, lane = null, payload, su
     const payloadJson = JSON.stringify(payload ?? {});
     const stepsJson = JSON.stringify([]);
     const trimmedClientId = clientSubmissionId ? String(clientSubmissionId).slice(0, 64) : null;
-    const result = await withRequest(connStr, async (request, sql) => {
-      request.input('form_key', sql.NVarChar(64), formKey);
-      request.input('submitted_by', sql.NVarChar(16), submittedBy);
-      request.input('lane', sql.NVarChar(32), lane);
-      request.input('payload_json', sql.NVarChar(sql.MAX), payloadJson);
-      request.input('summary', sql.NVarChar(400), summary);
-      request.input('processing_status', sql.NVarChar(32), 'queued');
-      request.input('processing_steps_json', sql.NVarChar(sql.MAX), stepsJson);
-      request.input('client_submission_id', sql.NVarChar(64), trimmedClientId);
-      return request.query(`
-        INSERT INTO dbo.form_submissions
-          (form_key, submitted_by, lane, payload_json, summary, processing_status, processing_steps_json, client_submission_id)
-        OUTPUT INSERTED.id
-        VALUES
-          (@form_key, @submitted_by, @lane, @payload_json, @summary, @processing_status, @processing_steps_json, @client_submission_id);
-      `);
-    });
+    const normalisedKind = kind === 'activity' ? 'activity' : 'form';
+    const schema = await getFormSubmissionSchema(connStr);
+    if (!schema.hasFormSubmissions) {
+      trackEvent('FormSubmission.SchemaMissing', { formKey, submittedBy, table: 'form_submissions' });
+      return null;
+    }
+
+    const insertSubmission = (effectiveSchema) => {
+      const columns = ['form_key', 'submitted_by', 'lane', 'payload_json', 'summary', 'processing_status', 'processing_steps_json'];
+      const values = ['@form_key', '@submitted_by', '@lane', '@payload_json', '@summary', '@processing_status', '@processing_steps_json'];
+      if (effectiveSchema.hasClientSubmissionId) { columns.push('client_submission_id'); values.push('@client_submission_id'); }
+      if (effectiveSchema.hasKindColumn) { columns.push('kind'); values.push('@kind'); }
+
+      return withRequest(connStr, async (request, sql) => {
+        request.input('form_key', sql.NVarChar(64), formKey);
+        request.input('submitted_by', sql.NVarChar(16), submittedBy);
+        request.input('lane', sql.NVarChar(32), lane);
+        request.input('payload_json', sql.NVarChar(sql.MAX), payloadJson);
+        request.input('summary', sql.NVarChar(400), summary);
+        request.input('processing_status', sql.NVarChar(32), 'queued');
+        request.input('processing_steps_json', sql.NVarChar(sql.MAX), stepsJson);
+        if (effectiveSchema.hasClientSubmissionId) {
+          request.input('client_submission_id', sql.NVarChar(64), trimmedClientId);
+        }
+        if (effectiveSchema.hasKindColumn) {
+          request.input('kind', sql.NVarChar(16), normalisedKind);
+        }
+        return request.query(`
+          INSERT INTO dbo.form_submissions
+            (${columns.join(', ')})
+          OUTPUT INSERTED.id
+          VALUES
+            (${values.join(', ')});
+        `);
+      });
+    };
+
+    let insertSchema = schema;
+    let result;
+    try {
+      result = await insertSubmission(insertSchema);
+    } catch (insertErr) {
+      if (!isMissingFormSubmissionOptionalColumnError(insertErr) || (!schema.hasClientSubmissionId && !schema.hasKindColumn)) {
+        throw insertErr;
+      }
+      clearFormSubmissionSchemaCache(connStr);
+      insertSchema = { ...schema, hasClientSubmissionId: false, hasKindColumn: false };
+      trackEvent('FormSubmission.SchemaFallback', {
+        formKey,
+        submittedBy,
+        reason: 'optional_columns_missing',
+        error: String(insertErr?.message || insertErr).slice(0, 200),
+      });
+      result = await insertSubmission(insertSchema);
+    }
     const id = result?.recordset?.[0]?.id || null;
+    if (id) {
+      markProcessHubSubmissionRecorded({ formKey, submissionId: id });
+    }
     trackEvent('FormSubmission.Recorded', { formKey, submittedBy, submissionId: id, lane, clientSubmissionId: trimmedClientId });
 
     // Back-link the matching intent row (operator god-mode P1). Best-effort:
     // missing column (pre-migration) or missing intent (legacy client) must
     // not surface as a failure.
-    if (id && trimmedClientId) {
+    if (id && trimmedClientId && insertSchema.hasFormSubmissionIntents && insertSchema.hasIntentMatchColumns) {
       try {
         await withRequest(connStr, async (request, sql) => {
           request.input('cid', sql.NVarChar(64), trimmedClientId);
           request.input('sid', sql.UniqueIdentifier, id);
           await request.query(`
-            IF EXISTS (
-              SELECT 1 FROM sys.tables WHERE name = 'form_submission_intents' AND schema_id = SCHEMA_ID('dbo')
-            )
-            BEGIN
-              UPDATE dbo.form_submission_intents
-              SET matched_submission_id = @sid, matched_at = SYSUTCDATETIME()
-              WHERE client_submission_id = @cid AND matched_submission_id IS NULL;
-            END
+            UPDATE dbo.form_submission_intents
+            SET matched_submission_id = @sid, matched_at = SYSUTCDATETIME()
+            WHERE client_submission_id = @cid AND matched_submission_id IS NULL;
           `);
         });
         trackEvent('FormIntent.Matched', { formKey, submittedBy, submissionId: id, clientSubmissionId: trimmedClientId });
       } catch (matchErr) {
-        trackException(matchErr, { phase: 'recordSubmission.matchIntent', formKey, clientSubmissionId: trimmedClientId });
+        if (isMissingFormIntentSchemaError(matchErr)) {
+          clearFormSubmissionSchemaCache(connStr);
+          trackEvent('FormIntent.MatchSkipped', {
+            formKey,
+            submittedBy,
+            submissionId: id,
+            clientSubmissionId: trimmedClientId,
+            reason: 'schema_missing',
+            error: String(matchErr?.message || matchErr).slice(0, 200),
+          });
+        } else {
+          trackException(matchErr, { phase: 'recordSubmission.matchIntent', formKey, clientSubmissionId: trimmedClientId });
+        }
       }
+    } else if (id && trimmedClientId) {
+      trackEvent('FormIntent.MatchSkipped', {
+        formKey,
+        submittedBy,
+        submissionId: id,
+        clientSubmissionId: trimmedClientId,
+        reason: insertSchema.hasFormSubmissionIntents ? 'missing_match_columns' : 'missing_intents_table',
+      });
     }
 
     return id;

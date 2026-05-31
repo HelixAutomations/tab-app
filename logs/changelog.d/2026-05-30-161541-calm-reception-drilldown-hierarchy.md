@@ -1,0 +1,1 @@
+2026-05-30 / Calm Reception drilldown hierarchy / Day header is no longer shouty uppercase; meta strip is lighter and unforced. Cluster rows vertically centre name + meta around the chevron (was hugging the top) and title weight drops from 13/700 to 12.5/600 so the day to row to meta tier reads as one calm hierarchy. (~ src/tabs/Reporting/ReceptionReport.css)

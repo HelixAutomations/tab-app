@@ -1,0 +1,19 @@
+Risk Assessment Export
+
+Generated: 2026-05-28
+Purpose: lightweight text files for saving to matter records.
+
+Files
+- KAZI11039-00001_HLX-29702-17224_risk-assessment.txt
+- HAWKI10971-00001_HLX-29056-57895_risk-assessment.txt
+- AMIN11036-00001_HLX-29781-35064_risk-assessment.txt
+- LAMBR8179-00002_HLX-30621-84534_risk-assessment.txt
+- LAMBR8179-00003_HLX-30621-84534_risk-assessment.txt
+- LYNDO11116-00001_HLX-02070-32604_risk-assessment.txt
+- LYNDO11116-00002_HLX-02070-32604_risk-assessment.txt
+
+Not exported
+- MCFAG10608: no display matter match found
+- SHEPH11072: no display matter match found
+- M&DP9856: no display matter match found
+- FOSTE11113: matter resolved, but no risk assessment row found (HLX-30358-65781)

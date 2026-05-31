@@ -63,6 +63,8 @@ import { ADDITIONAL_CLIENT_PLACEHOLDER_ID } from '../../constants/deals';
 import { buildOutboundPitchEmailHtml } from './pitch-builder/EmailProcessor';
 import { pitchTelemetry } from './pitch-builder/pitchTelemetry';
 import { DEMO_MODE_STORAGE_KEY } from './utils/enquiryHelpers';
+import { DEFAULT_PITCH_AMOUNT } from './pitch-builder/scenarios';
+import { recordProcessEvent } from '../../utils/processStreamEvents';
 
 // PROOF_OF_ID_URL constant removed - now constructed dynamically with passcode in applyDynamicSubstitutions
 
@@ -140,12 +142,75 @@ interface ClientInfo {
   email: string;
 }
 
+const PITCH_BUILDER_SESSION_DRAFT_PREFIX = 'pitchBuilderState:';
+
+function getPitchBuilderDraftKey(enquiryId: Enquiry['ID']): string | null {
+  if (enquiryId == null) return null;
+  return `${PITCH_BUILDER_SESSION_DRAFT_PREFIX}${String(enquiryId)}`;
+}
+
+function clearSavedPitchBuilderDraft(enquiryId: Enquiry['ID']): void {
+  const key = getPitchBuilderDraftKey(enquiryId);
+  try {
+    if (key) sessionStorage.removeItem(key);
+    localStorage.removeItem('pitchBuilderState');
+  } catch {
+    // Storage is best-effort only.
+  }
+}
+
+function savePitchBuilderDraft(enquiryId: Enquiry['ID'], state: Record<string, unknown>): void {
+  const key = getPitchBuilderDraftKey(enquiryId);
+  if (!key) return;
+  sessionStorage.setItem(key, JSON.stringify(state));
+}
+
 // Escape attribute values for use within querySelector
 function escapeForSelector(value: string): string {
   if (typeof (window as any).CSS !== 'undefined' && (CSS as any).escape) {
     return (CSS as any).escape(value);
   }
   return value.replace(/(["'\\\[\]\.#:>+~*^$|?{}()])/g, '\\$1');
+}
+
+function loadSavedPitchBuilderDraft(enquiryId: Enquiry['ID']): any | null {
+  try {
+    const key = getPitchBuilderDraftKey(enquiryId);
+    if (!key) return null;
+    const saved = sessionStorage.getItem(key);
+    if (saved) {
+      const state = JSON.parse(saved);
+      if (!state || state.enquiryId == null) return null;
+      return String(state.enquiryId) === String(enquiryId) ? state : null;
+    }
+
+    const legacySaved = localStorage.getItem('pitchBuilderState');
+    if (!legacySaved) return null;
+    const legacyState = JSON.parse(legacySaved);
+    localStorage.removeItem('pitchBuilderState');
+    if (!legacyState || legacyState.enquiryId == null || enquiryId == null) return null;
+    if (String(legacyState.enquiryId) !== String(enquiryId)) return null;
+    savePitchBuilderDraft(enquiryId, legacyState);
+    return legacyState;
+  } catch (e) {
+    console.error('Failed to parse saved pitch builder state', e);
+    return null;
+  }
+}
+
+function requiresInstructLinkForScenario(scenarioId: string | undefined | null): boolean {
+  return !!scenarioId && scenarioId !== 'before-call-call';
+}
+
+function hasInstructLinkToken(html: string | undefined | null): boolean {
+  return /\[InstructLink\]/i.test(String(html || ''));
+}
+
+function formatDraftSavedTime(value: unknown): string | null {
+  if (!value) return null;
+  const date = new Date(String(value));
+  if (!Number.isFinite(date.getTime())) return null;
+  return date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 }
 
 // Inject styles for inline block labels and option callout
@@ -810,7 +875,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
   const [initialScopeDescription, setInitialScopeDescription] = useState<string>(initialOption?.text || '');
   const [selectedOption, setSelectedOption] = useState<IDropdownOption | undefined>(initialOption);
   // Default estimated fee now set to 1,500 per request
-  const [amount, setAmount] = useState<string>('1500');
+  const [amount, setAmount] = useState<string>(DEFAULT_PITCH_AMOUNT);
   const [noAmountMode, setNoAmountMode] = useState<boolean>(false);
   // Demo mode: when on, the passcode-only flow skips the real deal-capture API
   // and surfaces the locally pre-generated passcode after a short animated delay
@@ -1286,56 +1351,48 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
   const [blocks, setBlocks] = useState<TemplateBlock[]>([]);
   const [savedSnippets, setSavedSnippets] = useState<{ [key: string]: string }>({});
   const suppressSaveRef = useRef(false);
+  const clearedDraftSnapshotRef = useRef<string | null>(null);
+  const savedPitchBuilderDraftRef = useRef<any | null>(loadSavedPitchBuilderDraft(enquiry.ID));
+  const hasRestoredPitchDraft = Boolean(savedPitchBuilderDraftRef.current);
+  const restoredDraftSavedAt = formatDraftSavedTime(savedPitchBuilderDraftRef.current?.savedAt);
 
   useEffect(() => {
-    const saved = localStorage.getItem('pitchBuilderState');
-    const shouldResume = localStorage.getItem('resumePitchBuilder') === 'true';
     let initialSet: TemplateSet = 'Database';
-    if (saved) {
-      try {
-        const state = JSON.parse(saved);
-        if (state.enquiryId !== enquiry.ID) {
-          handleTemplateSetChange(initialSet);
-          return;
-        }
+    const state = savedPitchBuilderDraftRef.current;
+    if (state) {
 
-        if (state.templateSet) {
-          setTemplateSet(state.templateSet);
-          initialSet = state.templateSet;
-        }
-        if (shouldResume) {
-          // Backward compatibility: migrate stored serviceDescription -> initialScopeDescription
-          if (state.serviceDescription && !state.initialScopeDescription) {
-            setInitialScopeDescription(state.serviceDescription);
-          }
-          if (state.initialScopeDescription) setInitialScopeDescription(state.initialScopeDescription);
-          if (state.selectedOption) setSelectedOption(state.selectedOption);
-          if (state.amount) setAmount(state.amount);
-          if (state.subject) setSubject(state.subject);
-          if (state.to) setTo(state.to);
-          if (state.cc) setCc(state.cc);
-          if (state.bcc) setBcc(state.bcc);
-          if (state.attachments) setAttachments(state.attachments);
-          if (state.followUp) setFollowUp(state.followUp);
-          if (state.activeTab) setActiveTab(state.activeTab);
-          if (state.selectedTemplateOptions) setSelectedTemplateOptions(state.selectedTemplateOptions);
-          if (state.insertedBlocks) setInsertedBlocks(state.insertedBlocks);
-          if (state.autoInsertedBlocks) setAutoInsertedBlocks(state.autoInsertedBlocks);
-          if (state.lockedBlocks) setLockedBlocks(state.lockedBlocks);
-          if (state.pinnedBlocks) setPinnedBlocks(state.pinnedBlocks);
-          if (state.editedBlocks) setEditedBlocks(state.editedBlocks);
-          if (state.editedSnippets) setEditedSnippets(state.editedSnippets);
-          if (state.originalBlockContent) setOriginalBlockContent(state.originalBlockContent);
-          if (state.originalSnippetContent) setOriginalSnippetContent(state.originalSnippetContent);
-          if (state.hiddenBlocks) setHiddenBlocks(state.hiddenBlocks);
-          if (state.blocks) setBlocks(state.blocks);
-          if (state.savedSnippets) setSavedSnippets(state.savedSnippets);
-          if (state.body) setBody(state.body);
-        }
-      } catch (e) {
-        console.error('Failed to parse saved pitch builder state', e);
-        initialSet = 'Database';
+      if (state.templateSet) {
+        setTemplateSet(state.templateSet);
+        initialSet = state.templateSet;
       }
+      // Backward compatibility: migrate stored serviceDescription -> initialScopeDescription
+      if (state.serviceDescription && !state.initialScopeDescription) {
+        setInitialScopeDescription(state.serviceDescription);
+      }
+      if (state.initialScopeDescription) setInitialScopeDescription(state.initialScopeDescription);
+      if (state.selectedOption) setSelectedOption(state.selectedOption);
+      if (state.amount) setAmount(state.amount);
+      if (state.subject) setSubject(state.subject);
+      if (state.to) setTo(state.to);
+      if (state.cc) setCc(state.cc);
+      if (state.bcc) setBcc(state.bcc);
+      if (state.attachments) setAttachments(state.attachments);
+      if (state.followUp) setFollowUp(state.followUp);
+      if (state.activeTab) setActiveTab(state.activeTab);
+      if (typeof state.selectedScenarioId === 'string') setSelectedScenarioId(state.selectedScenarioId);
+      if (state.selectedTemplateOptions) setSelectedTemplateOptions(state.selectedTemplateOptions);
+      if (state.insertedBlocks) setInsertedBlocks(state.insertedBlocks);
+      if (state.autoInsertedBlocks) setAutoInsertedBlocks(state.autoInsertedBlocks);
+      if (state.lockedBlocks) setLockedBlocks(state.lockedBlocks);
+      if (state.pinnedBlocks) setPinnedBlocks(state.pinnedBlocks);
+      if (state.editedBlocks) setEditedBlocks(state.editedBlocks);
+      if (state.editedSnippets) setEditedSnippets(state.editedSnippets);
+      if (state.originalBlockContent) setOriginalBlockContent(state.originalBlockContent);
+      if (state.originalSnippetContent) setOriginalSnippetContent(state.originalSnippetContent);
+      if (state.hiddenBlocks) setHiddenBlocks(state.hiddenBlocks);
+      if (state.blocks) setBlocks(state.blocks);
+      if (state.savedSnippets) setSavedSnippets(state.savedSnippets);
+      if (state.body) setBody(state.body);
     }
     handleTemplateSetChange(initialSet);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1468,6 +1525,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
   const [isErrorVisible, setIsErrorVisible] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [pitchHistoryContextHint, setPitchHistoryContextHint] = useState<string | null>(null);
+  const [pitchHistoryRefreshTick, setPitchHistoryRefreshTick] = useState(0);
 
   // **New State: Confirmation State for Draft Email Button**
   const [isDraftConfirmed, setIsDraftConfirmed] = useState<boolean>(false);
@@ -1547,6 +1605,40 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
   // Inline email send/draft status for confirmation modal
   const [emailStatus, setEmailStatus] = useState<'idle' | 'processing' | 'sent' | 'error'>('idle');
   const [emailMessage, setEmailMessage] = useState<string>('');
+
+  // Cross-surface hydrate: when the hero-header Send Pitch Link action completes for this
+  // enquiry, sync the passcode + no-payment mode + amount so the composer reflects it
+  // without waiting for a remount or refetch.
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent).detail || {};
+      const detailEnquiryId = String(detail.enquiryId ?? '');
+      const currentEnquiryId = String(enquiry?.ID ?? '');
+      if (!detailEnquiryId || !currentEnquiryId || detailEnquiryId !== currentEnquiryId) return;
+      if (typeof detail.passcode === 'string' && detail.passcode) {
+        setDealPasscode(detail.passcode);
+      }
+      if (detail.dealId != null && String(detail.dealId).trim()) {
+        const parsedDealId = Number(detail.dealId);
+        if (Number.isFinite(parsedDealId)) setDealId(parsedDealId);
+      }
+      if (typeof detail.serviceDescription === 'string' && detail.serviceDescription.trim()) {
+        setInitialScopeDescription(detail.serviceDescription.trim());
+      }
+      const includePayment = detail.includePayment !== false;
+      setNoAmountMode(!includePayment);
+      if (includePayment && typeof detail.amount === 'number' && detail.amount > 0) {
+        setAmount(detail.amount.toFixed(2));
+      }
+      const linkTypeLabel = String(detail.linkTypeLabel || (includePayment ? 'Payment, ID and document request link' : 'ID and document request link'));
+      setDealStatus('ready');
+      setEmailMessage(`${linkTypeLabel} created`);
+      setPitchHistoryContextHint('Client link just created. Timeline refresh queued.');
+      setPitchHistoryRefreshTick((tick) => tick + 1);
+    };
+    window.addEventListener('helix:pitch-link-activated', handler as EventListener);
+    return () => window.removeEventListener('helix:pitch-link-activated', handler as EventListener);
+  }, [enquiry?.ID]);
 
 
   // Tracks selected template options for each block
@@ -2891,6 +2983,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
    */
   function resetForm() {
     suppressSaveRef.current = true;
+    clearedDraftSnapshotRef.current = null;
     setSubject('Your Enquiry');
     setTo(enquiry.Email || '');
     setCc('');
@@ -2918,7 +3011,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
     setIsDraftConfirmed(false); // **Reset confirmation state**
     setDealId(null);
     setClientIds([]);
-    localStorage.removeItem('pitchBuilderState');
+    clearSavedPitchBuilderDraft(enquiry.ID);
 
     // Immediately clear any highlight styles from the DOM
     templateBlocks.forEach((block) => {
@@ -3219,7 +3312,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
   useEffect(() => {
     // Background deal creation disabled to prevent duplicate placeholder deals
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enquiry?.ID]);
+  }, [enquiry?.ID, pitchHistoryRefreshTick]);
 
   /**
    * Helper function to get email from team table by initials
@@ -3338,6 +3431,27 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
     if (!body || !enquiry.Point_of_Contact) {
       setErrorMessage('Email contents and recipient email are required.');
       setIsErrorVisible(true);
+      return;
+    }
+
+    if (requiresInstructLinkForScenario(selectedScenarioId) && !hasInstructLinkToken(body)) {
+      const message = 'Add [InstructLink] before sending this pitch.';
+      setErrorMessage(message);
+      setIsErrorVisible(true);
+      showToast('Instruction link missing', 'error', {
+        details: message,
+        duration: 5000
+      });
+      void recordProcessEvent({
+        formKey: 'pitch-builder',
+        lane: 'Escalate',
+        summary: 'Pitch send blocked because the instruction link token was missing',
+        eventName: 'pitch.email_send.blocked',
+        source: 'pitch-builder',
+        payload: { enquiryId: String(enquiry.ID), scenario: selectedScenarioId || null },
+        stepStatus: 'failed',
+        error: message,
+      });
       return;
     }
 
@@ -3504,6 +3618,31 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
 
       setEmailStatus('sent');
       setEmailMessage('Sent');
+      clearSavedPitchBuilderDraft(enquiry.ID);
+      clearedDraftSnapshotRef.current = body;
+      setPitchHistoryRefreshTick((tick) => tick + 1);
+      window.dispatchEvent(new CustomEvent('helix:pitch-email-sent', {
+        detail: {
+          enquiryId: String(enquiry.ID),
+          scenario: selectedScenarioId || null,
+          mode: 'send',
+        },
+      }));
+      void recordProcessEvent({
+        formKey: 'pitch-builder',
+        lane: 'Request',
+        summary: 'Pitch email sent from the wizard',
+        eventName: 'pitch.email_send.completed',
+        source: 'pitch-builder',
+        initials: feeEarnerInitials || null,
+        payload: {
+          enquiryId: String(enquiry.ID),
+          scenario: selectedScenarioId || null,
+          recipient: emailTo,
+          hasAttachments: attachments.length > 0,
+        },
+        stepStatus: 'success',
+      });
 
       setIsSuccessVisible(true);
       // Don't reset form after sending - users may want to send follow-ups or make edits
@@ -3530,6 +3669,21 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
       setIsErrorVisible(true);
       setEmailStatus('error');
       setEmailMessage(errorMsg);
+      void recordProcessEvent({
+        formKey: 'pitch-builder',
+        lane: 'Escalate',
+        summary: 'Pitch email send failed from the wizard',
+        eventName: 'pitch.email_send.failed',
+        source: 'pitch-builder',
+        initials: feeEarnerInitials || null,
+        payload: {
+          enquiryId: String(enquiry.ID),
+          scenario: selectedScenarioId || null,
+          recipient: emailTo,
+        },
+        stepStatus: 'failed',
+        error: errorMsg,
+      });
       
       showToast('Failed to send email', 'error', {
         details: errorMsg,
@@ -3562,6 +3716,27 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
     if (!body || !enquiry.Point_of_Contact) {
       setErrorMessage('Email contents and user email are required.');
       setIsErrorVisible(true);
+      return;
+    }
+
+    if (requiresInstructLinkForScenario(selectedScenarioId) && !hasInstructLinkToken(body)) {
+      const message = 'Add [InstructLink] before drafting this pitch.';
+      setErrorMessage(message);
+      setIsErrorVisible(true);
+      showToast('Instruction link missing', 'error', {
+        details: message,
+        duration: 5000
+      });
+      void recordProcessEvent({
+        formKey: 'pitch-builder',
+        lane: 'Escalate',
+        summary: 'Pitch draft blocked because the instruction link token was missing',
+        eventName: 'pitch.email_draft.blocked',
+        source: 'pitch-builder',
+        payload: { enquiryId: String(enquiry.ID), scenario: selectedScenarioId || null },
+        stepStatus: 'failed',
+        error: message,
+      });
       return;
     }
     
@@ -3712,6 +3887,31 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
 
       setEmailStatus('sent');
       setEmailMessage('Draft created');
+      clearSavedPitchBuilderDraft(enquiry.ID);
+      clearedDraftSnapshotRef.current = body;
+      setPitchHistoryRefreshTick((tick) => tick + 1);
+      window.dispatchEvent(new CustomEvent('helix:pitch-email-sent', {
+        detail: {
+          enquiryId: String(enquiry.ID),
+          scenario: selectedScenarioId || null,
+          mode: 'draft',
+        },
+      }));
+      void recordProcessEvent({
+        formKey: 'pitch-builder',
+        lane: 'Request',
+        summary: 'Pitch email draft created from the wizard',
+        eventName: 'pitch.email_draft.completed',
+        source: 'pitch-builder',
+        initials: feeEarnerInitials || null,
+        payload: {
+          enquiryId: String(enquiry.ID),
+          scenario: selectedScenarioId || null,
+          recipient: to,
+          hasAttachments: attachments.length > 0,
+        },
+        stepStatus: 'success',
+      });
 
       setIsSuccessVisible(true);
       setIsDraftConfirmed(true); // **Set confirmation state**
@@ -3724,6 +3924,21 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
       setIsErrorVisible(true);
       setEmailStatus('error');
       setEmailMessage(error.message || 'Unable to create email draft');
+      void recordProcessEvent({
+        formKey: 'pitch-builder',
+        lane: 'Escalate',
+        summary: 'Pitch email draft failed from the wizard',
+        eventName: 'pitch.email_draft.failed',
+        source: 'pitch-builder',
+        initials: feeEarnerInitials || null,
+        payload: {
+          enquiryId: String(enquiry.ID),
+          scenario: selectedScenarioId || null,
+          recipient: to,
+        },
+        stepStatus: 'failed',
+        error: error.message || 'Unable to create email draft',
+      });
       showToast('Failed to draft email', 'error', {
         details: error.message || 'Unable to create email draft',
         icon: 'MailSolid',
@@ -4473,6 +4688,9 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
         suppressSaveRef.current = false;
         return;
       }
+      if (clearedDraftSnapshotRef.current === body) {
+        return;
+      }
       const state = {
         templateSet,
         initialScopeDescription,
@@ -4486,6 +4704,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
         attachments,
         followUp,
         activeTab,
+        selectedScenarioId,
         selectedTemplateOptions,
         insertedBlocks,
         autoInsertedBlocks,
@@ -4499,6 +4718,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
         blocks,
         savedSnippets,
         enquiryId: enquiry.ID,
+        savedAt: new Date().toISOString(),
       };
       const sections = Object.keys(insertedBlocks)
         .filter((title) => insertedBlocks[title])
@@ -4519,7 +4739,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
         }).catch((err) => console.error('Failed to save pitch sections', err));
       }
       try {
-        localStorage.setItem('pitchBuilderState', JSON.stringify(state));
+        savePitchBuilderDraft(enquiry.ID, state);
       } catch (e) {
         if (e instanceof DOMException && e.name === 'QuotaExceededError') {
           // Try to trim large fields and retry
@@ -4531,10 +4751,10 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
             trimmed.body = trimmed.body.slice(0, 2000) + '…';
           }
           try {
-            localStorage.setItem('pitchBuilderState', JSON.stringify(trimmed));
+            savePitchBuilderDraft(enquiry.ID, trimmed);
           } catch (e2) {
             // If still fails, clear the key and log error
-            localStorage.removeItem('pitchBuilderState');
+            clearSavedPitchBuilderDraft(enquiry.ID);
             // Optionally, surface a user notification here
             console.error('PitchBuilder: Could not save state, storage quota exceeded and fallback failed.', e2);
           }
@@ -4556,6 +4776,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
     attachments,
     followUp,
     activeTab,
+    selectedScenarioId,
     selectedTemplateOptions,
     insertedBlocks,
     autoInsertedBlocks,
@@ -4773,7 +4994,9 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
           emailStatus={emailStatus}
           emailMessage={emailMessage}
           onScenarioChange={setSelectedScenarioId}
-          initialScenario={initialScenario}
+          initialScenario={selectedScenarioId || initialScenario}
+          hasRestoredDraft={hasRestoredPitchDraft}
+          restoredDraftSavedAt={restoredDraftSavedAt}
           pitchFlowLocked={false}
         />
 

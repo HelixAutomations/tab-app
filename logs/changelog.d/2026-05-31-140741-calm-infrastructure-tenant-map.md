@@ -1,0 +1,1 @@
+2026-05-31 / Calm infrastructure tenant map / Reduced visual noise on the Roadmap Infrastructure route. Tenant strip is now a single line, subscriptions render as compact tiles, resource groups as chips, and full group detail (category, regions, resource families) only appears on hover or focus in a sticky side panel. (~ src/tabs/roadmap/system/SystemInfrastructureView.tsx)

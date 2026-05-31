@@ -1,0 +1,1 @@
+2026-05-30 / Infrastructure view as system diagram / Replaced the prose infrastructure overview with an SVG diagram showing the three surfaces, the shared data plane, and the integrations actually wired in this codebase, with proven/partial/idea line styles. (~ src/tabs/roadmap/system/SystemInfrastructureView.tsx)

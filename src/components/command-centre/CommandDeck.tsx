@@ -27,6 +27,9 @@ interface HealthData {
 interface RouteCheck { id: string; name: string; group: string; status: 'healthy' | 'unhealthy' | 'error'; responseMs?: number; error?: string }
 interface HealthPayload { summary: { healthy: number; unhealthy: number; total: number }; durationMs: number; checks: RouteCheck[] }
 type EnvResult = { env: 'local' | 'production'; status: 'ok' | 'fail' | 'loading'; data: HealthPayload | null; error: string | null };
+type ToggleDef = { key: string; label: string; hint: string; enabled: boolean; accent: string; onToggle: () => void };
+type ToolGroup = 'diag' | 'demo' | 'utils';
+type Tool = { key: string; label: string; hint: string; icon: React.ReactNode; badge?: number; onClick: () => void; group: ToolGroup; tone?: 'default' | 'warning' };
 
 interface TrackedError {
     id: string;
@@ -224,11 +227,12 @@ const CommandDeck: React.FC<CommandDeckProps> = (props) => {
          Home view toggles share one surface.
     */
     const toggleDefs = useMemo(() => {
-        const items: Array<{ key: string; label: string; enabled: boolean; accent: string; onToggle: () => void }> = [];
+        const items: ToggleDef[] = [];
 
         items.push({
             key: 'demo',
             label: 'Demo mode',
+            hint: 'Use seeded demo data and rehearsal states.',
             enabled: demoModeEnabled,
             accent: colours.green,
             onToggle: () => {
@@ -241,6 +245,7 @@ const CommandDeck: React.FC<CommandDeckProps> = (props) => {
             items.push({
                 key: 'prod',
                 label: 'View as prod',
+                hint: 'Hide local-only dev affordances.',
                 enabled: !!featureToggles.viewAsProd,
                 accent: colours.cta,
                 onToggle: () => {
@@ -254,6 +259,7 @@ const CommandDeck: React.FC<CommandDeckProps> = (props) => {
             items.push({
                 key: 'showOpsQueue',
                 label: 'Ops queue on Home',
+                hint: 'Expose the Home operations queue block.',
                 enabled: !!featureToggles.showOpsQueue,
                 accent: colours.cta,
                 onToggle: () => {
@@ -265,6 +271,7 @@ const CommandDeck: React.FC<CommandDeckProps> = (props) => {
             items.push({
                 key: 'showHomeOpsCclDates',
                 label: 'CCL dates on Home',
+                hint: 'Show CCL operational dates in Home.',
                 enabled: !!featureToggles.showHomeOpsCclDates,
                 accent: isDarkMode ? colours.accent : colours.highlight,
                 onToggle: () => {
@@ -276,6 +283,7 @@ const CommandDeck: React.FC<CommandDeckProps> = (props) => {
             items.push({
                 key: 'previewClaimedQueueHolding',
                 label: 'Preview claimed holding state',
+                hint: 'Open Prospects in the empty claimed-queue preview.',
                 enabled: !!featureToggles.previewClaimedQueueHolding,
                 accent: isDarkMode ? colours.accent : colours.highlight,
                 onToggle: () => {
@@ -299,6 +307,7 @@ const CommandDeck: React.FC<CommandDeckProps> = (props) => {
         if (isDevOwner) items.push({
             key: 'uxLatencyOverlay',
             label: 'UX latency overlay',
+            hint: 'Show local interaction timing feedback.',
             enabled: uxOverlayOn,
             accent: colours.cta,
             onToggle: () => {
@@ -335,6 +344,7 @@ const CommandDeck: React.FC<CommandDeckProps> = (props) => {
         if (isDevOwner) items.push({
             key: 'homeReplacePipeline',
             label: 'Replace pipeline/matters with ToDo',
+            hint: 'Swap Home pipeline and matters for the To Do block.',
             enabled: replacePipelineOn,
             accent: isDarkMode ? colours.accent : colours.highlight,
             onToggle: () => {
@@ -353,26 +363,25 @@ const CommandDeck: React.FC<CommandDeckProps> = (props) => {
          place every admin-only action lives. Demo chip is one-click toggle only.
        - Tools grouped: Diagnostics / Demo lab / Utilities.
     */
-    type ToolGroup = 'diag' | 'demo' | 'utils';
-    type Tool = { key: string; label: string; icon: React.ReactNode; badge?: number; onClick: () => void; group: ToolGroup };
     const toolDefs = useMemo<Tool[]>(() => {
         const tools: Tool[] = [];
         if (isDevOwner) {
-            tools.push({ key: 'devDash', label: 'Dev Dashboard', icon: icons.dashboard, onClick: onDevDashboard, group: 'diag' });
-            tools.push({ key: 'errorTracker', label: 'Error Tracker', icon: icons.error, badge: errorCount || undefined, onClick: onErrorTracker, group: 'diag' });
-            tools.push({ key: 'loadingDebug', label: 'Loading Debug', icon: icons.loading, onClick: onLoadingDebug, group: 'diag' });
+            tools.push({ key: 'devDash', label: 'Dev dashboard', hint: 'Inspect local app and route diagnostics.', icon: icons.dashboard, onClick: onDevDashboard, group: 'diag' });
+            tools.push({ key: 'errorTracker', label: 'Error tracker', hint: 'Review runtime and boundary errors.', icon: icons.error, badge: errorCount || undefined, onClick: onErrorTracker, group: 'diag' });
+            tools.push({ key: 'loadingDebug', label: 'Loading debug', hint: 'Exercise boot and loading surfaces.', icon: icons.loading, onClick: onLoadingDebug, group: 'diag' });
             if (onErrorPreview) {
-                tools.push({ key: 'errorPreview', label: 'Preview error page', icon: icons.errorPreview, onClick: onErrorPreview, group: 'diag' });
+                tools.push({ key: 'errorPreview', label: 'Preview error page', hint: 'Open the failure-state preview.', icon: icons.errorPreview, onClick: onErrorPreview, group: 'diag' });
             }
         }
         if (isDevOwner) {
             if (onOpenDemoMatter) {
-                tools.push({ key: 'demoMatter', label: 'Demo Matter', icon: icons.matter, onClick: () => onOpenDemoMatter(false), group: 'demo' });
+                tools.push({ key: 'demoMatter', label: 'Demo matter', hint: 'Open the seeded matter walkthrough.', icon: icons.matter, onClick: () => onOpenDemoMatter(false), group: 'demo' });
             }
-            tools.push({ key: 'prompts', label: 'Prompt Seeds', icon: icons.prompts, onClick: onDemoPrompts, group: 'demo' });
+            tools.push({ key: 'prompts', label: 'Prompt seeds', hint: 'Open reusable demo prompt starters.', icon: icons.prompts, onClick: onDemoPrompts, group: 'demo' });
             tools.push({
                 key: 'realtimePulse',
-                label: 'Realtime Pulse',
+                label: 'Realtime pulse',
+                hint: 'Trigger the live-update cue across demo surfaces.',
                 icon: icons.activity,
                 group: 'demo',
                 onClick: () => {
@@ -386,6 +395,7 @@ const CommandDeck: React.FC<CommandDeckProps> = (props) => {
                 tools.push({
                     key: `ledger-${status}`,
                     label: `Ledger ${streamStatusMeta[status].label}`,
+                    hint: 'Seed a process-stream ledger example.',
                     icon: icons.activity,
                     group: 'demo',
                     onClick: () => {
@@ -403,9 +413,11 @@ const CommandDeck: React.FC<CommandDeckProps> = (props) => {
             });
             tools.push({
                 key: 'resetDemo',
-                label: 'Reset Demo State',
+                label: 'Reset demo state',
+                hint: 'Clear rehearsal caches and switch demo mode off.',
                 icon: icons.refresh,
                 group: 'demo',
+                tone: 'warning',
                 onClick: () => {
                     try {
                         const keys = Object.keys(localStorage).filter((k) => {
@@ -420,14 +432,23 @@ const CommandDeck: React.FC<CommandDeckProps> = (props) => {
                 },
             });
         }
+        tools.push({ key: 'activity', label: 'Activity', hint: 'Open the live operations activity monitor.', icon: icons.activity, onClick: () => openReportingUtility('logMonitor'), group: 'utils' });
+        tools.push({ key: 'dataCentre', label: 'Data', hint: 'Open the data centre utility view.', icon: icons.data, onClick: () => openReportingUtility('dataCentre'), group: 'utils' });
+        tools.push({ key: 'refresh', label: 'Refresh', hint: 'Open the manual refresh control.', icon: icons.refresh, onClick: () => { setShowRefreshModal(true); onClose(); }, group: 'utils' });
         if (isDevOwner) {
-            tools.push({ key: 'migration', label: 'Migration', icon: icons.migration, onClick: onMigrationTool, group: 'utils' });
+            tools.push({ key: 'migration', label: 'Migration', hint: 'Open the legacy migration utility.', icon: icons.migration, onClick: onMigrationTool, group: 'utils' });
         }
         if (onOpenReleaseNotesModal) {
-            tools.push({ key: 'changelog', label: 'Changelog', icon: icons.release, onClick: () => { onOpenReleaseNotesModal(); onClose(); }, group: 'utils' });
+            tools.push({ key: 'changelog', label: 'Changelog', hint: 'Review recent shipped changes.', icon: icons.release, onClick: () => { onOpenReleaseNotesModal(); onClose(); }, group: 'utils' });
         }
         return tools;
-    }, [demoModeEnabled, errorCount, isAdminEligible, isDevOwner, onDevDashboard, onErrorTracker, onErrorPreview, onLoadingDebug, onDemoPrompts, onMigrationTool, onOpenDemoMatter, onOpenReleaseNotesModal, onToggleDemoMode, onClose, showToast]);
+    }, [demoModeEnabled, errorCount, isAdminEligible, isDevOwner, onDevDashboard, onErrorTracker, onErrorPreview, onLoadingDebug, onDemoPrompts, onMigrationTool, onOpenDemoMatter, onOpenReleaseNotesModal, onToggleDemoMode, openReportingUtility, setShowRefreshModal, onClose, showToast]);
+
+    const commandGroups = useMemo(() => ([
+        { id: 'demo' as const, title: 'Demo and preview', hint: 'Rehearsal states, seeded data and visual previews.' },
+        { id: 'diag' as const, title: 'Diagnostics', hint: 'Debug the current shell and spot runtime failures.' },
+        { id: 'utils' as const, title: 'Utilities', hint: 'Operational shortcuts that open supporting views.' },
+    ]), []);
 
     const envDotColour = useCallback((r: EnvResult): string => {
         if (r.status === 'loading') return colours.subtleGrey;
@@ -454,7 +475,10 @@ const CommandDeck: React.FC<CommandDeckProps> = (props) => {
                     <div className="cmd-deck__header-icon" style={{ color: environmentColour }}>
                         {icons.settings}
                     </div>
-                    <span className="cmd-deck__header-title">Session Tools</span>
+                    <div className="cmd-deck__title-block">
+                        <span className="cmd-deck__header-title">Session control</span>
+                        <span className="cmd-deck__header-subtitle">Set context, inspect health, launch the right tool.</span>
+                    </div>
                     <div className="cmd-deck__header-meta">
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: environmentColour, textTransform: 'uppercase', fontSize: 8, fontWeight: 700, letterSpacing: '0.4px' }}>
                             <span style={{ width: 4, height: 4, borderRadius: 999, background: environmentColour }} />
@@ -469,27 +493,37 @@ const CommandDeck: React.FC<CommandDeckProps> = (props) => {
 
                 {/* ─── Body ─── */}
                 <div className="cmd-deck__body">
-                    {/* Status strip */}
-                    <div className="cmd-deck__status">
-                        <div className="cmd-deck__status-dot" onClick={() => setHealthExpanded(v => !v)} title="Server health">
-                            <span className="cmd-deck__status-dot__indicator" style={{ background: healthDotColour(healthData, healthLoading) }} />
-                            <span className="cmd-deck__status-dot__label">Health</span>
+                    <section className="cmd-deck__section" data-helix-region="modal/session-control/system-state">
+                        <div className="cmd-deck__section-head">
+                            <div>
+                                <div className="cmd-deck__section-label">System state</div>
+                                <div className="cmd-deck__section-hint">Quick confidence checks for this session.</div>
+                            </div>
                         </div>
-                        <div className="cmd-deck__status-dot" onClick={() => { onRefreshRoutes(); showToast('Probing routes…', 'info'); }} title="Route status">
-                            <span className="cmd-deck__status-dot__indicator" style={{ background: routeDotColour(routeResults) }} />
-                            <span className="cmd-deck__status-dot__label">Routes</span>
+                        <div className="cmd-deck__status">
+                            <button type="button" className="cmd-deck__status-dot" onClick={() => setHealthExpanded(v => !v)} title="Server health">
+                                <span className="cmd-deck__status-dot__indicator" style={{ background: healthDotColour(healthData, healthLoading) }} />
+                                <span className="cmd-deck__status-dot__label">Server</span>
+                                <span className="cmd-deck__status-dot__value">{healthLoading ? 'Checking' : healthData?.overall || 'Unknown'}</span>
+                            </button>
+                            <button type="button" className="cmd-deck__status-dot" onClick={() => { onRefreshRoutes(); showToast('Probing routes…', 'info'); }} title="Route status">
+                                <span className="cmd-deck__status-dot__indicator" style={{ background: routeDotColour(routeResults) }} />
+                                <span className="cmd-deck__status-dot__label">Routes</span>
+                                <span className="cmd-deck__status-dot__value">Probe</span>
+                            </button>
+                            <div className="cmd-deck__status-dot" title="Data freshness">
+                                <span className="cmd-deck__status-dot__indicator" style={{ background: dataDotColour(enquiriesLiveRefreshInFlight, enquiriesUsingSnapshot, enquiriesLastLiveSyncAt) }} />
+                                <span className="cmd-deck__status-dot__label">Data</span>
+                                <span className="cmd-deck__status-dot__value">{dataLabel(enquiriesLiveRefreshInFlight, enquiriesUsingSnapshot, enquiriesLastLiveSyncAt)}</span>
+                            </div>
                         </div>
-                        <div className="cmd-deck__status-dot" title="Data freshness">
-                            <span className="cmd-deck__status-dot__indicator" style={{ background: dataDotColour(enquiriesLiveRefreshInFlight, enquiriesUsingSnapshot, enquiriesLastLiveSyncAt) }} />
-                            <span className="cmd-deck__status-dot__label">{dataLabel(enquiriesLiveRefreshInFlight, enquiriesUsingSnapshot, enquiriesLastLiveSyncAt)}</span>
-                        </div>
-                    </div>
+                    </section>
 
                     {showLocalSupportControls && (
-                        <div className="cmd-deck__support" aria-label="Local support mode">
+                        <section className="cmd-deck__section cmd-deck__section--support" data-helix-region="modal/session-control/session-setup" aria-label="Session setup">
                             <div className="cmd-deck__support-head">
                                 <div>
-                                    <div className="cmd-deck__section-label">Local support mode</div>
+                                    <div className="cmd-deck__section-label">Session setup</div>
                                     <div className="cmd-deck__support-summary">
                                         {currentSupportModeOption.label} · {LOCAL_DATA_SCOPE_OPTIONS.find(option => option.id === currentDataScope)?.label || 'Data'}
                                     </div>
@@ -544,7 +578,7 @@ const CommandDeck: React.FC<CommandDeckProps> = (props) => {
                                 })}
                             </div>
                             <div className="cmd-deck__support-note">Live boot scope is applied on reload. Runtime streams and tab warm-up follow this choice immediately.</div>
-                        </div>
+                        </section>
                     )}
 
                     {/* Health detail (inline expand) */}
@@ -593,8 +627,13 @@ const CommandDeck: React.FC<CommandDeckProps> = (props) => {
 
                     {/* View tiles — each toggle is its own clickable tile with check + label.
                         Tile lights up with the toggle's accent colour when on. */}
-                    <div>
-                        <div className="cmd-deck__section-label">View</div>
+                    <section className="cmd-deck__section" data-helix-region="modal/session-control/view-switches">
+                        <div className="cmd-deck__section-head">
+                            <div>
+                                <div className="cmd-deck__section-label">View switches</div>
+                                <div className="cmd-deck__section-hint">Temporary context changes for the current operator session.</div>
+                            </div>
+                        </div>
                         <div className="cmd-deck__view-grid" style={{ marginTop: 6 }}>
                             {toggleDefs.map(t => (
                                 <button
@@ -619,11 +658,14 @@ const CommandDeck: React.FC<CommandDeckProps> = (props) => {
                                             <polyline points="20 6 9 17 4 12" />
                                         </svg>
                                     </span>
-                                    <span className="cmd-deck__view-label">{t.label}</span>
+                                    <span className="cmd-deck__view-copy">
+                                        <span className="cmd-deck__view-label">{t.label}</span>
+                                        <span className="cmd-deck__view-hint">{t.hint}</span>
+                                    </span>
                                 </button>
                             ))}
                         </div>
-                    </div>
+                    </section>
 
                     {/* Inline errors (last 3) */}
                     {recentErrors.length > 0 && (
@@ -645,49 +687,45 @@ const CommandDeck: React.FC<CommandDeckProps> = (props) => {
                         </div>
                     )}
 
-                    {/* Tools — flat grid. The previous Diagnostics / Demo lab / Utilities sub-headings
-                        added 3 lines of chrome for ~7 buttons; one heading + one grid is calmer. */}
+                    {/* Tools grouped by intent so the panel behaves like a control surface, not a mixed drawer. */}
                     {toolDefs.length > 0 && (
-                        <div>
-                            <div className="cmd-deck__section-label">Tools</div>
-                            <div className="cmd-deck__grid" style={{ marginTop: 6 }}>
-                                {toolDefs.map((tool) => (
-                                    <button
-                                        key={tool.key}
-                                        type="button"
-                                        className="cmd-deck__card"
-                                        onClick={tool.onClick}
-                                        title={tool.label}
-                                    >
-                                        <span className="cmd-deck__card-icon">{tool.icon}</span>
-                                        <span className="cmd-deck__card-label">{tool.label}</span>
-                                        {tool.badge != null && tool.badge > 0 && (
-                                            <span className="cmd-deck__card-badge">{tool.badge}</span>
-                                        )}
-                                    </button>
-                                ))}
-                            </div>
+                        <div className="cmd-deck__command-stack" data-helix-region="modal/session-control/commands">
+                            {commandGroups.map((group) => {
+                                const groupTools = toolDefs.filter(tool => tool.group === group.id);
+                                if (groupTools.length === 0) return null;
+                                return (
+                                    <section key={group.id} className="cmd-deck__section cmd-deck__section--commands">
+                                        <div className="cmd-deck__section-head">
+                                            <div>
+                                                <div className="cmd-deck__section-label">{group.title}</div>
+                                                <div className="cmd-deck__section-hint">{group.hint}</div>
+                                            </div>
+                                        </div>
+                                        <div className="cmd-deck__command-grid">
+                                            {groupTools.map((tool) => (
+                                                <button
+                                                    key={tool.key}
+                                                    type="button"
+                                                    className={`cmd-deck__card${tool.tone === 'warning' ? ' cmd-deck__card--warning' : ''}`}
+                                                    onClick={tool.onClick}
+                                                    title={tool.label}
+                                                >
+                                                    <span className="cmd-deck__card-icon">{tool.icon}</span>
+                                                    <span className="cmd-deck__card-copy">
+                                                        <span className="cmd-deck__card-label">{tool.label}</span>
+                                                        <span className="cmd-deck__card-hint">{tool.hint}</span>
+                                                    </span>
+                                                    {tool.badge != null && tool.badge > 0 && (
+                                                        <span className="cmd-deck__card-badge">{tool.badge}</span>
+                                                    )}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </section>
+                                );
+                            })}
                         </div>
                     )}
-                </div>
-
-                {/* ─── Footer ───
-                    Switch user / Return-to-admin removed (UserBubble is canonical for those).
-                    Refresh kept here as a one-click for dev/diagnostic flows.
-                */}
-                <div className="cmd-deck__footer">
-                    <button type="button" className="cmd-deck__footer-btn" onClick={() => openReportingUtility('logMonitor')}>
-                        {icons.activity}
-                        Activity
-                    </button>
-                    <button type="button" className="cmd-deck__footer-btn" onClick={() => openReportingUtility('dataCentre')}>
-                        {icons.data}
-                        Data
-                    </button>
-                    <button type="button" className="cmd-deck__footer-btn" onClick={() => { setShowRefreshModal(true); onClose(); }}>
-                        {icons.refresh}
-                        Refresh
-                    </button>
                 </div>
             </div>
         </>

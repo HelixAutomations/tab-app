@@ -379,7 +379,6 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
           alignItems: 'center',
           gap: isCompact ? 6 : 8,
           minWidth: 0,
-          maxWidth: '100%',
           flex: isCompact ? '1 1 100%' : '1 1 0',
           flexWrap: isCompact ? 'wrap' : 'nowrap',
           ...(isCompact
@@ -407,6 +406,12 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
           const chipHoverBg = isPreview
             ? withAlpha(previewAccent, isDarkMode ? 0.12 : 0.08)
             : interactiveHoverBg;
+          const chipBorderBase = isDarkMode
+            ? (isPreview ? previewBorder : `rgba(54, 144, 206, ${isActive ? '0.35' : '0.18'})`)
+            : (isPreview ? previewBorder : (isActive ? 'rgba(0,0,0,0.09)' : 'rgba(0,0,0,0.06)'));
+          const chipLeftBorder = isActive || isPreview
+            ? chipAccent
+            : (isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.25)');
 
           return (
             <button
@@ -427,10 +432,9 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
                     ? `linear-gradient(0deg, ${isPreview ? previewActiveOverlay : 'rgba(54, 144, 206, 0.12)'}, ${isPreview ? previewActiveOverlay : 'rgba(54, 144, 206, 0.12)'}), #061733`
                     : `${chipAccent}${isDarkMode ? '1A' : '10'}`)
                   : isDarkMode ? colours.darkBlue : 'transparent',
-                border: isDarkMode
-                  ? `0.5px solid ${isPreview ? previewBorder : `rgba(54, 144, 206, ${isActive ? '0.35' : '0.18'})`}`
-                  : `0.5px solid ${isPreview ? previewBorder : (isActive ? 'rgba(0,0,0,0.09)' : 'rgba(0,0,0,0.06)')}`,
-                borderLeft: `2px solid ${isActive || isPreview ? chipAccent : (isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.25)')}`,
+                borderStyle: 'solid',
+                borderWidth: '0.5px 0.5px 0.5px 2px',
+                borderColor: `${chipBorderBase} ${chipBorderBase} ${chipBorderBase} ${chipLeftBorder}`,
                 borderRadius: 2,
                 color: isActive ? chipAccent : textPrimary,
                 fontSize: 12,
@@ -440,8 +444,8 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
                 transition: 'all 0.2s ease',
                 whiteSpace: 'nowrap',
                 minWidth: isCompact ? 36 : 0,
-                maxWidth: '100%',
-                flex: isCompact ? '0 1 40px' : '0 1 auto',
+                maxWidth: isCompact ? 40 : 118,
+                flex: isCompact ? '0 1 40px' : '1 1 0',
                 animation: isCompact ? 'none' : (expanded ? `fadeInChip 0.2s ease ${index * 0.03}s both` : 'none'),
                 ['--qa-chip-hover-bg' as string]: isDarkMode
                   ? (isPreview ? `linear-gradient(0deg, ${withAlpha(previewAccent, 0.1)}, ${withAlpha(previewAccent, 0.1)}), #061733` : 'linear-gradient(0deg, rgba(54, 144, 206, 0.08), rgba(54, 144, 206, 0.08)), #061733')
@@ -467,6 +471,7 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
                   style={{
                     overflow: 'hidden',
                     minWidth: 0,
+                    flex: '1 1 auto',
                     textOverflow: 'ellipsis',
                     display: 'inline-block',
                     whiteSpace: 'nowrap',

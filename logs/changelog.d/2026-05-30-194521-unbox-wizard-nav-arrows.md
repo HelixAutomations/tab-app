@@ -1,0 +1,1 @@
+2026-05-30 / Unbox wizard nav arrows / Swapped the Pitch Builder wizard Next/Back unicode arrows for thin SVG arrows with the same light glide animation used on the scenario cards, so the arrow treatment is consistent across the composer. (~ src/tabs/enquiries/pitch-builder/PitchTypeformWizard.tsx, ~ src/tabs/enquiries/pitch-builder/PitchBuilderRefresh.css)

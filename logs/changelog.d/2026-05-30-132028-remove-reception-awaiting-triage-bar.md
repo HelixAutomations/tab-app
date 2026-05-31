@@ -1,0 +1,1 @@
+2026-05-30 / Remove Reception awaiting triage bar / Drop the 'Awaiting triage' signal bar from the handler drill-down; it duplicated the per-row warning chips. (~ src/tabs/Reporting/ReceptionReport.tsx)

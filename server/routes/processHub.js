@@ -4,6 +4,7 @@ const { withRequest } = require('../utils/db');
 const { trackEvent, trackMetric, trackException } = require('../utils/appInsights');
 const { sendCardToDM } = require('../utils/teamsNotificationClient');
 const {
+  recordSubmission,
   loadSubmission,
   bumpRetrigger,
   archiveSubmission,
@@ -16,6 +17,7 @@ const router = express.Router();
 const PROCESS_HEALTH_ALERT_RECIPIENT = 'lz@helix-law.com';
 const PROCESS_HEALTH_ALERT_COOLDOWN_MS = 15 * 60 * 1000;
 const ADMIN_INITIALS = new Set(['LZ', 'AC', 'KW', 'JW', 'LA', 'EA']);
+const PROCESS_LANES = new Set(['Start', 'Request', 'Log', 'Escalate', 'Find']);
 let lastProcessHubAlert = {
   reason: '',
   sentAt: 0,
@@ -129,6 +131,16 @@ function resolveActorInitials(req) {
       || req.user?.Initials
       || req.userContext?.initials
   );
+}
+
+function clampText(value, max, fallback = '') {
+  const text = value == null ? '' : String(value).trim();
+  return (text || fallback).slice(0, max);
+}
+
+function normaliseLane(value) {
+  const lane = clampText(value, 32, 'Log');
+  return PROCESS_LANES.has(lane) ? lane : 'Log';
 }
 
 function toProcessStatus(status) {
@@ -284,7 +296,14 @@ async function probeProcessHub(limit, { initials, scope } = {}) {
 
   const rows = await withRequest(getConnectionString(), async (request) => {
     request.input('limit', sql.Int, limit);
-    let whereClause = 'WHERE archived_at IS NULL';
+    // Forms Stream is for human-meaningful form submissions and quick actions
+    // only. Generic API audit rows (kind='activity', formKey LIKE 'activity.%',
+    // or the legacy `api-*` prefix used pre-kind-migration) move to the new
+    // System → Activity view.
+    let whereClause = "WHERE archived_at IS NULL"
+      + " AND (kind IS NULL OR kind = 'form')"
+      + " AND form_key NOT LIKE 'activity.%'"
+      + " AND form_key NOT LIKE 'api-%'";
     if (effectiveScope === 'mine' && initials) {
       request.input('initials', sql.NVarChar(16), initials);
       whereClause += ' AND submitted_by = @initials';
@@ -313,6 +332,204 @@ async function probeProcessHub(limit, { initials, scope } = {}) {
 
   return { rows, scope: effectiveScope, isAdmin };
 }
+
+/**
+ * Activity probe — the inverse of `probeProcessHub`.
+ *
+ * Returns generic API audit rows captured by the Process Hub fallback
+ * middleware. Powers System → Activity, intentionally separated from the
+ * Forms Stream so operators can scan "who did what, when, and what came back"
+ * without the form-submission noise.
+ */
+async function probeProcessHubActivity(limit, {
+  initials = null,
+  actor = null,
+  status = null,
+  pathPrefix = null,
+  follow = false,
+} = {}) {
+  const safeLimit = Math.max(1, Math.min(200, Number(limit) || 60));
+  const isAdmin = initials ? ADMIN_INITIALS.has(initials) : false;
+  // Non-admins only see their own activity.
+  const scopedActor = isAdmin
+    ? (actor ? String(actor).toUpperCase().trim().slice(0, 16) : null)
+    : (initials || null);
+
+  const rows = await withRequest(getConnectionString(), async (request) => {
+    request.input('limit', sql.Int, safeLimit);
+    let whereClause = "WHERE archived_at IS NULL"
+      + " AND (kind = 'activity' OR form_key LIKE 'activity.%' OR form_key LIKE 'api-%')";
+
+    if (scopedActor) {
+      request.input('actor', sql.NVarChar(16), scopedActor);
+      whereClause += ' AND UPPER(submitted_by) = @actor';
+    }
+
+    if (status === 'failed') {
+      whereClause += " AND processing_status = 'failed'";
+    } else if (status === 'success') {
+      whereClause += " AND processing_status = 'complete'";
+    } else if (status === 'pending') {
+      whereClause += " AND processing_status IN ('queued','processing','awaiting_human')";
+    }
+
+    if (pathPrefix) {
+      const safePrefix = String(pathPrefix).replace(/[%_\[]/g, (c) => `[${c}]`).slice(0, 80);
+      request.input('path_prefix', sql.NVarChar(120), `%${safePrefix}%`);
+      whereClause += ' AND (form_key LIKE @path_prefix OR summary LIKE @path_prefix)';
+    }
+
+    if (follow) {
+      // Follow-up = failed or unusually slow (>2.5s) or repeated retriggers.
+      whereClause += " AND (processing_status = 'failed' OR retrigger_count > 0)";
+    }
+
+    const result = await request.query(`
+      SELECT TOP (@limit)
+        id,
+        form_key,
+        submitted_by,
+        submitted_at,
+        lane,
+        summary,
+        processing_status,
+        processing_steps_json,
+        payload_json,
+        last_event,
+        last_event_at,
+        retrigger_count
+      FROM dbo.form_submissions
+      ${whereClause}
+      ORDER BY submitted_at DESC
+    `);
+    return result.recordset || [];
+  }, 1);
+
+  return { rows, isAdmin, actor: scopedActor };
+}
+
+function summariseFollowUp(row, statusCode, durationMs) {
+  const reasons = [];
+  if (Number(statusCode) >= 500) reasons.push('server error');
+  else if (Number(statusCode) >= 400) reasons.push(`client error ${statusCode}`);
+  if (Number(durationMs) > 2500) reasons.push(`slow (${Math.round(durationMs)}ms)`);
+  if ((row.retrigger_count || 0) > 0) reasons.push(`retriggered x${row.retrigger_count}`);
+  if (!row.submitted_by || row.submitted_by === 'UNK') reasons.push('unknown actor');
+  return reasons;
+}
+
+function toActivityItem(row) {
+  let payload = null;
+  let steps = [];
+  try { payload = row.payload_json ? JSON.parse(row.payload_json) : null; } catch { payload = null; }
+  try { steps = row.processing_steps_json ? JSON.parse(row.processing_steps_json) : []; } catch { steps = []; }
+  const response = payload && payload.response ? payload.response : {};
+  const statusCode = Number(response.statusCode ?? 0) || null;
+  const durationMs = Number(response.durationMs ?? 0) || null;
+  const followUp = summariseFollowUp(row, statusCode || 0, durationMs || 0);
+
+  return {
+    id: String(row.id),
+    submissionId: String(row.id),
+    formKey: row.form_key,
+    actor: row.submitted_by || null,
+    submittedAt: row.submitted_at,
+    method: payload && payload.method ? payload.method : null,
+    path: payload && payload.pathname ? payload.pathname : (row.summary || row.form_key),
+    summary: row.summary || row.form_key,
+    status: row.processing_status,
+    statusCode,
+    durationMs,
+    lane: row.lane || null,
+    lastEvent: row.last_event || null,
+    lastEventAt: row.last_event_at || null,
+    retriggerCount: row.retrigger_count || 0,
+    followUp,
+    hasFollowUp: followUp.length > 0,
+    steps,
+    payloadSummary: payload
+      ? {
+          query: payload.query || null,
+          body: payload.body || null,
+          referer: payload.referer || null,
+          userAgent: payload.userAgent || null,
+        }
+      : null,
+  };
+}
+
+router.post('/events', async (req, res) => {
+  const startedAt = Date.now();
+  const body = req.body || {};
+  const triggeredBy = resolveActorInitials(req) || getTriggeredBy(req);
+  const formKey = clampText(body.formKey || body.key, 64, 'hub-action');
+  const summary = clampText(body.summary || body.title, 400, formKey);
+  const lane = normaliseLane(body.lane);
+  const eventName = clampText(body.eventName || body.lastEvent, 120, 'process.event');
+
+  trackEvent('ProcessHub.Event.RecordStarted', {
+    operation: 'processHub.event',
+    triggeredBy,
+    formKey,
+    lane,
+    eventName,
+  });
+
+  try {
+    const submissionId = await recordSubmission({
+      formKey,
+      submittedBy: String(triggeredBy || 'UNK').slice(0, 10),
+      lane,
+      payload: body.payload && typeof body.payload === 'object' ? body.payload : { source: body.source || null },
+      summary,
+      clientSubmissionId: body.clientSubmissionId || null,
+    });
+
+    if (submissionId) {
+      await recordStep(submissionId, {
+        name: eventName,
+        status: body.stepStatus === 'failed' ? 'failed' : 'success',
+        output: {
+          source: body.source || null,
+          route: body.route || null,
+        },
+      });
+      if (body.stepStatus === 'failed') {
+        await markFailed(submissionId, { lastEvent: eventName, error: body.error || eventName });
+      } else {
+        await markComplete(submissionId, { lastEvent: eventName });
+      }
+    }
+
+    trackEvent('ProcessHub.Event.RecordCompleted', {
+      operation: 'processHub.event',
+      triggeredBy,
+      formKey,
+      lane,
+      eventName,
+      submissionId: submissionId || '',
+      durationMs: String(Date.now() - startedAt),
+    });
+
+    return res.status(202).json({ ok: true, submissionId });
+  } catch (error) {
+    trackException(error, {
+      component: 'ProcessHub',
+      operation: 'processHub.event',
+      phase: 'record',
+      triggeredBy,
+      formKey,
+    });
+    trackEvent('ProcessHub.Event.RecordFailed', {
+      operation: 'processHub.event',
+      triggeredBy,
+      formKey,
+      error: error.message,
+      durationMs: String(Date.now() - startedAt),
+    });
+    return res.status(202).json({ ok: false, error: 'record_failed' });
+  }
+});
 
 router.get('/definitions', async (req, res) => {
   const startedAt = Date.now();
@@ -380,8 +597,6 @@ router.get('/submissions', async (req, res) => {
   }
 
   trackEvent('ProcessHub.Submissions.Started', {
-    operation: 'submissions',
-    triggeredBy,
     initials: initials || 'unknown',
     scope: requestedScope || 'auto',
     limit: String(limit),
@@ -430,6 +645,79 @@ router.get('/submissions', async (req, res) => {
       failed: 'true',
     });
     return res.status(500).json({ error: 'Failed to load process submissions' });
+  }
+});
+
+router.get('/activity', async (req, res) => {
+  const startedAt = Date.now();
+  const triggeredBy = getTriggeredBy(req);
+  const initials = resolveActorInitials(req);
+  const rawLimit = req.query?.limit;
+  const parsedLimit = typeof rawLimit === 'string' ? parseInt(rawLimit, 10) : NaN;
+  const limit = Number.isFinite(parsedLimit) ? parsedLimit : 80;
+  const actor = typeof req.query?.actor === 'string' ? req.query.actor : null;
+  const status = typeof req.query?.status === 'string' ? req.query.status : null;
+  const pathPrefix = typeof req.query?.path === 'string' ? req.query.path : null;
+  const follow = String(req.query?.follow || '').toLowerCase() === 'true';
+
+  if (limit < 1 || limit > 200) {
+    return res.status(400).json({ error: 'Invalid limit (must be 1-200)' });
+  }
+
+  trackEvent('ProcessHub.Activity.Started', {
+    operation: 'activity',
+    triggeredBy,
+    initials: initials || 'unknown',
+    limit: String(limit),
+    actor: actor || '',
+    status: status || '',
+    pathPrefix: pathPrefix || '',
+    follow: String(follow),
+  });
+
+  try {
+    const { rows, isAdmin, actor: scopedActor } = await probeProcessHubActivity(limit, {
+      initials,
+      actor,
+      status,
+      pathPrefix,
+      follow,
+    });
+
+    const items = rows.map(toActivityItem);
+    const durationMs = Date.now() - startedAt;
+
+    trackEvent('ProcessHub.Activity.Completed', {
+      operation: 'activity',
+      triggeredBy,
+      initials: initials || 'unknown',
+      isAdmin: String(isAdmin),
+      scopedActor: scopedActor || '',
+      count: String(items.length),
+      followUps: String(items.filter((i) => i.hasFollowUp).length),
+      durationMs: String(durationMs),
+    });
+    trackMetric('ProcessHub.Activity.Duration', durationMs, { operation: 'activity' });
+
+    return res.json({
+      items,
+      source: 'form_submissions.activity',
+      scopedActor,
+      isAdmin,
+    });
+  } catch (error) {
+    trackException(error, {
+      component: 'ProcessHub',
+      operation: 'activity',
+      phase: 'route',
+      triggeredBy,
+    });
+    trackEvent('ProcessHub.Activity.Failed', {
+      operation: 'activity',
+      triggeredBy,
+      error: error.message,
+    });
+    return res.status(500).json({ error: 'Failed to load process activity' });
   }
 });
 

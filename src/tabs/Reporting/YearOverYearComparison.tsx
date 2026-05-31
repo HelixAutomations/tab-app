@@ -85,6 +85,15 @@ interface DrillYearData {
   months: MonthlyPoint[];
 }
 
+interface YearOverYearComparisonProps {
+  anchorDate?: Date;
+  collectedUserIds?: string[];
+  includeDisbursements?: boolean;
+  currentCollectedOverride?: number;
+  currentCollectedDisplayOverride?: string;
+  currentCollectedBasisLabel?: string;
+}
+
 const METRIC_KEYS: MetricKey[] = ['wip', 'collected', 'mattersOpened'];
 const MONTH_LABELS = ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar'];
 
@@ -119,9 +128,16 @@ const deltaPercent = (current: number, previous: number | null): number | null =
 const yearRangeLabel = (year: YoYYearData): string => `${formatDate(year.startDate)} to ${formatDate(year.endDate)}`;
 const samePeriodRangeLabel = (anchorLabel: string): string => `1 Apr to ${anchorLabel}`;
 
-const YearOverYearComparison: React.FC = () => {
+const YearOverYearComparison: React.FC<YearOverYearComparisonProps> = ({
+  anchorDate,
+  collectedUserIds,
+  includeDisbursements,
+  currentCollectedOverride,
+  currentCollectedDisplayOverride,
+  currentCollectedBasisLabel,
+}) => {
   const { isDarkMode } = useTheme();
-  const hasAutoLoadedRef = useRef(false);
+  const hasAutoLoadedRef = useRef<string | null>(null);
   const [phase, setPhase] = useState<Phase>('loading');
   const [yearsBack, setYearsBack] = useState(3);
   const [activeMetric, setActiveMetric] = useState<MetricKey>('wip');
@@ -146,6 +162,18 @@ const YearOverYearComparison: React.FC = () => {
   const tickStyle = { fontSize: 9, fill: muted, fontFamily: 'Raleway, sans-serif' };
   const tooltipLabelColour = isDarkMode ? '#f3f4f6' : '#061733';
   const tooltipItemColour = isDarkMode ? '#d1d5db' : '#374151';
+  const anchorMonth = anchorDate instanceof Date && !Number.isNaN(anchorDate.getTime()) ? anchorDate.getMonth() + 1 : null;
+  const anchorDay = anchorDate instanceof Date && !Number.isNaN(anchorDate.getTime()) ? anchorDate.getDate() : null;
+  const anchorKey = anchorMonth && anchorDay ? `${anchorMonth}-${anchorDay}` : 'today';
+  const collectedUserIdsKey = useMemo(() => (
+    collectedUserIds && collectedUserIds.length > 0
+      ? [...collectedUserIds].sort().join(',')
+      : ''
+  ), [collectedUserIds]);
+  const collectedBasisKey = `${includeDisbursements === false ? 'fees-only' : 'all-collected'}-${collectedUserIdsKey || 'all-users'}`;
+  const validCollectedOverride = typeof currentCollectedOverride === 'number' && Number.isFinite(currentCollectedOverride)
+    ? currentCollectedOverride
+    : null;
   const tooltipStyle: CSSProperties = {
     background: isDarkMode ? 'rgba(6, 23, 51, 0.95)' : 'rgba(255, 255, 255, 0.96)',
     border: `0.5px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.4)' : 'rgba(107, 107, 107, 0.15)'}`,
@@ -189,7 +217,7 @@ const YearOverYearComparison: React.FC = () => {
     },
     collected: {
       label: 'Collected',
-      detail: 'Paid fees',
+      detail: currentCollectedBasisLabel ?? 'Paid fees',
       colour: colours.highlight,
       value: (year) => year.collected,
       available: (year) => year.dataAvailability.collected,
@@ -205,7 +233,7 @@ const YearOverYearComparison: React.FC = () => {
       format: formatCount,
       compact: formatCount,
     },
-  }), []);
+  }), [currentCollectedBasisLabel]);
 
   const panelStyle: CSSProperties = {
     background: 'transparent',
@@ -247,6 +275,7 @@ const YearOverYearComparison: React.FC = () => {
 
   const loadComparison = useCallback(async (nextYearsBack?: number) => {
     const requestedYears = nextYearsBack ?? yearsBack;
+    hasAutoLoadedRef.current = `${requestedYears}-${anchorKey}-${collectedBasisKey}`;
     setPhase('loading');
     setError(null);
     setMonthlyError(null);
@@ -254,7 +283,21 @@ const YearOverYearComparison: React.FC = () => {
     setMonthlyCache({});
 
     try {
-      const response = await fetch(`/api/yoy-comparison?yearsBack=${requestedYears}&ytd=true`);
+      const params = new URLSearchParams({
+        yearsBack: String(requestedYears),
+        ytd: 'true',
+      });
+      if (anchorMonth && anchorDay) {
+        params.set('anchorMonth', String(anchorMonth));
+        params.set('anchorDay', String(anchorDay));
+      }
+      if (typeof includeDisbursements === 'boolean') {
+        params.set('includeDisbursements', String(includeDisbursements));
+      }
+      if (collectedUserIdsKey) {
+        params.set('collectedUserIds', collectedUserIdsKey);
+      }
+      const response = await fetch(`/api/yoy-comparison?${params.toString()}`);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const nextData = await response.json() as YoYResponse;
       setData(nextData);
@@ -263,13 +306,13 @@ const YearOverYearComparison: React.FC = () => {
       setError(err instanceof Error ? err.message : String(err));
       setPhase('error');
     }
-  }, [yearsBack]);
+  }, [anchorDay, anchorKey, anchorMonth, collectedBasisKey, collectedUserIdsKey, includeDisbursements, yearsBack]);
 
   useEffect(() => {
-    if (hasAutoLoadedRef.current) return;
-    hasAutoLoadedRef.current = true;
+    const autoLoadKey = `${yearsBack}-${anchorKey}-${collectedBasisKey}`;
+    if (hasAutoLoadedRef.current === autoLoadKey) return;
     void loadComparison();
-  }, [loadComparison]);
+  }, [anchorKey, collectedBasisKey, loadComparison, yearsBack]);
 
   const loadMonthly = useCallback(async (metric: MetricKey = activeMetric) => {
     if (!data?.years.length) return;
@@ -283,7 +326,19 @@ const YearOverYearComparison: React.FC = () => {
 
     try {
       const results = await Promise.all(data.years.map(async (year) => {
-        const response = await fetch(`/api/yoy-comparison/monthly?fy=${year.fy}&metric=${metric}`);
+        const params = new URLSearchParams({
+          fy: String(year.fy),
+          metric,
+        });
+        if (metric === 'collected') {
+          if (typeof includeDisbursements === 'boolean') {
+            params.set('includeDisbursements', String(includeDisbursements));
+          }
+          if (collectedUserIdsKey) {
+            params.set('collectedUserIds', collectedUserIdsKey);
+          }
+        }
+        const response = await fetch(`/api/yoy-comparison/monthly?${params.toString()}`);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const json = await response.json() as DrillYearData;
         return json;
@@ -295,7 +350,7 @@ const YearOverYearComparison: React.FC = () => {
       setMonthlyError(err instanceof Error ? err.message : String(err));
       setMonthlyPhase('error');
     }
-  }, [activeMetric, data, monthlyCache]);
+  }, [activeMetric, collectedUserIdsKey, data, includeDisbursements, monthlyCache]);
 
   useEffect(() => {
     if (!data?.years.length) return;
@@ -304,7 +359,16 @@ const YearOverYearComparison: React.FC = () => {
     void loadMonthly(activeMetric);
   }, [data, activeMetric, monthlyCache, monthlyPhase, loadMonthly]);
 
-  const years = data?.years ?? [];
+  const years = useMemo(() => {
+    const sourceYears = data?.years ?? [];
+    if (!sourceYears.length || validCollectedOverride === null) return sourceYears;
+    const latestFy = sourceYears[sourceYears.length - 1]?.fy;
+    return sourceYears.map((year) => (
+      year.fy === latestFy
+        ? { ...year, collected: validCollectedOverride }
+        : year
+    ));
+  }, [data, validCollectedOverride]);
   const latestYear = years[years.length - 1] ?? null;
   const previousYear = years[years.length - 2] ?? null;
   const activeConfig = metricConfig[activeMetric];
@@ -323,8 +387,11 @@ const YearOverYearComparison: React.FC = () => {
     const current = latestYear ? config.value(latestYear) : 0;
     const previous = previousYear ? config.value(previousYear) : null;
     const delta = deltaPercent(current, previous);
-    return { metric, config, current, delta };
-  }), [latestYear, metricConfig, previousYear]);
+    const currentDisplay = metric === 'collected' && currentCollectedDisplayOverride
+      ? currentCollectedDisplayOverride
+      : config.compact(current);
+    return { metric, config, current, currentDisplay, delta };
+  }), [currentCollectedDisplayOverride, latestYear, metricConfig, previousYear]);
 
   const activeMetricMax = useMemo(() => {
     const maxValue = Math.max(...years.map((year) => activeConfig.value(year)), 0);
@@ -475,7 +542,7 @@ const YearOverYearComparison: React.FC = () => {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10, marginBottom: 14 }}>
-        {metricSummaries.map(({ metric, config, current, delta }) => (
+        {metricSummaries.map(({ metric, config, currentDisplay, delta }) => (
           <button
             key={metric}
             type="button"
@@ -498,7 +565,7 @@ const YearOverYearComparison: React.FC = () => {
               </span>
               {renderDelta(delta)}
             </div>
-            <div style={{ color: labelText, fontSize: 20, fontWeight: 900, marginTop: 8 }}>{config.compact(current)}</div>
+            <div style={{ color: labelText, fontSize: 20, fontWeight: 900, marginTop: 8 }}>{currentDisplay}</div>
             <div style={{ color: bodyText, fontSize: 11, marginTop: 3 }}>{config.detail}</div>
           </button>
         ))}
@@ -554,7 +621,10 @@ const YearOverYearComparison: React.FC = () => {
                         const numericValue = typeof value === 'number' ? value : Number(value) || 0;
                         const period = typeof item?.payload?.period === 'string' ? item.payload.period : null;
                         const basis = typeof item?.payload?.basis === 'string' ? item.payload.basis : comparisonModeLabel;
-                        return [config.format(numericValue), period ? `${config.label}, ${basis}, ${period}` : config.label];
+                        const formattedValue = metric === 'collected' && item?.payload?.isLatest && currentCollectedDisplayOverride
+                          ? currentCollectedDisplayOverride
+                          : config.format(numericValue);
+                        return [formattedValue, period ? `${config.label}, ${basis}, ${period}` : config.label];
                       }}
                       cursor={{ fill: isDarkMode ? 'rgba(54,144,206,0.04)' : 'rgba(54,144,206,0.03)' }}
                     />

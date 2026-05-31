@@ -76,6 +76,8 @@ interface Props {
   allowedInitials?: string[];
   /** Called after a grant/revoke succeeds so the host can re-fetch. */
   onAccessChanged?: () => void;
+  /** Optional hook for notes shortcuts that prepare a local preview surface. */
+  onFeatureToggle?: (feature: string, enabled: boolean) => void;
 }
 
 /** Returns true when the active element would normally swallow keyboard input. */
@@ -93,6 +95,7 @@ const DemoCheatSheetOverlay: React.FC<Props> = ({
   teamData = [],
   allowedInitials = [],
   onAccessChanged,
+  onFeatureToggle,
 }) => {
   const { isDarkMode } = useTheme();
   const [open, setOpen] = useState(false);
@@ -334,8 +337,17 @@ const DemoCheatSheetOverlay: React.FC<Props> = ({
   }, [checked, notesDepth]);
 
   const handleSectionLinkClick = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
-    const { enquiryId, enquirySubTab, formTitle, reportingView, tab, workbenchTab } = event.currentTarget.dataset;
+    const { enquiryId, enquirySubTab, featureToggles, formTitle, previewAction, reportingView, tab, workbenchTab } = event.currentTarget.dataset;
     try {
+      if (previewAction === 'claimedQueueHolding') {
+        window.dispatchEvent(new CustomEvent('helix:previewClaimedQueueHolding'));
+        setOpen(false);
+        return;
+      }
+      if (featureToggles && onFeatureToggle) {
+        const parsed = JSON.parse(featureToggles) as Record<string, boolean>;
+        Object.entries(parsed).forEach(([feature, enabled]) => onFeatureToggle(feature, Boolean(enabled)));
+      }
       if (enquiryId) {
         window.dispatchEvent(new CustomEvent('navigateToEnquiry', {
           detail: {
@@ -355,7 +367,7 @@ const DemoCheatSheetOverlay: React.FC<Props> = ({
     } catch {
       setFlash('Navigation failed.');
     }
-  }, []);
+  }, [onFeatureToggle]);
 
   // ── Recipient picklist + send / share state ─────────────────────────────
   type Pane = 'none' | 'email' | 'share';
@@ -1264,6 +1276,8 @@ const DemoCheatSheetOverlay: React.FC<Props> = ({
                           data-form-title={link.formTitle || ''}
                           data-reporting-view={link.reportingView || ''}
                           data-workbench-tab={link.workbenchTab || ''}
+                          data-feature-toggles={link.featureToggles ? JSON.stringify(link.featureToggles) : ''}
+                          data-preview-action={link.previewAction || ''}
                           onClick={handleSectionLinkClick}
                           style={appLinkButtonStyle}
                           title={`Open ${link.label}`}

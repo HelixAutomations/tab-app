@@ -1,0 +1,1 @@
+2026-05-30 / Fix CFA pitch link / Made all Pitch Builder scenarios use the shared default subject and added the missing CFA instruction link token so CFA pitches generate the same client link path without taking payment on account. (~ src/tabs/enquiries/pitch-builder/scenarios.ts, ~ src/tabs/enquiries/pitch-builder/EditorAndTemplateBlocks.tsx)

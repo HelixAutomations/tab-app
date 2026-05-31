@@ -2081,9 +2081,10 @@
   position: sticky;
   top: 0;
   z-index: 10;
-  background: var(--surface-section);
-  border-bottom: 1px solid var(--border-base);
-  padding: 6px 16px;
+  background: #0D2F60;
+  color: #ffffff;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 10px 16px;
   font-family: var(--font-primary);
   /* gridTemplateColumns set inline (dynamic) */
 }
@@ -2091,21 +2092,27 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.4px;
-  color: var(--text-muted);
+  letter-spacing: 0.5px;
+  color: rgba(255, 255, 255, 0.85);
   cursor: pointer;
   user-select: none;
   transition: color var(--transition-fast);
   white-space: nowrap;
 }
 .prospect-th:hover {
-  color: var(--text-secondary);
+  color: #ffffff;
 }
 .prospect-th--sorted {
-  color: var(--text-accent);
+  color: #ffffff;
+}
+[data-theme="dark"] .prospect-th {
+  color: rgba(255, 255, 255, 0.78);
+}
+[data-theme="dark"] .prospect-th--sorted {
+  color: #ffffff;
 }
 
 /* ─── Hero banner (detail view) ─── */

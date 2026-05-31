@@ -1,0 +1,1 @@
+2026-05-30 / Simplify infrastructure overview / Reworked the System Infrastructure page from a detailed technical register into a high-level platform concept overview with clear current-state and next-step language. (~ src/tabs/roadmap/system/SystemInfrastructureView.tsx)

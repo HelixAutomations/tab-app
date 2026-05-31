@@ -53,6 +53,34 @@ function toSqlDate(d) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+function parseCollectedUserIds(value) {
+  if (!value) return [];
+  return String(value)
+    .split(',')
+    .map((part) => part.trim())
+    .filter((part) => /^\d+$/.test(part))
+    .slice(0, 200);
+}
+
+function appendCollectedBasisFilters(request, sqlClient, options = {}) {
+  const clauses = [];
+  if (options.includeDisbursements === false) {
+    clauses.push("(kind IS NULL OR kind NOT IN ('Expense', 'Product'))");
+  }
+
+  const userIds = Array.isArray(options.userIds) ? options.userIds : [];
+  if (userIds.length > 0) {
+    const placeholders = userIds.map((userId, index) => {
+      const inputName = `collectedUserId${index}`;
+      request.input(inputName, sqlClient.NVarChar(64), userId);
+      return `@${inputName}`;
+    });
+    clauses.push(`CONVERT(NVARCHAR(64), user_id) IN (${placeholders.join(', ')})`);
+  }
+
+  return clauses;
+}
+
 // ── Route ─────────────────────────────────────────────────────
 
 router.get('/', async (req, res) => {
@@ -65,6 +93,9 @@ router.get('/', async (req, res) => {
   // Parse optional params
   const yearsBack = Math.min(Math.max(Number(req.query.yearsBack) || 5, 1), 10);
   const ytd = req.query.ytd !== 'false'; // default true = year-to-date mode
+  const includeDisbursements = req.query.includeDisbursements !== 'false';
+  const collectedUserIds = parseCollectedUserIds(req.query.collectedUserIds);
+  const collectedOptions = { includeDisbursements, userIds: collectedUserIds };
 
   // Optional custom anchor: ?anchorMonth=2&anchorDay=19 (1-indexed month)
   // If omitted, today is the anchor.
@@ -85,14 +116,16 @@ router.get('/', async (req, res) => {
   trackEvent('YoYComparison.Requested', {
     yearsBack: String(yearsBack),
     ytd: String(ytd),
+    includeDisbursements: String(includeDisbursements),
+    collectedUserFilterCount: String(collectedUserIds.length),
     anchorDate: toSqlDate(anchor),
     fy: `${fyStart}/${fyStart + 1}`,
   });
 
   try {
-    const cacheKey = generateCacheKey('yoy', `${yearsBack}_${ytd}_${toSqlDate(anchor)}`);
+    const cacheKey = generateCacheKey('yoy', `${yearsBack}_${ytd}_${toSqlDate(anchor)}_${includeDisbursements}_${collectedUserIds.join('-') || 'all-users'}`);
     const result = await cacheWrapper(cacheKey, async () => {
-      return await buildYoYData(connectionString, fyStart, yearsBack, ytd ? anchor : null);
+      return await buildYoYData(connectionString, fyStart, yearsBack, ytd ? anchor : null, collectedOptions);
     }, 300); // 5 min cache
 
     trackEvent('YoYComparison.Completed', {
@@ -113,7 +146,7 @@ router.get('/', async (req, res) => {
 
 // ── Data builder ──────────────────────────────────────────────
 
-async function buildYoYData(connectionString, currentFY, yearsBack, anchorDate) {
+async function buildYoYData(connectionString, currentFY, yearsBack, anchorDate, collectedOptions = {}) {
   const years = [];
   for (let i = 0; i < yearsBack; i++) {
     const fy = currentFY - i;
@@ -128,7 +161,7 @@ async function buildYoYData(connectionString, currentFY, yearsBack, anchorDate) 
 
     const [wip, collected, matters] = await Promise.all([
       queryWipTotal(connectionString, startSql, endSql),
-      queryCollectedTotal(connectionString, startSql, endSql),
+      queryCollectedTotal(connectionString, startSql, endSql, collectedOptions),
       queryMattersOpened(connectionString, startSql, endSql),
     ]);
 
@@ -196,11 +229,13 @@ async function queryWipTotal(connectionString, startDate, endDate) {
   }
 }
 
-async function queryCollectedTotal(connectionString, startDate, endDate) {
+async function queryCollectedTotal(connectionString, startDate, endDate, options = {}) {
   try {
     return await withRequest(connectionString, async (request, sqlClient) => {
       request.input('startDate', sqlClient.Date, startDate);
       request.input('endDate', sqlClient.Date, endDate);
+      const extraFilters = appendCollectedBasisFilters(request, sqlClient, options);
+      const whereClause = ['payment_date BETWEEN @startDate AND @endDate', ...extraFilters].join('\n          AND ');
       const result = await request.query(`
         SELECT 
           ISNULL(SUM(CAST(payment_allocated AS DECIMAL(18,2))), 0) AS totalValue,
@@ -208,7 +243,7 @@ async function queryCollectedTotal(connectionString, startDate, endDate) {
           MIN(payment_date) AS minDate,
           MAX(payment_date) AS maxDate
         FROM [dbo].[collectedTime]
-        WHERE payment_date BETWEEN @startDate AND @endDate
+        WHERE ${whereClause}
       `);
       const row = result.recordset[0] || {};
       return {
@@ -266,6 +301,10 @@ router.get('/monthly', async (req, res) => {
     return res.status(400).json({ error: 'Required: ?fy=YYYY&metric=wip|collected|mattersOpened' });
   }
 
+  const includeDisbursements = req.query.includeDisbursements !== 'false';
+  const collectedUserIds = parseCollectedUserIds(req.query.collectedUserIds);
+  const collectedOptions = { includeDisbursements, userIds: collectedUserIds };
+
   // YTD anchor: clamp to today's equivalent in the requested FY
   const now = new Date();
   const currentFY = currentFYStartYear(now);
@@ -275,9 +314,9 @@ router.get('/monthly', async (req, res) => {
   trackEvent('YoYMonthly.Requested', { fy: String(fy), metric });
 
   try {
-    const cacheKey = generateCacheKey('yoy-monthly', `${fy}_${metric}_${toSqlDate(now)}`);
+    const cacheKey = generateCacheKey('yoy-monthly', `${fy}_${metric}_${toSqlDate(now)}_${includeDisbursements}_${collectedUserIds.join('-') || 'all-users'}`);
     const result = await cacheWrapper(cacheKey, async () => {
-      return await buildMonthlyBreakdown(connectionString, fy, metric, currentFY, anchorMonth, anchorDay);
+      return await buildMonthlyBreakdown(connectionString, fy, metric, currentFY, anchorMonth, anchorDay, collectedOptions);
     }, 300);
 
     trackEvent('YoYMonthly.Completed', { fy: String(fy), metric, durationMs: String(Date.now() - startedAt) });
@@ -291,7 +330,7 @@ router.get('/monthly', async (req, res) => {
   }
 });
 
-async function buildMonthlyBreakdown(connectionString, fy, metric, currentFY, anchorMonth, anchorDay) {
+async function buildMonthlyBreakdown(connectionString, fy, metric, currentFY, anchorMonth, anchorDay, collectedOptions = {}) {
   const months = [];
   // FY months: Apr(3)→Mar(2) next year
   for (let i = 0; i < 12; i++) {
@@ -327,7 +366,7 @@ async function buildMonthlyBreakdown(connectionString, fy, metric, currentFY, an
 
   // Query all months in parallel
   const results = await Promise.all(months.map(async (m) => {
-    const value = await queryMonthlyMetric(connectionString, metric, m.start, m.end);
+    const value = await queryMonthlyMetric(connectionString, metric, m.start, m.end, collectedOptions);
     return { ...m, ...value };
   }));
 
@@ -339,7 +378,7 @@ async function buildMonthlyBreakdown(connectionString, fy, metric, currentFY, an
   };
 }
 
-async function queryMonthlyMetric(connectionString, metric, startDate, endDate) {
+async function queryMonthlyMetric(connectionString, metric, startDate, endDate, collectedOptions = {}) {
   try {
     return await withRequest(connectionString, async (request, sqlClient) => {
       request.input('startDate', sqlClient.Date, startDate);
@@ -355,11 +394,13 @@ async function queryMonthlyMetric(connectionString, metric, startDate, endDate) 
         return { value: Number(r.recordset[0]?.val) || 0, rowCount: Number(r.recordset[0]?.cnt) || 0 };
       }
       if (metric === 'collected') {
+        const extraFilters = appendCollectedBasisFilters(request, sqlClient, collectedOptions);
+        const whereClause = ['payment_date BETWEEN @startDate AND @endDate', ...extraFilters].join('\n            AND ');
         const r = await request.query(`
           SELECT ISNULL(SUM(CAST(payment_allocated AS DECIMAL(18,2))), 0) AS val,
                  COUNT(*) AS cnt
           FROM [dbo].[collectedTime]
-          WHERE payment_date BETWEEN @startDate AND @endDate
+          WHERE ${whereClause}
         `);
         return { value: Number(r.recordset[0]?.val) || 0, rowCount: Number(r.recordset[0]?.cnt) || 0 };
       }

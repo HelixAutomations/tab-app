@@ -21,6 +21,7 @@ import { useTheme } from "../../app/functionality/ThemeContext";
 import { appendDefaultEnquiryProcessingParams } from "../../app/functionality/enquiryProcessingModel";
 import { useNavigatorActions } from "../../app/functionality/NavigatorContext";
 import { colours } from "../../app/styles/colours";
+import { INTERNAL_POLICY_LINKS, openInternalPolicyDocument } from "../../app/customisation/InternalPolicies";
 import { dashboardTokens } from "./componentTokens";
 import InstructionCard from "./InstructionCard";
 import OverridePills from "./OverridePills";
@@ -6446,17 +6447,16 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                               Policy Resources
                             </div>
                             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                              {[
-                                { label: 'Client Risk Policy', url: 'https://drive.google.com/file/d/1_7dX2qSlvuNmOiirQCxQb8NDs6iUSAhT/view?usp=sharing' },
-                                { label: 'Transaction Risk', url: 'https://drive.google.com/file/d/1sTRII8MFU3JLpMiUcz-Y6KBQ1pP1nKgT/view?usp=sharing' },
-                                { label: 'AML Policy', url: 'https://drive.google.com/file/d/1opiC3TbEsdEH4ExDjckIhQzzsI3_wYYB/view?usp=sharing' },
-                                { label: 'Sanctions Policy', url: 'https://drive.google.com/file/d/1y7fTLI_Dody00y9v42ohltQU-hnnYJ9P/view?usp=sharing' }
-                              ].map((doc) => (
+                              {INTERNAL_POLICY_LINKS.map((doc) => (
                                 <a
-                                  key={doc.label}
+                                  key={doc.key}
                                   href={doc.url}
                                   target="_blank"
                                   rel="noopener noreferrer"
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    openInternalPolicyDocument(doc.url);
+                                  }}
                                   style={{
                                     fontSize: '9px',
                                     color: colours.blue,
@@ -6481,7 +6481,7 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                                   }}
                                 >
                                   <span>📋</span>
-                                  <span>{doc.label}</span>
+                                  <span>{doc.shortTitle}</span>
                                 </a>
                               ))}
                             </div>

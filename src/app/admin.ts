@@ -16,6 +16,7 @@ export const CCL_USERS = ['localhost'] as const;
 // (broader admin tier) rather than this dev-preview gate.
 export const PRIVATE_HUB_CONTROL_USERS = ['LZ'] as const;
 export const SESSION_MODE_CONTROL_USERS = ['LZ', 'AC'] as const;
+export const DEMO_MODE_CONTROL_USERS = ['LZ', 'AC', 'EA'] as const;
 export const ACTIVITY_TAB_USERS = ['LZ', 'EA'] as const;
 
 export function isCclOperationsAvailable(options?: { viewAsProd?: boolean }): boolean {
@@ -58,6 +59,27 @@ export function canUseSessionModeControls(user?: UserData | null): boolean {
         first === 'alex' ||
         nickname === 'alex' ||
         email === 'ac@helix-law.com'
+    );
+}
+
+export function canUseDemoModeControls(user?: UserData | null): boolean {
+    if (!user) return false;
+    const initials = user.Initials?.toUpperCase().trim();
+    const first = user.First?.toLowerCase().trim();
+    const nickname = user.Nickname?.toLowerCase().trim();
+    const email = user.Email?.toLowerCase().trim();
+    const allowedInitials = DEMO_MODE_CONTROL_USERS as readonly string[];
+    return !!(
+        (initials && allowedInitials.includes(initials)) ||
+        first === 'luke' ||
+        nickname === 'luke' ||
+        email === 'lz@helix-law.com' ||
+        first === 'alex' ||
+        nickname === 'alex' ||
+        email === 'ac@helix-law.com' ||
+        first === 'emma' ||
+        nickname === 'emma' ||
+        email === 'ea@helix-law.com'
     );
 }
 

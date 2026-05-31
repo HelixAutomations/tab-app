@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { trackClientEvent } from '../../utils/telemetry';
+import { recordIntent } from '../../utils/recordIntent';
 import type { TeamData } from '../../app/functionality/types';
 import './PitchExternalForm.css';
 
@@ -143,6 +144,18 @@ const PitchExternalForm: React.FC<PitchExternalFormProps> = ({
       : '';
 
     try {
+      const clientSubmissionId = await recordIntent({
+        formKey: 'pitch-new',
+        payload: {
+          source: 'home-quick-action:pitch-new',
+          areaOfWork: aow,
+          methodOfContact: moc,
+          value,
+          hasEmail: Boolean(trimmedEmail),
+          hasPhone: Boolean(trimmedPhone),
+        },
+      });
+
       setProgress('Creating contact...');
       const contactPayload = {
         data: {
@@ -199,6 +212,7 @@ const PitchExternalForm: React.FC<PitchExternalFormProps> = ({
         emailBodyHtml: '',
         notes: JSON.stringify({
           source: 'home-quick-action:pitch-new',
+          clientSubmissionId,
           enquiryId,
           firstName: trimmedFirst,
           lastName: trimmedLast,
@@ -206,6 +220,7 @@ const PitchExternalForm: React.FC<PitchExternalFormProps> = ({
           phone: trimmedPhone || null,
         }),
       };
+      dealPayload.clientSubmissionId = clientSubmissionId;
 
       const dealRes = await fetch('/api/deal-capture', {
         method: 'POST',

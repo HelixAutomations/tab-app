@@ -1,0 +1,1 @@
+2026-05-30 / Fix claimed preview notes shortcut / The presenter notes claimed empty preview shortcut now dispatches a dedicated app-level event that enables the preview toggle, exits production view, and opens Prospects reliably. (~ src/components/demoCheatSheet.data.ts, ~ src/components/DemoCheatSheetOverlay.tsx, ~ src/app/App.tsx)

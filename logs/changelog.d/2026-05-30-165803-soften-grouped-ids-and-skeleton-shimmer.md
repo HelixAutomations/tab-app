@@ -1,0 +1,1 @@
+2026-05-30 / Soften grouped IDs and skeleton shimmer / Grouped prospect IDs now stay hidden by default, reveal only while hovering a collapsed group row, and hide again when the group is expanded. Prospects loading skeletons now use staggered shimmer durations, delays, and opacity so the table no longer pulses in one uniform wave. (~ src/app/styles/Prospects.css)

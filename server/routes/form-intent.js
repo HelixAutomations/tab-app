@@ -20,10 +20,16 @@
  */
 const express = require('express');
 const rateLimit = require('express-rate-limit');
+const { ipKeyGenerator } = rateLimit;
 const router = express.Router();
 
 const { withRequest } = require('../utils/db');
 const { trackEvent, trackException } = require('../utils/appInsights');
+const {
+  getFormSubmissionSchema,
+  clearFormSubmissionSchemaCache,
+  isMissingFormIntentSchemaError,
+} = require('../utils/formSubmissionSchema');
 
 function getConnStr() {
   if (String(process.env.FORM_SUBMISSIONS_USE_LEGACY || '').toLowerCase() === 'true') {
@@ -40,7 +46,7 @@ const intentLimiter = rateLimit({
   max: 100,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => (req.user?.initials || req.ip || 'anon').toString().toUpperCase(),
+  keyGenerator: (req) => req.user?.initials ? String(req.user.initials).toUpperCase() : ipKeyGenerator(req.ip || 'anon'),
   handler: (req, res) => {
     trackEvent('FormIntent.RateLimited', { user: req.user?.initials, ip: req.ip });
     res.status(429).json({ ok: false, error: 'rate_limited' });
@@ -79,6 +85,12 @@ router.post('/', async (req, res) => {
   }
 
   try {
+    const schema = await getFormSubmissionSchema(connStr);
+    if (!schema.hasFormSubmissionIntents || !schema.hasIntentRecordColumns) {
+      trackEvent('FormIntent.SchemaMissing', { formKey, submittedBy, table: 'form_submission_intents' });
+      return res.status(202).json({ ok: true, recorded: false, reason: 'schema_missing' });
+    }
+
     await withRequest(connStr, async (request, sql) => {
       request.input('client_submission_id', sql.NVarChar(64), clientSubmissionId);
       request.input('form_key', sql.NVarChar(64), formKey);
@@ -103,6 +115,17 @@ router.post('/', async (req, res) => {
     trackEvent('FormIntent.Recorded', { formKey, submittedBy, clientSubmissionId });
     return res.status(202).json({ ok: true, recorded: true });
   } catch (err) {
+    if (isMissingFormIntentSchemaError(err)) {
+      clearFormSubmissionSchemaCache(connStr);
+      trackEvent('FormIntent.SchemaMissing', {
+        formKey,
+        submittedBy,
+        table: 'form_submission_intents',
+        reason: 'db_schema_error',
+        error: String(err?.message || err).slice(0, 200),
+      });
+      return res.status(202).json({ ok: true, recorded: false, reason: 'schema_missing' });
+    }
     trackException(err, { phase: 'form-intent.record', formKey, submittedBy });
     return res.status(202).json({ ok: true, recorded: false, reason: 'db_error' });
   }
@@ -123,6 +146,11 @@ router.get('/orphaned', async (req, res) => {
   }
 
   try {
+    const schema = await getFormSubmissionSchema(connStr);
+    if (!schema.hasFormSubmissionIntents || !schema.hasIntentOrphanColumns) {
+      return res.json({ ok: true, orphans: [], reason: 'schema_missing' });
+    }
+
     const result = await withRequest(connStr, async (request, sql) => {
       request.input('older_than', sql.Int, olderThan);
       request.input('lim', sql.Int, limit);
@@ -142,6 +170,10 @@ router.get('/orphaned', async (req, res) => {
     }
     return res.json({ ok: true, orphans, olderThanSeconds: olderThan });
   } catch (err) {
+    if (isMissingFormIntentSchemaError(err)) {
+      clearFormSubmissionSchemaCache(connStr);
+      return res.json({ ok: true, orphans: [], reason: 'schema_missing' });
+    }
     trackException(err, { phase: 'form-intent.orphaned' });
     return res.status(500).json({ ok: false, error: 'query_failed' });
   }

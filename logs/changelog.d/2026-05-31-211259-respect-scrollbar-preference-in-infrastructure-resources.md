@@ -1,0 +1,1 @@
+2026-05-31 / Respect scrollbar preference in infrastructure resources / Hide the Infrastructure resource list scrollbar chrome by default while preserving scroll behaviour, and reveal a thin Helix scrollbar only when the UserBubble Show scrollbars setting is enabled. (~ src/tabs/roadmap/system/SystemInfrastructureView.tsx, + src/tabs/roadmap/system/SystemInfrastructureView.css)

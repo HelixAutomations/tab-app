@@ -433,7 +433,7 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
     );
   };
 
-  const headerTextColor = isDarkMode ? colours.dark.text : colours.light.text;
+  const headerTextColor = 'rgba(255, 255, 255, 0.85)';
   const headerSurface = isDarkMode ? colours.darkBlue : colours.light.cardBackground;
   const rowBorder = isDarkMode ? 'rgba(var(--subtle-grey-rgb), 0.18)' : 'rgba(var(--subtle-grey-rgb), 0.12)';
   const bodyText = isDarkMode ? '#d1d5db' : '#374151';
@@ -492,10 +492,10 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
           boxSizing: 'border-box',
           alignItems: 'center',
           flexShrink: 0,
-          background: headerSurface,
+          background: '#0D2F60',
           backdropFilter: 'none',
           borderTop: 'none',
-          borderBottom: `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.24)' : 'rgba(13, 47, 96, 0.06)'}`,
+          borderBottom: '1px solid rgba(255, 255, 255, 0.12)',
           fontSize: '11px',
           fontWeight: 600,
           color: headerTextColor,

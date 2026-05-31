@@ -1,0 +1,1 @@
+2026-05-30 / Tighten Reception call row name and meta alignment / Set explicit type scale for the title (13px/700/1.35) and meta (10.5px/1.4), lift the chevron caret to sit on the title's vertical centre, and lighten the inline phone so it reads as secondary. Net result: name + meta stack hangs cleanly under the chevron. (~ src/tabs/Reporting/ReceptionReport.css)

@@ -22,6 +22,7 @@ const crypto = require('crypto');
 const sql = require('mssql');
 const { withRequest } = require('../utils/db');
 const { trackEvent, trackException } = require('../utils/appInsights');
+const { recordSubmission, recordStep, markComplete, markFailed } = require('../utils/formSubmissionLog');
 
 const router = express.Router();
 
@@ -52,10 +53,11 @@ function pruneJobs() {
 }
 setInterval(pruneJobs, 5 * 60 * 1000).unref();
 
-function newJob(payload) {
+function newJob(payload, submissionId = null) {
   const id = crypto.randomUUID();
   const job = {
     id,
+    submissionId,
     status: 'pending',
     step: STEPS[0],
     startedAt: Date.now(),
@@ -136,6 +138,7 @@ async function runChain(job) {
       setStep(job, step);
       // Phase 1 stub — short delay so the polling UI has something to render
       await new Promise((r) => setTimeout(r, 300));
+      await recordStep(job.submissionId, { name: `matter-opening.${step}`, status: 'success' });
       trackEvent('MatterOpening.OpenAnother.StepCompleted', { jobId: job.id, step });
     }
 
@@ -152,10 +155,12 @@ async function runChain(job) {
       durationMs: String((job.finishedAt || Date.now()) - job.startedAt),
       simulated: 'true',
     });
+    await markComplete(job.submissionId, { lastEvent: 'matter opening completed' });
   } catch (err) {
     trackException(err, { component: 'MatterOpening', operation: 'OpenAnother', phase: job.step, jobId: job.id });
     trackEvent('MatterOpening.OpenAnother.Failed', { jobId: job.id, step: job.step, error: err?.message || String(err) });
     finishErr(job, err);
+    await markFailed(job.submissionId, { lastEvent: `matter-opening:${job.step}:failed`, error: err });
   }
 }
 
@@ -284,15 +289,35 @@ router.get('/sources', async (req, res) => {
 // Routes
 // ─────────────────────────────────────────────────────────────────────────────
 
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   const errors = validatePayload(req.body);
   if (errors.length) {
     return res.status(400).json({ ok: false, errors });
   }
-  const job = newJob(req.body);
+  const payload = req.body || {};
+  const submitter = payload.team?.originatingInitials || payload.team?.feeEarnerInitials || req.user?.initials || 'UNK';
+  let submissionId = null;
+  try {
+    submissionId = await recordSubmission({
+      formKey: 'matter-open-another',
+      submittedBy: String(submitter || 'UNK').slice(0, 10),
+      lane: 'Start',
+      payload: {
+        sourceInstructionRef: payload.sourceInstructionRef || null,
+        sourcePoidId: payload.sourcePoidId || null,
+        areaOfWork: payload.brief?.areaOfWork || null,
+        captureDeal: Boolean(payload.captureDeal),
+      },
+      summary: `New matter: ${payload.sourceInstructionRef || payload.sourcePoidId || payload.brief?.areaOfWork || 'existing client'}`.slice(0, 400),
+      clientSubmissionId: payload.clientSubmissionId || null,
+    });
+  } catch (logErr) {
+    trackException(logErr, { component: 'MatterOpening', operation: 'OpenAnother.RecordSubmission' });
+  }
+  const job = newJob(payload, submissionId);
   // Fire and forget — client polls
   setImmediate(() => { runChain(job); });
-  res.status(202).json({ ok: true, jobId: job.id });
+  res.status(202).json({ ok: true, jobId: job.id, submissionId });
 });
 
 router.get('/:jobId', (req, res) => {
@@ -306,6 +331,7 @@ router.get('/:jobId', (req, res) => {
     history: job.history,
     error: job.error,
     result: job.result,
+    submissionId: job.submissionId || null,
     startedAt: job.startedAt,
     finishedAt: job.finishedAt,
   });

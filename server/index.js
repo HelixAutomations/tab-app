@@ -70,6 +70,7 @@ const { startDataOperationsScheduler, stopScheduler, getSchedulerState } = requi
 const { startEventPoller, POLL_INTERVAL_MS } = require('./utils/eventPoller');
 const { requestTrackerMiddleware } = require('./utils/requestTracker');
 const { setStatus: setServerStatus } = require('./utils/serverStatus');
+const { processHubAuditMiddleware } = require('./middleware/processHubAudit');
 _bootMark('core-utils:loaded');
 
 const isRedacted = (value) => typeof value === 'string' && value.includes('<REDACTED>');
@@ -754,6 +755,7 @@ app.use(userContextMiddleware);
 // Auth guard - rejects API requests with no resolved user (whitelist: health, stripe, telemetry)
 const requireUser = require('./middleware/requireUser');
 app.use(requireUser);
+app.use(processHubAuditMiddleware);
 
 function isLocalCclRequest(req) {
     const host = String(req.headers.host || req.hostname || '').toLowerCase();

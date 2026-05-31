@@ -547,6 +547,8 @@ export interface OperationsDashboardProps {
    * Used by Home to place `ImmediateActionsBar` as the ToDo pickup surface.
    */
   todoSlot?: React.ReactNode;
+  /** Optional content rendered directly below the Calls & Attendance Notes workspace. */
+  callsFooterSlot?: React.ReactNode;
   /**
    * Total outstanding To Do count, rendered inline next to the "To Do"
    * section header label as a small badge. Hidden when 0/undefined.
@@ -958,6 +960,7 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
   reviewRequest = null,
   hidePipelineAndMatters = false,
   todoSlot = null,
+  callsFooterSlot = null,
   todoCount,
   todoScopeSlot = null,
   rightPanelLabel,
@@ -7791,6 +7794,8 @@ const OperationsDashboardInner: React.FC<OperationsDashboardProps> = ({
             />
           </React.Suspense>
         </ErrorBoundary>
+
+        {callsFooterSlot}
 
         {/* ── Conversion Stream Preview Modal (D3) ── */}
         {conversionStreamPreview && selectedConversionItem ? (

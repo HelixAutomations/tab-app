@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';
+import { buildRequestAuthHeaders } from '../../utils/requestAuthContext';
 import { 
   MdClose, 
   MdCheckBox, 
@@ -73,7 +74,7 @@ const IDVerificationReviewModal: React.FC<IDVerificationReviewModalProps> = ({
     try {
       const response = await fetch(`/api/verify-id/${details?.instructionRef}/test-state`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: buildRequestAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ state: newState })
       });
       
@@ -100,7 +101,7 @@ const IDVerificationReviewModal: React.FC<IDVerificationReviewModalProps> = ({
       
       const response = await fetch(`/api/verify-id/${details.instructionRef}/request-documents`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: buildRequestAuthHeaders({ 'Content-Type': 'application/json' })
       });
 
       if (!response.ok) {
@@ -140,7 +141,7 @@ const IDVerificationReviewModal: React.FC<IDVerificationReviewModalProps> = ({
       
       const response = await fetch(`/api/verify-id/${details.instructionRef}/draft-request`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: buildRequestAuthHeaders({ 'Content-Type': 'application/json' })
       });
 
       console.log('Draft API response status:', response.status);

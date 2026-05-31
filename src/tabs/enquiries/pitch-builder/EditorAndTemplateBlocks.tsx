@@ -5,14 +5,14 @@ import { Text } from '@fluentui/react/lib/Text';
 import { Icon } from '@fluentui/react/lib/Icon';
 import { Pivot, PivotItem } from '@fluentui/react/lib/Pivot';
 import { TextField } from '@fluentui/react/lib/TextField';
-import { FaBolt, FaEdit, FaFileAlt, FaEraser, FaInfoCircle, FaThumbtack, FaCalculator, FaExclamationTriangle, FaEnvelope, FaPaperPlane, FaChevronDown, FaChevronUp, FaCopy, FaEye, FaCheck, FaTimes, FaUsers, FaArrowLeft, FaPoundSign, FaUndo, FaRedo } from 'react-icons/fa';
+import { FaBolt, FaEdit, FaFileAlt, FaEraser, FaInfoCircle, FaThumbtack, FaCalculator, FaExclamationTriangle, FaEnvelope, FaPaperPlane, FaChevronDown, FaChevronUp, FaCopy, FaEye, FaCheck, FaTimes, FaUsers, FaArrowLeft, FaArrowRight, FaPoundSign, FaUndo, FaRedo } from 'react-icons/fa';
 import DealCapture from './DealCapture';
 import PitchTypeformWizard, { PitchWizardStepDescriptor, PitchWizardStepId, PitchWizardStepStatus } from './PitchTypeformWizard';
-import { colours } from '../../../app/styles/colours';
+import { colours, withAlpha } from '../../../app/styles/colours';
 import { TemplateBlock } from '../../../app/customisation/ProductionTemplateBlocks';
 import { placeholderSuggestions } from '../../../app/customisation/InsertSuggestions';
 import { wrapInsertPlaceholders } from './emailUtils';
-import { SCENARIOS, SCENARIOS_VERSION } from './scenarios';
+import { DEFAULT_PITCH_AMOUNT, DEFAULT_PITCH_SUBJECT, SCENARIOS, SCENARIOS_VERSION } from './scenarios';
 import { applyDynamicSubstitutions, convertDoubleBreaksToParagraphs } from './emailUtils';
 import { processEmailContentV2 } from './emailFormattingV2';
 import FormattingToolbar from './FormattingToolbar';
@@ -161,6 +161,34 @@ const GBP_SYMBOL = '\u00a3';
 const POUND_SYMBOL_PATTERN = /(?:\u00a3|\u00c2\u00a3)/;
 const DEBUG_EDITOR_SYNC = process.env.REACT_APP_PITCH_EDITOR_DEBUG === 'true';
 
+function getScenarioAccentColor(scenarioId: string): string {
+  switch (scenarioId) {
+    case 'before-call-call': return colours.blue;
+    case 'before-call-no-call': return colours.orange;
+    case 'after-call-probably-cant-assist': return colours.cta;
+    case 'after-call-want-instruction': return colours.green;
+    case 'cfa': return colours.helixBlue;
+    default: return colours.greyText;
+  }
+}
+
+function getScenarioCardBackground(isDarkMode: boolean, isSelected: boolean, isHover = false): string {
+  if (isDarkMode) {
+    if (isSelected) return `linear-gradient(135deg, ${colours.dark.cardBackground} 0%, ${colours.dark.cardHover} 100%)`;
+    if (isHover) return `linear-gradient(135deg, ${colours.dark.sectionBackground} 0%, ${colours.dark.cardBackground} 100%)`;
+    return `linear-gradient(135deg, ${colours.dark.background} 0%, ${colours.dark.sectionBackground} 100%)`;
+  }
+  if (isSelected) return `linear-gradient(135deg, ${colours.sectionBackground} 0%, ${colours.grey} 100%)`;
+  if (isHover) return `linear-gradient(135deg, ${colours.light.cardHover} 0%, ${colours.sectionBackground} 100%)`;
+  return `linear-gradient(135deg, ${colours.grey} 0%, ${colours.sectionBackground} 100%)`;
+}
+
+function getScenarioAccentBackground(accent: string, isDarkMode: boolean, isSelected: boolean): string {
+  const startAlpha = isSelected ? (isDarkMode ? 0.16 : 0.12) : (isDarkMode ? 0.1 : 0.07);
+  const endAlpha = isSelected ? (isDarkMode ? 0.1 : 0.08) : (isDarkMode ? 0.06 : 0.04);
+  return `linear-gradient(135deg, ${withAlpha(accent, startAlpha)} 0%, ${withAlpha(accent, endAlpha)} 100%)`;
+}
+
 // Convert very basic HTML to plain text for textarea defaults and copy actions
 function htmlToPlainText(html: string): string {
   const withBreaks = html
@@ -177,6 +205,10 @@ function htmlToPlainText(html: string): string {
     .replace(/&gt;/g, '>')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+function isPitchSubjectReady(value: string): boolean {
+  return value.trim().length > 0;
 }
 
 // Removed local fallback passcode generation: must use ONLY server-issued passcode.
@@ -421,6 +453,9 @@ interface UndoRedoState {
   currentIndex: number;
 }
 
+const EDITOR_CHANGE_DEBOUNCE_MS = 150;
+const EDITOR_UNDO_IDLE_MS = 1200;
+
 const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({ 
   value, 
   onChange, 
@@ -445,12 +480,19 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
   // Debounce onChange to reduce parent re-renders while typing
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingValueRef = useRef<string | null>(null);
+  const historyCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingHistoryValueRef = useRef<string | null>(null);
   // Track whether a debounced onChange is pending - prevents innerHTML rewrites while user is typing
   const debounceActiveRef = useRef(false);
-  const [undoRedoState, setUndoRedoState] = useState<UndoRedoState>({
+  const initialUndoRedoStateRef = useRef<UndoRedoState>({
     history: [value],
     currentIndex: 0
   });
+  const [undoRedoState, setUndoRedoState] = useState<UndoRedoState>({
+    history: initialUndoRedoStateRef.current.history,
+    currentIndex: initialUndoRedoStateRef.current.currentIndex
+  });
+  const undoRedoStateRef = useRef<UndoRedoState>(initialUndoRedoStateRef.current);
   // Flag to distinguish internal programmatic updates from external prop changes
   const internalUpdateRef = useRef(false);
   const previousValueRef = useRef(value);
@@ -462,30 +504,51 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
   const [syncedPersistentRanges, setSyncedPersistentRanges] = useState<{ start: number; end: number }[]>([]);
   const [isFocused, setIsFocused] = useState(false);
 
+  const commitUndoRedoState = useCallback((next: UndoRedoState) => {
+    undoRedoStateRef.current = next;
+    setUndoRedoState(next);
+  }, []);
+
   // Add to undo history (synchronous for rich text editor responsiveness)
   const addToHistory = useCallback((newValue: string) => {
-    setUndoRedoState(prev => {
-      const currentValue = prev.history[prev.currentIndex];
-      if (currentValue === newValue) return prev;
+    const prev = undoRedoStateRef.current;
+    const currentValue = prev.history[prev.currentIndex];
+    if (currentValue === newValue) return;
 
-      const newHistory = prev.history.slice(0, prev.currentIndex + 1);
-      newHistory.push(newValue);
-      
-      // Limit history size
-      if (newHistory.length > 50) {
-        newHistory.shift();
-        return {
-          history: newHistory,
-          currentIndex: newHistory.length - 1
-        };
-      }
-      
-      return {
-        history: newHistory,
-        currentIndex: newHistory.length - 1
-      };
+    const newHistory = prev.history.slice(0, prev.currentIndex + 1);
+    newHistory.push(newValue);
+
+    // Limit history size
+    if (newHistory.length > 50) {
+      newHistory.shift();
+    }
+
+    commitUndoRedoState({
+      history: newHistory,
+      currentIndex: newHistory.length - 1
     });
-  }, []);
+  }, [commitUndoRedoState]);
+
+  const commitPendingHistory = useCallback(() => {
+    if (historyCommitTimerRef.current) {
+      clearTimeout(historyCommitTimerRef.current);
+      historyCommitTimerRef.current = null;
+    }
+    if (pendingHistoryValueRef.current === null) return;
+    const nextHistoryValue = pendingHistoryValueRef.current;
+    pendingHistoryValueRef.current = null;
+    addToHistory(nextHistoryValue);
+  }, [addToHistory]);
+
+  const scheduleHistoryCommit = useCallback((newValue: string) => {
+    pendingHistoryValueRef.current = newValue;
+    if (historyCommitTimerRef.current) {
+      clearTimeout(historyCommitTimerRef.current);
+    }
+    historyCommitTimerRef.current = setTimeout(() => {
+      commitPendingHistory();
+    }, EDITOR_UNDO_IDLE_MS);
+  }, [commitPendingHistory]);
 
   useEffect(() => {
     onFocusChange?.(isFocused);
@@ -497,13 +560,16 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
       // Flush any pending debounced change on unmount
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
-        if (pendingValueRef.current !== null) {
-          onChange(pendingValueRef.current);
-          addToHistory(pendingValueRef.current);
-        }
+        debounceTimerRef.current = null;
       }
+      if (pendingValueRef.current !== null) {
+        onChange(pendingValueRef.current);
+        pendingValueRef.current = null;
+      }
+      debounceActiveRef.current = false;
+      commitPendingHistory();
     };
-  }, [onFocusChange, onChange, addToHistory]);
+  }, [onFocusChange, onChange, commitPendingHistory]);
 
   // Sync contentEditable content with value prop when in rich text mode
   // Use a ref to track if the editor is focused to avoid dependency on state
@@ -581,7 +647,7 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
   useEffect(() => {
     // Only reset undo/redo state and highlights if this is NOT an internal update (i.e., not from user typing or undo/redo)
     if (!internalUpdateRef.current) {
-      setUndoRedoState({ history: [value], currentIndex: 0 });
+      commitUndoRedoState({ history: [value], currentIndex: 0 });
       setHighlightRanges([]);
       activeReplacementRangeRef.current = null;
       replacingPlaceholderRef.current = null;
@@ -592,7 +658,7 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
     if (!debounceActiveRef.current) {
       internalUpdateRef.current = false;
     }
-  }, [value]);
+  }, [value, commitUndoRedoState]);
 
   // Note: Do not globally reset internalUpdateRef here to avoid race conditions with the [value] sync effect.
 
@@ -680,46 +746,63 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
     };
   }, [syncPreStyles]);
 
+  const flushPendingEditorChange = useCallback(() => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+    const pendingValue = pendingValueRef.current;
+    pendingValueRef.current = null;
+    debounceActiveRef.current = false;
+    internalUpdateRef.current = true;
+    if (pendingValue !== null) {
+      onChange(pendingValue);
+    }
+    commitPendingHistory();
+    if (pendingValue !== null) {
+      previousValueRef.current = pendingValue;
+    }
+  }, [commitPendingHistory, onChange]);
+
+  const writeEditorValue = useCallback((nextValue: string) => {
+    if (bodyEditorRef?.current) {
+      bodyEditorRef.current.innerHTML = nextValue;
+    }
+    if (taRef.current) {
+      taRef.current.value = nextValue;
+    }
+    previousValueRef.current = nextValue;
+  }, [bodyEditorRef]);
+
   // Undo function
   const handleUndo = () => {
-    setUndoRedoState(prev => {
-      if (prev.currentIndex > 0) {
-        const newIndex = prev.currentIndex - 1;
-        const newValue = prev.history[newIndex];
-        internalUpdateRef.current = true;
-        onChange(newValue);
-        // Also update DOM directly since sync effect won't run when focused
-        if (bodyEditorRef?.current) {
-          bodyEditorRef.current.innerHTML = newValue;
-        }
-        return {
-          ...prev,
-          currentIndex: newIndex
-        };
-      }
-      return prev;
+    flushPendingEditorChange();
+    const prev = undoRedoStateRef.current;
+    if (prev.currentIndex <= 0) return;
+    const newIndex = prev.currentIndex - 1;
+    const newValue = prev.history[newIndex];
+    internalUpdateRef.current = true;
+    onChange(newValue);
+    writeEditorValue(newValue);
+    commitUndoRedoState({
+      ...prev,
+      currentIndex: newIndex
     });
   };
 
   // Redo function
   const handleRedo = () => {
-    setUndoRedoState(prev => {
-      if (prev.currentIndex < prev.history.length - 1) {
-        const newIndex = prev.currentIndex + 1;
-        const newValue = prev.history[newIndex];
-        internalUpdateRef.current = true;
-        onChange(newValue);
-        // Also update DOM directly since sync effect won't run when focused
-        // But skip if user is actively typing (debounce active)
-        if (bodyEditorRef?.current && !debounceActiveRef.current) {
-          bodyEditorRef.current.innerHTML = newValue;
-        }
-        return {
-          ...prev,
-          currentIndex: newIndex
-        };
-      }
-      return prev;
+    flushPendingEditorChange();
+    const prev = undoRedoStateRef.current;
+    if (prev.currentIndex >= prev.history.length - 1) return;
+    const newIndex = prev.currentIndex + 1;
+    const newValue = prev.history[newIndex];
+    internalUpdateRef.current = true;
+    onChange(newValue);
+    writeEditorValue(newValue);
+    commitUndoRedoState({
+      ...prev,
+      currentIndex: newIndex
     });
   };
 
@@ -1126,6 +1209,9 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
           internalUpdateRef.current = true;
           debounceActiveRef.current = true;
           pendingValueRef.current = newValue;
+          pendingHistoryValueRef.current = newValue;
+          previousValueRef.current = newValue;
+          scheduleHistoryCommit(newValue);
           // Debounce onChange to avoid excessive parent re-renders
           if (debounceTimerRef.current) {
             clearTimeout(debounceTimerRef.current);
@@ -1133,12 +1219,11 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
           debounceTimerRef.current = setTimeout(() => {
             if (pendingValueRef.current !== null) {
               onChange(pendingValueRef.current);
-              addToHistory(pendingValueRef.current);
               pendingValueRef.current = null;
             }
             DEBUG_EDITOR_SYNC && console.log('[EditorDebounce] Debounce completed - clearing debounceActiveRef');
             debounceActiveRef.current = false;
-          }, 150);
+          }, EDITOR_CHANGE_DEBOUNCE_MS);
         }}
         onBlur={(e) => {
           if (isPitchFlowLocked) return;
@@ -1156,9 +1241,9 @@ const InlineEditableArea: React.FC<InlineEditableAreaProps> = ({
           }
           if (pendingValueRef.current !== null) {
             onChange(pendingValueRef.current);
-            addToHistory(pendingValueRef.current);
             pendingValueRef.current = null;
           }
+          commitPendingHistory();
           DEBUG_EDITOR_SYNC && console.log('[EditorBlur] Flushing on blur - clearing debounceActiveRef');
           debounceActiveRef.current = false;
           
@@ -1458,6 +1543,8 @@ interface EditorAndTemplateBlocksProps {
   // Scenario callback to expose selectedScenarioId to parent
   onScenarioChange?: (scenarioId: string) => void;
   initialScenario?: string;
+  hasRestoredDraft?: boolean;
+  restoredDraftSavedAt?: string | null;
 }
 
 const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
@@ -1514,7 +1601,9 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
   emailMessage,
   pitchFlowLocked = false,
   onScenarioChange,
-  initialScenario
+  initialScenario,
+  hasRestoredDraft = false,
+  restoredDraftSavedAt = null
 }) => {
   const isPitchFlowLocked = pitchFlowLocked;
   // State for removed blocks
@@ -1526,8 +1615,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
   const [scopeDescription, setScopeDescription] = useState(initialScopeDescription || '');
   // Remember bespoke draft when toggling to standard, so it isn't lost.
   const bespokeDraftRef = useRef<string>(initialScopeDescription || '');
-  // Default amount now 1500 if not supplied
-  const [amountValue, setAmountValue] = useState(amount && amount.trim() !== '' ? amount : '1500');
+  const [amountValue, setAmountValue] = useState(amount && amount.trim() !== '' ? amount : DEFAULT_PITCH_AMOUNT);
   const [amountError, setAmountError] = useState<string | null>(null);
   // VAT toggle state for international clients
   const [includeVat, setIncludeVat] = useState(true);
@@ -1536,6 +1624,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
   const [showSubjectHint, setShowSubjectHint] = useState(false);
   const [selectedScenarioId, setSelectedScenarioId] = useState<string>(initialScenario || '');
   const isBeforeCallCall = selectedScenarioId === 'before-call-call';
+  const requiresInstructLink = !!selectedScenarioId && selectedScenarioId !== 'before-call-call';
+  const hasInstructLinkToken = /\[InstructLink\]/i.test(body || '');
   const latestBodyRef = useRef(body);
   latestBodyRef.current = body;
   const amountSyncFlightRef = useRef<string | null>(null);
@@ -1648,7 +1738,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
   //   default:          scenario, subject, scope, fee, body
   // ==================================================================
   const wizardSteps = React.useMemo<PitchWizardStepDescriptor[]>(() => {
-    const subjectReady = !!subject && subject !== 'Your Enquiry - Helix Law';
+    const subjectReady = isPitchSubjectReady(subject);
     const scopeReady = !!scopeDescription && scopeDescription.trim().length > 0;
     const feeReady = !!amountValue && parseFloat(amountValue) > 0;
     const bodyReady = htmlToPlainText(body || '').length > 0 && allPlaceholdersSatisfied;
@@ -1727,7 +1817,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
     switch (activeWizardStep.id) {
       case 'delivery': return true; // legacy fallthrough, no longer in step list
       case 'scenario': return !!selectedScenarioId;
-      case 'subject': return !!subject && subject !== 'Your Enquiry - Helix Law';
+      case 'subject': return isPitchSubjectReady(subject);
       case 'scope': return !!scopeDescription && scopeDescription.trim().length > 0;
       case 'fee': return !!amountValue && parseFloat(amountValue) > 0;
       case 'body': return false; // last step has no Next
@@ -1839,6 +1929,16 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
   // Track the last body we injected from a scenario so we can safely refresh on scenario edits
   const lastScenarioBodyRef = useRef<string>('');
 
+  const confirmScenarioBodyReplacement = useCallback((nextScenarioId: string) => {
+    if (!selectedScenarioId || selectedScenarioId === nextScenarioId) return true;
+    const currentBody = bodyEditorRef.current?.innerHTML ?? latestBodyRef.current ?? '';
+    if (!htmlToPlainText(currentBody).trim()) return true;
+    const baselineBody = lastScenarioBodyRef.current;
+    if (baselineBody && currentBody === baselineBody) return true;
+    if (typeof window === 'undefined') return true;
+    return window.confirm('Switching scenario will replace the current pitch body. Continue?');
+  }, [bodyEditorRef, selectedScenarioId]);
+
   // When a scenario was preselected upstream (e.g. workbench pitch-tab picker), compose
   // the scenario body once on mount so the wizard lands on Subject/Body with the email
   // already drafted, matching the behaviour of clicking the scenario tile manually.
@@ -1846,12 +1946,16 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
   useEffect(() => {
     if (didApplyInitialScenarioRef.current) return;
     if (!initialScenario) return;
+    if (hasRestoredDraft) {
+      didApplyInitialScenarioRef.current = true;
+      return;
+    }
     const s = SCENARIOS?.find(sc => sc.id === initialScenario);
     if (!s) return;
     didApplyInitialScenarioRef.current = true;
     try {
       setSelectedScenarioId(s.id);
-      setSubject(s.subject || 'Your Enquiry - Helix Law');
+      setSubject(s.subject || DEFAULT_PITCH_SUBJECT);
       const raw = stripDashDividers(s.body);
       const e = enquiry as any;
       const first = e?.First_Name ?? e?.first_name ?? e?.FirstName ?? e?.firstName ?? e?.Name?.split?.(' ')?.[0] ?? e?.ContactName?.split?.(' ')?.[0] ?? '';
@@ -1892,7 +1996,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
       console.error('[PitchBuilder] Error applying preselected scenario:', error);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialScenario]);
+  }, [initialScenario, hasRestoredDraft]);
   
   // Track the last passcode so we can re-process the editor content when it becomes available
   const lastPasscodeRef = useRef<string>('');
@@ -1936,7 +2040,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
   useEffect(() => {
     if (!didSetDefaultSubject.current && (!subject || subject.trim() === '')) {
       didSetDefaultSubject.current = true;
-      setSubject('Your Enquiry - Helix Law');
+      setSubject(DEFAULT_PITCH_SUBJECT);
     }
   }, [subject, setSubject]);
 
@@ -2569,6 +2673,85 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
           align-items: center;
           gap: var(--space-2);
         }
+
+        .scenario-choice-card::before {
+          content: '';
+          position: absolute;
+          left: 0;
+          top: 0;
+          bottom: 0;
+          width: 2px;
+          background: var(--scenario-accent);
+          transform: scaleY(0);
+          transform-origin: top;
+          transition: transform 200ms cubic-bezier(0.22, 0.61, 0.36, 1);
+          pointer-events: none;
+        }
+
+        .scenario-choice-card:hover::before,
+        .scenario-choice-card:focus-visible::before,
+        .scenario-choice-card.active::before {
+          transform: scaleY(1);
+        }
+
+        .scenario-choice-card:hover .scenario-choice-card__icon-shell,
+        .scenario-choice-card:focus-visible .scenario-choice-card__icon-shell {
+          border-color: var(--scenario-accent);
+          background: var(--scenario-icon-hover-bg);
+        }
+
+        @keyframes scenarioArrowGlide {
+          0%, 100% { transform: translateX(0); }
+          50% { transform: translateX(4px); }
+        }
+
+        .scenario-choice-card__arrow-action {
+          align-items: center;
+          color: var(--scenario-accent);
+          display: inline-flex;
+          height: 20px;
+          justify-content: center;
+          opacity: 0;
+          transform: translateX(-10px);
+          transition: opacity 180ms ease, transform 180ms cubic-bezier(0.22, 0.61, 0.36, 1), color 160ms ease;
+          width: 24px;
+        }
+
+        .scenario-choice-card__arrow-action svg {
+          filter: drop-shadow(0 1px 2px ${isDarkMode ? 'rgba(0, 3, 25, 0.45)' : 'rgba(6, 23, 51, 0.12)'});
+          transform: translateX(0);
+        }
+
+        .scenario-choice-card:hover .scenario-choice-card__arrow-action,
+        .scenario-choice-card:focus-visible .scenario-choice-card__arrow-action,
+        .scenario-choice-card.active .scenario-choice-card__arrow-action {
+          opacity: 0.72;
+          transform: translateX(0);
+        }
+
+        .scenario-choice-card:hover .scenario-choice-card__arrow-action svg,
+        .scenario-choice-card:focus-visible .scenario-choice-card__arrow-action svg {
+          animation: scenarioArrowGlide 850ms ease-in-out infinite;
+        }
+
+        .scenario-choice-card.active .scenario-choice-card__arrow-action {
+          opacity: 0.58;
+        }
+
+        .scenario-choice-card:active {
+          transform: translateY(0) scale(0.985) !important;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .scenario-choice-card,
+          .scenario-choice-card::before,
+          .scenario-choice-card__icon-shell,
+          .scenario-choice-card__arrow-action,
+          .scenario-choice-card__arrow-action svg {
+            animation: none !important;
+            transition: none !important;
+          }
+        }
       `}</style>
       {isBodyEditorFocused && (
         <div
@@ -2604,6 +2787,27 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
             position: 'relative',
             zIndex: isBodyEditorFocused ? 10001 : 'auto'
           }}>
+            {hasRestoredDraft && (
+              <div
+                role="status"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  marginBottom: 10,
+                  padding: '6px 10px',
+                  border: '1px solid rgba(54, 144, 206, 0.28)',
+                  background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.07)',
+                  color: 'var(--text-secondary)',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  letterSpacing: '0.02em',
+                  textTransform: 'uppercase',
+                }}
+              >
+                Draft restored{restoredDraftSavedAt ? ` at ${restoredDraftSavedAt}` : ''}
+              </div>
+            )}
             {(() => {
               const onScenarioJump = (id: PitchWizardStepId) => {
                 const idx = wizardSteps.findIndex(s => s.id === id);
@@ -2641,11 +2845,11 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 marginBottom: 16,
                 padding: '14px 16px',
                 borderRadius: '2px',
-                background: isDarkMode ? 'rgba(9, 22, 44, 0.75)' : 'rgba(248, 250, 252, 0.9)',
-                border: `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.35)' : 'rgba(226, 232, 240, 0.9)'}`,
+                background: isDarkMode ? withAlpha(colours.darkBlue, 0.75) : withAlpha(colours.grey, 0.9),
+                border: `1px solid ${isDarkMode ? withAlpha(colours.dark.border, 0.35) : withAlpha(colours.highlightNeutral, 0.9)}`,
                 boxShadow: isDarkMode
-                  ? '0 6px 18px rgba(2, 6, 17, 0.35)'
-                  : '0 4px 12px rgba(15, 23, 42, 0.06)'
+                  ? `0 6px 18px ${withAlpha(colours.dark.background, 0.35)}`
+                  : `0 4px 12px ${withAlpha(colours.helixBlue, 0.06)}`
               }}
             >
               <div 
@@ -2669,89 +2873,33 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   height: '24px',
                   borderRadius: '50%',
                   background: selectedScenarioId 
-                    ? (isDarkMode 
-                        ? 'linear-gradient(135deg, rgba(32, 178, 108, 0.35) 0%, rgba(32, 178, 108, 0.28) 100%)'
-                        : 'linear-gradient(135deg, rgba(32, 178, 108, 0.16) 0%, rgba(32, 178, 108, 0.18) 100%)')
-                    : (isDarkMode 
-                        ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.24) 0%, rgba(54, 144, 206, 0.18) 100%)'
-                        : 'linear-gradient(135deg, rgba(54, 144, 206, 0.16) 0%, rgba(54, 144, 206, 0.18) 100%)'),
+                    ? getScenarioAccentBackground(getScenarioAccentColor(selectedScenarioId), isDarkMode, true)
+                    : getScenarioAccentBackground(colours.blue, isDarkMode, false),
                   border: selectedScenarioId
-                    ? `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.5)' : 'rgba(32, 178, 108, 0.3)'}`
-                    : `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`,
+                    ? `1px solid ${withAlpha(getScenarioAccentColor(selectedScenarioId), isDarkMode ? 0.5 : 0.3)}`
+                    : `1px solid ${withAlpha(colours.blue, isDarkMode ? 0.35 : 0.3)}`,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   fontSize: '12px',
                   fontWeight: 700,
                   color: selectedScenarioId 
-                    ? (isDarkMode ? colours.green : colours.green)
-                    : (isDarkMode ? colours.accent : colours.highlight)
+                    ? getScenarioAccentColor(selectedScenarioId)
+                    : colours.highlight
                 }}>
                   1
                 </div>
                 <div style={{
                   padding: '6px',
-                  background: (() => {
-                    switch(selectedScenarioId) {
-                      case 'before-call-call':
-                        return isDarkMode 
-                          ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.2) 0%, rgba(54, 144, 206, 0.15) 100%)'
-                          : 'linear-gradient(135deg, rgba(54, 144, 206, 0.1) 0%, rgba(54, 144, 206, 0.08) 100%)';
-                      case 'before-call-no-call':
-                        return isDarkMode
-                          ? 'linear-gradient(135deg, rgba(251, 191, 36, 0.2) 0%, rgba(217, 119, 6, 0.15) 100%)'
-                          : 'linear-gradient(135deg, rgba(217, 119, 6, 0.1) 0%, rgba(251, 191, 36, 0.08) 100%)';
-                      case 'after-call-probably-cant-assist':
-                        return isDarkMode
-                          ? 'linear-gradient(135deg, rgba(214, 85, 65, 0.2) 0%, rgba(214, 85, 65, 0.15) 100%)'
-                          : 'linear-gradient(135deg, rgba(214, 85, 65, 0.1) 0%, rgba(214, 85, 65, 0.08) 100%)';
-                      case 'after-call-want-instruction':
-                        return isDarkMode
-                          ? 'linear-gradient(135deg, rgba(32, 178, 108, 0.3) 0%, rgba(32, 178, 108, 0.25) 100%)'
-                          : 'linear-gradient(135deg, rgba(32, 178, 108, 0.1) 0%, rgba(32, 178, 108, 0.08) 100%)';
-                      case 'cfa':
-                        return isDarkMode
-                          ? 'linear-gradient(135deg, rgba(168, 85, 247, 0.2) 0%, rgba(139, 92, 246, 0.15) 100%)'
-                          : 'linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(168, 85, 247, 0.08) 100%)';
-                      default:
-                        return isDarkMode
-                          ? 'linear-gradient(135deg, rgba(148, 163, 184, 0.2) 0%, rgba(107, 114, 128, 0.15) 100%)'
-                          : 'linear-gradient(135deg, rgba(107, 114, 128, 0.1) 0%, rgba(148, 163, 184, 0.08) 100%)';
-                    }
-                  })(),
-                  borderRadius: '6px',
+                  background: getScenarioAccentBackground(getScenarioAccentColor(selectedScenarioId), isDarkMode, Boolean(selectedScenarioId)),
+                  borderRadius: 0,
                   display: 'flex',
                   alignItems: 'center',
-                  border: (() => {
-                    switch(selectedScenarioId) {
-                    case 'before-call-call':
-                      return `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)'}`;
-                    case 'before-call-no-call':
-                      return `1px solid ${isDarkMode ? 'rgba(251, 191, 36, 0.3)' : 'rgba(217, 119, 6, 0.2)'}`;
-                    case 'after-call-probably-cant-assist':
-                      return `1px solid ${isDarkMode ? 'rgba(214, 85, 65, 0.3)' : 'rgba(214, 85, 65, 0.2)'}`;
-                    case 'after-call-want-instruction':
-                      return `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.45)' : 'rgba(32, 178, 108, 0.2)'}`;
-                    case 'cfa':
-                      return `1px solid ${isDarkMode ? 'rgba(168, 85, 247, 0.3)' : 'rgba(139, 92, 246, 0.2)'}`;
-                    default:
-                      return `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(107, 114, 128, 0.2)'}`;
-                  }
-                })()
+                  border: `1px solid ${withAlpha(getScenarioAccentColor(selectedScenarioId), isDarkMode ? 0.34 : 0.22)}`
               }}>
                 {(() => {
                   const iconSize = 12; // Standardized to 12px like other sections
-                  const iconColor = (() => {
-                    switch(selectedScenarioId) {
-                      case 'before-call-call': return isDarkMode ? colours.accent : colours.highlight;
-                      case 'before-call-no-call': return colours.orange;
-                      case 'after-call-probably-cant-assist': return colours.cta;
-                      case 'after-call-want-instruction': return colours.green;
-                      case 'cfa': return colours.highlight;
-                      default: return isDarkMode ? colours.subtleGrey : colours.greyText;
-                    }
-                  })();
-                  
+                  const iconColor = getScenarioAccentColor(selectedScenarioId);
                   switch(selectedScenarioId) {
                     case 'before-call-call':
                       return (
@@ -2805,13 +2953,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
               <div style={{
                 flex: 1,
                 height: '1px',
-                background: selectedScenarioId
-                  ? (isDarkMode
-                      ? 'linear-gradient(90deg, rgba(32, 178, 108, 0.35) 0%, transparent 100%)'
-                      : 'linear-gradient(90deg, rgba(32, 178, 108, 0.25) 0%, transparent 100%)')
-                  : (isDarkMode
-                      ? 'linear-gradient(90deg, rgba(54, 144, 206, 0.3) 0%, transparent 100%)'
-                      : 'linear-gradient(90deg, rgba(54, 144, 206, 0.2) 0%, transparent 100%)')
+                background: `linear-gradient(90deg, ${withAlpha(getScenarioAccentColor(selectedScenarioId), selectedScenarioId ? (isDarkMode ? 0.35 : 0.25) : (isDarkMode ? 0.3 : 0.2))} 0%, transparent 100%)`
               }} />
               <div style={{
                 padding: '4px',
@@ -2841,9 +2983,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
             <div style={{
               marginLeft: 11,
               paddingLeft: 23,
-              borderLeft: `2px solid ${selectedScenarioId 
-                ? (isDarkMode ? 'rgba(32, 178, 108, 0.35)' : 'rgba(32, 178, 108, 0.3)')
-                : (isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)')}`,
+              borderLeft: `2px solid ${withAlpha(getScenarioAccentColor(selectedScenarioId), selectedScenarioId ? (isDarkMode ? 0.35 : 0.3) : (isDarkMode ? 0.25 : 0.2))}`,
               paddingTop: 12
             }}>
             <div style={{
@@ -2853,7 +2993,10 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
               marginBottom: '20px'
             }}>
               {(() => {
-                return SCENARIOS?.map((s, index) => (
+                return SCENARIOS?.map((s, index) => {
+                  const scenarioAccent = getScenarioAccentColor(s.id);
+                  const isSelectedScenario = selectedScenarioId === s.id;
+                  return (
                   <button
                     key={s.id}
                     type="button"
@@ -2862,6 +3005,35 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                     aria-checked={selectedScenarioId === s.id}
                     aria-disabled={isPitchFlowLocked}
                     disabled={isPitchFlowLocked}
+                    style={{
+                      ['--scenario-accent' as any]: scenarioAccent,
+                      ['--scenario-icon-hover-bg' as any]: isDarkMode ? colours.dark.cardBackground : colours.sectionBackground,
+                      position: 'relative',
+                      background: getScenarioCardBackground(isDarkMode, isSelectedScenario),
+                      border: `1px solid ${isSelectedScenario
+                        ? withAlpha(scenarioAccent, isDarkMode ? 0.62 : 0.5)
+                        : withAlpha(scenarioAccent, isDarkMode ? 0.28 : 0.18)}`,
+                      borderRadius: 0,
+                      padding: '18px',
+                      cursor: isPitchFlowLocked ? 'not-allowed' : 'pointer',
+                      pointerEvents: isPitchFlowLocked ? 'none' : 'auto',
+                      userSelect: 'none',
+                      WebkitUserSelect: 'none',
+                      transition: 'transform 160ms cubic-bezier(0.22, 0.61, 0.36, 1), border-color 160ms ease, background 160ms ease, box-shadow 160ms ease',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '12px',
+                      textAlign: 'left',
+                      minHeight: '100px',
+                      boxShadow: selectedScenarioId === s.id
+                        ? (isDarkMode
+                          ? `0 6px 14px rgba(0, 3, 25, 0.32), 0 0 0 1px ${withAlpha(scenarioAccent, 0.08)} inset`
+                          : `0 3px 10px rgba(6, 23, 51, 0.08), 0 0 0 1px ${withAlpha(scenarioAccent, 0.08)} inset`)
+                        : (isDarkMode ? '0 3px 10px rgba(0, 3, 25, 0.22)' : '0 1px 5px rgba(6, 23, 51, 0.05)'),
+                      opacity: isPitchFlowLocked ? 0.5 : 1,
+                      overflow: 'hidden',
+                      fontFamily: 'inherit'
+                    }}
                     aria-label={`Select ${s.name} template: ${(() => {
                       switch (s.id) {
                         case 'before-call-call':
@@ -2887,8 +3059,9 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                       e.preventDefault();
                       e.stopPropagation();
                       try {
+                        if (!confirmScenarioBodyReplacement(s.id)) return;
                         setSelectedScenarioId(s.id);
-                        setSubject(s.subject || 'Your Enquiry - Helix Law');
+                        setSubject(s.subject || DEFAULT_PITCH_SUBJECT);
                         setIsTemplatesCollapsed(true);
                         // Auto-advance the typeform wizard to subject step on scenario pick.
                         setWizardIndex(idx => Math.max(idx, 1));
@@ -2946,59 +3119,24 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                       console.error('[PitchBuilder] Error in scenario selection:', error);
                     }
                     }}
-                    style={{
-                      position: 'relative',
-                      background: selectedScenarioId === s.id
-                        ? (isDarkMode
-                          ? 'linear-gradient(135deg, rgba(13, 28, 56, 0.95) 0%, rgba(17, 36, 68, 0.92) 52%, rgba(20, 45, 82, 0.9) 100%)'
-                          : 'linear-gradient(135deg, rgba(248, 250, 252, 0.98) 0%, rgba(255, 255, 255, 0.95) 100%)')
-                        : (isDarkMode
-                          ? 'linear-gradient(135deg, rgba(8, 15, 28, 0.9) 0%, rgba(10, 21, 38, 0.84) 100%)'
-                          : 'linear-gradient(135deg, rgba(245, 247, 250, 0.96) 0%, rgba(255, 255, 255, 0.92) 100%)'),
-                      border: `1px solid ${selectedScenarioId === s.id
-                        ? (isDarkMode ? 'rgba(125, 211, 252, 0.55)' : 'rgba(54, 144, 206, 0.5)')
-                        : (isDarkMode ? 'rgba(71, 85, 105, 0.3)' : 'rgba(148, 163, 184, 0.18)')}`,
-                      borderRadius: 0,
-                      padding: '18px',
-                      cursor: isPitchFlowLocked ? 'not-allowed' : 'pointer',
-                      pointerEvents: isPitchFlowLocked ? 'none' : 'auto',
-                      userSelect: 'none',
-                      WebkitUserSelect: 'none',
-                      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '12px',
-                      textAlign: 'left',
-                      minHeight: '100px',
-                      boxShadow: selectedScenarioId === s.id
-                        ? (isDarkMode ? '0 8px 24px rgba(2, 6, 17, 0.6), 0 0 0 1px rgba(125, 211, 252, 0.1) inset' : '0 4px 16px rgba(15, 23, 42, 0.12), 0 0 0 1px rgba(54, 144, 206, 0.08) inset')
-                        : (isDarkMode ? '0 4px 16px rgba(4, 9, 20, 0.42)' : '0 2px 10px rgba(13, 47, 96, 0.05)'),
-                      opacity: isPitchFlowLocked ? 0.5 : 1,
-                      overflow: 'hidden',
-                      fontFamily: 'inherit'
-                    }}
                     onMouseEnter={(e) => {
                       if (isPitchFlowLocked) return;
                       if (selectedScenarioId !== s.id) {
-                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(125, 211, 252, 0.55)' : 'rgba(54, 144, 206, 0.5)';
+                        e.currentTarget.style.borderColor = withAlpha(scenarioAccent, isDarkMode ? 0.42 : 0.36);
                         e.currentTarget.style.boxShadow = isDarkMode
-                          ? '0 8px 20px rgba(2, 6, 17, 0.62)'
-                          : '0 6px 18px rgba(15, 23, 42, 0.12)';
+                          ? '0 6px 14px rgba(0, 3, 25, 0.3)'
+                          : '0 4px 12px rgba(6, 23, 51, 0.08)';
                         e.currentTarget.style.transform = 'translateY(-1px)';
-                        e.currentTarget.style.background = isDarkMode
-                          ? 'linear-gradient(135deg, rgba(12, 22, 40, 0.96) 0%, rgba(16, 30, 54, 0.9) 100%)'
-                          : 'linear-gradient(135deg, rgba(248, 250, 252, 0.98) 0%, rgba(255, 255, 255, 0.94) 100%)';
+                        e.currentTarget.style.background = getScenarioCardBackground(isDarkMode, false, true);
                       }
                     }}
                     onMouseLeave={(e) => {
                       if (isPitchFlowLocked) return;
                       if (selectedScenarioId !== s.id) {
-                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(71, 85, 105, 0.3)' : 'rgba(148, 163, 184, 0.18)';
-                        e.currentTarget.style.boxShadow = isDarkMode ? '0 4px 16px rgba(4, 9, 20, 0.42)' : '0 2px 10px rgba(13, 47, 96, 0.05)';
+                        e.currentTarget.style.borderColor = withAlpha(scenarioAccent, isDarkMode ? 0.28 : 0.18);
+                        e.currentTarget.style.boxShadow = isDarkMode ? '0 3px 10px rgba(0, 3, 25, 0.22)' : '0 1px 5px rgba(6, 23, 51, 0.05)';
                         e.currentTarget.style.transform = 'translateY(0)';
-                        e.currentTarget.style.background = isDarkMode
-                          ? 'linear-gradient(135deg, rgba(8, 15, 28, 0.9) 0%, rgba(10, 21, 38, 0.84) 100%)'
-                          : 'linear-gradient(135deg, rgba(245, 247, 250, 0.96) 0%, rgba(255, 255, 255, 0.92) 100%)';
+                        e.currentTarget.style.background = getScenarioCardBackground(isDarkMode, false);
                       }
                     }}
                   >
@@ -3012,83 +3150,20 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                     }}>
                       {/* Icon and title section */}
                       <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
-                        <div style={{
+                        <div className="scenario-choice-card__icon-shell" style={{
                           padding: '10px',
-                          borderRadius: '10px',
-                          background: (() => {
-                            const baseColor = (() => {
-                              switch (s.id) {
-                                case 'before-call-call': return isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.1)';
-                                case 'before-call-no-call': return isDarkMode ? 'rgba(251, 191, 36, 0.2)' : 'rgba(251, 191, 36, 0.1)';
-                                case 'after-call-probably-cant-assist': return isDarkMode ? 'rgba(214, 85, 65, 0.2)' : 'rgba(214, 85, 65, 0.1)';
-                                case 'after-call-want-instruction': return isDarkMode ? 'rgba(32, 178, 108, 0.2)' : 'rgba(32, 178, 108, 0.1)';
-                                case 'cfa': return isDarkMode ? 'rgba(168, 85, 247, 0.2)' : 'rgba(168, 85, 247, 0.1)';
-                                default: return isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.1)';
-                              }
-                            })();
-
-                            if (selectedScenarioId !== s.id) {
-                              return baseColor;
-                            }
-
-                            const accentGradient = (() => {
-                              switch (s.id) {
-                                case 'before-call-call':
-                                  return isDarkMode
-                                    ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.35) 0%, rgba(54, 144, 206, 0.3) 100%)'
-                                    : 'linear-gradient(135deg, rgba(54, 144, 206, 0.22) 0%, rgba(54, 144, 206, 0.18) 100%)';
-                                case 'before-call-no-call':
-                                  return isDarkMode
-                                    ? 'linear-gradient(135deg, rgba(251, 191, 36, 0.35) 0%, rgba(255, 213, 79, 0.28) 100%)'
-                                    : 'linear-gradient(135deg, rgba(251, 191, 36, 0.22) 0%, rgba(255, 213, 79, 0.16) 100%)';
-                                case 'after-call-probably-cant-assist':
-                                  return isDarkMode
-                                    ? 'linear-gradient(135deg, rgba(214, 85, 65, 0.35) 0%, rgba(214, 85, 65, 0.28) 100%)'
-                                    : 'linear-gradient(135deg, rgba(214, 85, 65, 0.22) 0%, rgba(214, 85, 65, 0.16) 100%)';
-                                case 'after-call-want-instruction':
-                                  return isDarkMode
-                                    ? 'linear-gradient(135deg, rgba(32, 178, 108, 0.35) 0%, rgba(32, 178, 108, 0.28) 100%)'
-                                    : 'linear-gradient(135deg, rgba(32, 178, 108, 0.22) 0%, rgba(32, 178, 108, 0.16) 100%)';
-                                case 'cfa':
-                                  return isDarkMode
-                                    ? 'linear-gradient(135deg, rgba(168, 85, 247, 0.35) 0%, rgba(192, 132, 252, 0.28) 100%)'
-                                    : 'linear-gradient(135deg, rgba(139, 92, 246, 0.22) 0%, rgba(168, 85, 247, 0.16) 100%)';
-                                default:
-                                  return isDarkMode
-                                    ? 'linear-gradient(135deg, rgba(148, 163, 184, 0.35) 0%, rgba(203, 213, 225, 0.28) 100%)'
-                                    : 'linear-gradient(135deg, rgba(148, 163, 184, 0.22) 0%, rgba(226, 232, 240, 0.16) 100%)';
-                              }
-                            })();
-
-                            return accentGradient;
-                          })(),
-                          border: `1px solid ${(() => {
-                            switch(s.id) {
-                              case 'before-call-call': return isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)';
-                              case 'before-call-no-call': return isDarkMode ? 'rgba(251, 191, 36, 0.3)' : 'rgba(251, 191, 36, 0.2)';
-                              case 'after-call-probably-cant-assist': return isDarkMode ? 'rgba(214, 85, 65, 0.3)' : 'rgba(214, 85, 65, 0.2)';
-                              case 'after-call-want-instruction': return isDarkMode ? 'rgba(32, 178, 108, 0.3)' : 'rgba(32, 178, 108, 0.2)';
-                              case 'cfa': return isDarkMode ? 'rgba(168, 85, 247, 0.3)' : 'rgba(168, 85, 247, 0.2)';
-                              default: return isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)';
-                            }
-                          })()}`,
+                          borderRadius: 0,
+                          background: getScenarioAccentBackground(scenarioAccent, isDarkMode, isSelectedScenario),
+                          border: `1px solid ${withAlpha(scenarioAccent, isDarkMode ? 0.34 : 0.22)}`,
                           flexShrink: 0,
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          transition: 'all 0.2s ease'
+                          transition: 'border-color 160ms ease, background 160ms ease'
                         }}>
                           {(() => {
                             const iconColor = (() => {
-                              // Keep scenario-specific icon colours; selected state shouldn't override these.
-                              switch(s.id) {
-                                case 'before-call-call': return colours.blue;
-                                case 'before-call-no-call': return colours.orange;
-                                case 'after-call-probably-cant-assist': return colours.cta;
-                                case 'after-call-want-instruction': return colours.green;
-                                case 'cfa': return colours.highlight;
-                                default: return isDarkMode ? colours.subtleGrey : colours.greyText;
-                              }
+                              return scenarioAccent;
                             })();
                             
                             switch(s.id) {
@@ -3176,39 +3251,24 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                         </div>
                       </div>
                       
-                      {/* Selection indicator */}
+                      {/* Hover action indicator */}
                       <div style={{
                         display: 'flex',
                         justifyContent: 'flex-end',
                         alignItems: 'center',
                         marginTop: 'auto'
                       }}>
-                        <div style={{
-                          width: '20px',
-                          height: '20px',
-                          border: `2px solid ${selectedScenarioId === s.id 
-                            ? colours.blue
-                            : (isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(148, 163, 184, 0.3)')}`,
-                          borderRadius: '50%',
-                          background: selectedScenarioId === s.id 
-                            ? colours.blue
-                            : 'transparent',
-                          position: 'relative',
-                          transition: 'all 0.2s ease',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center'
-                        }}>
-                          {selectedScenarioId === s.id && (
-                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="3">
-                              <polyline points="20,6 9,17 4,12"/>
-                            </svg>
-                          )}
+                        <div
+                          className="scenario-choice-card__arrow-action"
+                          aria-hidden="true"
+                        >
+                          <FaArrowRight style={{ fontSize: 13 }} />
                         </div>
                       </div>
                     </div>
                   </button>
-                )) || [];
+                  );
+                }) || [];
               })()}
             </div>
             </div>
@@ -3261,14 +3321,14 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   width: '24px',
                   height: '24px',
                   borderRadius: '50%',
-                  background: !isSubjectEditing && subject && subject !== 'Your Enquiry - Helix Law'
+                  background: !isSubjectEditing && isPitchSubjectReady(subject)
                     ? (isDarkMode 
                         ? 'linear-gradient(135deg, rgba(32, 178, 108, 0.35) 0%, rgba(32, 178, 108, 0.28) 100%)'
                         : 'linear-gradient(135deg, rgba(32, 178, 108, 0.16) 0%, rgba(32, 178, 108, 0.18) 100%)')
                     : (isDarkMode 
                         ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.24) 0%, rgba(54, 144, 206, 0.18) 100%)'
                         : 'linear-gradient(135deg, rgba(54, 144, 206, 0.16) 0%, rgba(54, 144, 206, 0.18) 100%)'),
-                  border: !isSubjectEditing && subject && subject !== 'Your Enquiry - Helix Law'
+                  border: !isSubjectEditing && isPitchSubjectReady(subject)
                     ? `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.5)' : 'rgba(32, 178, 108, 0.3)'}`
                     : `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`,
                   display: 'flex',
@@ -3276,7 +3336,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   justifyContent: 'center',
                   fontSize: '12px',
                   fontWeight: 700,
-                  color: !isSubjectEditing && subject && subject !== 'Your Enquiry - Helix Law'
+                  color: !isSubjectEditing && isPitchSubjectReady(subject)
                     ? (isDarkMode ? colours.green : colours.green)
                     : (isDarkMode ? colours.accent : colours.highlight)
                 }}>
@@ -3284,7 +3344,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 </div>
                 <div style={{
                   padding: '6px',
-                  background: !isSubjectEditing && subject && subject !== 'Your Enquiry - Helix Law'
+                  background: !isSubjectEditing && isPitchSubjectReady(subject)
                     ? (isDarkMode 
                         ? 'linear-gradient(135deg, rgba(32, 178, 108, 0.35) 0%, rgba(32, 178, 108, 0.28) 100%)'
                         : 'linear-gradient(135deg, rgba(32, 178, 108, 0.16) 0%, rgba(32, 178, 108, 0.18) 100%)')
@@ -3294,13 +3354,13 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                   borderRadius: '6px',
                   display: 'flex',
                   alignItems: 'center',
-                  border: !isSubjectEditing && subject && subject !== 'Your Enquiry - Helix Law'
+                  border: !isSubjectEditing && isPitchSubjectReady(subject)
                     ? `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.5)' : 'rgba(32, 178, 108, 0.3)'}`
                     : `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.3)'}`
                 }}>
                   <FaEdit style={{ 
                     fontSize: 12, 
-                    color: !isSubjectEditing && subject && subject !== 'Your Enquiry - Helix Law'
+                    color: !isSubjectEditing && isPitchSubjectReady(subject)
                       ? (isDarkMode ? colours.green : colours.green)
                       : (isDarkMode ? colours.accent : colours.highlight)
                   }} />
@@ -3311,7 +3371,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                 <div style={{
                   flex: 1,
                   height: '1px',
-                  background: (!isSubjectEditing && subject && subject !== 'Your Enquiry - Helix Law')
+                  background: (!isSubjectEditing && isPitchSubjectReady(subject))
                     ? (isDarkMode
                         ? 'linear-gradient(90deg, rgba(32, 178, 108, 0.35) 0%, transparent 100%)'
                         : 'linear-gradient(90deg, rgba(32, 178, 108, 0.25) 0%, transparent 100%)')
@@ -3335,7 +3395,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
               <div style={{
                 marginLeft: 11,
                 paddingLeft: 23,
-                borderLeft: `2px solid ${!isSubjectEditing && subject && subject !== 'Your Enquiry - Helix Law'
+                borderLeft: `2px solid ${!isSubjectEditing && isPitchSubjectReady(subject)
                   ? (isDarkMode ? 'rgba(32, 178, 108, 0.35)' : 'rgba(32, 178, 108, 0.3)')
                   : (isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)')}`,
                 paddingTop: 12
@@ -3350,7 +3410,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                         ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.6) 0%, rgba(11, 30, 55, 0.4) 100%)'
                         : 'linear-gradient(135deg, rgba(248, 250, 252, 0.8) 0%, rgba(255, 255, 255, 0.6) 100%)',
                       border: `1.5px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.25)' : 'rgba(148, 163, 184, 0.3)'}`,
-                      borderRadius: '8px',
+                      borderRadius: 0,
                       color: isDarkMode ? colours.dark.text : colours.light.text,
                       fontSize: '14px',
                       fontWeight: 500,
@@ -3404,7 +3464,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                         fontSize: '14px',
                         fontWeight: 400,
                         border: `2px solid #3690CE`,
-                        borderRadius: '8px',
+                        borderRadius: 0,
                         background: isDarkMode 
                           ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.94) 0%, rgba(11, 30, 55, 0.88) 100%)'
                           : 'linear-gradient(135deg, rgba(248, 250, 252, 0.96) 0%, rgba(255, 255, 255, 0.92) 100%)',
@@ -4288,7 +4348,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                       backdropFilter: 'blur(8px)'
                     }}>
                       <span style={{ fontSize: 12, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text, letterSpacing: 0.6, textTransform: 'uppercase' }}>Inline Preview</span>
-                      <span style={{ marginLeft: 'auto', fontSize: 11, color: isDarkMode ? 'rgba(224, 242, 254, 0.7)' : colours.blue }}>{subject || 'Your Enquiry - Helix Law'}</span>
+                      <span style={{ marginLeft: 'auto', fontSize: 11, color: isDarkMode ? 'rgba(224, 242, 254, 0.7)' : colours.blue }}>{subject || DEFAULT_PITCH_SUBJECT}</span>
                     </div>
                       <div
                       ref={previewRef}
@@ -4476,10 +4536,13 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                           const unresolvedAny = unresolvedSubject.length > 0 || unresolvedBody.length > 0;
                           const missingServiceSummary = !scopeDescription || !String(scopeDescription).trim();
                           const requireServiceSummary = !isBeforeCallCall;
-                          const disableSend = unresolvedAny || (requireServiceSummary && missingServiceSummary);
+                          const missingInstructLink = requiresInstructLink && !hasInstructLinkToken;
+                          const disableSend = unresolvedAny || (requireServiceSummary && missingServiceSummary) || missingInstructLink;
                           const sendBtnTitle = unresolvedAny
                             ? 'Resolve placeholders before sending'
-                            : ((requireServiceSummary && missingServiceSummary) ? 'Service summary is required' : 'Send Email');
+                            : missingInstructLink
+                              ? 'Add [InstructLink] before sending'
+                              : ((requireServiceSummary && missingServiceSummary) ? 'Service summary is required' : 'Send Email');
                           return (
                             <>
                               <button
@@ -5698,6 +5761,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                     if (!editableTo || !editableTo.trim()) return 'Recipient (To) is required.';
                     if (!subject || !subject.trim()) return 'Subject is required.';
                     if (!body || !body.trim()) return 'Email body is required.';
+                    if (requiresInstructLink && !hasInstructLinkToken) return 'Add [InstructLink] before sending.';
                     if (!isBeforeCallCall) {
                       if (!scopeDescription || !scopeDescription.trim()) return 'Service description is required.';
                       if (!amountValue || !amountValue.trim() || isNaN(numericAmt) || numericAmt <= 0) return 'Estimated fee must be a positive number.';

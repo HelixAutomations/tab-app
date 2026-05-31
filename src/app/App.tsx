@@ -5,7 +5,7 @@ import './styles/ImmediateActionsPortal.css';
 import { ThemeProvider, useTheme } from './functionality/ThemeContext';
 import Navigator from '../components/Navigator';
 import { useNavigatorActions } from './functionality/NavigatorContext';
-import ResourcesModal from '../components/ResourcesModal';
+import Resources from '../tabs/resources/Resources';
 import FormsHub from '../tabs/forms/FormsHub';
 import { NavigatorProvider } from './functionality/NavigatorContext';
 import { ToastProvider } from '../components/feedback/ToastProvider';
@@ -14,7 +14,7 @@ import { app } from '@microsoft/teams-js';
 import { Matter, UserData, Enquiry, Tab, TeamData, POID, Transaction, BoardroomBooking, SoundproofPodBooking, InstructionData, NormalizedMatter } from './functionality/types';
 import { hasActiveMatterOpening } from './functionality/matterOpeningUtils';
 import { normalizeMatterData } from '../utils/matterNormalization';
-import { isAdminUser, canSeePrivateHubControls, canSeeActivityTab, canUseSessionModeControls, isCclOperationsAvailable } from './admin';
+import { isAdminUser, canSeePrivateHubControls, canSeeActivityTab, canUseDemoModeControls, canUseSessionModeControls, isCclOperationsAvailable } from './admin';
 import { useCapability } from './useEffectiveCapabilities';
 import { EffectivePermissionsProvider } from './effectivePermissions';
 import HubToolsChip from '../components/HubToolsChip';
@@ -240,6 +240,9 @@ const App: React.FC<AppProps> = ({
   const [formsEverVisited, setFormsEverVisited] = useState<boolean>(() => {
     try { return sessionStorage.getItem('helix.tab.formsEverVisited') === '1'; } catch { return false; }
   });
+  const [resourcesEverVisited, setResourcesEverVisited] = useState<boolean>(() => {
+    try { return sessionStorage.getItem('helix.tab.resourcesEverVisited') === '1'; } catch { return false; }
+  });
   useEffect(() => {
     if (enquiriesEverVisited) {
       try { sessionStorage.setItem('helix.tab.enquiriesEverVisited', '1'); } catch { /* ignore */ }
@@ -255,6 +258,11 @@ const App: React.FC<AppProps> = ({
       try { sessionStorage.setItem('helix.tab.formsEverVisited', '1'); } catch { /* ignore */ }
     }
   }, [formsEverVisited]);
+  useEffect(() => {
+    if (resourcesEverVisited) {
+      try { sessionStorage.setItem('helix.tab.resourcesEverVisited', '1'); } catch { /* ignore */ }
+    }
+  }, [resourcesEverVisited]);
   useEffect(() => {
     if (!isLocalDev || localSupportSettings.mode === 'full-live') return;
     setEnquiriesEverVisited(localSupportSettings.mode === 'enquiries');
@@ -440,7 +448,6 @@ const App: React.FC<AppProps> = ({
   useFirstHydration('instructions', instructionData.length > 0, { count: instructionData.length });
   useFirstHydration('sse.connected', sseConnectionState === 'live', { state: sseConnectionState });
   
-  const [isResourcesModalOpen, setIsResourcesModalOpen] = useState(false);
   
   const [hasActiveMatter, setHasActiveMatter] = useState(false);
   const [hasImmediateActions, setHasImmediateActions] = useState(false);
@@ -750,19 +757,11 @@ const App: React.FC<AppProps> = ({
     };
   }, [isInMatterOpeningWorkflow]);
 
-  const openResourcesModal = useCallback(() => {
-    setIsResourcesModalOpen(true);
-  }, []);
-
-  const closeResourcesModal = useCallback(() => {
-    setIsResourcesModalOpen(false);
-  }, []);
-
   useEffect(() => {
-    if (activeTab === 'resources') {
-      openResourcesModal();
+    if (activeTab === 'resources' && !resourcesEverVisited) {
+      setResourcesEverVisited(true);
     }
-  }, [activeTab]);
+  }, [activeTab, resourcesEverVisited]);
 
   // Track first visit to Enquiries for keep-alive mounting
   useEffect(() => {
@@ -1131,11 +1130,7 @@ const App: React.FC<AppProps> = ({
   }, []);
 
   const handleResourcesTabClick = () => {
-    if (isResourcesModalOpen) {
-      closeResourcesModal();
-    } else {
-      openResourcesModal();
-    }
+    activateTab('resources');
   };
 
   useEffect(() => {
@@ -1195,6 +1190,15 @@ const App: React.FC<AppProps> = ({
       actionLog('Navigate → tab', requestedTab);
       activateTab(requestedTab);
     };
+    const handlePreviewClaimedQueueHolding = () => {
+      setFeatureToggles(prev => {
+        const next = { ...prev, viewAsProd: false, previewClaimedQueueHolding: true };
+        try { localStorage.setItem('featureToggles', JSON.stringify(next)); } catch { /* ignore */ }
+        return next;
+      });
+      actionLog('Preview → claimed queue holding');
+      activateTab('enquiries');
+    };
     const handleNavigateToEnquiry = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       actionLog('Navigate → enquiry', detail?.enquiryId ? `#${detail.enquiryId}` : undefined);
@@ -1249,6 +1253,7 @@ const App: React.FC<AppProps> = ({
 
     window.addEventListener('navigateToHome', handleNavigateToHome);
   window.addEventListener('navigateToTab', handleNavigateToTab);
+    window.addEventListener('helix:previewClaimedQueueHolding', handlePreviewClaimedQueueHolding);
     window.addEventListener('navigateToInstructions', handleNavigateToInstructions);
     window.addEventListener('navigateToEnquiries', handleNavigateToEnquiries);
     window.addEventListener('navigateToEnquiry', handleNavigateToEnquiry);
@@ -1260,6 +1265,7 @@ const App: React.FC<AppProps> = ({
     return () => {
       window.removeEventListener('navigateToHome', handleNavigateToHome);
       window.removeEventListener('navigateToTab', handleNavigateToTab);
+      window.removeEventListener('helix:previewClaimedQueueHolding', handlePreviewClaimedQueueHolding);
       window.removeEventListener('navigateToInstructions', handleNavigateToInstructions);
       window.removeEventListener('navigateToEnquiries', handleNavigateToEnquiries);
       window.removeEventListener('navigateToEnquiry', handleNavigateToEnquiry);
@@ -1373,10 +1379,10 @@ const App: React.FC<AppProps> = ({
   // Determine the current user's initials
   const userInitials = userData?.[0]?.Initials?.toUpperCase() || '';
 
-  // Demo Cheat Sheet (Ctrl+Shift+D) — server-backed allowlist. LZ-owned;
-  // LZ can grant/revoke access to other initials in-overlay. Non-blocking.
+  // Demo Cheat Sheet (Ctrl+Shift+D): local-only presenter notes.
   const [demoCheatAllowed, setDemoCheatAllowed] = React.useState<string[]>([]);
   const refreshDemoCheatAccess = React.useCallback(async () => {
+    if (!isLocalDev) return;
     try {
       const res = await fetch('/api/demo-cheat-sheet/access', { headers: buildRequestAuthHeaders() });
       if (!res.ok) return;
@@ -1384,14 +1390,12 @@ const App: React.FC<AppProps> = ({
       if (Array.isArray(json?.allowed)) {
         setDemoCheatAllowed(json.allowed.map((v: string) => String(v || '').toUpperCase()));
       }
-    } catch { /* ignore — overlay just stays gated to LZ */ }
-  }, []);
+    } catch { /* ignore: overlay stays local-only and allowlist-gated */ }
+  }, [isLocalDev]);
   React.useEffect(() => { void refreshDemoCheatAccess(); }, [refreshDemoCheatAccess]);
-  // Cheat-sheet access: LZ owns the notes, anyone on the server allowlist can
-  // open them, and AC/JW/EA are always included so the minimal strip Notes
-  // experience works in demos without needing a manual grant. The full Tools
-  // panel itself stays LZ-only and is gated separately in HubToolsChip.
-  const demoCheatEnabled = !!userInitials && (
+  // Cheat-sheet access: local-only now. The full Tools panel stays LZ-only
+  // and is gated separately in HubToolsChip.
+  const demoCheatEnabled = isLocalDev && !!userInitials && (
     userInitials === 'LZ'
     || userInitials === 'AC'
     || userInitials === 'JW'
@@ -1399,6 +1403,7 @@ const App: React.FC<AppProps> = ({
     || demoCheatAllowed.includes(userInitials)
   );
   const sessionModeControlsEnabled = canUseSessionModeControls(currentUser) || canUseSessionModeControls(originalAdminUser || null);
+  const demoModeControlsEnabled = canUseDemoModeControls(currentUser) || canUseDemoModeControls(originalAdminUser || null);
 
   // Ref-based guard: track whether instruction data has been fetched to avoid re-triggering the effect
   const instructionDataFetchedRef = React.useRef(false);
@@ -1728,7 +1733,7 @@ const App: React.FC<AppProps> = ({
       { key: 'enquiries', text: 'Prospects' },
       { key: 'matters', text: 'Matters' },
       { key: 'forms', text: 'Forms' },
-      { key: 'resources', text: 'Resources', disabled: true },
+      { key: 'resources', text: 'Resources' },
       ...(showActivityTab ? [{ key: 'roadmap', text: 'System' }] : []),
       ...(showReportsTab ? [{ key: 'reporting', text: 'Reports' }] : []),
     ];
@@ -1818,16 +1823,6 @@ const App: React.FC<AppProps> = ({
           )}
           <style>{`@keyframes helix-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }`}</style>
 
-          <ResourcesModal
-            isOpen={isResourcesModalOpen}
-            onDismiss={closeResourcesModal}
-            userData={userData}
-            teamData={teamData}
-            demoModeEnabled={demoModeEnabled}
-            isLocalDev={isLocalDev}
-            viewAsProd={Boolean(featureToggles?.viewAsProd)}
-          />
-          
           {!demoModeEnabled && (
             <MaintenanceNotice
               state={serviceHealth}
@@ -1836,7 +1831,7 @@ const App: React.FC<AppProps> = ({
             />
           )}
           
-          <div className="app-scroll-region">
+          <div className={`app-scroll-region${activeTab === 'resources' ? ' resources-scroll-region' : ''}`}>
             {/* Navigator + Immediate Actions — inside scroll region so they
                 scroll away naturally with the content. Hidden on non-home tabs. */}
             <div ref={navigatorChromeRef} className="app-navigator">
@@ -1992,6 +1987,13 @@ const App: React.FC<AppProps> = ({
               </TabMountMeter>
               </div>
             )}
+            {resourcesEverVisited && (
+              <div style={{ display: activeTab === 'resources' ? undefined : 'none' }}>
+                <TabMountMeter name="resources">
+                  <Resources userData={userData} />
+                </TabMountMeter>
+              </div>
+            )}
             {/* Reporting: admin-only, mount/unmount is fine */}
             {activeTab === 'reporting' && (
               <Suspense fallback={<ThemedSuspenseFallback />}>
@@ -2017,7 +2019,7 @@ const App: React.FC<AppProps> = ({
             </>
           </div>
         </div>
-        {dataReady && (isLocalDev || canSeePrivateHubControls(userData[0] || null) || canSeePrivateHubControls(originalAdminUser || null) || sessionModeControlsEnabled || demoCheatEnabled) && (
+        {dataReady && (isLocalDev || canSeePrivateHubControls(userData[0] || null) || canSeePrivateHubControls(originalAdminUser || null) || sessionModeControlsEnabled || demoModeControlsEnabled || demoCheatEnabled) && (
           <HubToolsChip
             user={userData[0] || { First: 'Local', Last: 'Dev', Initials: 'LD', AOW: 'Commercial, Construction, Property, Employment, Misc/Other', Email: 'local@dev.com' }}
             isLocalDev={isLocalDev}
@@ -2047,13 +2049,14 @@ const App: React.FC<AppProps> = ({
           enabled={dataReady && (isLocalDev || canSeePrivateHubControls(userData[0] || null) || canSeePrivateHubControls(originalAdminUser || null))}
           bottomOffset={(!demoModeEnabled && serviceHealth.isUnavailable) ? 132 : 78}
         />
-        {/* Presenter cheat sheet — Ctrl+Shift+D. LZ-owned; LZ can grant access to others. */}
+        {/* Presenter cheat sheet: local-only. */}
         <DemoCheatSheetOverlay
-          enabled={dataReady && demoCheatEnabled}
+          enabled={dataReady && isLocalDev && demoCheatEnabled}
           presenterId={userInitials}
           teamData={teamData || []}
           allowedInitials={demoCheatAllowed}
           onAccessChanged={refreshDemoCheatAccess}
+          onFeatureToggle={handleFeatureToggle}
         />
         {showCclDiff && dataReady && (isLocalDev || canSeePrivateHubControls(userData[0] || null) || canSeePrivateHubControls(originalAdminUser || null)) && (
           <Suspense fallback={null}>

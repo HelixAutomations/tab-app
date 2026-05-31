@@ -5,6 +5,7 @@ const express = require('express');
 const { withRequest, sql } = require('../utils/db');
 const { emitEvent } = require('../utils/eventEmitter');
 const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
+const { recordSubmission, recordStep, markComplete, markFailed } = require('../utils/formSubmissionLog');
 const router = express.Router();
 
 const RISK_LOOKUP_OPERATION = 'RiskAssessment.Lookup';
@@ -391,6 +392,7 @@ async function handleRiskAssessmentLookup(req, res) {
     const startedAt = Date.now();
     const actor = getActor(req);
     const matterRef = asTrimmedString(req.body?.matterRef || req.body?.ref || req.query?.matterRef || req.query?.ref);
+    let submissionId = null;
 
     trackEvent('RiskAssessment.Lookup.Started', {
         operation: RISK_LOOKUP_OPERATION,
@@ -408,6 +410,18 @@ async function handleRiskAssessmentLookup(req, res) {
     }
 
     try {
+        submissionId = await recordSubmission({
+            formKey: 'risk-lookup',
+            submittedBy: String(actor || 'UNK').slice(0, 10),
+            lane: 'Find',
+            payload: {
+                matterRef,
+                source: 'risk-assessments.lookup',
+            },
+            summary: `Risk lookup: ${matterRef}`.slice(0, 400),
+            clientSubmissionId: req.body?.clientSubmissionId || null,
+        });
+
         const instructionsConnectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
         if (!instructionsConnectionString) {
             throw new Error('INSTRUCTIONS_SQL_CONNECTION_STRING not found in environment');
@@ -447,6 +461,18 @@ async function handleRiskAssessmentLookup(req, res) {
             durationMs: String(durationMs),
         });
         trackMetric('RiskAssessment.Lookup.Duration', durationMs, { operation: RISK_LOOKUP_OPERATION, status });
+
+        await recordStep(submissionId, {
+            name: 'risk.lookup',
+            status: 'success',
+            output: {
+                status,
+                matterCount: matterRows.length,
+                riskCount: riskRows.length,
+                idVerificationCount: idVerificationRows.length,
+            },
+        });
+        await markComplete(submissionId, { lastEvent: status });
 
         return res.json({
             ok: true,
@@ -489,6 +515,9 @@ async function handleRiskAssessmentLookup(req, res) {
     } catch (error) {
         const durationMs = Date.now() - startedAt;
         trackException(error, { operation: RISK_LOOKUP_OPERATION, triggeredBy: actor, phase: 'lookup' });
+        if (submissionId) {
+            await markFailed(submissionId, { lastEvent: 'risk.lookup:failed', error });
+        }
         trackEvent('RiskAssessment.Lookup.Failed', {
             operation: RISK_LOOKUP_OPERATION,
             triggeredBy: actor,
@@ -509,6 +538,8 @@ router.post('/lookup', handleRiskAssessmentLookup);
 router.post('/', async (req, res) => {
     const body = req.body || {};
     const { InstructionRef, MatterId } = body;
+    const actor = getRequestInitials(req) || body.RiskAssessor || getActor(req);
+    let submissionId = null;
     
     if (!InstructionRef && !MatterId) {
         return res.status(400).json({ error: 'Missing InstructionRef or MatterId' });
@@ -517,6 +548,21 @@ router.post('/', async (req, res) => {
     console.log(`[risk-assessments] Processing risk assessment for ${InstructionRef || MatterId}`);
 
     try {
+        submissionId = await recordSubmission({
+            formKey: 'risk-assessment',
+            submittedBy: String(actor || 'UNK').slice(0, 10),
+            lane: 'Request',
+            payload: {
+                InstructionRef: InstructionRef || null,
+                MatterId: MatterId || null,
+                RiskAssessor: body.RiskAssessor || null,
+                RiskAssessmentResult: body.RiskAssessmentResult || null,
+                RiskScore: body.RiskScore ?? null,
+            },
+            summary: `Risk assessment: ${InstructionRef || MatterId}`.slice(0, 400),
+            clientSubmissionId: req.body?.clientSubmissionId || null,
+        });
+
         // Use the INSTRUCTIONS_SQL_CONNECTION_STRING from .env (same as verify-id)
         const connectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
         if (!connectionString) {
@@ -625,15 +671,32 @@ router.post('/', async (req, res) => {
             riskAssessmentResult: body.RiskAssessmentResult,
             riskAssessor: body.RiskAssessor,
         });
+
+        await recordStep(submissionId, {
+            name: 'risk.assessment.save',
+            status: 'success',
+            output: {
+                instructionRef: InstructionRef || null,
+                matterId: MatterId || null,
+                riskScore: body.RiskScore ?? null,
+                riskAssessmentResult: body.RiskAssessmentResult || null,
+            },
+        });
+        await markComplete(submissionId, { lastEvent: 'risk assessment saved' });
         
         res.status(200).json({ 
             success: true, 
             message: 'Risk assessment saved successfully',
-            instructionRef: InstructionRef || MatterId
+            instructionRef: InstructionRef || MatterId,
+            submissionId,
         });
 
     } catch (error) {
         console.error(`[risk-assessments] Error saving risk assessment:`, error);
+        trackException(error, { operation: 'RiskAssessment.Save', triggeredBy: actor, phase: 'save' });
+        if (submissionId) {
+            await markFailed(submissionId, { lastEvent: 'risk.assessment.save:failed', error });
+        }
         res.status(500).json({ 
             error: 'Failed to save risk assessment',
             details: error.message 

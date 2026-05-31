@@ -16,6 +16,7 @@ import { practiceAreasByArea } from '../instructions/MatterOpening/config';
 import InlineWorkbench from '../instructions/InlineWorkbench';
 import ProspectCaseChips from './components/ProspectCaseChips';
 import ProspectHeroHeader from './components/ProspectHeroHeader';
+import { derivePitchLinkMetadata } from './pitch-builder/pitchLinkMetadata';
 import { WorkbenchJourneyRail } from '../../components/workbench/WorkbenchJourneyRail';
 import PortalLaunchModal from '../../components/portal/PortalLaunchModal';
 import { buildPortalLaunchModel } from '../../utils/portalLaunch';
@@ -261,6 +262,12 @@ interface TimelineItem {
     documentId?: number;
     dealOrigin?: 'email' | 'link';
     dealOriginLabel?: string;
+    linkType?: string;
+    linkTypeLabel?: string;
+    includesPayment?: boolean;
+    includesIdVerification?: boolean;
+    includesDocumentRequest?: boolean;
+    linkIncludesLabel?: string;
     dealEmailSubject?: string | null;
     dealPasscode?: string | null;
     dealServiceDescription?: string;
@@ -902,6 +909,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
   const [selectedContextStage, setSelectedContextStage] = useState<ContextStageKey | null>('enquiry');
   const [isCompactPipelineMode, setIsCompactPipelineMode] = useState<boolean>(false);
   const [focusedTimelineIndex, setFocusedTimelineIndex] = useState<number>(-1);
+  const [timelineRefreshTick, setTimelineRefreshTick] = useState(0);
   const previousEnquiryIdRef = useRef<string | null>(null);
 
   // Sync workbench tab when parent changes it (e.g. pipeline chip click → matter)
@@ -936,6 +944,73 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
 
     return () => {
       window.clearTimeout(timeoutId);
+    };
+  }, [enquiry?.ID]);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent).detail || {};
+      const eventEnquiryId = String(detail.enquiryId ?? '').trim();
+      const currentEnquiryId = String(enquiry?.ID ?? '').trim();
+      if (!eventEnquiryId || !currentEnquiryId || eventEnquiryId !== currentEnquiryId) return;
+      enquiryTimelineSessionCache.delete(currentEnquiryId);
+      if ((event as CustomEvent).type === 'helix:pitch-link-activated') {
+        const amount = typeof detail.amount === 'number' ? detail.amount : Number(detail.amount || 0);
+        const includePayment = detail.includePayment !== false;
+        const linkTypeLabel = String(detail.linkTypeLabel || (includePayment ? 'Payment, ID and document request link' : 'ID and document request link'));
+        const includesDocumentRequest = detail.includesDocumentRequest !== false;
+        const optimisticId = `pitch-link-created-${String(detail.dealId || detail.passcode || Date.now())}`;
+        const serviceDescription = String(detail.serviceDescription || '').trim();
+        const optimisticItem: TimelineItem = {
+          id: optimisticId,
+          type: 'link-enabled',
+          date: String(detail.createdAt || new Date().toISOString()),
+          subject: includePayment
+            ? `${linkTypeLabel}: £${Number.isFinite(amount) ? amount.toFixed(2) : '0.00'} + VAT`
+            : `${linkTypeLabel}: no payment`,
+          content: serviceDescription
+            ? `${serviceDescription}. Includes ID verification${includesDocumentRequest ? ' and document request' : ''}.`
+            : `Client instruction link created from the pitch workbench. Includes ID verification${includesDocumentRequest ? ' and document request' : ''}.`,
+          createdBy: String(detail.pitchedBy || userInitials || 'Hub'),
+          stageStatus: 'complete',
+          metadata: {
+            amount: Number.isFinite(amount) ? amount : 0,
+            dealOrigin: 'link',
+            dealOriginLabel: linkTypeLabel,
+            linkType: detail.linkType || (includePayment ? 'PAYMENT_ID_DOC_REQUEST' : 'ID_DOC_REQUEST'),
+            linkTypeLabel,
+            includesDocumentRequest,
+            dealPasscode: detail.passcode || null,
+            dealServiceDescription: serviceDescription || undefined,
+            pitchAmount: Number.isFinite(amount) ? amount : 0,
+            pitchService: serviceDescription || undefined,
+            pitchInstructionRef: detail.instructionRef || undefined,
+            pitchDealId: detail.dealId || undefined,
+            pitchPasscode: detail.passcode || null,
+            pitchPitchedBy: detail.pitchedBy || undefined,
+            pitchAreaOfWork: detail.areaOfWork || undefined,
+            workspacePasscode: detail.passcode || undefined,
+            workspaceUrlPath: detail.instructionsUrl || undefined,
+            source: 'optimistic-pitch-link',
+          },
+        };
+        setTimeline((prev) => [optimisticItem, ...prev.filter((item) => item.id !== optimisticId)]);
+        setSelectedItem((current) => current || optimisticItem);
+        setSourceProgress((prev) => ({
+          ...prev,
+          pitches: {
+            status: prev.pitches.status === 'error' ? 'done' : prev.pitches.status,
+            count: Math.max(prev.pitches.count, prev.pitches.count + 1),
+          },
+        }));
+      }
+      setTimelineRefreshTick((tick) => tick + 1);
+    };
+    window.addEventListener('helix:pitch-email-sent', handler as EventListener);
+    window.addEventListener('helix:pitch-link-activated', handler as EventListener);
+    return () => {
+      window.removeEventListener('helix:pitch-email-sent', handler as EventListener);
+      window.removeEventListener('helix:pitch-link-activated', handler as EventListener);
     };
   }, [enquiry?.ID]);
 
@@ -3596,12 +3671,12 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               pitch.EmailBodyHtml?.trim()
             );
             const rawDealStatus = String(pitch.DealStatus || '').trim().toUpperCase();
-            const isLinkOnlyStatus = rawDealStatus === 'CHECKOUT_LINK';
+            const linkMetadata = derivePitchLinkMetadata(pitch, { hasEmailContent });
             const hasScenario = Boolean(String(pitch.ScenarioId || '').trim());
             const hasPitchedTimestamp = Boolean(String(pitch.PitchedDate || pitch.CreatedAt || '').trim());
-            const hasPitchEvidence = !isLinkOnlyStatus && (hasEmailContent || hasScenario || rawDealStatus === 'PITCHED' || hasPitchedTimestamp);
+            const hasPitchEvidence = Boolean(hasEmailContent || hasScenario || rawDealStatus || hasPitchedTimestamp || pitch.DealId || pitch.Passcode);
             const dealOrigin: 'email' | 'link' = hasEmailContent ? 'email' : 'link';
-            const dealOriginLabel = hasEmailContent ? 'Pitch email' : (isLinkOnlyStatus ? 'Checkout link' : 'Link enabled');
+            const dealOriginLabel = linkMetadata.linkTypeLabel;
             const serviceDescription = String(pitch.ServiceDescription || '').trim();
             const dealSubject = serviceDescription ? `Deal captured – ${serviceDescription}` : 'Deal captured';
             const scenarioLabel = getScenarioName(pitch.ScenarioId);
@@ -3632,7 +3707,15 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   pitchPitchedBy: pitch.CreatedBy || pitch.PitchedBy || null,
                   pitchEmailSubject: hasEmailContent ? (pitch.EmailSubject || null) : null,
                   pitchAreaOfWork: pitch.AreaOfWork || pitch.Area || undefined,
+                  status: rawDealStatus || undefined,
+                  dealOrigin,
                   dealOriginLabel,
+                  linkType: linkMetadata.linkType,
+                  linkTypeLabel: linkMetadata.linkTypeLabel,
+                  includesPayment: linkMetadata.includesPayment,
+                  includesIdVerification: linkMetadata.includesIdVerification,
+                  includesDocumentRequest: linkMetadata.includesDocumentRequest,
+                  linkIncludesLabel: linkMetadata.includesLabel,
                   dealPasscode: pitch.Passcode || null,
                   scenarioId: pitch.ScenarioId,
                 },
@@ -4037,7 +4120,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
     };
 
     fetchTimeline({ background: Boolean(cached) });
-  }, [enquiry.ID, timelineUnlocked]);
+  }, [enquiry.ID, timelineUnlocked, timelineRefreshTick]);
 
   // ═══════════════════════════════════════════════════════════════════════
   // STAGE ITEMS: Generate timeline entries from inlineWorkbenchItem data
@@ -4607,6 +4690,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         if (item.metadata?.pitchService) dataItems.push({ label: 'Service', value: item.metadata.pitchService });
         if (item.metadata?.pitchAreaOfWork) dataItems.push({ label: 'Area', value: item.metadata.pitchAreaOfWork });
         if (item.metadata?.pitchPitchedBy) dataItems.push({ label: 'Pitched By', value: item.metadata.pitchPitchedBy });
+        if (item.metadata?.dealOrigin === 'link' && item.metadata?.linkTypeLabel) dataItems.push({ label: 'Link Type', value: item.metadata.linkTypeLabel });
+        if (item.metadata?.dealOrigin === 'link' && item.metadata?.linkIncludesLabel) dataItems.push({ label: 'Includes', value: item.metadata.linkIncludesLabel });
         if (item.metadata?.dealOriginLabel) dataItems.push({ label: 'Via', value: item.metadata.dealOriginLabel });
         if (item.metadata?.pitchScenarioLabel || item.metadata?.pitchScenarioId) dataItems.push({ label: 'Scenario', value: item.metadata.pitchScenarioLabel || item.metadata.pitchScenarioId });
         if (item.metadata?.pitchValidUntil) dataItems.push({ label: 'Valid Until', value: item.metadata.pitchValidUntil });
@@ -5944,18 +6029,18 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                           : `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.42)' : 'rgba(160, 160, 160, 0.14)'}`;
                 const isGroupRelated = dayHasHoveredMatch;
                 const cardBaseBackground = isExpanded
-                  ? (isDarkMode ? 'rgba(8, 28, 48, 0.96)' : 'rgba(255, 255, 255, 0.98)')
+                  ? (isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground)
                   : isHoveredMatch
-                    ? (isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.06)')
+                    ? (isDarkMode ? colours.dark.cardHover : colours.light.cardHover)
                     : isGroupRelated
-                      ? (isDarkMode ? 'rgba(13, 47, 96, 0.18)' : 'rgba(214, 232, 255, 0.48)')
-                    : (isDarkMode ? 'rgba(8, 28, 48, 0.42)' : 'rgba(255, 255, 255, 0.72)');
+                      ? (isDarkMode ? colours.dark.sectionBackground : colours.grey)
+                    : (isDarkMode ? colours.dark.sectionBackground : colours.light.cardBackground);
                 const cardBorderColor = isExpanded
-                  ? (isDarkMode ? 'rgba(75, 85, 99, 0.62)' : 'rgba(54, 144, 206, 0.24)')
+                  ? (isDarkMode ? 'rgba(54, 144, 206, 0.34)' : 'rgba(54, 144, 206, 0.24)')
                   : isHoveredMatch
-                    ? (isDarkMode ? 'rgba(75, 85, 99, 0.54)' : 'rgba(54, 144, 206, 0.28)')
+                    ? (isDarkMode ? 'rgba(54, 144, 206, 0.28)' : 'rgba(54, 144, 206, 0.28)')
                     : isGroupRelated
-                      ? (isDarkMode ? 'rgba(54, 144, 206, 0.26)' : 'rgba(54, 144, 206, 0.18)')
+                      ? (isDarkMode ? 'rgba(75, 85, 99, 0.42)' : 'rgba(160, 160, 160, 0.18)')
                     : (isPortalUpload ? (isDarkMode ? 'rgba(75, 85, 99, 0.34)' : 'rgba(160, 160, 160, 0.18)') : (isDarkMode ? 'rgba(75, 85, 99, 0.34)' : 'rgba(160, 160, 160, 0.14)'));
 
                 const isDayCollapsed = collapsedDays.has(dateKey);
@@ -6106,8 +6191,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   onMouseEnter={(e) => {
                     if (!isExpanded) {
                       e.currentTarget.style.transform = 'translateX(0)';
-                      e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.05)';
-                      e.currentTarget.style.borderColor = isDarkMode ? 'rgba(75, 85, 99, 0.52)' : 'rgba(160, 160, 160, 0.18)';
+                      e.currentTarget.style.background = isDarkMode ? colours.dark.cardHover : colours.light.cardHover;
+                      e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.28)' : 'rgba(54, 144, 206, 0.22)';
                       e.currentTarget.style.boxShadow = 'none';
                     }
                   }}
@@ -6694,12 +6779,6 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                               </div>
                             ) : null}
                           </div>
-                        ) : item.type === 'call' ? (
-                          renderCallDetails(item)
-                        ) : item.contentHtml ? (
-                          <div className="helix-email-html" dangerouslySetInnerHTML={{ __html: sanitizeEmailHtml(item.contentHtml) }} />
-                        ) : item.content ? (
-                          <div style={{ whiteSpace: 'pre-wrap' }}>{item.content}</div>
                         ) : item.type === 'pitch' && item.metadata?.dealOrigin === 'link' ? (
                           <div style={{
                             display: 'flex',
@@ -6707,23 +6786,20 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                             gap: '6px',
                             padding: '10px 12px',
                             borderRadius: 0,
-                            border: `1px dashed ${isDarkMode ? 'rgba(32, 178, 108, 0.35)' : 'rgba(32, 178, 108, 0.25)'}`,
-                            background: isDarkMode ? 'rgba(32, 178, 108, 0.08)' : 'rgba(32, 178, 108, 0.06)',
+                            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.26)' : 'rgba(54, 144, 206, 0.18)'}`,
+                            background: isDarkMode ? colours.dark.sectionBackground : colours.grey,
                             color: isDarkMode ? 'rgba(243, 244, 246, 0.85)' : 'rgba(6, 23, 51, 0.8)',
                             fontSize: '12px',
                             fontWeight: 600,
                           }}>
-                            <span>Checkout link created (no pitch email).</span>
-                            {(() => {
-                              const passcode = item.metadata?.dealPasscode?.trim();
-                              if (!passcode) return null;
-                              const base = String(process.env.REACT_APP_PITCH_BACKEND_URL || 'https://instruct.helix-law.com').replace(/\/$/, '');
-                              const link = `${base}/pitch/${encodeURIComponent(passcode)}`;
-
-                              return (
+                            <span>{item.metadata?.linkTypeLabel || item.metadata?.dealOriginLabel || 'Client instruction link'} created (no pitch email).</span>
+                            <span style={{ fontSize: '11px', fontWeight: 500, opacity: 0.78 }}>
+                              Includes {item.metadata?.linkIncludesLabel || (item.metadata?.includesPayment ? 'Payment, ID verification, document request' : 'ID verification, document request')}.
+                            </span>
+                            {String(item.metadata?.dealPasscode || '').trim() ? (
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                                   <a
-                                    href={link}
+                                    href={`${String(process.env.REACT_APP_PITCH_BACKEND_URL || 'https://instruct.helix-law.com').replace(/\/$/, '')}/pitch/${encodeURIComponent(String(item.metadata?.dealPasscode || '').trim())}`}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     onClick={(e) => e.stopPropagation()}
@@ -6735,13 +6811,16 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                       wordBreak: 'break-all',
                                     }}
                                   >
-                                    {link}
+                                    {`${String(process.env.REACT_APP_PITCH_BACKEND_URL || 'https://instruct.helix-law.com').replace(/\/$/, '')}/pitch/${encodeURIComponent(String(item.metadata?.dealPasscode || '').trim())}`}
                                   </a>
                                   <button
                                     type="button"
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      copyToClipboard(link, 'Checkout link');
+                                      copyToClipboard(
+                                        `${String(process.env.REACT_APP_PITCH_BACKEND_URL || 'https://instruct.helix-law.com').replace(/\/$/, '')}/pitch/${encodeURIComponent(String(item.metadata?.dealPasscode || '').trim())}`,
+                                        item.metadata?.linkTypeLabel || item.metadata?.dealOriginLabel || 'Client instruction link'
+                                      );
                                     }}
                                     style={{
                                       alignSelf: 'flex-start',
@@ -6755,18 +6834,18 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                       cursor: 'pointer',
                                     }}
                                   >
-                                    Copy checkout link
+                                    Copy {item.metadata?.includesPayment ? 'payment link' : 'client link'}
                                   </button>
-                                  {(() => {
-                                    const timelineLaunchModel = buildTimelineLaunchModel(item);
-                                    if (!timelineLaunchModel?.isAvailable) return null;
-                                    return (
+                                  {buildTimelineLaunchModel(item)?.isAvailable ? (
                                       <button
                                         type="button"
                                         onClick={(e) => {
                                           e.stopPropagation();
-                                          setSelectedPortalLaunchModel(timelineLaunchModel);
-                                          setIsPortalLaunchOpen(true);
+                                          const timelineLaunchModel = buildTimelineLaunchModel(item);
+                                          if (timelineLaunchModel) {
+                                            setSelectedPortalLaunchModel(timelineLaunchModel);
+                                            setIsPortalLaunchOpen(true);
+                                          }
                                         }}
                                         style={{
                                           alignSelf: 'flex-start',
@@ -6782,19 +6861,23 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                       >
                                         Go to / Preview
                                       </button>
-                                    );
-                                  })()}
+                                  ) : null}
                                 </div>
-                              );
-                            })()}
+                            ) : null}
                             <span style={{
                               fontSize: '11px',
                               fontWeight: 500,
                               color: isDarkMode ? 'rgba(160, 160, 160, 0.75)' : 'rgba(107, 107, 107, 0.75)',
                             }}>
-                              Use this link to collect payment outside of Helix Hub.
+                              Use this link for the client checkout and document request journey.
                             </span>
                           </div>
+                        ) : item.type === 'call' ? (
+                          renderCallDetails(item)
+                        ) : item.contentHtml ? (
+                          <div className="helix-email-html" dangerouslySetInnerHTML={{ __html: sanitizeEmailHtml(item.contentHtml) }} />
+                        ) : item.content ? (
+                          <div style={{ whiteSpace: 'pre-wrap' }}>{item.content}</div>
                         ) : isStageType(item.type) ? (
                           /* Stage types: show standardised data bar */
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>

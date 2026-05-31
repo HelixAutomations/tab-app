@@ -1,0 +1,1 @@
+2026-05-30 / Show grouped prospect count by AoW / Grouped prospect rows now show a subtle count badge next to the area-of-work glyph, making it clear how many enquiries sit inside the cluster without overloading the single AoW icon. (~ src/tabs/enquiries/Enquiries.tsx, ~ src/app/styles/Prospects.css)

@@ -1,0 +1,1 @@
+2026-05-30 / Update demo controls access / Emma can now use the demo mode controls without receiving broader session-mode controls, and presenter notes are restricted to local-only use. (~ src/app/admin.ts, ~ src/app/App.tsx, ~ src/components/HubToolsChip.tsx)

@@ -33,6 +33,7 @@ export type DemoAppLinkTab = 'home' | 'enquiries' | 'matters' | 'forms' | 'repor
 export type DemoReportingView = 'logMonitor' | 'dataCentre' | 'ppcReport';
 export type DemoEnquirySubTab = 'Pitch' | 'Timeline';
 export type DemoWorkbenchTab = 'details' | 'identity' | 'payment' | 'risk' | 'matter' | 'documents' | 'pitch';
+export type DemoPreviewAction = 'claimedQueueHolding';
 
 export type DemoAppLink = {
   label: string;
@@ -42,6 +43,8 @@ export type DemoAppLink = {
   formTitle?: string;
   reportingView?: DemoReportingView;
   workbenchTab?: DemoWorkbenchTab;
+  featureToggles?: Record<string, boolean>;
+  previewAction?: DemoPreviewAction;
 };
 
 export type DemoSection = {
@@ -661,7 +664,10 @@ const DEMO_SECTION_APP_LINKS: Record<string, DemoAppLink[]> = {
     { label: 'Demo prospect', tab: 'enquiries', enquiryId: DEMO_REHEARSAL_PROSPECT_ID, enquirySubTab: 'Timeline' },
   ],
   'home-todo': [{ label: 'Home', tab: 'home' }],
-  'prospects-claim': [{ label: 'Demo prospect', tab: 'enquiries', enquiryId: DEMO_REHEARSAL_PROSPECT_ID, enquirySubTab: 'Timeline' }],
+  'prospects-claim': [
+    { label: 'Demo prospect', tab: 'enquiries', enquiryId: DEMO_REHEARSAL_PROSPECT_ID, enquirySubTab: 'Timeline' },
+    { label: 'Claimed empty preview', tab: 'enquiries', previewAction: 'claimedQueueHolding' },
+  ],
   'pitch-builder': [{ label: 'Demo pitch', tab: 'enquiries', enquiryId: DEMO_REHEARSAL_PROSPECT_ID, enquirySubTab: 'Pitch' }],
   'post-instruct-overview': [{ label: 'Demo overview', tab: 'enquiries', enquiryId: DEMO_REHEARSAL_PROSPECT_ID, enquirySubTab: 'Timeline' }],
   'workbench-id': [{ label: 'Demo ID', tab: 'enquiries', enquiryId: DEMO_REHEARSAL_PROSPECT_ID, enquirySubTab: 'Timeline', workbenchTab: 'identity' }],

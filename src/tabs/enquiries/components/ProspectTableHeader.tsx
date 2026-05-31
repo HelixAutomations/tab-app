@@ -224,7 +224,7 @@ const ProspectTableHeader: React.FC<ProspectTableHeaderProps> = ({
 
   const hasAnyFilter = enquiryPipelineFilters.size > 0 || !!selectedPocFilter;
   const activeColor = isDarkMode ? colours.accent : colours.highlight;
-  const neutralTextColor = isDarkMode ? colours.dark.text : colours.light.text;
+  const neutralTextColor = isDarkMode ? colours.dark.text : 'rgba(255, 255, 255, 0.85)';
   const neutralBorder = isDarkMode ? 'rgba(75, 85, 99, 0.32)' : 'rgba(160, 160, 160, 0.22)';
   const softSurface = isDarkMode ? 'rgba(8, 28, 48, 0.95)' : 'rgba(244, 244, 246, 0.98)';
   const elevatedSurface = isDarkMode ? 'rgba(12, 36, 62, 0.98)' : 'rgba(255, 255, 255, 0.98)';
@@ -232,6 +232,9 @@ const ProspectTableHeader: React.FC<ProspectTableHeaderProps> = ({
   const headerNavIdleBg = isDarkMode ? 'rgba(8, 28, 48, 0.72)' : 'rgba(244, 244, 246, 0.9)';
   const headerNavActiveBg = isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(54, 144, 206, 0.1)';
   const headerMutedText = isDarkMode ? `${colours.subtleGrey}b3` : `${colours.greyText}99`;
+  const tableHeaderBackground = isDarkMode ? softSurface : '#0D2F60';
+  const tableHeaderBorderBottom = isDarkMode ? 'rgba(75, 85, 99, 0.38)' : 'rgba(255, 255, 255, 0.12)';
+  const tableHeaderBoxShadow = isDarkMode ? '0 2px 8px rgba(0, 0, 0, 0.3)' : 'none';
   const pipelineGridPaddingRight = pipelineNeedsCarousel || hasAnyFilter ? 32 : 0;
 
   const isFiltered = !!selectedPocFilter;
@@ -265,19 +268,17 @@ const ProspectTableHeader: React.FC<ProspectTableHeaderProps> = ({
         boxSizing: 'border-box',
         alignItems: 'center',
         flexShrink: 0,
-        background: softSurface,
-        backdropFilter: 'blur(12px)',
+        background: tableHeaderBackground,
+        backdropFilter: isDarkMode ? 'blur(12px)' : 'none',
         borderTop: 'none',
-        borderBottom: `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.38)' : 'rgba(160, 160, 160, 0.22)'}`,
+        borderBottom: `1px solid ${tableHeaderBorderBottom}`,
         fontFamily: 'Raleway, sans-serif',
         fontSize: '11px',
-        fontWeight: 500,
+        fontWeight: isDarkMode ? 500 : 600,
         color: neutralTextColor,
         textTransform: 'uppercase',
         letterSpacing: '0.5px',
-        boxShadow: isDarkMode
-          ? '0 2px 8px rgba(0, 0, 0, 0.3)'
-          : '0 2px 8px rgba(0, 0, 0, 0.08)',
+        boxShadow: tableHeaderBoxShadow,
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Timeline">
@@ -591,26 +592,27 @@ const ProspectTableHeader: React.FC<ProspectTableHeaderProps> = ({
           onClick={onToggleActions}
           title={areActionsEnabled ? 'Disable row actions to prevent edits/deletes' : 'Enable row actions to edit or delete enquiries'}
           style={{
-            width: 24,
-            height: 24,
-            minWidth: 22,
-            minHeight: 22,
+            width: isDarkMode ? 24 : 22,
+            height: isDarkMode ? 24 : 22,
+            minWidth: isDarkMode ? 24 : 22,
+            minHeight: isDarkMode ? 24 : 22,
             borderRadius: '999px',
-            border: `1px solid ${areActionsEnabled ? `${activeColor}66` : (isDarkMode ? 'rgba(75, 85, 99, 0.6)' : 'rgba(160, 160, 160, 0.35)')}`,
-            background: areActionsEnabled ? (isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(54, 144, 206, 0.1)') : (isDarkMode ? 'rgba(8, 28, 48, 0.72)' : 'rgba(244, 244, 246, 0.9)'),
+            border: isDarkMode ? `1px solid ${areActionsEnabled ? `${activeColor}66` : 'rgba(75, 85, 99, 0.6)'}` : 'none',
+            background: isDarkMode ? (areActionsEnabled ? headerNavActiveBg : headerNavIdleBg) : 'transparent',
             color: 'inherit',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             cursor: 'pointer',
-            transition: 'all 0.2s ease',
+            transition: isDarkMode ? 'all 0.2s ease' : 'opacity 0.2s ease',
             padding: 0,
+            opacity: areActionsEnabled ? 1 : 0.65,
           }}
           aria-pressed={areActionsEnabled}
         >
           <Icon
             iconName={areActionsEnabled ? 'UnlockSolid' : 'LockSolid'}
-            styles={{ root: { fontSize: '11px', color: areActionsEnabled ? activeColor : isDarkMode ? `${colours.subtleGrey}d9` : `${colours.greyText}d9` } }}
+            styles={{ root: { fontSize: isDarkMode ? '11px' : '12px', color: areActionsEnabled ? activeColor : isDarkMode ? `${colours.subtleGrey}d9` : '#ffffff' } }}
           />
         </button>
       </div>

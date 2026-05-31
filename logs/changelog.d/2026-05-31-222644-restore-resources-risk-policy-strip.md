@@ -1,0 +1,1 @@
+2026-05-31 / Restore Resources risk policy strip / Surfaced the Resources Core risk policies strip in all modes, removed the Helix Internal eyebrow, and aligned Home quick-action widths with the rest of the strip. (~ src/tabs/resources/Resources.tsx, ~ src/app/App.tsx, ~ src/tabs/home/Home.tsx, ~ src/tabs/home/QuickActionsBar.tsx)

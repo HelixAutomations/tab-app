@@ -686,19 +686,22 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
                   <DataRow label="ID" value={enquiryId} copyable fieldKey="id" />
                   <div style={{
                     display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-                    gap: 0,
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+                    columnGap: 18,
+                    rowGap: 0,
                   }}>
                     {/* Area */}
                     <div style={{
                       display: 'flex',
                       justifyContent: 'space-between',
                       alignItems: 'center',
+                      gap: 10,
+                      minWidth: 0,
                       padding: '6px 0',
                       borderBottom: `1px solid ${innerBorder}`,
                     }}>
                       <span style={{ fontSize: 12, color: textSecondary, fontWeight: 500 }}>Area</span>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 13, fontWeight: 600, color: textPrimary }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, fontWeight: 600, color: textPrimary }}>
                         <span style={{ width: 6, height: 6, borderRadius: '50%', background: areaColor, flexShrink: 0 }} />
                         {areaOfWork}
                       </span>
@@ -708,11 +711,13 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
                       display: 'flex',
                       justifyContent: 'space-between',
                       alignItems: 'center',
+                      gap: 10,
+                      minWidth: 0,
                       padding: '6px 0',
                       borderBottom: `1px solid ${innerBorder}`,
                     }}>
                       <span style={{ fontSize: 12, color: textSecondary, fontWeight: 500 }}>Value</span>
-                      <span style={{ fontSize: 13, fontWeight: 600, color: textPrimary }}>{valueDisplay}</span>
+                      <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, fontWeight: 600, color: textPrimary }}>{valueDisplay}</span>
                     </div>
                   </div>
                   {(clientEmail || clientPhone) && (

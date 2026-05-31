@@ -266,10 +266,7 @@
 }
 
 .scenario-choice-card {
-  background: rgba(54, 144, 206, 0.06) !important;
-  border: 1px solid rgba(54, 144, 206, 0.24) !important;
   border-radius: 0 !important;
-  box-shadow: none !important;
   min-height: 76px !important;
   padding: 10px 12px !important;
   transition: background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease !important;
@@ -291,14 +288,11 @@
 
 .scenario-choice-card:hover,
 .scenario-choice-card:focus-visible {
-  background: rgba(54, 144, 206, 0.12) !important;
-  border-color: var(--helix-highlight) !important;
-  box-shadow: inset 2px 0 0 var(--helix-highlight) !important;
+  border-color: var(--scenario-accent) !important;
 }
 
 .scenario-choice-card.active {
-  border-color: var(--helix-green) !important;
-  box-shadow: inset 2px 0 0 var(--helix-green) !important;
+  border-color: var(--scenario-accent) !important;
 }
 /* Pitch composer wizard — Typeform-style progress strip + denser collapsed steps */
 .pitch-wizard {
@@ -519,11 +513,15 @@ button.pitch-wizard__progress-chip:focus-visible {
   flex-wrap: nowrap;
   gap: 8px;
   list-style: none;
-  margin: 0;
-  max-width: 100%;
+  /* overflow-x:auto forces vertical clipping; reserve room inside the
+     scroller so pill hover shadows are not sliced (top/bottom + left/right
+     for the first/last pill), then offset with a matching negative margin
+     so the outer layout spacing is unchanged. */
+  margin: -12px;
+  max-width: calc(100% + 24px);
   min-width: 0;
   overflow-x: auto;
-  padding: 0;
+  padding: 12px;
   scrollbar-width: none;
 }
 
@@ -783,11 +781,12 @@ button.pitch-wizard__progress-chip:focus-visible {
 
 .pitch-typeform__footer {
   align-items: center;
-  border-top: 1px solid var(--border-base);
+  border-top: 1px solid color-mix(in srgb, var(--border-base) 76%, transparent);
   display: grid;
-  gap: 12px;
+  gap: 14px;
   grid-template-columns: auto 1fr auto;
-  padding: 12px 0;
+  margin-top: 2px;
+  padding: 14px 0 2px;
 }
 
 .pitch-typeform__footer-slot {
@@ -802,8 +801,9 @@ button.pitch-wizard__progress-chip:focus-visible {
 
 .pitch-typeform__nav {
   align-items: center;
-  background: transparent;
-  border: 1px solid var(--border-base);
+  background: color-mix(in srgb, var(--surface-card) 84%, var(--surface-panel) 16%);
+  border: 1px solid color-mix(in srgb, var(--border-base) 82%, transparent);
+  box-shadow: inset 3px 0 0 transparent;
   color: var(--text-secondary);
   cursor: pointer;
   display: inline-flex;
@@ -813,11 +813,25 @@ button.pitch-wizard__progress-chip:focus-visible {
   gap: 8px;
   letter-spacing: 0.02em;
   line-height: 1;
-  min-width: 110px;
-  padding: 10px 14px;
-  text-transform: uppercase;
+  min-height: 40px;
+  min-width: 126px;
+  overflow: hidden;
+  padding: 12px 15px;
+  position: relative;
   justify-content: center;
-  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease, transform 0.12s ease;
+  text-transform: uppercase;
+  transition: background 180ms ease, border-color 180ms ease, box-shadow 180ms ease, color 180ms ease, transform 160ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.pitch-typeform__nav::after {
+  background: linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--helix-highlight) 16%, transparent) 50%, transparent 100%);
+  content: "";
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  position: absolute;
+  transform: translateX(-36%);
+  transition: opacity 220ms ease, transform 360ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .pitch-typeform__nav--back {
@@ -832,11 +846,28 @@ button.pitch-wizard__progress-chip:focus-visible {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 12px;
-  height: 12px;
-  font-size: 13px;
+  width: 14px;
+  height: 14px;
+  font-size: 15px;
   line-height: 1;
-  transition: transform 220ms cubic-bezier(0.4, 0, 0.2, 1);
+  opacity: 0.72;
+  position: relative;
+  transition: opacity 180ms ease, color 160ms ease;
+  z-index: 1;
+}
+
+.pitch-typeform__nav-icon svg {
+  filter: drop-shadow(0 1px 2px rgba(6, 23, 51, 0.12));
+}
+
+@keyframes pitchNavArrowGlideForward {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(4px); }
+}
+
+@keyframes pitchNavArrowGlideBack {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(-4px); }
 }
 
 .pitch-typeform__nav-label {
@@ -845,7 +876,8 @@ button.pitch-wizard__progress-chip:focus-visible {
   height: 12px;
   align-items: center;
   overflow: hidden;
-  min-width: 48px;
+  min-width: 54px;
+  z-index: 1;
 }
 
 .pitch-typeform__nav-label-default,
@@ -880,23 +912,48 @@ button.pitch-wizard__progress-chip:focus-visible {
 
 .pitch-typeform__nav--back:hover:not(:disabled) .pitch-typeform__nav-icon,
 .pitch-typeform__nav--back:focus-visible:not(:disabled) .pitch-typeform__nav-icon {
-  transform: translateX(-3px);
+  opacity: 1;
+}
+
+.pitch-typeform__nav--back:hover:not(:disabled) .pitch-typeform__nav-icon svg,
+.pitch-typeform__nav--back:focus-visible:not(:disabled) .pitch-typeform__nav-icon svg {
+  animation: pitchNavArrowGlideBack 850ms ease-in-out infinite;
 }
 
 .pitch-typeform__nav--next:hover:not(:disabled) .pitch-typeform__nav-icon,
 .pitch-typeform__nav--next:focus-visible:not(:disabled) .pitch-typeform__nav-icon {
-  transform: translateX(3px);
+  opacity: 1;
+}
+
+.pitch-typeform__nav--next:hover:not(:disabled) .pitch-typeform__nav-icon svg,
+.pitch-typeform__nav--next:focus-visible:not(:disabled) .pitch-typeform__nav-icon svg {
+  animation: pitchNavArrowGlideForward 850ms ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pitch-typeform__nav-icon svg {
+    animation: none !important;
+  }
 }
 
 .pitch-typeform__nav:hover:not(:disabled),
 .pitch-typeform__nav:focus-visible:not(:disabled) {
-  border-color: var(--helix-highlight);
+  background: color-mix(in srgb, var(--surface-card-hover) 82%, var(--surface-card) 18%);
+  border-color: color-mix(in srgb, var(--helix-highlight) 62%, var(--border-base) 38%);
+  box-shadow: inset 3px 0 0 var(--helix-highlight), 0 8px 18px rgba(6, 23, 51, 0.08);
   color: var(--text-primary);
   outline: none;
+  transform: translateY(-1px);
+}
+
+.pitch-typeform__nav:hover:not(:disabled)::after,
+.pitch-typeform__nav:focus-visible:not(:disabled)::after {
+  opacity: 1;
+  transform: translateX(36%);
 }
 
 .pitch-typeform__nav:active:not(:disabled) {
-  transform: translateY(1px);
+  transform: translateY(0) scale(0.99);
 }
 
 .pitch-typeform__nav:disabled {
@@ -905,13 +962,15 @@ button.pitch-wizard__progress-chip:focus-visible {
 }
 
 .pitch-typeform__nav--next[data-state="ready"] {
-  background: var(--helix-highlight);
-  border-color: var(--helix-highlight);
+  background: linear-gradient(135deg, var(--helix-highlight) 0%, color-mix(in srgb, var(--helix-highlight) 78%, var(--helix-green) 22%) 100%);
+  border-color: color-mix(in srgb, var(--helix-highlight) 84%, var(--helix-green) 16%);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--surface-card) 42%, transparent), 0 8px 18px rgba(6, 23, 51, 0.12);
   color: var(--surface-card);
 }
 
 .pitch-typeform__nav--next[data-state="ready"]:hover:not(:disabled) {
-  filter: brightness(1.05);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--surface-card) 52%, transparent), 0 12px 24px rgba(6, 23, 51, 0.16);
+  filter: brightness(1.04);
 }
 
 /* ----------------- Step content primitives ----------------- */
@@ -1109,7 +1168,7 @@ button.pitch-wizard__progress-chip:focus-visible {
   .pitch-typeform__footer { grid-template-columns: 1fr 1fr; padding: 10px 0; }
   .pitch-typeform__footer-slot { grid-column: 1 / -1; order: -1; }
   .pitch-typeform__progress { gap: 10px; }
-  .pitch-typeform__dots { gap: 7px; padding-bottom: 1px; }
+  .pitch-typeform__dots { gap: 7px; }
   .pitch-typeform__dot-item:not(:last-child)::after { right: -7px; width: 7px; }
   .pitch-typeform__dot { min-height: 30px; padding: 4px; }
   .pitch-typeform__dot-index { flex-basis: 24px; height: 24px; min-width: 24px; width: 24px; }

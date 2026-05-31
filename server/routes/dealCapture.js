@@ -4,6 +4,7 @@ const { emitEvent } = require('../utils/eventEmitter');
 const { getPool } = require('../utils/db');
 const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
 const { queuePitchLinkNotification } = require('../utils/pitchTeamsNotifications');
+const { recordSubmission, recordStep, markComplete, markFailed } = require('../utils/formSubmissionLog');
 
 const log = loggers.payments.child('DealCapture');
 
@@ -68,6 +69,7 @@ module.exports = async (req, res) => {
   const finalAreaOfWork = areaOfWork || (isDirectReferral ? 'Misc' : '');
   const finalPitchedBy = pitchedBy || (isDirectReferral ? 'Hub' : '');
   const startedAt = Date.now();
+  let submissionId = null;
 
   trackEvent('DealCapture.Started', {
     operation: isDirectReferral ? 'pitchExternal' : 'dealCapture',
@@ -87,6 +89,28 @@ module.exports = async (req, res) => {
       requestId,
     });
     return res.status(400).json({ error: 'Missing required fields', requestId });
+  }
+
+  try {
+    const submitter = req.user?.initials || req.body.initials || finalPitchedBy || 'UNK';
+    const formKey = linkOnly === true ? 'pitch-new' : 'deal-capture';
+    submissionId = await recordSubmission({
+      formKey,
+      submittedBy: String(submitter || 'UNK').slice(0, 10),
+      lane: 'Start',
+      payload: {
+        prospectId: prospectId || null,
+        areaOfWork: finalAreaOfWork,
+        amount: finalAmount,
+        linkOnly: Boolean(linkOnly),
+        dealKind: rawDealKind || null,
+        source: source || null,
+      },
+      summary: `${linkOnly === true ? 'New Pitch' : 'Deal capture'}: ${finalAreaOfWork}`.slice(0, 400),
+      clientSubmissionId: req.body?.clientSubmissionId || null,
+    });
+  } catch (logErr) {
+    trackException(logErr, { operation: isDirectReferral ? 'pitchExternal' : 'dealCapture', phase: 'dealCapture.recordSubmission' });
   }
 
   const passcode = providedPasscode || Math.floor(10000 + Math.random() * 90000).toString();
@@ -114,12 +138,14 @@ module.exports = async (req, res) => {
     })();
 
     const resolvedStatus = (() => {
+      const checkoutMode = typeof providedCheckoutMode === 'string' ? providedCheckoutMode.toUpperCase() : '';
       if (isDirectReferral) return 'PENDING_CONTACT';
-      if (linkOnly === true) return 'CHECKOUT_LINK';
       // CFA checkout mode: set deal status to 'CFA' so instruct-pitch derives CFA mode
-      if (typeof providedCheckoutMode === 'string' && providedCheckoutMode.toUpperCase() === 'CFA') return 'CFA';
+      if (checkoutMode === 'CFA') return 'CFA';
       // ID-only checkout mode: identity verification only, no payment
-      if (typeof providedCheckoutMode === 'string' && providedCheckoutMode.toUpperCase() === 'ID_ONLY') return 'ID_ONLY';
+      if (checkoutMode === 'ID_ONLY') return 'ID_ONLY';
+      if (checkoutMode === 'CHECKOUT_LINK') return 'CHECKOUT_LINK';
+      if (linkOnly === true) return 'CHECKOUT_LINK';
       return 'pitched';
     })();
 
@@ -262,6 +288,19 @@ module.exports = async (req, res) => {
       requestedBy: req.user?.fullName || req.user?.initials || finalPitchedBy,
     });
 
+    await recordStep(submissionId, {
+      name: linkOnly === true ? 'pitch.link.issue' : 'deal.capture',
+      status: 'success',
+      output: {
+        dealId,
+        instructionRef,
+        prospectId: prospectId || null,
+        status: resolvedStatus,
+        dealKind: resolvedDealKind || null,
+      },
+    });
+    await markComplete(submissionId, { lastEvent: linkOnly === true ? 'pitch link issued' : 'deal captured' });
+
     const durationMs = Date.now() - startedAt;
     trackEvent('DealCapture.Completed', {
       operation: isDirectReferral ? 'pitchExternal' : 'dealCapture',
@@ -280,6 +319,7 @@ module.exports = async (req, res) => {
       passcode,
       instructionRef,
       instructionsUrl,
+      submissionId,
       message: 'Deal captured',
       requestId
     });
@@ -309,6 +349,9 @@ module.exports = async (req, res) => {
       requestId,
       dealKind: rawDealKind || '',
     });
+    if (submissionId) {
+      await markFailed(submissionId, { lastEvent: 'deal.capture:failed', error });
+    }
     trackEvent('DealCapture.Failed', {
       operation: isDirectReferral ? 'pitchExternal' : 'dealCapture',
       triggeredBy: finalPitchedBy,

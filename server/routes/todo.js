@@ -32,6 +32,7 @@ const { deleteCachePattern, getCache, setCache, generateCacheKey } = require('..
 const { trackEvent, trackException } = require('../utils/appInsights');
 const { createEnvBasedQueryRunner } = require('../utils/sqlHelpers');
 const { attachTodoStream } = require('../utils/todoStream');
+const { recordSubmission, recordStep, markComplete } = require('../utils/formSubmissionLog');
 
 const router = express.Router();
 
@@ -175,6 +176,23 @@ router.post('/create', async (req, res) => {
     if (id) {
       // Fire and forget.
       invalidateHomeJourneyCache();
+      const submissionId = await recordSubmission({
+        formKey: 'todo-create',
+        submittedBy: ownerInitials,
+        lane: 'Request',
+        payload: {
+          todoId: id,
+          kind,
+          matterRef: body.matterRef || null,
+          docType: body.docType || null,
+          stage: body.stage || null,
+          deduplicated: Boolean(deduplicated),
+        },
+        summary: (body.summary ? `ToDo created: ${String(body.summary)}` : `ToDo created: ${kind}`).slice(0, 400),
+        clientSubmissionId: body.clientSubmissionId || null,
+      });
+      await recordStep(submissionId, { name: 'todo.create', status: 'success', output: { todoId: id, deduplicated: Boolean(deduplicated) } });
+      await markComplete(submissionId, { lastEvent: deduplicated ? 'todo deduplicated' : 'todo created' });
     }
 
     return res.json({ ok: true, id, deduplicated });
@@ -214,6 +232,21 @@ router.post('/reconcile', async (req, res) => {
 
     if (result.id) {
       invalidateHomeJourneyCache();
+      const submissionId = await recordSubmission({
+        formKey: 'todo-reconcile',
+        submittedBy: ownerInitials || req.user?.initials || 'UNK',
+        lane: 'Log',
+        payload: {
+          todoId: result.id,
+          kind,
+          matterRef,
+          completedVia,
+        },
+        summary: `ToDo reconciled: ${kind || result.id}`.slice(0, 400),
+        clientSubmissionId: body.clientSubmissionId || null,
+      });
+      await recordStep(submissionId, { name: 'todo.reconcile', status: 'success', output: { todoId: result.id, completedVia } });
+      await markComplete(submissionId, { lastEvent: 'todo reconciled' });
     }
 
     return res.json({ ok: true, ...result });

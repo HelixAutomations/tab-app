@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { colours } from '../app/styles/colours';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { UserData } from '../app/functionality/types';
-import { canUseSessionModeControls, isAdminUser, isDevOwner } from '../app/admin';
+import { canUseDemoModeControls, canUseSessionModeControls, isAdminUser, isDevOwner } from '../app/admin';
 import { BubbleToastTone, CommandCentreTokens } from './command-centre/types';
 import CommandDeck from './command-centre/CommandDeck';
 import ErrorScreenPreview from './command-centre/ErrorScreenPreview';
@@ -455,6 +455,7 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
     const isAdminEligible = isAdminUser(user) || isLocalDev || !!originalAdminUser;
     const canSwitchUser = isAdminUser(user) || !!originalAdminUser;
     const hasSessionModeControls = canUseSessionModeControls(user) || canUseSessionModeControls(originalAdminUser || null);
+    const hasDemoModeControls = canUseDemoModeControls(user) || canUseDemoModeControls(originalAdminUser || null);
     const hasFullToolsStrip = isDevOwner(user);
     const openHome = useCallback(() => {
         window.dispatchEvent(new CustomEvent('navigateToHome'));
@@ -691,7 +692,7 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
             >
                 {/* Demo — satellite one-click chip. Toggles demo mode only.
                     Multi-option demo surface lives in Tools → Demo lab. */}
-                {hasSessionModeControls && (
+                {hasDemoModeControls && (
                 <button
                     type="button"
                     onClick={handleDemoView}
@@ -727,11 +728,11 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
                     <span>Demo</span>
                 </button>
                 )}
-                {/* Reset Demo: Luke/Alex only, only visible when demo is on. Clears
+                {/* Reset Demo: demo-mode users only, visible when demo is on. Clears
                     demo caches (localStorage cclDraftCache.*, helix.demo.*,
                     demoModeEnabled), sessionStorage demo entries, then asks the
                     server to reseed the rehearsal record. */}
-                {hasSessionModeControls && demoModeEnabled && (
+                {hasDemoModeControls && demoModeEnabled && (
                     <button
                         type="button"
                         onClick={handleResetDemo}

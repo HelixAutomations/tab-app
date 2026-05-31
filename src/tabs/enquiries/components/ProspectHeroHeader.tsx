@@ -23,6 +23,9 @@ import {
 } from 'react-icons/fa';
 import { useToast } from '../../../components/feedback/ToastProvider';
 import { trackClientEvent } from '../../../utils/telemetry';
+import { recordProcessEvent } from '../../../utils/processStreamEvents';
+import { derivePitchLinkMetadata } from '../pitch-builder/pitchLinkMetadata';
+import { DEFAULT_PITCH_AMOUNT } from '../pitch-builder/scenarios';
 
 const FONT_STACK = "'Raleway', 'Segoe UI', sans-serif";
 
@@ -90,6 +93,27 @@ const formatShortDateTime = (iso: string | undefined): string => {
   }
 };
 
+const getActivePitchLinkSummary = (pitches: any[]): { label: string; passcode: string } | null => {
+  const now = Date.now();
+  for (const pitch of pitches) {
+    const passcode = String(pitch?.Passcode || pitch?.passcode || '').trim();
+    if (!passcode) continue;
+
+    const stage = String(pitch?.InstructionStage || pitch?.instructionStage || pitch?.InstructionInternalStatus || pitch?.instructionInternalStatus || '').toLowerCase();
+    const hasConverted = stage.includes('instruct') || stage.includes('matter') || stage.includes('paid') || stage.includes('complete');
+    const validUntilRaw = pitch?.PitchValidUntil || pitch?.pitchValidUntil || pitch?.ValidUntil || pitch?.validUntil || pitch?.ExpiresAt || pitch?.expiresAt;
+    const validUntil = validUntilRaw ? new Date(validUntilRaw).getTime() : null;
+    const isExpired = typeof validUntil === 'number' && Number.isFinite(validUntil) && validUntil < now;
+    if (hasConverted || isExpired) continue;
+
+    return {
+      label: derivePitchLinkMetadata(pitch).linkTypeLabel,
+      passcode,
+    };
+  }
+  return null;
+};
+
 /* ── Component ───────────────────────────────────────────── */
 
 const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
@@ -116,11 +140,12 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
 }) => {
   const areaColour = getAreaColour(displayAreaOfWork);
 
-  // Activate Pitch Link popover — issues a passcode + instruct URL without drafting an email.
+  // Send Pitch Link popover: issues a passcode + instruct URL without drafting an email.
   const { showToast } = useToast();
   const [pitchLinkOpen, setPitchLinkOpen] = useState(false);
   const [pitchLinkDescription, setPitchLinkDescription] = useState('');
-  const [pitchLinkAmount, setPitchLinkAmount] = useState('');
+  const [pitchLinkIncludePayment, setPitchLinkIncludePayment] = useState(true);
+  const [pitchLinkAmount, setPitchLinkAmount] = useState(DEFAULT_PITCH_AMOUNT);
   const [pitchLinkBusy, setPitchLinkBusy] = useState(false);
   const [pitchLinkPopoverPosition, setPitchLinkPopoverPosition] = useState<{ top: number; left: number; width: number } | null>(null);
   const pitchLinkAnchorRef = useRef<HTMLDivElement | null>(null);
@@ -163,11 +188,17 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
     };
   }, [pitchLinkOpen]);
 
-  const handleActivatePitchLinkSubmit = async () => {
+  const handleCreateClientLinkSubmit = async () => {
     const description = pitchLinkDescription.trim();
-    const amountNum = parseFloat(pitchLinkAmount.replace(/,/g, '')) || 0;
+    const includePayment = pitchLinkIncludePayment;
+    const parsedAmount = parseFloat(pitchLinkAmount.replace(/,/g, '')) || 0;
+    const amountNum = includePayment ? parsedAmount : 0;
     if (!description) {
-      showToast({ message: 'Add a short service description before activating the link.', type: 'warning' });
+      showToast({ message: 'Add a short service description before sending the link.', type: 'warning' });
+      return;
+    }
+    if (includePayment && amountNum <= 0) {
+      showToast({ message: 'Enter the payment amount, or switch off Include payment.', type: 'warning' });
       return;
     }
     const rawCandidates = [
@@ -177,16 +208,34 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
     ].map((v) => (v === undefined || v === null ? '' : String(v).trim()));
     const prospectId = rawCandidates.find((v) => /^\d+$/.test(v) && v !== '0');
     if (!prospectId) {
-      showToast({ message: 'Cannot activate link: prospect id is missing.', type: 'error' });
+      showToast({ message: 'Cannot send link: prospect id is missing.', type: 'error' });
       return;
     }
     setPitchLinkBusy(true);
     try {
+      const existingRes = await fetch(`/api/pitches/${encodeURIComponent(prospectId)}?_ts=${Date.now()}`, {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' },
+      });
+      if (existingRes.ok) {
+        const existingData = await existingRes.json().catch(() => ({} as any));
+        const activePitchLink = getActivePitchLinkSummary(Array.isArray(existingData?.pitches) ? existingData.pitches : []);
+        if (activePitchLink) {
+          showToast({
+            message: `An active ${activePitchLink.label} already exists for this enquiry. Use the Pitch panel to copy passcode ${activePitchLink.passcode}.`,
+            type: 'warning',
+          });
+          return;
+        }
+      }
+
       const res = await fetch('/api/deal-capture', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           linkOnly: true,
+          noAmountMode: !includePayment,
+          checkoutMode: includePayment ? 'CHECKOUT_LINK' : 'ID_ONLY',
           prospectId,
           serviceDescription: description,
           amount: amountNum,
@@ -209,23 +258,88 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
       const passcode: string | undefined = data?.passcode || data?.dealPasscode;
       const instructionsUrl: string | undefined = data?.instructionsUrl || data?.url;
       if (!passcode) throw new Error('No passcode returned');
-      trackClientEvent('pitch-builder', 'Hub.PitchLink.Activated', {
+      const linkToCopy = instructionsUrl || `https://instruct.helix-law.com/pitch/${encodeURIComponent(passcode)}`;
+      const linkType = includePayment ? 'PAYMENT_ID_DOC_REQUEST' : 'ID_DOC_REQUEST';
+      const linkTypeLabel = includePayment ? 'Payment, ID and document request link' : 'ID and document request link';
+      const includesDocumentRequest = true;
+      trackClientEvent('pitch-builder', 'Hub.PitchLink.Created', {
         source: 'prospect-hero-header',
         enquiryId: String(prospectId),
         amount: amountNum,
+        includePayment,
+        linkType,
+        linkTypeLabel,
+        includesDocumentRequest,
+        dealId: data?.dealId ?? null,
+        instructionRef: data?.instructionRef ?? null,
       });
-      const detailLine = instructionsUrl ? `Passcode ${passcode} · ${instructionsUrl}` : `Passcode ${passcode}`;
+      // Notify pitch composer and timeline to hydrate without a remount.
       try {
-        if (navigator?.clipboard?.writeText && instructionsUrl) {
-          await navigator.clipboard.writeText(instructionsUrl);
+        window.dispatchEvent(new CustomEvent('helix:pitch-link-activated', {
+          detail: {
+            enquiryId: String(prospectId),
+            dealId: data?.dealId ?? null,
+            instructionRef: data?.instructionRef ?? null,
+            passcode,
+            instructionsUrl: linkToCopy,
+            amount: amountNum,
+            includePayment,
+            linkType,
+            linkTypeLabel,
+            includesDocumentRequest,
+            serviceDescription: description,
+            pitchedBy: enquiry?.Point_of_Contact || 'Hub',
+            areaOfWork: enquiry?.Area_of_Work || '',
+            createdAt: new Date().toISOString(),
+          },
+        }));
+      } catch { /* event dispatch best-effort */ }
+      // Forms Stream visibility: fire and forget.
+      void recordProcessEvent({
+        formKey: 'pitch-link',
+        lane: 'Request',
+        summary: includePayment
+          ? `${linkTypeLabel} created for £${amountNum.toFixed(2)} + VAT`
+          : `${linkTypeLabel} created without payment`,
+        eventName: 'pitch-link.created',
+        source: 'prospect-hero-header',
+        payload: {
+          enquiryId: String(prospectId),
+          amount: amountNum,
+          includePayment,
+          linkType,
+          linkTypeLabel,
+          includesDocumentRequest,
+          passcode,
+          dealId: data?.dealId ?? null,
+          instructionRef: data?.instructionRef ?? null,
+        },
+        stepStatus: 'success',
+      });
+      let copiedToClipboard = false;
+      try {
+        if (navigator?.clipboard?.writeText && linkToCopy) {
+          await navigator.clipboard.writeText(linkToCopy);
+          copiedToClipboard = true;
         }
       } catch { /* clipboard best-effort */ }
-      showToast({ message: `Pitch link activated. ${detailLine}`, type: 'success' });
+      const copyLine = copiedToClipboard ? 'Link copied to clipboard.' : `Copy link: ${linkToCopy}`;
+      showToast({ message: `${linkTypeLabel} ready. ${copyLine} Workbench and timeline updated. Passcode ${passcode}.`, type: 'success' });
       setPitchLinkOpen(false);
       setPitchLinkDescription('');
-      setPitchLinkAmount('');
+      setPitchLinkIncludePayment(true);
+      setPitchLinkAmount(DEFAULT_PITCH_AMOUNT);
     } catch (err: any) {
-      showToast({ message: `Could not activate pitch link: ${err?.message || 'unknown error'}`, type: 'error' });
+      void recordProcessEvent({
+        formKey: 'pitch-link',
+        lane: 'Escalate',
+        summary: 'Client pitch link creation failed',
+        eventName: 'pitch-link.create_failed',
+        source: 'prospect-hero-header',
+        stepStatus: 'failed',
+        error: err?.message || 'unknown error',
+      });
+      showToast({ message: `Could not create client link: ${err?.message || 'unknown error'}`, type: 'error' });
     } finally {
       setPitchLinkBusy(false);
     }
@@ -556,7 +670,7 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
           )}
         </div>
 
-        {/* Row 2: action strip. Draft pitch (primary), Activate Pitch Link (secondary), Rate plus Share, value right-anchored. */}
+        {/* Row 2: action strip. Draft pitch (primary), client link (secondary), Rate plus Share, value right-anchored. */}
         {(onOpenPitchBuilder || onOpenEnquiryRating || onShareEnquiry || enquiryValueDisplay) && (
           <div style={{
             display: 'flex',
@@ -594,7 +708,7 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
                     if (!pitchLinkOpen) updatePitchLinkPopoverPosition();
                     setPitchLinkOpen((v) => !v);
                   }}
-                  title="Generate a passcode and instruct URL without sending an email"
+                  title="Create a client pitch link with a passcode and instruct URL. No email drafted."
                   style={{
                     ...secondaryActionStyle,
                     backgroundColor: pitchLinkOpen ? pitchLinkOpenBackground : 'transparent',
@@ -607,13 +721,13 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
                   aria-expanded={pitchLinkOpen}
                 >
                   <FaLink size={10} />
-                  <span>Activate Pitch Link</span>
+                  <span>Create Client Link</span>
                 </button>
                 {pitchLinkOpen && pitchLinkPopoverPosition && createPortal(
                   <div
                     ref={pitchLinkPopoverRef}
                     role="dialog"
-                    aria-label="Activate pitch link"
+                    aria-label="Create client link"
                     data-helix-region="enquiries/prospect/pitch-link-popover"
                     style={{
                       position: 'fixed',
@@ -636,7 +750,7 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                       <div style={{ fontSize: 12, fontWeight: 700, color: textPrimary, letterSpacing: '0.3px' }}>
-                        Activate Pitch Link
+                        Create Client Link
                       </div>
                       <button
                         type="button"
@@ -647,8 +761,8 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
                         <FaTimes size={11} />
                       </button>
                     </div>
-                    <div style={{ fontSize: 12, color: textBody, lineHeight: 1.45, marginBottom: 10 }}>
-                      Generates a passcode and instruct URL without sending an email. Share the link directly with the client.
+                    <div style={{ fontSize: 12, color: textBody, lineHeight: 1.45, marginBottom: 12 }}>
+                      Creates a passcode and instruct URL for the client. No email is drafted. Share the copied link directly.
                     </div>
                     <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: textMuted, textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 4 }}>
                       Service description
@@ -662,7 +776,7 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
                         width: '100%',
                         boxSizing: 'border-box',
                         padding: '8px 10px',
-                        marginBottom: 10,
+                        marginBottom: 14,
                         fontSize: 13,
                         fontFamily: FONT_STACK,
                         backgroundColor: pitchLinkInputSurface,
@@ -672,29 +786,127 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
                         outline: 'none',
                       }}
                     />
-                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: textMuted, textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 4 }}>
-                      Fee (GBP, optional)
-                    </label>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={pitchLinkAmount}
-                      onChange={(e) => setPitchLinkAmount(e.target.value)}
-                      placeholder="0"
-                      style={{
-                        width: '100%',
-                        boxSizing: 'border-box',
-                        padding: '8px 10px',
-                        marginBottom: 12,
-                        fontSize: 13,
-                        fontFamily: FONT_STACK,
-                        backgroundColor: pitchLinkInputSurface,
-                        color: textPrimary,
-                        border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
-                        borderRadius: 0,
-                        outline: 'none',
-                      }}
-                    />
+                    <div style={{ marginBottom: 12 }}>
+                      <div style={{ display: 'block', fontSize: 11, fontWeight: 600, color: textMuted, textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 6 }}>
+                        Payment choice
+                      </div>
+                      <div style={{ display: 'grid', gap: 8 }} role="group" aria-label="Client link payment choice">
+                        <div
+                          style={{
+                            width: '100%',
+                            boxSizing: 'border-box',
+                            padding: 10,
+                            backgroundColor: pitchLinkIncludePayment ? pitchLinkOpenBackground : 'transparent',
+                            border: `1px solid ${pitchLinkIncludePayment ? pitchLinkPopoverBorder : (isDarkMode ? colours.dark.borderColor : colours.highlightNeutral)}`,
+                            color: textPrimary,
+                            borderRadius: 0,
+                          }}
+                        >
+                          <button
+                            type="button"
+                            aria-pressed={pitchLinkIncludePayment}
+                            onClick={() => setPitchLinkIncludePayment(true)}
+                            style={{
+                              width: '100%',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              gap: 10,
+                              alignItems: 'flex-start',
+                              padding: 0,
+                              border: 'none',
+                              background: 'transparent',
+                              color: textPrimary,
+                              cursor: 'pointer',
+                              fontFamily: FONT_STACK,
+                              textAlign: 'left',
+                            }}
+                          >
+                            <span>
+                              <span style={{ display: 'block', fontSize: 12, fontWeight: 800, marginBottom: 2 }}>
+                                Include Payment
+                              </span>
+                              <span style={{ display: 'block', fontSize: 11, color: textMuted, lineHeight: 1.4 }}>
+                                Preselected. This link asks the client for payment before they instruct.
+                              </span>
+                            </span>
+                            <span style={{ fontSize: 10, fontWeight: 800, color: pitchLinkIncludePayment ? pitchLinkPopoverBorder : textMuted, whiteSpace: 'nowrap', textTransform: 'uppercase', letterSpacing: '0.3px' }}>
+                              {pitchLinkIncludePayment ? 'Selected' : 'Default'}
+                            </span>
+                          </button>
+                          <div
+                            style={{
+                              display: 'grid',
+                              gridTemplateColumns: 'auto minmax(0, 1fr) auto',
+                              alignItems: 'center',
+                              gap: 8,
+                              marginTop: 10,
+                              paddingTop: 10,
+                              borderTop: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.16)' : 'rgba(6,23,51,0.12)'}`,
+                              opacity: pitchLinkIncludePayment ? 1 : 0.52,
+                            }}
+                          >
+                            <span style={{ fontSize: 12, fontWeight: 700, color: textMuted, whiteSpace: 'nowrap' }}>Fee on link</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                              <span style={{ fontSize: 13, fontWeight: 700, color: textPrimary }}>£</span>
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={pitchLinkAmount}
+                                onChange={(e) => setPitchLinkAmount(e.target.value)}
+                                onFocus={() => setPitchLinkIncludePayment(true)}
+                                placeholder={DEFAULT_PITCH_AMOUNT}
+                                aria-label="Payment amount"
+                                style={{
+                                  width: '100%',
+                                  boxSizing: 'border-box',
+                                  padding: '7px 9px',
+                                  fontSize: 13,
+                                  fontFamily: FONT_STACK,
+                                  backgroundColor: pitchLinkInputSurface,
+                                  color: textPrimary,
+                                  border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
+                                  borderRadius: 0,
+                                  outline: 'none',
+                                }}
+                              />
+                            </div>
+                            <span style={{ fontSize: 11, fontWeight: 800, color: textMuted, letterSpacing: '0.3px', whiteSpace: 'nowrap' }}>+ VAT</span>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          aria-pressed={!pitchLinkIncludePayment}
+                          onClick={() => setPitchLinkIncludePayment(false)}
+                          style={{
+                            width: '100%',
+                            textAlign: 'left',
+                            padding: 10,
+                            cursor: 'pointer',
+                            fontFamily: FONT_STACK,
+                            backgroundColor: !pitchLinkIncludePayment ? pitchLinkOpenBackground : 'transparent',
+                            border: `1px solid ${!pitchLinkIncludePayment ? pitchLinkPopoverBorder : (isDarkMode ? colours.dark.borderColor : colours.highlightNeutral)}`,
+                            color: textPrimary,
+                            borderRadius: 0,
+                          }}
+                        >
+                          <span style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
+                            <span>
+                              <span style={{ display: 'block', fontSize: 12, fontWeight: 800, marginBottom: 2 }}>
+                                No Payment
+                              </span>
+                              <span style={{ display: 'block', fontSize: 11, color: textMuted, lineHeight: 1.4 }}>
+                                ID-only link. The client verifies identity and can upload documents without paying now.
+                              </span>
+                            </span>
+                            {!pitchLinkIncludePayment && (
+                              <span style={{ fontSize: 10, fontWeight: 800, color: pitchLinkPopoverBorder, whiteSpace: 'nowrap', textTransform: 'uppercase', letterSpacing: '0.3px' }}>
+                                Selected
+                              </span>
+                            )}
+                          </span>
+                        </button>
+                      </div>
+                    </div>
                     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
                       <button
                         type="button"
@@ -716,7 +928,7 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
                       </button>
                       <button
                         type="button"
-                        onClick={handleActivatePitchLinkSubmit}
+                        onClick={handleCreateClientLinkSubmit}
                         disabled={pitchLinkBusy || !pitchLinkDescription.trim()}
                         style={{
                           padding: '7px 14px',
@@ -733,7 +945,7 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
                           borderRadius: 0,
                         }}
                       >
-                        {pitchLinkBusy ? 'Activating…' : 'Activate link'}
+                        {pitchLinkBusy ? 'Creating...' : 'Create link'}
                       </button>
                     </div>
                   </div>,

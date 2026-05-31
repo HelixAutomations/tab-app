@@ -63,9 +63,9 @@ type FormRouteProbeCheck = {
 
 const FORM_RECENTS_KEY = 'forms-hub:recents';
 const MAX_RECENTS = 8;
-// Bumped from 12 → 24 (forms-stream-persistence Phase A1) so a denser rail
-// actually doubles the visible-without-scroll count.
-const MAX_STREAM_ITEMS = 24;
+// Operator support view needs enough recent rows to cover quick-action opens
+// plus their downstream submissions without hiding the real completion row.
+const MAX_STREAM_ITEMS = 50;
 const PROCESS_HUB_HEALTH_POLL_MS = 60_000;
 const excludedForms = new Set(['CollabSpace Requests']);
 const PROCESS_HUB_API_BASE = '/api/process-hub';
@@ -367,7 +367,11 @@ export default function FormsHub({
     async function loadServerStream() {
       try {
         const initialsForScope = (currentUser?.Initials || '').toString().trim();
-        const qs = initialsForScope ? `?limit=8&initials=${encodeURIComponent(initialsForScope)}` : '?limit=8';
+        const operatorScope = ['LZ', 'EA'].includes(initialsForScope.toUpperCase());
+        const params = new URLSearchParams({ limit: '50' });
+        if (initialsForScope) params.set('initials', initialsForScope);
+        if (operatorScope) params.set('scope', 'all');
+        const qs = `?${params.toString()}`;
         const response = await fetch(`${PROCESS_HUB_API_BASE}/submissions${qs}`);
         if (!response.ok) {
           return;

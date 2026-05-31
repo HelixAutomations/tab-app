@@ -1,0 +1,40 @@
+Risk Assessment
+
+Supplied ref: LAMBR8179
+Matter display ref: LAMBR8179-00002
+Clio matter id: 14671955
+Instruction ref: HLX-30621-84534
+
+Risk assessment result: Low Risk
+Risk score: 9
+Risk score increment by: 9
+Transaction risk level: Low Risk
+Risk assessor: 
+Compliance date: 2026-03-13
+Compliance expiry: 2026-09-13
+
+Assessment inputs
+Client type: Individual or Company registered in England and Wales with Companies House
+Client type value: 1
+Destination of funds: Client within UK
+Destination of funds value: 1
+Funds type: Personal Cheque, BACS
+Funds type value: 1
+How was client introduced: Internet Enquiry
+How was client introduced value: 2
+Limitation: There is no applicable limitation period
+Limitation value: 1
+Source of funds: Client's named account
+Source of funds value: 1
+Value of instruction: £10,000 to £500,000
+Value of instruction value: 2
+
+Confirmations
+Client risk factors considered: Yes
+Transaction risk factors considered: Yes
+Firm-wide AML policy considered: Yes
+Firm-wide sanctions risk considered: Yes
+
+Source
+Instructions DB dbo.RiskAssessment
+Exported: 2026-05-28

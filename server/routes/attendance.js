@@ -691,6 +691,7 @@ router.get('/getAttendance', getAttendanceHandler);
 router.post('/updateAttendance', async (req, res) => {
   const startedAt = Date.now();
   const operation = 'attendance-update';
+  let submissionId = null;
   try {
     const { initials, weekStart, attendanceDays } = req.body;
     
@@ -707,6 +708,23 @@ router.post('/updateAttendance', async (req, res) => {
       initials: String(initials || '').toUpperCase(),
       weekStart: String(weekStart || ''),
     });
+
+    try {
+      submissionId = await recordSubmission({
+        formKey: 'attendance-update',
+        submittedBy: String(initials || 'UNK').slice(0, 10),
+        lane: 'Log',
+        payload: {
+          initials: String(initials || '').toUpperCase(),
+          weekStart,
+          attendanceDays,
+        },
+        summary: `Attendance confirmed: ${String(initials || '').toUpperCase()} (${weekStart})`.slice(0, 400),
+        clientSubmissionId: req.body?.clientSubmissionId || null,
+      });
+    } catch (logErr) {
+      trackException(logErr, { operation, phase: 'attendance.recordSubmission' });
+    }
     
     const password = await getSqlPassword();
     if (!password) {
@@ -813,10 +831,18 @@ router.post('/updateAttendance', async (req, res) => {
       throw new Error('Attendance update completed but the saved record could not be read back');
     }
 
+    await recordStep(submissionId, {
+      name: 'attendance.upsert',
+      status: 'success',
+      output: { weekStart, entryId, attendanceId: updatedRecord.Attendance_ID || null },
+    });
+    await markComplete(submissionId, { lastEvent: 'attendance confirmed' });
+
     res.json({
       success: true,
       message: 'Attendance updated successfully',
-      record: updatedRecord
+      record: updatedRecord,
+      submissionId,
     });
 
     const durationMs = Date.now() - startedAt;
@@ -851,6 +877,9 @@ router.post('/updateAttendance', async (req, res) => {
   } catch (error) {
     console.error('Error updating attendance:', error.message || error);
     trackException(error, { operation, phase: 'update-attendance' });
+    if (submissionId) {
+      await markFailed(submissionId, { lastEvent: 'attendance.update:failed', error });
+    }
     trackEvent('Attendance.Update.Failed', {
       operation,
       triggeredBy: 'api',
@@ -866,10 +895,36 @@ router.post('/updateAttendance', async (req, res) => {
 
 // POST /api/attendance/unconfirmAttendance — clear Confirmed_At so user appears unconfirmed
 router.post('/unconfirmAttendance', async (req, res) => {
+  const startedAt = Date.now();
+  const operation = 'attendance-unconfirm';
+  let submissionId = null;
   try {
     const { initials, weekStart } = req.body;
     if (!initials || !weekStart) {
       return res.status(400).json({ success: false, error: 'Missing required fields: initials, weekStart' });
+    }
+
+    trackEvent('Attendance.Unconfirm.Started', {
+      operation,
+      triggeredBy: 'api',
+      initials: String(initials || '').toUpperCase(),
+      weekStart: String(weekStart || ''),
+    });
+
+    try {
+      submissionId = await recordSubmission({
+        formKey: 'attendance-unconfirm',
+        submittedBy: String(initials || 'UNK').slice(0, 10),
+        lane: 'Log',
+        payload: {
+          initials: String(initials || '').toUpperCase(),
+          weekStart,
+        },
+        summary: `Attendance unconfirmed: ${String(initials || '').toUpperCase()} (${weekStart})`.slice(0, 400),
+        clientSubmissionId: req.body?.clientSubmissionId || null,
+      });
+    } catch (logErr) {
+      trackException(logErr, { operation, phase: 'attendance.unconfirm.recordSubmission' });
     }
 
     const password = await getSqlPassword();
@@ -889,7 +944,20 @@ router.post('/unconfirmAttendance', async (req, res) => {
         `)
     );
 
-    res.json({ success: true, message: 'Attendance unconfirmed', initials, weekStart });
+    await recordStep(submissionId, { name: 'attendance.unconfirm', status: 'success', output: { weekStart } });
+    await markComplete(submissionId, { lastEvent: 'attendance unconfirmed' });
+
+    res.json({ success: true, message: 'Attendance unconfirmed', initials, weekStart, submissionId });
+
+    const durationMs = Date.now() - startedAt;
+    trackEvent('Attendance.Unconfirm.Completed', {
+      operation,
+      triggeredBy: 'api',
+      initials: String(initials || '').toUpperCase(),
+      weekStart: String(weekStart || ''),
+      durationMs,
+    });
+    trackMetric('Attendance.Unconfirm.Duration', durationMs, { operation });
 
     // Realtime notify
     try {
@@ -904,6 +972,16 @@ router.post('/unconfirmAttendance', async (req, res) => {
     try { await deleteCachePattern('attendance:*'); } catch { /* non-critical */ }
   } catch (error) {
     console.error('Error unconfirming attendance:', error.message || error);
+    trackException(error, { operation, phase: 'unconfirm-attendance' });
+    if (submissionId) {
+      await markFailed(submissionId, { lastEvent: 'attendance.unconfirm:failed', error });
+    }
+    trackEvent('Attendance.Unconfirm.Failed', {
+      operation,
+      triggeredBy: 'api',
+      durationMs: Date.now() - startedAt,
+      error: error.message || String(error),
+    });
     res.status(500).json({ success: false, error: error.message });
   }
 });

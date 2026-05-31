@@ -1,0 +1,1 @@
+2026-05-30 / Drop Prospects header to Helix blue 0D2F60 / Step the header one tick darker on the brand ladder: from highlight 3690CE to Helix blue 0D2F60. White text and white lock icon keep contrast. (~ src/app/styles/design-tokens.css, ~ src/tabs/enquiries/Enquiries.tsx, ~ src/tabs/enquiries/components/ProspectTableHeader.tsx, ~ src/tabs/matters/MatterTableView.tsx)

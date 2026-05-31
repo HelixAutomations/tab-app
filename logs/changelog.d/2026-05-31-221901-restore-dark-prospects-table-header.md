@@ -1,0 +1,1 @@
+2026-05-31 / Restore dark prospects table header / Restore the dark-mode Prospects table header to the previous dark surface, divider, text colour and weight while preserving the newer blue header treatment in light mode. (~ src/tabs/enquiries/Enquiries.tsx)

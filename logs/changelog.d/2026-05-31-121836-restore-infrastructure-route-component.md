@@ -1,0 +1,1 @@
+2026-05-31 / Restore infrastructure route component / Restored src/tabs/roadmap/system/SystemInfrastructureView.tsx so Roadmap.tsx can resolve the System Infrastructure route again, keeping the production-style VNet, subnet, private endpoint and hover-tracing diagram. (+ src/tabs/roadmap/system/SystemInfrastructureView.tsx)

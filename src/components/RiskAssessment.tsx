@@ -5,6 +5,7 @@ import { Checkbox } from '@fluentui/react/lib/Checkbox';
 import { Icon } from '@fluentui/react/lib/Icon';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { colours } from '../app/styles/colours';
+import { getInternalPolicyForRiskLabel, openInternalPolicyDocument } from '../app/customisation/InternalPolicies';
 
 interface Option {
     key: string | number;
@@ -39,19 +40,7 @@ const QuestionCard: React.FC<QuestionCardProps> = ({
     
     const shouldShowPrompt = showPrompt && isYesNoQuestion && selectedKey === 'no';
     
-    const getDocumentUrl = () => {
-        const labelLower = label.toLowerCase();
-        if (labelLower.includes('client risk')) {
-            return 'https://drive.google.com/file/d/1_7dX2qSlvuNmOiirQCxQb8NDs6iUSAhT/view?usp=sharing';
-        } else if (labelLower.includes('transaction risk')) {
-            return 'https://drive.google.com/file/d/1sTRII8MFU3JLpMiUcz-Y6KBQ1pP1nKgT/view?usp=sharing';
-        } else if (labelLower.includes('sanctions')) {
-            return 'https://drive.google.com/file/d/1y7fTLI_Dody00y9v42ohltQU-hnnYJ9P/view?usp=sharing';
-        } else if (labelLower.includes('aml policy')) {
-            return 'https://drive.google.com/file/d/1opiC3TbEsdEH4ExDjckIhQzzsI3_wYYB/view?usp=sharing';
-        }
-        return '#';
-    };
+    const getDocumentUrl = () => getInternalPolicyForRiskLabel(label)?.url || '#';
 
     const isAnswered = selectedKey !== undefined && selectedKey !== '';
     // For compliance questions requiring Yes, only show complete state for Yes answers
@@ -212,6 +201,10 @@ const QuestionCard: React.FC<QuestionCardProps> = ({
                             href={getDocumentUrl()} 
                             target="_blank"
                             rel="noopener noreferrer"
+                            onClick={(event) => {
+                                event.preventDefault();
+                                openInternalPolicyDocument(getDocumentUrl());
+                            }}
                             style={{ 
                                 color: colours.highlight, 
                                 textDecoration: 'underline', 

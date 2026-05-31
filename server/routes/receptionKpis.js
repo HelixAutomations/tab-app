@@ -31,6 +31,36 @@ const EVIDENCE_ROW_LIMIT = 2000;
 const DAY_MS = 86_400_000;
 
 const memoCache = new Map();
+let reviewTableReady = false;
+
+const ENSURE_RECEPTION_REVIEW_TABLE_SQL = `
+IF OBJECT_ID(N'dbo.reception_call_reviews', N'U') IS NULL
+BEGIN
+  CREATE TABLE dbo.reception_call_reviews
+  (
+    id INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+    call_id INT NOT NULL,
+    action NVARCHAR(32) NOT NULL,
+    candidate_enquiry_id INT NULL,
+    candidate_instruction_ref NVARCHAR(100) NULL,
+    candidate_matter_id NVARCHAR(100) NULL,
+    review_note NVARCHAR(500) NULL,
+    match_source NVARCHAR(64) NULL,
+    reviewed_by NVARCHAR(128) NULL,
+    created_at DATETIME2(7) NOT NULL CONSTRAINT DF_reception_call_reviews_created_at DEFAULT SYSUTCDATETIME()
+  );
+END;
+
+IF NOT EXISTS (
+  SELECT 1 FROM sys.indexes
+  WHERE name = N'ix_reception_call_reviews_call_id_created'
+    AND object_id = OBJECT_ID(N'dbo.reception_call_reviews')
+)
+BEGIN
+  CREATE INDEX ix_reception_call_reviews_call_id_created
+    ON dbo.reception_call_reviews (call_id, created_at DESC, id DESC);
+END;
+`;
 
 function firstQueryValue(value) {
   if (Array.isArray(value)) return value[0];
@@ -208,7 +238,15 @@ WITH calls AS (
         matter.OpenDate AS matterOpenDate,
         matter.ResponsibleSolicitor AS matterResponsibleSolicitor,
         matter.Source AS matterSource,
-        openedEvent.CreatedAt AS matterOpenedAt
+        openedEvent.CreatedAt AS matterOpenedAt,
+        latestReview.action AS reviewAction,
+        latestReview.candidate_enquiry_id AS reviewCandidateEnquiryId,
+        latestReview.candidate_instruction_ref AS reviewCandidateInstructionRef,
+        latestReview.candidate_matter_id AS reviewCandidateMatterId,
+        latestReview.review_note AS reviewNote,
+        latestReview.match_source AS reviewMatchSource,
+        latestReview.reviewed_by AS reviewedBy,
+        latestReview.created_at AS reviewedAt
       FROM callInstruction ci
       OUTER APPLY (
         SELECT TOP 1
@@ -237,6 +275,21 @@ WITH calls AS (
           AND ev.EntityId = ci.InstructionRef
         ORDER BY ev.CreatedAt DESC
       ) openedEvent
+      OUTER APPLY (
+        SELECT TOP 1
+          r.id,
+          r.action,
+          r.candidate_enquiry_id,
+          r.candidate_instruction_ref,
+          r.candidate_matter_id,
+          r.review_note,
+          r.match_source,
+          r.reviewed_by,
+          r.created_at
+        FROM dbo.reception_call_reviews r
+        WHERE r.call_id = ci.callId
+        ORDER BY r.created_at DESC, r.id DESC
+      ) latestReview
 )
 SELECT
       callId,
@@ -298,7 +351,15 @@ SELECT
       matterOpenDate,
       matterOpenedAt,
       matterResponsibleSolicitor,
-      matterSource
+      matterSource,
+      reviewAction,
+      reviewCandidateEnquiryId,
+      reviewCandidateInstructionRef,
+      reviewCandidateMatterId,
+      reviewNote,
+      reviewMatchSource,
+      reviewedBy,
+      reviewedAt
     FROM callMatter
     ORDER BY callCreatedAt DESC, callId DESC;
 `;
@@ -367,7 +428,7 @@ const COVERAGE = {
   },
   prospectsOpened: {
     source: "dbo.Instructions.Stage IN ('matter-opened','completed','payment-complete') joined via dbo.enquiries.acid",
-    note: 'Call to matter conversion denominator is logged calls. Matter opened counts calls whose linked enquiry has progressed to a paid/opened instruction or matter row. Earlier pitch stages appear as onboarding in progress.',
+    note: 'Matter path rate denominator is logged calls. The count means the call row is stitched to an enquiry/instruction path that now resolves to a paid/opened instruction or matter row. It is not proof that the reception call caused the matter to open. Earlier pitch stages appear as onboarding in progress.',
   },
   prospectsInProgress: {
     source: "dbo.Instructions.Stage IN ('id-only-complete','proof-of-id-complete','proof-of-id','initialised')",
@@ -426,6 +487,89 @@ function isOpenedOutcome({ stageRank, matterDisplayNumber, matterStatus }) {
 function isInProgressOutcome({ stageRank, matterId }) {
   const rank = stageRankNumber(stageRank);
   return Boolean(cleanString(matterId)) || (rank != null && rank >= 4 && rank <= 7);
+}
+
+function normalizePhoneDigits(value) {
+  return String(value || '').replace(/\D/g, '');
+}
+
+function phoneSuffix(value) {
+  const digits = normalizePhoneDigits(value);
+  return digits.length > 10 ? digits.slice(-10) : digits;
+}
+
+function sameText(a, b) {
+  const left = cleanString(a);
+  const right = cleanString(b);
+  return Boolean(left && right && left.toLowerCase() === right.toLowerCase());
+}
+
+function getTriggeredBy(req) {
+  return (req.headers['x-user-initials'] || req.headers['x-user-email'] || 'unknown').toString().slice(0, 128);
+}
+
+async function ensureReceptionReviewTable(connStr) {
+  if (reviewTableReady) return;
+  await withRequest(connStr, async (request) => request.query(ENSURE_RECEPTION_REVIEW_TABLE_SQL), 2);
+  reviewTableReady = true;
+}
+
+function shapeReview(row) {
+  const action = cleanString(row.reviewAction);
+  if (!action) return null;
+  return {
+    action,
+    candidateEnquiryId: row.reviewCandidateEnquiryId == null ? null : Number(row.reviewCandidateEnquiryId),
+    candidateInstructionRef: cleanString(row.reviewCandidateInstructionRef),
+    candidateMatterId: cleanString(row.reviewCandidateMatterId),
+    note: cleanString(row.reviewNote),
+    matchSource: cleanString(row.reviewMatchSource),
+    reviewedBy: cleanString(row.reviewedBy),
+    reviewedAt: toIsoOrNull(row.reviewedAt),
+  };
+}
+
+function shapeLinkCandidate(row, call) {
+  const phoneMatch = Boolean(phoneSuffix(row.phone) && phoneSuffix(row.phone) === phoneSuffix(call.phone));
+  const emailMatch = sameText(row.email, call.email);
+  const firstMatch = sameText(row.first, call.first_name);
+  const lastMatch = sameText(row.last, call.last_name);
+  const dateGapHours = row.dateGapHours == null ? null : Math.abs(Number(row.dateGapHours));
+  const hasInstruction = Boolean(cleanString(row.instructionRef));
+  const hasMatter = Boolean(cleanString(row.matterDisplayNumber) || cleanString(row.matterId));
+  const score = [
+    phoneMatch ? 45 : 0,
+    emailMatch ? 35 : 0,
+    firstMatch && lastMatch ? 25 : firstMatch || lastMatch ? 10 : 0,
+    dateGapHours != null && dateGapHours <= 72 ? 12 : dateGapHours != null && dateGapHours <= 336 ? 6 : 0,
+    hasInstruction ? 8 : 0,
+    hasMatter ? 10 : 0,
+  ].reduce((sum, part) => sum + part, 0);
+  const reasons = [
+    phoneMatch ? 'phone matches' : null,
+    emailMatch ? 'email matches' : null,
+    firstMatch && lastMatch ? 'name matches' : firstMatch || lastMatch ? 'partial name match' : null,
+    dateGapHours != null && dateGapHours <= 72 ? 'within 3 days' : dateGapHours != null && dateGapHours <= 336 ? 'within 14 days' : null,
+    hasMatter ? 'matter exists' : hasInstruction ? 'instruction exists' : null,
+  ].filter(Boolean);
+  return {
+    enquiryId: Number(row.id),
+    acid: cleanString(row.acid),
+    leadName: [cleanString(row.first), cleanString(row.last)].filter(Boolean).join(' ') || null,
+    email: cleanString(row.email),
+    phone: cleanString(row.phone),
+    areaOfWork: cleanString(row.aow),
+    source: cleanString(row.source),
+    enquiryCreatedAt: toIsoOrNull(row.datetime),
+    instructionRef: cleanString(row.instructionRef),
+    instructionStage: cleanString(row.instructionStage),
+    matterId: cleanString(row.matterId),
+    matterDisplayNumber: cleanString(row.matterDisplayNumber),
+    dateGapHours: dateGapHours == null || !Number.isFinite(dateGapHours) ? null : round1(dateGapHours),
+    score,
+    confidence: score >= 85 ? 'high' : score >= 55 ? 'medium' : 'low',
+    reasons,
+  };
 }
 
 function shapeEvidenceRow(row) {
@@ -523,6 +667,7 @@ function shapeEvidenceRow(row) {
     outcome: opened ? 'opened' : (inProgress ? 'in_progress' : 'unlinked'),
     joinConfidence,
     confidenceReason,
+    review: shapeReview(row),
     callToMatterHours: hoursBetween(callCreatedAt, matterOpenedAt),
   };
 }
@@ -828,7 +973,7 @@ router.get('/reception-kpis', async (req, res) => {
   const toIso = toUtc.toISOString();
   const days = Math.round(((toUtc.getTime() - fromUtc.getTime()) / 86_400_000) * 100) / 100;
   const cacheKey = `${fromIso}|${toIso}`;
-  const triggeredBy = (req.headers['x-user-initials'] || req.headers['x-user-email'] || 'unknown').toString().slice(0, 64);
+  const triggeredBy = getTriggeredBy(req);
 
   const cached = cacheGet(cacheKey);
   if (cached) {
@@ -848,6 +993,7 @@ router.get('/reception-kpis', async (req, res) => {
   try {
     const connStr = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
     if (!connStr) throw new Error('INSTRUCTIONS_SQL_CONNECTION_STRING not configured');
+    await ensureReceptionReviewTable(connStr);
     const [result, pickupsResult, unmatchedPickupsResult] = await Promise.all([
       withRequest(connStr, async (request) => {
         request.input('from', sql.DateTime2, fromUtc);
@@ -933,6 +1079,252 @@ router.get('/reception-kpis', async (req, res) => {
       durationMs: String(durationMs), triggeredBy,
     });
     return res.status(502).json({ error: 'reception_kpis_query_failed' });
+  }
+});
+
+router.get('/reception-kpis/link-lookup/:callId', async (req, res) => {
+  const callId = Number(req.params.callId);
+  const triggeredBy = getTriggeredBy(req);
+  if (!Number.isInteger(callId) || callId <= 0) {
+    return res.status(400).json({ error: 'invalid_call_id' });
+  }
+
+  const startedAt = Date.now();
+  trackEvent('Reporting.ReceptionKpis.LinkLookup.Started', { callId: String(callId), triggeredBy });
+
+  try {
+    const connStr = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+    if (!connStr) throw new Error('INSTRUCTIONS_SQL_CONNECTION_STRING not configured');
+    await ensureReceptionReviewTable(connStr);
+
+    const call = await withRequest(connStr, async (request) => {
+      request.input('callId', sql.Int, callId);
+      const result = await request.query(`
+        SELECT TOP 1 id, enquiry_id, phone, first_name, last_name, email, call_type,
+               call_started_at, call_submitted_at, created_at, area_of_work, enquiry_notes
+        FROM dbo.incoming_calls
+        WHERE id = @callId;
+      `);
+      return result.recordset[0] || null;
+    }, 2);
+
+    if (!call) {
+      trackEvent('Reporting.ReceptionKpis.LinkLookup.NotFound', { callId: String(callId), triggeredBy });
+      return res.status(404).json({ error: 'call_not_found' });
+    }
+
+    const callAt = call.call_started_at || call.call_submitted_at || call.created_at || new Date();
+    const phone = cleanString(call.phone);
+    const phoneTail = phoneSuffix(phone);
+    const firstName = cleanString(call.first_name);
+    const lastName = cleanString(call.last_name);
+    const email = cleanString(call.email);
+
+    const candidates = await withRequest(connStr, async (request) => {
+      request.input('callId', sql.Int, callId);
+      request.input('callAt', sql.DateTime2, callAt);
+      request.input('phoneTail', sql.NVarChar(16), phoneTail || null);
+      request.input('firstName', sql.NVarChar(100), firstName || null);
+      request.input('lastName', sql.NVarChar(100), lastName || null);
+      request.input('email', sql.NVarChar(255), email || null);
+      const result = await request.query(`
+        WITH candidateBase AS (
+          SELECT TOP 30
+            e.id,
+            e.acid,
+            e.first,
+            e.last,
+            e.email,
+            e.phone,
+            e.aow,
+            e.source,
+            e.datetime,
+            DATEDIFF(hour, e.datetime, @callAt) AS dateGapHours,
+            CASE
+              WHEN @phoneTail IS NOT NULL
+                AND RIGHT(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(e.phone, ''), ' ', ''), '+', ''), '(', ''), ')', ''), '-', ''), '.', ''), LEN(@phoneTail)) = @phoneTail THEN 1 ELSE 0
+            END AS phoneMatch,
+            CASE WHEN @email IS NOT NULL AND LOWER(LTRIM(RTRIM(COALESCE(e.email, '')))) = LOWER(@email) THEN 1 ELSE 0 END AS emailMatch,
+            CASE WHEN @firstName IS NOT NULL AND LOWER(LTRIM(RTRIM(COALESCE(e.first, '')))) = LOWER(@firstName) THEN 1 ELSE 0 END AS firstMatch,
+            CASE WHEN @lastName IS NOT NULL AND LOWER(LTRIM(RTRIM(COALESCE(e.last, '')))) = LOWER(@lastName) THEN 1 ELSE 0 END AS lastMatch
+          FROM dbo.enquiries e
+          WHERE e.id <> COALESCE((SELECT enquiry_id FROM dbo.incoming_calls WHERE id = @callId), -1)
+            AND (
+              (@phoneTail IS NOT NULL AND RIGHT(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(e.phone, ''), ' ', ''), '+', ''), '(', ''), ')', ''), '-', ''), '.', ''), LEN(@phoneTail)) = @phoneTail)
+              OR (@email IS NOT NULL AND LOWER(LTRIM(RTRIM(COALESCE(e.email, '')))) = LOWER(@email))
+              OR (@firstName IS NOT NULL AND LOWER(LTRIM(RTRIM(COALESCE(e.first, '')))) = LOWER(@firstName))
+              OR (@lastName IS NOT NULL AND LOWER(LTRIM(RTRIM(COALESCE(e.last, '')))) = LOWER(@lastName))
+              OR ABS(DATEDIFF(day, e.datetime, @callAt)) <= 2
+            )
+          ORDER BY
+            CASE
+              WHEN @phoneTail IS NOT NULL AND RIGHT(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(e.phone, ''), ' ', ''), '+', ''), '(', ''), ')', ''), '-', ''), '.', ''), LEN(@phoneTail)) = @phoneTail THEN 0
+              WHEN @email IS NOT NULL AND LOWER(LTRIM(RTRIM(COALESCE(e.email, '')))) = LOWER(@email) THEN 1
+              ELSE 2
+            END,
+            ABS(DATEDIFF(hour, e.datetime, @callAt)) ASC
+        )
+        SELECT TOP 8
+          cb.*,
+          instruction.InstructionRef AS instructionRef,
+          instruction.Stage AS instructionStage,
+          matter.MatterID AS matterId,
+          matter.DisplayNumber AS matterDisplayNumber
+        FROM candidateBase cb
+        OUTER APPLY (
+          SELECT TOP 1 i.InstructionRef, i.Stage
+          FROM dbo.Instructions i
+          WHERE cb.acid IS NOT NULL AND i.InstructionRef LIKE 'HLX-' + cb.acid + '-%'
+          ORDER BY i.SubmissionDate DESC, i.InstructionRef DESC
+        ) instruction
+        OUTER APPLY (
+          SELECT TOP 1 m.MatterID, m.DisplayNumber
+          FROM dbo.Matters m
+          WHERE instruction.InstructionRef IS NOT NULL AND m.InstructionRef = instruction.InstructionRef
+          ORDER BY m.OpenDate DESC
+        ) matter
+        ORDER BY
+          phoneMatch DESC,
+          emailMatch DESC,
+          (firstMatch + lastMatch) DESC,
+          ABS(dateGapHours) ASC;
+      `);
+      return result.recordset;
+    }, 2);
+
+    const shapedCandidates = candidates.map((candidate) => shapeLinkCandidate(candidate, call));
+    const durationMs = Date.now() - startedAt;
+    trackEvent('Reporting.ReceptionKpis.LinkLookup.Completed', {
+      callId: String(callId),
+      candidateCount: String(shapedCandidates.length),
+      durationMs: String(durationMs),
+      triggeredBy,
+    });
+    trackMetric('Reporting.ReceptionKpis.LinkLookupDuration', durationMs, { operation: 'candidateLookup' });
+    return res.json({
+      call: {
+        callId,
+        currentEnquiryId: call.enquiry_id == null ? null : Number(call.enquiry_id),
+        phone: cleanString(call.phone),
+        leadName: [cleanString(call.first_name), cleanString(call.last_name)].filter(Boolean).join(' ') || null,
+        email: cleanString(call.email),
+        callType: cleanString(call.call_type),
+        callAt: toIsoOrNull(callAt),
+        areaOfWork: cleanString(call.area_of_work),
+      },
+      candidates: shapedCandidates,
+    });
+  } catch (err) {
+    const durationMs = Date.now() - startedAt;
+    trackException(err, { operation: 'Reporting.ReceptionKpis.LinkLookup', phase: 'query', callId: String(callId) });
+    trackEvent('Reporting.ReceptionKpis.LinkLookup.Failed', { callId: String(callId), error: err.message, durationMs: String(durationMs), triggeredBy });
+    return res.status(502).json({ error: 'reception_link_lookup_failed' });
+  }
+});
+
+router.post('/reception-kpis/link-review/:callId', async (req, res) => {
+  const callId = Number(req.params.callId);
+  const triggeredBy = getTriggeredBy(req);
+  const action = cleanString(req.body?.action);
+  const note = cleanString(req.body?.note);
+  const candidateEnquiryId = req.body?.candidateEnquiryId == null ? null : Number(req.body.candidateEnquiryId);
+  const allowedActions = new Set(['confirm', 'reject', 'manual_link']);
+
+  if (!Number.isInteger(callId) || callId <= 0) return res.status(400).json({ error: 'invalid_call_id' });
+  if (!action || !allowedActions.has(action)) return res.status(400).json({ error: 'invalid_action' });
+  if (action === 'manual_link' && (!Number.isInteger(candidateEnquiryId) || candidateEnquiryId <= 0)) {
+    return res.status(400).json({ error: 'candidate_enquiry_id_required' });
+  }
+
+  const startedAt = Date.now();
+  trackEvent('Reporting.ReceptionKpis.LinkReview.Started', { callId: String(callId), action, triggeredBy });
+
+  try {
+    const connStr = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+    if (!connStr) throw new Error('INSTRUCTIONS_SQL_CONNECTION_STRING not configured');
+    await ensureReceptionReviewTable(connStr);
+
+    const result = await withRequest(connStr, async (request) => {
+      request.input('callId', sql.Int, callId);
+      request.input('action', sql.NVarChar(32), action);
+      request.input('candidateEnquiryId', sql.Int, candidateEnquiryId);
+      request.input('note', sql.NVarChar(500), note);
+      request.input('reviewedBy', sql.NVarChar(128), triggeredBy);
+      request.input('matchSource', sql.NVarChar(64), action === 'manual_link' ? 'operator_manual' : 'operator_review');
+      const query = `
+        SET XACT_ABORT ON;
+        BEGIN TRAN;
+
+        DECLARE @candidateInstructionRef NVARCHAR(100) = NULL;
+        DECLARE @candidateMatterId NVARCHAR(100) = NULL;
+
+        IF NOT EXISTS (SELECT 1 FROM dbo.incoming_calls WHERE id = @callId)
+        BEGIN
+          ROLLBACK TRAN;
+          SELECT CAST(0 AS bit) AS ok, 'call_not_found' AS error;
+          RETURN;
+        END;
+
+        IF @candidateEnquiryId IS NOT NULL
+        BEGIN
+          IF NOT EXISTS (SELECT 1 FROM dbo.enquiries WHERE id = @candidateEnquiryId)
+          BEGIN
+            ROLLBACK TRAN;
+            SELECT CAST(0 AS bit) AS ok, 'candidate_not_found' AS error;
+            RETURN;
+          END;
+
+          SELECT TOP 1 @candidateInstructionRef = i.InstructionRef
+          FROM dbo.enquiries e
+          JOIN dbo.Instructions i ON e.acid IS NOT NULL AND i.InstructionRef LIKE 'HLX-' + e.acid + '-%'
+          WHERE e.id = @candidateEnquiryId
+          ORDER BY i.SubmissionDate DESC, i.InstructionRef DESC;
+
+          SELECT TOP 1 @candidateMatterId = COALESCE(NULLIF(LTRIM(RTRIM(m.DisplayNumber)), ''), NULLIF(LTRIM(RTRIM(m.MatterID)), ''))
+          FROM dbo.Matters m
+          WHERE @candidateInstructionRef IS NOT NULL AND m.InstructionRef = @candidateInstructionRef
+          ORDER BY m.OpenDate DESC;
+        END;
+
+        IF @action = 'manual_link'
+        BEGIN
+          UPDATE dbo.incoming_calls
+          SET enquiry_id = @candidateEnquiryId
+          WHERE id = @callId;
+        END;
+
+        INSERT INTO dbo.reception_call_reviews
+          (call_id, action, candidate_enquiry_id, candidate_instruction_ref, candidate_matter_id, review_note, match_source, reviewed_by)
+        OUTPUT inserted.id, inserted.created_at
+        VALUES
+          (@callId, @action, @candidateEnquiryId, @candidateInstructionRef, @candidateMatterId, @note, @matchSource, @reviewedBy);
+
+        COMMIT TRAN;
+      `;
+      const reviewResult = await request.query(query);
+      return reviewResult.recordsets?.[0]?.[0] || reviewResult.recordset?.[0] || null;
+    }, 2);
+
+    if (result && result.ok === false) {
+      return res.status(result.error === 'call_not_found' || result.error === 'candidate_not_found' ? 404 : 400).json({ error: result.error });
+    }
+
+    memoCache.clear();
+    const durationMs = Date.now() - startedAt;
+    trackEvent('Reporting.ReceptionKpis.LinkReview.Completed', {
+      callId: String(callId),
+      action,
+      candidateEnquiryId: candidateEnquiryId == null ? '' : String(candidateEnquiryId),
+      durationMs: String(durationMs),
+      triggeredBy,
+    });
+    trackMetric('Reporting.ReceptionKpis.LinkReviewDuration', durationMs, { operation: action });
+    return res.json({ ok: true, callId, action, candidateEnquiryId, reviewId: result?.id ?? null, reviewedAt: toIsoOrNull(result?.created_at) });
+  } catch (err) {
+    const durationMs = Date.now() - startedAt;
+    trackException(err, { operation: 'Reporting.ReceptionKpis.LinkReview', phase: action || 'unknown', callId: String(callId) });
+    trackEvent('Reporting.ReceptionKpis.LinkReview.Failed', { callId: String(callId), action: action || '', error: err.message, durationMs: String(durationMs), triggeredBy });
+    return res.status(502).json({ error: 'reception_link_review_failed' });
   }
 });
 

@@ -1,5 +1,7 @@
 // API functions for ID verification review workflow
 
+import { buildRequestAuthHeaders } from '../utils/requestAuthContext';
+
 interface VerificationFailure {
   check: string;
   reason: string;
@@ -115,7 +117,9 @@ export const parseVerificationFailures = (rawResponse: any): VerificationFailure
  */
 export const fetchVerificationDetails = async (instructionRef: string) => {
   try {
-    const response = await fetch(`/api/verify-id/${instructionRef}/details`);
+    const response = await fetch(`/api/verify-id/${instructionRef}/details`, {
+      headers: buildRequestAuthHeaders(),
+    });
     if (!response.ok) {
       throw new Error('Failed to fetch verification details');
     }
@@ -150,9 +154,7 @@ export const approveVerification = async (instructionRef: string) => {
   try {
     const response = await fetch(`/api/verify-id/${instructionRef}/approve`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      }
+      headers: buildRequestAuthHeaders({ 'Content-Type': 'application/json' }),
     });
     
     if (!response.ok) {
@@ -174,9 +176,7 @@ export const requestVerificationDocuments = async (instructionRef: string) => {
   try {
     const response = await fetch(`/api/verify-id/${instructionRef}/request-documents`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      }
+      headers: buildRequestAuthHeaders({ 'Content-Type': 'application/json' }),
     });
 
     if (!response.ok) {
@@ -207,9 +207,7 @@ export const draftVerificationDocumentRequest = async (
   try {
     const response = await fetch(`/api/verify-id/${instructionRef}/draft-request`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
+      headers: buildRequestAuthHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({
         ...(toEmail ? { toEmail } : {}),
         ...(ccEmail ? { ccEmail } : {})

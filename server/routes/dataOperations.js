@@ -24,6 +24,28 @@ const fmtMoneyBE = (v) => v == null ? '—' : `£${Number(v).toFixed(2)}`;
 const RECONCILIATION_MONEY_TOLERANCE = 0.01;
 const RECONCILIATION_HOURS_TOLERANCE = 0.05;
 
+function summariseClioErrorBody(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return '';
+  try {
+    const parsed = JSON.parse(raw);
+    const values = [parsed?.error?.message, parsed?.error, parsed?.message]
+      .filter((value) => typeof value === 'string' && value.trim());
+    if (values.length) return values.join(': ').replace(/\s+/g, ' ').slice(0, 500);
+  } catch { /* fall through to plain text */ }
+  return raw.replace(/\s+/g, ' ').slice(0, 500);
+}
+
+function isClioNoDataReportResponse(text) {
+  const summary = summariseClioErrorBody(text).toLowerCase();
+  return /no\s+data/.test(summary) && /report/.test(summary);
+}
+
+function buildClioReportRequestError(status, text) {
+  const summary = summariseClioErrorBody(text);
+  return new Error(`Clio report request failed: ${status}${summary ? ` - ${summary}` : ''}`);
+}
+
 // ─────────────────────────────────────────────────────────────
 // In-memory operation log (persists for server lifetime)
 // ─────────────────────────────────────────────────────────────
@@ -420,11 +442,11 @@ async function fetchCollectedClioMonthTotals({ startDate, endDate }) {
   let reportId = null;
 
   if (!reportRes.ok) {
-    const text = await reportRes.text();
-    if (text.includes('no data to report on')) {
+    const text = await reportRes.text().catch(() => '');
+    if (isClioNoDataReportResponse(text)) {
       return { months: {}, rowCount: 0, totalValue: 0, source: 'clio-report' };
     }
-    throw new Error(`Clio report request failed: ${reportRes.status}`);
+    throw buildClioReportRequestError(reportRes.status, text);
   }
 
   const reportData = await reportRes.json();
@@ -1180,13 +1202,22 @@ async function syncCollectedTime(options = {}) {
 
     if (!reportRes.ok) {
       // Catch 422 Unprocessable Entity - often means "No data to report on"
-      const text = await reportRes.text();
-      if (text.includes('no data to report on')) {
+      const text = await reportRes.text().catch(() => '');
+      if (isClioNoDataReportResponse(text)) {
         logProgress(operationKey, 'Clio reported no data. Treating as 0 rows.');
         downloadData = { report_data: {} };
         skipPolling = true;
       } else {
-        throw new Error(`Clio report request failed: ${reportRes.status}`);
+        const error = buildClioReportRequestError(reportRes.status, text);
+        trackEvent('DataOps.CollectedTime.ReportRequestRejected', {
+          operation: operationKey,
+          triggeredBy,
+          startDate: startDateSql,
+          endDate: endDateSql,
+          status: reportRes.status,
+          body: summariseClioErrorBody(text),
+        });
+        throw error;
       }
     } else {
       const reportData = await reportRes.json();

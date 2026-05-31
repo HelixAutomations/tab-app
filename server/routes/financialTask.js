@@ -1,6 +1,6 @@
 const express = require('express');
 const { sql, withRequest } = require('../utils/db');
-const { getClient, getSecret } = require('../utils/getSecret');
+const { getSecret } = require('../utils/getSecret');
 const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
 const { trackRouteException } = require('../utils/errorContext');
 const {
@@ -28,6 +28,25 @@ function createHttpError(status, code, message, details) {
   err.code = code;
   if (details) err.details = details;
   return err;
+}
+
+function safeUpstreamDetails(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return '';
+  try {
+    const parsed = JSON.parse(raw);
+    return [parsed?.error, parsed?.error_description, parsed?.message]
+      .filter((value) => typeof value === 'string' && value.trim())
+      .join(': ')
+      .slice(0, 300);
+  } catch {
+    return raw.replace(/\s+/g, ' ').slice(0, 300);
+  }
+}
+
+function isSecretNotFound(error) {
+  const message = String(error?.message || error || '');
+  return error?.code === 'SecretNotFound' || /secret (with \(name\/id\).*was not found|not found)/i.test(message);
 }
 
 function decodeBase64File(fileContentBase64) {
@@ -154,17 +173,19 @@ async function getAsanaAccessToken(credentials, requestId) {
 
 // Get Microsoft Graph access token
 async function getGraphAccessToken() {
-  const secretClient = getClient();
-  const [clientIdSecret, clientSecretSecret] = await Promise.all([
-    secretClient.getSecret("graph-aidenteams-clientid"),
-    secretClient.getSecret("graph-aiden-teamhub-financialattachments-clientsecret")
+  const [clientId, clientSecret] = await Promise.all([
+    getSecret("graph-aidenteams-clientid"),
+    getSecret("graph-aiden-teamhub-financialattachments-clientsecret")
   ]);
+  if (!clientId || !clientSecret) {
+    throw createHttpError(502, 'GRAPH_TOKEN_CONFIG_MISSING', 'Failed to get Graph token: client credentials are not configured.', 'Missing Graph client secret value');
+  }
   
   const tenantId = "7fbc252f-3ce5-460f-9740-4e1cb8bf78b8";
   const params = new URLSearchParams({
-    client_id: clientIdSecret.value,
+    client_id: clientId,
     scope: "https://graph.microsoft.com/.default",
-    client_secret: clientSecretSecret.value,
+    client_secret: clientSecret,
     grant_type: "client_credentials"
   });
   
@@ -175,10 +196,20 @@ async function getGraphAccessToken() {
   });
   
   if (!response.ok) {
-    throw new Error("Failed to get Graph token");
+    const text = await response.text().catch(() => '');
+    const details = safeUpstreamDetails(text);
+    throw createHttpError(
+      502,
+      'GRAPH_TOKEN_FAILED',
+      `Failed to get Graph token (${response.status})${details ? `: ${details}` : ''}`,
+      details || `Upstream status ${response.status}`
+    );
   }
   
-  const data = await response.json();
+  const data = await response.json().catch(() => null);
+  if (!data?.access_token) {
+    throw createHttpError(502, 'GRAPH_TOKEN_FAILED', 'Failed to get Graph token: missing access token.', 'Missing access_token');
+  }
   return data.access_token;
 }
 
@@ -459,9 +490,31 @@ async function postPaymentRequestWebhook(data, requestId) {
   const startedAt = Date.now();
 
   try {
-    const webhookUrl = await getSecret(PAYMENT_REQUESTS_WEBHOOK_SECRET_NAME);
+    let webhookUrl = process.env.PAYMENT_REQUEST_LOGIC_APP_URL || '';
+    if (!webhookUrl) {
+      try {
+        webhookUrl = await getSecret(PAYMENT_REQUESTS_WEBHOOK_SECRET_NAME);
+      } catch (secretError) {
+        if (!isSecretNotFound(secretError)) throw secretError;
+        console.warn('[financial-task] Payment request webhook secret missing', { requestId });
+        trackEvent('Forms.PaymentRequestWebhook.Skipped', {
+          operation,
+          triggeredBy: 'financial-task',
+          requestId,
+          reason: 'missing_secret',
+          secretName: PAYMENT_REQUESTS_WEBHOOK_SECRET_NAME,
+        });
+        return;
+      }
+    }
     if (!webhookUrl) {
       console.warn('[financial-task] Payment request webhook missing', { requestId });
+      trackEvent('Forms.PaymentRequestWebhook.Skipped', {
+        operation,
+        triggeredBy: 'financial-task',
+        requestId,
+        reason: 'empty_webhook_url',
+      });
       return;
     }
 
@@ -718,7 +771,7 @@ router.post('/', async (req, res) => {
     const taskBody = {
       data: {
         workspace: ASANA_WORKSPACE_ID,
-        memberships: [{ section: ASANA_REQUESTED_SECTION_ID }],
+        memberships: [{ project: ASANA_PROJECT_ID, section: ASANA_REQUESTED_SECTION_ID }],
         name: finalTaskName,
         notes: description,
         due_on: today,

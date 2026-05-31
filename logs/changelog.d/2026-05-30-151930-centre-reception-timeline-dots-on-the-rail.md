@@ -1,0 +1,1 @@
+2026-05-30 / Centre Reception timeline dots on the rail / Drop the 2px left padding on the timeline list so the absolute-positioned dots (anchored to the list) and rail line (also anchored to the list) share the same origin and the dot centres sit exactly on the rail. (~ src/tabs/Reporting/ReceptionReport.css)

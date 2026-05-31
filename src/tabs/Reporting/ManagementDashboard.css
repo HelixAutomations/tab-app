@@ -1248,22 +1248,22 @@
 }
 
 .management-dashboard-container.light-theme .metrics-table-header span:hover {
-  color: #d6e8ff;
+  color: #ffffff;
 }
 
 .management-dashboard-container.dark-theme .metrics-table-header span:hover {
-  color: #3690CE;
+  color: #ffffff;
 }
 
 .management-dashboard-container.light-theme .metrics-table-header {
-  background: #061733;
-  color: #f3f4f6;
+  background: #0D2F60;
+  color: rgba(255, 255, 255, 0.85);
 }
 
 .management-dashboard-container.dark-theme .metrics-table-header {
-  background: #061733;
-  color: #A0A0A0;
-  border-bottom: 0.5px solid #4b556330;
+  background: #0D2F60;
+  color: rgba(255, 255, 255, 0.85);
+  border-bottom: 0.5px solid rgba(255, 255, 255, 0.12);
 }
 
 .metrics-table-row {

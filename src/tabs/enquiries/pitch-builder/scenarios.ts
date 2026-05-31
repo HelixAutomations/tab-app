@@ -7,7 +7,10 @@
  * any local state derived from these scenarios without requiring a manual remount.
  * Only increment this manually when you change the scenarios content.
  */
-export const SCENARIOS_VERSION: number = 4;
+export const SCENARIOS_VERSION: number = 6;
+
+export const DEFAULT_PITCH_SUBJECT = 'Your Enquiry - Helix Law';
+export const DEFAULT_PITCH_AMOUNT = '1200';
 
 export type Scenario = {
   /** Stable id for persistence */
@@ -28,7 +31,7 @@ export const SCENARIOS: Scenario[] = [
   {
     id: 'before-call-call',
     name: 'Before call — Call',
-    subject: 'Pitch before call — Call',
+    subject: DEFAULT_PITCH_SUBJECT,
   body: `Thank you for your enquiry to Helix Law. I have set out below some details that I hope help in relation to your enquiry. We’re a specialist firm of solicitors and we only deal with litigation and disputes. We act nationally.
 
 We often deal with disputes such as yours and I am confident we are well-placed to assist in relation to your matter.
@@ -44,7 +47,7 @@ I look forward to speaking with you.`
   {
     id: 'before-call-no-call',
     name: 'Before call — No call',
-    subject: 'Pitch before call — No call',
+    subject: DEFAULT_PITCH_SUBJECT,
   body: `Thank you for your enquiry to Helix Law. We're a specialist firm of solicitors and we only deal with litigation and disputes. We act nationally.
 
 We haven't yet spoken but I have reviewed the details and information you have helpfully provided, thank you. You appear to be in a dispute with [INSERT] relating to [INSERT] and you have confirmed that [INSERT].
@@ -68,7 +71,7 @@ I hope the above is helpful and look forward to assisting you with this.`
   {
     id: 'after-call-probably-cant-assist',
     name: 'After call — Probably can’t assist',
-    subject: 'Pitch after call — Probably can’t assist',
+    subject: DEFAULT_PITCH_SUBJECT,
     body: `Thank you for your enquiry and for your time on the phone earlier. It was good speaking with you.
 
 The purpose of this email is to briefly follow up on our conversation which I hope you found useful.
@@ -100,7 +103,7 @@ Many thanks in advance.`
   {
     id: 'after-call-want-instruction',
     name: 'After call — Want the instruction',
-    subject: 'Pitch after call — Want the instruction',
+    subject: DEFAULT_PITCH_SUBJECT,
     body: `Thank you for your enquiry and for your time on the phone earlier. It was good speaking with you.
 
 The purpose of this email is to briefly follow up on our conversation which I hope you found useful. I’d love to assist you with this and consider we’re well placed to do so. Don’t hesitate to contact me if you have any queries, otherwise I have set out next steps below to assist you.
@@ -126,7 +129,7 @@ I hope the above and our call have been useful and of course come back to me if 
   {
     id: 'cfa',
     name: 'CFA',
-    subject: 'Your Enquiry - Helix Law',
+    subject: DEFAULT_PITCH_SUBJECT,
     body: `Thanks for your email. I am a [ROLE] and specialise in [INSERT].
 
 As a starting point, please email me a brief summary of your situation and dispute — including the background, current position, your losses and how you've calculated them. I will review this and we can take it from there.
@@ -136,6 +139,8 @@ I note you are enquiring about alternative no win no fee funding. We aren't obli
 In that context, please provide as much focussed/relevant information as you can, illustrating your case and who it is against, and we can consider this further.
 
 At this stage there is no cost or obligation.
+
+If you would like us to assess this further, please click [InstructLink]. This will verify your identity and allow you to upload supporting documents. No payment on account is taken at this stage.
 
 I look forward to hearing from you.`
   }

@@ -8,7 +8,7 @@
   position: fixed;
   right: 18px;
   z-index: 2099;
-  width: min(480px, calc(100vw - 24px));
+  width: min(540px, calc(100vw - 24px));
   max-height: min(82vh, 800px);
   display: flex;
   flex-direction: column;
@@ -63,10 +63,26 @@
 }
 
 .cmd-deck__header-title {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--text-primary);
   letter-spacing: 0.2px;
+}
+
+.cmd-deck__title-block {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.cmd-deck__header-subtitle {
+  max-width: 270px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--text-muted);
 }
 
 .cmd-deck__header-meta {
@@ -124,27 +140,72 @@
   gap: 12px;
 }
 
-/* ─── Status strip ─── */
-.cmd-deck__status {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 10px;
+.cmd-deck__section {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
   background: var(--surface-card);
   border: 1px solid var(--border-base);
+  border-radius: 2px;
+}
+
+.cmd-deck__section--commands {
+  background: transparent;
+  padding: 0;
+  border: none;
+}
+
+.cmd-deck__section--support {
+  background: color-mix(in srgb, var(--surface-card) 86%, rgba(var(--accent-rgb), 0.08));
+}
+
+.cmd-deck__section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.cmd-deck__section-hint {
+  margin-top: 3px;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--text-muted);
+}
+
+/* ─── Status strip ─── */
+.cmd-deck__status {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  padding: 0;
+  background: transparent;
+  border: none;
   border-radius: 2px;
   font-size: 10px;
   color: var(--text-muted);
 }
 
 .cmd-deck__status-dot {
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-areas:
+    "dot label"
+    "dot value";
   align-items: center;
-  gap: 4px;
+  gap: 1px 6px;
   cursor: pointer;
-  padding: 2px 4px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 7px 8px;
+  background: var(--surface-page);
+  border: 1px solid var(--border-base);
   border-radius: 2px;
   transition: background var(--transition-fast);
+  color: var(--text-muted);
+  font-family: var(--font-primary);
+  text-align: left;
 }
 
 .cmd-deck__status-dot:hover {
@@ -152,6 +213,7 @@
 }
 
 .cmd-deck__status-dot__indicator {
+  grid-area: dot;
   width: 6px;
   height: 6px;
   border-radius: 999px;
@@ -160,9 +222,23 @@
 }
 
 .cmd-deck__status-dot__label {
+  grid-area: label;
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.cmd-deck__status-dot__value {
+  grid-area: value;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--text-primary);
 }
 
 /* ─── Local support mode ─── */
@@ -396,10 +472,10 @@
 .cmd-deck__view-tile {
   position: relative;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   padding: 8px 10px;
-  min-height: 44px;
+  min-height: 58px;
   background: var(--surface-card);
   border: 1px solid var(--border-base);
   border-radius: 2px;
@@ -447,18 +523,42 @@
 }
 
 .cmd-deck__view-label {
-  flex: 1;
+  display: block;
   min-width: 0;
   font-size: 10px;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: 0.15px;
   color: var(--text-primary);
   line-height: 1.25;
-  white-space: normal;
   overflow-wrap: break-word;
 }
 
+.cmd-deck__view-copy {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.cmd-deck__view-hint {
+  font-size: 9px;
+  font-weight: 500;
+  color: var(--text-muted);
+  line-height: 1.25;
+}
+
 /* ─── Tool grid ─── */
+.cmd-deck__command-stack {
+  display: grid;
+  gap: 12px;
+}
+
+.cmd-deck__command-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
 .cmd-deck__grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -468,17 +568,18 @@
 .cmd-deck__card {
   position: relative;
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 10px 6px;
-  min-height: 54px;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 9px 10px;
+  min-height: 64px;
   background: var(--surface-card);
   border: 1px solid var(--border-base);
   border-radius: 2px;
   cursor: pointer;
   color: var(--text-body);
+  text-align: left;
+  font-family: var(--font-primary);
   transition: background var(--transition-fast), border-color var(--transition-fast),
               transform 0.15s ease, box-shadow 0.15s ease;
 }
@@ -498,17 +599,41 @@
 .cmd-deck__card-icon {
   width: 16px;
   height: 16px;
+  margin-top: 1px;
   color: var(--text-accent);
   flex-shrink: 0;
 }
 
+.cmd-deck__card-copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
 .cmd-deck__card-label {
-  font-size: 9px;
-  font-weight: 600;
+  font-size: 10px;
+  font-weight: 800;
   letter-spacing: 0.15px;
-  text-align: center;
-  color: var(--text-body);
+  text-align: left;
+  color: var(--text-primary);
   line-height: 1.2;
+}
+
+.cmd-deck__card-hint {
+  font-size: 9px;
+  font-weight: 500;
+  color: var(--text-muted);
+  line-height: 1.28;
+}
+
+.cmd-deck__card--warning {
+  border-color: rgba(var(--cta-rgb), 0.18);
+  background: rgba(var(--cta-rgb), 0.05);
+}
+
+.cmd-deck__card--warning .cmd-deck__card-icon,
+.cmd-deck__card--warning .cmd-deck__card-label {
+  color: var(--helix-cta);
 }
 
 .cmd-deck__card-badge {
@@ -673,4 +798,26 @@
   font-weight: 600;
   text-align: center;
   animation: helix-slide-in-up 0.2s ease both;
+}
+
+@media (max-width: 560px) {
+  .cmd-deck {
+    right: 12px;
+    width: calc(100vw - 24px);
+  }
+
+  .cmd-deck__header-subtitle {
+    display: none;
+  }
+
+  .cmd-deck__status,
+  .cmd-deck__support-grid,
+  .cmd-deck__view-grid,
+  .cmd-deck__command-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .cmd-deck__scope-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }

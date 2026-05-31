@@ -166,6 +166,76 @@ interface EnquiriesProps {
   onPendingEnquiryHandled?: () => void;
 }
 
+type GroupCompareState = {
+  title: string;
+  enquiries: Enquiry[];
+};
+
+type GroupCompareField = {
+  key: string;
+  label: string;
+  always?: boolean;
+  getValue: (enquiry: Enquiry) => unknown;
+};
+
+const getCompareSourceKind = (enquiry: Enquiry): 'new' | 'legacy' => {
+  const source = String(enquiry.processingSource || (enquiry as any).__sourceType || '').trim().toLowerCase();
+  return source === 'legacy' ? 'legacy' : 'new';
+};
+
+const getCompareRecordMeta = (enquiry: Enquiry): { sourceLabel: string; primaryLabel: string; bridgeLabel: string } => {
+  const sourceKind = getCompareSourceKind(enquiry);
+  const instructionsId = String(enquiry.processingEnquiryId || enquiry.pitchEnquiryId || enquiry.ID || '').trim();
+  const legacyId = String(enquiry.legacyEnquiryId || (sourceKind === 'legacy' ? enquiry.processingEnquiryId || enquiry.ID : '') || '').trim();
+  const acid = String((enquiry as any).acid || (sourceKind === 'new' ? enquiry.legacyEnquiryId || '' : '') || '').trim();
+
+  if (sourceKind === 'legacy') {
+    return {
+      sourceLabel: 'Legacy SQL',
+      primaryLabel: legacyId ? `Legacy ID ${legacyId}` : 'Legacy ID unknown',
+      bridgeLabel: '',
+    };
+  }
+
+  return {
+    sourceLabel: 'New-space SQL',
+    primaryLabel: instructionsId ? `New ID ${instructionsId}` : 'New ID unknown',
+    bridgeLabel: acid ? `AC ${acid}` : '',
+  };
+};
+
+const getCompareRecordIdSummary = (enquiry: Enquiry): string => {
+  const meta = getCompareRecordMeta(enquiry);
+  return [meta.primaryLabel, meta.bridgeLabel].filter(Boolean).join(' / ');
+};
+
+const formatCompareValue = (value: unknown): string => {
+  if (value === null || value === undefined) return '';
+  return String(value).trim();
+};
+
+const normaliseCompareValue = (value: string): string => value.replace(/\s+/g, ' ').trim().toLowerCase();
+
+const GROUP_COMPARE_FIELDS: GroupCompareField[] = [
+  { key: 'id', label: 'Record IDs', always: true, getValue: getCompareRecordIdSummary },
+  { key: 'source', label: 'Store', always: true, getValue: (enquiry) => getCompareRecordMeta(enquiry).sourceLabel },
+  { key: 'touchpoint', label: 'Touchpoint', getValue: (enquiry) => formatFullDateTime(enquiry.Touchpoint_Date || (enquiry as any).datetime || (enquiry as any).claim || null) },
+  { key: 'created', label: 'Created', getValue: (enquiry) => formatFullDateTime(enquiry.Date_Created || null) },
+  { key: 'firstName', label: 'First name', getValue: (enquiry) => enquiry.First_Name },
+  { key: 'lastName', label: 'Last name', getValue: (enquiry) => enquiry.Last_Name },
+  { key: 'email', label: 'Email', getValue: (enquiry) => enquiry.Email },
+  { key: 'phone', label: 'Phone', getValue: (enquiry) => enquiry.Phone_Number },
+  { key: 'company', label: 'Company', getValue: (enquiry) => enquiry.Company },
+  { key: 'area', label: 'Area', getValue: (enquiry) => enquiry.Area_of_Work },
+  { key: 'workType', label: 'Work type', getValue: (enquiry) => enquiry.Type_of_Work },
+  { key: 'method', label: 'Method', getValue: (enquiry) => enquiry.Method_of_Contact },
+  { key: 'poc', label: 'FE', getValue: (enquiry) => enquiry.Point_of_Contact || (enquiry as any).poc || '' },
+  { key: 'value', label: 'Value', getValue: (enquiry) => enquiry.Value },
+  { key: 'campaign', label: 'Campaign', getValue: (enquiry) => enquiry.Campaign },
+  { key: 'referrer', label: 'Referrer', getValue: (enquiry) => enquiry.Contact_Referrer || enquiry.Referring_Company || enquiry.Ultimate_Source || '' },
+  { key: 'notes', label: 'Notes', getValue: (enquiry) => enquiry.Initial_first_call_notes || enquiry.notes || '' },
+];
+
 const STRUCTURED_AREA_FILTER_KEYS = ['Commercial', 'Construction', 'Employment', 'Property', 'Other/Unsure'] as const;
 const OTHER_AREA_FILTER_KEY = 'Other/Unsure';
 const PROSPECTS_PIPELINE_LAYOUT_CACHE = {
@@ -842,7 +912,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       shortLabel: string;
       iconName: string;
     }> = [
-      { stage: 'poc', fullLabel: 'POC', shortLabel: 'POC', iconName: 'TeamsLogo' },
+      { stage: 'poc', fullLabel: 'FE', shortLabel: 'FE', iconName: 'TeamsLogo' },
       { stage: 'pitched', fullLabel: 'Pitch', shortLabel: 'Pitch', iconName: 'Send' },
       { stage: 'instructed', fullLabel: 'Instructed', shortLabel: 'Instr', iconName: 'CheckMark' },
       { stage: 'idcheck', fullLabel: 'ID Check', shortLabel: 'ID', iconName: 'CheckMark' },
@@ -1357,7 +1427,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   // ...existing code...
 
   const { isDarkMode } = useTheme();
-  const headerTextColor = isDarkMode ? colours.dark.text : colours.light.text;
+  const headerTextColor = isDarkMode ? colours.dark.text : 'rgba(255, 255, 255, 0.85)';
   const { setContent } = useNavigatorActions();
   const lastNavigatorContentKeyRef = useRef<string | null>(null);
   
@@ -1472,6 +1542,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState<string>('');
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [showGroupedView, setShowGroupedView] = useState<boolean>(true);
+  const [compareGroup, setCompareGroup] = useState<GroupCompareState | null>(null);
   const [areActionsEnabled, setAreActionsEnabled] = useState<boolean>(false);
   const TABLE_GRID_TEMPLATE_COLUMNS = getTableGridTemplateColumns(areActionsEnabled);
   const [shareModalEnquiry, setShareModalEnquiry] = useState<Enquiry | null>(null);
@@ -1481,6 +1552,20 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const [isShareModalSaving, setIsShareModalSaving] = useState<boolean>(false);
   const [demoSharedSimulationById, setDemoSharedSimulationById] = useState<Record<string, string>>({});
   const [documentCounts, setDocumentCounts] = useState<Record<string, number>>({});
+
+  const compareRows = useMemo(() => {
+    if (!compareGroup) return [];
+
+    return GROUP_COMPARE_FIELDS.map((field) => {
+      const values = compareGroup.enquiries.map((enquiry) => formatCompareValue(field.getValue(enquiry)));
+      const normalisedValues = values.map(normaliseCompareValue);
+      const baseline = normalisedValues[0] || '';
+      const differs = normalisedValues.some((value) => value !== baseline);
+
+      return { ...field, values, normalisedValues, differs };
+    }).filter((field) => field.always || field.differs);
+  }, [compareGroup]);
+
   // Local dataset toggle (legacy vs new direct) analogous to Matters (only in localhost UI for now)
   // Deal Capture is always enabled by default now
   const showDealCapture = true;
@@ -1489,6 +1574,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const [lastRefreshTime, setLastRefreshTime] = useState<Date>(() => enquiriesLastLiveSyncAt ? new Date(enquiriesLastLiveSyncAt) : new Date(0));
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const lastActivationRefreshAtRef = useRef<number>(0);
+  const lastClaimedQueueAutoRefreshAtRef = useRef<number>(0);
   // Track recent updates to prevent overwriting with stale prop data
   const recentUpdatesRef = useRef<Map<string, { field: string; value: any; timestamp: number }>>(new Map());
 
@@ -2046,6 +2132,20 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     debugWarn('⚠️ All mode resolved empty team-wide dataset; retrying once with bypass cache');
     triggerFetchAllEnquiries('recover:empty-all');
   }, [showMineOnly, isLoadingAllData, teamWideEnquiries.length, triggerFetchAllEnquiries]);
+
+  useEffect(() => {
+    if (!showMineOnly || activeState !== 'Claimed') return;
+    if (isLoadingAllData || hasFetchedAllData.current || fetchAllInFlightRef.current) return;
+    if (teamWideEnquiries.length > 0 || allEnquiries.length === 0) return;
+
+    const timeoutId = window.setTimeout(() => {
+      if (!hasFetchedAllData.current && !fetchAllInFlightRef.current) {
+        triggerFetchAllEnquiries('prefetch:all-count');
+      }
+    }, 250);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [showMineOnly, activeState, isLoadingAllData, teamWideEnquiries.length, allEnquiries.length, triggerFetchAllEnquiries]);
   
   // Track enquiry visibility (for viewport-based enrichment)
   const handleEnquiryVisibilityChange = useCallback((enquiryId: string, isVisible: boolean) => {
@@ -3758,119 +3858,53 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   const renderClaimedQueueHoldingState = useCallback(() => {
     const showRetry = Boolean(claimedQueueRefreshError);
-    const badgeBorder = isDarkMode ? 'rgba(54, 144, 206, 0.22)' : 'rgba(54, 144, 206, 0.16)';
-    const badgeBackground = isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)';
-    const panelBorder = isDarkMode ? 'rgba(75, 85, 99, 0.26)' : 'rgba(13, 47, 96, 0.10)';
-    const panelBackground = isDarkMode ? 'rgba(8, 28, 48, 0.82)' : 'rgba(255, 255, 255, 0.82)';
+    const statusText = isRefreshing
+      ? 'Checking now'
+      : showRetry
+        ? 'Still watching quietly'
+        : 'Auto-checking for claimed work';
 
     return (
       <div
         data-helix-region="enquiries/claimed-holding"
-        style={{
-          flex: 1,
-          minHeight: 0,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '36px 24px 48px',
-        }}
+        className="prospect-claimed-empty-shell"
       >
-        <div
-          style={{
-            width: 'min(100%, 520px)',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: 14,
-            padding: '28px 32px',
-            textAlign: 'center',
-            background: panelBackground,
-            border: `1px solid ${panelBorder}`,
-            boxShadow: isDarkMode ? '0 12px 32px rgba(0, 0, 0, 0.20)' : '0 12px 32px rgba(13, 47, 96, 0.06)',
-            backdropFilter: 'blur(10px)',
-          }}
-        >
-          <div
-            style={{
-              width: 60,
-              height: 60,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              background: badgeBackground,
-              border: `1px solid ${badgeBorder}`,
-              color: colours.highlight,
-            }}
-          >
-            <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-              <path d="M9 6v16" />
-              <path d="M19 6v16" />
-              <path d="M9 14h10" />
-              <path d="M6 9.5h3" opacity="0.55" />
-              <path d="M19 18.5h3" opacity="0.55" />
+        <div className={["prospect-claimed-empty", showRetry ? "prospect-claimed-empty--retry" : ""].filter(Boolean).join(' ')}>
+          <div className="prospect-claimed-empty__mark-shell" aria-hidden="true">
+            <div className="prospect-claimed-empty__glow" />
+            <svg className="prospect-claimed-empty__mark" width="58" height="100" viewBox="0 0 57.56 100" fill="none">
+              <path fill="currentColor" d="M57.56,13.1c0,7.27-7.6,10.19-11.59,11.64-4,1.46-29.98,11.15-34.78,13.1C6.4,39.77,0,41.23,0,48.5v-13.1C0,28.13,6.4,26.68,11.19,24.74c4.8-1.94,30.78-11.64,34.78-13.1,4-1.45,11.59-4.37,11.59-11.64v13.09h0Z" />
+              <path fill="currentColor" d="M57.56,38.84c0,7.27-7.6,10.19-11.59,11.64s-29.98,11.16-34.78,13.1c-4.8,1.94-11.19,3.4-11.19,10.67v-13.1c0-7.27,6.4-8.73,11.19-10.67,4.8-1.94,30.78-11.64,34.78-13.1,4-1.46,11.59-4.37,11.59-11.64v13.09h0Z" />
+              <path fill="currentColor" d="M57.56,64.59c0,7.27-7.6,10.19-11.59,11.64-4,1.46-29.98,11.15-34.78,13.1-4.8,1.94-11.19,3.39-11.19,10.67v-13.1c0-7.27,6.4-8.73,11.19-10.67,4.8-1.94,30.78-11.64,34.78-13.1,4-1.45,11.59-4.37,11.59-11.64v13.1h0Z" />
             </svg>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center' }}>
-            <h3
-              style={{
-                margin: 0,
-                fontSize: 18,
-                fontWeight: 600,
-                fontFamily: 'Raleway, sans-serif',
-                color: isDarkMode ? colours.dark.text : colours.light.text,
-              }}
-            >
-              {showRetry ? 'Claimed queue needs a refresh' : 'Claimed queue standing by'}
-            </h3>
-            <p
-              style={{
-                margin: 0,
-                maxWidth: 420,
-                fontSize: 14,
-                lineHeight: 1.55,
-                fontFamily: 'Raleway, sans-serif',
-                color: isDarkMode ? '#d1d5db' : '#374151',
-              }}
-            >
-              {showRetry
-                ? 'Helix could not refresh your claimed enquiries just now. Retry when you want to pull the queue back into sync.'
-                : 'This space stays reserved for live claimed work. Helix will place enquiries here as soon as processing settles them into your queue.'}
-            </p>
+          <div className="prospect-claimed-empty__copy">
+            <div className="prospect-claimed-empty__eyebrow">Claimed queue</div>
+            <h3>No enquiries</h3>
+            <p>{showRetry ? 'Refresh did not complete. Helix will keep checking.' : 'Helix is checking quietly and will place claimed work here when it lands.'}</p>
           </div>
 
-          {showRetry && (
-            <button
-              type="button"
-              onClick={() => {
-                void handleManualRefresh();
-              }}
-              disabled={isRefreshing}
-              style={{
-                marginTop: 4,
-                padding: '10px 14px',
-                border: `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.42)' : 'rgba(13, 47, 96, 0.14)'}`,
-                background: 'transparent',
-                color: isDarkMode ? colours.dark.text : colours.light.text,
-                fontSize: 12,
-                fontWeight: 600,
-                letterSpacing: '0.02em',
-                fontFamily: 'Raleway, sans-serif',
-                cursor: isRefreshing ? 'default' : 'pointer',
-                opacity: isRefreshing ? 0.6 : 1,
-              }}
-            >
-              {isRefreshing ? 'Retrying...' : 'Retry queue refresh'}
-            </button>
-          )}
+          <div className="prospect-claimed-empty__status" aria-live="polite">
+            <span className="prospect-claimed-empty__pulse" />
+            <span>{statusText}</span>
+          </div>
+
+          <button
+            type="button"
+            className="prospect-claimed-empty__refresh"
+            onClick={() => {
+              void handleManualRefresh();
+            }}
+            disabled={isRefreshing}
+          >
+            <Icon iconName="Refresh" />
+            <span>{isRefreshing ? 'Checking' : 'Refresh'}</span>
+          </button>
         </div>
       </div>
     );
-  }, [claimedQueueRefreshError, handleManualRefresh, isDarkMode, isRefreshing]);
-
-  // Auto-refresh timer removed — pulse poller (60s) + SSE stream provide
-  // realtime change detection. Manual refresh button (handleManualRefresh)
-  // remains for on-demand use.
+  }, [claimedQueueRefreshError, handleManualRefresh, isRefreshing]);
 
 
   const handleRate = useCallback((id: string) => {
@@ -4594,6 +4628,51 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       setClaimedQueueRefreshError((prev) => (prev === null ? prev : null));
     }
   }, [activeState, filteredEnquiries.length, showMineOnly]);
+
+  useEffect(() => {
+    const shouldWatchClaimedQueue = isActive
+      && activeState === 'Claimed'
+      && showMineOnly
+      && filteredEnquiries.length === 0
+      && !selectedEnquiry
+      && !isRefreshing
+      && !enquiriesLiveRefreshInFlight
+      && !isLoadingAllData
+      && Boolean(refreshRef.current);
+
+    if (!shouldWatchClaimedQueue) {
+      return;
+    }
+
+    const now = Date.now();
+    const lastAttemptAt = Math.max(lastClaimedQueueAutoRefreshAtRef.current, lastActivationRefreshAtRef.current);
+    const elapsed = now - lastAttemptAt;
+    const refreshDelay = elapsed > 25000 ? 1400 : Math.max(25000 - elapsed, 3000);
+
+    const timer = window.setTimeout(() => {
+      if (!refreshRef.current || isRefreshing || enquiriesLiveRefreshInFlight || isLoadingAllData) {
+        return;
+      }
+
+      lastClaimedQueueAutoRefreshAtRef.current = Date.now();
+      setIsRefreshing(true);
+
+      refreshRef.current()
+        .then(() => {
+          setLastRefreshTime(new Date());
+          setClaimedQueueRefreshError(null);
+        })
+        .catch((error) => {
+          console.warn('[Enquiries] Claimed queue auto-refresh failed:', error);
+          setClaimedQueueRefreshError(error instanceof Error ? error.message : 'Claimed queue refresh failed.');
+        })
+        .finally(() => {
+          setIsRefreshing(false);
+        });
+    }, refreshDelay);
+
+    return () => window.clearTimeout(timer);
+  }, [activeState, enquiriesLiveRefreshInFlight, filteredEnquiries.length, isActive, isLoadingAllData, isRefreshing, selectedEnquiry, showMineOnly]);
 
   useEffect(() => {
     if (!hasSharedProspectIds) return;
@@ -6375,8 +6454,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           left: 0,
           right: 0,
           bottom: 0,
-          backgroundColor: isDarkMode ? 'rgba(0, 3, 25, 0.45)' : 'rgba(255, 255, 255, 0.35)',
-          backdropFilter: 'blur(1px)',
+          backgroundColor: isDarkMode ? colours.dark.background : colours.light.cardBackground,
+          backdropFilter: 'none',
           zIndex: 100,
           display: 'flex',
           flexDirection: 'column',
@@ -6603,15 +6682,13 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                         boxSizing: 'border-box',
                         alignItems: 'center',
                         flexShrink: 0,
-                        background: isDarkMode
-                          ? colours.darkBlue
-                          : colours.light.cardBackground,
+                        background: isDarkMode ? colours.darkBlue : '#0D2F60',
                         backdropFilter: 'none',
                         borderTop: 'none',
-                        borderBottom: `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.24)' : 'rgba(13, 47, 96, 0.06)'}`,
+                        borderBottom: `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.24)' : 'rgba(255, 255, 255, 0.12)'}`,
                         fontFamily: 'Raleway, sans-serif',
                         fontSize: '11px',
-                        fontWeight: 500,
+                        fontWeight: isDarkMode ? 500 : 600,
                         color: headerTextColor,
                         textTransform: 'uppercase',
                         letterSpacing: '0.5px',
@@ -7268,7 +7345,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                         minWidth: 0,
                         width: '100%',
                       }}>
-                        {areActionsEnabled && <span style={{ color: isDarkMode ? 'rgba(209, 213, 219, 0.72)' : 'rgba(55, 65, 81, 0.72)' }}>Actions</span>}
+                        {areActionsEnabled && <span style={{ color: 'rgba(255, 255, 255, 0.85)' }}>Actions</span>}
                         <button
                           type="button"
                           onClick={() => setAreActionsEnabled((prev) => !prev)}
@@ -7279,31 +7356,24 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                             minWidth: 22,
                             minHeight: 22,
                             borderRadius: 0,
-                            border: `1px solid ${areActionsEnabled ? (isDarkMode ? 'rgba(54, 144, 206, 0.4)' : 'rgba(54, 144, 206, 0.3)') : (isDarkMode ? 'rgba(75, 85, 99, 0.52)' : 'rgba(160, 160, 160, 0.24)')}`,
-                            background: areActionsEnabled
-                              ? (isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(214, 232, 255, 0.88)')
-                              : (isDarkMode ? 'rgba(8, 28, 48, 0.42)' : 'rgba(244, 244, 246, 0.74)'),
-                            color: areActionsEnabled
-                              ? (isDarkMode ? colours.accent : colours.highlight)
-                              : (isDarkMode ? 'rgba(209, 213, 219, 0.82)' : colours.greyText),
+                            border: 'none',
+                            background: 'transparent',
+                            color: '#ffffff',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
                             cursor: 'pointer',
-                            transition: 'background 0.16s ease, border-color 0.16s ease, color 0.16s ease, transform 0.16s ease',
+                            transition: 'opacity 0.16s ease, transform 0.16s ease',
                             padding: 0,
+                            opacity: areActionsEnabled ? 1 : 0.7,
                           }}
                           onMouseEnter={(e) => {
+                            e.currentTarget.style.opacity = '1';
                             e.currentTarget.style.transform = 'translateY(-1px)';
-                            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.4)' : 'rgba(54, 144, 206, 0.3)';
-                            e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(214, 232, 255, 0.88)';
-                            e.currentTarget.style.color = isDarkMode ? colours.accent : colours.highlight;
                           }}
                           onMouseLeave={(e) => {
+                            e.currentTarget.style.opacity = areActionsEnabled ? '1' : '0.7';
                             e.currentTarget.style.transform = 'translateY(0)';
-                            e.currentTarget.style.borderColor = areActionsEnabled ? (isDarkMode ? 'rgba(54, 144, 206, 0.4)' : 'rgba(54, 144, 206, 0.3)') : (isDarkMode ? 'rgba(75, 85, 99, 0.52)' : 'rgba(160, 160, 160, 0.24)');
-                            e.currentTarget.style.background = areActionsEnabled ? (isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(214, 232, 255, 0.88)') : (isDarkMode ? 'rgba(8, 28, 48, 0.42)' : 'rgba(244, 244, 246, 0.74)');
-                            e.currentTarget.style.color = areActionsEnabled ? (isDarkMode ? colours.accent : colours.highlight) : (isDarkMode ? 'rgba(209, 213, 219, 0.82)' : colours.greyText);
                           }}
                           aria-pressed={areActionsEnabled}
                         >
@@ -7311,7 +7381,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                             iconName={areActionsEnabled ? 'UnlockSolid' : 'LockSolid'}
                             styles={{
                               root: {
-                                fontSize: '11px',
+                                fontSize: '12px',
                                 color: 'currentColor',
                               },
                             }}
@@ -7447,9 +7517,12 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                             </TooltipHost>
 
                             {/* AOW anchor */}
-                            <div style={{ display: 'flex', alignItems: 'center', height: '100%', paddingInline: 2 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 5, height: '100%', paddingInline: 2 }}>
                               <span className="prospect-aow-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }} title={groupAreaLabel}>
                                 {renderAreaOfWorkGlyph(groupAreaLabel, getAreaGlyphMeta(groupAreaLabel).color, 'glyph', 17)}
+                              </span>
+                              <span className="prospect-group-aow-count" title={`${item.enquiries.length} enquiries in this group`}>
+                                {item.enquiries.length}
                               </span>
                             </div>
 
@@ -7463,16 +7536,40 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                       <Icon iconName="CompletedSolid" styles={{ root: { fontSize: 9, color: colours.green, opacity: 0.7 } }} />
                                     )}
                                   </div>
-                                  {groupCompanyLabel ? (
-                                    <div className="prospect-group-identity__meta">
+                                  <div className="prospect-group-identity__meta">
+                                    {groupCompanyLabel ? (
                                       <span>{groupCompanyLabel}</span>
-                                    </div>
-                                  ) : null}
+                                    ) : null}
+                                  </div>
                                 </div>
                               </div>
                             </div>
 
-                            <div className="prospect-group-summary" aria-hidden="true" />
+                            <div className="prospect-group-summary">
+                              <span className="prospect-group-ids" title={`${item.enquiries.length} enquiries`}>
+                                {item.enquiries.map((enq, enqIdx) => {
+                                  const idLabel = (enq as any).acid || enq.ID;
+                                  return (
+                                    <React.Fragment key={`gid-${enq.ID}-${enqIdx}`}>
+                                      {enqIdx > 0 && <span className="prospect-group-ids__sep" aria-hidden="true">·</span>}
+                                      <span className="prospect-group-ids__id">{idLabel}</span>
+                                    </React.Fragment>
+                                  );
+                                })}
+                              </span>
+                              <button
+                                type="button"
+                                className="prospect-group-compare"
+                                tabIndex={groupIsExpanded ? -1 : 0}
+                                aria-label={`Compare ${item.enquiries.length} grouped enquiries for ${contactName}`}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setCompareGroup({ title: contactName, enquiries: item.enquiries });
+                                }}
+                              >
+                                Compare
+                              </button>
+                            </div>
 
                             {/* Actions column - contains chevron for group expansion */}
                             <div className="prospect-group-actions" style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px' }}>
@@ -7888,7 +7985,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                               !pipelineNeedsCarousel || (idx >= loadingOffset && idx < loadingVisibleEnd);
                                             
                                             return [
-                                              { icon: 'TeamsLogo', label: 'POC' },
+                                              { icon: 'TeamsLogo', label: 'FE' },
                                               { icon: 'Send', label: 'Pitch' },
                                               { icon: 'CheckMark', label: 'Inst' },
                                               { icon: 'ContactCard', label: 'ID' },
@@ -8968,6 +9065,85 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           </>
         )}
       </div>
+
+      <Modal
+        isOpen={Boolean(compareGroup)}
+        onDismiss={() => setCompareGroup(null)}
+        isBlocking={false}
+        styles={{
+          main: {
+            background: 'transparent',
+            borderRadius: 0,
+            boxShadow: 'none',
+            maxWidth: 'calc(100vw - 24px)',
+          },
+        }}
+      >
+        {compareGroup && (
+          <div className="prospect-compare-modal" data-helix-region="enquiries/group-compare">
+            <div className="prospect-compare-modal__header">
+              <div className="prospect-compare-modal__title-block">
+                <div className="prospect-compare-modal__eyebrow">Compare grouped enquiries</div>
+                <div className="prospect-compare-modal__title">{compareGroup.title}</div>
+              </div>
+              <button type="button" className="prospect-compare-modal__close" onClick={() => setCompareGroup(null)}>
+                Close
+              </button>
+            </div>
+
+            <div className="prospect-compare-modal__subtitle">
+              Showing fields that differ across {compareGroup.enquiries.length} records. Shared blank fields are hidden.
+            </div>
+
+            <div className="prospect-compare-modal__grid-wrap">
+              <div
+                className="prospect-compare-modal__grid"
+                style={{ '--compare-cols': compareGroup.enquiries.length } as React.CSSProperties & { '--compare-cols': number }}
+              >
+                <div className="prospect-compare-modal__grid-head prospect-compare-modal__field-head">Field</div>
+                {compareGroup.enquiries.map((enquiry, index) => {
+                  const recordMeta = getCompareRecordMeta(enquiry);
+                  return (
+                    <div key={`compare-head-${enquiry.ID}-${index}`} className="prospect-compare-modal__grid-head">
+                      <span>Record {index + 1}</span>
+                      <span className="prospect-compare-modal__record-id">{recordMeta.primaryLabel}</span>
+                      {recordMeta.bridgeLabel ? (
+                        <span className="prospect-compare-modal__record-bridge">{recordMeta.bridgeLabel}</span>
+                      ) : null}
+                    </div>
+                  );
+                })}
+
+                {compareRows.map((row) => {
+                  const baseline = row.normalisedValues[0] || '';
+                  return (
+                    <React.Fragment key={`compare-row-${row.key}`}>
+                      <div className="prospect-compare-modal__field">{row.label}</div>
+                      {row.values.map((value, index) => {
+                        const normalisedValue = row.normalisedValues[index] || '';
+                        const isChanged = row.differs && normalisedValue !== baseline;
+                        return (
+                          <div
+                            key={`compare-cell-${row.key}-${index}`}
+                            className={[
+                              'prospect-compare-modal__value',
+                              row.differs ? 'prospect-compare-modal__value--diff' : '',
+                              isChanged ? 'prospect-compare-modal__value--changed' : '',
+                              normalisedValue ? '' : 'prospect-compare-modal__value--empty',
+                            ].filter(Boolean).join(' ')}
+                          >
+                            {value || 'Blank'}
+                          </div>
+                        );
+                      })}
+                    </React.Fragment>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       <SuccessMessageBar isVisible={isSuccessVisible} onDismiss={() => setIsSuccessVisible(false)} />
 

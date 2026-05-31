@@ -1,0 +1,1 @@
+2026-05-31 / Update Home risk assessment links / Moved the Home risk assessment policy links to the bottom of the main Home layout and updated the shared policy URLs to the current SharePoint PDFs. (~ src/tabs/home/Home.tsx, ~ src/app/customisation/InternalPolicies.ts)

@@ -56,12 +56,14 @@ import {
   FiShield,
 } from 'react-icons/fi';
 import type { RiskCore } from '../../components/RiskAssessment';
+import { getInternalPolicyByKey, openInternalPolicyDocument } from '../../app/customisation/InternalPolicies';
 import DocumentUploadZone from '../../components/DocumentUploadZone';
 import FlatMatterOpening from './MatterOpening/FlatMatterOpening';
 import CompactMatterWizard from './MatterOpening/CompactMatterWizard';
 import DemoModeStripe from './MatterOpening/DemoModeStripe';
 import type { POID } from '../../app/functionality/types';
 import { deriveWorkbenchStageStatuses } from '../../utils/workbenchStatusDerivation';
+import { derivePitchLinkMetadata, hasPitchEmailContent } from '../enquiries/pitch-builder/pitchLinkMetadata';
 import { SCENARIOS } from '../enquiries/pitch-builder/scenarios';
 import { scenarioTone, scenarioIcon } from '../../components/pitchScenarioPresentation';
 import type {
@@ -339,8 +341,10 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   
   // Pitch content fetch state (for when deal exists but pitch email content wasn't included)
   const [fetchedPitchContent, setFetchedPitchContent] = useState<any>(null);
+  const [fetchedPitchHistory, setFetchedPitchHistory] = useState<any[]>([]);
   const [, setIsFetchingPitchContent] = useState(false);
   const pitchContentCacheRef = React.useRef<any>(null);
+  const pitchHistoryCacheRef = React.useRef<any[]>([]);
   const pitchFetchInFlightRef = React.useRef(false);
   const activeTabRef = React.useRef<WorkbenchTab>(activeTab);
   const activeContextStageRef = React.useRef<ContextStageKey | null>(activeContextStage);
@@ -699,8 +703,10 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   useEffect(() => {
     pitchFetchAttemptedRef.current = null;
     pitchContentCacheRef.current = null;
+    pitchHistoryCacheRef.current = [];
     pitchFetchInFlightRef.current = false;
     setFetchedPitchContent(null);
+    setFetchedPitchHistory([]);
     setIsFetchingPitchContent(false);
   }, [prospectId]);
 
@@ -739,7 +745,11 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
           if (pitches.length > 0) {
             const latestPitch = pitches[0];
             pitchContentCacheRef.current = latestPitch;
-            if (isPitchVisible()) setFetchedPitchContent(latestPitch);
+            pitchHistoryCacheRef.current = pitches;
+            if (isPitchVisible()) {
+              setFetchedPitchContent(latestPitch);
+              setFetchedPitchHistory(pitches);
+            }
           }
           // If no pitches found, fetchedPitchContent stays null but pitchFetchAttemptedRef prevents refetch
         }
@@ -756,6 +766,23 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
   // Merge fetched pitch content with existing pitch data
   const effectivePitch = pitch || fetchedPitchContent || pitchContentCacheRef.current;
+  const effectivePitchHistory = useMemo(() => {
+    const sources = [item?.pitchHistory, item?.pitches, item?.pitchRecords, fetchedPitchHistory, pitchHistoryCacheRef.current];
+    const records: any[] = [];
+    for (const source of sources) {
+      if (Array.isArray(source)) records.push(...source);
+    }
+    if (effectivePitch) records.unshift(effectivePitch);
+
+    const seen = new Set<string>();
+    return records.filter((record, index) => {
+      if (!record) return false;
+      const key = String(record.DealId || record.dealId || record.Passcode || record.passcode || record.InstructionRef || record.instructionRef || record.CreatedAt || record.createdAt || index);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [item?.pitchHistory, item?.pitches, item?.pitchRecords, fetchedPitchHistory, effectivePitch]);
   const isPitchContentLoading = Boolean(pitchFetchInFlightRef.current && !effectivePitch);
   const pitchStatusValue = String(deal?.Status || deal?.status || effectivePitch?.Status || effectivePitch?.status || '').trim().toUpperCase();
   const pitchSubject = String(effectivePitch?.EmailSubject || effectivePitch?.emailSubject || '').trim();
@@ -5192,6 +5219,26 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                           // Don't fall back to enquiry notes - pitch content should be pitch-specific
                           const pitchNotes = effectivePitch?.Notes || effectivePitch?.notes || '';
                           const hasPitchContent = pitchEmailSubject || pitchEmailBody;
+                          const pitchHistoryRows = effectivePitchHistory.map((record) => {
+                            const linkMetadata = derivePitchLinkMetadata(record, { hasEmailContent: hasPitchEmailContent(record) });
+                            const passcode = String(record?.Passcode || record?.passcode || '').trim();
+                            const dateRaw = record?.CreatedAt || record?.createdAt || record?.PitchedDate || record?.pitchedDate || '';
+                            const dealRef = String(record?.DealId || record?.dealId || '').trim();
+                            const service = String(record?.ServiceDescription || record?.serviceDescription || '').trim();
+                            return {
+                              key: dealRef || passcode || String(dateRaw) || `${linkMetadata.linkTypeLabel}-${service}`,
+                              label: linkMetadata.linkTypeLabel,
+                              includesLabel: linkMetadata.includesLabel,
+                              passcode,
+                              dateLabel: dateRaw ? formatRelativeDay(new Date(dateRaw)) : '',
+                              dealRef,
+                              service,
+                              amount: linkMetadata.amount,
+                            };
+                          });
+                          const effectivePitchLinkMetadata = derivePitchLinkMetadata(effectivePitch || deal, { hasEmailContent: Boolean(hasPitchContent) });
+                          const pitchLinkDisplayLabel = effectivePitchLinkMetadata.linkTypeLabel;
+                          const pitchLinkIncludesLabel = effectivePitchLinkMetadata.includesLabel;
                           
                           // Strip HTML tags from pitch email body for preview
                           const stripHtml = (html: string) => {
@@ -5621,19 +5668,24 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                       : isPitchExpired
                                         ? colours.cta
                                         : (isDarkMode ? colours.accent : colours.highlight);
-                                    const checkoutLabel = hasPitchContent ? 'Pitch Link' : 'Checkout Link';
+                                    const checkoutLabel = pitchLinkDisplayLabel;
                                     const isCopied = copiedInstructionStamp === 'pitch-link';
                                     return (
                                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, width: '100%', flexWrap: 'wrap' }}>
                                         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                                          <span style={{
-                                            fontSize: 9,
-                                            fontWeight: 700,
-                                            letterSpacing: '0.55px',
-                                            textTransform: 'uppercase',
-                                            color: textMuted,
-                                          }}>
-                                            {checkoutLabel}
+                                          <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 2 }}>
+                                            <span style={{
+                                              fontSize: 9,
+                                              fontWeight: 700,
+                                              letterSpacing: '0.55px',
+                                              textTransform: 'uppercase',
+                                              color: textMuted,
+                                            }}>
+                                              {checkoutLabel}
+                                            </span>
+                                            <span style={{ fontSize: 10, fontWeight: 500, color: textMuted }}>
+                                              {pitchLinkIncludesLabel}
+                                            </span>
                                           </span>
 
                                           <button
@@ -5711,6 +5763,88 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                       </div>
                                     );
                                   })()}
+                                </div>
+                              )}
+
+                              {pitchHistoryRows.length > 1 && (
+                                <div
+                                  className="wb-stage-frame"
+                                  data-helix-region="workbench/pitch/link-history"
+                                  style={{
+                                    display: 'flex', flexDirection: 'column', gap: 8,
+                                    padding: '8px 14px',
+                                    margin: '0 14px',
+                                    border: `1px solid ${separatorColor}`,
+                                    background: 'transparent',
+                                  }}
+                                >
+                                  <span style={{
+                                    fontSize: 9,
+                                    fontWeight: 700,
+                                    letterSpacing: '0.55px',
+                                    textTransform: 'uppercase',
+                                    color: textMuted,
+                                  }}>
+                                    Pitch and link history
+                                  </span>
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                    {pitchHistoryRows.map((row) => {
+                                      const link = row.passcode ? `https://instruct.helix-law.com/pitch/${row.passcode}` : '';
+                                      const amountLabel = typeof row.amount === 'number' && row.amount > 0 ? formatMoney(row.amount) : 'No payment';
+                                      return (
+                                        <div
+                                          key={row.key}
+                                          style={{
+                                            display: 'grid',
+                                            gridTemplateColumns: 'minmax(160px, 1.3fr) minmax(110px, 0.7fr) minmax(160px, 1fr)',
+                                            gap: 8,
+                                            alignItems: 'center',
+                                            padding: '7px 0',
+                                            borderTop: `1px solid ${separatorColor}`,
+                                          }}
+                                        >
+                                          <span style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+                                            <span style={{ fontSize: 12, fontWeight: 650, color: textBody }}>{row.label}</span>
+                                            <span style={{ fontSize: 10, fontWeight: 500, color: textMuted }}>{row.includesLabel}</span>
+                                          </span>
+                                          <span style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+                                            <span style={{ fontSize: 11, fontWeight: 600, color: textBody }}>{amountLabel}</span>
+                                            <span style={{ fontSize: 10, fontWeight: 500, color: textMuted }}>{row.dateLabel || 'Date unknown'}</span>
+                                          </span>
+                                          {link ? (
+                                            <button
+                                              type="button"
+                                              onClick={async (e) => {
+                                                e.stopPropagation();
+                                                const copied = await safeCopy(link);
+                                                if (copied) flashCopiedInstructionStamp('pitch-link');
+                                              }}
+                                              title={`Click to copy ${row.label.toLowerCase()}`}
+                                              style={{
+                                                minWidth: 0,
+                                                padding: '4px 8px',
+                                                borderRadius: 0,
+                                                border: `1px dashed ${isDarkMode ? 'rgba(160, 160, 160, 0.26)' : 'rgba(6, 23, 51, 0.14)'}`,
+                                                background: isDarkMode ? 'rgba(255,255,255,0.025)' : 'rgba(255,255,255,0.55)',
+                                                color: textBody,
+                                                fontSize: 10,
+                                                fontWeight: 600,
+                                                fontFamily: 'monospace',
+                                                overflow: 'hidden',
+                                                textOverflow: 'ellipsis',
+                                                whiteSpace: 'nowrap',
+                                                cursor: 'pointer',
+                                              }}
+                                            >
+                                              instruct.helix-law.com/pitch/{row.passcode}
+                                            </button>
+                                          ) : (
+                                            <span style={{ fontSize: 10, fontWeight: 500, color: textMuted }}>No link available</span>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
                                 </div>
                               )}
 
@@ -8902,10 +9036,10 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                 appearance: 'auto' as any,
               };
               const complianceItems = [
-                { label: 'Client Risk', question: 'I have considered client risk factors', state: inlineConsideredClientRisk, set: setInlineConsideredClientRisk, docUrl: 'https://drive.google.com/file/d/1_7dX2qSlvuNmOiirQCxQb8NDs6iUSAhT/view?usp=sharing', docLabel: 'Client Risk Assessment' },
-                { label: 'Transaction Risk', question: 'I have considered transaction risk factors', state: inlineConsideredTransactionRisk, set: setInlineConsideredTransactionRisk, docUrl: 'https://drive.google.com/file/d/1sTRII8MFU3JLpMiUcz-Y6KBQ1pP1nKgT/view?usp=sharing', docLabel: 'Transaction Risk Assessment' },
-                { label: 'Sanctions', question: 'I have considered the Firm Wide Sanctions Risk Assessment', state: inlineConsideredFirmWideSanctions, set: setInlineConsideredFirmWideSanctions, docUrl: 'https://drive.google.com/file/d/1y7fTLI_Dody00y9v42ohltQU-hnnYJ9P/view?usp=sharing', docLabel: 'Sanctions Risk Assessment' },
-                { label: 'AML Policy', question: 'I have considered the Firm Wide AML policy', state: inlineConsideredFirmWideAML, set: setInlineConsideredFirmWideAML, docUrl: 'https://drive.google.com/file/d/1opiC3TbEsdEH4ExDjckIhQzzsI3_wYYB/view?usp=sharing', docLabel: 'AML Policy Document' },
+                { label: 'Client Risk', question: 'I have considered client risk factors', state: inlineConsideredClientRisk, set: setInlineConsideredClientRisk, docUrl: getInternalPolicyByKey('client-risk-assessment')?.url || '#', docLabel: getInternalPolicyByKey('client-risk-assessment')?.title || 'Client Risk Assessment' },
+                { label: 'Transaction Risk', question: 'I have considered transaction risk factors', state: inlineConsideredTransactionRisk, set: setInlineConsideredTransactionRisk, docUrl: getInternalPolicyByKey('transaction-risk-assessment')?.url || '#', docLabel: getInternalPolicyByKey('transaction-risk-assessment')?.title || 'Transaction Risk Assessment' },
+                { label: 'Sanctions', question: 'I have considered the Firm Wide Sanctions Risk Assessment', state: inlineConsideredFirmWideSanctions, set: setInlineConsideredFirmWideSanctions, docUrl: getInternalPolicyByKey('firm-wide-sanctions-risk-assessment')?.url || '#', docLabel: getInternalPolicyByKey('firm-wide-sanctions-risk-assessment')?.title || 'Sanctions Risk Assessment' },
+                { label: 'AML Policy', question: 'I have considered the Firm Wide AML policy', state: inlineConsideredFirmWideAML, set: setInlineConsideredFirmWideAML, docUrl: getInternalPolicyByKey('firm-wide-aml-risk-assessment')?.url || '#', docLabel: getInternalPolicyByKey('firm-wide-aml-risk-assessment')?.title || 'AML Policy Document' },
               ];
 
               return (
@@ -9089,6 +9223,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                               target="_blank"
                               rel="noopener noreferrer"
                               title={`View ${item.docLabel}`}
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); openInternalPolicyDocument(item.docUrl); }}
                               style={{
                                 flexShrink: 0, display: 'flex', alignItems: 'center',
                                 color: isDarkMode ? colours.accent : colours.highlight,
@@ -9121,6 +9256,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                 href={item.docUrl}
                                 target="_blank"
                                 rel="noopener noreferrer"
+                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); openInternalPolicyDocument(item.docUrl); }}
                                 style={{
                                   fontSize: 9, fontWeight: 700,
                                   color: isDarkMode ? colours.accent : colours.highlight,
