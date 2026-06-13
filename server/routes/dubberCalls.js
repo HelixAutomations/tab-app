@@ -1620,6 +1620,12 @@ function looksLikePhone(str) {
   return str.replace(/\D/g, '').length >= 7;
 }
 
+function parseDateOnly(value) {
+  if (!value) return null;
+  const date = new Date(String(value));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 // ── Shared column list ────────────────────────────────────────────────────
 const RECORDING_COLS = `
   r.recording_id,
@@ -1916,14 +1922,20 @@ router.get('/dubberCalls/recent', async (req, res) => {
   const reqId = randomUUID();
   try {
     const limit = Math.min(Number(req.query.limit) || 20, 100);
+    const startDate = parseDateOnly(req.query.startDate);
+    const endDate = parseDateOnly(req.query.endDate);
 
     const pool = await instrPool();
     const [recResult, userMapResult] = await Promise.all([
       pool.request()
         .input('limit', sql.Int, limit)
+        .input('startDate', sql.DateTime2, startDate)
+        .input('endDate', sql.DateTime2, endDate)
         .query(`
           SELECT TOP (@limit) ${RECORDING_COLS}
           FROM dbo.dubber_recordings r
+          WHERE (@startDate IS NULL OR r.start_time_utc >= @startDate)
+            AND (@endDate IS NULL OR r.start_time_utc < DATEADD(day, 1, @endDate))
           ORDER BY r.start_time_utc DESC
         `),
       pool.request().query(`
@@ -2119,6 +2131,8 @@ router.get('/dubberCalls/activities', async (req, res) => {
     if (!initials) return res.status(400).json({ error: 'Missing initials' });
 
     const fetchAll = req.query.all === 'true';
+    const startDate = parseDateOnly(req.query.startDate);
+    const endDate = parseDateOnly(req.query.endDate);
     const requestedLimit = Number.parseInt(String(req.query.limit || '30'), 10);
     const responseLimit = Number.isFinite(requestedLimit)
       ? Math.min(Math.max(requestedLimit, 1), 100)
@@ -2136,10 +2150,14 @@ router.get('/dubberCalls/activities', async (req, res) => {
     }
     if (!accessToken) return res.json({ activities: [], message: 'No Clio token available' });
 
-    // Last 7 days
-    const since = new Date();
-    since.setDate(since.getDate() - 7);
-    since.setHours(0, 0, 0, 0);
+    // Default to the last 7 days if no explicit window was supplied.
+    const since = startDate || (() => {
+      const fallback = new Date();
+      fallback.setDate(fallback.getDate() - 7);
+      fallback.setHours(0, 0, 0, 0);
+      return fallback;
+    })();
+    const until = endDate || null;
 
     const activities = [];
     let offset = 0;
@@ -2165,10 +2183,15 @@ router.get('/dubberCalls/activities', async (req, res) => {
         if (!resp.ok) throw new Error(`Clio API ${resp.status}`);
         const data = await resp.json();
         if (data.data && Array.isArray(data.data)) {
+          const inWindow = data.data.filter((item) => {
+            const activityDate = parseDateOnly(item?.date);
+            if (!activityDate) return false;
+            if (activityDate < since) return false;
+            if (until && activityDate > new Date(until.getFullYear(), until.getMonth(), until.getDate(), 23, 59, 59, 999)) return false;
+            return true;
+          });
           const remaining = responseLimit - activities.length;
-          if (remaining > 0) {
-            activities.push(...data.data.slice(0, remaining));
-          }
+          if (remaining > 0) activities.push(...inWindow.slice(0, remaining));
         }
         if (activities.length >= responseLimit) break;
         if (!data.meta?.paging?.next || data.data.length < limit) break;

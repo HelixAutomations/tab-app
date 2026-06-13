@@ -25,7 +25,7 @@
  *   return rows from the others so the lens never goes dark.
  */
 const express = require('express');
-const rateLimit = require('express-rate-limit');
+const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 const router = express.Router();
 
 const { withRequest } = require('../utils/db');
@@ -50,7 +50,7 @@ const auditLimiter = rateLimit({
   max: 60,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => (req.user?.initials || req.ip || 'anon').toString().toUpperCase(),
+  keyGenerator: (req) => (req.user?.initials || ipKeyGenerator(req) || 'anon').toString().toUpperCase(),
   handler: (req, res) => {
     trackEvent('Audit.Lens.RateLimited', { user: req.user?.initials, ip: req.ip });
     res.status(429).json({ ok: false, error: 'rate_limited' });

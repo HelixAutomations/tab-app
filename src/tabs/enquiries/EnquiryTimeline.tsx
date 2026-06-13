@@ -112,6 +112,41 @@ if (existingActionButtonStyle) {
   document.head.appendChild(actionButtonStyle);
 }
 
+const collectEnquiryEventIds = (enquiry: Enquiry | null | undefined): string[] => {
+  const enquiryAny = (enquiry || {}) as Enquiry & {
+    acid?: string | number;
+    ACID?: string | number;
+    id?: string | number;
+    ProspectId?: string | number;
+    prospectId?: string | number;
+    legacyEnquiryId?: string | number;
+    processingEnquiryId?: string | number;
+    pitchEnquiryId?: string | number;
+  };
+  return Array.from(new Set([
+    enquiryAny.acid,
+    enquiryAny.ACID,
+    enquiryAny.ID,
+    enquiryAny.id,
+    enquiryAny.ProspectId,
+    enquiryAny.prospectId,
+    enquiryAny.legacyEnquiryId,
+    enquiryAny.processingEnquiryId,
+    enquiryAny.pitchEnquiryId,
+  ].map((value) => String(value ?? '').trim()).filter(Boolean)));
+};
+
+const eventMatchesEnquiry = (detail: any, enquiry: Enquiry | null | undefined): boolean => {
+  const eventIds = Array.isArray(detail?.enquiryIds)
+    ? detail.enquiryIds.map((value: unknown) => String(value ?? '').trim()).filter(Boolean)
+    : [];
+  const primaryEventId = String(detail?.enquiryId ?? '').trim();
+  if (primaryEventId) eventIds.push(primaryEventId);
+  if (eventIds.length === 0) return false;
+  const enquiryIds = collectEnquiryEventIds(enquiry);
+  return enquiryIds.some((value) => eventIds.includes(value));
+};
+
 const emailHtmlStyle = document.createElement('style');
 emailHtmlStyle.textContent = `
   .helix-email-html {
@@ -950,10 +985,10 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
   useEffect(() => {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent).detail || {};
-      const eventEnquiryId = String(detail.enquiryId ?? '').trim();
-      const currentEnquiryId = String(enquiry?.ID ?? '').trim();
-      if (!eventEnquiryId || !currentEnquiryId || eventEnquiryId !== currentEnquiryId) return;
-      enquiryTimelineSessionCache.delete(currentEnquiryId);
+      if (!eventMatchesEnquiry(detail, enquiry)) return;
+      for (const enquiryId of collectEnquiryEventIds(enquiry)) {
+        enquiryTimelineSessionCache.delete(enquiryId);
+      }
       if ((event as CustomEvent).type === 'helix:pitch-link-activated') {
         const amount = typeof detail.amount === 'number' ? detail.amount : Number(detail.amount || 0);
         const includePayment = detail.includePayment !== false;

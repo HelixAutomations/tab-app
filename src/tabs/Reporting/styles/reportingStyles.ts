@@ -38,27 +38,28 @@ export function surface(isDark: boolean, overrides: CSSProperties = {}): CSSProp
 
 // ─── Date picker ───────────────────────────────────────────────────────────
 
-export function getDatePickerStyles(isDarkMode: boolean): Partial<IDatePickerStyles> {
+export function getDatePickerStyles(isDarkMode: boolean, compact: boolean = false): Partial<IDatePickerStyles> {
   const baseBorder = isDarkMode ? `${colours.dark.borderColor}66` : 'rgba(6, 23, 51, 0.12)';
   const hoverBorder = isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.3)';
   const focusBorder = isDarkMode ? colours.accent : colours.highlight;
   const backgroundColour = isDarkMode ? colours.websiteBlue : 'rgba(255, 255, 255, 0.95)';
   const hoverBackground = isDarkMode ? colours.dark.cardBackground : colours.grey;
   const focusBackground = isDarkMode ? colours.websiteBlue : '#ffffff';
+  const inputHeight = compact ? 28 : 32;
 
   return {
     root: {
-      maxWidth: 180,
+      maxWidth: compact ? 150 : 180,
       '.ms-DatePicker': { fontFamily: 'Raleway, sans-serif !important' },
     },
     textField: {
       root: { fontFamily: 'Raleway, sans-serif !important', width: '100% !important' },
       fieldGroup: {
-        height: '32px !important',
+        height: `${inputHeight}px !important`,
         borderRadius: '0 !important',
         border: `0.5px solid ${baseBorder} !important`,
         background: `${backgroundColour} !important`,
-        padding: '0 14px !important',
+        padding: compact ? '0 10px !important' : '0 14px !important',
         boxShadow: 'none !important',
         transition: 'all 0.2s ease !important',
         selectors: {
@@ -77,7 +78,7 @@ export function getDatePickerStyles(isDarkMode: boolean): Partial<IDatePickerSty
         },
       },
       field: {
-        fontSize: '12px !important',
+        fontSize: compact ? '11px !important' : '12px !important',
         color: `${isDarkMode ? colours.dark.text : colours.light.text} !important`,
         fontFamily: 'Raleway, sans-serif !important',
         fontWeight: '500 !important',
@@ -89,7 +90,7 @@ export function getDatePickerStyles(isDarkMode: boolean): Partial<IDatePickerSty
     },
     icon: {
       color: `${isDarkMode ? colours.highlight : colours.helixBlue} !important`,
-      fontSize: '16px !important',
+      fontSize: compact ? '14px !important' : '16px !important',
       fontWeight: 'bold !important',
     },
     callout: {
@@ -110,6 +111,7 @@ export function getRangeButtonStyles(
   isDarkMode: boolean,
   active: boolean,
   disabled: boolean = false,
+  compact: boolean = false,
 ): IButtonStyles {
   const inactiveColor = isDarkMode ? colours.dark.text : colours.helixBlue;
   const disabledColor = isDarkMode ? colours.subtleGrey : colours.greyText;
@@ -137,11 +139,11 @@ export function getRangeButtonStyles(
       textOverflow: 'ellipsis',
       borderRadius: 0,
       border: resolvedBorder,
-      padding: '0 10px',
-      minHeight: 32,
-      height: 32,
+      padding: compact ? '0 8px' : '0 10px',
+      minHeight: compact ? 28 : 32,
+      height: compact ? 28 : 32,
       fontWeight: active ? 700 : 600,
-      fontSize: 12,
+      fontSize: compact ? 11 : 12,
       color: disabled ? disabledColor : active ? activeTextColor : inactiveColor,
       background: resolvedBackground,
       boxShadow: active && !disabled ? activeShadow : 'none',
@@ -149,6 +151,9 @@ export function getRangeButtonStyles(
       cursor: disabled ? 'default' : 'pointer',
       transition:
         'background 0.18s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.18s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.18s cubic-bezier(0.4, 0, 0.2, 1), color 0.18s cubic-bezier(0.4, 0, 0.2, 1)',
+      selectors: {
+        '.ms-Button-label': { color: 'inherit' },
+      },
     },
     rootHovered: {
       background: disabled
@@ -168,25 +173,34 @@ export function getRangeButtonStyles(
       color: disabled ? disabledColor : active ? activeTextColor : inactiveColor,
       boxShadow: active && !disabled ? activeShadow : 'none',
     },
+    rootDisabled: {
+      background: resolvedBackground,
+      border: resolvedBorder,
+      color: disabledColor,
+      opacity: 0.62,
+      cursor: 'not-allowed',
+      boxShadow: 'none',
+    },
     label: { color: 'inherit' },
+    labelDisabled: { color: disabledColor },
   };
 }
 
 // ─── Date-stamp buttons (From / To) ───────────────────────────────────────
 
-export function dateStampButtonStyle(isDarkMode: boolean): CSSProperties {
+export function dateStampButtonStyle(isDarkMode: boolean, compact: boolean = false): CSSProperties {
   return {
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'flex-start',
     justifyContent: 'center',
     gap: 2,
-    padding: '6px 12px',
+    padding: compact ? '4px 9px' : '6px 12px',
     borderRadius: 0,
     border: '1px solid transparent',
     background: isDarkMode ? colours.darkBlue : '#ffffff',
     color: isDarkMode ? colours.dark.text : colours.helixBlue,
-    minWidth: 132,
+    minWidth: compact ? 104 : 132,
     transition:
       'background 0.18s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.18s cubic-bezier(0.4, 0, 0.2, 1), transform 0.18s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.18s cubic-bezier(0.4, 0, 0.2, 1)',
     cursor: 'pointer',
@@ -198,13 +212,13 @@ export function dateStampButtonStyle(isDarkMode: boolean): CSSProperties {
 
 // ─── Clear filter button ───────────────────────────────────────────────────
 
-export function clearFilterButtonStyle(isDarkMode: boolean): CSSProperties {
+export function clearFilterButtonStyle(isDarkMode: boolean, compact: boolean = false): CSSProperties {
   return {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: '0 14px',
-    height: 32,
+    padding: compact ? '0 10px' : '0 14px',
+    height: compact ? 28 : 32,
     borderRadius: 0,
     border: `1px solid ${isDarkMode ? 'rgba(214, 85, 65, 0.4)' : 'rgba(214, 85, 65, 0.3)'}`,
     background: isDarkMode ? 'rgba(214, 85, 65, 0.12)' : 'rgba(214, 85, 65, 0.06)',
@@ -214,7 +228,7 @@ export function clearFilterButtonStyle(isDarkMode: boolean): CSSProperties {
     transition: 'background 0.18s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.18s cubic-bezier(0.4, 0, 0.2, 1)',
     fontFamily: 'Raleway, sans-serif',
     fontWeight: 600,
-    fontSize: 12,
+    fontSize: compact ? 11 : 12,
     whiteSpace: 'nowrap',
   };
 }

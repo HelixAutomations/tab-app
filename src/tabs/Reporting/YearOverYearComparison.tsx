@@ -96,6 +96,11 @@ interface YearOverYearComparisonProps {
 
 const METRIC_KEYS: MetricKey[] = ['wip', 'collected', 'mattersOpened'];
 const MONTH_LABELS = ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar'];
+const DEFAULT_VISIBLE_METRICS: Record<MetricKey, boolean> = {
+  wip: true,
+  collected: true,
+  mattersOpened: true,
+};
 
 const formatCurrency = (value: number): string => `${'\u00A3'}${value.toLocaleString('en-GB', { maximumFractionDigits: 0 })}`;
 
@@ -139,9 +144,10 @@ const YearOverYearComparison: React.FC<YearOverYearComparisonProps> = ({
   const { isDarkMode } = useTheme();
   const hasAutoLoadedRef = useRef<string | null>(null);
   const [phase, setPhase] = useState<Phase>('loading');
-  const [yearsBack, setYearsBack] = useState(3);
+  const [yearsBack, setYearsBack] = useState(5);
   const [activeMetric, setActiveMetric] = useState<MetricKey>('wip');
-  const [showMonthlyProfile, setShowMonthlyProfile] = useState(true);
+  const [visibleMetrics, setVisibleMetrics] = useState<Record<MetricKey, boolean>>(DEFAULT_VISIBLE_METRICS);
+  const [showMonthlyProfile, setShowMonthlyProfile] = useState(false);
   const [data, setData] = useState<YoYResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [monthlyPhase, setMonthlyPhase] = useState<MonthlyPhase>('idle');
@@ -218,7 +224,7 @@ const YearOverYearComparison: React.FC<YearOverYearComparisonProps> = ({
     collected: {
       label: 'Collected',
       detail: currentCollectedBasisLabel ?? 'Paid fees',
-      colour: colours.highlight,
+      colour: colours.green,
       value: (year) => year.collected,
       available: (year) => year.dataAvailability.collected,
       format: formatCurrency,
@@ -227,7 +233,7 @@ const YearOverYearComparison: React.FC<YearOverYearComparisonProps> = ({
     mattersOpened: {
       label: 'Matters',
       detail: 'Opened',
-      colour: colours.highlight,
+      colour: colours.orange,
       value: (year) => year.mattersOpened,
       available: (year) => year.dataAvailability.matters,
       format: formatCount,
@@ -353,11 +359,11 @@ const YearOverYearComparison: React.FC<YearOverYearComparisonProps> = ({
   }, [activeMetric, collectedUserIdsKey, data, includeDisbursements, monthlyCache]);
 
   useEffect(() => {
-    if (!data?.years.length) return;
+    if (!showMonthlyProfile || !data?.years.length) return;
     if (monthlyCache[activeMetric]) return;
     if (monthlyPhase === 'loading') return;
     void loadMonthly(activeMetric);
-  }, [data, activeMetric, monthlyCache, monthlyPhase, loadMonthly]);
+  }, [activeMetric, data, loadMonthly, monthlyCache, monthlyPhase, showMonthlyProfile]);
 
   const years = useMemo(() => {
     const sourceYears = data?.years ?? [];
@@ -393,10 +399,43 @@ const YearOverYearComparison: React.FC<YearOverYearComparisonProps> = ({
     return { metric, config, current, currentDisplay, delta };
   }), [currentCollectedDisplayOverride, latestYear, metricConfig, previousYear]);
 
-  const activeMetricMax = useMemo(() => {
-    const maxValue = Math.max(...years.map((year) => activeConfig.value(year)), 0);
-    return maxValue || 1;
-  }, [activeConfig, years]);
+  const visibleMetricKeys = useMemo(() => METRIC_KEYS.filter((metric) => visibleMetrics[metric]), [visibleMetrics]);
+  const metricMaxima = useMemo(() => METRIC_KEYS.reduce<Record<MetricKey, number>>((acc, metric) => {
+    const config = metricConfig[metric];
+    const maxValue = Math.max(...years.map((year) => config.value(year)), 0);
+    acc[metric] = maxValue || 1;
+    return acc;
+  }, { wip: 1, collected: 1, mattersOpened: 1 }), [metricConfig, years]);
+
+  const groupedChartData = useMemo(() => years.map((year) => {
+    const row: Record<string, string | number | boolean> = {
+      label: year.label,
+      fy: year.fy,
+      period: yearRangeLabel(year),
+      basis: data?.ytd ? 'Same-period YTD' : 'Full FY',
+      isLatest: latestYear ? year.fy === latestYear.fy : false,
+    };
+    METRIC_KEYS.forEach((metric) => {
+      const config = metricConfig[metric];
+      const rawValue = config.value(year);
+      row[metric] = (rawValue / metricMaxima[metric]) * 100;
+      row[`${metric}Raw`] = rawValue;
+      row[`${metric}Available`] = config.available(year);
+    });
+    return row;
+  }), [data?.ytd, latestYear, metricConfig, metricMaxima, years]);
+
+  const toggleMetric = useCallback((metric: MetricKey) => {
+    setActiveMetric(metric);
+    setVisibleMetrics((current) => {
+      const currentlyVisible = current[metric];
+      const visibleCount = METRIC_KEYS.filter((candidate) => current[candidate]).length;
+      if (currentlyVisible && visibleCount === 1) {
+        return current;
+      }
+      return { ...current, [metric]: !currentlyVisible };
+    });
+  }, []);
 
   const availabilitySummary = useMemo(() => {
     const total = years.length * METRIC_KEYS.length;
@@ -494,21 +533,36 @@ const YearOverYearComparison: React.FC<YearOverYearComparisonProps> = ({
 
   return (
     <div style={panelStyle}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 18, alignItems: 'start', marginBottom: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 18, alignItems: 'start', marginBottom: 14 }}>
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-            <span style={{ color: accent, fontSize: 11, fontWeight: 900, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-              {comparisonModeLabel}
-            </span>
+          <div style={{ color: accent, fontSize: 11, fontWeight: 900, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>
+            {comparisonModeLabel}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', color: bodyText, fontSize: 12 }}>
-            <span>{years.length} financial years</span>
-            <span style={{ color: muted }}>{comparisonPeriodLabel} in each FY</span>
-            <span style={{ color: muted }}>{availabilitySummary.ready}/{availabilitySummary.total} feeds available</span>
-            {generatedLabel && <span style={{ color: muted }}>Updated {generatedLabel}</span>}
-          </div>
-          <div style={{ color: bodyText, fontSize: 12, lineHeight: 1.45, marginTop: 7 }}>
-            {comparisonBasis} Prior years are not full-year totals in this view.
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            {[
+              `${years.length} FYs`,
+              comparisonPeriodLabel,
+              'Indexed per metric',
+              `${availabilitySummary.ready}/${availabilitySummary.total} feeds`,
+              generatedLabel ? `Updated ${generatedLabel}` : null,
+            ].filter(Boolean).map((label) => (
+              <span
+                key={label}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  minHeight: 24,
+                  padding: '0 8px',
+                  color: bodyText,
+                  background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(6, 23, 51, 0.04)',
+                  border: `1px solid ${softBorder}`,
+                  fontSize: 11,
+                  fontWeight: 800,
+                }}
+              >
+                {label}
+              </span>
+            ))}
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
@@ -522,7 +576,7 @@ const YearOverYearComparison: React.FC<YearOverYearComparisonProps> = ({
                 void loadComparison(option);
               }}
             >
-              {option}y
+              {option} FY
             </button>
           ))}
           <button type="button" style={tertiaryButtonStyle(false)} onClick={() => loadComparison()}>
@@ -532,119 +586,106 @@ const YearOverYearComparison: React.FC<YearOverYearComparisonProps> = ({
         </div>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10, color: muted, fontSize: 11 }}>
-        <span style={{ color: muted, fontSize: 10, fontWeight: 900, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Current comparison window</span>
-        <span style={{ color: labelText, fontSize: 13, fontWeight: 900 }}>{latestYear.label}</span>
-        <span aria-hidden style={{ color: muted }}>{'\u00B7'}</span>
-        <span style={{ color: bodyText }}>{yearRangeLabel(latestYear)}</span>
-        <span aria-hidden style={{ color: muted }}>{'\u00B7'}</span>
-        {renderAvailabilitySummary(latestYear)}
-      </div>
-
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10, marginBottom: 14 }}>
         {metricSummaries.map(({ metric, config, currentDisplay, delta }) => (
           <button
             key={metric}
             type="button"
-            onClick={() => setActiveMetric(metric)}
+            aria-pressed={visibleMetrics[metric]}
+            onClick={() => toggleMetric(metric)}
             style={{
-              background: activeMetric === metric ? elevatedBackground : cardBackground,
-              border: `1px solid ${activeMetric === metric ? 'rgba(54, 144, 206, 0.38)' : border}`,
+              background: visibleMetrics[metric] ? elevatedBackground : cardBackground,
+              border: `1px solid ${visibleMetrics[metric] ? 'rgba(54, 144, 206, 0.38)' : border}`,
               borderRadius: 0,
               padding: 12,
               textAlign: 'left',
               cursor: 'pointer',
               fontFamily: 'Raleway, sans-serif',
               color: labelText,
-              boxShadow: activeMetric === metric ? `inset 2px 0 0 ${colours.highlight}` : 'none',
+              opacity: visibleMetrics[metric] ? 1 : 0.48,
+              boxShadow: visibleMetrics[metric] ? `inset 2px 0 0 ${config.colour}` : 'none',
+              transition: 'opacity 180ms ease, background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease',
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-              <span style={{ color: muted, fontSize: 10, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              <span style={{ color: visibleMetrics[metric] ? config.colour : muted, fontSize: 10, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                 {config.label}
               </span>
-              {renderDelta(delta)}
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+                {renderDelta(delta)}
+                <span style={{ width: 7, height: 7, background: visibleMetrics[metric] ? config.colour : 'transparent', border: `1px solid ${visibleMetrics[metric] ? config.colour : muted}` }} />
+              </span>
             </div>
             <div style={{ color: labelText, fontSize: 20, fontWeight: 900, marginTop: 8 }}>{currentDisplay}</div>
-            <div style={{ color: bodyText, fontSize: 11, marginTop: 3 }}>{config.detail}</div>
+            <div style={{ color: bodyText, fontSize: 11, marginTop: 3 }}>{visibleMetrics[metric] ? config.detail : 'Hidden from chart'}</div>
           </button>
         ))}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12, alignItems: 'stretch' }}>
-        {METRIC_KEYS.map((metric) => {
-          const config = metricConfig[metric];
-          const chartData = years.map((year) => ({
-            label: year.label,
-            fy: year.fy,
-            value: config.value(year),
-            period: yearRangeLabel(year),
-            basis: data.ytd ? 'Same-period YTD' : 'Full FY',
-            hasData: config.available(year),
-            isLatest: year.fy === latestYear.fy,
-          }));
-          const isActive = activeMetric === metric;
-          return (
-            <button
-              key={metric}
-              type="button"
-              onClick={() => setActiveMetric(metric)}
-              style={{
-                background: cardBackground,
-                border: `1px solid ${isActive ? 'rgba(54, 144, 206, 0.38)' : border}`,
-                borderRadius: 0,
-                padding: '14px 12px 8px',
-                fontFamily: 'Raleway, sans-serif',
-                cursor: 'pointer',
-                textAlign: 'left',
-                boxShadow: isActive ? `inset 2px 0 0 ${colours.highlight}` : 'none',
-              }}
-            >
-              <div style={{ color: config.colour, fontSize: 10, fontWeight: 900, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 10 }}>
-                {config.label}
-              </div>
-              <div style={{ color: bodyText, fontSize: 10, fontWeight: 700, marginTop: -6, marginBottom: 8 }}>
-                {comparisonPeriodLabel} in each FY
-              </div>
-              <div style={{ width: '100%', height: 180 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={chartData} margin={{ top: 5, right: 8, left: 4, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={gridLine} vertical={false} />
-                    <XAxis dataKey="label" tick={{ ...tickStyle, fontWeight: 600 }} axisLine={{ stroke: axisLine }} tickLine={false} />
-                    <YAxis tick={tickStyle} axisLine={false} tickLine={false} tickFormatter={(value: number) => config.compact(value)} width={50} />
-                    <Tooltip
-                      contentStyle={tooltipStyle}
-                      labelStyle={{ color: tooltipLabelColour, fontWeight: 700, marginBottom: 3 }}
-                      itemStyle={{ color: tooltipItemColour }}
-                      labelFormatter={(label) => `${label} ${comparisonModeLabel}`}
-                      formatter={(value, _name, item) => {
-                        const numericValue = typeof value === 'number' ? value : Number(value) || 0;
-                        const period = typeof item?.payload?.period === 'string' ? item.payload.period : null;
-                        const basis = typeof item?.payload?.basis === 'string' ? item.payload.basis : comparisonModeLabel;
-                        const formattedValue = metric === 'collected' && item?.payload?.isLatest && currentCollectedDisplayOverride
-                          ? currentCollectedDisplayOverride
-                          : config.format(numericValue);
-                        return [formattedValue, period ? `${config.label}, ${basis}, ${period}` : config.label];
-                      }}
-                      cursor={{ fill: isDarkMode ? 'rgba(54,144,206,0.04)' : 'rgba(54,144,206,0.03)' }}
-                    />
-                    <Bar dataKey="value" maxBarSize={36}>
-                      {chartData.map((entry, idx) => (
+      <div style={{ background: cardBackground, border: `1px solid ${border}`, borderRadius: 0, padding: '14px 14px 10px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
+          <div>
+            <div style={{ color: accent, fontSize: 11, fontWeight: 900, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+              Comparison
+            </div>
+            <div style={{ color: bodyText, fontSize: 11, marginTop: 3 }}>
+              {visibleMetricKeys.map((metric) => metricConfig[metric].label).join(' + ')} across {years.length} financial years.
+            </div>
+          </div>
+          <button
+            type="button"
+            style={tertiaryButtonStyle(showMonthlyProfile)}
+            onClick={() => setShowMonthlyProfile((current) => !current)}
+          >
+            Monthly profile
+          </button>
+        </div>
+        <div style={{ width: '100%', height: 240 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={groupedChartData} margin={{ top: 8, right: 10, left: 4, bottom: 4 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={gridLine} vertical={false} />
+              <XAxis dataKey="label" tick={{ ...tickStyle, fontWeight: 600 }} axisLine={{ stroke: axisLine }} tickLine={false} />
+              <YAxis tick={tickStyle} axisLine={false} tickLine={false} tickFormatter={(value: number) => `${Math.round(value)}%`} width={42} domain={[0, 100]} />
+              <Tooltip
+                contentStyle={tooltipStyle}
+                labelStyle={{ color: tooltipLabelColour, fontWeight: 700, marginBottom: 3 }}
+                itemStyle={{ color: tooltipItemColour }}
+                labelFormatter={(label) => `${label} ${comparisonModeLabel}`}
+                formatter={(_value, name, item) => {
+                  const metric = name as MetricKey;
+                  const config = metricConfig[metric];
+                  const rawValue = Number(item?.payload?.[`${metric}Raw`] ?? 0);
+                  const period = typeof item?.payload?.period === 'string' ? item.payload.period : null;
+                  const basis = typeof item?.payload?.basis === 'string' ? item.payload.basis : comparisonModeLabel;
+                  const formattedValue = metric === 'collected' && item?.payload?.isLatest && currentCollectedDisplayOverride
+                    ? currentCollectedDisplayOverride
+                    : config.format(rawValue);
+                  return [formattedValue, period ? `${config.label}, ${basis}, ${period}` : config.label];
+                }}
+                cursor={{ fill: isDarkMode ? 'rgba(54,144,206,0.04)' : 'rgba(54,144,206,0.03)' }}
+              />
+              {visibleMetricKeys.map((metric) => {
+                const config = metricConfig[metric];
+                return (
+                  <Bar key={metric} dataKey={metric} name={metric} maxBarSize={24} fill={config.colour}>
+                    {groupedChartData.map((entry, idx) => {
+                      const available = Boolean(entry[`${metric}Available`]);
+                      return (
                         <Cell
-                          key={entry.fy}
-                          fill={entry.hasData ? config.colour : (isDarkMode ? 'rgba(75,85,99,0.18)' : 'rgba(107,107,107,0.10)')}
-                          opacity={entry.hasData ? (0.5 + ((idx + 1) / chartData.length) * 0.5) : 0.3}
-                          stroke={isActive && entry.isLatest ? colours.highlight : 'none'}
-                          strokeWidth={isActive && entry.isLatest ? 1.5 : 0}
+                          key={`${metric}-${entry.fy}`}
+                          fill={available ? config.colour : (isDarkMode ? 'rgba(75,85,99,0.18)' : 'rgba(107,107,107,0.10)')}
+                          opacity={available ? (0.56 + ((idx + 1) / groupedChartData.length) * 0.44) : 0.24}
+                          stroke={entry.isLatest ? config.colour : 'none'}
+                          strokeWidth={entry.isLatest ? 1 : 0}
                         />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </button>
-          );
-        })}
+                      );
+                    })}
+                  </Bar>
+                );
+              })}
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
       </div>
 
       <div style={{ display: showMonthlyProfile ? 'block' : 'none', marginTop: 12, background: cardBackground, border: `1px solid ${border}`, borderRadius: 0, padding: 14 }}>
@@ -654,7 +695,7 @@ const YearOverYearComparison: React.FC<YearOverYearComparisonProps> = ({
               Monthly profile
             </div>
             <div style={{ color: bodyText, fontSize: 11, marginTop: 3 }}>
-              Fiscal-month shape for {activeConfig.label.toLowerCase()}. The comparison view above uses {comparisonPeriodLabel} for every FY.
+              {activeConfig.label} by fiscal month.
             </div>
           </div>
           <button type="button" style={tertiaryButtonStyle(false)} onClick={() => loadMonthly(activeMetric)} disabled={monthlyPhase === 'loading'}>

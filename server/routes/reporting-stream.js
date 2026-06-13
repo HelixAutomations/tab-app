@@ -8,12 +8,12 @@ const log = loggers.stream;
 // Import dataset fetchers from the main reporting route
 const { withRequest } = require('../utils/db');
 const { getMatterDateExpressions } = require('../utils/matterDateColumns');
-const { DefaultAzureCredential } = require('@azure/identity');
-const { SecretClient } = require('@azure/keyvault-secrets');
 const fetch = require('node-fetch');
 // Reuse the direct Clio current-week implementation from reporting route to avoid Azure Function fallback
 const reportingRoute = require('./reporting');
 const { fetchWipClioCurrentWeek: fetchWipClioCurrentWeekDirect } = reportingRoute;
+const { performUnifiedEnquiriesQuery } = require('./enquiries-unified');
+const { resolveReportingEnquirySourceBias } = require('../utils/reportingEnquirySourceBias');
 
 // Re-use the same dataset fetcher functions from reporting.js
 // (We'll import these or duplicate the core functions)
@@ -454,129 +454,24 @@ async function fetchTeamData({ connectionString }) {
   });
 }
 
-async function fetchEnquiries({ connectionString, instructionsConnectionString, range }) {
+async function fetchEnquiries({ range }) {
   const resolvedRange = range ?? getLast24MonthsRange();
   const { from, to } = resolvedRange;
+  const sourceSelection = resolveReportingEnquirySourceBias({ from, to });
+  log.debug(`Reporting stream enquiries range ${sourceSelection.startDate} to ${sourceSelection.endDate} using ${sourceSelection.sourceBias} (${sourceSelection.rangePosition}, cutover ${sourceSelection.cutoverDate})`);
 
-  const coreEnquiries = await withRequest(connectionString, async (request, sqlClient) => {
-    request.input('dateFrom', sqlClient.Date, formatDateOnly(from));
-    request.input('dateTo', sqlClient.Date, formatDateOnly(to));
-    const result = await request.query(`
-      SELECT * FROM [dbo].[enquiries]
-      WHERE Touchpoint_Date BETWEEN @dateFrom AND @dateTo
-      ORDER BY Touchpoint_Date DESC
-    `);
-    return Array.isArray(result.recordset) ? result.recordset : [];
+  const result = await performUnifiedEnquiriesQuery({
+    sourcePolicy: 'reporting',
+    sourceBias: sourceSelection.sourceBias,
+    fetchAll: 'true',
+    includeTeamInbox: 'true',
+    processingApproach: 'unified',
+    dateFrom: sourceSelection.startDate || formatDateOnly(from),
+    dateTo: sourceSelection.endDate || formatDateOnly(to),
+    limit: '50000',
   });
 
-  // If the Instructions DB isn't configured, fall back to core enquiries only.
-  if (!instructionsConnectionString) {
-    return coreEnquiries;
-  }
-
-  // Pull enquiries from the Instructions DB and map them into the core Enquiry shape
-  // so downstream reporting can use Touchpoint_Date/Point_of_Contact consistently.
-  const instructionsRows = await withRequest(instructionsConnectionString, async (request, sqlClient) => {
-    request.input('dateFrom', sqlClient.Date, formatDateOnly(from));
-    request.input('dateTo', sqlClient.Date, formatDateOnly(to));
-    const result = await request.query(`
-      SELECT
-        id,
-        datetime,
-        stage,
-        claim,
-        poc,
-        pitch,
-        aow,
-        tow,
-        moc,
-        rep,
-        first,
-        last,
-        email,
-        phone,
-        value,
-        rating,
-        acid,
-        notes
-      FROM [dbo].[enquiries]
-      WHERE CONVERT(date, datetime) BETWEEN @dateFrom AND @dateTo
-      ORDER BY datetime DESC
-    `);
-    return Array.isArray(result.recordset) ? result.recordset : [];
-  });
-
-  if (!Array.isArray(instructionsRows) || instructionsRows.length === 0) {
-    return coreEnquiries;
-  }
-
-  const coreById = new Map(
-    coreEnquiries
-      .map((row) => [String(row?.ID ?? row?.id ?? ''), row])
-      .filter(([id]) => Boolean(id))
-  );
-
-  const mappedInstructions = [];
-
-  for (const inst of instructionsRows) {
-    const legacyId = inst?.acid != null && String(inst.acid).trim() !== '' ? String(inst.acid) : null;
-    const instructionsId = inst?.id != null ? inst.id : undefined;
-
-    // If this instructions enquiry is a migrated/cross-referenced row, enrich the core record
-    // and avoid double-counting.
-    if (legacyId && coreById.has(legacyId)) {
-      const core = coreById.get(legacyId);
-      if (core && instructionsId != null && core.pitchEnquiryId == null) {
-        core.pitchEnquiryId = instructionsId;
-      }
-      continue;
-    }
-
-    let dateOnly = '';
-    let dateIso = '';
-    if (inst?.datetime) {
-      const candidate = new Date(inst.datetime);
-      if (!Number.isNaN(candidate.getTime())) {
-        dateOnly = candidate.toISOString().split('T')[0];
-        dateIso = candidate.toISOString();
-      } else if (typeof inst.datetime === 'string') {
-        dateOnly = inst.datetime.split('T')[0];
-        dateIso = inst.datetime;
-      }
-    }
-
-    const stableFallbackId = `inst:${dateOnly || String(inst?.datetime || 'unknown')}:${String(inst?.email || '').toLowerCase()}`;
-    const mappedId = legacyId ?? (instructionsId != null ? `inst:${instructionsId}` : stableFallbackId);
-
-    mappedInstructions.push({
-      ID: mappedId,
-      pitchEnquiryId: instructionsId,
-      Date_Created: dateIso || dateOnly,
-      Touchpoint_Date: dateIso || dateOnly,
-      Email: inst?.email ?? '',
-      Area_of_Work: inst?.aow ?? '',
-      Type_of_Work: inst?.tow ?? '',
-      Method_of_Contact: inst?.moc ?? '',
-      Point_of_Contact: inst?.poc ?? '',
-      Ultimate_Source: inst?.source ?? undefined,
-      Source: inst?.source ?? undefined,
-      Referral_URL: inst?.url ?? undefined,
-      GCLID: inst?.gclid ?? undefined,
-      Campaign: inst?.campaign ?? undefined,
-      Ad_Group: inst?.adSet ?? undefined,
-      Search_Keyword: inst?.keyword ?? undefined,
-      Call_Taker: inst?.rep ?? undefined,
-      First_Name: inst?.first ?? '',
-      Last_Name: inst?.last ?? '',
-      Phone_Number: inst?.phone ?? undefined,
-      Tags: inst?.stage ?? undefined,
-      Value: inst?.value ?? undefined,
-      Rating: inst?.rating ?? undefined,
-      Initial_first_call_notes: inst?.notes ?? undefined,
-    });
-  }
-
-  return coreEnquiries.concat(mappedInstructions);
+  return Array.isArray(result?.enquiries) ? result.enquiries : [];
 }
 
 async function fetchAllMatters({ connectionString, range }) {

@@ -449,6 +449,8 @@ async function main() {
         }
       : {
           ...process.env,
+          // dev:all is the explicit opt-in for background scheduler/poller work.
+          HELIX_ENABLE_BACKGROUND: process.env.HELIX_ENABLE_BACKGROUND ?? (process.env.HELIX_LAZY_INIT === '1' ? '0' : '1'),
           // Print elapsed-ms landmarks during boot so we can see what's slow
           // across nodemon restarts. Set HELIX_BOOT_TIMING=0 to silence.
           HELIX_BOOT_TIMING: process.env.HELIX_BOOT_TIMING ?? '1',

@@ -1,1 +1,0 @@
-2026-05-31 / Gate Resources risk policies to local / Hide the Resources risk policy strip outside local mode and when the session tools view-as-production toggle is active, while restyling the local four-link strip to match the Home Core risk policies bar. (~ src/tabs/resources/Resources.tsx, ~ src/app/App.tsx)

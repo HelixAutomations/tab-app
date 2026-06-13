@@ -75,6 +75,7 @@ import { shouldAlwaysShowProspectHistory, isSharedProspectRecord } from './share
 import { checkIsLocalDev, isActuallyLocalhost } from '../../utils/useIsLocalDev';
 import EmptyState from '../../components/states/EmptyState';
 import LoadingState from '../../components/states/LoadingState';
+import { getActivePitchBuilderDraft } from '../../app/functionality/pitchBuilderUtils';
 import {
   ProspectTableRow,
   RatingModal,
@@ -3486,16 +3487,12 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     const resume = localStorage.getItem('resumePitchBuilder');
     if (resume) {
       localStorage.removeItem('resumePitchBuilder');
-      const saved = localStorage.getItem('pitchBuilderState');
-      if (saved) {
+      const draft = getActivePitchBuilderDraft();
+      if (draft?.enquiryId) {
         try {
-          const state = JSON.parse(saved);
-          const enquiryId = state.enquiryId;
-          if (enquiryId) {
-            const found = displayEnquiries.find(e => e.ID === enquiryId);
-            if (found) {
-              handleSelectEnquiry(found);
-            }
+          const found = displayEnquiries.find(e => String(e.ID) === draft.enquiryId);
+          if (found) {
+            handleSelectEnquiry(found);
           }
         } catch (e) {
           console.error('Failed to resume pitch builder', e);
@@ -3859,10 +3856,13 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const renderClaimedQueueHoldingState = useCallback(() => {
     const showRetry = Boolean(claimedQueueRefreshError);
     const statusText = isRefreshing
-      ? 'Checking now'
+      ? 'Checking claimed queue'
       : showRetry
-        ? 'Still watching quietly'
-        : 'Auto-checking for claimed work';
+        ? 'Last check failed'
+        : 'Automatic refresh active';
+    const bodyText = showRetry
+      ? 'Refresh did not complete. You can check again manually.'
+      : 'There is nothing in your claimed queue right now.';
 
     return (
       <div
@@ -3870,20 +3870,22 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         className="prospect-claimed-empty-shell"
       >
         <div className={["prospect-claimed-empty", showRetry ? "prospect-claimed-empty--retry" : ""].filter(Boolean).join(' ')}>
-          <div className="prospect-claimed-empty__mark-shell" aria-hidden="true">
-            <div className="prospect-claimed-empty__glow" />
-            <svg className="prospect-claimed-empty__mark" width="58" height="100" viewBox="0 0 57.56 100" fill="none">
-              <path fill="currentColor" d="M57.56,13.1c0,7.27-7.6,10.19-11.59,11.64-4,1.46-29.98,11.15-34.78,13.1C6.4,39.77,0,41.23,0,48.5v-13.1C0,28.13,6.4,26.68,11.19,24.74c4.8-1.94,30.78-11.64,34.78-13.1,4-1.45,11.59-4.37,11.59-11.64v13.09h0Z" />
-              <path fill="currentColor" d="M57.56,38.84c0,7.27-7.6,10.19-11.59,11.64s-29.98,11.16-34.78,13.1c-4.8,1.94-11.19,3.4-11.19,10.67v-13.1c0-7.27,6.4-8.73,11.19-10.67,4.8-1.94,30.78-11.64,34.78-13.1,4-1.46,11.59-4.37,11.59-11.64v13.09h0Z" />
-              <path fill="currentColor" d="M57.56,64.59c0,7.27-7.6,10.19-11.59,11.64-4,1.46-29.98,11.15-34.78,13.1-4.8,1.94-11.19,3.39-11.19,10.67v-13.1c0-7.27,6.4-8.73,11.19-10.67,4.8-1.94,30.78-11.64,34.78-13.1,4-1.45,11.59-4.37,11.59-11.64v13.1h0Z" />
-            </svg>
+          <div className="prospect-claimed-empty__header">
+            <div className="prospect-claimed-empty__mark-shell" aria-hidden="true">
+              <svg className="prospect-claimed-empty__mark" width="58" height="100" viewBox="0 0 57.56 100" fill="none">
+                <path fill="currentColor" d="M57.56,13.1c0,7.27-7.6,10.19-11.59,11.64-4,1.46-29.98,11.15-34.78,13.1C6.4,39.77,0,41.23,0,48.5v-13.1C0,28.13,6.4,26.68,11.19,24.74c4.8-1.94,30.78-11.64,34.78-13.1,4-1.45,11.59-4.37,11.59-11.64v13.09h0Z" />
+                <path fill="currentColor" d="M57.56,38.84c0,7.27-7.6,10.19-11.59,11.64s-29.98,11.16-34.78,13.1c-4.8,1.94-11.19,3.4-11.19,10.67v-13.1c0-7.27,6.4-8.73,11.19-10.67,4.8-1.94,30.78-11.64,34.78-13.1,4-1.46,11.59-4.37,11.59-11.64v13.09h0Z" />
+                <path fill="currentColor" d="M57.56,64.59c0,7.27-7.6,10.19-11.59,11.64-4,1.46-29.98,11.15-34.78,13.1-4.8,1.94-11.19,3.39-11.19,10.67v-13.1c0-7.27,6.4-8.73,11.19-10.67,4.8-1.94,30.78-11.64,34.78-13.1,4-1.45,11.59-4.37,11.59-11.64v13.1h0Z" />
+              </svg>
+            </div>
+
+            <div className="prospect-claimed-empty__copy">
+              <div className="prospect-claimed-empty__eyebrow">Claimed queue</div>
+              <h3>No claimed enquiries</h3>
+            </div>
           </div>
 
-          <div className="prospect-claimed-empty__copy">
-            <div className="prospect-claimed-empty__eyebrow">Claimed queue</div>
-            <h3>No enquiries</h3>
-            <p>{showRetry ? 'Refresh did not complete. Helix will keep checking.' : 'Helix is checking quietly and will place claimed work here when it lands.'}</p>
-          </div>
+          <p>{bodyText}</p>
 
           <div className="prospect-claimed-empty__status" aria-live="polite">
             <span className="prospect-claimed-empty__pulse" />

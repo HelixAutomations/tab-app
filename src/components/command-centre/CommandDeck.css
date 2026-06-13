@@ -6,7 +6,7 @@
 /* ─── Panel shell ─── */
 .cmd-deck {
   position: fixed;
-  right: 18px;
+  left: 18px;
   z-index: 2099;
   width: min(540px, calc(100vw - 24px));
   max-height: min(82vh, 800px);

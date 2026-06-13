@@ -2,7 +2,7 @@
 
 > Purpose: active focus brief for replacing paused privileged Azure OpenAI processing with Helix-controlled local inference.
 >
-> Verified: 2026-05-29 against branch `main`. Re-verify file refs if picked up after 2026-06-28.
+> Verified: 2026-06-02 against branch `main`. Re-verify file refs if picked up after 2026-07-02.
 
 ---
 
@@ -113,9 +113,52 @@ How the local inference VM should fit this setup:
 - Add private DNS for the inference endpoint, for example `llm.instructions.internal`, or use a stable private IP at first. Do not expose vLLM publicly.
 - Do not rely on the existing firewall/NAT/UDR resources for egress control until they are explicitly wired and verified. For the ZDR claim, egress control must be designed and tested as part of Phase A.
 
+### 2.6 Cost envelope and commit gate
+
+Live Azure retail pricing checked 2026-06-02 for UK South. Treat these as planning figures, not approval to deploy.
+
+| Item | Approx cost | Use |
+|---|---:|---|
+| `Standard_NC4as_T4_v3` Linux VM | GBP 0.458/hour, about GBP 335/month 24/7 | Smallest sensible GPU POC. |
+| `Standard_NC8as_T4_v3` Linux VM | GBP 0.656/hour, about GBP 479/month 24/7 | Preferred POC headroom if quota allows. |
+| `Standard_NC16as_T4_v3` Linux VM | GBP 1.050/hour, about GBP 766/month 24/7 | Stronger small-model serving. |
+| `Standard_NC24ads_A100_v4` Linux VM | GBP 3.421/hour, about GBP 2,497/month 24/7 | Defer unless T4 model quality fails. |
+| Premium SSD P30 LRS | about GBP 122/month plus mount charge | Default model/data disk for POC. |
+| Premium SSD P40 LRS | about GBP 234/month plus mount charge | Larger model cache only if needed. |
+| Azure Bastion Basic | about GBP 103/month 24/7 | Private admin path if no existing Bastion is available. |
+| Azure Bastion Standard | about GBP 158/month 24/7 | Private admin path with stronger operational features. |
+
+Commit gate before spend:
+
+- Check GPU family quota in UK South and one fallback UK/nearby region.
+- Confirm whether an existing Bastion host can be used; do not create a duplicate private admin cost by default.
+- Decide POC run pattern: deallocate outside testing by default. Compute stops charging when deallocated, but disk and Bastion continue.
+- Start with NC4 or NC8 T4 plus P30 unless a model-quality reason justifies a larger SKU.
+- Record the chosen SKU, expected monthly ceiling, and stop/deallocate owner in System > Infrastructure before provisioning.
+
 ---
 
 ## 3. Plan
+
+### Phase 0 - Foundation and visibility before cloud commitment
+
+Goal: make the proposed inference estate visible, cost-bounded, and auditable inside Hub before any privileged flow is re-enabled.
+
+| # | Change | File | Detail |
+|---|--------|------|--------|
+| F0 | Add proposed inference landing zone to System > Infrastructure | [src/tabs/roadmap/system/SystemInfrastructureView.tsx](../../src/tabs/roadmap/system/SystemInfrastructureView.tsx), future planned-state manifest `src/tabs/roadmap/system/data/localInferencePlan.json` | Add a planned-state panel/card for `local-llm-zdr-inference-gateway`: target RG/VNet/subnet, chosen VM SKU, disk, Bastion/access path, expected cost ceiling, and current status. Do not present it as deployed until Azure inventory confirms resources. |
+| F1 | Add ZDR/LPP proof checklist | System infrastructure planned-state data or companion manifest | Show blockers: no public IP, private route from Hub, outbound locked after setup, no prompt/output logs, model licence recorded, manual fallback if unhealthy. |
+| F2 | Add cost and stop/deallocate controls to the plan | System infrastructure planned-state data or companion manifest | Surface monthly estimate, run pattern, stop owner, and whether the VM should be deallocated outside tests. |
+| F3 | Add admin access/audit model | System infrastructure planned-state data or companion manifest | Document Bastion or jump path, Entra user identity, VM auth/sudo logs, and the fact that IP alone is not the identity control. |
+| F4 | Keep implementation blocked behind capability health | [server/utils/aiClient.js](../../server/utils/aiClient.js) or new gateway | No privileged hosted route should switch on until provider capability says local, private, healthy, and content-free telemetry only. |
+
+Phase 0 acceptance:
+
+- System > Infrastructure has a visible planned local inference entry before resources are created.
+- The entry distinguishes planned, provisioning, healthy, degraded, and blocked states.
+- Cost ceiling and deallocation rule are visible to the operator.
+- The ZDR/LPP proof checklist is visible and starts blocked by default.
+- No CCL or Attendance Note hosted flow is re-enabled by this phase.
 
 ### Phase A - Private local inference service POC
 
@@ -172,20 +215,30 @@ Phase C acceptance:
 
 ## 4. Step-by-step execution order
 
-1. Pick a model/licence candidate and target VM family. Default: start with a strong 8B-14B instruct model for Attendance Note POC, then test larger models for CCL quality.
-2. Create or plan a dedicated `InferenceSubnet` in `instructions_vnet`. Keep private endpoint subnets and `DeploymentSubnet` out of scope for inference hosting.
-3. Add Hub private connectivity. Default: VNet integrate `link-hub-v1` from `Main` into `instructions_vnet` through a new delegated subnet. Alternative: use `instructions-vnet-functions` as a private bridge only if direct integration is blocked.
-4. Provision VM and private networking manually or with IaC. No public IP. Private subnet only. Deny outbound by default after setup.
-5. Install NVIDIA drivers/CUDA using Azure-supported N-series guidance, then run `vLLM` with an OpenAI-compatible `/v1/chat/completions` endpoint bound to private IP only.
-6. Add a server-side local inference gateway with strict no-content logging.
-7. Add health/capability endpoint consumed by tab-app server/UI. Capability must say `provider=local-llm`, `private=true`, `healthy=true`, and model name.
-8. Wire Attendance Note to the gateway first. Verify manual fallback and no-content telemetry.
-9. Only after Attendance Note quality and controls are proven, split the CCL guard and re-enable CCL routes in hosted environments.
-10. Add changelog entries per shipped phase.
+1. Add the planned local inference entry to System > Infrastructure and keep it in `planned` or `blocked` state until cloud evidence exists.
+2. Check GPU quota and confirm whether existing Bastion/private admin access can be reused.
+3. Pick a model/licence candidate and target VM family. Default: start with NC4 or NC8 T4 for Attendance Note POC, then test larger models for CCL quality only if needed.
+4. Create or plan a dedicated `InferenceSubnet` in `instructions_vnet`. Keep private endpoint subnets and `DeploymentSubnet` out of scope for inference hosting.
+5. Add Hub private connectivity. Default: VNet integrate `link-hub-v1` from `Main` into `instructions_vnet` through a new delegated subnet. Alternative: use `instructions-vnet-functions` as a private bridge only if direct integration is blocked.
+6. Provision VM and private networking manually or with IaC. No public IP. Private subnet only. Deny outbound by default after setup.
+7. Install NVIDIA drivers/CUDA using Azure-supported N-series guidance, then run `vLLM` with an OpenAI-compatible `/v1/chat/completions` endpoint bound to private IP only.
+8. Add a server-side local inference gateway with strict no-content logging.
+9. Add health/capability endpoint consumed by tab-app server/UI. Capability must say `provider=local-llm`, `private=true`, `healthy=true`, and model name.
+10. Wire Attendance Note to the gateway first. Verify manual fallback and no-content telemetry.
+11. Only after Attendance Note quality and controls are proven, split the CCL guard and re-enable CCL routes in hosted environments.
+12. Add changelog entries per shipped phase.
 
 ---
 
 ## 5. Verification checklist
+
+Phase 0:
+- [ ] System > Infrastructure shows a planned local inference entry with status, target network, cost envelope, access model, and proof checklist.
+- [ ] Planned entry is visibly separate from deployed Azure inventory until Resource Graph confirms the resources exist.
+- [ ] GPU quota has been checked for the chosen family and region before provisioning.
+- [ ] Existing Bastion/private access has been checked before adding a new Bastion cost.
+- [ ] Cost ceiling and deallocation owner are recorded before VM creation.
+- [ ] ZDR/LPP checklist starts blocked and cannot be marked healthy without route, egress, logging, and model-licence evidence.
 
 Phase A:
 - [ ] `InferenceSubnet` exists or is planned, and is separate from `DeploymentSubnet`, private endpoint subnets, and App/Function integration subnets.
@@ -237,6 +290,10 @@ Phase C:
 ## 8. File index (single source of truth)
 
 Client:
+- [src/tabs/roadmap/system/SystemInfrastructureView.tsx](../../src/tabs/roadmap/system/SystemInfrastructureView.tsx) - System > Infrastructure home for planned/deployed inference estate visibility.
+- [src/tabs/roadmap/system/data/azureInfrastructureEnrichment.json](../../src/tabs/roadmap/system/data/azureInfrastructureEnrichment.json) - current Azure inventory/cost data feeding the Infrastructure view; do not hand-edit planned resources into this generated current-state file.
+- Future planned-state manifest `src/tabs/roadmap/system/data/localInferencePlan.json` - proposed local inference estate, cost ceiling, proof checklist, and rollout state before Azure resources exist.
+- [src/tabs/roadmap/Roadmap.tsx](../../src/tabs/roadmap/Roadmap.tsx) - System navigation and Infrastructure entry point.
 - [src/app/admin.ts](../../src/app/admin.ts) - CCL capability and visibility gate.
 - [src/components/modern/OperationsDashboard.tsx](../../src/components/modern/OperationsDashboard.tsx) - CCL lifecycle visibility and actions.
 - [src/tabs/home/Home.tsx](../../src/tabs/home/Home.tsx) - Home To Do CCL cards and call-filing surface.
@@ -265,10 +322,14 @@ Scripts / docs:
 ```yaml
 # Stash metadata
 id: local-llm-zdr-inference-gateway
-verified: 2026-05-29
+verified: 2026-06-02
 branch: main
 touches:
   client:
+    - src/tabs/roadmap/system/SystemInfrastructureView.tsx
+    - src/tabs/roadmap/system/data/azureInfrastructureEnrichment.json
+    - src/tabs/roadmap/system/data/localInferencePlan.json
+    - src/tabs/roadmap/Roadmap.tsx
     - src/app/admin.ts
     - src/components/modern/OperationsDashboard.tsx
     - src/tabs/home/Home.tsx
@@ -361,6 +422,9 @@ conflicts_with: []
 
 ## 9. Gotchas appendix
 
+- Treat System > Infrastructure as the operator's map for this project. It should show planned and blocked state before Azure resources exist, then reconcile to Resource Graph once they do.
+- Do not bury the cost model in chat only. The chosen GPU SKU, disk, Bastion decision, monthly ceiling, and deallocation rule belong in the infrastructure surface before provisioning.
+- Do not let a private VM become a new black box. The Hub surface needs model, provider, health, route, last success/failure, and proof checklist status without storing prompt or output content.
 - The current pause has two layers: server hard guards and client visibility gates. Re-enabling only the server routes will still leave hosted UI hidden or inert.
 - Do not make `isCclOperationsAvailable()` trust the browser hostname alone for the future hosted state. It should consume a server capability/health answer so users do not see CCL controls when the local model is unhealthy.
 - Attendance Note is the safer first slice because the manual path already exists and is the default. CCL has a wider blast radius across matter opening, Home To Do, generated documents, and review rails.

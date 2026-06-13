@@ -7,7 +7,7 @@ import { useToast } from '../../components/feedback/ToastProvider';
 import { MarketingMetrics } from './EnquiriesReport';
 import { getNormalizedEnquirySourceLabel } from '../../utils/enquirySource';
 import { Enquiry } from '../../app/functionality/types';
-import { useReportRange } from './hooks/useReportRange';
+import { useReportRange, type DateRange, type RangeKey } from './hooks/useReportRange';
 import { surface } from './styles/reportingStyles';
 import ReportShell from './components/ReportShell';
 import './ManagementDashboard.css';
@@ -149,6 +149,17 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
   // Date range and refresh tracking handled by ReportShell
 
   // computeRange, range — provided by useReportRange hook
+
+  const isPresetAvailable = useMemo(
+    () => (_key: RangeKey, candidateRange: DateRange | null) => {
+      if (!candidateRange || !metaMetrics?.length) return true;
+      return metaMetrics.some((metric) => {
+        const metricDate = new Date(metric.date);
+        return Number.isFinite(metricDate.getTime()) && metricDate >= candidateRange.start && metricDate <= candidateRange.end;
+      });
+    },
+    [metaMetrics],
+  );
 
   // Filter and process Meta metrics data
   const filteredMetrics = useMemo(() => {
@@ -890,6 +901,7 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
       isFetching={isFetching}
       lastRefreshTimestamp={lastRefreshTimestamp}
       onRefresh={handleRefresh}
+      isPresetAvailable={isPresetAvailable}
       toolbarBottom={
         metaMetrics && metaMetrics.length > 0 ? (
           <div style={{

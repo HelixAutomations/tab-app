@@ -9,7 +9,7 @@ import type { IButtonStyles } from '@fluentui/react/lib/Button';
 import { Slider } from '@fluentui/react/lib/Slider';
 import { TooltipHost } from '@fluentui/react/lib/Tooltip';
 import { Callout } from '@fluentui/react/lib/Callout';
-import { FaChartLine, FaClipboardList, FaFolderOpen, FaInbox } from 'react-icons/fa';
+import { FaChartLine, FaClipboardList, FaFolderOpen, FaInbox, FaChartArea, FaPhoneAlt, FaSearchDollar } from 'react-icons/fa';
 import { colours } from '../../app/styles/colours';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { useNavigatorActions } from '../../app/functionality/NavigatorContext';
@@ -22,6 +22,7 @@ import AnnualLeaveReport, { AnnualLeaveRecord } from './AnnualLeaveReport';
 // resurrected. The component file remains so type re-exports keep compiling.
 import SeoReport from './SeoReport';
 import PpcReport from './PpcReport';
+import MarketingPerformanceReport from './MarketingPerformanceReport';
 import MattersReport from './MattersReport';
 import { debugLog, debugWarn } from '../../utils/debug';
 import { getNormalizedEnquirySource } from '../../utils/enquirySource';
@@ -54,8 +55,10 @@ import {
 import { useReadinessRemediate } from './useReadinessRemediate';
 import { useStreamingDatasets } from '../../hooks/useStreamingDatasets';
 import { fetchWithRetry, fetchJSON } from '../../utils/fetchUtils';
-import { canSeePrivateHubControls, isAdminUser, isDevOwner } from '../../app/admin';
+import { canSeePrivateHubControls, isAdminUser, canUseSessionModeControls } from '../../app/admin';
+import type { LocalSupportSettings } from '../../app/localSupportMode';
 import { useEffectivePermissions } from '../../app/effectivePermissions';
+import markDark from '../../assets/dark blue mark.svg';
 import markWhite from '../../assets/markwhite.svg';
 import type { PpcIncomeMetrics, PpcMatchKind } from './types/ppc';
 import { useToast } from '../../components/feedback/ToastProvider';
@@ -63,17 +66,35 @@ import type { DealRecord, InstructionRecord, DubberCallRecord } from './dataSour
 import { reportingPanelBackground, reportingPanelBorder } from './styles/reportingFoundation';
 import NavigatorDetailBar from '../../components/NavigatorDetailBar';
 import CallsReport from './CallsReport';
-import ReceptionReport from './ReceptionReport';
+import ReceptionReport, { type ReceptionKpisResponse } from './ReceptionReport';
 import EnquiryLedgerReport from './EnquiryLedgerReport';
 import ReportCard from './ReportCard';
+import { ReportProcessingRailItemCard, type ReportProcessingRailItem, type ReportProcessingRailRow, type ReportProcessingRailStatus } from './components/ReportProcessingRail';
+import { type RangeKey as ReportShellRangeKey } from './hooks/useReportRange';
+import { checkIsLocalDev } from '../../utils/useIsLocalDev';
+import { REPORTING_DATASET_DEFINITIONS } from './reportingDatasets';
 
 // Reception report is locked to call-taker-owning partners only.
 // Source of truth for who can see it; mirrored in the tab strip, the card grid,
 // and the in-view lock screen below.
-const RECEPTION_REPORT_ALLOWED_INITIALS = ['LZ', 'AC', 'JW'];
+const RECEPTION_REPORT_ALLOWED_INITIALS = ['LZ', 'AC', 'JW', 'KW'];
 const canSeeReceptionReport = (initials: string | null | undefined): boolean => {
   const value = (initials || '').trim().toUpperCase();
   return value !== '' && RECEPTION_REPORT_ALLOWED_INITIALS.includes(value);
+};
+
+const RECEPTION_REPORT_DEFAULT_RANGE_KEY: ReportShellRangeKey = 'month';
+
+const receptionReportHasData = (payload: ReceptionKpisResponse | null | undefined): boolean => {
+  if (!payload) return false;
+  return Boolean(
+    (payload.handlers?.length ?? 0) > 0
+    || (payload.evidence?.totalRows ?? 0) > 0
+    || (payload.conversionStages?.callsLogged ?? 0) > 0
+    || (payload.phonePickups?.totals?.calls ?? 0) > 0
+    || (payload.totals?.callsTaken ?? 0) > 0
+    || (payload.totals?.callsHandled ?? 0) > 0
+  );
 };
 
 // Add spinner animation CSS
@@ -122,6 +143,27 @@ const spinnerStyle = `
     opacity: 1; 
     transform: translateY(0); 
   }
+}
+
+@keyframes helix-card-land {
+  0% {
+    opacity: 0;
+    transform: translateY(18px) scale(0.985);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(-3px) scale(1.008);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes helix-status-pop {
+  0% { transform: scale(0.85); opacity: 0.6; }
+  55% { transform: scale(1.12); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
 }
 
 @keyframes shimmer {
@@ -184,14 +226,54 @@ const CACHE_PREHEAT_INTERVAL = 5 * 60 * 1000; // 5 minutes between background pr
 type ReportRangeKey = '3m' | '6m' | '12m' | '24m';
 type MattersWipRangeKey = ReportRangeKey;
 
-const REPORT_RANGE_OPTIONS: Array<{ key: ReportRangeKey; label: string; months: number }> = [
-  { key: '3m', label: '90 days', months: 3 },
-  { key: '6m', label: '6 months', months: 6 },
-  { key: '12m', label: '1 year', months: 12 },
-  { key: '24m', label: '2 years', months: 24 },
+const REPORT_RANGE_OPTIONS: Array<{ key: ReportRangeKey; label: string; shortLabel: string; months: number }> = [
+  { key: '3m', label: '90 days', shortLabel: '90 D', months: 3 },
+  { key: '6m', label: '6 months', shortLabel: '6 M', months: 6 },
+  { key: '12m', label: '1 year', shortLabel: '1 Y', months: 12 },
+  { key: '24m', label: '2 years', shortLabel: '2 Y', months: 24 },
 ];
 
 const MATTERS_WIP_RANGE_OPTIONS = REPORT_RANGE_OPTIONS;
+
+type EntrySnapshotMetricKey = 'enquiries' | 'matters' | 'instructions' | 'wip' | 'collected';
+type EntrySnapshotMetricKind = 'count' | 'currency';
+
+interface EntrySnapshotMetric {
+  key: EntrySnapshotMetricKey;
+  label: string;
+  kind: EntrySnapshotMetricKind;
+  current: number;
+  previous: number;
+  delta: number;
+  deltaPercent: number | null;
+  projected: number;
+  note: string;
+  conversionNote?: string;
+}
+
+interface EntrySnapshotChartModel {
+  currentLine: string;
+  previousLine: string;
+  projectionLine: string;
+  currentArea: string;
+  maxValue: number;
+}
+
+interface EntrySnapshotModel {
+  currentLabel: string;
+  previousLabel: string;
+  elapsedDays: number;
+  daysInMonth: number;
+  pipeline: EntrySnapshotMetric[];
+  money: EntrySnapshotMetric[];
+  collectedChart: EntrySnapshotChartModel;
+  readyCount: number;
+  totalFeeds: number;
+}
+
+// Compatibility shim for stale hot-reload closures that may still reference
+// the old preview metric symbol after local module replacement.
+const KPI_PREVIEW_METRICS: Array<{ label: string; value: string; note: string }> = [];
 
 const RANGE_MONTH_LOOKUP = REPORT_RANGE_OPTIONS.reduce<Record<ReportRangeKey, number>>((acc, option) => {
   acc[option.key] = option.months;
@@ -225,10 +307,80 @@ const computeRangeWindowForMonths = (months: number) => {
 
 const computeRangeWindowByKey = (key: ReportRangeKey) => computeRangeWindowForMonths(RANGE_MONTH_LOOKUP[key]);
 
+const getReceptionReportWindow = (key: ReportRangeKey) => {
+  const range = computeRangeWindowByKey(key);
+  return {
+    range,
+    from: formatDateForQuery(range.start),
+    to: formatDateForQuery(range.end),
+  };
+};
+
 const describeRangeWindowByKey = (key: ReportRangeKey) => {
   const range = computeRangeWindowByKey(key);
   return `${formatDateForRangeLabel(range.start)} to ${formatDateForRangeLabel(range.end)}`;
 };
+
+const RANGE_REFRESH_ESTIMATES: Record<string, Record<ReportRangeKey, string>> = {
+  dashboard: {
+    '3m': '~16s',
+    '6m': '~24s',
+    '12m': '~38s',
+    '24m': '~58s',
+  },
+  marketingPerformance: {
+    '3m': '~9s',
+    '6m': '~13s',
+    '12m': '~19s',
+    '24m': '~29s',
+  },
+  receptionReport: {
+    '3m': '~6s',
+    '6m': '~8s',
+    '12m': '~11s',
+    '24m': '~16s',
+  },
+  seo: {
+    '3m': '~7s',
+    '6m': '~10s',
+    '12m': '~14s',
+    '24m': '~21s',
+  },
+  enquiries: {
+    '3m': '~8s',
+    '6m': '~11s',
+    '12m': '~16s',
+    '24m': '~24s',
+  },
+  default: {
+    '3m': '~9s',
+    '6m': '~12s',
+    '12m': '~17s',
+    '24m': '~25s',
+  },
+};
+
+const normalizeRangeEstimateOwner = (ownerKey?: string | null) => {
+  switch (ownerKey) {
+    case 'dashboard':
+    case 'marketingPerformance':
+    case 'receptionReport':
+    case 'enquiries':
+      return ownerKey;
+    case 'seo':
+    case 'seoReport':
+      return 'seo';
+    default:
+      return 'default';
+  }
+};
+
+const getRangeRefreshEstimate = (key: ReportRangeKey, ownerKey?: string | null) => {
+  const owner = normalizeRangeEstimateOwner(ownerKey);
+  return RANGE_REFRESH_ESTIMATES[owner]?.[key] ?? RANGE_REFRESH_ESTIMATES.default[key];
+};
+
+const getRangeOptionTitle = (key: ReportRangeKey, ownerKey?: string | null) => `${describeRangeWindowByKey(key)}. Est. refresh ${getRangeRefreshEstimate(key, ownerKey)}.`;
 
 const buildDateRangeParams = (prefix: string, range: { start: Date; end: Date }) => {
   const startStr = formatDateForQuery(range.start);
@@ -284,6 +436,17 @@ const buildEnquiriesCoverageEntries = (key: ReportRangeKey): ReportingRangeDatas
     // Meta Ads feed intentionally omitted — Meta is off across the Reports tab.
     { key: 'googleAnalytics', label: 'Google Analytics', range: rangeLabel },
     { key: 'googleAds', label: 'Google Ads', range: rangeLabel },
+  ];
+};
+
+const buildMarketingCoverageEntries = (key: ReportRangeKey): ReportingRangeDatasetInfo[] => {
+  const rangeLabel = describeRangeKey(key);
+  return [
+    { key: 'googleAnalytics', label: 'Google Analytics', range: rangeLabel },
+    { key: 'googleAds', label: 'Google Ads', range: rangeLabel },
+    { key: 'enquiries', label: 'Enquiries feed', range: rangeLabel },
+    { key: 'allMatters', label: 'Matters feed', range: rangeLabel },
+    { key: 'recoveredFees', label: 'Collected fees', range: rangeLabel },
   ];
 };
 
@@ -428,6 +591,39 @@ const extractUserInitials = (userRecords: UserData[] | null | undefined): string
     }
   }
   return undefined;
+};
+
+const canSeeReportsDevPreview = (user?: UserData | null): boolean => {
+  if (!user) return false;
+  const initials = user.Initials?.toUpperCase().trim();
+  const first = user.First?.toLowerCase().trim();
+  const nickname = user.Nickname?.toLowerCase().trim();
+  const email = user.Email?.toLowerCase().trim();
+  return Boolean(
+    canSeePrivateHubControls(user) ||
+    initials === 'AC' ||
+    first === 'alex' ||
+    nickname === 'alex' ||
+    email === 'ac@helix-law.com'
+  );
+};
+
+const canSeeDataHubProdAudience = (user?: UserData | null): boolean => {
+  if (!user) return false;
+  const initials = user.Initials?.toUpperCase().trim();
+  const first = user.First?.toLowerCase().trim();
+  const nickname = user.Nickname?.toLowerCase().trim();
+  const email = user.Email?.toLowerCase().trim();
+  return Boolean(
+    initials === 'LZ'
+    || initials === 'AC'
+    || first === 'luke'
+    || first === 'alex'
+    || nickname === 'luke'
+    || nickname === 'alex'
+    || email === 'lz@helix-law.com'
+    || email === 'ac@helix-law.com'
+  );
 };
 
 const mapAnnualLeaveRecords = (raw: unknown): AnnualLeaveRecord[] => {
@@ -732,21 +928,7 @@ interface AnnualLeaveFetchResult {
   userDetails?: Record<string, unknown>;
 }
 
-const DATASETS = [
-  { key: 'userData', name: 'Users' },
-  { key: 'teamData', name: 'Team' },
-  { key: 'enquiries', name: 'Enquiries' },
-  { key: 'allMatters', name: 'Matters' },
-  { key: 'wip', name: 'WIP' },
-  { key: 'recoveredFees', name: 'Collected Fees' },
-  { key: 'annualLeave', name: 'Annual Leave' },
-  { key: 'metaMetrics', name: 'Meta Ads' },
-  { key: 'googleAnalytics', name: 'Google Analytics' },
-  { key: 'googleAds', name: 'Google Ads' },
-  { key: 'deals', name: 'Pitches' },
-  { key: 'instructions', name: 'Instructions' },
-  { key: 'dubberCalls', name: 'Calls' },
-] as const;
+const DATASETS = REPORTING_DATASET_DEFINITIONS;
 
 type DatasetDefinition = typeof DATASETS[number];
 type DatasetKey = DatasetDefinition['key'];
@@ -769,6 +951,11 @@ interface RefreshOptions {
   streamTargets?: StreamingDatasetKey[];
   statusTargets?: DatasetKey[];
   scope?: 'all' | 'dashboard';
+}
+
+interface SpecificRefreshOptions {
+  rangeOverrides?: GlobalRangeOverrides;
+  bypassCooldown?: boolean;
 }
 
 const MATTERS_RANGE_DATASETS: DatasetKey[] = ['allMatters', 'wip', 'recoveredFees'];
@@ -798,7 +985,7 @@ interface AvailableReport {
   key: string;
   name: string;
   status: string;
-  action?: 'dashboard' | 'annualLeave' | 'enquiries' | 'enquiryLedger' | 'metaMetrics' | 'seoReport' | 'ppcReport' | 'matters' | 'logMonitor' | 'calls' | 'receptionReport';
+  action?: 'dashboard' | 'annualLeave' | 'enquiries' | 'enquiryLedger' | 'metaMetrics' | 'seoReport' | 'ppcReport' | 'marketingPerformance' | 'matters' | 'logMonitor' | 'calls' | 'receptionReport';
   requiredDatasets: DatasetKey[];
   description?: string;
   disabled?: boolean;
@@ -826,8 +1013,25 @@ const AVAILABLE_REPORTS: AvailableReport[] = [
     name: 'Reception Performance',
     status: 'Evidence live',
     action: 'receptionReport',
-    requiredDatasets: [],
+    requiredDatasets: ['dubberCalls', 'enquiries', 'teamData'],
     tier: 'prod',
+  },
+  {
+    key: 'marketingPerformance',
+    name: 'Marketing',
+    status: 'Live draft',
+    action: 'marketingPerformance',
+    requiredDatasets: ['googleAnalytics', 'googleAds', 'enquiries', 'allMatters', 'recoveredFees'],
+    tier: 'devPreview',
+  },
+  {
+    key: 'seo',
+    name: 'SEO report',
+    status: '',
+    description: 'Organic search performance, attributable enquiries, matters, and fee outcome across the selected window.',
+    action: 'seoReport',
+    requiredDatasets: ['googleAnalytics', 'enquiries', 'allMatters'],
+    tier: 'devPreview',
   },
   {
     key: 'enquiries',
@@ -867,15 +1071,6 @@ const AVAILABLE_REPORTS: AvailableReport[] = [
   },
   // Meta ads tile intentionally removed — Meta is off across the Reports tab.
   // The Meta dataset, fetch path, and render block are also gated below.
-  {
-    key: 'seo',
-    name: 'SEO report',
-    status: 'Disabled',
-    action: 'seoReport',
-    requiredDatasets: ['googleAnalytics', 'googleAds'],
-    disabled: true,
-    tier: 'devPreview',
-  },
   {
     key: 'ppc',
     name: 'PPC report',
@@ -1442,6 +1637,22 @@ type ReportCard = AvailableReport & {
   totalDependencies: number;
 };
 
+const toProcessingRailStatus = (status: DatasetStatusValue): ReportProcessingRailStatus => {
+  if (status === 'ready') return 'ready';
+  if (status === 'loading') return 'loading';
+  if (status === 'error') return 'error';
+  return 'idle';
+};
+
+const summariseProcessingRailStatus = (rows: ReportProcessingRailRow[]): ReportProcessingRailStatus => {
+  if (rows.some((row) => row.status === 'blocked')) return 'blocked';
+  if (rows.some((row) => row.status === 'error')) return 'error';
+  if (rows.some((row) => row.status === 'warn')) return 'warn';
+  if (rows.some((row) => row.status === 'loading')) return 'loading';
+  if (rows.length > 0 && rows.every((row) => row.status === 'ready')) return 'ready';
+  return 'idle';
+};
+
 const conditionalButtonStyles = (isDarkMode: boolean, state: ButtonState): IButtonStyles => ({
   root: {
     borderRadius: 0,
@@ -1618,6 +1829,8 @@ const REPORT_NAV_TABS: { key: typeof ACTIVE_VIEW_TYPE; label: string; draft?: bo
   // â”€â”€ Prod â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   { key: 'dashboard' as const, label: 'Dashboard' },
   { key: 'receptionReport' as const, label: 'Reception' },
+  { key: 'marketingPerformance' as const, label: 'Marketing' },
+  { key: 'seoReport' as const, label: 'SEO', draft: true },
   { key: 'enquiries' as const, label: 'Enquiries' },
   { key: 'enquiryLedger' as const, label: 'Ledger' },
   { key: 'annualLeave' as const, label: 'Leave', draft: true },
@@ -1625,17 +1838,25 @@ const REPORT_NAV_TABS: { key: typeof ACTIVE_VIEW_TYPE; label: string; draft?: bo
   // â”€â”€ Draft (visually muted) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   { key: 'matters' as const, label: 'Matters', draft: true },
   { key: 'ppcReport' as const, label: 'PPC', draft: true },
-  { key: 'seoReport' as const, label: 'SEO', draft: true },
   { key: 'agedDebts' as const, label: 'Debts', draft: true },
   { key: 'calls' as const, label: 'Calls', draft: true },
   { key: 'responseTime' as const, label: 'Response Time', draft: true },
 ];
-type ActiveViewType = 'overview' | 'dashboard' | 'annualLeave' | 'enquiries' | 'enquiryLedger' | 'metaMetrics' | 'seoReport' | 'ppcReport' | 'matters' | 'logMonitor' | 'syncHistory' | 'dataCentre' | 'cacheMonitor' | 'agedDebts' | 'calls' | 'responseTime' | 'receptionReport';
+type ActiveViewType = 'overview' | 'dashboard' | 'annualLeave' | 'enquiries' | 'enquiryLedger' | 'metaMetrics' | 'seoReport' | 'ppcReport' | 'marketingPerformance' | 'matters' | 'logMonitor' | 'syncHistory' | 'dataCentre' | 'cacheMonitor' | 'agedDebts' | 'calls' | 'responseTime' | 'receptionReport';
 const ACTIVE_VIEW_TYPE: ActiveViewType = 'overview';
+const REPORT_PROCESSING_PANEL_PREVIEW_EVENT = 'helix:reports:simulate-processing-panel';
+const REPORT_PROCESSING_PANEL_PREVIEW_STORAGE_KEY = 'helix.reports.simulateProcessingPanel';
 
 interface ReportingNavigationRequest {
   view: ActiveViewType;
   requestedAt: number;
+}
+
+interface ProcessingRailRequest {
+  reportKey: string;
+  requestedAt: number;
+  settled?: boolean;
+  failed?: boolean;
 }
 
 // reportNavigatorBackStyles removed â€” now shared via NavigatorDetailBar
@@ -1720,6 +1941,130 @@ const formatCurrency = (amount: number): string => {
   return `£${(amount / 1000).toFixed(1)}k`;
 };
 
+const formatSnapshotCurrency = (amount: number): string => {
+  const abs = Math.abs(amount);
+  const prefix = amount < 0 ? '-£' : '£';
+  if (abs >= 1_000_000) {
+    return `${prefix}${(abs / 1_000_000).toFixed(1)}M`;
+  }
+  if (abs >= 1_000) {
+    return `${prefix}${(abs / 1_000).toFixed(1)}k`;
+  }
+  return `${prefix}${Math.round(abs).toLocaleString('en-GB')}`;
+};
+
+const formatSnapshotMetricValue = (metric: Pick<EntrySnapshotMetric, 'kind' | 'current'>): string =>
+  metric.kind === 'currency'
+    ? formatSnapshotCurrency(metric.current)
+    : Math.round(metric.current).toLocaleString('en-GB');
+
+const formatSnapshotDelta = (metric: EntrySnapshotMetric): string => {
+  const direction = metric.delta > 0 ? '+' : '';
+  if (metric.deltaPercent === null) {
+    return metric.delta === 0 ? 'level with previous month' : `${direction}${formatSnapshotMetricValue({ kind: metric.kind, current: metric.delta })} vs previous month`;
+  }
+  return `${direction}${metric.deltaPercent.toFixed(0)}% vs previous month`;
+};
+
+const formatSnapshotProjection = (metric: EntrySnapshotMetric): string =>
+  `${metric.kind === 'currency' ? formatSnapshotCurrency(metric.projected) : Math.round(metric.projected).toLocaleString('en-GB')} projected`;
+
+const buildEntryMonthPeriod = (anchor: Date, monthOffset: number, elapsedDays: number) => {
+  const start = new Date(anchor.getFullYear(), anchor.getMonth() + monthOffset, 1);
+  const daysInMonth = new Date(start.getFullYear(), start.getMonth() + 1, 0).getDate();
+  const cappedElapsedDays = Math.max(1, Math.min(elapsedDays, daysInMonth));
+  const end = new Date(start.getFullYear(), start.getMonth(), cappedElapsedDays, 23, 59, 59, 999);
+  return {
+    start,
+    end,
+    daysInMonth,
+    elapsedDays: cappedElapsedDays,
+    label: format(start, 'MMM yyyy'),
+  };
+};
+
+const isDateInPeriod = (date: Date | null, period: ReturnType<typeof buildEntryMonthPeriod>): boolean =>
+  Boolean(date && date >= period.start && date <= period.end);
+
+const getDateDayIndex = (date: Date | null): number | null => {
+  if (!date) {
+    return null;
+  }
+  return Math.max(0, date.getDate() - 1);
+};
+
+const sumEntriesForPeriod = <T,>(
+  rows: T[] | null | undefined,
+  period: ReturnType<typeof buildEntryMonthPeriod>,
+  getDate: (row: T) => Date | null,
+  getValue: (row: T) => number = () => 1,
+): number => {
+  if (!Array.isArray(rows)) {
+    return 0;
+  }
+  return rows.reduce((total, row) => {
+    const date = getDate(row);
+    return isDateInPeriod(date, period) ? total + getValue(row) : total;
+  }, 0);
+};
+
+const buildDailySeries = <T,>(
+  rows: T[] | null | undefined,
+  monthStart: Date,
+  days: number,
+  getDate: (row: T) => Date | null,
+  getValue: (row: T) => number,
+): number[] => {
+  const daily = Array.from({ length: days }, () => 0);
+  if (!Array.isArray(rows)) {
+    return daily;
+  }
+  const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth(), days, 23, 59, 59, 999);
+  rows.forEach((row) => {
+    const date = getDate(row);
+    const dayIndex = getDateDayIndex(date);
+    if (!date || dayIndex === null || date < monthStart || date > monthEnd || dayIndex >= days) {
+      return;
+    }
+    daily[dayIndex] += getValue(row);
+  });
+  return daily;
+};
+
+const cumulativeSeries = (daily: number[], limit?: number): number[] => {
+  let running = 0;
+  return daily.map((value, index) => {
+    if (limit === undefined || index < limit) {
+      running += value;
+    }
+    return running;
+  });
+};
+
+const buildSnapshotLine = (values: number[], maxValue: number, width = 420, top = 16, bottom = 118, totalPoints = values.length, startIndex = 0): string => {
+  if (values.length === 0) {
+    return '';
+  }
+  const denominator = Math.max(totalPoints - 1, 1);
+  const range = bottom - top;
+  return values.map((value, index) => {
+    const x = ((startIndex + index) / denominator) * width;
+    const y = bottom - ((maxValue <= 0 ? 0 : value / maxValue) * range);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+};
+
+const buildSnapshotArea = (points: string, width = 420, bottom = 118): string => {
+  if (!points) {
+    return '';
+  }
+  const segments = points.split(' ');
+  const firstPoint = segments[0] ?? '0,118';
+  const lastPoint = segments.at(-1) ?? `${width},118`;
+  const lineSegments = segments.length > 1 ? ` L${segments.slice(1).join(' L')}` : '';
+  return `M${firstPoint}${lineSegments} L${lastPoint.split(',')[0]},${bottom} L0,${bottom} Z`;
+};
+
 // Marketing Data Settings Component
 // (Removed MarketingDataSettingsProps; settings UI deleted)
 
@@ -1730,8 +2075,31 @@ interface ReportingHomeProps {
   teamData?: TeamData[] | null;
   demoModeEnabled?: boolean;
   featureToggles?: Record<string, boolean>;
+  localSupportSettings?: LocalSupportSettings | null;
   navigationRequest?: ReportingNavigationRequest | null;
   onNavigationRequestHandled?: (requestedAt: number) => void;
+}
+
+interface ReportingStructureModule {
+  module: string;
+  files: number;
+  lines: number;
+}
+
+interface ReportingStructureFile {
+  path: string;
+  module: string;
+  lines: number;
+}
+
+interface ReportingStructureSnapshot {
+  generatedAt: string;
+  totals: {
+    files: number;
+    lines: number;
+  };
+  modules: ReportingStructureModule[];
+  largestFiles: ReportingStructureFile[];
 }
 
 /**
@@ -1742,6 +2110,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
   teamData: propTeamData,
   demoModeEnabled = false,
   featureToggles,
+  localSupportSettings = null,
   navigationRequest = null,
   onNavigationRequestHandled,
 }) => {
@@ -1757,8 +2126,16 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
   const [enquiriesRangeKey, setEnquiriesRangeKey] = useState<ReportRangeKey>('12m');
   const [pendingEnquiriesRangeKey, setPendingEnquiriesRangeKey] = useState<ReportRangeKey>(enquiriesRangeKey);
   const [slimSelectedRangeKey, setSlimSelectedRangeKey] = useState<ReportRangeKey | null>(null);
+  const [slimReceptionRangeKey, setSlimReceptionRangeKey] = useState<ReportRangeKey | null>(null);
+  const [slimMarketingRangeKey, setSlimMarketingRangeKey] = useState<ReportRangeKey | null>(null);
+  const [slimSeoRangeKey, setSlimSeoRangeKey] = useState<ReportRangeKey | null>(null);
+  const [marketingReportPreparedRangeKey, setMarketingReportPreparedRangeKey] = useState<ReportRangeKey | null>(null);
+  const [seoReportPreparedRangeKey, setSeoReportPreparedRangeKey] = useState<ReportRangeKey | null>(null);
   const [slimRangeInvoked, setSlimRangeInvoked] = useState(false);
   const refreshRangeButtonRef = useRef<HTMLSpanElement | null>(null);
+  const isLocalReportsSurface = checkIsLocalDev(featureToggles);
+  const [reportingStructure, setReportingStructure] = useState<ReportingStructureSnapshot | null>(null);
+  const [reportingStructureStatus, setReportingStructureStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
 
   // Reports rides the shared .app-scroll-region. Hide its scrollbar chrome
   // while Reports is mounted, mirroring Matters/Home, and let the UserBubble
@@ -1772,6 +2149,39 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       region.classList.remove('reporting-scroll-region');
     };
   }, []);
+
+  useEffect(() => {
+    if (!isLocalReportsSurface) {
+      setReportingStructure(null);
+      setReportingStructureStatus('idle');
+      return;
+    }
+
+    const controller = new AbortController();
+    setReportingStructureStatus('loading');
+    fetch('/api/dev/reporting-structure', {
+      credentials: 'include',
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`Reporting structure failed (${response.status})`);
+        }
+        const payload = await response.json() as { ok?: boolean } & ReportingStructureSnapshot;
+        if (!payload.ok) {
+          throw new Error('Reporting structure unavailable');
+        }
+        setReportingStructure(payload);
+        setReportingStructureStatus('ready');
+      })
+      .catch((error) => {
+        if ((error as Error).name === 'AbortError') return;
+        debugWarn('Reporting structure load failed:', error);
+        setReportingStructureStatus('error');
+      });
+
+    return () => controller.abort();
+  }, [isLocalReportsSurface]);
   const [isRefreshRangeCalloutOpen, setRefreshRangeCalloutOpen] = useState(false);
   const mattersRangeWindow = useMemo(() => computeMattersRangeWindow(mattersWipRangeKey), [mattersWipRangeKey]);
   const enquiriesRangeWindow = useMemo(() => computeRangeWindowByKey(enquiriesRangeKey), [enquiriesRangeKey]);
@@ -1804,6 +2214,10 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
   const [dataHubHovered, setDataHubHovered] = useState(false);
   const [expandedReportCards, setExpandedReportCards] = useState<string[]>([]);
   const [activePrimaryCard, setActivePrimaryCard] = useState<string | null>(null); // Track which primary card is active
+  const [slimManagementHeaderHovered, setSlimManagementHeaderHovered] = useState(false);
+  const [slimManagementFooterHovered, setSlimManagementFooterHovered] = useState(false);
+  const [slimHoveredSecondaryReportKey, setSlimHoveredSecondaryReportKey] = useState<string | null>(null);
+  const [hoveredRangeEstimate, setHoveredRangeEstimate] = useState<{ ownerKey: string; rangeKey: ReportRangeKey } | null>(null);
   
   // Individual report loading states and progress tracking
   const [reportProgressStates, setReportProgressStates] = useState<{
@@ -1815,6 +2229,69 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       startTime?: number;
     }
   }>({});
+  const [processingRailRequests, setProcessingRailRequests] = useState<ProcessingRailRequest[]>([]);
+  const [activeProcessingPanelReportKey, setActiveProcessingPanelReportKey] = useState<string | null>(null);
+  const [activeProcessingPanelFolded, setActiveProcessingPanelFolded] = useState(false);
+  const [activeProcessingPanelForcedOpen, setActiveProcessingPanelForcedOpen] = useState(false);
+  const [activeProcessingPanelManualFolded, setActiveProcessingPanelManualFolded] = useState<boolean | null>(null);
+  const [receptionReportSnapshot, setReceptionReportSnapshot] = useState<{
+    rangeKey: ReportShellRangeKey;
+    range: { start: Date; end: Date };
+    from: string;
+    to: string;
+    data: ReceptionKpisResponse;
+    loadedAt: number;
+  } | null>(null);
+  const [receptionReportStatus, setReceptionReportStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const receptionReportRequestIdRef = useRef(0);
+  const [simulatedProcessingPanelVisible, setSimulatedProcessingPanelVisible] = useState(false);
+
+  const requestProcessingRailReport = useCallback((reportKey: string) => {
+    setActiveProcessingPanelReportKey(reportKey);
+    setProcessingRailRequests((current) => {
+      const nextRequest: ProcessingRailRequest = { reportKey, requestedAt: Date.now(), settled: false, failed: false };
+      return [...current.filter((request) => request.reportKey !== reportKey), nextRequest];
+    });
+  }, []);
+
+  const settleProcessingRailReport = useCallback((reportKey: string, ready: boolean) => {
+    setProcessingRailRequests((current) => current.map((request) => (
+      request.reportKey === reportKey
+        ? { ...request, settled: true, failed: !ready }
+        : request
+    )));
+  }, []);
+
+  const clearProcessingRailReport = useCallback((reportKey: string) => {
+    setProcessingRailRequests((current) => current.filter((request) => request.reportKey !== reportKey));
+    setActiveProcessingPanelReportKey((current) => current === reportKey ? null : current);
+  }, []);
+
+  const hideSimulatedProcessingPanel = useCallback(() => {
+    setSimulatedProcessingPanelVisible(false);
+  }, []);
+
+  const hideActiveProcessingPanel = useCallback(() => {
+    setActiveProcessingPanelReportKey(null);
+  }, []);
+
+  const simulatedProcessingPanelItem: ReportProcessingRailItem = {
+    key: 'simulated-report-processing',
+    title: 'Refreshing Marketing',
+    subtitle: 'Preview panel for report refresh work.',
+    status: 'loading',
+    rows: [
+      { key: 'googleAnalytics', label: 'Google Analytics', status: 'loading', detail: 'Fetching latest daily rows' },
+      { key: 'googleAds', label: 'Google Ads', status: 'ready', detail: 'Spend and conversion rows loaded' },
+      { key: 'enquiries', label: 'Enquiries', status: 'ready', detail: 'Outcome data available' },
+      { key: 'allMatters', label: 'Matters', status: 'idle', detail: 'Waiting for revenue match' },
+    ],
+    ctaLabel: 'Hide preview',
+    onCta: hideSimulatedProcessingPanel,
+    detail: 'Session preview only. No refresh has been run.',
+    elapsedLabel: 'Preview',
+    visualIcon: 'Sync',
+  };
 
   const [resumeNotice, setResumeNotice] = useState<{ message: string; startedAt: number } | null>(null);
   const resumeNoticeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -1822,6 +2299,19 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
   const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
   const [testMode, setTestMode] = useState(() => demoModeEnabled);
   // (Removed marketing data settings state; always fetch 24 months)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const showPanel = () => setSimulatedProcessingPanelVisible(true);
+    try {
+      if (window.sessionStorage.getItem(REPORT_PROCESSING_PANEL_PREVIEW_STORAGE_KEY) === '1') {
+        window.sessionStorage.removeItem(REPORT_PROCESSING_PANEL_PREVIEW_STORAGE_KEY);
+        showPanel();
+      }
+    } catch { /* ignore storage errors */ }
+    window.addEventListener(REPORT_PROCESSING_PANEL_PREVIEW_EVENT, showPanel);
+    return () => window.removeEventListener(REPORT_PROCESSING_PANEL_PREVIEW_EVENT, showPanel);
+  }, []);
 
   useEffect(() => {
     if (!navigationRequest) {
@@ -1884,11 +2374,78 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
         throw new Error(`Google Analytics fetch failed: ${response.status}`);
       }
 
-      return await response.json();
+      // The GA4 route returns `{ success, data: [...], dateRange, source }`.
+      // Older callers expected a bare array, so accept either shape.
+      const payload = await response.json();
+      if (Array.isArray(payload)) {
+        return payload as GoogleAnalyticsData[];
+      }
+      if (Array.isArray((payload as { data?: GoogleAnalyticsData[] })?.data)) {
+        return (payload as { data: GoogleAnalyticsData[] }).data;
+      }
+      return [];
     } catch (error) {
       console.error('Error fetching Google Analytics data:', error);
       throw error;
     }
+  }, []);
+
+  const prepareReceptionReport = useCallback(async (rangeKey: ReportRangeKey): Promise<boolean> => {
+    const { range, from, to } = getReceptionReportWindow(rangeKey);
+    if (
+      receptionReportStatus === 'ready'
+      && receptionReportSnapshot?.from === from
+      && receptionReportSnapshot?.to === to
+    ) {
+      return receptionReportHasData(receptionReportSnapshot.data);
+    }
+
+    const requestId = receptionReportRequestIdRef.current + 1;
+    receptionReportRequestIdRef.current = requestId;
+    setReceptionReportStatus('loading');
+
+    try {
+      const response = await fetch(`/api/reporting/reception-kpis?from=${from}&to=${to}`, { credentials: 'include' });
+      if (!response.ok) {
+        throw new Error(`Reception KPIs request failed (${response.status})`);
+      }
+      const payload = await response.json() as ReceptionKpisResponse;
+      if (receptionReportRequestIdRef.current !== requestId) {
+        return false;
+      }
+      const loadedAt = Date.now();
+      setReceptionReportSnapshot({
+        rangeKey: 'custom',
+        range,
+        from,
+        to,
+        data: payload,
+        loadedAt,
+      });
+      setReceptionReportStatus('ready');
+      return receptionReportHasData(payload);
+    } catch (error) {
+      if (receptionReportRequestIdRef.current === requestId) {
+        setReceptionReportStatus('error');
+        showToast({
+          message: 'Reception report could not be prepared. Try again from the card.',
+          type: 'error',
+          duration: 6000,
+        });
+      }
+      debugWarn('ReportingHome: Failed to prepare Reception report', error);
+      return false;
+    }
+  }, [receptionReportSnapshot, receptionReportStatus, showToast]);
+
+  const prepareSeoReport = useCallback((rangeKey: ReportRangeKey): boolean => {
+    setSeoReportPreparedRangeKey(rangeKey);
+    return true;
+  }, []);
+
+  const prepareMarketingReport = useCallback((rangeKey: ReportRangeKey): boolean => {
+    setMarketingReportPreparedRangeKey(rangeKey);
+    return true;
   }, []);
 
   // Fetch Google Ads data with time range
@@ -1973,6 +2530,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
   // directive that locked the prod surface to Management Dashboard, Enquiries
   // Report, and Enquiry Ledger.
   const effective = useEffectivePermissions(primaryUser);
+  const isLocalReportsHost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
   // Enquiry ledger is now a prod-tier report alongside Management Dashboard
   // and Enquiries Report (per directive 2026-04-30). It rides the same
   // canAccessReports check as the rest of the Reports tab.
@@ -1987,13 +2545,20 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
   // works in production and prevents flaky third-party endpoints (Meta / GA4 /
   // Google Ads / Dubber) from slowing or blocking everyone else.
   const isReportsDevPreview = useMemo(
-    () => canSeePrivateHubControls(primaryUser) && !featureToggles?.viewAsProd,
-    [primaryUser, featureToggles?.viewAsProd],
+    () => canSeeReportsDevPreview(primaryUser),
+    [primaryUser],
   );
   const canAccessReportingOps = useMemo(
     () => Boolean(primaryUser) && effective.canAccessReports,
     [primaryUser, effective.canAccessReports]
   );
+  // Data Hub is a production-tier surface; limit visibility to the prod
+  // audience (Emma / Luke / Alex) so only they see the Data Centre entry in Reports.
+  const canAccessDataHub = useMemo(() => {
+    if (!primaryUser) return false;
+    const initials = String(primaryUser.Initials ?? '').toUpperCase().trim();
+    return initials === 'LZ' || initials === 'AC' || initials === 'EA';
+  }, [primaryUser]);
 
   useEffect(() => {
     if (!canAccessReportingOps) {
@@ -2006,6 +2571,12 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       setActiveView('overview');
     }
   }, [activeView, canViewEnquiryLedger]);
+
+  useEffect(() => {
+    if (activeView === 'dataCentre' && !canAccessDataHub) {
+      setActiveView('overview');
+    }
+  }, [activeView, canAccessDataHub]);
 
   const reportingOpsRows = useMemo(() => {
     const priority: Record<DatasetStatusValue, number> = {
@@ -2035,37 +2606,36 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     prevIsFetchingRef.current = isFetching;
 
     if (isFetching && !wasFetching) {
-      // Starting to fetch - clear any orphaned loading toast from previous instance
+      // Inline morphing cards and the dashboard prep state now own the loading
+      // surface. Just clear any orphaned toast from a previous instance.
       if (loadingToastIdRef.current) {
         hideToast(loadingToastIdRef.current);
+        loadingToastIdRef.current = null;
       }
-      const slimRangeLabel = slimDashboardRangeToastLabelRef.current;
-      const toastId = showToast({
-        type: 'loading',
-        title: slimRangeLabel ? 'Preparing dashboard' : 'Loading Reporting Data',
-        message: slimRangeLabel
-          ? `Pulling ${slimRangeLabel} of reporting data. The dashboard CTA will unlock when the feeds are ready.`
-          : 'Fetching latest data. You can continue browsing - we\'ll notify you when it\'s ready.',
-      });
-      loadingToastIdRef.current = toastId;
     } else if (!isFetching && wasFetching) {
       // Finished fetching - hide loading toast and show success
       if (loadingToastIdRef.current) {
         hideToast(loadingToastIdRef.current);
         loadingToastIdRef.current = null;
       }
+      const reportSpecificPanelActive = activeProcessingPanelReportKey !== null || processingRailRequests.length > 0;
       const slimRangeLabel = slimDashboardRangeToastLabelRef.current;
-      showToast({
-        type: 'success',
-        title: slimRangeLabel ? 'Dashboard data ready' : 'Data Ready',
-        message: slimRangeLabel
-          ? `The dashboard feeds are ready for ${slimRangeLabel}.`
-          : 'Reporting data has been refreshed.',
-        action: slimRangeLabel ? undefined : {
-          label: 'View Reports',
-          onClick: () => setActiveView('overview'),
-        },
-      });
+      if (slimRangeLabel) {
+        // Dashboard range refresh now uses the processing rail panel instead of a toast.
+        slimDashboardRangeToastLabelRef.current = null;
+        return;
+      }
+      if (!reportSpecificPanelActive) {
+        showToast({
+          type: 'success',
+          title: 'Data Ready',
+          message: 'Reporting data has been refreshed.',
+          action: {
+            label: 'View Reports',
+            onClick: () => setActiveView('overview'),
+          },
+        });
+      }
       slimDashboardRangeToastLabelRef.current = null;
     }
 
@@ -2077,7 +2647,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
         loadingToastIdRef.current = null;
       }
     };
-  }, [isFetching, showToast, hideToast]);
+  }, [activeProcessingPanelReportKey, isFetching, processingRailRequests.length, showToast, hideToast]);
 
   const buildDemoDatasets = useCallback((): DatasetMap => {
     const now = new Date();
@@ -2854,7 +3424,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
 
   // Fetch Google Ads data for enquiries range when opening PPC report
   useEffect(() => {
-    if (activeView !== 'ppcReport') {
+    if (activeView !== 'ppcReport' && activeView !== 'marketingPerformance') {
       return undefined;
     }
 
@@ -2928,9 +3498,18 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     return typeof statusTs === 'number' && Number.isFinite(statusTs) ? statusTs : null;
   }, [ppcGoogleAdsUpdatedAt, datasetStatus.googleAds?.updatedAt]);
 
-  // Fetch Google Analytics data for enquiries range when opening SEO report
+  // Fetch Google Analytics data for enquiries range when opening SEO or Marketing report
   useEffect(() => {
-    if (activeView !== 'seoReport') {
+    if (activeView !== 'seoReport' && activeView !== 'marketingPerformance') {
+      return undefined;
+    }
+
+    const existingGoogleAnalyticsRows = datasetData.googleAnalytics ?? cachedData.googleAnalytics;
+    if (
+      Array.isArray(existingGoogleAnalyticsRows)
+      && existingGoogleAnalyticsRows.length > 0
+      && datasetStatus.googleAnalytics?.status === 'ready'
+    ) {
       return undefined;
     }
 
@@ -2964,7 +3543,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
         if (cancelled || controller.signal.aborted) {
           return;
         }
-        console.error('ReportingHome: Failed to fetch Google Analytics data for SEO report', error);
+        console.error('ReportingHome: Failed to fetch Google Analytics data for website analytics report', error);
         setDatasetStatus(prev => ({
           ...prev,
           googleAnalytics: { status: 'error', updatedAt: prev.googleAnalytics?.updatedAt ?? null },
@@ -2975,7 +3554,25 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       cancelled = true;
       controller.abort();
     };
-  }, [activeView, fetchGoogleAnalyticsData]);
+  }, [activeView, datasetData.googleAnalytics, datasetStatus.googleAnalytics?.status, fetchGoogleAnalyticsData]);
+
+  const marketingEnquiriesRefreshKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (activeView !== 'marketingPerformance') return;
+
+    const rangeKey = marketingReportPreparedRangeKey ?? slimMarketingRangeKey ?? '12m';
+    const range = computeRangeWindowByKey(rangeKey);
+    const refreshKey = `${rangeKey}:${range.start.toISOString()}:${range.end.toISOString()}`;
+    if (marketingEnquiriesRefreshKeyRef.current === refreshKey) return;
+    marketingEnquiriesRefreshKeyRef.current = refreshKey;
+
+    setStatusesFor(['enquiries'], 'loading');
+    startStreamingWithMemo({
+      datasets: ['enquiries'],
+      bypassCache: true,
+      queryParams: buildEnquiriesRangeParams(range),
+    });
+  }, [activeView, marketingReportPreparedRangeKey, setStatusesFor, slimMarketingRangeKey, startStreamingWithMemo]);
 
   useEffect(() => {
     if (activeView === 'overview') {
@@ -3005,13 +3602,15 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       cacheMonitor: 'Cache Monitor',
     };
 
-    // Draft tabs: always visible locally (unless viewAsProd); in prod only for LZ/AW
+    // Draft tabs: visible locally, and SEO remains visible to the Reports dev-preview audience in prod view.
     const isLocalNow = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
     const isViewingAsProd = Boolean(featureToggles?.viewAsProd);
     const initials = extractUserInitials(propUserData);
     // Prod-tier nav tabs (visible to every reports user). Mirrors
     // AVAILABLE_REPORTS entries marked tier: 'prod'.
-    const PROD_TAB_KEYS = ['dashboard', 'receptionReport'];
+    const PROD_TAB_KEYS = isReportsDevPreview
+      ? ['dashboard', 'receptionReport']
+      : ['dashboard', 'receptionReport'];
     const visibleTabs = REPORT_NAV_TABS.filter((tab) => {
       if (tab.key === 'receptionReport' && !canSeeReceptionReport(initials)) {
         return false;
@@ -3038,7 +3637,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
 
     // No cleanup: see comment above about avoiding the navigator-clear race
     // when this tab unmounts during a tab switch.
-  }, [activeView, canViewEnquiryLedger, handleBackToOverview, isDarkMode, setContent, propUserData, featureToggles]);
+  }, [activeView, canViewEnquiryLedger, handleBackToOverview, isDarkMode, setContent, propUserData, featureToggles, isReportsDevPreview]);
 
   const fetchAnnualLeaveDataset = useCallback(async (forceRefresh: boolean): Promise<AnnualLeaveFetchResult> => {
     const endpoint = forceRefresh ? '/api/attendance/getAnnualLeave?forceRefresh=true' : '/api/attendance/getAnnualLeave';
@@ -3586,10 +4185,10 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     }
   }, [fetchMetaMetrics, setStatusesFor, isFetching, datasetStatus.metaMetrics, showToast, metaDaysBack]);
 
-  const refreshGoogleAnalyticsOnly = useCallback(async () => {
+  const refreshGoogleAnalyticsOnly = useCallback(async (rangeKey: ReportRangeKey = enquiriesRangeKey) => {
     if (datasetStatus.googleAnalytics?.status === 'loading') {
       showToast({
-        message: 'SEO analytics refresh already running. We are still pulling the latest GA4 data.',
+        message: 'GA4 refresh already running. We are still pulling the latest website analytics data.',
         type: 'info',
         duration: 4000,
       });
@@ -3605,7 +4204,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     }));
 
     try {
-      const rows = await fetchGoogleAnalyticsData(RANGE_MONTH_LOOKUP[enquiriesRangeKey]);
+      const rows = await fetchGoogleAnalyticsData(RANGE_MONTH_LOOKUP[rangeKey]);
       if (googleAnalyticsRequestIdRef.current !== requestId) {
         return;
       }
@@ -3620,7 +4219,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       cachedTimestamp = now;
       updateRefreshTimestamp(now, setLastRefreshTimestamp);
       showToast({
-        message: `SEO analytics updated - loaded ${data.length} GA4 rows`,
+        message: `Website analytics updated - loaded ${data.length} GA4 rows`,
         type: 'success',
         duration: 5000,
       });
@@ -3629,19 +4228,19 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
         // Request was aborted, no notification needed
         return;
       }
-      console.error('ReportingHome: Failed to refresh Google Analytics data', error);
+      console.error('ReportingHome: Failed to refresh website analytics data', error);
       setDatasetStatus(prev => ({
         ...prev,
         googleAnalytics: { status: 'error', updatedAt: prev.googleAnalytics?.updatedAt ?? null },
       }));
       setError(error instanceof Error ? error.message : 'Failed to refresh Google Analytics data');
       showToast({
-        message: `SEO analytics refresh failed: ${error instanceof Error ? error.message : 'Unexpected error'}`,
+        message: `Website analytics refresh failed: ${error instanceof Error ? error.message : 'Unexpected error'}`,
         type: 'error',
         duration: 7000,
       });
     }
-  }, [datasetStatus.googleAnalytics?.status, fetchGoogleAnalyticsData, showToast]);
+  }, [datasetStatus.googleAnalytics?.status, enquiriesRangeKey, fetchGoogleAnalyticsData, showToast]);
 
   const refreshGoogleAdsOnly = useCallback(async () => {
     if (datasetStatus.googleAds?.status === 'loading') {
@@ -4073,14 +4672,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     setRefreshStartedAt(null);
     
     debugLog('ReportingHome: Streaming completed, clearing fetch state');
-
-    const duration = startedAt ? Date.now() - startedAt : 0;
-    showToast({
-      message: duration > 0 ? `Reporting data refreshed. Completed in ${formatElapsedTime(duration)}` : 'Reporting data refreshed',
-      type: 'success',
-      duration: 5000,
-    });
-  }, [isStreamingComplete, isStreamingConnected, showToast]);
+  }, [isStreamingComplete, isStreamingConnected]);
 
   // Safety timeout: if streaming takes longer than 10 minutes, forcefully clear the loading state
   // This prevents the UI from getting stuck in a loading state if something goes wrong
@@ -4241,12 +4833,22 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
   }, [preloadReportingCache]);
 
   // Targeted refresh function that only refreshes specific datasets needed for a report
-  const refreshSpecificDatasets = useCallback(async (datasets: DatasetKey[], reportName: string) => {
+  const refreshSpecificDatasets = useCallback(async (datasets: DatasetKey[], reportName: string, options?: SpecificRefreshOptions) => {
     const now = Date.now();
     const timeSinceGlobalRefresh = now - globalLastRefresh;
+    const effectiveEnquiriesKey = options?.rangeOverrides?.enquiriesRangeKey ?? enquiriesRangeKey;
+    const effectiveMattersKey = options?.rangeOverrides?.mattersRangeKey ?? mattersWipRangeKey;
+    const effectiveEnquiriesRange = computeRangeWindowByKey(effectiveEnquiriesKey);
+    const effectiveMattersRange = computeMattersRangeWindow(effectiveMattersKey);
+    const effectiveMetaDaysBack = computeMetaDaysBackForRange(effectiveEnquiriesKey);
+    const streamingRangeOverride = {
+      ...buildMattersRangeParams(effectiveMattersRange),
+      ...buildEnquiriesRangeParams(effectiveEnquiriesRange),
+      ...buildMetaRangeParams(effectiveEnquiriesKey),
+    };
     
     // Check global cooldown
-    if (timeSinceGlobalRefresh < GLOBAL_REFRESH_COOLDOWN) {
+    if (!options?.bypassCooldown && timeSinceGlobalRefresh < GLOBAL_REFRESH_COOLDOWN) {
       showToast({
         message: `Please wait ${Math.round((GLOBAL_REFRESH_COOLDOWN - timeSinceGlobalRefresh) / 1000)}s before refreshing again`,
         type: 'info'
@@ -4279,7 +4881,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
 
       // Start streaming for supported datasets
       if (supportedStreamingDatasets.length > 0) {
-        startStreamingWithMemo({ datasets: supportedStreamingDatasets, bypassCache: true });
+        startStreamingWithMemo({ datasets: supportedStreamingDatasets, bypassCache: true, queryParams: streamingRangeOverride });
       }
 
       // Handle special datasets individually
@@ -4292,17 +4894,17 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
             setDatasetStatus(prev => ({ ...prev, annualLeave: { status: 'ready', updatedAt: now } }));
             cachedData = { ...cachedData, annualLeave: result.records };
           } else if (datasetKey === 'metaMetrics') {
-            const metrics = await fetchMetaMetrics(metaDaysBack);
+            const metrics = await fetchMetaMetrics(effectiveMetaDaysBack);
             setDatasetData(prev => ({ ...prev, metaMetrics: metrics }));
             setDatasetStatus(prev => ({ ...prev, metaMetrics: { status: 'ready', updatedAt: now } }));
             cachedData = { ...cachedData, metaMetrics: metrics };
           } else if (datasetKey === 'googleAnalytics') {
-            const data = await fetchGoogleAnalyticsData(RANGE_MONTH_LOOKUP[enquiriesRangeKey]);
+            const data = await fetchGoogleAnalyticsData(RANGE_MONTH_LOOKUP[effectiveEnquiriesKey]);
             setDatasetData(prev => ({ ...prev, googleAnalytics: data }));
             setDatasetStatus(prev => ({ ...prev, googleAnalytics: { status: 'ready', updatedAt: now } }));
             cachedData = { ...cachedData, googleAnalytics: data };
           } else if (datasetKey === 'googleAds') {
-            const data = await fetchGoogleAdsData(RANGE_MONTH_LOOKUP[enquiriesRangeKey]);
+            const data = await fetchGoogleAdsData(RANGE_MONTH_LOOKUP[effectiveEnquiriesKey]);
             setDatasetData(prev => ({ ...prev, googleAds: data }));
             setDatasetStatus(prev => ({ ...prev, googleAds: { status: 'ready', updatedAt: now } }));
             cachedData = { ...cachedData, googleAds: data };
@@ -4318,17 +4920,15 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       updateRefreshTimestamp(now, setLastRefreshTimestamp);
 
       if (errors.length > 0) {
-        showToast({
-          message: `${reportName} partially refreshed. Some datasets failed: ${errors.join(', ')}`,
-          type: 'warning',
-          duration: 7000,
-        });
+        return false;
       } else {
-        showToast({
-          message: `${reportName} data refreshed. All required data updated successfully.`,
-          type: 'success',
-          duration: 5000,
-        });
+        // Intentionally no success toast here. The slim card already shows
+        // a Loading pill and per-feed status dots, and the report opens
+        // immediately after this resolves. Firing a 'data updated' toast at
+        // this point is misleading because most reports kick off further,
+        // in-report loads on mount (e.g. SEO dimensions), which the user then
+        // sees as a separate loading state. Keep the surface joined up:
+        // status lives on the card, then in the report itself.
       }
 
       return true;
@@ -4346,7 +4946,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       setIsFetching(false);
       setRefreshStartedAt(null);
     }
-  }, [datasetStatus, setStatusesFor, startStreamingWithMemo, fetchAnnualLeaveDataset, fetchMetaMetrics, fetchGoogleAnalyticsData, fetchGoogleAdsData, showToast, metaDaysBack]);
+  }, [datasetStatus, enquiriesRangeKey, mattersWipRangeKey, setStatusesFor, startStreamingWithMemo, fetchAnnualLeaveDataset, fetchMetaMetrics, fetchGoogleAnalyticsData, fetchGoogleAdsData, showToast]);
 
   // ─── Trust gate (Phase B — visible to all users) ───
   // See docs/notes/MANAGEMENT_DASHBOARD_TRUST_GATE.md
@@ -4421,22 +5021,14 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
   // CTA visually disabled until backend signals are confirmed green.
   const trustGateNotReady = trustGateEnabled && !trustGateOverridden && trustGateOverall !== 'ready';
 
-  // Slim Reports surface: everyone except the dev owner (LZ) sees a
-  // stripped-back workspace — page header (title + gear/refresh + Open
-  // Dashboard CTA) and a single Management Dashboard hero card. Per the
-  // 2026-05-12 follow-up: AC also sees slim, only Luke sees the full
-  // workspace. If blocked, we auto-fire remediation and let the existing
-  // teamsEscalation helper DM Luke after the attempt ceiling.
-  const isSlimReports = !isDevOwner(primaryUser) || Boolean(featureToggles?.viewAsProd);
-
-  useEffect(() => {
-    if (!isSlimReports || activeView !== 'overview') {
-      return;
-    }
-    setSlimSelectedRangeKey(null);
-    setSlimRangeInvoked(false);
-    slimDashboardRangeToastLabelRef.current = null;
-  }, [activeView, isSlimReports]);
+  // Slim Reports surface: everyone outside the Reports dev-preview audience sees
+  // the stripped-back workspace. LZ and AC stay on the full report surface by
+  // default so dev-preview reports can be tested, but flipping the session-tools
+  // View as Prod toggle simulates the slim surface for them too. Their card
+  // whitelist (including SEO) still applies, so the SEO tile keeps showing up
+  // in the slim secondary reports strip.
+  const isSlimReports = !isReportsDevPreview || Boolean(featureToggles?.viewAsProd);
+  const showLegacyReportsChrome = !isSlimReports && !isLocalReportsSurface;
 
   const { state: slimRemediateState, remediate: slimRemediate } = useReadinessRemediate('collectedMtd');
   const slimRemediateFiredForRef = useRef<string | null>(null);
@@ -4470,14 +5062,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
         message: trustGateBlockerDetail || 'Use the indicator next to the Management Dashboard tile to refresh and retry.',
       });
       return;
-    }
-
-    // Demo mode bypasses the slim period gate. If the operator opens the
-    // dashboard without picking a range first, fall back to 12 months at
-    // click-time so the dashboard has a window to fetch against, without
-    // pre-empting the period invoke before the user has touched it.
-    if (demoModeEnabled && slimSelectedRangeKey === null) {
-      setSlimSelectedRangeKey('12m');
     }
 
     // Immediately show loading state for better UX
@@ -4658,22 +5242,122 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     isFetching && (isStreamingConnected || refreshStartedAt !== null) && !isStreamingComplete, 
     [isFetching, isStreamingConnected, refreshStartedAt, isStreamingComplete]
   );
+  const entrySnapshotDateKey = format(currentTime, 'yyyy-MM-dd');
+  const showEntrySnapshot = isLocalReportsSurface && !Boolean(featureToggles?.viewAsProd);
+  const entrySnapshot = useMemo<EntrySnapshotModel>(() => {
+    const anchor = new Date(`${entrySnapshotDateKey}T12:00:00`);
+    const elapsedDays = Math.max(1, anchor.getDate());
+    const currentPeriod = buildEntryMonthPeriod(anchor, 0, elapsedDays);
+    const previousPeriod = buildEntryMonthPeriod(anchor, -1, elapsedDays);
+
+    const getEnquiryDate = (row: Enquiry) => parseDateLoose(row.Date_Created || row.Touchpoint_Date);
+    const getMatterDate = (row: Matter) => parseDateLoose(row.OpenDate);
+    const getInstructionDate = (row: InstructionRecord) => parseDateLoose(row.SubmissionDate || row.CreatedDate);
+    const getWipDate = (row: WIP) => parseDateLoose(row.date || row.created_at);
+    const getRecoveredDate = (row: RecoveredFee) => parseDateLoose(row.payment_date);
+
+    const enquiriesCurrent = sumEntriesForPeriod(datasetData.enquiries, currentPeriod, getEnquiryDate);
+    const enquiriesPrevious = sumEntriesForPeriod(datasetData.enquiries, previousPeriod, getEnquiryDate);
+    const mattersCurrent = sumEntriesForPeriod(datasetData.allMatters, currentPeriod, getMatterDate);
+    const mattersPrevious = sumEntriesForPeriod(datasetData.allMatters, previousPeriod, getMatterDate);
+    const instructionsCurrent = sumEntriesForPeriod(datasetData.instructions, currentPeriod, getInstructionDate);
+    const instructionsPrevious = sumEntriesForPeriod(datasetData.instructions, previousPeriod, getInstructionDate);
+    const wipCurrent = sumEntriesForPeriod(datasetData.wip, currentPeriod, getWipDate, (row) => toNumberSafe(row.total));
+    const wipPrevious = sumEntriesForPeriod(datasetData.wip, previousPeriod, getWipDate, (row) => toNumberSafe(row.total));
+    const collectedCurrent = sumEntriesForPeriod(datasetData.recoveredFees, currentPeriod, getRecoveredDate, (row) => toNumberSafe(row.payment_allocated));
+    const collectedPrevious = sumEntriesForPeriod(datasetData.recoveredFees, previousPeriod, getRecoveredDate, (row) => toNumberSafe(row.payment_allocated));
+
+    const makeMetric = (
+      key: EntrySnapshotMetricKey,
+      label: string,
+      kind: EntrySnapshotMetricKind,
+      current: number,
+      previous: number,
+      note: string,
+      conversionNote?: string,
+    ): EntrySnapshotMetric => {
+      const delta = current - previous;
+      const deltaPercent = previous > 0 ? (delta / previous) * 100 : current === 0 ? 0 : null;
+      const projected = (current / currentPeriod.elapsedDays) * currentPeriod.daysInMonth;
+      return { key, label, kind, current, previous, delta, deltaPercent, projected, note, conversionNote };
+    };
+
+    const formatConversion = (value: number, base: number, suffix: string) => (
+      base > 0 ? `${((value / base) * 100).toFixed(0)}% ${suffix}` : `No ${suffix.replace('of ', '')} base yet`
+    );
+
+    const currentCollectedDaily = buildDailySeries(datasetData.recoveredFees, currentPeriod.start, currentPeriod.daysInMonth, getRecoveredDate, (row) => toNumberSafe(row.payment_allocated));
+    const previousCollectedDailyRaw = buildDailySeries(datasetData.recoveredFees, previousPeriod.start, previousPeriod.daysInMonth, getRecoveredDate, (row) => toNumberSafe(row.payment_allocated));
+    const previousCollectedDaily = Array.from({ length: currentPeriod.daysInMonth }, (_, index) => previousCollectedDailyRaw[index] ?? 0);
+    const currentActualValues = cumulativeSeries(currentCollectedDaily, currentPeriod.elapsedDays).slice(0, currentPeriod.elapsedDays);
+    const currentTotal = currentActualValues.at(-1) ?? 0;
+    const dailyAverage = currentTotal / currentPeriod.elapsedDays;
+    const projectedValues = Array.from({ length: currentPeriod.daysInMonth }, (_, index) => (
+      index < currentPeriod.elapsedDays
+        ? currentActualValues[index] ?? currentTotal
+        : currentTotal + (dailyAverage * (index + 1 - currentPeriod.elapsedDays))
+    ));
+    const previousValues = cumulativeSeries(previousCollectedDaily);
+    const maxValue = Math.max(1, ...currentActualValues, ...projectedValues, ...previousValues);
+    const currentLine = buildSnapshotLine(currentActualValues, maxValue, 420, 16, 118, currentPeriod.daysInMonth);
+    const previousLine = buildSnapshotLine(previousValues, maxValue, 420, 16, 118, currentPeriod.daysInMonth);
+    const projectionLine = buildSnapshotLine(projectedValues, maxValue, 420, 16, 118, currentPeriod.daysInMonth);
+
+    const readyFeeds = (['enquiries', 'allMatters', 'instructions', 'wip', 'recoveredFees'] as DatasetKey[])
+      .filter((key) => datasetStatus[key]?.status === 'ready' || (Array.isArray(datasetData[key]) && (datasetData[key] as unknown[]).length > 0))
+      .length;
+
+    return {
+      currentLabel: currentPeriod.label,
+      previousLabel: `${previousPeriod.label} to day ${previousPeriod.elapsedDays}`,
+      elapsedDays: currentPeriod.elapsedDays,
+      daysInMonth: currentPeriod.daysInMonth,
+      pipeline: [
+        makeMetric('enquiries', 'Enquiries', 'count', enquiriesCurrent, enquiriesPrevious, `${currentPeriod.elapsedDays}/${currentPeriod.daysInMonth} days in`, 'Entry volume'),
+        makeMetric('matters', 'Matters', 'count', mattersCurrent, mattersPrevious, 'Opened matters', formatConversion(mattersCurrent, enquiriesCurrent, 'of enquiries')),
+        makeMetric('instructions', 'Instructions', 'count', instructionsCurrent, instructionsPrevious, 'Confirmed outcomes', formatConversion(instructionsCurrent, mattersCurrent, 'of matters')),
+      ],
+      money: [
+        makeMetric('wip', 'WIP', 'currency', wipCurrent, wipPrevious, 'Recorded value'),
+        makeMetric('collected', 'Collected', 'currency', collectedCurrent, collectedPrevious, 'Cash recovered'),
+      ],
+      collectedChart: {
+        currentLine,
+        previousLine,
+        projectionLine,
+        currentArea: buildSnapshotArea(currentLine),
+        maxValue,
+      },
+      readyCount: readyFeeds,
+      totalFeeds: 5,
+    };
+  }, [datasetData.allMatters, datasetData.enquiries, datasetData.instructions, datasetData.recoveredFees, datasetData.wip, datasetStatus, entrySnapshotDateKey]);
   
   // Reports are always clickable â€” handleReportCardClick lazy-loads datasets on demand
   const canUseReports = true;
 
   // Function to handle report card clicks with loading feedback
-  const handleReportCardClick = async (reportKey: string, action: () => void | Promise<void>, dependencies: string[]) => {
+  const handleReportCardClick = async (
+    reportKey: string,
+    action: () => void | Promise<void>,
+    dependencies: string[],
+    prepareReport?: () => boolean | Promise<boolean>,
+    options?: SpecificRefreshOptions & { forceRefresh?: boolean },
+  ) => {
     const isCurrentlyLoading = reportProgressStates[reportKey]?.isLoading || reportLoadingStates[reportKey as keyof typeof reportLoadingStates];
     
     if (isCurrentlyLoading) {
       return; // Don't allow clicks while loading
     }
 
+    const reportName = AVAILABLE_REPORTS.find(r => r.key === reportKey)?.name || reportKey;
+    const shouldQueueReport = Boolean(REPORT_DATASET_REQUIREMENTS[reportKey]);
+    if (shouldQueueReport) requestProcessingRailReport(reportKey);
+
     // Check if data needs to be refreshed
     // 'loading' is NOT treated as needing a new refresh â€” it means a fetch is already in progress.
     // Only 'idle', 'error', or missing status triggers a fresh load.
-    const needsRefresh = dependencies.some(dep => {
+    const needsRefresh = Boolean(options?.forceRefresh) || dependencies.some(dep => {
       const status = datasetStatus[dep as keyof typeof datasetStatus];
       return !status || status.status === 'idle' || status.status === 'error';
     });
@@ -4693,8 +5377,10 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
 
       try {
         // Trigger targeted data refresh for only the datasets this report needs
-        const reportName = AVAILABLE_REPORTS.find(r => r.key === reportKey)?.name || reportKey;
-        const success = await refreshSpecificDatasets(dependencies as DatasetKey[], reportName);
+        const success = await refreshSpecificDatasets(dependencies as DatasetKey[], reportName, {
+          rangeOverrides: options?.rangeOverrides,
+          bypassCooldown: options?.forceRefresh,
+        });
         
         if (success) {
           // Clear loading state on success
@@ -4735,6 +5421,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
               return newState;
             });
           }, 3000);
+          if (shouldQueueReport) settleProcessingRailReport(reportKey, false);
           return; // Don't execute the action if refresh failed
         }
 
@@ -4756,12 +5443,76 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
             return newState;
           });
         }, 3000);
+        if (shouldQueueReport) settleProcessingRailReport(reportKey, false);
         return; // Don't execute the action if there was an error
       }
     }
 
     // Execute the action (navigate to report or open dashboard)
     if (typeof action === 'function') {
+      // Wait briefly for streaming datasets to settle to 'ready' before
+      // navigating, so reports don't open empty and "lag till read". We poll
+      // datasetStatusRef every 250ms up to 60s. Any dataset that ends in
+      // 'error' lets the user in anyway with a toast warning so they aren't
+      // stuck behind a broken feed.
+      if (dependencies.length > 0) {
+        setReportProgressStates((prev) => ({
+          ...prev,
+          [reportKey]: {
+            ...(prev[reportKey] || { isLoading: true, progress: 50, startTime: Date.now() }),
+            isLoading: true,
+            stage: 'Waiting for feeds…',
+          },
+        }));
+
+        const waitStart = Date.now();
+        const waitTimeoutMs = 60000;
+        const allReady = await new Promise<boolean>((resolve) => {
+          const tick = () => {
+            const current = datasetStatusRef.current;
+            const ready = dependencies.every((dep) => current[dep as DatasetKey]?.status === 'ready');
+            const errored = dependencies.some((dep) => current[dep as DatasetKey]?.status === 'error');
+            if (ready) { resolve(true); return; }
+            if (errored) { resolve(false); return; }
+            if (Date.now() - waitStart > waitTimeoutMs) { resolve(false); return; }
+            setTimeout(tick, 250);
+          };
+          tick();
+        });
+
+        let reportReady = allReady;
+        if (allReady && prepareReport) {
+          setReportProgressStates((prev) => ({
+            ...prev,
+            [reportKey]: {
+              ...(prev[reportKey] || { isLoading: true, progress: 75, startTime: Date.now() }),
+              isLoading: true,
+              stage: 'Preparing report window...',
+            },
+          }));
+          try {
+            reportReady = await prepareReport();
+          } catch {
+            reportReady = false;
+          }
+        }
+
+        if (shouldQueueReport) settleProcessingRailReport(reportKey, reportReady);
+
+        setReportProgressStates((prev) => {
+          const newState = { ...prev };
+          delete newState[reportKey];
+          return newState;
+        });
+
+        return;
+      }
+
+      if (shouldQueueReport) {
+        settleProcessingRailReport(reportKey, true);
+        return;
+      }
+
       const result = action();
       if (result instanceof Promise) {
         await result;
@@ -4797,6 +5548,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       matters: isReportLoading('matters'),
       metaMetrics: isReportLoading('metaMetrics'),
       seoReport: datasetStatus.googleAnalytics?.status === 'loading',
+      marketingPerformance: datasetStatus.googleAnalytics?.status === 'loading',
+      receptionReport: receptionReportStatus === 'loading',
       ppcReport: datasetStatus.googleAds?.status === 'loading' || ppcLoading,
     };
   }, [
@@ -4804,6 +5557,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     datasetStatus.annualLeave?.status,
     datasetStatus.metaMetrics?.status,
     datasetStatus.googleAnalytics?.status,
+    receptionReportStatus,
     datasetStatus.googleAds?.status,
     ppcLoading,
   ]);
@@ -4892,7 +5646,9 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
     // Cards that show as live in production (and stay un-greyed on localhost).
     // Mirrors AVAILABLE_REPORTS entries marked tier: 'prod'.
-    const PROD_REPORT_KEYS = ['dashboard', 'receptionReport', 'enquiries'];
+    const PROD_REPORT_KEYS = isReportsDevPreview
+      ? ['dashboard', 'receptionReport', 'enquiries']
+      : ['dashboard', 'receptionReport', 'enquiries'];
     const decorateLocalPpcCard = (card: ReportCard) => {
       if (!isLocal || card.key !== 'ppc') {
         return card;
@@ -4916,7 +5672,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       isActivelyLoading,
       onExpandedCardsChange: setExpandedReportCards,
       onActivePrimaryCardChange: setActivePrimaryCard,
-      onOpenDashboard: handleOpenDashboard,
+      onOpenDashboard: handleLaunchDashboard,
       onNavigateToReport: navigateToReport as (view: string) => void,
       onCardClick: handleReportCardClick,
       refreshDatasetsWithStreaming,
@@ -4949,6 +5705,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       describeMattersRange,
     };
 
+    const isViewingAsProd = Boolean(featureToggles?.viewAsProd);
     const visibleCards = reportCards.filter((card) => {
       if (card.key === 'receptionReport' && !canSeeReceptionReport(userInitialsForGate)) {
         return false;
@@ -4956,7 +5713,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       if (card.key === 'enquiryLedger') {
         return canViewEnquiryLedger;
       }
-      if (isLocal) {
+      if (isLocal && !isViewingAsProd) {
         return true;
       }
       return PROD_REPORT_KEYS.includes(card.key);
@@ -4968,6 +5725,14 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     const activeCards = visibleCards.filter(card => card.key !== 'dashboard' && !card.disabled && !card.development);
     const developmentCards = visibleCards.filter(card => card.development && !card.disabled);
     const disabledCards = visibleCards.filter(card => card.disabled);
+    const productionSecondaryCards = activeCards.filter(card => PROD_REPORT_KEYS.includes(card.key));
+    const localActiveCards = activeCards.filter(card => !PROD_REPORT_KEYS.includes(card.key));
+    const hasLocalWorkspace = isLocalReportsSurface && !isViewingAsProd && (
+      localActiveCards.length > 0
+      || developmentCards.length > 0
+      || disabledCards.length > 0
+      || reportingStructureStatus !== 'idle'
+    );
 
     // Locally: keep unreleased draft cards visually muted, but allow explicitly-enabled draft tools through.
     const isGreyedOut = (key: string) => isLocal && !PROD_REPORT_KEYS.includes(key) && key !== 'enquiryLedger' && key !== 'ppc';
@@ -5016,14 +5781,215 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
         />
       </>
     ) : null;
+
+    const renderStructurePanel = () => {
+      if (!isLocalReportsSurface) return null;
+      const formatCount = (value: number) => value.toLocaleString('en-GB');
+      const panelBorder = isDarkMode ? colours.dark.borderColor : colours.highlightNeutral;
+      const moduleRows = reportingStructure?.modules.slice(0, 6) ?? [];
+      const fileRows = reportingStructure?.largestFiles.slice(0, 8) ?? [];
+      return (
+        <div
+          data-helix-region="reports/local-structure"
+          style={{
+            marginTop: 16,
+            border: `1px solid ${panelBorder}`,
+            backgroundColor: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
+            borderRadius: 0,
+            overflow: 'hidden',
+          }}
+        >
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 14,
+            padding: '14px 16px',
+            backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.grey,
+            borderBottom: `1px solid ${panelBorder}`,
+          }}>
+            <span style={{ display: 'block', minWidth: 0 }}>
+              <span style={{
+                display: 'block',
+                fontSize: 10,
+                fontWeight: 800,
+                textTransform: 'uppercase' as const,
+                letterSpacing: '0.08em',
+                color: colours.cta,
+              }}>
+                Local Reports structure
+              </span>
+              <span style={{
+                display: 'block',
+                marginTop: 4,
+                fontSize: 12,
+                lineHeight: 1.4,
+                color: isDarkMode ? '#d1d5db' : '#374151',
+              }}>
+                Dynamic file and module counts from src/tabs/Reporting.
+              </span>
+            </span>
+            <span style={{
+              flex: '0 0 auto',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 10,
+              fontSize: 12,
+              fontWeight: 800,
+              color: isDarkMode ? colours.dark.text : colours.light.text,
+            }}>
+              {reportingStructureStatus === 'loading'
+                ? 'Counting files'
+                : reportingStructureStatus === 'error'
+                  ? 'Count unavailable'
+                  : reportingStructure
+                    ? `${formatCount(reportingStructure.totals.files)} files, ${formatCount(reportingStructure.totals.lines)} lines`
+                    : 'Waiting'}
+            </span>
+          </div>
+
+          {reportingStructure && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 0.95fr) minmax(0, 1.05fr)', gap: 0 }}>
+              <div style={{ padding: 16, borderRight: `1px solid ${panelBorder}` }}>
+                <span style={{
+                  display: 'block',
+                  marginBottom: 10,
+                  fontSize: 10,
+                  fontWeight: 800,
+                  textTransform: 'uppercase' as const,
+                  letterSpacing: '0.08em',
+                  color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                }}>
+                  Modules
+                </span>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {moduleRows.map((row) => (
+                    <div key={row.module} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 10, alignItems: 'center' }}>
+                      <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text }} title={row.module}>
+                        {row.module.replace('src/tabs/Reporting', 'Reporting')}
+                      </span>
+                      <span style={{ fontSize: 11, fontWeight: 800, color: isDarkMode ? '#d1d5db' : '#374151' }}>
+                        {formatCount(row.files)} files / {formatCount(row.lines)} lines
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div style={{ padding: 16 }}>
+                <span style={{
+                  display: 'block',
+                  marginBottom: 10,
+                  fontSize: 10,
+                  fontWeight: 800,
+                  textTransform: 'uppercase' as const,
+                  letterSpacing: '0.08em',
+                  color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                }}>
+                  Largest files
+                </span>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {fileRows.map((row) => (
+                    <div key={row.path} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 10, alignItems: 'center' }}>
+                      <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text }} title={row.path}>
+                        {row.path.replace('src/tabs/Reporting/', '')}
+                      </span>
+                      <span style={{ fontSize: 11, fontWeight: 800, color: row.lines >= 3000 ? colours.cta : (isDarkMode ? '#d1d5db' : '#374151') }}>
+                        {formatCount(row.lines)} lines
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    const renderLocalDataHubButton = () => (
+      <button
+        type="button"
+        data-helix-region="reports/local-workspace/data-hub"
+        onClick={() => navigateToReport('dataCentre')}
+        style={{
+          appearance: 'none',
+          width: '100%',
+          marginTop: 12,
+          padding: '12px 14px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 14,
+          cursor: 'pointer',
+          textAlign: 'left' as const,
+          fontFamily: 'Raleway, sans-serif',
+          color: isDarkMode ? colours.dark.text : colours.light.text,
+          backgroundColor: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
+          border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
+          borderRadius: 0,
+        }}
+      >
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+          <span style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: 30,
+            height: 30,
+            flex: '0 0 auto',
+            color: readyCount > 0 ? colours.green : (isDarkMode ? colours.subtleGrey : colours.greyText),
+            backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.grey,
+            border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
+          }}>
+            <FontIcon iconName="Database" style={{ fontSize: 15 }} />
+          </span>
+          <span style={{ display: 'block', minWidth: 0 }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+              <span style={{ display: 'block', fontSize: 13, fontWeight: 800 }}>
+                Data Hub
+              </span>
+              {!isLocalReportsHost && (
+                <span style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  padding: '2px 6px',
+                  border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.42)' : 'rgba(54,144,206,0.34)'}`,
+                  fontSize: 9,
+                  fontWeight: 800,
+                  letterSpacing: '0.08em',
+                  textTransform: 'uppercase',
+                  color: isDarkMode ? colours.accent : colours.helixBlue,
+                }}>
+                  LZ/AC prod
+                </span>
+              )}
+            </span>
+            <span style={{
+              display: 'block',
+              marginTop: 3,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              fontSize: 11,
+              fontWeight: 600,
+              color: isDarkMode ? '#d1d5db' : '#374151',
+            }}>
+              {lastRefreshTimestamp
+                ? `${readyCount}/${datasetSummaries.length} feeds, updated ${formatRelativeTime(lastRefreshTimestamp)}`
+                : `${readyCount}/${datasetSummaries.length} feeds, awaiting refresh`}
+            </span>
+          </span>
+        </span>
+        <FontIcon iconName="ChevronRight" style={{ flex: '0 0 auto', fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText }} />
+      </button>
+    );
     
     // Slim Reports surface: keep Management Dashboard as the primary path,
     // then show live secondary reports underneath it. Development and disabled
     // sections stay dropped so the workspace remains focused in production.
-    if (isSlimReports) {
+    if (isSlimReports || isLocalReportsSurface) {
       if (!heroCard) return null;
       const slimNeedsRange = !slimRangeInvoked || slimSelectedRangeKey === null;
-      const slimSelectedRangeLabel = slimSelectedRangeKey ? describeRangeKey(slimSelectedRangeKey) : null;
       const slimRangeRefreshing = enquiriesRangeIsRefreshing || isActivelyLoading;
       const slimDashboardFeedCues = MANAGEMENT_DASHBOARD_STATUS_TARGETS.map((datasetKey) => {
         const summary = datasetSummaries.find((entry) => entry.definition.key === datasetKey);
@@ -5037,6 +6003,14 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
           label: badge.label,
           dot: badge.dot,
           backgroundColor: isDarkMode ? badge.darkBg : badge.lightBg,
+          updatedAt: summary?.updatedAt ?? datasetStatus[datasetKey]?.updatedAt ?? null,
+          detail: status === 'ready'
+            ? 'Feed is ready for the current dashboard window.'
+            : status === 'loading'
+              ? 'This feed is refreshing in the background now.'
+              : status === 'error'
+                ? 'This feed failed to load and needs a retry.'
+                : 'This feed has not been loaded yet for this range.',
         };
       });
       const slimShowFeedState = slimRangeInvoked && !slimNeedsRange;
@@ -5047,28 +6021,30 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       const slimRefreshingFeedCount = slimDashboardFeedCues.filter((cue) => cue.status === 'loading').length;
       const slimIssueFeedCount = slimDashboardFeedCues.filter((cue) => cue.status === 'error').length;
       const slimFeedSummary = slimDashboardFeedsReady
-        ? `Feeds ready (${slimDashboardFeedCues.length})`
+        ? `${slimDashboardFeedCues.length} feeds ready`
         : [
           `${slimReadyFeedCount}/${slimDashboardFeedCues.length} ready`,
           slimRefreshingFeedCount > 0 ? `${slimRefreshingFeedCount} refreshing` : null,
           slimIssueFeedCount > 0 ? `${slimIssueFeedCount} issue${slimIssueFeedCount === 1 ? '' : 's'}` : null,
         ].filter(Boolean).join(', ');
+      const slimActiveRangeLabel = slimSelectedRangeKey ? describeRangeKey(slimSelectedRangeKey) : null;
+      const slimActiveRangeSummary = slimActiveRangeLabel ? `Active pull: ${slimActiveRangeLabel.toLowerCase()}.` : null;
       const slimOpenDisabled = slimNeedsRange || !slimShowFeedState || !slimDashboardFeedsReady || isActivelyLoading || ((!demoModeEnabled || simulatedBlockerActive) && trustGateNotReady);
       const slimStatusColour = !slimShowFeedState
-        ? colours.orange
+        ? colours.highlight
         : slimDashboardFeedsFailed
           ? colours.cta
         : isActivelyLoading
           ? colours.highlight
         : slimDashboardFeedsLoading || !slimDashboardFeedsReady || trustGateNotReady
-          ? colours.orange
+          ? colours.highlight
         : trustGateBlocksEntry
           ? colours.cta
           : colours.green;
       const slimCtaDetail = slimNeedsRange
-        ? 'Choose a period above to start pulling live dashboard data.'
+        ? 'Select a range to load feeds.'
         : slimDashboardFeedsFailed
-          ? 'One or more required feeds did not complete.'
+          ? `${slimActiveRangeSummary ?? 'Active pull needs attention.'} One or more feeds need a retry.`
         : isActivelyLoading || slimDashboardFeedsLoading
           ? null
         : !slimDashboardFeedsReady
@@ -5076,47 +6052,67 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
         : trustGateBlocksEntry
           ? trustGateBlockerDetail || 'The data gate has not cleared yet.'
           : trustGateNotReady
-          ? 'The dashboard opens as soon as the feeds are ready.'
+          ? 'The dashboard opens when the data checks pass.'
           : null;
-      const slimSelectedRangeText = slimSelectedRangeLabel?.toLowerCase() ?? 'selected period';
       const slimHeroTitle = 'Management dashboard';
       const slimHeroDescription = slimNeedsRange
-        ? 'Choose a reporting period to start the dashboard pull.'
+        ? 'Firm-wide reporting with feed readiness and management controls in one view.'
         : slimDashboardFeedsFailed
-          ? 'The dashboard will unlock after all required feeds complete successfully.'
+          ? 'A feed needs attention before the dashboard can open.'
         : slimRangeRefreshing
-          ? `Pulling the last ${slimSelectedRangeText} so the dashboard opens cleanly.`
+          ? `Loading the dashboard feeds for ${slimActiveRangeLabel?.toLowerCase() ?? 'the selected window'}.`
         : !slimDashboardFeedsReady
-          ? `The dashboard will open using the last ${slimSelectedRangeText} once feeds are ready.`
-        : `The dashboard will open using the last ${slimSelectedRangeText} of reporting data.`;
+          ? `Waiting for the remaining dashboard feeds for ${slimActiveRangeLabel?.toLowerCase() ?? 'the selected window'}.`
+        : `Dashboard data is loaded for ${slimActiveRangeLabel?.toLowerCase() ?? 'the selected window'}.`;
       const slimTrayTitle = !slimShowFeedState
-        ? 'Waiting for period'
+        ? 'Dashboard feeds'
         : slimDashboardFeedsFailed
-          ? 'Feed attention needed'
+          ? 'Feed issue'
         : slimRangeRefreshing || slimDashboardFeedsLoading
-          ? `Pulling ${slimSelectedRangeText}`
+          ? 'Loading dashboard data'
         : slimDashboardFeedsReady
-          ? `Ready for ${slimSelectedRangeText}`
-          : `Preparing ${slimSelectedRangeText}`;
+          ? 'Ready'
+          : 'Preparing';
       const slimTrayDetail = !slimShowFeedState
-        ? 'Pick 90 days, 6 months, 12 months, or 24 months to invoke the live pull.'
+        ? 'Pick the window you want to use.'
         : slimDashboardFeedsFailed
-          ? 'Review the feed dots before opening the dashboard.'
+          ? `${slimActiveRangeSummary ?? 'Active pull needs attention.'} Check the feeds before opening the dashboard.`
         : slimRangeRefreshing || slimDashboardFeedsLoading
-          ? slimFeedSummary
+          ? [slimActiveRangeSummary, slimFeedSummary].filter(Boolean).join(' ')
         : slimDashboardFeedsReady
-          ? 'All required feeds are ready. Open the dashboard when you are ready.'
-          : slimFeedSummary;
-      const slimCtaLabel = slimNeedsRange
-        ? 'Choose period first'
-        : slimRangeRefreshing || slimDashboardFeedsLoading
-          ? 'Preparing dashboard'
-          : 'Open dashboard';
+          ? `${slimActiveRangeSummary ?? 'Active pull is ready.'} Open when ready.`
+          : [slimActiveRangeSummary, slimFeedSummary].filter(Boolean).join(' ');
+      const slimHoveredRangeDetail = hoveredRangeEstimate?.ownerKey === 'dashboard'
+        ? `${REPORT_RANGE_OPTIONS.find((option) => option.key === hoveredRangeEstimate.rangeKey)?.shortLabel ?? describeRangeKey(hoveredRangeEstimate.rangeKey)} refresh est. ${getRangeRefreshEstimate(hoveredRangeEstimate.rangeKey, 'dashboard')}`
+        : null;
+      const slimManagementFooterIsBlue = slimManagementFooterHovered || slimRangeRefreshing || slimDashboardFeedsLoading || Boolean(slimHoveredRangeDetail);
       const getSlimSecondaryReportDetail = (card: ReportCard) => {
+        if (card.key === 'seo') {
+          return card.description || 'Organic search performance, attributable enquiries, matters, and fee outcome across the selected window.';
+        }
         if (card.key === 'receptionReport') {
           return 'Review reception calls, conversion, notes clarity, and open follow-up work.';
         }
+        if (card.key === 'marketingPerformance') {
+          return 'Website, SEO, PPC, and internal outcome metrics from the selected data window.';
+        }
         return 'Open this live report separately from the dashboard period pull.';
+      };
+      const handleSlimSecondaryRangeSelect = (cardKey: string, nextKey: ReportRangeKey) => {
+        if (cardKey === 'receptionReport') {
+          setSlimReceptionRangeKey(nextKey);
+          clearProcessingRailReport(cardKey);
+          return;
+        }
+        if (cardKey === 'marketingPerformance') {
+          setSlimMarketingRangeKey(nextKey);
+          clearProcessingRailReport(cardKey);
+          return;
+        }
+        if (cardKey === 'seo') {
+          setSlimSeoRangeKey(nextKey);
+          clearProcessingRailReport(cardKey);
+        }
       };
       const handleSlimRangeSelect = (nextKey: ReportRangeKey) => {
         const nextMattersKey = nextKey as MattersWipRangeKey;
@@ -5124,7 +6120,151 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
         slimDashboardRangeToastLabelRef.current = nextLabel;
         setSlimRangeInvoked(true);
         setSlimSelectedRangeKey(nextKey);
+        requestProcessingRailReport('dashboard');
         applyManagementRangeAndRefresh(nextKey, nextMattersKey, true);
+      };
+      const railCards = [heroCard, ...productionSecondaryCards].filter(Boolean) as ReportCard[];
+      const buildReportRailItem = (
+        card: ReportCard,
+        request: ProcessingRailRequest | undefined,
+        opts: { embedded?: boolean; hasData?: boolean; reportReady?: boolean } = {},
+      ): ReportProcessingRailItem => {
+        const rows = card.dependencies.map((dep): ReportProcessingRailRow => ({
+          key: dep.key,
+          label: dep.name,
+          status: request?.settled && !request.failed ? 'ready' : toProcessingRailStatus(dep.status),
+          detail: dep.status === 'ready'
+            ? 'Loaded'
+            : dep.status === 'loading'
+              ? 'Refreshing now'
+              : dep.status === 'error'
+                ? 'Needs retry'
+                : dep.range || 'Waiting',
+        }));
+        const rawStatus = rows.length > 0 ? summariseProcessingRailStatus(rows) : 'ready';
+        const itemStatus: ReportProcessingRailStatus = request?.failed
+          ? 'error'
+          : request?.settled
+            ? rawStatus === 'idle' ? 'ready' : rawStatus
+            : request
+              ? (rawStatus === 'error' ? 'error' : 'loading')
+              : rawStatus;
+        const allDepsReady = card.dependencies.length === 0 || card.dependencies.every((dep) => dep.status === 'ready');
+        const dataMissing = opts.hasData === false;
+        const reportReadyBlocked = opts.reportReady === false;
+        const reportOutputPending = reportReadyBlocked && !request;
+        const canOpen = dataMissing
+          ? false
+          : reportReadyBlocked
+            ? false
+          : request
+            ? Boolean(request.settled && !request.failed && itemStatus === 'ready')
+            : (allDepsReady && itemStatus !== 'error');
+        const elapsedSeconds = request ? Math.max(0, Math.round((Date.now() - request.requestedAt) / 1000)) : 0;
+        const visualIcon = card.key === 'seoReport' ? 'AnalyticsReport' : 'Sync';
+        const title = canOpen
+          ? `${card.name} is ready`
+          : dataMissing
+            ? `${card.name} has no data`
+            : reportOutputPending
+              ? card.name
+            : request
+              ? `Loading ${card.name}`
+              : itemStatus === 'error'
+                ? `${card.name} needs a retry`
+                : itemStatus === 'loading'
+                  ? `Loading ${card.name}`
+                  : card.name;
+        const ctaLabel = canOpen
+          ? `Open ${card.name}`
+          : dataMissing
+            ? 'No data yet'
+            : reportOutputPending
+              ? 'Load report data'
+            : request?.failed
+              ? 'Retry'
+              : itemStatus === 'loading'
+                ? 'Loading data'
+                : 'Load report data';
+        const onOpen = () => {
+          if (request) clearProcessingRailReport(card.key);
+          navigateToReport(card.action as ActiveViewType);
+        };
+        const onPrepare = () => {
+          const selectedRangeKey = card.key === 'receptionReport'
+            ? slimReceptionRangeKey
+            : card.key === 'seo'
+              ? slimSeoRangeKey
+              : card.key === 'marketingPerformance'
+                ? slimMarketingRangeKey
+              : null;
+          const cardAction = card.action === 'dashboard'
+            ? handleLaunchDashboard
+            : () => navigateToReport(card.action as ActiveViewType);
+          const selectedReceptionWindow = selectedRangeKey && card.key === 'receptionReport'
+            ? getReceptionReportWindow(selectedRangeKey)
+            : null;
+          const forceRefresh = selectedRangeKey
+            ? card.key === 'receptionReport'
+              ? receptionReportSnapshot?.from !== selectedReceptionWindow?.from || receptionReportSnapshot?.to !== selectedReceptionWindow?.to
+              : card.key === 'seo'
+                ? seoReportPreparedRangeKey !== selectedRangeKey
+                : card.key === 'marketingPerformance'
+                  ? marketingReportPreparedRangeKey !== selectedRangeKey
+                : false
+            : false;
+          void handleReportCardClick(
+            card.key,
+            cardAction,
+            card.dependencies.map((dep) => dep.key),
+            card.key === 'receptionReport' && selectedRangeKey
+              ? () => prepareReceptionReport(selectedRangeKey)
+              : card.key === 'seo' && selectedRangeKey
+                ? () => prepareSeoReport(selectedRangeKey)
+                : card.key === 'marketingPerformance' && selectedRangeKey
+                  ? () => prepareMarketingReport(selectedRangeKey)
+                : undefined,
+            selectedRangeKey
+              ? {
+                forceRefresh,
+                rangeOverrides: {
+                  enquiriesRangeKey: selectedRangeKey,
+                  mattersRangeKey: selectedRangeKey as MattersWipRangeKey,
+                },
+              }
+              : undefined,
+          );
+        };
+        const ctaDisabled = canOpen ? false : dataMissing ? true : itemStatus === 'loading';
+        const onCta = canOpen ? onOpen : ctaDisabled ? undefined : onPrepare;
+        const subtitle = opts.embedded
+          ? 'Feed status is shown here while the report loads.'
+          : 'Feed status is shown here until the report can open.';
+        const detail = canOpen
+          ? 'Feeds are aligned. Open the report from here when you are ready.'
+          : dataMissing
+            ? 'Feeds completed but returned no rows. Check the upstream connection, then retry.'
+            : reportOutputPending
+          ? `Load ${card.name} data to check the feeds.`
+            : request?.failed
+              ? 'One or more feeds did not complete. Retry to re-queue the report.'
+              : itemStatus === 'loading'
+                ? 'Loading the feeds now. You can open the report when they are ready.'
+          : 'Load the report data to check the feeds.';
+        const resolvedStatus: ReportProcessingRailStatus = reportOutputPending ? 'idle' : dataMissing ? 'warn' : itemStatus;
+        return {
+          key: card.key,
+          title,
+          subtitle,
+          status: resolvedStatus,
+          rows,
+          ctaLabel,
+          ctaDisabled,
+          onCta,
+          detail,
+          elapsedLabel: elapsedSeconds > 0 ? `${elapsedSeconds}s elapsed` : null,
+          visualIcon,
+        };
       };
       return (
         <div
@@ -5134,226 +6274,52 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
             margin: '0 0 22px',
           }}
         >
-          <div
-            style={{
-              padding: '18px 24px',
-              backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.grey,
-              border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
-              borderRadius: 0,
-            }}
-          >
-            <div style={{ marginBottom: 12 }}>
-              <span style={{
-                display: 'block',
-                fontSize: 11,
-                fontWeight: 800,
-                textTransform: 'uppercase' as const,
-                letterSpacing: '0.08em',
-                color: isDarkMode ? colours.dark.text : colours.light.text,
-              }}>
-                Choose reporting period
-              </span>
-              <span style={{
-                display: 'block',
-                marginTop: 4,
-                fontSize: 12,
-                lineHeight: 1.45,
-                color: isDarkMode ? '#d1d5db' : '#374151',
-              }}>
-                This sets the date window used when the dashboard opens.
-              </span>
-            </div>
-
-            <div
-              role="radiogroup"
-              aria-label="Dashboard data window"
-              style={{
-                display: 'grid',
-                gridTemplateColumns: `repeat(${REPORT_RANGE_OPTIONS.length}, minmax(0, 1fr))`,
-                overflow: 'hidden',
-                border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
-                borderRadius: 0,
-              }}
-            >
-              {REPORT_RANGE_OPTIONS.map((option, index) => {
-                const selected = slimRangeInvoked && slimSelectedRangeKey === option.key;
-                const showPulse = selected && slimRangeRefreshing;
-                const rangeLabel = describeRangeWindowByKey(option.key);
-                return (
-                  <button
-                    key={option.key}
-                    type="button"
-                    role="radio"
-                    aria-checked={selected}
-                    aria-busy={showPulse || undefined}
-                    onClick={() => handleSlimRangeSelect(option.key)}
-                    disabled={slimRangeRefreshing}
-                    style={{
-                      appearance: 'none',
-                      position: 'relative',
-                      minHeight: 66,
-                      cursor: slimRangeRefreshing ? 'wait' : 'pointer',
-                      padding: '11px 10px',
-                      fontFamily: 'Raleway, sans-serif',
-                      fontSize: 13,
-                      fontWeight: selected ? 800 : 600,
-                      letterSpacing: 0.1,
-                      borderStyle: 'solid',
-                      borderWidth: index === 0 ? 0 : '0 0 0 1px',
-                      borderColor: isDarkMode ? colours.dark.borderColor : colours.highlightNeutral,
-                      borderRadius: 0,
-                      backgroundColor: selected
-                        ? (isDarkMode ? colours.dark.cardHover : colours.highlightBlue)
-                        : (isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground),
-                      color: selected
-                        ? colours.highlight
-                        : (isDarkMode ? colours.dark.text : colours.light.text),
-                      boxShadow: selected ? `inset 0 -3px 0 ${colours.highlight}` : 'none',
-                      transition: 'background-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease',
-                    }}
-                  >
-                    <span style={{ display: 'block' }}>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                        {option.label}
-                        {showPulse && (
-                          <span
-                            aria-hidden="true"
-                            style={{
-                              display: 'inline-block',
-                              width: 10,
-                              height: 10,
-                              borderRadius: '50%',
-                              border: `2px solid ${colours.highlight}`,
-                              borderTopColor: 'transparent',
-                              animation: 'helix-period-spin 0.8s linear infinite',
-                            }}
-                          />
-                        )}
-                      </span>
-                      <span style={{
-                        display: 'block',
-                        marginTop: 5,
-                        fontSize: 10,
-                        lineHeight: 1.25,
-                        fontWeight: 600,
-                        color: selected
-                          ? (isDarkMode ? '#d1d5db' : '#374151')
-                          : (isDarkMode ? colours.subtleGrey : colours.greyText),
-                      }}>
-                        {rangeLabel}
-                      </span>
-                    </span>
-                    {showPulse && (
-                      <span
-                        aria-hidden="true"
-                        style={{
-                          position: 'absolute',
-                          left: 0,
-                          right: 0,
-                          bottom: 0,
-                          height: 2,
-                          overflow: 'hidden',
-                          backgroundColor: 'rgba(54, 144, 206, 0.18)',
-                        }}
-                      >
-                        <span
-                          style={{
-                            position: 'absolute',
-                            inset: 0,
-                            width: '40%',
-                            background: `linear-gradient(90deg, transparent, ${colours.highlight}, transparent)`,
-                            animation: 'helix-period-progress 1.1s ease-in-out infinite',
-                          }}
-                        />
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {canSimulateBlocker && (
-            <div
-              data-helix-region="reports/slim-management/simulate-blocker"
-              style={{
-                marginTop: 10,
-                padding: '10px 14px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: 12,
-                backgroundColor: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
-                border: `1px dashed ${simulatedBlockerActive ? colours.cta : (isDarkMode ? colours.dark.borderColor : colours.highlightNeutral)}`,
-                borderRadius: 0,
-              }}
-            >
-              <span style={{ display: 'block', minWidth: 0 }}>
-                <span style={{
-                  display: 'block',
-                  fontSize: 11,
-                  fontWeight: 800,
-                  textTransform: 'uppercase' as const,
-                  letterSpacing: '0.08em',
-                  color: simulatedBlockerActive ? colours.cta : (isDarkMode ? colours.dark.text : colours.light.text),
-                }}>
-                  {simulatedBlockerActive ? 'Simulated blocker active' : 'Demo controls (Luke only)'}
-                </span>
-                <span style={{
-                  display: 'block',
-                  marginTop: 3,
-                  fontSize: 12,
-                  lineHeight: 1.4,
-                  color: isDarkMode ? '#d1d5db' : '#374151',
-                }}>
-                  {simulatedBlockerActive
-                    ? 'A simulated WIP failure is blocking dashboard entry. Clear it to restore the real readiness state.'
-                    : 'Invoke a simulated WIP failure to demo a blocked dashboard entry for the selected period.'}
-                </span>
-              </span>
-              <button
-                type="button"
-                onClick={handleToggleSimulatedBlocker}
+          <div style={{ marginTop: 14 }}>
+            <div style={{ minWidth: 0 }}>
+              <div
                 style={{
-                  appearance: 'none',
-                  flex: '0 0 auto',
-                  minHeight: 36,
-                  cursor: 'pointer',
-                  padding: '0 14px',
-                  fontFamily: 'Raleway, sans-serif',
-                  fontSize: 12,
-                  fontWeight: 800,
-                  letterSpacing: '0.02em',
-                  color: simulatedBlockerActive ? colours.dark.text : (isDarkMode ? colours.dark.text : colours.light.text),
-                  backgroundColor: simulatedBlockerActive ? colours.cta : 'transparent',
-                  borderStyle: 'solid',
-                  borderWidth: 1,
-                  borderColor: simulatedBlockerActive ? colours.cta : (isDarkMode ? colours.dark.borderColor : colours.highlightNeutral),
+                  backgroundColor: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
+                  border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
                   borderRadius: 0,
-                  transition: 'background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease',
+                  boxShadow: isDarkMode ? '0 14px 34px rgba(0, 3, 25, 0.35)' : '0 18px 42px rgba(6, 23, 51, 0.10)',
+                  overflow: 'hidden',
                 }}
               >
-                {simulatedBlockerActive ? 'Clear simulated blocker' : 'Simulate broken load'}
-              </button>
-            </div>
-          )}
-
-          <div
-            style={{
-              marginTop: 14,
-              backgroundColor: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
-              border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
-              borderRadius: 0,
-              boxShadow: isDarkMode ? '0 14px 34px rgba(0, 3, 25, 0.35)' : '0 18px 42px rgba(6, 23, 51, 0.10)',
-              overflow: 'hidden',
-            }}
-          >
             <div style={{
               display: 'block',
               padding: '28px 24px',
+              position: 'relative',
+              backgroundColor: isDarkMode ? colours.dark.sectionBackground : 'transparent',
               opacity: trustGateNotReady ? 0.68 : 1,
               transition: 'opacity 0.25s ease',
-            }}>
+              overflow: 'hidden',
+            }}
+              onMouseEnter={() => setSlimManagementHeaderHovered(true)}
+              onMouseLeave={() => setSlimManagementHeaderHovered(false)}
+            >
+              <img
+                src={isDarkMode ? markWhite : markDark}
+                alt=""
+                aria-hidden="true"
+                style={{
+                  position: 'absolute',
+                  right: 16,
+                  top: '50%',
+                  width: 92,
+                  height: 92,
+                  objectFit: 'contain',
+                  transform: `translateY(-50%) scale(${slimManagementHeaderHovered ? 1.04 : 1})`,
+                  transformOrigin: 'center',
+                  opacity: slimManagementHeaderHovered
+                    ? (isDarkMode ? 0.12 : 0.1)
+                    : (isDarkMode ? 0.05 : 0.04),
+                  filter: isDarkMode ? 'none' : 'saturate(0.8)',
+                  mixBlendMode: isDarkMode ? 'screen' as const : 'multiply' as const,
+                  pointerEvents: 'none',
+                  userSelect: 'none',
+                  transition: 'opacity 220ms ease, transform 260ms ease',
+                }}
+              />
               <div>
                 <h2 style={{
                   margin: '0 0 10px',
@@ -5377,15 +6343,22 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
               </div>
             </div>
 
-            <div style={{
+            <div className={`reports-management-card-footer reports-hover-range-slot reports-liquid-fill${slimManagementFooterIsBlue ? ' is-filling' : ''}${!slimOpenDisabled ? ' is-ready' : ''}`} style={{
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
               gap: 18,
               padding: '16px 18px 16px 24px',
-              backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.grey,
-              borderTop: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
-            }}>
+              backgroundColor: isDarkMode ? colours.websiteBlue : colours.grey,
+              borderTop: `1px solid ${slimManagementFooterIsBlue
+                ? (isDarkMode ? 'rgba(54, 144, 206, 0.55)' : 'rgba(54, 144, 206, 0.62)')
+                : (isDarkMode ? 'rgba(54, 144, 206, 0.34)' : 'rgba(54, 144, 206, 0.24)')}`,
+              boxShadow: slimManagementFooterIsBlue && isDarkMode ? `inset 3px 0 0 ${colours.highlight}` : undefined,
+              transition: 'border-top-color 260ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 300ms cubic-bezier(0.22, 1, 0.36, 1)',
+            }}
+              onMouseEnter={() => setSlimManagementFooterHovered(true)}
+              onMouseLeave={() => setSlimManagementFooterHovered(false)}
+            >
               <div
                 role="status"
                 aria-live="polite"
@@ -5418,6 +6391,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
                     fontSize: 12,
                     fontWeight: 800,
                     color: isDarkMode ? colours.dark.text : colours.light.text,
+                    transition: 'color 260ms cubic-bezier(0.22, 1, 0.36, 1)',
                   }}>
                     {(slimRangeRefreshing || slimDashboardFeedsLoading) && (
                       <span
@@ -5453,103 +6427,604 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
                       </span>
                     )}
                   </span>
-                  <span style={{
+                  <span
+                    className={`reports-range-status-copy${slimHoveredRangeDetail ? ' is-previewing' : ''}`}
+                    style={{
                     display: 'block',
                     marginTop: 4,
                     fontSize: 12,
-                    color: isDarkMode ? '#d1d5db' : '#374151',
+                    color: slimHoveredRangeDetail ? colours.highlight : (isDarkMode ? '#d1d5db' : '#374151'),
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
+                    transition: 'color 260ms cubic-bezier(0.22, 1, 0.36, 1)',
                   }}>
-                    {slimCtaDetail ?? slimTrayDetail}
+                    {slimHoveredRangeDetail ?? slimCtaDetail ?? slimTrayDetail}
                   </span>
                 </span>
               </div>
-              <button
-                type="button"
-                onClick={handleLaunchDashboard}
-                disabled={slimOpenDisabled}
-                style={{
-                  appearance: 'none',
-                  flex: '0 0 auto',
-                  minWidth: 190,
-                  minHeight: 44,
-                  cursor: slimOpenDisabled ? 'not-allowed' : 'pointer',
-                  padding: '0 18px',
-                  fontFamily: 'Raleway, sans-serif',
-                  fontSize: 13,
-                  fontWeight: 800,
-                  color: slimOpenDisabled
-                    ? (isDarkMode ? colours.subtleGrey : colours.greyText)
-                    : colours.dark.text,
-                  backgroundColor: slimOpenDisabled
-                    ? (isDarkMode ? colours.dark.border : colours.light.disabledBackground)
-                    : colours.cta,
-                  borderStyle: 'solid',
-                  borderWidth: 1,
-                  borderColor: slimOpenDisabled
-                    ? (isDarkMode ? colours.dark.borderColor : colours.highlightNeutral)
-                    : colours.cta,
-                  borderRadius: 0,
-                  transition: 'background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease',
-                }}
-              >
-                {slimCtaLabel}
-              </button>
+              <span className="reports-management-range-action" data-helix-region="reports/slim-management/dashboard-period">
+                {!slimOpenDisabled ? (
+                  <button
+                    type="button"
+                    className="reports-range-cue is-ready is-action"
+                    onClick={handleLaunchDashboard}
+                    aria-label="Open Management Dashboard"
+                  >
+                    Ready: open dashboard
+                  </button>
+                ) : (
+                  <span
+                    className="reports-range-cue"
+                    aria-hidden="true"
+                    style={slimManagementFooterIsBlue ? undefined : {
+                      color: isDarkMode ? colours.dark.text : colours.light.text,
+                      background: isDarkMode ? `${colours.dark.cardBackground}88` : colours.light.cardBackground,
+                      borderColor: isDarkMode ? colours.dark.borderColor : colours.highlightNeutral,
+                      transition: 'background-color 260ms cubic-bezier(0.22, 1, 0.36, 1), border-color 260ms cubic-bezier(0.22, 1, 0.36, 1), color 260ms cubic-bezier(0.22, 1, 0.36, 1)',
+                    }}
+                  >
+                    {slimRangeRefreshing ? 'Refreshing' : slimRangeInvoked ? 'Change period' : 'Choose period'}
+                  </span>
+                )}
+                <span
+                  className={`reports-management-range-buttons reports-hover-range-buttons${slimHoveredRangeDetail ? ' is-previewing' : ''}`}
+                  role="radiogroup"
+                  aria-label="Management Dashboard data window"
+                >
+                  {REPORT_RANGE_OPTIONS.map((option) => {
+                    const selected = slimRangeInvoked && slimSelectedRangeKey === option.key;
+                    const previewed = hoveredRangeEstimate?.ownerKey === 'dashboard' && hoveredRangeEstimate.rangeKey === option.key;
+                    const showPulse = selected && slimRangeRefreshing;
+                    return (
+                      <button
+                        key={option.key}
+                        className={`reports-management-range-option${previewed ? ' is-previewed' : ''}`}
+                        type="button"
+                        role="radio"
+                        aria-checked={selected}
+                        aria-busy={showPulse || undefined}
+                        onClick={() => handleSlimRangeSelect(option.key)}
+                        onMouseEnter={() => setHoveredRangeEstimate({ ownerKey: 'dashboard', rangeKey: option.key })}
+                        onMouseLeave={() => setHoveredRangeEstimate((current) => current?.ownerKey === 'dashboard' && current.rangeKey === option.key ? null : current)}
+                        onFocus={() => setHoveredRangeEstimate({ ownerKey: 'dashboard', rangeKey: option.key })}
+                        onBlur={() => setHoveredRangeEstimate((current) => current?.ownerKey === 'dashboard' && current.rangeKey === option.key ? null : current)}
+                        disabled={slimRangeRefreshing}
+                        title={getRangeOptionTitle(option.key, 'dashboard')}
+                        style={{
+                          color: previewed
+                            ? (isDarkMode ? '#d8efff' : '#0f4f79')
+                            : selected
+                            ? (isDarkMode ? '#8ed1ff' : colours.helixBlue)
+                            : (isDarkMode ? '#cbd5e1' : colours.light.text),
+                          backgroundColor: previewed
+                            ? (isDarkMode ? 'rgba(54, 144, 206, 0.42)' : 'rgba(54, 144, 206, 0.18)')
+                            : selected
+                            ? (isDarkMode ? 'rgba(20, 73, 116, 0.92)' : colours.highlightBlue)
+                            : (isDarkMode ? 'rgba(10, 26, 45, 0.78)' : colours.grey),
+                          borderColor: previewed
+                            ? (isDarkMode ? 'rgba(121, 197, 246, 0.78)' : 'rgba(54, 144, 206, 0.42)')
+                            : selected
+                            ? (isDarkMode ? 'rgba(85, 170, 229, 0.84)' : colours.helixBlue)
+                            : (isDarkMode ? 'rgba(62, 88, 116, 0.62)' : colours.highlightNeutral),
+                          boxShadow: 'none',
+                        }}
+                      >
+                        <span className="reports-range-label-full">{option.label}</span>
+                        <span className="reports-range-label-compact" aria-hidden="true">{option.shortLabel}</span>
+                      </button>
+                    );
+                  })}
+                </span>
+              </span>
             </div>
           </div>
 
-          {activeCards.length > 0 && (
-            <div style={{ marginTop: 12 }}>
+
+          {productionSecondaryCards.length > 0 && (
+            <>
+            {showEntrySnapshot && (
+              <section
+                className="reports-kpi-placeholder reports-entry-snapshot"
+                data-helix-region="reports/slim-management/entry-snapshot"
+                aria-label="Local reports entry snapshot"
+                style={{
+                  ['--kpi-shell-bg' as string]: isDarkMode ? `${colours.dark.sectionBackground}d9` : 'rgba(255, 255, 255, 0.74)',
+                  ['--kpi-shell-border' as string]: isDarkMode ? colours.dark.borderColor : 'rgba(54, 144, 206, 0.24)',
+                  ['--kpi-surface-bg' as string]: isDarkMode ? `${colours.dark.cardBackground}d9` : '#ffffff',
+                  ['--kpi-surface-border' as string]: isDarkMode ? colours.dark.borderColor : colours.highlightNeutral,
+                  ['--kpi-text-label' as string]: isDarkMode ? colours.subtleGrey : colours.greyText,
+                  ['--kpi-text-value' as string]: isDarkMode ? colours.dark.text : colours.light.text,
+                  ['--kpi-text-note' as string]: isDarkMode ? '#d1d5db' : '#374151',
+                } as CSSProperties}
+              >
+                <div className="reports-kpi-placeholder__head reports-entry-snapshot__head">
+                  <span className="reports-kpi-placeholder__title">Entry snapshot</span>
+                  <span className="reports-kpi-placeholder__subtitle">
+                    {entrySnapshot.currentLabel} day {entrySnapshot.elapsedDays} of {entrySnapshot.daysInMonth} compared with {entrySnapshot.previousLabel} | {entrySnapshot.readyCount}/{entrySnapshot.totalFeeds} feeds ready
+                  </span>
+                </div>
+                <div className="reports-kpi-placeholder__layout reports-entry-snapshot__layout">
+                  <div className="reports-entry-snapshot__left">
+                    <div className="reports-entry-snapshot__group" aria-label="Conversion pipeline">
+                      <div className="reports-entry-snapshot__group-head">
+                        <span>Conversion pipeline</span>
+                        <span>Month to date</span>
+                      </div>
+                      <div className="reports-entry-snapshot__pipeline">
+                        {entrySnapshot.pipeline.map((metric) => (
+                          <article key={metric.key} className="reports-entry-snapshot__metric reports-entry-snapshot__metric--pipeline">
+                            <span className="reports-entry-snapshot__metric-label">{metric.label}</span>
+                            <strong className="reports-entry-snapshot__metric-value">{formatSnapshotMetricValue(metric)}</strong>
+                            <span className="reports-entry-snapshot__metric-note">{metric.conversionNote || metric.note}</span>
+                            <span className={`reports-entry-snapshot__delta${metric.delta >= 0 ? ' is-positive' : ' is-negative'}`}>{formatSnapshotDelta(metric)}</span>
+                            <span className="reports-entry-snapshot__projection">{formatSnapshotProjection(metric)}</span>
+                          </article>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="reports-entry-snapshot__group" aria-label="WIP and collected values">
+                      <div className="reports-entry-snapshot__group-head">
+                        <span>Value movement</span>
+                        <span>WIP to collected</span>
+                      </div>
+                      <div className="reports-entry-snapshot__money">
+                        {entrySnapshot.money.map((metric) => (
+                          <article key={metric.key} className="reports-entry-snapshot__metric reports-entry-snapshot__metric--money">
+                            <span className="reports-entry-snapshot__metric-label">{metric.label}</span>
+                            <strong className="reports-entry-snapshot__metric-value">{formatSnapshotMetricValue(metric)}</strong>
+                            <span className="reports-entry-snapshot__metric-note">{metric.note}</span>
+                            <span className={`reports-entry-snapshot__delta${metric.delta >= 0 ? ' is-positive' : ' is-negative'}`}>{formatSnapshotDelta(metric)}</span>
+                            <span className="reports-entry-snapshot__projection">{formatSnapshotProjection(metric)}</span>
+                          </article>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="reports-kpi-placeholder__chart reports-entry-snapshot__chart">
+                    <div className="reports-kpi-placeholder__chart-head reports-entry-snapshot__chart-head">
+                      <span className="reports-kpi-placeholder__chart-title">Collected</span>
+                      <span className="reports-kpi-placeholder__chart-caption">Actual, previous month, projection</span>
+                    </div>
+                    <svg viewBox="0 0 420 132" role="img" aria-label="Collected month to date compared with previous month">
+                      <defs>
+                        <linearGradient id="entry-snapshot-collected-gradient" x1="0" x2="0" y1="0" y2="1">
+                          <stop offset="0%" stopColor="rgba(54, 144, 206, 0.28)" />
+                          <stop offset="100%" stopColor="rgba(54, 144, 206, 0.03)" />
+                        </linearGradient>
+                      </defs>
+                      <g className="reports-kpi-placeholder__chart-grid">
+                        <line x1="0" y1="24" x2="420" y2="24" />
+                        <line x1="0" y1="52" x2="420" y2="52" />
+                        <line x1="0" y1="80" x2="420" y2="80" />
+                        <line x1="0" y1="108" x2="420" y2="108" />
+                      </g>
+                      {entrySnapshot.collectedChart.currentArea && (
+                        <path d={entrySnapshot.collectedChart.currentArea} fill="url(#entry-snapshot-collected-gradient)" />
+                      )}
+                      {entrySnapshot.collectedChart.previousLine && (
+                        <polyline points={entrySnapshot.collectedChart.previousLine} className="reports-entry-snapshot__chart-line reports-entry-snapshot__chart-line--previous" />
+                      )}
+                      {entrySnapshot.collectedChart.projectionLine && (
+                        <polyline points={entrySnapshot.collectedChart.projectionLine} className="reports-entry-snapshot__chart-line reports-entry-snapshot__chart-line--projection" />
+                      )}
+                      {entrySnapshot.collectedChart.currentLine && (
+                        <polyline points={entrySnapshot.collectedChart.currentLine} className="reports-entry-snapshot__chart-line reports-entry-snapshot__chart-line--current" />
+                      )}
+                    </svg>
+                    <div className="reports-entry-snapshot__legend" aria-hidden="true">
+                      <span><i className="is-current" /> This month</span>
+                      <span><i className="is-previous" /> Previous month</span>
+                      <span><i className="is-projection" /> Run-rate projection</span>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            )}
+            <section
+              style={{
+                marginTop: 20,
+                padding: 16,
+                backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.grey,
+                border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
+                borderRadius: 0,
+                boxShadow: isDarkMode
+                  ? `0 18px 44px ${colours.websiteBlue}33`
+                  : `0 16px 36px ${colours.helixBlue}0f`,
+              }}
+            >
               <div style={{
                 display: 'flex',
                 alignItems: 'center',
-                marginBottom: 8,
+                marginBottom: 14,
                 paddingLeft: 10,
-                borderLeft: `2px solid ${isDarkMode ? colours.subtleGrey : colours.greyText}`,
+                borderLeft: `2px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
               }}>
                 <span style={{
-                  fontSize: 9,
-                  fontWeight: 700,
+                  fontSize: 11,
+                  fontWeight: 800,
                   textTransform: 'uppercase' as const,
-                  letterSpacing: '0.06em',
-                  color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                  letterSpacing: '0.08em',
+                  color: isDarkMode ? colours.dark.text : colours.light.text,
                 }}>
-                  Reports
+                  Focused reports
                 </span>
               </div>
 
               <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))',
-                  gap: 12,
-                }}
+                className="reports-secondary-grid"
               >
-                {activeCards.map((card, index) => {
+                {productionSecondaryCards.map((card, index) => {
                   const cardAction = card.action === 'dashboard'
                     ? handleLaunchDashboard
                     : () => navigateToReport(card.action as ActiveViewType);
-                  const cardIsBusy = Boolean(reportProgressStates[card.key]?.isLoading);
+                  const railRequest = processingRailRequests.find((request) => request.reportKey === card.key);
+                  const railRequestReady = Boolean(railRequest?.settled && !railRequest.failed);
+                  const railRequestFailed = Boolean(railRequest?.settled && railRequest.failed);
+                  const cardIsBusy = Boolean(reportProgressStates[card.key]?.isLoading || (railRequest && !railRequest.settled));
                   const cardReady = card.readiness === 'ready' || testMode;
                   const cardStatusColour = cardIsBusy
                     ? colours.highlight
-                    : cardReady
+                    : railRequestReady
                       ? colours.green
-                      : colours.orange;
+                      : railRequestFailed
+                        ? colours.cta
+                        : cardReady
+                          ? colours.green
+                          : colours.highlight;
+                  const cardProgressStage = reportProgressStates[card.key]?.stage;
+                  const cardElapsedSecs = reportProgressStates[card.key]?.startTime
+                    ? Math.max(0, Math.round((Date.now() - (reportProgressStates[card.key]!.startTime as number)) / 1000))
+                    : 0;
+                  const cardReadyDeps = card.dependencies.filter((d) => d.status === 'ready').length;
+                  const cardTotalDeps = card.dependencies.length;
                   const cardStatusLabel = cardIsBusy
-                    ? (reportProgressStates[card.key]?.stage || 'Opening report')
+                    ? (cardTotalDeps > 0
+                      ? `${cardProgressStage || 'Preparing'} • ${cardReadyDeps}/${cardTotalDeps} feeds${cardElapsedSecs > 0 ? ` • ${cardElapsedSecs}s` : ''}`
+                      : (cardProgressStage || 'Opening report'))
+                    : railRequestReady
+                      ? 'Ready to open'
+                      : railRequestFailed
+                        ? 'Feed check needs a retry'
                     : cardReady
-                      ? card.status || 'Live today'
+                      ? (card.tier === 'devPreview' ? 'Ready to open' : (card.status || 'Live today'))
                       : 'Refresh data to unlock';
                   const cardDisabled = !card.action || (card.disabled && !testMode) || cardIsBusy;
+                  const cardButtonLabel = cardIsBusy
+                    ? 'Preparing'
+                    : railRequestReady
+                      ? 'Ready: open report'
+                      : railRequestFailed
+                        ? 'Retry'
+                        : 'Load report data';
+                  const cardButtonColour = cardIsBusy
+                    ? colours.highlight
+                    : railRequestReady
+                      ? colours.green
+                      : railRequestFailed
+                        ? colours.cta
+                        : (isDarkMode ? colours.dark.cardHover : colours.light.cardBackground);
+                  const cardButtonTextColour = cardIsBusy || railRequestReady || railRequestFailed
+                    ? colours.dark.text
+                    : (isDarkMode ? colours.dark.text : colours.light.text);
+                  if (card.action === 'seoReport' || card.action === 'receptionReport' || card.action === 'marketingPerformance') {
+                    const selectedReportRangeKey = card.key === 'receptionReport'
+                      ? slimReceptionRangeKey
+                      : card.key === 'marketingPerformance'
+                        ? slimMarketingRangeKey
+                        : slimSeoRangeKey;
+                    const datasetKey: 'googleAnalytics' | 'dubberCalls' = card.action === 'receptionReport' ? 'dubberCalls' : 'googleAnalytics';
+                    const liveRows = (datasetData as any)?.[datasetKey];
+                    const cachedRows = (cachedData as any)?.[datasetKey];
+                    const rowCount = Array.isArray(liveRows)
+                      ? liveRows.length
+                      : Array.isArray(cachedRows)
+                        ? cachedRows.length
+                        : 0;
+                    const depsAllReady = card.dependencies.length === 0 || card.dependencies.every((dep) => dep.status === 'ready');
+                    const selectedReceptionWindow = card.key === 'receptionReport' && selectedReportRangeKey
+                      ? getReceptionReportWindow(selectedReportRangeKey)
+                      : null;
+                    const receptionRangePrepared = card.key === 'receptionReport'
+                      && Boolean(selectedReceptionWindow)
+                      && receptionReportStatus === 'ready'
+                      && Boolean(receptionReportSnapshot)
+                      && receptionReportSnapshot?.from === selectedReceptionWindow?.from
+                      && receptionReportSnapshot?.to === selectedReceptionWindow?.to;
+                    const seoRangePrepared = card.key === 'seo' && Boolean(selectedReportRangeKey) && seoReportPreparedRangeKey === selectedReportRangeKey;
+                    const marketingRangePrepared = card.key === 'marketingPerformance' && Boolean(selectedReportRangeKey) && marketingReportPreparedRangeKey === selectedReportRangeKey;
+                    const receptionSnapshotHasData = receptionReportHasData(receptionReportSnapshot?.data);
+                    const reportReady = card.key === 'receptionReport'
+                      ? receptionRangePrepared && receptionSnapshotHasData
+                      : card.key === 'marketingPerformance'
+                        ? depsAllReady && marketingRangePrepared ? rowCount > 0 : false
+                      : depsAllReady && seoRangePrepared ? rowCount > 0 : false;
+                    const hasData = card.key === 'receptionReport'
+                      ? receptionRangePrepared ? receptionSnapshotHasData : true
+                      : card.key === 'marketingPerformance'
+                        ? depsAllReady && marketingRangePrepared ? rowCount > 0 : true
+                      : depsAllReady && seoRangePrepared ? rowCount > 0 : true;
+                    const cardHoveredRangeDetail = hoveredRangeEstimate?.ownerKey === card.key
+                      ? `${REPORT_RANGE_OPTIONS.find((option) => option.key === hoveredRangeEstimate.rangeKey)?.shortLabel ?? describeRangeKey(hoveredRangeEstimate.rangeKey)} refresh est. ${getRangeRefreshEstimate(hoveredRangeEstimate.rangeKey, card.key)}`
+                      : null;
+                    const quietStatusLabel = cardIsBusy
+                      ? (cardTotalDeps > 0
+                        ? `${cardProgressStage || 'Preparing'} (${cardReadyDeps}/${cardTotalDeps})${cardElapsedSecs > 0 ? ` / ${cardElapsedSecs}s` : ''}`
+                        : (cardProgressStage || 'Opening report'))
+                      : railRequestFailed
+                        ? 'Feed check needs a retry'
+                        : reportReady || railRequestReady
+                          ? 'Ready to open'
+                      : cardHoveredRangeDetail
+                        ? cardHoveredRangeDetail
+                          : hasData
+                            ? 'Select a range to refresh'
+                            : 'No data returned';
+                    const cardIsDevPreview = card.tier === 'devPreview';
+                    const cardRangeBarIsBlue = cardIsBusy || slimHoveredSecondaryReportKey === card.key;
+                    const handleRangeOptionSelect = (nextRangeKey: ReportRangeKey) => {
+                      handleSlimSecondaryRangeSelect(card.key, nextRangeKey);
+                      void handleReportCardClick(
+                        card.key,
+                        cardAction,
+                        card.dependencies.map((dep) => dep.key),
+                        card.key === 'receptionReport'
+                          ? () => prepareReceptionReport(nextRangeKey)
+                          : card.key === 'seo'
+                            ? () => prepareSeoReport(nextRangeKey)
+                            : card.key === 'marketingPerformance'
+                              ? () => prepareMarketingReport(nextRangeKey)
+                              : undefined,
+                        {
+                          forceRefresh: true,
+                          rangeOverrides: {
+                            enquiriesRangeKey: nextRangeKey,
+                            mattersRangeKey: nextRangeKey as MattersWipRangeKey,
+                          },
+                        },
+                      );
+                    };
+                    return (
+                      <div
+                        key={card.key}
+                        className={`reports-secondary-report-card${cardIsBusy ? ' is-preparing' : ''}${cardIsDevPreview ? ' is-dev-preview' : ''}`}
+                        data-helix-region={`reports/slim-management/embedded/${card.key}`}
+                        style={{
+                          animation: 'helix-card-land 0.5s cubic-bezier(0.22, 1.2, 0.36, 1) both',
+                          animationDelay: `${(index + 1) * 0.08}s`,
+                          minHeight: 132,
+                          minWidth: 0,
+                          backgroundColor: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
+                          border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
+                          borderRadius: 0,
+                          boxShadow: isDarkMode ? '0 14px 34px rgba(0, 3, 25, 0.24)' : '0 16px 36px rgba(6, 23, 51, 0.07)',
+                          ['--reports-dev-preview-accent' as string]: cardIsDevPreview ? colours.cta : undefined,
+                          overflow: 'hidden',
+                        }}
+                      >
+                        <div
+                          title={`Select a date range to refresh ${card.name}`}
+                          style={{
+                            display: 'grid',
+                            gridTemplateRows: '1fr auto',
+                            width: '100%',
+                            minHeight: 132,
+                            padding: 0,
+                            textAlign: 'left' as const,
+                            cursor: 'default',
+                            fontFamily: 'Raleway, sans-serif',
+                            color: isDarkMode ? colours.dark.text : colours.light.text,
+                            backgroundColor: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
+                            border: 'none',
+                            borderRadius: 0,
+                            boxShadow: 'none',
+                            overflow: 'hidden',
+                            opacity: cardDisabled ? 0.72 : 1,
+                            transition: 'border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease, opacity 0.18s ease',
+                          }}
+                          onMouseEnter={(event) => {
+                            setSlimHoveredSecondaryReportKey(card.key);
+                          }}
+                          onMouseLeave={(event) => {
+                            setSlimHoveredSecondaryReportKey((current) => current === card.key ? null : current);
+                          }}
+                        >
+                            <span style={{
+                              display: 'flex',
+                              alignItems: 'flex-start',
+                              gap: 14,
+                              padding: '20px 22px 18px',
+                              backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.cardBackground,
+                              borderBottom: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.24)' : colours.highlightNeutral}`,
+                            }}>
+                              <span style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                width: 38,
+                                height: 38,
+                                flex: '0 0 auto',
+                                color: cardStatusColour,
+                                backgroundColor: isDarkMode ? colours.dark.cardHover : colours.grey,
+                                border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
+                                borderRadius: 0,
+                              }}>
+                                {card.action === 'receptionReport'
+                                  ? <FaPhoneAlt size={15} />
+                                  : card.action === 'marketingPerformance'
+                                    ? <FaChartArea size={16} />
+                                    : <FaChartLine size={16} />}
+                              </span>
+                              <span style={{ display: 'block', minWidth: 0 }}>
+                                <span style={{
+                                  display: 'block',
+                                  marginBottom: 7,
+                                  fontSize: 18,
+                                  lineHeight: 1.22,
+                                  fontWeight: 800,
+                                  color: isDarkMode ? colours.dark.text : colours.light.text,
+                                }}>
+                                  {card.name}
+                                </span>
+                                <span style={{
+                                  display: 'block',
+                                  maxWidth: 520,
+                                  fontSize: 13,
+                                  lineHeight: 1.5,
+                                  fontWeight: 500,
+                                  color: isDarkMode ? '#d1d5db' : '#374151',
+                                }}>
+                                  {getSlimSecondaryReportDetail(card)}
+                                </span>
+                              </span>
+                            </span>
+
+                            <div className={`reports-secondary-range-bar reports-hover-range-slot reports-liquid-fill${cardRangeBarIsBlue ? ' is-filling' : ''}${reportReady || railRequestReady ? ' is-ready' : ''}`} style={{
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 8,
+                              padding: '13px 18px 13px 22px',
+                              backgroundColor: isDarkMode ? colours.websiteBlue : colours.grey,
+                              borderTop: `1px solid ${cardRangeBarIsBlue
+                                ? (isDarkMode ? 'rgba(54, 144, 206, 0.55)' : 'rgba(54, 144, 206, 0.62)')
+                                : (isDarkMode ? 'rgba(54, 144, 206, 0.34)' : 'rgba(54, 144, 206, 0.24)')}`,
+                              boxShadow: cardRangeBarIsBlue && isDarkMode ? `inset 3px 0 0 ${colours.highlight}` : undefined,
+                              transition: 'border-top-color 220ms ease, box-shadow 260ms ease',
+                            }}>
+                              <span style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: 14,
+                              }}>
+                                <span style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 10,
+                                  minWidth: 0,
+                                }}>
+                                  <span
+                                    aria-hidden="true"
+                                    style={{
+                                      width: 3,
+                                      height: 28,
+                                      flex: '0 0 auto',
+                                      backgroundColor: cardStatusColour,
+                                      boxShadow: `0 0 14px ${cardStatusColour}33`,
+                                      animation: cardIsBusy ? 'shimmer 1.4s ease-in-out infinite' : undefined,
+                                    }}
+                                  />
+                                  <span
+                                    className={`reports-range-status-copy${cardHoveredRangeDetail ? ' is-previewing' : ''}`}
+                                    style={{
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                    fontSize: 12,
+                                    fontWeight: 800,
+                                    color: cardHoveredRangeDetail && !cardIsBusy && !railRequestFailed && !reportReady && !railRequestReady
+                                      ? colours.highlight
+                                      : (isDarkMode ? colours.dark.text : colours.light.text),
+                                    transition: 'color 180ms ease',
+                                  }}>
+                                    {quietStatusLabel}
+                                  </span>
+                                </span>
+                                  <span className="reports-secondary-action-slot">
+                                    {reportReady || railRequestReady ? (
+                                      <button
+                                        type="button"
+                                        className="reports-range-cue is-ready is-action"
+                                        onClick={() => {
+                                          if (railRequestReady) clearProcessingRailReport(card.key);
+                                          navigateToReport(card.action as ActiveViewType);
+                                        }}
+                                        aria-label={`Open ${card.name}`}
+                                      >
+                                        Ready: open report
+                                      </button>
+                                    ) : (
+                                      <span
+                                        className="reports-range-cue"
+                                        aria-hidden="true"
+                                        style={cardRangeBarIsBlue ? undefined : {
+                                          color: isDarkMode ? colours.dark.text : colours.light.text,
+                                          background: isDarkMode ? `${colours.dark.cardBackground}88` : colours.light.cardBackground,
+                                          borderColor: isDarkMode ? colours.dark.borderColor : colours.highlightNeutral,
+                                          transition: 'background-color 180ms ease, border-color 180ms ease, color 180ms ease',
+                                        }}
+                                      >
+                                        {cardIsBusy ? 'Refreshing' : selectedReportRangeKey ? 'Change period' : 'Choose period'}
+                                      </span>
+                                    )}
+                                  <span
+                                      className={`reports-secondary-range-buttons reports-hover-range-buttons${cardHoveredRangeDetail ? ' is-previewing' : ''}`}
+                                    role="radiogroup"
+                                    aria-label={`${card.name} data range`}
+                                  >
+                                    {REPORT_RANGE_OPTIONS.map((option) => {
+                                      const selected = selectedReportRangeKey === option.key;
+                                      const previewed = hoveredRangeEstimate?.ownerKey === card.key && hoveredRangeEstimate.rangeKey === option.key;
+                                      return (
+                                        <button
+                                          key={option.key}
+                                          className={`reports-secondary-range-option${previewed ? ' is-previewed' : ''}`}
+                                          type="button"
+                                          role="radio"
+                                          aria-checked={selected}
+                                          onClick={() => handleRangeOptionSelect(option.key)}
+                                          onMouseEnter={() => setHoveredRangeEstimate({ ownerKey: card.key, rangeKey: option.key })}
+                                          onMouseLeave={() => setHoveredRangeEstimate((current) => current?.ownerKey === card.key && current.rangeKey === option.key ? null : current)}
+                                          onFocus={() => setHoveredRangeEstimate({ ownerKey: card.key, rangeKey: option.key })}
+                                          onBlur={() => setHoveredRangeEstimate((current) => current?.ownerKey === card.key && current.rangeKey === option.key ? null : current)}
+                                          disabled={cardDisabled}
+                                          title={getRangeOptionTitle(option.key, card.key)}
+                                          style={{
+                                            ['--reports-range-index' as string]: REPORT_RANGE_OPTIONS.indexOf(option),
+                                            color: previewed
+                                              ? (isDarkMode ? '#d8efff' : '#0f4f79')
+                                              : selected
+                                              ? (isDarkMode ? '#8ed1ff' : colours.helixBlue)
+                                              : (isDarkMode ? '#cbd5e1' : colours.light.text),
+                                            backgroundColor: previewed
+                                              ? (isDarkMode ? 'rgba(54, 144, 206, 0.42)' : 'rgba(54, 144, 206, 0.18)')
+                                              : selected
+                                              ? (isDarkMode ? 'rgba(20, 73, 116, 0.92)' : colours.highlightBlue)
+                                              : (isDarkMode ? 'rgba(10, 26, 45, 0.78)' : colours.grey),
+                                            borderColor: previewed
+                                              ? (isDarkMode ? 'rgba(121, 197, 246, 0.78)' : 'rgba(54, 144, 206, 0.42)')
+                                              : selected
+                                              ? (isDarkMode ? 'rgba(85, 170, 229, 0.84)' : colours.helixBlue)
+                                              : (isDarkMode ? 'rgba(62, 88, 116, 0.62)' : colours.highlightNeutral),
+                                            boxShadow: 'none',
+                                          }}
+                                        >
+                                          <span className="reports-range-label-full">{option.label}</span>
+                                          <span className="reports-range-label-compact" aria-hidden="true">{option.shortLabel}</span>
+                                        </button>
+                                      );
+                                    })}
+                                  </span>
+                                </span>
+                              </span>
+                            </div>
+                          </div>
+                      </div>
+                    );
+                  }
                   return (
                     <button
                       key={card.key}
                       type="button"
                       onClick={() => {
                         if (cardDisabled) {
+                          return;
+                        }
+                        if (railRequestReady) {
+                          clearProcessingRailReport(card.key);
+                          navigateToReport(card.action as ActiveViewType);
                           return;
                         }
                         void handleReportCardClick(card.key, cardAction, card.dependencies.map((dependency) => dependency.key));
@@ -5578,12 +7053,10 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
                       onMouseEnter={(event) => {
                         if (cardDisabled) return;
                         event.currentTarget.style.borderColor = colours.highlight;
-                        event.currentTarget.style.transform = 'translateY(-1px)';
                         event.currentTarget.style.boxShadow = isDarkMode ? '0 16px 38px rgba(0, 3, 25, 0.36)' : '0 18px 40px rgba(6, 23, 51, 0.12)';
                       }}
                       onMouseLeave={(event) => {
                         event.currentTarget.style.borderColor = isDarkMode ? colours.dark.borderColor : colours.highlightNeutral;
-                        event.currentTarget.style.transform = 'translateY(0)';
                         event.currentTarget.style.boxShadow = isDarkMode ? '0 14px 34px rgba(0, 3, 25, 0.28)' : '0 16px 36px rgba(6, 23, 51, 0.08)';
                       }}
                     >
@@ -5605,7 +7078,26 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
                           border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
                           borderRadius: 0,
                         }}>
-                          <FaChartLine size={16} />
+                          {(() => {
+                            const cardAction = card.action as AvailableReport['action'];
+                            switch (cardAction) {
+                              case 'calls':
+                                return <FaPhoneAlt size={15} />;
+                              case 'ppcReport':
+                                return <FaSearchDollar size={15} />;
+                              case 'marketingPerformance':
+                                return <FaChartArea size={16} />;
+                              case 'enquiries':
+                              case 'enquiryLedger':
+                                return <FaInbox size={15} />;
+                              case 'matters':
+                                return <FaFolderOpen size={15} />;
+                              case 'annualLeave':
+                                return <FaClipboardList size={15} />;
+                              default:
+                                return <FaChartLine size={16} />;
+                            }
+                          })()}
                         </span>
                         <span style={{ display: 'block', minWidth: 0 }}>
                           <span style={{
@@ -5633,59 +7125,305 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
 
                       <span style={{
                         display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: 14,
+                        flexDirection: 'column',
+                        gap: 8,
                         padding: '13px 18px 13px 22px',
                         backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.grey,
                         borderTop: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
                       }}>
                         <span style={{
-                          display: 'inline-flex',
+                          display: 'flex',
                           alignItems: 'center',
-                          gap: 10,
-                          minWidth: 0,
+                          justifyContent: 'space-between',
+                          gap: 14,
                         }}>
-                          <span
-                            aria-hidden="true"
-                            style={{
-                              width: 3,
-                              height: 28,
-                              flex: '0 0 auto',
-                              backgroundColor: cardStatusColour,
-                              boxShadow: `0 0 14px ${cardStatusColour}33`,
-                            }}
-                          />
                           <span style={{
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 10,
+                            minWidth: 0,
+                          }}>
+                            <span
+                              aria-hidden="true"
+                              style={{
+                                width: 3,
+                                height: 28,
+                                flex: '0 0 auto',
+                                backgroundColor: cardStatusColour,
+                                boxShadow: `0 0 14px ${cardStatusColour}33`,
+                                animation: cardIsBusy ? 'shimmer 1.4s ease-in-out infinite' : undefined,
+                              }}
+                            />
+                            <span style={{
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              fontSize: 12,
+                              fontWeight: 800,
+                              color: isDarkMode ? colours.dark.text : colours.light.text,
+                            }}>
+                              {cardStatusLabel}
+                            </span>
+                          </span>
+                          <span style={{
+                            flex: '0 0 auto',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            padding: '9px 14px',
                             fontSize: 12,
                             fontWeight: 800,
-                            color: isDarkMode ? colours.dark.text : colours.light.text,
+                            color: cardIsBusy
+                              ? colours.dark.text
+                              : (cardDisabled ? (isDarkMode ? colours.subtleGrey : colours.greyText) : cardButtonTextColour),
+                            backgroundColor: cardDisabled ? (isDarkMode ? colours.dark.border : colours.light.disabledBackground) : cardButtonColour,
+                            border: `1px solid ${cardDisabled ? (isDarkMode ? colours.dark.borderColor : colours.highlightNeutral) : (railRequestReady ? colours.green : railRequestFailed ? colours.cta : colours.highlightNeutral)}`,
+                            borderRadius: 0,
                           }}>
-                            {cardStatusLabel}
+                            {cardIsBusy && (
+                              <span
+                                aria-hidden="true"
+                                style={{
+                                  width: 10,
+                                  height: 10,
+                                  border: '2px solid rgba(255,255,255,0.45)',
+                                  borderTopColor: '#ffffff',
+                                  borderRadius: '50%',
+                                  animation: 'spin 0.9s linear infinite',
+                                }}
+                              />
+                            )}
+                            {cardButtonLabel}
                           </span>
                         </span>
-                        <span style={{
-                          flex: '0 0 auto',
-                          padding: '9px 14px',
-                          fontSize: 12,
-                          fontWeight: 800,
-                          color: colours.dark.text,
-                          backgroundColor: cardDisabled ? (isDarkMode ? colours.dark.border : colours.light.disabledBackground) : colours.cta,
-                          border: `1px solid ${cardDisabled ? (isDarkMode ? colours.dark.borderColor : colours.highlightNeutral) : colours.cta}`,
-                          borderRadius: 0,
-                        }}>
-                          Open report
-                        </span>
+                        {cardIsBusy && cardTotalDeps > 0 && (
+                          <span
+                            data-helix-region={`reports/slim-management/feed-progress/${card.key}`}
+                            style={{
+                              display: 'flex',
+                              flexWrap: 'wrap',
+                              alignItems: 'center',
+                              columnGap: 14,
+                              rowGap: 6,
+                              fontSize: 11,
+                              fontWeight: 600,
+                              letterSpacing: 0,
+                              textTransform: 'none' as const,
+                              color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                              fontFamily: 'Raleway, sans-serif',
+                              animation: 'fadeIn 220ms ease-out',
+                            }}
+                          >
+                            {card.dependencies.map((dep) => {
+                              const depStatus = dep.status;
+                              const depColour = depStatus === 'ready'
+                                ? colours.green
+                                : depStatus === 'error'
+                                  ? colours.cta
+                                  : depStatus === 'loading'
+                                    ? colours.highlight
+                                    : colours.subtleGrey;
+                              const isLoading = depStatus === 'loading';
+                              return (
+                                <span
+                                  key={dep.key}
+                                  title={`${dep.name}: ${depStatus}`}
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                    transition: 'color 200ms ease',
+                                    color: depStatus === 'ready'
+                                      ? (isDarkMode ? colours.dark.text : colours.light.text)
+                                      : (isDarkMode ? colours.subtleGrey : colours.greyText),
+                                  }}
+                                >
+                                  <span
+                                    aria-hidden="true"
+                                    style={{
+                                      width: 8,
+                                      height: 8,
+                                      borderRadius: '50%',
+                                      backgroundColor: depColour,
+                                      flexShrink: 0,
+                                      boxShadow: isLoading ? `0 0 0 0 ${depColour}66` : undefined,
+                                      animation: isLoading ? 'helix-pulse-dot 1.4s ease-in-out infinite' : undefined,
+                                    }}
+                                  />
+                                  {dep.name}
+                                </span>
+                              );
+                            })}
+                          </span>
+                        )}
                       </span>
                     </button>
                   );
                 })}
               </div>
+            </section>
+            </>
+          )}
+
+          {hasLocalWorkspace && (
+            <div
+              className="reporting-local-workspace-frame"
+              data-helix-region="reports/local-workspace"
+              style={{
+                marginTop: 24,
+                padding: 18,
+                backgroundColor: isDarkMode ? 'rgba(6, 23, 51, 0.56)' : 'rgba(255, 255, 255, 0.76)',
+              }}
+            >
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+                marginBottom: 12,
+                paddingLeft: 10,
+                borderLeft: `2px solid ${colours.cta}`,
+              }}>
+                <span style={{ display: 'block' }}>
+                  <span style={{
+                    display: 'block',
+                    fontSize: 10,
+                    fontWeight: 800,
+                    textTransform: 'uppercase' as const,
+                    letterSpacing: '0.08em',
+                    color: colours.cta,
+                  }}>
+                    Local workspace
+                  </span>
+                  <span style={{ display: 'block', marginTop: 4, fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151' }}>
+                    Draft and localhost-only Reports work lives here until it is promoted into the production box above.
+                  </span>
+                </span>
+              </div>
+
+              {canAccessDataHub ? renderLocalDataHubButton() : null}
+
+              {canSimulateBlocker && (
+                <div
+                  data-helix-region="reports/local-workspace/simulate-blocker"
+                  style={{
+                    marginTop: 12,
+                    padding: '10px 14px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                    backgroundColor: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
+                    border: `1px dashed ${simulatedBlockerActive ? colours.cta : (isDarkMode ? colours.dark.borderColor : colours.highlightNeutral)}`,
+                    borderRadius: 0,
+                  }}
+                >
+                  <span style={{ display: 'block', minWidth: 0 }}>
+                    <span style={{
+                      display: 'block',
+                      fontSize: 11,
+                      fontWeight: 800,
+                      textTransform: 'uppercase' as const,
+                      letterSpacing: '0.08em',
+                      color: simulatedBlockerActive ? colours.cta : (isDarkMode ? colours.dark.text : colours.light.text),
+                    }}>
+                      {simulatedBlockerActive ? 'Simulated blocker active' : 'Demo controls (Luke only)'}
+                    </span>
+                    <span style={{
+                      display: 'block',
+                      marginTop: 3,
+                      fontSize: 12,
+                      lineHeight: 1.4,
+                      color: isDarkMode ? '#d1d5db' : '#374151',
+                    }}>
+                      {simulatedBlockerActive
+                        ? 'A simulated WIP failure is blocking dashboard entry. Clear it to restore the real readiness state.'
+                        : 'Invoke a simulated WIP failure to demo a blocked dashboard entry for the selected period.'}
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleToggleSimulatedBlocker}
+                    style={{
+                      appearance: 'none',
+                      flex: '0 0 auto',
+                      minHeight: 36,
+                      cursor: 'pointer',
+                      padding: '0 14px',
+                      fontFamily: 'Raleway, sans-serif',
+                      fontSize: 12,
+                      fontWeight: 800,
+                      letterSpacing: '0.02em',
+                      color: simulatedBlockerActive ? colours.dark.text : (isDarkMode ? colours.dark.text : colours.light.text),
+                      backgroundColor: simulatedBlockerActive ? colours.cta : 'transparent',
+                      borderStyle: 'solid',
+                      borderWidth: 1,
+                      borderColor: simulatedBlockerActive ? colours.cta : (isDarkMode ? colours.dark.borderColor : colours.highlightNeutral),
+                      borderRadius: 0,
+                      transition: 'background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease',
+                    }}
+                  >
+                    {simulatedBlockerActive ? 'Clear simulated blocker' : 'Simulate broken load'}
+                  </button>
+                </div>
+              )}
+
+              {localActiveCards.length > 0 && (
+                <div style={{ marginTop: 12 }}>
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(max(260px, calc(33.333% - 10px)), 1fr))',
+                    gap: 10,
+                  }}>
+                    {localActiveCards.map((card, index) => (
+                      <div key={card.key} style={getCardShellStyle(card)}>
+                        {ppcDevBadge(card)}
+                        <ReportCard card={card} animationIndex={productionSecondaryCards.length + index + 1} {...rcProps} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {developmentCards.length > 0 && (
+                <div style={{ marginTop: 16 }}>
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(max(260px, calc(33.333% - 10px)), 1fr))',
+                    gap: 10,
+                  }}>
+                    {developmentCards.map((card, index) => (
+                      <div key={card.key} style={getCardShellStyle(card)}>
+                        {ppcDevBadge(card)}
+                        <ReportCard card={card} animationIndex={productionSecondaryCards.length + localActiveCards.length + index + 1} {...rcProps} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {disabledCards.length > 0 && (
+                <div style={{ marginTop: 16 }}>
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(max(260px, calc(33.333% - 10px)), 1fr))',
+                    gap: 10,
+                  }}>
+                    {disabledCards.map((card, index) => (
+                      <div key={card.key} style={getCardShellStyle(card)}>
+                        {ppcDevBadge(card)}
+                        <ReportCard card={card} animationIndex={productionSecondaryCards.length + localActiveCards.length + developmentCards.length + index + 1} {...rcProps} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {renderStructurePanel()}
             </div>
           )}
+            </div>
+          </div>
         </div>
       );
     }
@@ -5742,7 +7480,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
         )}
 
         {/* â”€â”€ Active reports â”€â”€ */}
-        {activeCards.length > 0 && (
+        {productionSecondaryCards.length > 0 && (
           <div style={{
             position: 'relative' as const,
             padding: '4px 0 0',
@@ -5768,14 +7506,68 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(max(260px, calc(33.333% - 10px)), 1fr))',
+                gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
                 gap: 10,
               }}
             >
-              {activeCards.map((card, index) => <ReportCard key={card.key} card={card} animationIndex={index + 1} {...rcProps} />)}
+              {productionSecondaryCards.map((card, index) => <ReportCard key={card.key} card={card} animationIndex={index + 1} {...rcProps} />)}
             </div>
           </div>
         )}
+
+        {hasLocalWorkspace && (
+          <div
+            className="reporting-local-workspace-frame"
+            data-helix-region="reports/local-workspace"
+            style={{
+              marginTop: 24,
+              padding: 18,
+            }}
+          >
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+              marginBottom: 12,
+              paddingLeft: 10,
+              borderLeft: `2px solid ${colours.cta}`,
+            }}>
+              <span style={{ display: 'block' }}>
+                <span style={{
+                  display: 'block',
+                  fontSize: 10,
+                  fontWeight: 800,
+                  textTransform: 'uppercase' as const,
+                  letterSpacing: '0.08em',
+                  color: colours.cta,
+                }}>
+                  Local workspace
+                </span>
+                <span style={{ display: 'block', marginTop: 4, fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151' }}>
+                  Draft and localhost-only Reports work lives below this line until it is promoted.
+                </span>
+              </span>
+            </div>
+
+            {canAccessDataHub ? renderLocalDataHubButton() : null}
+
+            {localActiveCards.length > 0 && (
+              <div style={{ position: 'relative' as const, padding: '4px 0 0' }}>
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(max(260px, calc(33.333% - 10px)), 1fr))',
+                  gap: 10,
+                }}>
+                  {localActiveCards.map((card, index) => (
+                    <div key={card.key} style={getCardShellStyle(card)}>
+                      {ppcDevBadge(card)}
+                      <ReportCard card={card} animationIndex={productionSecondaryCards.length + index + 1} {...rcProps} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
         {/* â”€â”€ Development â”€â”€ */}
         {developmentCards.length > 0 && (
@@ -5821,7 +7613,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
               {developmentCards.map((card, index) => (
                 <div key={card.key} style={getCardShellStyle(card)}>
                   {ppcDevBadge(card)}
-                  <ReportCard card={card} animationIndex={activeCards.length + index + 1} {...rcProps} />
+                  <ReportCard card={card} animationIndex={productionSecondaryCards.length + localActiveCards.length + index + 1} {...rcProps} />
                 </div>
               ))}
             </div>
@@ -5863,10 +7655,14 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
               {disabledCards.map((card, index) => (
                 <div key={card.key} style={getCardShellStyle(card)}>
                   {ppcDevBadge(card)}
-                  <ReportCard card={card} animationIndex={activeCards.length + index + 1} {...rcProps} />
+                  <ReportCard card={card} animationIndex={productionSecondaryCards.length + localActiveCards.length + developmentCards.length + index + 1} {...rcProps} />
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+            {renderStructurePanel()}
           </div>
         )}
       </>
@@ -5874,8 +7670,12 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
   };
 
   const handleLaunchDashboard = useCallback(() => {
-    handleOpenDashboard();
-  }, [handleOpenDashboard]);
+    void handleReportCardClick(
+      'dashboard',
+      handleOpenDashboard,
+      REPORT_DATASET_REQUIREMENTS.dashboard ?? [],
+    );
+  }, [handleOpenDashboard, handleReportCardClick]);
 
   const handleEnquiriesRangeChange = useCallback((nextKey: ReportRangeKey) => {
     if (nextKey === enquiriesRangeKey) {
@@ -6027,6 +7827,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     if (!forceRefresh && nextEnquiriesKey === enquiriesRangeKey && nextMattersKey === mattersWipRangeKey) {
       return;
     }
+    setSlimRangeInvoked(true);
+    setSlimSelectedRangeKey(nextEnquiriesKey);
     setEnquiriesRangeKey(nextEnquiriesKey);
     setPendingEnquiriesRangeKey(nextEnquiriesKey);
     setMattersWipRangeKey(nextMattersKey);
@@ -6045,6 +7847,30 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
   const managementSliderValue = enquiriesRangeSliderValue;
   const managementSliderHasPendingChange = sliderHasPendingChange || enquiriesSliderHasPendingChange;
   const managementRangeIsRefreshing = isActivelyLoading;
+
+  useEffect(() => {
+    const dashboardRequest = processingRailRequests.find((request) => request.reportKey === 'dashboard' && !request.settled);
+    if (!dashboardRequest) {
+      return;
+    }
+
+    if (Date.now() - dashboardRequest.requestedAt < 180) {
+      return;
+    }
+
+    const dashboardDependencies = REPORT_DATASET_REQUIREMENTS.dashboard ?? [];
+    const dependencyStatuses = dashboardDependencies.map((key) => datasetStatus[key]?.status ?? 'idle');
+    const hasError = dependencyStatuses.some((status) => status === 'error');
+    if (hasError) {
+      settleProcessingRailReport('dashboard', false);
+      return;
+    }
+
+    const allReady = dependencyStatuses.length > 0 && dependencyStatuses.every((status) => status === 'ready');
+    if (allReady) {
+      settleProcessingRailReport('dashboard', true);
+    }
+  }, [datasetStatus, processingRailRequests, settleProcessingRailReport]);
 
   const handleManagementSliderValueChange = useCallback((value: number) => {
     const rounded = Math.round(value);
@@ -6075,12 +7901,24 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
         !globalPreviewRangeKey && reportKey === 'dashboard' && managementSliderHasPendingChange
           ? pendingEnquiriesRangeKey
           : null;
+      const receptionPreviewRangeKey = reportKey === 'receptionReport' && datasetKey !== 'teamData'
+        ? slimReceptionRangeKey
+        : null;
+      const marketingPreviewRangeKey = reportKey === 'marketingPerformance'
+        ? slimMarketingRangeKey
+        : null;
+      const seoPreviewRangeKey = reportKey === 'seo'
+        ? slimSeoRangeKey
+        : null;
 
       const previewRangeKey =
         globalPreviewRangeKey ||
         mattersPreviewRangeKey ||
         enquiriesPreviewRangeKey ||
-        managementPreviewRangeKey;
+        managementPreviewRangeKey ||
+        receptionPreviewRangeKey ||
+        marketingPreviewRangeKey ||
+        seoPreviewRangeKey;
 
       if (previewRangeKey) {
         const isMattersDataset = MATTERS_RANGE_DATASETS.includes(datasetKey);
@@ -6116,6 +7954,9 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       pendingEnquiriesRangeKey,
       pendingMattersRangeKey,
       sliderHasPendingChange,
+      slimMarketingRangeKey,
+      slimReceptionRangeKey,
+      slimSeoRangeKey,
     ]
   );
 
@@ -6154,6 +7995,117 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       };
     });
   }, [datasetStatus, getDatasetDateRange, getButtonState, isReportsDevPreview, trustReadinessPayload]);
+
+  const activeProcessingPanelItem = useMemo<ReportProcessingRailItem | null>(() => {
+    const request = activeProcessingPanelReportKey
+      ? processingRailRequests.find((candidate) => candidate.reportKey === activeProcessingPanelReportKey)
+      : null;
+    if (!request) return null;
+
+    const card = reportCards.find((candidate) => candidate.key === request.reportKey);
+    if (!card) return null;
+
+    const rows = card.dependencies.map((dep): ReportProcessingRailRow => ({
+      key: dep.key,
+      label: dep.name,
+      status: request.settled && !request.failed ? 'ready' : toProcessingRailStatus(dep.status),
+      detail: dep.status === 'ready'
+        ? 'Loaded'
+        : dep.status === 'loading'
+          ? 'Refreshing now'
+          : dep.status === 'error'
+            ? 'Needs retry'
+            : dep.range || 'Waiting',
+    }));
+    const rawStatus = rows.length > 0 ? summariseProcessingRailStatus(rows) : 'ready';
+    const itemStatus: ReportProcessingRailStatus = request.failed
+      ? 'error'
+      : request.settled
+        ? rawStatus === 'idle' ? 'ready' : rawStatus
+        : rawStatus === 'error'
+          ? 'error'
+          : 'loading';
+    const canOpen = Boolean(request.settled && !request.failed && itemStatus === 'ready');
+    const elapsedSeconds = Math.max(0, Math.round((Date.now() - request.requestedAt) / 1000));
+    const openReport = () => {
+      clearProcessingRailReport(card.key);
+      if (card.key === 'dashboard') {
+        handleOpenDashboard();
+        return;
+      }
+      navigateToReport(card.action as ActiveViewType);
+    };
+    const openBreakdown = () => {
+      setActiveProcessingPanelManualFolded(false);
+      setActiveProcessingPanelFolded(false);
+      setActiveProcessingPanelForcedOpen(true);
+    };
+
+    return {
+      key: `active-${card.key}`,
+      title: canOpen
+        ? `${card.name} is ready`
+        : request.failed
+          ? `${card.name} needs a retry`
+          : `Refreshing ${card.name}`,
+      subtitle: canOpen
+        ? 'Feed check completed. Open the report or inspect the completed breakdown.'
+        : 'Feed status is shown here while the report prepares.',
+      status: itemStatus,
+      rows,
+      ctaLabel: canOpen ? `Open ${card.name}` : request.failed ? 'Hide panel' : 'Preparing report',
+      ctaDisabled: !canOpen && !request.failed,
+      onCta: canOpen ? openReport : request.failed ? hideActiveProcessingPanel : undefined,
+      secondaryCtaLabel: canOpen ? 'Open breakdown' : undefined,
+      onSecondaryCta: canOpen ? openBreakdown : undefined,
+      detail: canOpen
+        ? 'Feeds are aligned. You can open the report now or reopen the full feed breakdown from this panel.'
+        : request.failed
+          ? 'One or more feeds did not complete. Retry from the report card.'
+          : 'Refreshing the feeds now. This panel will stay with the report request.',
+      elapsedLabel: elapsedSeconds > 0 ? `${elapsedSeconds}s elapsed` : null,
+      visualIcon: 'Sync',
+    };
+  }, [activeProcessingPanelReportKey, clearProcessingRailReport, handleOpenDashboard, hideActiveProcessingPanel, navigateToReport, processingRailRequests, reportCards]);
+
+  const activeProcessingPanelHasAttention = useMemo(() => {
+    if (!activeProcessingPanelItem) return false;
+    return ['error', 'blocked', 'warn'].includes(activeProcessingPanelItem.status)
+      || activeProcessingPanelItem.rows.some((row) => ['error', 'blocked', 'warn'].includes(row.status));
+  }, [activeProcessingPanelItem]);
+
+  useEffect(() => {
+    if (!activeProcessingPanelItem) {
+      setActiveProcessingPanelFolded(false);
+      setActiveProcessingPanelForcedOpen(false);
+      setActiveProcessingPanelManualFolded(null);
+      return;
+    }
+
+    if (activeProcessingPanelHasAttention) {
+      setActiveProcessingPanelFolded(false);
+      setActiveProcessingPanelForcedOpen(true);
+      setActiveProcessingPanelManualFolded(false);
+      return;
+    }
+
+    if (activeProcessingPanelManualFolded !== null) {
+      setActiveProcessingPanelFolded(activeProcessingPanelManualFolded);
+      setActiveProcessingPanelForcedOpen(!activeProcessingPanelManualFolded);
+      return;
+    }
+
+    setActiveProcessingPanelFolded(false);
+    setActiveProcessingPanelForcedOpen(false);
+    const timeout = window.setTimeout(() => {
+      setActiveProcessingPanelFolded(true);
+    }, 3800);
+    return () => window.clearTimeout(timeout);
+  }, [activeProcessingPanelHasAttention, activeProcessingPanelItem?.key, activeProcessingPanelItem?.status, activeProcessingPanelManualFolded]);
+
+  useEffect(() => {
+    setActiveProcessingPanelManualFolded(null);
+  }, [activeProcessingPanelItem?.key]);
 
   const handleApplyPendingMattersRange = useCallback(() => {
     if (!sliderHasPendingChange || wipRangeIsRefreshing) {
@@ -6208,8 +8160,121 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     }
   }, [isStreamingConnected, datasetSummaries, isFetching, refreshStartedAt]);
 
+  const resumeProcessingPanelItem = useMemo<ReportProcessingRailItem | null>(() => {
+    if (!resumeNotice) {
+      return null;
+    }
+    return {
+      key: 'resumed-refresh-notice',
+      title: 'Refresh resumed',
+      subtitle: 'You can keep working while the refresh finalises.',
+      status: 'loading',
+      rows: [
+        { key: 'resume', label: 'Feeds', status: isStreamingConnected ? 'loading' : 'warn', detail: resumeNotice.message },
+        { key: 'progress', label: 'Progress', status: isFetching ? 'loading' : 'ready', detail: progressDetailText },
+      ],
+      ctaLabel: 'Dismiss',
+      onCta: dismissResumeNotice,
+      detail: progressDetailText,
+      elapsedLabel: 'Resumed',
+      visualIcon: 'SyncStatus',
+    };
+  }, [dismissResumeNotice, isFetching, isStreamingConnected, progressDetailText, resumeNotice]);
+
+  const floatingProcessingPanelItem = activeProcessingPanelItem
+    ?? resumeProcessingPanelItem
+    ?? (simulatedProcessingPanelVisible ? simulatedProcessingPanelItem : null);
+  const floatingProcessingPanelKind = activeProcessingPanelItem
+    ? 'real'
+    : resumeProcessingPanelItem
+      ? 'resume'
+      : simulatedProcessingPanelVisible
+        ? 'preview'
+        : null;
+  const floatingProcessingPanelIsReal = floatingProcessingPanelKind === 'real';
+  const floatingProcessingPanelFolded = Boolean(
+    floatingProcessingPanelIsReal
+    && activeProcessingPanelFolded
+    && !activeProcessingPanelForcedOpen
+    && !activeProcessingPanelHasAttention
+  );
+
+  const renderFloatingProcessingPanel = () => {
+    if (!floatingProcessingPanelItem) {
+      return null;
+    }
+    return (
+      <aside
+        className={`reports-floating-processing-panel${floatingProcessingPanelFolded ? ' is-folded' : ''}`}
+        data-helix-region={floatingProcessingPanelKind === 'real'
+          ? 'reports/floating-processing-panel'
+          : floatingProcessingPanelKind === 'resume'
+            ? 'reports/floating-processing-resume'
+            : 'reports/floating-processing-preview'}
+        aria-label={floatingProcessingPanelKind === 'real'
+          ? 'Report refresh processing panel'
+          : floatingProcessingPanelKind === 'resume'
+            ? 'Report refresh resumed panel'
+            : 'Report refresh processing preview'}
+      >
+        {floatingProcessingPanelIsReal && (
+          <button
+            type="button"
+            className="reports-floating-processing-panel__fold"
+            onClick={(event) => {
+              event.stopPropagation();
+              if (floatingProcessingPanelFolded) {
+                setActiveProcessingPanelManualFolded(false);
+                setActiveProcessingPanelFolded(false);
+                setActiveProcessingPanelForcedOpen(true);
+                return;
+              }
+              setActiveProcessingPanelManualFolded(true);
+              setActiveProcessingPanelFolded(true);
+              setActiveProcessingPanelForcedOpen(false);
+            }}
+            aria-label={floatingProcessingPanelFolded ? 'Open feed breakdown' : 'Fold feed breakdown'}
+            aria-expanded={!floatingProcessingPanelFolded}
+          >
+            <FontIcon iconName={floatingProcessingPanelFolded ? 'ChevronUp' : 'ChevronDown'} />
+          </button>
+        )}
+        <button
+          type="button"
+          className="reports-floating-processing-panel__close"
+          onClick={floatingProcessingPanelKind === 'real'
+            ? hideActiveProcessingPanel
+            : floatingProcessingPanelKind === 'resume'
+              ? dismissResumeNotice
+              : hideSimulatedProcessingPanel}
+          aria-label={floatingProcessingPanelKind === 'real'
+            ? 'Hide report processing panel'
+            : floatingProcessingPanelKind === 'resume'
+              ? 'Dismiss resumed refresh panel'
+              : 'Hide report processing preview'}
+        >
+          <FontIcon iconName="Cancel" />
+        </button>
+        <ReportProcessingRailItemCard
+          isDarkMode={isDarkMode}
+          item={floatingProcessingPanelItem}
+          embedded
+          compact={floatingProcessingPanelFolded}
+          onSurfaceClick={floatingProcessingPanelFolded ? () => {
+            setActiveProcessingPanelManualFolded(false);
+            setActiveProcessingPanelFolded(false);
+            setActiveProcessingPanelForcedOpen(true);
+          } : undefined}
+          surfaceTitle={floatingProcessingPanelFolded ? 'Open feed breakdown' : undefined}
+        />
+      </aside>
+    );
+  };
+
   if (activeView === 'dashboard') {
     return (
+      <>
+      {renderFloatingProcessingPanel()}
       <div style={fullScreenWrapperStyle(isDarkMode)}>
         <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
           <ManagementDashboard
@@ -6227,11 +8292,14 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
             />
         </div>
       </div>
+      </>
     );
   }
 
   if (activeView === 'annualLeave') {
     return (
+      <>
+      {renderFloatingProcessingPanel()}
       <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
         <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
 
@@ -6244,11 +8312,14 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
             />
         </div>
       </div>
+      </>
     );
   }
 
   if (activeView === 'matters') {
     return (
+      <>
+      {renderFloatingProcessingPanel()}
       <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
         <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
           <MattersReport
@@ -6270,11 +8341,14 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
             />
         </div>
       </div>
+      </>
     );
   }
 
   if (activeView === 'enquiries') {
     return (
+      <>
+      {renderFloatingProcessingPanel()}
       <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
         <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
           <EnquiriesReport 
@@ -6298,11 +8372,14 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
             />
         </div>
       </div>
+      </>
     );
   }
 
   if (activeView === 'enquiryLedger') {
     return (
+      <>
+        {renderFloatingProcessingPanel()}
         <EnquiryLedgerReport
           enquiries={datasetData.enquiries}
           deals={datasetData.deals}
@@ -6312,6 +8389,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
           lastRefreshTimestamp={lastRefreshTimestamp ?? undefined}
           triggerRefresh={refreshEnquiriesScoped}
         />
+      </>
     );
   }
 
@@ -6323,22 +8401,56 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
 
   if (activeView === 'seoReport') {
     return (
+      <>
+      {renderFloatingProcessingPanel()}
       <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
         <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
-          <SeoReport 
-              cachedGa4Data={(datasetData.googleAnalytics ?? cachedData.googleAnalytics) || []}
-              cachedChannelData={[]} // TODO: Add when channel data is cached
-              cachedSourceMediumData={[]} // TODO: Add when source/medium data is cached
-              cachedLandingPageData={[]} // TODO: Add when landing page data is cached
-              cachedDeviceData={[]} // TODO: Add when device data is cached
-            />
+          <SeoReport
+            cachedGa4Data={(datasetData.googleAnalytics ?? cachedData.googleAnalytics) || []}
+            cachedEnquiries={(datasetData.enquiries ?? cachedData.enquiries) || []}
+            cachedAllMatters={(datasetData.allMatters ?? cachedData.allMatters) || []}
+            triggerRefresh={refreshGoogleAnalyticsOnly}
+            lastRefreshTimestamp={datasetStatus.googleAnalytics?.updatedAt ?? undefined}
+            isFetching={isFetching || datasetStatus.googleAnalytics?.status === 'loading'}
+            initialRangeKey="custom"
+            initialCustomDateRange={computeRangeWindowByKey(seoReportPreparedRangeKey ?? slimSeoRangeKey ?? '12m')}
+          />
         </div>
       </div>
+      </>
+    );
+  }
+
+  if (activeView === 'marketingPerformance') {
+    return (
+      <>
+      {renderFloatingProcessingPanel()}
+      <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
+        <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
+          <MarketingPerformanceReport
+            cachedGa4Data={(datasetData.googleAnalytics ?? cachedData.googleAnalytics) || []}
+            cachedGoogleAdsData={(ppcGoogleAdsData ?? datasetData.googleAds ?? cachedData.googleAds) || []}
+            cachedEnquiries={(datasetData.enquiries ?? cachedData.enquiries) || []}
+            ppcIncomeMetrics={ppcIncomeMetrics}
+            isDarkMode={isDarkMode}
+            isFetching={isFetching || datasetStatus.googleAnalytics?.status === 'loading'}
+            lastRefreshTimestamp={datasetStatus.googleAnalytics?.updatedAt ?? undefined}
+            googleAdsLastRefreshTimestamp={googleAdsLastRefreshTimestamp ?? undefined}
+            triggerRefresh={refreshGoogleAnalyticsOnly}
+            triggerPaidSearchRefresh={refreshGoogleAdsOnly}
+            initialRangeKey="custom"
+            initialCustomDateRange={computeRangeWindowByKey(marketingReportPreparedRangeKey ?? slimMarketingRangeKey ?? '12m')}
+          />
+        </div>
+      </div>
+      </>
     );
   }
 
   if (activeView === 'ppcReport') {
     return (
+      <>
+      {renderFloatingProcessingPanel()}
       <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
         <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
           <PpcReport 
@@ -6350,43 +8462,58 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
             />
         </div>
       </div>
+      </>
     );
   }
 
   if (activeView === 'logMonitor') {
     return (
+      <>
+      {renderFloatingProcessingPanel()}
       <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
         <LogMonitor onBack={handleBackToOverview} />
       </div>
+      </>
     );
   }
 
   if (activeView === 'syncHistory') {
     return (
+      <>
+      {renderFloatingProcessingPanel()}
       <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
         <SyncHistory onBack={handleBackToOverview} />
       </div>
+      </>
     );
   }
 
   if (activeView === 'cacheMonitor') {
     return (
+      <>
+      {renderFloatingProcessingPanel()}
       <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
         <CacheMonitor onBack={handleBackToOverview} />
       </div>
+      </>
     );
   }
 
   if (activeView === 'agedDebts') {
     return (
+      <>
+      {renderFloatingProcessingPanel()}
       <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
         <AgedDebtsReport onBack={handleBackToOverview} />
       </div>
+      </>
     );
   }
 
   if (activeView === 'calls') {
     return (
+      <>
+      {renderFloatingProcessingPanel()}
       <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
         <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
           <CallsReport
@@ -6398,12 +8525,15 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
           />
         </div>
       </div>
+      </>
     );
   }
 
   if (activeView === 'receptionReport') {
     if (!canSeeReceptionReport(userInitialsForGate)) {
       return (
+        <>
+        {renderFloatingProcessingPanel()}
         <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
           <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={{ padding: 24 }}>
             <div
@@ -6427,7 +8557,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
               </span>
               <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Locked</h2>
               <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5 }}>
-                This report is limited to LZ, AC, and JW. Speak to one of them if you need a copy of the figures.
+                This report is limited to LZ, AC, JW, and KW. Speak to one of them if you need a copy of the figures.
               </p>
               <div>
                 <button
@@ -6452,42 +8582,84 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
             </div>
           </div>
         </div>
+        </>
       );
     }
     return (
+      <>
+      {renderFloatingProcessingPanel()}
       <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
         <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
-          <ReceptionReport />
+          <ReceptionReport
+            initialData={receptionReportSnapshot?.data ?? null}
+            initialLoadedAt={receptionReportSnapshot?.loadedAt}
+            initialRangeKey={receptionReportSnapshot?.rangeKey ?? RECEPTION_REPORT_DEFAULT_RANGE_KEY}
+            initialCustomDateRange={receptionReportSnapshot?.range ?? null}
+          />
         </div>
       </div>
+      </>
     );
   }
 
   if (activeView === 'dataCentre') {
     return (
-      <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
-        <DataCentre
-          onBack={handleBackToOverview}
-          onRefreshAll={refreshDatasetsWithStreaming}
-          onRefreshCollected={refreshCollectedFeesOnly}
-          isRefreshing={isActivelyLoading}
-          progressPercent={streamingProgress.percentage}
-          phaseLabel={refreshPhaseLabel}
-          elapsedLabel={formatDurationMs(refreshElapsedMs)}
-          datasets={datasetSummariesSorted}
-          userName={propUserData?.[0]?.FullName || propUserData?.[0]?.Initials}
-        />
+      <>
+      {renderFloatingProcessingPanel()}
+      <div
+        className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}
+        style={{
+          ...fullScreenWrapperStyle(isDarkMode),
+          background: '#ffffff',
+          color: colours.light.text,
+        }}
+      >
+        {
+          // When the production preview flag is active (toggled via Command Deck / Hub Tools),
+          // restrict datasets shown in the Data Centre to reconciled ledgers and the
+          // enquiries + matters operational datasets only.
+        }
+        {(() => {
+          const isProductionPreview = Boolean(featureToggles?.viewAsProd);
+          const datasetsForDataCentre = isProductionPreview
+            ? datasetSummariesSorted.filter((s) => (
+              (s.definition.provider.category === 'reconciled-ledger') ||
+              s.definition.key === 'enquiries' ||
+              s.definition.key === 'allMatters'
+            ))
+            : datasetSummariesSorted;
+
+          return (
+            <DataCentre
+              onBack={handleBackToOverview}
+              onRefreshAll={refreshDatasetsWithStreaming}
+              onRefreshCollected={refreshCollectedFeesOnly}
+              isRefreshing={isActivelyLoading}
+              progressPercent={streamingProgress.percentage}
+              phaseLabel={refreshPhaseLabel}
+              elapsedLabel={formatDurationMs(refreshElapsedMs)}
+              datasets={datasetsForDataCentre}
+              userName={propUserData?.[0]?.FullName || propUserData?.[0]?.Initials}
+              userInitials={userInitialsForGate}
+              showProdAudienceBadge={!isLocalReportsHost}
+            />
+          );
+        })()}
       </div>
+      </>
     );
   }
 
   if (activeView === 'responseTime') {
     return (
+      <>
+      {renderFloatingProcessingPanel()}
       <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
         <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
           <ResponseTimeReport enquiries={datasetData.enquiries} />
         </div>
       </div>
+      </>
     );
   }
 
@@ -6496,17 +8668,18 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       <style>{spinnerStyle}</style>
 
       <div className="reporting-home-container" style={containerStyle(isDarkMode)}>
+        {renderFloatingProcessingPanel()}
         <section style={{
           padding: 0,
           background: 'transparent',
           border: 'none',
           borderRadius: 0,
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginBottom: 18 }}>
+          <div style={{ display: showLegacyReportsChrome ? 'flex' : 'none', alignItems: 'center', justifyContent: 'flex-end', marginBottom: showLegacyReportsChrome ? 18 : 0 }}>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
               {/* Slim users get the big preset row + joined Open Dashboard
                   button below the header instead of the small toolbar. */}
-              {!isSlimReports && (
+              {showLegacyReportsChrome && (
               <>
               {/* Primary CTA */}
               <PrimaryButton
@@ -6599,7 +8772,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
                     />
                   </span>
                 </TooltipHost>
-                {canAccessReportingOps && !isSlimReports && (
+                {canAccessReportingOps && showLegacyReportsChrome && (
                   <TooltipHost content="View reporting activity feed">
                     <IconButton
                       ariaLabel="Open reporting activity"
@@ -6630,7 +8803,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
             </div>
           </div>
 
-          {!isSlimReports && <ReportingPulseStrip isDarkMode={isDarkMode} />}
+          {showLegacyReportsChrome && <ReportingPulseStrip isDarkMode={isDarkMode} />}
 
           {isRefreshRangeCalloutOpen && refreshRangeButtonRef.current && (
             <Callout
@@ -6710,6 +8883,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
                     return (
                       <span
                         key={option.key}
+                        title={getRangeOptionTitle(option.key, 'enquiries')}
                         style={{
                           fontSize: 12,
                           fontWeight: isSelected ? 700 : 500,
@@ -6728,7 +8902,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
                           cursor: 'default',
                         }}
                       >
-                        {option.label}
+                        <span className="reports-range-label-full">{option.label}</span>
+                        <span className="reports-range-label-compact" aria-hidden="true">{option.shortLabel}</span>
                       </span>
                     );
                   })}
@@ -6787,59 +8962,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
             </Callout>
           )}
 
-          {resumeNotice && (
-            <div
-              style={{
-                marginBottom: 16,
-                padding: '12px 16px',
-                borderRadius: 0,
-                border: `0.5px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.22)' : 'rgba(6, 23, 51, 0.06)'}`,
-                background: isDarkMode ? 'rgba(6, 23, 51, 0.6)' : 'rgba(214, 232, 255, 0.4)',
-                backdropFilter: 'blur(16px) saturate(1.4)',
-                display: 'flex',
-                alignItems: 'flex-start',
-                gap: 12,
-              }}
-            >
-              <FontIcon
-                iconName="SyncStatus"
-                style={{
-                  fontSize: 18,
-                  color: brandSignal(isDarkMode),
-                  marginTop: 2,
-                }}
-              />
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: isDarkMode ? colours.highlightBlue : colours.blue }}>
-                  Resuming refresh
-                </span>
-                <span style={{ fontSize: 13, color: isDarkMode ? colours.dark.text : colours.light.text, lineHeight: 1.4 }}>
-                  {resumeNotice.message}
-                </span>
-                <span style={{ fontSize: 11, color: isDarkMode ? 'rgba(243, 244, 246, 0.85)' : 'rgba(6, 23, 51, 0.8)' }}>
-                  {progressDetailText}
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={dismissResumeNotice}
-                style={{
-                  border: 'none',
-                  background: 'transparent',
-                  color: isDarkMode ? colours.highlightBlue : colours.blue,
-                  fontSize: 12,
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  padding: '4px 8px',
-                }}
-                aria-label="Dismiss resume notice"
-              >
-                Dismiss
-              </button>
-            </div>
-          )}
 
-          {!isSlimReports && (
+          {canAccessDataHub && (
           <>
           {/* â”€â”€ Data Hub status strip â”€â”€ */}
           <div
@@ -6852,6 +8976,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
             style={{
               marginBottom: 18,
               padding: '11px 16px',
+              paddingRight: 140,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
@@ -6867,12 +8992,45 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
                 : (isDarkMode ? 'rgba(10, 28, 50, 0.45)' : 'rgba(255, 255, 255, 0.55)'),
               backdropFilter: 'blur(16px) saturate(1.4)',
               WebkitBackdropFilter: 'blur(16px) saturate(1.4)',
+              transform: dataHubHovered ? 'translateY(-1px)' : 'translateY(0)',
+              boxShadow: dataHubHovered
+                ? (isDarkMode ? '0 8px 24px rgba(6, 18, 32, 0.28)' : '0 8px 24px rgba(15, 23, 42, 0.10)')
+                : 'none',
               transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
               position: 'relative',
               overflow: 'hidden',
             }}
           >
-            {/* Progress bar overlay */}
+              {/* Inner subtle audience badge (absolute so it doesn't shift layout) */}
+              <div style={{
+                position: 'absolute',
+                top: '50%',
+                right: 12,
+                transform: dataHubHovered ? 'translateY(-50%) scale(1.02)' : 'translateY(-50%) scale(1)',
+                padding: '4px 10px',
+                borderRadius: 12,
+                border: dataHubHovered
+                  ? (isDarkMode ? '1px solid rgba(96, 144, 206, 0.35)' : '1px solid rgba(54, 144, 206, 0.18)')
+                  : '1px solid rgba(96,16,16,0.08)',
+                background: dataHubHovered
+                  ? (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(255, 255, 255, 0.85)')
+                  : (isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.6)'),
+                boxShadow: dataHubHovered
+                  ? (isDarkMode ? '0 6px 18px rgba(54, 144, 206, 0.12)' : '0 6px 18px rgba(54, 144, 206, 0.10)')
+                  : 'none',
+                zIndex: 2,
+                pointerEvents: 'none',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                fontSize: 11,
+                transition: 'all 0.22s cubic-bezier(0.4, 0, 0.2, 1)',
+              }}>
+                <div style={{ color: isDarkMode ? 'rgba(255,255,255,0.85)' : 'rgba(6,23,51,0.6)', opacity: 0.95 }}>
+                  Visible to EA, LZ, AC
+                </div>
+              </div>
+              {/* Progress bar overlay */}
             {isActivelyLoading && (
               <div style={{
                 position: 'absolute',
@@ -6917,15 +9075,32 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
               </div>
 
               {/* Text content */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
-                <span style={{
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: isDarkMode ? colours.dark.text : colours.light.text,
-                  fontFamily: 'Raleway, sans-serif',
-                }}>
-                  Data Hub
-                </span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0, justifyContent: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flexWrap: 'wrap' }}>
+                  <span style={{
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: isDarkMode ? colours.dark.text : colours.light.text,
+                    fontFamily: 'Raleway, sans-serif',
+                  }}>
+                    Data Hub
+                  </span>
+                  {!isLocalReportsHost && (
+                    <span style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      padding: '2px 6px',
+                      border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.42)' : 'rgba(54,144,206,0.34)'}`,
+                      fontSize: 9,
+                      fontWeight: 800,
+                      letterSpacing: '0.08em',
+                      textTransform: 'uppercase',
+                      color: isDarkMode ? colours.accent : colours.helixBlue,
+                    }}>
+                      LZ/AC prod
+                    </span>
+                  )}
+                </div>
                 <span style={{
                   fontSize: 11,
                   color: isDarkMode ? 'rgba(160, 160, 160, 0.88)' : 'rgba(107, 107, 107, 0.9)',
@@ -6977,29 +9152,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
             >
               Reporting suite
             </h3>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span
-                style={{
-                  fontSize: 10,
-                  fontWeight: 600,
-                  padding: '2px 8px',
-                  borderRadius: 2,
-                  background: isActivelyLoading
-                    ? (isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)')
-                    : (isDarkMode ? 'rgba(32, 178, 108, 0.1)' : 'rgba(32, 178, 108, 0.06)'),
-                  border: `0.5px solid ${isActivelyLoading
-                    ? (isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.12)')
-                    : (isDarkMode ? 'rgba(32, 178, 108, 0.2)' : 'rgba(32, 178, 108, 0.14)')}`,
-                  color: isActivelyLoading
-                    ? (isDarkMode ? colours.blue : colours.blue)
-                    : (isDarkMode ? colours.green : colours.green),
-                  cursor: 'default',
-                }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                {readyCount}/{datasetSummaries.length} feeds ready
-              </span>
-            </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }} />
           </div>
 
           {/* Feed breakdown â€” visible during refresh or on hover */}
@@ -7111,7 +9264,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
           {renderAvailableReportCards()}
 
           {/* ── Activity Monitor — not a report, a utility tool ── */}
-          {canAccessReportingOps && !isSlimReports && (
+          {canAccessReportingOps && showLegacyReportsChrome && (
             <div
               onClick={() => navigateToReport('logMonitor')}
               style={{
@@ -7175,7 +9328,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
           )}
 
           {/* â”€â”€ Sync History â€” scheduler tier timeline â”€â”€ */}
-          {canAccessReportingOps && !isSlimReports && (
+          {canAccessReportingOps && showLegacyReportsChrome && (
             <div
               onClick={() => navigateToReport('syncHistory')}
               style={{
@@ -7241,7 +9394,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
           {/* â”€â”€ Cache Monitor â€” only for LZ/AC in prod, everyone locally â”€â”€ */}
           {(() => {
             const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-            const canSeeCacheMonitor = (isLocal || canSeePrivateHubControls(primaryUser)) && !isSlimReports;
+            const canSeeCacheMonitor = (isLocal || canSeePrivateHubControls(primaryUser)) && showLegacyReportsChrome;
             if (!canSeeCacheMonitor) return null;
             return (
               <div

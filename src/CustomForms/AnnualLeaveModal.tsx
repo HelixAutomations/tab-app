@@ -88,12 +88,18 @@ function mapLeaveEntries(raw: any): AnnualLeaveRecord[] {
 }
 
 function getLeaveRecordDisplayDays(record: AnnualLeaveRecord): number {
-  if (typeof record.days_taken === 'number' && Number.isFinite(record.days_taken)) {
-    return record.days_taken;
+  if (record.days_taken !== undefined && record.days_taken !== null && String(record.days_taken).trim() !== '') {
+    const storedDays = Number(record.days_taken);
+    if (Number.isFinite(storedDays)) {
+      return storedDays;
+    }
   }
 
-  const startDate = new Date(record.start_date);
-  const endDate = new Date(record.end_date);
+  const startDate = parseValidDate(record.start_date);
+  const endDate = parseValidDate(record.end_date);
+  if (!startDate || !endDate) return 0;
+  if (endDate < startDate) return 0;
+
   const dayDiff = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
   let computedDays = dayDiff;
   if (record.half_day_start) computedDays -= 0.5;
@@ -101,11 +107,21 @@ function getLeaveRecordDisplayDays(record: AnnualLeaveRecord): number {
   return computedDays;
 }
 
-function formatDateInputValue(value?: string | null): string {
-  if (!value) return '';
+function parseValidDate(value?: string | null): Date | null {
+  if (!value) return null;
   const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return '';
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function formatDateInputValue(value?: string | null): string {
+  const parsed = parseValidDate(value);
+  if (!parsed) return '';
   return format(parsed, 'yyyy-MM-dd');
+}
+
+function formatDateDisplayValue(value?: string | null, dateFormat = 'd MMM yyyy', fallback = 'Date unavailable'): string {
+  const parsed = parseValidDate(value);
+  return parsed ? format(parsed, dateFormat) : fallback;
 }
 
 type LeaveCoverageValue = 'full' | 'single-am' | 'single-pm' | 'range-starts-pm' | 'range-ends-am' | 'range-starts-pm-ends-am';
@@ -354,6 +370,37 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
     setEditReason('');
   }, []);
 
+  const openEditDialog = useCallback((record: AnnualLeaveRecord) => {
+    const currentStartDate = formatDateInputValue(record.start_date);
+    const currentEndDate = formatDateInputValue(record.end_date);
+    const coverage = getLeaveCoverageValue(
+      currentStartDate,
+      currentEndDate,
+      Boolean(record.half_day_start),
+      Boolean(record.half_day_end)
+    );
+    const coverageFlags = getCoverageFlags(coverage, currentStartDate === currentEndDate);
+    const workingDays = calculateWorkingLeaveDays(
+      currentStartDate,
+      currentEndDate,
+      bankHolidays,
+      coverageFlags.halfDayStart,
+      coverageFlags.halfDayEnd
+    );
+
+    setEditStartDate(currentStartDate);
+    setEditEndDate(currentEndDate);
+    setEditCoverage(coverage);
+    setEditStatus(String(record.status || '').trim().toLowerCase());
+    setEditLeaveType(normalizeLeaveType(record.leave_type || 'standard'));
+    // Trust the computed working-day count when dates are present (including a
+    // legitimate 0 for an all-weekend/bank-holiday range); only fall back to the
+    // stored value when the record has no usable date range to compute from.
+    setEditDays(String(currentStartDate && currentEndDate ? workingDays : getLeaveRecordDisplayDays(record)));
+    setEditReason(String(record.reason || ''));
+    setEditingRecord(record);
+  }, [bankHolidays]);
+
   useEffect(() => {
     if (!editingRecord) {
       setEditStartDate('');
@@ -368,19 +415,31 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
 
     const currentStartDate = formatDateInputValue(editingRecord.start_date);
     const currentEndDate = formatDateInputValue(editingRecord.end_date);
-    setEditStartDate(currentStartDate);
-    setEditEndDate(currentEndDate);
-    setEditCoverage(getLeaveCoverageValue(
+    const coverage = getLeaveCoverageValue(
       currentStartDate,
       currentEndDate,
       Boolean(editingRecord.half_day_start),
       Boolean(editingRecord.half_day_end)
-    ));
+    );
+    const coverageFlags = getCoverageFlags(coverage, currentStartDate === currentEndDate);
+    const workingDays = calculateWorkingLeaveDays(
+      currentStartDate,
+      currentEndDate,
+      bankHolidays,
+      coverageFlags.halfDayStart,
+      coverageFlags.halfDayEnd
+    );
+    setEditStartDate(currentStartDate);
+    setEditEndDate(currentEndDate);
+    setEditCoverage(coverage);
     setEditStatus(String(editingRecord.status || '').trim().toLowerCase());
     setEditLeaveType(normalizeLeaveType(editingRecord.leave_type || 'standard'));
-    setEditDays(String(getLeaveRecordDisplayDays(editingRecord)));
+    // Trust the computed working-day count when dates are present (including a
+    // legitimate 0 for an all-weekend/bank-holiday range); only fall back to the
+    // stored value when the record has no usable date range to compute from.
+    setEditDays(String(currentStartDate && currentEndDate ? workingDays : getLeaveRecordDisplayDays(editingRecord)));
     setEditReason(String(editingRecord.reason || ''));
-  }, [editingRecord]);
+  }, [editingRecord, bankHolidays]);
 
   useEffect(() => {
     if (isAdmin && selectedEmployee) return;
@@ -2782,8 +2841,8 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                     return (
                       <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <Text style={{ fontSize: '12px', color: textPrimary }}>
-                          {format(new Date(leave.start_date), 'd MMM')}
-                          {leave.start_date !== leave.end_date && ` - ${format(new Date(leave.end_date), 'd MMM')}`}
+                          {formatDateDisplayValue(leave.start_date, 'd MMM')}
+                          {leave.start_date !== leave.end_date && ` - ${formatDateDisplayValue(leave.end_date, 'd MMM')}`}
                           {leave.leave_type && leave.leave_type !== 'standard' && (
                             <span style={{ color: leaveTypeColor, marginLeft: '6px', fontSize: '10px', textTransform: 'uppercase', fontWeight: 600 }}>({leave.leave_type})</span>
                           )}
@@ -3272,15 +3331,10 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                       ? (isDarkMode ? `${colours.green}59` : `${colours.green}40`)
                       : borderColor;
 
-                  const startDate = new Date(record.start_date);
-                  const endDate = new Date(record.end_date);
                   const displayDays = getLeaveRecordDisplayDays(record);
 
                   const formatStamp = (value?: string) => {
-                    if (!value) return null;
-                    const stampDate = new Date(value);
-                    if (Number.isNaN(stampDate.getTime())) return null;
-                    return format(stampDate, 'd MMM yyyy · HH:mm');
+                    return formatDateDisplayValue(value, 'd MMM yyyy · HH:mm', '');
                   };
 
                   const stamps = [
@@ -3326,7 +3380,7 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
 
                       <div className="annual-leave-modal__history-date-cell">
                         <div className="annual-leave-modal__history-date-top">
-                          {format(startDate, 'd MMM yyyy')} - {format(endDate, 'd MMM yyyy')}
+                          {formatDateDisplayValue(record.start_date)} - {formatDateDisplayValue(record.end_date)}
                         </div>
                         <div className="annual-leave-modal__history-date-bottom">{primaryStamp || 'No workflow stamp yet'}</div>
                       </div>
@@ -3377,9 +3431,7 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                           <TooltipHost content="Edit record">
                             <IconButton
                               iconProps={{ iconName: 'Edit', style: { fontSize: '11px' } }}
-                              onClick={() => {
-                                setEditingRecord(record);
-                              }}
+                              onClick={() => openEditDialog(record)}
                               styles={{
                                 root: {
                                   width: 22,
@@ -3563,8 +3615,8 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                   color: textMuted,
                   display: 'block'
                 }}>
-                  {deleteTarget.person} · {format(new Date(deleteTarget.start_date), 'd MMM yyyy')}
-                  {deleteTarget.start_date !== deleteTarget.end_date && ` – ${format(new Date(deleteTarget.end_date), 'd MMM yyyy')}`}
+                  {deleteTarget.person} · {formatDateDisplayValue(deleteTarget.start_date)}
+                  {deleteTarget.start_date !== deleteTarget.end_date && ` - ${formatDateDisplayValue(deleteTarget.end_date)}`}
                 </Text>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -3766,8 +3818,8 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                     color: textMuted,
                     display: 'block'
                   }}>
-                    {editingRecord.person} · {format(new Date(editingRecord.start_date), 'd MMM yyyy')}
-                    {editingRecord.start_date !== editingRecord.end_date && ` – ${format(new Date(editingRecord.end_date), 'd MMM yyyy')}`}
+                    {editingRecord.person} · {formatDateDisplayValue(editingRecord.start_date)}
+                    {editingRecord.start_date !== editingRecord.end_date && ` - ${formatDateDisplayValue(editingRecord.end_date)}`}
                   </Text>
                 </div>
                 <div style={{
@@ -3785,7 +3837,9 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                   {(() => {
                     const changeLines: string[] = [];
                     if (editStartDate !== currentEditStartDate || editEndDate !== currentEditEndDate) {
-                      changeLines.push(`Dates -> ${format(new Date(editStartDate), 'd MMM yyyy')} to ${format(new Date(editEndDate), 'd MMM yyyy')}`);
+                      const nextStart = editStartDate ? formatDateDisplayValue(editStartDate) : 'start date not set';
+                      const nextEnd = editEndDate ? formatDateDisplayValue(editEndDate) : 'end date not set';
+                      changeLines.push(`Dates -> ${nextStart} to ${nextEnd}`);
                     }
                     if (editCoverage !== currentEditCoverage) {
                       changeLines.push(`Coverage -> ${editCoverageFlags.label}`);
@@ -3910,7 +3964,7 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                       <Text key={item.label} style={{ fontSize: '11px', color: textMuted }}>
                         <span style={{ color: textPrimary, fontWeight: 600 }}>{item.label}</span>
                         {' · '}
-                        {format(new Date(String(item.value)), 'd MMM yyyy · HH:mm')}
+                        {formatDateDisplayValue(item.value, 'd MMM yyyy · HH:mm')}
                       </Text>
                     ))}
                   </div>

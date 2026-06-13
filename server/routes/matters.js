@@ -2,6 +2,8 @@ const express = require('express');
 const sql = require('mssql');
 const { withRequest, getPool } = require('../utils/db');
 const { getSecret } = require('../utils/getSecret');
+const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
+const { getClioAccessToken, CLIO_API_BASE } = require('../utils/clioAuth');
 const {
   attachMattersStream,
 } = require('../utils/matters-stream');
@@ -17,6 +19,60 @@ const getInstrConnStr = () => {
   if (!s) throw new Error('INSTRUCTIONS_SQL_CONNECTION_STRING not configured');
   return s;
 };
+
+const normaliseInstructionRef = (value) => String(value || '').trim().toUpperCase();
+
+const parseProspectIdFromInstructionRef = (instructionRef) => {
+    const match = String(instructionRef || '').trim().match(/^(?:[A-Z]+-?)?(\d+)-\d+/i);
+    return match?.[1] || null;
+};
+
+const buildSqlInParams = (request, values, prefix, type = sql.NVarChar(100)) => {
+    const placeholders = [];
+    values.forEach((value, index) => {
+        const key = `${prefix}${index}`;
+        request.input(key, type, value);
+        placeholders.push(`@${key}`);
+    });
+    return placeholders;
+};
+
+const normaliseEmail = (value) => String(value || '').trim().toLowerCase();
+
+const pickContactEmail = (contact) => {
+    const primary = String(contact?.primary_email_address || '').trim();
+    if (primary) return primary;
+
+    const emails = Array.isArray(contact?.email_addresses) ? contact.email_addresses : [];
+    const fallback = emails
+        .map((entry) => String(entry?.address || '').trim())
+        .find(Boolean);
+    return fallback || '';
+};
+
+async function fetchClioClientEmail(clientId, initials) {
+    if (!clientId) {
+        throw new Error('ClientID is required for Clio email lookup');
+    }
+
+    const accessToken = await getClioAccessToken(initials || undefined);
+    const fields = 'id,primary_email_address,email_addresses';
+    const response = await fetch(`${CLIO_API_BASE}/contacts/${encodeURIComponent(String(clientId))}?fields=${fields}`, {
+        method: 'GET',
+        headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+        },
+    });
+
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Clio client lookup failed (${response.status}): ${errorText}`);
+    }
+
+    const payload = await response.json();
+    return pickContactEmail(payload?.data || null);
+}
 
 /**
  * Get matter details from our database by instruction reference
@@ -311,21 +367,16 @@ router.get('/enquiry-lookup/:email', async (req, res) => {
                     count: rows.length,
                     matches: rows.map(r => ({
                         id: r.id,
-                        name: [r.first, r.last].filter(Boolean).join(' ') || null,
-                        email: r.email,
                         aow: r.aow,
                         tow: r.tow,
                         date: r.datetime,
                         stage: r.stage,
-                        poc: r.poc,
-                        acid: r.acid,
                         source: r.source,
                         campaign: r.campaign,
                         adSet: r.adSet,
                         keyword: r.keyword,
                         url: r.url,
                         gclid: r.gclid,
-                        phone: r.phone
                     })),
                     error: null
                 };
@@ -362,21 +413,16 @@ router.get('/enquiry-lookup/:email', async (req, res) => {
                     count: rows.length,
                     matches: rows.map(r => ({
                         id: r.id,
-                        name: [r.first, r.last].filter(Boolean).join(' ') || null,
-                        email: r.email,
                         aow: r.aow,
                         tow: r.tow,
                         date: r.datetime,
                         stage: r.stage,
-                        poc: r.poc,
-                        acid: r.acid,
                         source: r.source,
                         campaign: r.campaign,
                         adSet: r.adSet,
                         keyword: r.keyword,
                         url: r.url,
                         gclid: r.gclid,
-                        phone: r.phone
                     })),
                     error: null
                 };
@@ -400,6 +446,561 @@ router.get('/enquiry-lookup/:email', async (req, res) => {
             foundInInstructions: results.instructions.found
         }
     });
+});
+
+/**
+ * POST /api/matters/enquiry-linkage
+ * Resolve matter InstructionRef -> ProspectId -> linked enquiry source context.
+ * Returns structural fields only (no client PII content).
+ */
+router.post('/enquiry-linkage', async (req, res) => {
+    const startedAt = Date.now();
+    const rawRefs = Array.isArray(req.body?.instructionRefs) ? req.body.instructionRefs : [];
+    const instructionRefs = Array.from(new Set(
+        rawRefs
+            .map(normaliseInstructionRef)
+            .filter(Boolean)
+            .slice(0, 350)
+    ));
+
+    trackEvent('Matters.EnquiryLinkage.Started', {
+        operation: 'matters-enquiry-linkage',
+        requestedRefs: String(instructionRefs.length),
+        triggeredBy: 'api',
+    });
+
+    if (instructionRefs.length === 0) {
+        return res.json({ ok: true, links: [], count: 0 });
+    }
+
+    const prospectsByInstructionRef = new Map();
+    instructionRefs.forEach((instructionRef) => {
+        const parsed = parseProspectIdFromInstructionRef(instructionRef);
+        if (parsed) prospectsByInstructionRef.set(instructionRef, parsed);
+    });
+
+    const instructionsConnStr = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+    const legacyConnStr = process.env.SQL_CONNECTION_STRING;
+
+    try {
+        if (instructionsConnStr) {
+            const dealRows = await withRequest(instructionsConnStr, async (request) => {
+                const placeholders = buildSqlInParams(request, instructionRefs, 'instructionRef');
+                return request.query(`
+                    WITH RankedDeals AS (
+                        SELECT
+                            UPPER(LTRIM(RTRIM(InstructionRef))) AS InstructionRef,
+                            CAST(ProspectId AS NVARCHAR(100)) AS ProspectId,
+                            ROW_NUMBER() OVER (PARTITION BY UPPER(LTRIM(RTRIM(InstructionRef))) ORDER BY DealId DESC) AS rn
+                        FROM dbo.Deals WITH (NOLOCK)
+                        WHERE UPPER(LTRIM(RTRIM(InstructionRef))) IN (${placeholders.join(',')})
+                    )
+                    SELECT InstructionRef, ProspectId
+                    FROM RankedDeals
+                    WHERE rn = 1
+                `);
+            });
+
+            (dealRows.recordset || []).forEach((row) => {
+                const instructionRef = normaliseInstructionRef(row.InstructionRef);
+                const prospectId = String(row.ProspectId || '').trim();
+                if (instructionRef && prospectId) prospectsByInstructionRef.set(instructionRef, prospectId);
+            });
+        }
+
+        const prospectIds = Array.from(new Set(Array.from(prospectsByInstructionRef.values()).filter(Boolean)));
+        const byProspect = new Map();
+
+        if (prospectIds.length > 0 && instructionsConnStr) {
+            const instructionsRows = await withRequest(instructionsConnStr, async (request) => {
+                const placeholders = buildSqlInParams(request, prospectIds, 'prospectIdInst');
+                return request.query(`
+                    IF COL_LENGTH('dbo.enquiries', 'Touchpoint_Date') IS NOT NULL
+                    BEGIN
+                        WITH Ranked AS (
+                            SELECT
+                                CAST(COALESCE(NULLIF(LTRIM(RTRIM(acid)), ''), LTRIM(RTRIM(id))) AS NVARCHAR(100)) AS ProspectId,
+                                CAST(id AS NVARCHAR(100)) AS EnquiryId,
+                                NULLIF(LTRIM(RTRIM(source)), '') AS Source,
+                                ROW_NUMBER() OVER (
+                                    PARTITION BY CAST(COALESCE(NULLIF(LTRIM(RTRIM(acid)), ''), LTRIM(RTRIM(id))) AS NVARCHAR(100))
+                                    ORDER BY COALESCE(Touchpoint_Date, datetime) DESC
+                                ) AS rn
+                            FROM dbo.enquiries WITH (NOLOCK)
+                            WHERE CAST(COALESCE(NULLIF(LTRIM(RTRIM(acid)), ''), LTRIM(RTRIM(id))) AS NVARCHAR(100)) IN (${placeholders.join(',')})
+                        )
+                        SELECT ProspectId, EnquiryId, Source
+                        FROM Ranked
+                        WHERE rn = 1;
+                    END
+                    ELSE
+                    BEGIN
+                        WITH Ranked AS (
+                            SELECT
+                                CAST(COALESCE(NULLIF(LTRIM(RTRIM(acid)), ''), LTRIM(RTRIM(id))) AS NVARCHAR(100)) AS ProspectId,
+                                CAST(id AS NVARCHAR(100)) AS EnquiryId,
+                                NULLIF(LTRIM(RTRIM(source)), '') AS Source,
+                                ROW_NUMBER() OVER (
+                                    PARTITION BY CAST(COALESCE(NULLIF(LTRIM(RTRIM(acid)), ''), LTRIM(RTRIM(id))) AS NVARCHAR(100))
+                                    ORDER BY datetime DESC
+                                ) AS rn
+                            FROM dbo.enquiries WITH (NOLOCK)
+                            WHERE CAST(COALESCE(NULLIF(LTRIM(RTRIM(acid)), ''), LTRIM(RTRIM(id))) AS NVARCHAR(100)) IN (${placeholders.join(',')})
+                        )
+                        SELECT ProspectId, EnquiryId, Source
+                        FROM Ranked
+                        WHERE rn = 1;
+                    END
+                `);
+            });
+
+            (instructionsRows.recordset || []).forEach((row) => {
+                const prospectId = String(row.ProspectId || '').trim();
+                if (!prospectId) return;
+                byProspect.set(prospectId, {
+                    enquiryId: String(row.EnquiryId || '').trim() || null,
+                    enquirySource: String(row.Source || '').trim() || null,
+                    sourceOrigin: 'instructions',
+                });
+            });
+        }
+
+        if (prospectIds.length > 0 && legacyConnStr) {
+            const missingProspects = prospectIds.filter((prospectId) => !byProspect.has(prospectId));
+            if (missingProspects.length > 0) {
+                const legacyRows = await withRequest(legacyConnStr, async (request) => {
+                    const placeholders = buildSqlInParams(request, missingProspects, 'prospectIdLegacy');
+                    return request.query(`
+                        WITH Ranked AS (
+                            SELECT
+                                CAST(ID AS NVARCHAR(100)) AS ProspectId,
+                                CAST(ID AS NVARCHAR(100)) AS EnquiryId,
+                                NULLIF(LTRIM(RTRIM(Ultimate_Source)), '') AS Source,
+                                ROW_NUMBER() OVER (PARTITION BY CAST(ID AS NVARCHAR(100)) ORDER BY datetime DESC, CAST(ID AS NVARCHAR(100)) DESC) AS rn
+                            FROM dbo.enquiries WITH (NOLOCK)
+                            WHERE CAST(ID AS NVARCHAR(100)) IN (${placeholders.join(',')})
+                        )
+                        SELECT ProspectId, EnquiryId, Source
+                        FROM Ranked
+                        WHERE rn = 1
+                    `);
+                });
+
+                (legacyRows.recordset || []).forEach((row) => {
+                    const prospectId = String(row.ProspectId || '').trim();
+                    if (!prospectId || byProspect.has(prospectId)) return;
+                    byProspect.set(prospectId, {
+                        enquiryId: String(row.EnquiryId || '').trim() || null,
+                        enquirySource: String(row.Source || '').trim() || null,
+                        sourceOrigin: 'legacy',
+                    });
+                });
+            }
+        }
+
+        const links = instructionRefs.map((instructionRef) => {
+            const prospectId = prospectsByInstructionRef.get(instructionRef) || null;
+            const linked = prospectId ? byProspect.get(prospectId) : null;
+            const enquirySource = linked?.enquirySource || null;
+
+            return {
+                instructionRef,
+                prospectId,
+                linkedEnquiryId: linked?.enquiryId || null,
+                enquirySource,
+                sourceOrigin: linked?.sourceOrigin || null,
+                linkStatus: linked ? 'linked' : 'unlinked',
+                sourceCheckStatus: !linked ? 'unlinked' : enquirySource ? 'completed' : 'pending',
+            };
+        });
+
+        const durationMs = Date.now() - startedAt;
+        const linkedCount = links.filter((item) => item.linkStatus === 'linked').length;
+        trackEvent('Matters.EnquiryLinkage.Completed', {
+            operation: 'matters-enquiry-linkage',
+            triggeredBy: 'api',
+            requestedRefs: String(instructionRefs.length),
+            linkedCount: String(linkedCount),
+            durationMs: String(durationMs),
+        });
+        trackMetric('Matters.EnquiryLinkage.Duration', durationMs, { operation: 'matters-enquiry-linkage' });
+
+        return res.json({
+            ok: true,
+            links,
+            count: links.length,
+            linkedCount,
+        });
+    } catch (error) {
+        const durationMs = Date.now() - startedAt;
+        trackException(error, {
+            operation: 'matters-enquiry-linkage',
+            phase: 'resolve-linkage',
+        });
+        trackEvent('Matters.EnquiryLinkage.Failed', {
+            operation: 'matters-enquiry-linkage',
+            triggeredBy: 'api',
+            requestedRefs: String(instructionRefs.length),
+            durationMs: String(durationMs),
+            error: error?.message || 'Unknown error',
+        });
+        console.error('Matters enquiry linkage failed:', error?.message || error);
+        return res.status(500).json({ error: 'Failed to resolve matters enquiry linkage' });
+    }
+});
+
+/**
+ * POST /api/matters/client-name/resolve
+ * User-invoked client-name resolver for Data Hub.
+ * Queries the Instructions table by MatterID and writes the resolved name
+ * back to dbo.Matters.ClientName.
+ */
+router.post('/client-name/resolve', async (req, res) => {
+    const startedAt = Date.now();
+    const uniqueId = String(req.body?.uniqueId || '').trim();
+    const matterRef = String(req.body?.matterRef || '').trim();
+    const system = String(req.body?.system || '').trim().toLowerCase();
+
+    trackEvent('Matters.ClientNameResolve.Started', {
+        operation: 'matters-client-name-resolve',
+        triggeredBy: 'api',
+        hasUniqueId: String(Boolean(uniqueId)),
+        system: system || 'unknown',
+    });
+
+    if (system && system !== 'new-space') {
+        return res.status(400).json({ error: 'Only new-space matters are supported.' });
+    }
+    if (!uniqueId) {
+        return res.status(400).json({ error: 'UniqueID is required.' });
+    }
+
+    try {
+        const instructionsConnStr = getInstrConnStr();
+
+        const instrRow = await withRequest(instructionsConnStr, async (request) => {
+            request.input('matterId', sql.NVarChar(255), uniqueId);
+            const result = await request.query(`
+                SELECT TOP 1 FirstName, LastName, CompanyName, ClientType
+                FROM dbo.Instructions WITH (NOLOCK)
+                WHERE MatterId = @matterId
+                ORDER BY LastUpdated DESC, SubmissionDate DESC
+            `);
+            return result.recordset?.[0] || null;
+        });
+
+        if (!instrRow) {
+            return res.status(404).json({ error: 'No linked instruction record found for this matter.' });
+        }
+
+        const companyName = String(instrRow.CompanyName || '').trim();
+        const firstName = String(instrRow.FirstName || '').trim();
+        const lastName = String(instrRow.LastName || '').trim();
+        const clientType = String(instrRow.ClientType || '').trim().toLowerCase();
+
+        let resolvedName = '';
+        if (clientType === 'company' && companyName) {
+            resolvedName = companyName;
+        } else if (firstName || lastName) {
+            resolvedName = `${firstName} ${lastName}`.trim();
+        } else if (companyName) {
+            resolvedName = companyName;
+        }
+
+        if (!resolvedName) {
+            return res.status(404).json({ error: 'Instruction record found but has no name fields.' });
+        }
+
+        const writeResult = await withRequest(instructionsConnStr, async (request) => {
+            request.input('uniqueId', sql.NVarChar(255), uniqueId);
+            request.input('clientName', sql.NVarChar(255), resolvedName);
+            return request.query(`
+                DECLARE @whereColumn NVARCHAR(128) = NULL;
+                DECLARE @sql NVARCHAR(MAX);
+
+                IF COL_LENGTH('dbo.Matters', 'MatterID') IS NOT NULL
+                    SET @whereColumn = N'[MatterID]';
+                ELSE IF COL_LENGTH('dbo.Matters', 'UniqueID') IS NOT NULL
+                    SET @whereColumn = N'[UniqueID]';
+                ELSE IF COL_LENGTH('dbo.Matters', 'Unique ID') IS NOT NULL
+                    SET @whereColumn = N'[Unique ID]';
+
+                IF @whereColumn IS NULL
+                    THROW 50000, 'Matters table is missing supported identifier columns.', 1;
+
+                SET @sql = N'
+                    UPDATE dbo.Matters
+                    SET ClientName = @clientName
+                    WHERE CONVERT(NVARCHAR(255), ' + @whereColumn + N') = @uniqueId;
+                ';
+
+                EXEC sp_executesql
+                    @sql,
+                    N'@clientName NVARCHAR(255), @uniqueId NVARCHAR(255)',
+                    @clientName = @clientName,
+                    @uniqueId = @uniqueId;
+            `);
+        });
+
+        const rowsUpdated = Number(writeResult?.rowsAffected?.reduce((sum, count) => sum + Number(count || 0), 0) || 0);
+        if (rowsUpdated === 0) {
+            return res.status(404).json({ error: 'Matter not found for supplied uniqueId.' });
+        }
+
+        const durationMs = Date.now() - startedAt;
+        trackEvent('Matters.ClientNameResolve.Completed', {
+            operation: 'matters-client-name-resolve',
+            triggeredBy: 'api',
+            durationMs: String(durationMs),
+            rowsUpdated: String(rowsUpdated),
+            system: system || 'new-space',
+        });
+        trackMetric('Matters.ClientNameResolve.Duration', durationMs, { operation: 'matters-client-name-resolve' });
+
+        return res.json({ ok: true, uniqueId, matterRef, clientName: resolvedName });
+    } catch (error) {
+        const durationMs = Date.now() - startedAt;
+        trackException(error, { operation: 'matters-client-name-resolve', phase: 'resolve-and-write' });
+        trackEvent('Matters.ClientNameResolve.Failed', {
+            operation: 'matters-client-name-resolve',
+            triggeredBy: 'api',
+            durationMs: String(durationMs),
+            error: error?.message || 'Unknown error',
+        });
+        console.error('Matters client-name resolve failed:', error?.message || error);
+        return res.status(500).json({ error: 'Failed to resolve client name.' });
+    }
+});
+
+/**
+ * POST /api/matters/enquiry-linkage/write
+ * User-invoked linkage helper for Data Hub.
+ * Resolves ClientID -> Clio email -> new-space enquiry, then stores
+ * EnquiryID and MatterRef on dbo.Matters for the selected matter row.
+ */
+router.post('/enquiry-linkage/write', async (req, res) => {
+    const startedAt = Date.now();
+    const uniqueId = String(req.body?.uniqueId || '').trim();
+    const clientId = String(req.body?.clientId || '').trim();
+    const matterRef = String(req.body?.matterRef || '').trim();
+    const system = String(req.body?.system || '').trim().toLowerCase();
+    const userInitials = String(req.user?.initials || req.headers?.['x-helix-initials'] || '').trim().toLowerCase();
+
+    trackEvent('Matters.EnquiryLinkageWrite.Started', {
+        operation: 'matters-enquiry-linkage-write',
+        triggeredBy: 'api',
+        hasUniqueId: String(Boolean(uniqueId)),
+        hasClientId: String(Boolean(clientId)),
+        hasMatterRef: String(Boolean(matterRef)),
+        system: system || 'unknown',
+    });
+
+    if (system && system !== 'new-space') {
+        return res.status(400).json({ error: 'Only new-space matters can be updated from this workspace.' });
+    }
+    if (!uniqueId) {
+        return res.status(400).json({ error: 'UniqueID is required.' });
+    }
+    if (!matterRef) {
+        return res.status(400).json({ error: 'Matter reference is required.' });
+    }
+    if (!clientId) {
+        return res.status(400).json({ error: 'ClientID is required for linkage.' });
+    }
+
+    try {
+        const instructionsConnStr = getInstrConnStr();
+        const clientEmail = await fetchClioClientEmail(clientId, userInitials || undefined);
+        const normalised = normaliseEmail(clientEmail);
+
+        if (!normalised) {
+            return res.status(404).json({ error: 'No client email found in Clio for this matter.' });
+        }
+
+        const linkedEnquiry = await withRequest(instructionsConnStr, async (request) => {
+            request.input('email', sql.NVarChar(255), normalised);
+            const result = await request.query(`
+                WITH Ranked AS (
+                    SELECT
+                        CAST(id AS NVARCHAR(100)) AS EnquiryID,
+                        NULLIF(LTRIM(RTRIM(source)), '') AS EnquirySource,
+                        ROW_NUMBER() OVER (
+                            ORDER BY datetime DESC, CAST(ID AS NVARCHAR(100)) DESC
+                        ) AS rn
+                    FROM dbo.enquiries WITH (NOLOCK)
+                    WHERE LOWER(LTRIM(RTRIM(Email))) = @email
+                )
+                SELECT TOP 1 EnquiryID, EnquirySource
+                FROM Ranked
+                WHERE rn = 1
+            `);
+            return result.recordset?.[0] || null;
+        });
+
+        const enquiryId = String(linkedEnquiry?.EnquiryID || '').trim() || null;
+        const enquirySource = String(linkedEnquiry?.EnquirySource || '').trim() || null;
+
+        const writeResult = await withRequest(instructionsConnStr, async (request) => {
+            request.input('uniqueId', sql.NVarChar(255), uniqueId);
+            request.input('enquiryId', sql.NVarChar(100), enquiryId);
+            return request.query(`
+                DECLARE @whereColumn NVARCHAR(128) = NULL;
+                DECLARE @sql NVARCHAR(MAX);
+
+                IF COL_LENGTH('dbo.Matters', 'MatterID') IS NOT NULL
+                    SET @whereColumn = N'[MatterID]';
+                ELSE IF COL_LENGTH('dbo.Matters', 'UniqueID') IS NOT NULL
+                    SET @whereColumn = N'[UniqueID]';
+                ELSE IF COL_LENGTH('dbo.Matters', 'Unique ID') IS NOT NULL
+                    SET @whereColumn = N'[Unique ID]';
+
+                IF @whereColumn IS NULL
+                    THROW 50000, 'Matters table is missing supported identifier columns.', 1;
+
+                SET @sql = N'
+                    UPDATE dbo.Matters
+                    SET EnquiryID = @enquiryId
+                    WHERE CONVERT(NVARCHAR(255), ' + @whereColumn + N') = @uniqueId;
+                ';
+
+                EXEC sp_executesql
+                    @sql,
+                    N'@enquiryId NVARCHAR(100), @uniqueId NVARCHAR(255)',
+                    @enquiryId = @enquiryId,
+                    @uniqueId = @uniqueId;
+            `);
+        });
+
+        const rowsUpdated = Number(writeResult?.rowsAffected?.reduce((sum, count) => sum + Number(count || 0), 0) || 0);
+        if (rowsUpdated === 0) {
+            return res.status(404).json({ error: 'Matter not found for supplied uniqueId.' });
+        }
+
+        const durationMs = Date.now() - startedAt;
+        trackEvent('Matters.EnquiryLinkageWrite.Completed', {
+            operation: 'matters-enquiry-linkage-write',
+            triggeredBy: 'api',
+            durationMs: String(durationMs),
+            matchedEnquiry: String(Boolean(enquiryId)),
+            rowsUpdated: String(rowsUpdated),
+            system: system || 'new-space',
+        });
+        trackMetric('Matters.EnquiryLinkageWrite.Duration', durationMs, { operation: 'matters-enquiry-linkage-write' });
+
+        return res.json({
+            ok: true,
+            uniqueId,
+            matterRef,
+            enquiryId,
+            enquirySource,
+            linkStatus: enquiryId ? 'linked' : 'unlinked',
+            sourceCheckStatus: enquiryId ? (enquirySource ? 'completed' : 'pending') : 'unlinked',
+        });
+    } catch (error) {
+        const durationMs = Date.now() - startedAt;
+        trackException(error, {
+            operation: 'matters-enquiry-linkage-write',
+            phase: 'resolve-and-write',
+        });
+        trackEvent('Matters.EnquiryLinkageWrite.Failed', {
+            operation: 'matters-enquiry-linkage-write',
+            triggeredBy: 'api',
+            durationMs: String(durationMs),
+            error: error?.message || 'Unknown error',
+        });
+        return res.status(500).json({ error: error?.message || 'Failed to write matters linkage' });
+    }
+});
+
+router.post('/row-update', async (req, res) => {
+    const startedAt = Date.now();
+    const uniqueId = String(req.body?.uniqueId || '').trim();
+    const updates = req.body?.updates;
+
+    if (!uniqueId) {
+        return res.status(400).json({ error: 'UniqueID is required.' });
+    }
+
+    if (!updates || typeof updates !== 'object' || Array.isArray(updates)) {
+        return res.status(400).json({ error: 'updates object is required.' });
+    }
+
+    const hasSource = Object.prototype.hasOwnProperty.call(updates, 'source');
+    const hasMethod = Object.prototype.hasOwnProperty.call(updates, 'method_of_contact');
+
+    if (!hasSource && !hasMethod) {
+        return res.status(400).json({ error: 'No supported matter fields to update.' });
+    }
+
+    try {
+        const instructionsConnStr = getInstrConnStr();
+        const setClauses = [];
+        if (hasSource) setClauses.push('Source = @sourceValue');
+        if (hasMethod) setClauses.push('method_of_contact = @methodValue');
+
+        const result = await withRequest(instructionsConnStr, async (request) => {
+            request.input('uniqueId', sql.NVarChar(255), uniqueId);
+            request.input('sourceValue', sql.NVarChar(255), hasSource ? String(updates.source ?? '').trim() || null : null);
+            request.input('methodValue', sql.NVarChar(255), hasMethod ? String(updates.method_of_contact ?? '').trim() || null : null);
+
+            const dynamicSql = `
+                DECLARE @whereColumn NVARCHAR(128) = NULL;
+                DECLARE @sql NVARCHAR(MAX);
+
+                IF COL_LENGTH('dbo.Matters', 'MatterID') IS NOT NULL
+                    SET @whereColumn = N'[MatterID]';
+                ELSE IF COL_LENGTH('dbo.Matters', 'UniqueID') IS NOT NULL
+                    SET @whereColumn = N'[UniqueID]';
+                ELSE IF COL_LENGTH('dbo.Matters', 'Unique ID') IS NOT NULL
+                    SET @whereColumn = N'[Unique ID]';
+
+                IF @whereColumn IS NULL
+                    THROW 50000, 'Matters table is missing supported identifier columns.', 1;
+
+                SET @sql = N'
+                    UPDATE dbo.Matters
+                    SET ${setClauses.join(', ')}
+                    WHERE CONVERT(NVARCHAR(255), ' + @whereColumn + N') = @uniqueId;
+                ';
+
+                EXEC sp_executesql
+                    @sql,
+                    N'@uniqueId NVARCHAR(255), @sourceValue NVARCHAR(255), @methodValue NVARCHAR(255)',
+                    @uniqueId = @uniqueId,
+                    @sourceValue = @sourceValue,
+                    @methodValue = @methodValue;
+            `;
+
+            return request.query(dynamicSql);
+        });
+
+        const rowsUpdated = Number(result?.rowsAffected?.reduce((sum, count) => sum + Number(count || 0), 0) || 0);
+        if (rowsUpdated === 0) {
+            return res.status(404).json({ error: 'Matter not found for supplied uniqueId.' });
+        }
+
+        const durationMs = Date.now() - startedAt;
+        trackEvent('Matters.RowUpdate.Completed', {
+            operation: 'matters-row-update',
+            triggeredBy: 'api',
+            durationMs: String(durationMs),
+            rowsUpdated: String(rowsUpdated),
+            updatedFields: [hasSource ? 'source' : '', hasMethod ? 'method_of_contact' : ''].filter(Boolean).join(','),
+        });
+        trackMetric('Matters.RowUpdate.Duration', durationMs, { operation: 'matters-row-update' });
+
+        return res.json({ ok: true, uniqueId, rowsUpdated, updatedFields: [hasSource ? 'source' : '', hasMethod ? 'method_of_contact' : ''].filter(Boolean) });
+    } catch (error) {
+        const durationMs = Date.now() - startedAt;
+        trackException(error, { operation: 'matters-row-update', phase: 'update' });
+        trackEvent('Matters.RowUpdate.Failed', {
+            operation: 'matters-row-update',
+            triggeredBy: 'api',
+            durationMs: String(durationMs),
+            error: error?.message || 'Unknown error',
+        });
+        return res.status(500).json({ error: error?.message || 'Failed to update matter row.' });
+    }
 });
 
 module.exports = router;

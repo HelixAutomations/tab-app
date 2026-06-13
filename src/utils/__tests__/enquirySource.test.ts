@@ -1,4 +1,4 @@
-import { getNormalizedEnquirySource, getNormalizedEnquirySourceLabel } from '../enquirySource';
+import { getNormalizedEnquirySource, getNormalizedEnquirySourceLabel, hasGoogleAdsPaidSignal } from '../enquirySource';
 
 describe('enquirySource normalization', () => {
   test('detects Google Ads via gclid', () => {
@@ -14,10 +14,26 @@ describe('enquirySource normalization', () => {
     expect(s.key).toBe('organic');
   });
 
+  test('detects plain Organic and SEO source values', () => {
+    expect(getNormalizedEnquirySource({ Ultimate_Source: 'organic' }).key).toBe('organic');
+    expect(getNormalizedEnquirySource({ Ultimate_Source: 'SEO' }).key).toBe('organic');
+  });
+
+  test('detects Organic search from marketing source aliases', () => {
+    expect(getNormalizedEnquirySource({ source: 'organic search' }).key).toBe('organic');
+    expect(getNormalizedEnquirySource({ Enquiry_Source: 'Organic Search' }).key).toBe('organic');
+    expect(getNormalizedEnquirySource({ 'Source of Enquiry': 'organic search' }).key).toBe('organic');
+  });
+
+  test('prefers marketing Source over system source marker', () => {
+    const s = getNormalizedEnquirySource({ source: 'instructions', Source: 'Organic Search' });
+    expect(s.key).toBe('organic');
+  });
+
   test('detects Facebook Lead Ads from notes', () => {
     const e = { Initial_first_call_notes: 'Facebook Lead ID: 12345', Campaign: '' };
     const s = getNormalizedEnquirySource(e);
-    expect(s.key).toBe('facebook_lead_ads');
+    expect(s.key).toBe('meta_ads');
   });
 
   test('detects ChatGPT from utm_source', () => {
@@ -33,15 +49,22 @@ describe('enquirySource normalization', () => {
     expect(s.label).toBe('Referral: Acme Ltd');
   });
 
-  test('method-of-contact bucket: phone', () => {
+  test('does not treat method of contact as source', () => {
     const e = { Method_of_Contact: 'call in' };
     const s = getNormalizedEnquirySource(e);
-    expect(s.key).toBe('phone');
+    expect(s.key).toBe('not_recorded');
+  });
+
+  test('only flags explicit Google Ads paid-search signals as paid search', () => {
+    expect(hasGoogleAdsPaidSignal({ source: 'Meta Ads', medium: 'paid', campaign: 'spring' })).toBe(false);
+    expect(hasGoogleAdsPaidSignal({ source: 'Google Ads', medium: 'cpc', campaign: 'spring' })).toBe(true);
+    expect(hasGoogleAdsPaidSignal({ source: 'Organic Search', medium: 'organic', campaign: '' })).toBe(false);
+    expect(hasGoogleAdsPaidSignal({ source: 'Google Ads', medium: 'organic', campaign: '', gclid: 'abc' })).toBe(true);
   });
 
   test('unknown fallback', () => {
     const s = getNormalizedEnquirySource({});
-    expect(s.key).toBe('unknown');
-    expect(s.label).toBe('Unknown');
+    expect(s.key).toBe('not_recorded');
+    expect(s.label).toBe('Not Recorded');
   });
 });

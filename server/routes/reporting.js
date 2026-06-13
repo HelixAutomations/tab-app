@@ -5,6 +5,7 @@ const { getClient } = require('../utils/getSecret');
 const fetch = require('node-fetch');
 const { getRedisClient, cacheWrapper, generateCacheKey } = require('../utils/redisClient');
 const { performUnifiedEnquiriesQuery } = require('./enquiries-unified');
+const { resolveReportingEnquirySourceBias } = require('../utils/reportingEnquirySourceBias');
 
 const router = express.Router();
 const { annotate } = require('../utils/devConsole');
@@ -316,15 +317,17 @@ async function fetchTeamData({ connectionString }) {
 
 async function fetchEnquiries({ connectionString }) {
   const { from, to } = getLast24MonthsRange();
-  console.log(`[Reporting] Fetching enquiries from ${formatDateOnly(from)} to ${formatDateOnly(to)}`);
+  const sourceSelection = resolveReportingEnquirySourceBias({ from, to });
+  console.log(`[Reporting] Fetching enquiries from ${sourceSelection.startDate} to ${sourceSelection.endDate} with ${sourceSelection.sourceBias} (${sourceSelection.rangePosition}, cutover ${sourceSelection.cutoverDate})`);
 
   const result = await performUnifiedEnquiriesQuery({
     sourcePolicy: 'reporting',
+    sourceBias: sourceSelection.sourceBias,
     fetchAll: 'true',
     includeTeamInbox: 'true',
     processingApproach: 'unified',
-    dateFrom: formatDateOnly(from),
-    dateTo: formatDateOnly(to),
+    dateFrom: sourceSelection.startDate || formatDateOnly(from),
+    dateTo: sourceSelection.endDate || formatDateOnly(to),
     limit: '50000',
   });
 

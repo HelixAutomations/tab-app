@@ -13,6 +13,8 @@ import { getAreaGlyphMeta, renderAreaOfWorkGlyph } from '../../components/filter
 import type { DealRecord, InstructionRecord } from './dataSources';
 import ReportShell from './components/ReportShell';
 import { useReportRange } from './hooks/useReportRange';
+import { useColumnVisibility, type ColumnDefinition } from './hooks/useColumnVisibility';
+import { ColumnSelector } from './components/ColumnSelector';
 import './EnquiryLedgerReport.css';
 
 interface EnquiryLedgerReportProps {
@@ -151,6 +153,15 @@ const FIELD_SECTIONS: FieldSection[] = [
 
 const EDITABLE_FIELD_KEYS: EditableFieldKey[] = FIELD_SECTIONS.flatMap((section) => section.fields.map((field) => field.key));
 
+// Column definitions for the enquiries table
+const ENQUIRIES_TABLE_COLUMNS: ColumnDefinition[] = [
+  { key: 'date', label: 'Date', defaultVisible: true },
+  { key: 'prospect', label: 'Prospect', defaultVisible: true },
+  { key: 'pipeline', label: 'Pipeline', defaultVisible: true },
+  { key: 'status', label: 'Status', defaultVisible: true },
+  { key: 'actions', label: 'Actions', defaultVisible: true },
+];
+
 const normaliseText = (value: unknown): string => String(value ?? '').trim().toLowerCase();
 
 const parseDateMs = (value: unknown): number => {
@@ -277,6 +288,15 @@ const EnquiryLedgerReport: React.FC<EnquiryLedgerReportProps> = ({
   const deferredSearch = useDeferredValue(search);
   const scrollRef = useRef<HTMLDivElement>(null);
   const { isDarkMode } = useTheme();
+
+  // Column visibility state
+  const {
+    visibleColumns,
+    handleToggleColumn,
+    handleShowAll,
+    handleHideAll,
+    handleReset,
+  } = useColumnVisibility('enquiries-ledger', ENQUIRIES_TABLE_COLUMNS);
 
   const handleHeaderSort = useCallback((key: SortKey) => {
     setSortKey((prev) => {
@@ -499,11 +519,114 @@ const EnquiryLedgerReport: React.FC<EnquiryLedgerReportProps> = ({
 
   const GRID_TEMPLATE = 'clamp(4px, 0.5vw, 6px) minmax(68px, 0.7fr) 32px minmax(160px, 2fr) minmax(140px, 1.8fr) 72px 44px';
 
+  // Dynamic grid template based on visible columns
+  const getGridTemplate = (): string => {
+    const parts: string[] = ['clamp(4px, 0.5vw, 6px)']; // Timeline
+    if (visibleColumns.has('date')) parts.push('minmax(68px, 0.7fr)');
+    if (visibleColumns.has('prospect')) parts.push('32px minmax(160px, 2fr)'); // Icon + name
+    if (visibleColumns.has('pipeline')) parts.push('minmax(140px, 1.8fr)');
+    if (visibleColumns.has('status')) parts.push('72px');
+    if (visibleColumns.has('actions')) parts.push('44px');
+    return parts.join(' ');
+  };
+
+  const dynamicGridTemplate = getGridTemplate();
+
   const sortArrow = (key: SortKey) => sortKey === key ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '';
+
+  const ledgerGrid = useMemo(() => (
+    <div className="enquiry-ledger-scroll" ref={scrollRef}>
+      <div className="enquiry-ledger-grid-header" style={{ gridTemplateColumns: dynamicGridTemplate }}>
+        <span></span>
+        {visibleColumns.has('date') && (
+          <span className="enquiry-ledger-sortable" data-active={sortKey === 'touchpoint' || undefined} onClick={() => handleHeaderSort('touchpoint')}>Date{sortArrow('touchpoint')}</span>
+        )}
+        {visibleColumns.has('prospect') && (
+          <>
+            <span></span>
+            <span className="enquiry-ledger-sortable" data-active={sortKey === 'name' || undefined} onClick={() => handleHeaderSort('name')}>Prospect{sortArrow('name')}</span>
+          </>
+        )}
+        {visibleColumns.has('pipeline') && (
+          <span className="enquiry-ledger-sortable" data-active={sortKey === 'aow' || undefined} onClick={() => handleHeaderSort('aow')}>Pipeline{sortArrow('aow')}</span>
+        )}
+        {visibleColumns.has('status') && (
+          <span className="enquiry-ledger-sortable" data-active={sortKey === 'source' || undefined} onClick={() => handleHeaderSort('source')}>Status{sortArrow('source')}</span>
+        )}
+        {visibleColumns.has('actions') && (
+          <span></span>
+        )}
+      </div>
+
+      {filteredRows.length === 0 ? (
+        <div className="enquiry-ledger-empty">No enquiries match the current filters.</div>
+      ) : (
+        filteredRows.map((row) => {
+          const aow = getAreaGlyphMeta(row.enquiry.Area_of_Work || '');
+          const dateDisplay = getLedgerDateDisplay(row.enquiry.Touchpoint_Date || row.enquiry.Date_Created);
+          return (
+            <div key={row.id} className="enquiry-ledger-row" data-unclaimed={row.unclaimed || undefined} style={{ gridTemplateColumns: dynamicGridTemplate }} onClick={() => setEditingRowId(row.id)}>
+              <div className="enquiry-ledger-timeline" style={{ ['--aow-color' as string]: aow.color }}>
+                <div className="enquiry-ledger-timeline__line" />
+              </div>
+              {visibleColumns.has('date') && (
+                <div className="enquiry-ledger-date">
+                  <span className="enquiry-ledger-date__top">{dateDisplay.top}</span>
+                  <span className="enquiry-ledger-date__bottom">{dateDisplay.bottom || '\u00A0'}</span>
+                </div>
+              )}
+              {visibleColumns.has('prospect') && (
+                <>
+                  <div className="enquiry-ledger-aow-icon">
+                    {renderAreaOfWorkGlyph(row.enquiry.Area_of_Work || '', aow.color, 'glyph', 15)}
+                  </div>
+                  <div className="enquiry-ledger-cell">
+                    <span className="enquiry-ledger-cell__primary">{row.displayName}</span>
+                    <span className="enquiry-ledger-cell__secondary">{row.enquiry.Company || row.enquiry.Email || '\u00A0'}</span>
+                  </div>
+                </>
+              )}
+              {visibleColumns.has('pipeline') && (
+                <div className="enquiry-ledger-cell">
+                  <span className="enquiry-ledger-cell__primary">{row.ownerLabel}</span>
+                  <div className="enquiry-ledger-pill-rail">
+                    <span className="enquiry-ledger-claim-label" data-claim={row.unclaimed ? 'unclaimed' : 'claimed'}>{row.unclaimed ? 'Unclaimed' : 'Claimed'}</span>
+                    {row.pitched && <span className="enquiry-ledger-pill" style={{ ['--ledger-pill-tone' as string]: colours.highlight }}>Pitched</span>}
+                    {row.instructed && <span className="enquiry-ledger-pill" style={{ ['--ledger-pill-tone' as string]: colours.green }}>Instructed</span>}
+                    {row.matter && <span className="enquiry-ledger-pill" style={{ ['--ledger-pill-tone' as string]: colours.cta }}>Matter</span>}
+                  </div>
+                </div>
+              )}
+              {visibleColumns.has('status') && (
+                <div className="enquiry-ledger-status">
+                  <span className="enquiry-ledger-source-badge" data-source={row.sourceLabel.toLowerCase()}>
+                    {row.sourceLabel}
+                  </span>
+                </div>
+              )}
+              {visibleColumns.has('actions') && (
+                <div className="enquiry-ledger-cell enquiry-ledger-cell--action">
+                  <FontIcon iconName="Edit" className="enquiry-ledger-edit-icon" />
+                </div>
+              )}
+            </div>
+          );
+        })
+      )}
+    </div>
+  ), [dynamicGridTemplate, filteredRows, handleHeaderSort, sortDir, sortKey, visibleColumns]);
 
   /* Toolbar extras — search + filters rendered inside ReportShell toolbar */
   const toolbarExtras = useMemo(() => (
     <>
+      <ColumnSelector
+        columns={ENQUIRIES_TABLE_COLUMNS}
+        visibleColumns={visibleColumns}
+        onToggleColumn={handleToggleColumn}
+        onShowAll={handleShowAll}
+        onHideAll={handleHideAll}
+        onReset={handleReset}
+      />
       <select className="helix-input enquiry-ledger-controls__select" value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value as SourceFilter)}>
         <option value="all">All sources</option>
         <option value="new">New only</option>
@@ -518,7 +641,7 @@ const EnquiryLedgerReport: React.FC<EnquiryLedgerReportProps> = ({
         <option value="matter">Matter opened</option>
       </select>
     </>
-  ), [sourceFilter, pipelineFilter]);
+  ), [sourceFilter, pipelineFilter, visibleColumns, handleToggleColumn, handleShowAll, handleHideAll, handleReset]);
 
   const toolbarBottom = useMemo(() => (
     <div className="enquiry-ledger-controls">
@@ -544,68 +667,7 @@ const EnquiryLedgerReport: React.FC<EnquiryLedgerReportProps> = ({
         )}
 
         {/* ── Scroll container with sticky header + grid rows ── */}
-        <div className="enquiry-ledger-scroll" ref={scrollRef}>
-          <div className="enquiry-ledger-grid-header" style={{ gridTemplateColumns: GRID_TEMPLATE }}>
-            <span></span>
-            <span className="enquiry-ledger-sortable" data-active={sortKey === 'touchpoint' || undefined} onClick={() => handleHeaderSort('touchpoint')}>Date{sortArrow('touchpoint')}</span>
-            <span></span>
-            <span className="enquiry-ledger-sortable" data-active={sortKey === 'name' || undefined} onClick={() => handleHeaderSort('name')}>Prospect{sortArrow('name')}</span>
-            <span className="enquiry-ledger-sortable" data-active={sortKey === 'aow' || undefined} onClick={() => handleHeaderSort('aow')}>Pipeline{sortArrow('aow')}</span>
-            <span className="enquiry-ledger-sortable" data-active={sortKey === 'source' || undefined} onClick={() => handleHeaderSort('source')}>Status{sortArrow('source')}</span>
-            <span></span>
-          </div>
-
-          {filteredRows.length === 0 ? (
-            <div className="enquiry-ledger-empty">No enquiries match the current filters.</div>
-          ) : (
-            filteredRows.map((row) => {
-              const aow = getAreaGlyphMeta(row.enquiry.Area_of_Work || '');
-              const dateDisplay = getLedgerDateDisplay(row.enquiry.Touchpoint_Date || row.enquiry.Date_Created);
-              return (
-                <div key={row.id} className="enquiry-ledger-row" data-unclaimed={row.unclaimed || undefined} style={{ gridTemplateColumns: GRID_TEMPLATE }} onClick={() => setEditingRowId(row.id)}>
-                  {/* Timeline strip */}
-                  <div className="enquiry-ledger-timeline" style={{ ['--aow-color' as string]: aow.color }}>
-                    <div className="enquiry-ledger-timeline__line" />
-                  </div>
-                  {/* Date */}
-                  <div className="enquiry-ledger-date">
-                    <span className="enquiry-ledger-date__top">{dateDisplay.top}</span>
-                    <span className="enquiry-ledger-date__bottom">{dateDisplay.bottom || '\u00A0'}</span>
-                  </div>
-                  {/* AoW icon */}
-                  <div className="enquiry-ledger-aow-icon">
-                    {renderAreaOfWorkGlyph(row.enquiry.Area_of_Work || '', aow.color, 'glyph', 15)}
-                  </div>
-                  {/* Prospect */}
-                  <div className="enquiry-ledger-cell">
-                    <span className="enquiry-ledger-cell__primary">{row.displayName}</span>
-                    <span className="enquiry-ledger-cell__secondary">{row.enquiry.Company || row.enquiry.Email || '\u00A0'}</span>
-                  </div>
-                  {/* Pipeline */}
-                  <div className="enquiry-ledger-cell">
-                    <span className="enquiry-ledger-cell__primary">{row.ownerLabel}</span>
-                    <div className="enquiry-ledger-pill-rail">
-                      <span className="enquiry-ledger-claim-label" data-claim={row.unclaimed ? 'unclaimed' : 'claimed'}>{row.unclaimed ? 'Unclaimed' : 'Claimed'}</span>
-                      {row.pitched && <span className="enquiry-ledger-pill" style={{ ['--ledger-pill-tone' as string]: colours.highlight }}>Pitched</span>}
-                      {row.instructed && <span className="enquiry-ledger-pill" style={{ ['--ledger-pill-tone' as string]: colours.green }}>Instructed</span>}
-                      {row.matter && <span className="enquiry-ledger-pill" style={{ ['--ledger-pill-tone' as string]: colours.cta }}>Matter</span>}
-                    </div>
-                  </div>
-                  {/* Status */}
-                  <div className="enquiry-ledger-status">
-                    <span className="enquiry-ledger-source-badge" data-source={row.sourceLabel.toLowerCase()}>
-                      {row.sourceLabel}
-                    </span>
-                  </div>
-                  {/* Action */}
-                  <div className="enquiry-ledger-cell enquiry-ledger-cell--action">
-                    <FontIcon iconName="Edit" className="enquiry-ledger-edit-icon" />
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
+        {ledgerGrid}
       </ReportShell>
 
       {/* ── Edit modal ── */}

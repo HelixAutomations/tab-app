@@ -53,6 +53,7 @@ import { getApiBase } from '../../utils/getApiUrl';
 import { isInTeams } from '../../app/functionality/isInTeams';
 import {
   cleanTemplateString,
+  hasInstructLinkReference,
   isStringArray,
   replacePlaceholders,
   applyDynamicSubstitutions,
@@ -63,8 +64,15 @@ import { ADDITIONAL_CLIENT_PLACEHOLDER_ID } from '../../constants/deals';
 import { buildOutboundPitchEmailHtml } from './pitch-builder/EmailProcessor';
 import { pitchTelemetry } from './pitch-builder/pitchTelemetry';
 import { DEMO_MODE_STORAGE_KEY } from './utils/enquiryHelpers';
-import { DEFAULT_PITCH_AMOUNT } from './pitch-builder/scenarios';
+import { DEFAULT_PITCH_AMOUNT, SCENARIOS } from './pitch-builder/scenarios';
 import { recordProcessEvent } from '../../utils/processStreamEvents';
+import {
+  clearPitchBuilderDraft,
+  getPitchBuilderDraftForEnquiry,
+  getPitchBuilderDraftKey,
+  isMeaningfulPitchBuilderDraftState,
+} from '../../app/functionality/pitchBuilderUtils';
+import type { StoredPitchBuilderDraft } from '../../app/functionality/pitchBuilderUtils';
 
 // PROOF_OF_ID_URL constant removed - now constructed dynamically with passcode in applyDynamicSubstitutions
 
@@ -110,6 +118,41 @@ interface PitchBuilderProps {
   initialScenario?: string;
 }
 
+const collectEnquiryEventIds = (enquiry: Enquiry): string[] => {
+  const enquiryAny = enquiry as Enquiry & {
+    acid?: string | number;
+    ACID?: string | number;
+    id?: string | number;
+    ProspectId?: string | number;
+    prospectId?: string | number;
+    legacyEnquiryId?: string | number;
+    processingEnquiryId?: string | number;
+    pitchEnquiryId?: string | number;
+  };
+  return Array.from(new Set([
+    enquiryAny.acid,
+    enquiryAny.ACID,
+    enquiryAny.ID,
+    enquiryAny.id,
+    enquiryAny.ProspectId,
+    enquiryAny.prospectId,
+    enquiryAny.legacyEnquiryId,
+    enquiryAny.processingEnquiryId,
+    enquiryAny.pitchEnquiryId,
+  ].map((value) => String(value ?? '').trim()).filter(Boolean)));
+};
+
+const eventMatchesEnquiry = (detail: any, enquiry: Enquiry): boolean => {
+  const eventIds = Array.isArray(detail?.enquiryIds)
+    ? detail.enquiryIds.map((value: unknown) => String(value ?? '').trim()).filter(Boolean)
+    : [];
+  const primaryEventId = String(detail?.enquiryId ?? '').trim();
+  if (primaryEventId) eventIds.push(primaryEventId);
+  if (eventIds.length === 0) return false;
+  const enquiryIds = collectEnquiryEventIds(enquiry);
+  return enquiryIds.some((value) => eventIds.includes(value));
+};
+
 // Small typed fetch helper with discriminated result for safer error handling
 async function safeFetchJson<T>(input: RequestInfo, init?: RequestInit): Promise<{ ok: true; value: T } | { ok: false; error: string; status?: number }> {
   try {
@@ -142,18 +185,27 @@ interface ClientInfo {
   email: string;
 }
 
-const PITCH_BUILDER_SESSION_DRAFT_PREFIX = 'pitchBuilderState:';
+interface DraftRecoveryEdits {
+  scenarioId: string;
+  subject: string;
+  service: string;
+  amount: string;
+  bodyText: string;
+  originalBodyText: string;
+}
 
-function getPitchBuilderDraftKey(enquiryId: Enquiry['ID']): string | null {
-  if (enquiryId == null) return null;
-  return `${PITCH_BUILDER_SESSION_DRAFT_PREFIX}${String(enquiryId)}`;
+function notifyPitchBuilderDraftStorageChanged(): void {
+  try {
+    window.dispatchEvent(new CustomEvent('helix:pitch-draft-storage-changed'));
+  } catch {
+    // Same-tab storage events are best-effort only.
+  }
 }
 
 function clearSavedPitchBuilderDraft(enquiryId: Enquiry['ID']): void {
-  const key = getPitchBuilderDraftKey(enquiryId);
   try {
-    if (key) sessionStorage.removeItem(key);
-    localStorage.removeItem('pitchBuilderState');
+    clearPitchBuilderDraft(enquiryId);
+    notifyPitchBuilderDraftStorageChanged();
   } catch {
     // Storage is best-effort only.
   }
@@ -163,6 +215,7 @@ function savePitchBuilderDraft(enquiryId: Enquiry['ID'], state: Record<string, u
   const key = getPitchBuilderDraftKey(enquiryId);
   if (!key) return;
   sessionStorage.setItem(key, JSON.stringify(state));
+  notifyPitchBuilderDraftStorageChanged();
 }
 
 // Escape attribute values for use within querySelector
@@ -173,37 +226,8 @@ function escapeForSelector(value: string): string {
   return value.replace(/(["'\\\[\]\.#:>+~*^$|?{}()])/g, '\\$1');
 }
 
-function loadSavedPitchBuilderDraft(enquiryId: Enquiry['ID']): any | null {
-  try {
-    const key = getPitchBuilderDraftKey(enquiryId);
-    if (!key) return null;
-    const saved = sessionStorage.getItem(key);
-    if (saved) {
-      const state = JSON.parse(saved);
-      if (!state || state.enquiryId == null) return null;
-      return String(state.enquiryId) === String(enquiryId) ? state : null;
-    }
-
-    const legacySaved = localStorage.getItem('pitchBuilderState');
-    if (!legacySaved) return null;
-    const legacyState = JSON.parse(legacySaved);
-    localStorage.removeItem('pitchBuilderState');
-    if (!legacyState || legacyState.enquiryId == null || enquiryId == null) return null;
-    if (String(legacyState.enquiryId) !== String(enquiryId)) return null;
-    savePitchBuilderDraft(enquiryId, legacyState);
-    return legacyState;
-  } catch (e) {
-    console.error('Failed to parse saved pitch builder state', e);
-    return null;
-  }
-}
-
 function requiresInstructLinkForScenario(scenarioId: string | undefined | null): boolean {
   return !!scenarioId && scenarioId !== 'before-call-call';
-}
-
-function hasInstructLinkToken(html: string | undefined | null): boolean {
-  return /\[InstructLink\]/i.test(String(html || ''));
 }
 
 function formatDraftSavedTime(value: unknown): string | null {
@@ -211,6 +235,66 @@ function formatDraftSavedTime(value: unknown): string | null {
   const date = new Date(String(value));
   if (!Number.isFinite(date.getTime())) return null;
   return date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+}
+
+function toDraftPlainText(value: unknown): string {
+  return String(value || '')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<br\s*\/?\s*>/gi, '\n')
+    .replace(/<\/p>|<\/div>|<\/li>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;|&#160;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/\n\s+/g, '\n')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function draftPlainTextToEditorHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\r\n/g, '\n')
+    .replace(/\n/g, '<br />');
+}
+
+function formatDraftAmount(value: unknown): string {
+  const raw = String(value || '').trim();
+  if (!raw) return 'Not set';
+  const numeric = Number(raw.replace(/[^0-9.]/g, ''));
+  if (!Number.isFinite(numeric)) return raw;
+  return `GBP ${numeric.toLocaleString('en-GB', { maximumFractionDigits: 2 })}`;
+}
+
+function buildDraftRecoveryEdits(draft: StoredPitchBuilderDraft): DraftRecoveryEdits {
+  const state = draft.state;
+  const bodyText = toDraftPlainText(state.body);
+  const scenarioId = typeof state.selectedScenarioId === 'string' ? state.selectedScenarioId : '';
+  return {
+    scenarioId,
+    subject: String(state.subject || '').trim(),
+    service: String(state.initialScopeDescription || state.serviceDescription || '').trim(),
+    amount: String(state.amount || '').trim(),
+    bodyText,
+    originalBodyText: bodyText,
+  };
+}
+
+function buildDraftRecoveryPromptDetails(draft: StoredPitchBuilderDraft, edits: DraftRecoveryEdits, savedAtLabel: string | null) {
+  const bodyText = edits.bodyText;
+  return {
+    savedAtLabel,
+    scenarioId: edits.scenarioId,
+    subject: edits.subject || 'Not set',
+    service: edits.service || 'Not set',
+    amount: edits.amount || '',
+    amountDisplay: formatDraftAmount(edits.amount),
+    bodyPreview: bodyText.length > 240 ? `${bodyText.slice(0, 240).trim()}...` : bodyText,
+    bodyText: edits.bodyText,
+  };
 }
 
 // Inject styles for inline block labels and option callout
@@ -1352,49 +1436,23 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
   const [savedSnippets, setSavedSnippets] = useState<{ [key: string]: string }>({});
   const suppressSaveRef = useRef(false);
   const clearedDraftSnapshotRef = useRef<string | null>(null);
-  const savedPitchBuilderDraftRef = useRef<any | null>(loadSavedPitchBuilderDraft(enquiry.ID));
-  const hasRestoredPitchDraft = Boolean(savedPitchBuilderDraftRef.current);
+  const savedPitchBuilderDraftRef = useRef<StoredPitchBuilderDraft | null>(getPitchBuilderDraftForEnquiry(enquiry.ID));
+  const [draftRecoveryState, setDraftRecoveryState] = useState<'pending' | 'recovered' | 'new'>(() => (
+    savedPitchBuilderDraftRef.current ? 'pending' : 'new'
+  ));
+  const [draftRecoveryReplayKey, setDraftRecoveryReplayKey] = useState(0);
+  const [draftRecoveryEdits, setDraftRecoveryEdits] = useState<DraftRecoveryEdits | null>(() => (
+    savedPitchBuilderDraftRef.current ? buildDraftRecoveryEdits(savedPitchBuilderDraftRef.current) : null
+  ));
+  const pendingPitchDraft = draftRecoveryState === 'pending' ? savedPitchBuilderDraftRef.current : null;
+  const hasRestoredPitchDraft = draftRecoveryState === 'recovered';
   const restoredDraftSavedAt = formatDraftSavedTime(savedPitchBuilderDraftRef.current?.savedAt);
+  const pendingPitchDraftDetails = pendingPitchDraft && draftRecoveryEdits
+    ? buildDraftRecoveryPromptDetails(pendingPitchDraft, draftRecoveryEdits, restoredDraftSavedAt)
+    : undefined;
 
   useEffect(() => {
-    let initialSet: TemplateSet = 'Database';
-    const state = savedPitchBuilderDraftRef.current;
-    if (state) {
-
-      if (state.templateSet) {
-        setTemplateSet(state.templateSet);
-        initialSet = state.templateSet;
-      }
-      // Backward compatibility: migrate stored serviceDescription -> initialScopeDescription
-      if (state.serviceDescription && !state.initialScopeDescription) {
-        setInitialScopeDescription(state.serviceDescription);
-      }
-      if (state.initialScopeDescription) setInitialScopeDescription(state.initialScopeDescription);
-      if (state.selectedOption) setSelectedOption(state.selectedOption);
-      if (state.amount) setAmount(state.amount);
-      if (state.subject) setSubject(state.subject);
-      if (state.to) setTo(state.to);
-      if (state.cc) setCc(state.cc);
-      if (state.bcc) setBcc(state.bcc);
-      if (state.attachments) setAttachments(state.attachments);
-      if (state.followUp) setFollowUp(state.followUp);
-      if (state.activeTab) setActiveTab(state.activeTab);
-      if (typeof state.selectedScenarioId === 'string') setSelectedScenarioId(state.selectedScenarioId);
-      if (state.selectedTemplateOptions) setSelectedTemplateOptions(state.selectedTemplateOptions);
-      if (state.insertedBlocks) setInsertedBlocks(state.insertedBlocks);
-      if (state.autoInsertedBlocks) setAutoInsertedBlocks(state.autoInsertedBlocks);
-      if (state.lockedBlocks) setLockedBlocks(state.lockedBlocks);
-      if (state.pinnedBlocks) setPinnedBlocks(state.pinnedBlocks);
-      if (state.editedBlocks) setEditedBlocks(state.editedBlocks);
-      if (state.editedSnippets) setEditedSnippets(state.editedSnippets);
-      if (state.originalBlockContent) setOriginalBlockContent(state.originalBlockContent);
-      if (state.originalSnippetContent) setOriginalSnippetContent(state.originalSnippetContent);
-      if (state.hiddenBlocks) setHiddenBlocks(state.hiddenBlocks);
-      if (state.blocks) setBlocks(state.blocks);
-      if (state.savedSnippets) setSavedSnippets(state.savedSnippets);
-      if (state.body) setBody(state.body);
-    }
-    handleTemplateSetChange(initialSet);
+    handleTemplateSetChange('Database');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1612,9 +1670,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
   useEffect(() => {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent).detail || {};
-      const detailEnquiryId = String(detail.enquiryId ?? '');
-      const currentEnquiryId = String(enquiry?.ID ?? '');
-      if (!detailEnquiryId || !currentEnquiryId || detailEnquiryId !== currentEnquiryId) return;
+      if (!eventMatchesEnquiry(detail, enquiry)) return;
       if (typeof detail.passcode === 'string' && detail.passcode) {
         setDealPasscode(detail.passcode);
       }
@@ -1666,6 +1722,87 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
   const [originalSnippetContent, setOriginalSnippetContent] = useState<{
     [key: string]: { [label: string]: string };
   }>({});
+
+  const recoverSavedPitchDraft = useCallback(() => {
+    const draft = savedPitchBuilderDraftRef.current;
+    if (!draft) {
+      setDraftRecoveryState('new');
+      return;
+    }
+
+    const edits = draftRecoveryEdits;
+    const state: Record<string, unknown> = {
+      ...draft.state,
+      ...(edits ? {
+        selectedScenarioId: edits.scenarioId,
+        subject: edits.subject,
+        initialScopeDescription: edits.service,
+        amount: edits.amount,
+        body: edits.bodyText !== edits.originalBodyText
+          ? draftPlainTextToEditorHtml(edits.bodyText)
+          : draft.state.body,
+      } : {}),
+    };
+    const restoredTemplateSet = typeof state.templateSet === 'string'
+      ? state.templateSet as TemplateSet
+      : 'Database';
+
+    handleTemplateSetChange(restoredTemplateSet);
+    if (state.serviceDescription && !state.initialScopeDescription) {
+      setInitialScopeDescription(String(state.serviceDescription));
+    }
+    if (typeof state.initialScopeDescription === 'string') setInitialScopeDescription(state.initialScopeDescription);
+    if (state.selectedOption && typeof state.selectedOption === 'object') setSelectedOption(state.selectedOption as IDropdownOption);
+    if (state.amount != null) setAmount(String(state.amount));
+    if (typeof state.subject === 'string') setSubject(state.subject);
+    if (typeof state.to === 'string') setTo(state.to);
+    if (typeof state.cc === 'string') setCc(state.cc);
+    if (typeof state.bcc === 'string') setBcc(state.bcc);
+    if (Array.isArray(state.attachments)) setAttachments(state.attachments.filter((item): item is string => typeof item === 'string'));
+    if (typeof state.followUp === 'string') setFollowUp(state.followUp);
+    if (typeof state.activeTab === 'string') setActiveTab(state.activeTab);
+    if (typeof state.selectedScenarioId === 'string') setSelectedScenarioId(state.selectedScenarioId);
+    if (state.selectedTemplateOptions && typeof state.selectedTemplateOptions === 'object') {
+      setSelectedTemplateOptions(state.selectedTemplateOptions as { [key: string]: string | string[] });
+    }
+    if (state.insertedBlocks && typeof state.insertedBlocks === 'object') setInsertedBlocks(state.insertedBlocks as { [key: string]: boolean });
+    if (state.autoInsertedBlocks && typeof state.autoInsertedBlocks === 'object') setAutoInsertedBlocks(state.autoInsertedBlocks as { [key: string]: boolean });
+    if (state.lockedBlocks && typeof state.lockedBlocks === 'object') setLockedBlocks(state.lockedBlocks as { [key: string]: boolean });
+    if (state.pinnedBlocks && typeof state.pinnedBlocks === 'object') setPinnedBlocks(state.pinnedBlocks as { [key: string]: boolean });
+    if (state.editedBlocks && typeof state.editedBlocks === 'object') setEditedBlocks(state.editedBlocks as { [key: string]: boolean });
+    if (state.editedSnippets && typeof state.editedSnippets === 'object') setEditedSnippets(state.editedSnippets as { [key: string]: { [label: string]: boolean } });
+    if (state.originalBlockContent && typeof state.originalBlockContent === 'object') setOriginalBlockContent(state.originalBlockContent as { [key: string]: string });
+    if (state.originalSnippetContent && typeof state.originalSnippetContent === 'object') setOriginalSnippetContent(state.originalSnippetContent as { [key: string]: { [label: string]: string } });
+    if (state.hiddenBlocks && typeof state.hiddenBlocks === 'object') setHiddenBlocks(state.hiddenBlocks as { [key: string]: boolean });
+    if (Array.isArray(state.blocks)) setBlocks(state.blocks as TemplateBlock[]);
+    if (state.savedSnippets && typeof state.savedSnippets === 'object') setSavedSnippets(state.savedSnippets as { [key: string]: string });
+    if (typeof state.body === 'string') {
+      setBodyInternal(state.body);
+      if (bodyEditorRef.current) bodyEditorRef.current.innerHTML = state.body;
+    }
+
+    bodyHasBeenSeeded.current = true;
+    setDraftRecoveryState('recovered');
+    setDraftRecoveryReplayKey((value) => value + 1);
+    showToast('Draft recovered', 'info', {
+      details: restoredDraftSavedAt ? `Saved at ${restoredDraftSavedAt}` : 'Saved pitch content restored',
+      icon: 'Sync',
+      duration: 2500,
+    });
+  }, [draftRecoveryEdits, restoredDraftSavedAt, showToast]);
+
+  const startNewPitchDraft = useCallback(() => {
+    clearSavedPitchBuilderDraft(enquiry.ID);
+    savedPitchBuilderDraftRef.current = null;
+    setDraftRecoveryEdits(null);
+    setDraftRecoveryState('new');
+    showToast('Started fresh', 'info', {
+      details: 'Saved pitch draft cleared for this prospect',
+      icon: 'Clear',
+      duration: 2200,
+    });
+  }, [enquiry.ID, showToast]);
+
   const [hoveredOption, setHoveredOption] = useState<string | null>(null);
 
   // Undo/Redo functionality
@@ -3224,11 +3361,45 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
           (typeof data?.instructionRef === 'string' ? data.instructionRef : '') ||
           (typeof data?.InstructionRef === 'string' ? data.InstructionRef : '');
         const norm = normalizePasscode(responsePasscode, enquiry?.ID);
+        const instructionsUrl =
+          (typeof data?.instructionsUrl === 'string' ? data.instructionsUrl : '') ||
+          (typeof data?.url === 'string' ? data.url : '');
 
         if (norm) {
           // Validate server passcode matches our pre-generated one, or use the one we sent
           if (norm !== dealPasscode) {
             setDealPasscode(norm);
+          }
+
+          if (options?.linkOnly) {
+            const includePayment = !isNoAmount;
+            const linkType = includePayment ? 'PAYMENT_ID_DOC_REQUEST' : 'ID_DOC_REQUEST';
+            const linkTypeLabel = includePayment ? 'Payment, ID and document request link' : 'ID and document request link';
+            const enquiryIds = Array.from(new Set([String(resolvedProspectId), ...collectEnquiryEventIds(enquiry)]));
+            try {
+              window.dispatchEvent(new CustomEvent('helix:pitch-link-activated', {
+                detail: {
+                  enquiryId: String(resolvedProspectId),
+                  enquiryIds,
+                  dealId: data?.dealId ?? data?.DealId ?? null,
+                  instructionRef: data?.instructionRef ?? data?.InstructionRef ?? null,
+                  passcode: norm,
+                  instructionsUrl: instructionsUrl || `https://instruct.helix-law.com/pitch/${encodeURIComponent(norm)}`,
+                  amount: numericAmount,
+                  includePayment,
+                  linkType,
+                  linkTypeLabel,
+                  includesDocumentRequest: true,
+                  serviceDescription: fallbackDescription,
+                  pitchedBy: userInitials || 'Hub',
+                  areaOfWork: enquiry.Area_of_Work || '',
+                  createdAt: new Date().toISOString(),
+                },
+              }));
+            } catch {}
+            try {
+              window.dispatchEvent(new CustomEvent('refreshInstructionData'));
+            } catch {}
           }
           
           if (!options?.background) {
@@ -3434,7 +3605,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
       return;
     }
 
-    if (requiresInstructLinkForScenario(selectedScenarioId) && !hasInstructLinkToken(body)) {
+    if (requiresInstructLinkForScenario(selectedScenarioId) && !hasInstructLinkReference(body)) {
       const message = 'Add [InstructLink] before sending this pitch.';
       setErrorMessage(message);
       setIsErrorVisible(true);
@@ -3719,7 +3890,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
       return;
     }
 
-    if (requiresInstructLinkForScenario(selectedScenarioId) && !hasInstructLinkToken(body)) {
+    if (requiresInstructLinkForScenario(selectedScenarioId) && !hasInstructLinkReference(body)) {
       const message = 'Add [InstructLink] before drafting this pitch.';
       setErrorMessage(message);
       setIsErrorVisible(true);
@@ -4684,6 +4855,9 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
 
   useEffect(() => {
     return () => {
+      if (draftRecoveryState === 'pending') {
+        return;
+      }
       if (suppressSaveRef.current) {
         suppressSaveRef.current = false;
         return;
@@ -4720,6 +4894,10 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
         enquiryId: enquiry.ID,
         savedAt: new Date().toISOString(),
       };
+      if (!isMeaningfulPitchBuilderDraftState(state)) {
+        clearSavedPitchBuilderDraft(enquiry.ID);
+        return;
+      }
       const sections = Object.keys(insertedBlocks)
         .filter((title) => insertedBlocks[title])
         .map((title) => ({
@@ -4776,6 +4954,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
     attachments,
     followUp,
     activeTab,
+    draftRecoveryState,
     selectedScenarioId,
     selectedTemplateOptions,
     insertedBlocks,
@@ -4997,11 +5176,18 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
           initialScenario={selectedScenarioId || initialScenario}
           hasRestoredDraft={hasRestoredPitchDraft}
           restoredDraftSavedAt={restoredDraftSavedAt}
+          draftRecoveryPrompt={pendingPitchDraftDetails}
+          onDraftRecoveryChange={(updates) => {
+            setDraftRecoveryEdits((current) => current ? { ...current, ...updates } : current);
+          }}
+          onRecoverDraft={recoverSavedPitchDraft}
+          onStartNewDraft={startNewPitchDraft}
+          draftRecoveryReplayKey={draftRecoveryReplayKey}
           pitchFlowLocked={false}
         />
 
         {/* Optional extracted sections (kept functional, moved below composer to reduce pre-scenario noise) */}
-        {EXTRACTED_BLOCKS.length > 0 && (
+        {!pendingPitchDraft && EXTRACTED_BLOCKS.length > 0 && (
           <div style={{ marginTop: 18 }}>
             {EXTRACTED_BLOCKS.map(title => {
               const block = blocks.find(b => b.title === title);

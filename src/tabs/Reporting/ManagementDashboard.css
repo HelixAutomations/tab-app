@@ -158,6 +158,12 @@
   50% { opacity: 1; }
 }
 
+@keyframes helix-pulse-dot {
+  0%   { transform: scale(1);    box-shadow: 0 0 0 0   rgba(54, 144, 206, 0.45); }
+  60%  { transform: scale(1.05); box-shadow: 0 0 0 6px rgba(54, 144, 206, 0);    }
+  100% { transform: scale(1);    box-shadow: 0 0 0 0   rgba(54, 144, 206, 0);    }
+}
+
 .management-dashboard-container {
   min-height: 100vh;
   padding: 0;
@@ -551,6 +557,86 @@
   padding: 0;
   align-self: flex-start;
   margin-top: 0;
+}
+
+.filter-toolbar.filter-toolbar--compact {
+  gap: 6px;
+  padding: 6px 8px;
+}
+
+.filter-toolbar--compact .filter-toolbar__top {
+  align-items: center;
+  gap: 6px;
+}
+
+.filter-toolbar--compact .filter-section-label {
+  width: auto;
+  margin: 0;
+  padding: 0 4px 0 0;
+  align-self: center;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  opacity: 0.68;
+}
+
+.filter-toolbar--compact .filter-toolbar__date-inputs {
+  flex: 0 1 auto;
+  align-items: center;
+}
+
+.filter-toolbar--compact .date-stamp-group {
+  flex-wrap: nowrap;
+  gap: 4px;
+}
+
+.filter-toolbar--compact .date-stamp-button__label {
+  font-size: 9px;
+  line-height: 1.1;
+}
+
+.filter-toolbar--compact .date-stamp-button__value {
+  font-size: 12px;
+  line-height: 1.15;
+}
+
+.filter-toolbar--compact .date-pickers .ms-Label {
+  font-size: 9px !important;
+  line-height: 28px !important;
+}
+
+.filter-toolbar--compact .filter-toolbar__actions {
+  align-items: center;
+  gap: 6px;
+}
+
+.filter-toolbar--compact .filter-status-chip,
+.filter-toolbar--compact .filter-tool-button {
+  min-height: 28px;
+  height: 28px;
+  padding: 0 8px;
+  font-size: 11px;
+}
+
+.filter-toolbar--compact .filter-tool-button__label {
+  font-size: 11px;
+}
+
+.filter-toolbar--compact .filter-toolbar__presets {
+  flex-wrap: wrap;
+  overflow-x: visible;
+  padding-bottom: 0;
+}
+
+.filter-toolbar--compact .filter-preset-group {
+  flex-wrap: wrap;
+  gap: 4px;
+  row-gap: 4px;
+  overflow-x: visible;
+}
+
+.filter-toolbar--compact .preset-separator {
+  display: inline-flex;
+  align-items: center;
 }
 
 .filter-toolbar__actions-label {

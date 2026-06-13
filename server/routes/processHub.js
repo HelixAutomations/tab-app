@@ -12,6 +12,7 @@ const {
   markFailed,
   recordStep,
 } = require('../utils/formSubmissionLog');
+const { getFormSubmissionSchema } = require('../utils/formSubmissionSchema');
 
 const router = express.Router();
 const PROCESS_HEALTH_ALERT_RECIPIENT = 'lz@helix-law.com';
@@ -293,17 +294,21 @@ async function probeProcessHub(limit, { initials, scope } = {}) {
   // unauthenticated callers see all (back-compat with the old tech-tickets adapter).
   const effectiveScope = requestedScope
     || (isAdmin ? 'all' : (initials ? 'mine' : 'all'));
+  const connectionString = getConnectionString();
+  const schema = await getFormSubmissionSchema(connectionString);
 
-  const rows = await withRequest(getConnectionString(), async (request) => {
+  const rows = await withRequest(connectionString, async (request) => {
     request.input('limit', sql.Int, limit);
     // Forms Stream is for human-meaningful form submissions and quick actions
     // only. Generic API audit rows (kind='activity', formKey LIKE 'activity.%',
     // or the legacy `api-*` prefix used pre-kind-migration) move to the new
     // System → Activity view.
     let whereClause = "WHERE archived_at IS NULL"
-      + " AND (kind IS NULL OR kind = 'form')"
       + " AND form_key NOT LIKE 'activity.%'"
       + " AND form_key NOT LIKE 'api-%'";
+    if (schema.hasKindColumn) {
+      whereClause += " AND (kind IS NULL OR kind = 'form')";
+    }
     if (effectiveScope === 'mine' && initials) {
       request.input('initials', sql.NVarChar(16), initials);
       whereClause += ' AND submitted_by = @initials';
@@ -354,11 +359,16 @@ async function probeProcessHubActivity(limit, {
   const scopedActor = isAdmin
     ? (actor ? String(actor).toUpperCase().trim().slice(0, 16) : null)
     : (initials || null);
+  const connectionString = getConnectionString();
+  const schema = await getFormSubmissionSchema(connectionString);
 
-  const rows = await withRequest(getConnectionString(), async (request) => {
+  const rows = await withRequest(connectionString, async (request) => {
     request.input('limit', sql.Int, safeLimit);
-    let whereClause = "WHERE archived_at IS NULL"
-      + " AND (kind = 'activity' OR form_key LIKE 'activity.%' OR form_key LIKE 'api-%')";
+    let whereClause = "WHERE archived_at IS NULL AND (";
+    if (schema.hasKindColumn) {
+      whereClause += "kind = 'activity' OR ";
+    }
+    whereClause += "form_key LIKE 'activity.%' OR form_key LIKE 'api-%')";
 
     if (scopedActor) {
       request.input('actor', sql.NVarChar(16), scopedActor);

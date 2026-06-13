@@ -54,6 +54,10 @@ interface AsanaProjectsResponse {
 interface AsanaProjectMirrorProps {
   initials: string | null;
   viewMode: 'dev' | 'roadmap';
+  boardTeamName?: string;
+  preferBoardTeam?: boolean;
+  showBoardSelector?: boolean;
+  onOpenEditor?: (project: { gid: string; name: string; teamName: string | null }) => void;
 }
 
 function formatDate(value: string | null | undefined): string {
@@ -68,9 +72,18 @@ function readStoredProjectId(): string {
   return window.localStorage.getItem(ASANA_PROJECT_STORAGE_KEY) || '';
 }
 
-const AsanaProjectMirror: React.FC<AsanaProjectMirrorProps> = ({ initials, viewMode }) => {
+function matchesBoardTeam(project: AsanaProject, boardTeamName: string | undefined): boolean {
+  if (!boardTeamName) return true;
+  const projectTeam = String(project.teamName || '').toLowerCase().trim();
+  const requestedTeam = boardTeamName.toLowerCase().trim();
+  if (!projectTeam || !requestedTeam) return false;
+  return projectTeam === requestedTeam || projectTeam.includes(requestedTeam) || requestedTeam.includes(projectTeam);
+}
+
+const AsanaProjectMirror: React.FC<AsanaProjectMirrorProps> = ({ initials, viewMode, boardTeamName, preferBoardTeam = false, showBoardSelector = false, onOpenEditor }) => {
   const [data, setData] = useState<AsanaResponse | null>(null);
   const [projects, setProjects] = useState<AsanaProject[]>([]);
+  const [projectTaskCounts, setProjectTaskCounts] = useState<Record<string, number>>({});
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [projectsError, setProjectsError] = useState<string | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<string>(readStoredProjectId);
@@ -119,10 +132,12 @@ const AsanaProjectMirror: React.FC<AsanaProjectMirrorProps> = ({ initials, viewM
           return;
         }
         const nextProjects = Array.isArray(json.projects) ? json.projects.filter((project) => !project.archived) : [];
+        const preferredProjects = boardTeamName ? nextProjects.filter((project) => matchesBoardTeam(project, boardTeamName)) : nextProjects;
         setProjects(nextProjects);
         setProjectsError(null);
         setSelectedProjectId((current) => {
-          if (current && nextProjects.some((project) => project.gid === current)) return current;
+          if (current && nextProjects.some((project) => project.gid === current) && (!preferBoardTeam || preferredProjects.length === 0 || preferredProjects.some((project) => project.gid === current))) return current;
+          if (preferBoardTeam && preferredProjects.length > 0) return preferredProjects[0].gid;
           if (json.defaultProjectId && nextProjects.some((project) => project.gid === json.defaultProjectId)) return json.defaultProjectId;
           return nextProjects[0]?.gid || current;
         });
@@ -135,7 +150,7 @@ const AsanaProjectMirror: React.FC<AsanaProjectMirrorProps> = ({ initials, viewM
     return () => {
       disposed = true;
     };
-  }, [auth, authHeaders]);
+  }, [auth, authHeaders, boardTeamName, preferBoardTeam]);
 
   useEffect(() => {
     let disposed = false;
@@ -179,20 +194,62 @@ const AsanaProjectMirror: React.FC<AsanaProjectMirrorProps> = ({ initials, viewM
   }, [data]);
 
   const totalTasks = data?.tasks?.length || 0;
-  const projectOptions = projects.filter((project) => !project.archived);
+  const projectOptions = useMemo(() => projects.filter((project) => !project.archived), [projects]);
+  const matchingBoardProjects = useMemo(() => (
+    boardTeamName ? projectOptions.filter((project) => matchesBoardTeam(project, boardTeamName)) : projectOptions
+  ), [boardTeamName, projectOptions]);
+  const useBoardSelector = Boolean(showBoardSelector && boardTeamName);
+  const boardSelectorProjects = useMemo(() => (
+    useBoardSelector ? matchingBoardProjects : projectOptions
+  ), [matchingBoardProjects, projectOptions, useBoardSelector]);
   const selectedProject = projectOptions.find((project) => project.gid === selectedProjectId);
   const currentProjectName = selectedProject?.name || data?.projectName || 'Asana project';
+
+  useEffect(() => {
+    if (!useBoardSelector || projectsLoading || boardSelectorProjects.length === 0) {
+      setProjectTaskCounts({});
+      return;
+    }
+    let disposed = false;
+    (async () => {
+      const entries = await Promise.all(
+        boardSelectorProjects.map(async (project) => {
+          try {
+            const params = new URLSearchParams();
+            if (initials) params.set('initials', initials);
+            params.set('viewMode', viewMode);
+            params.set('projectId', project.gid);
+            const res = await fetch(`/api/dev-console/asana/tech-automations?${params.toString()}`, { headers: authHeaders });
+            const json = (await res.json()) as AsanaResponse;
+            if (!res.ok || !json.success) return [project.gid, null] as const;
+            return [project.gid, Array.isArray(json.tasks) ? json.tasks.length : 0] as const;
+          } catch {
+            return [project.gid, null] as const;
+          }
+        }),
+      );
+      if (disposed) return;
+      const nextCounts: Record<string, number> = {};
+      entries.forEach(([gid, count]) => {
+        if (typeof count === 'number') nextCounts[gid] = count;
+      });
+      setProjectTaskCounts(nextCounts);
+    })();
+    return () => {
+      disposed = true;
+    };
+  }, [authHeaders, boardSelectorProjects, initials, projectsLoading, useBoardSelector, viewMode]);
 
   return (
     <section className="activity-dev-section activity-asana-mirror" data-helix-region="system/forge/asana/tech-automations">
       <div className="activity-dev-section-head activity-asana-mirror-head">
         <div className="activity-asana-mirror-title">
-          <h3>{currentProjectName} (Asana)</h3>
-          {data?.teamName && <small>{data.teamName}</small>}
+          <h3>{useBoardSelector ? 'Tasks' : `${currentProjectName} (Asana)`}</h3>
+          {useBoardSelector ? <small>{currentProjectName}</small> : data?.teamName && <small>{data.teamName}</small>}
         </div>
         <div className="activity-asana-mirror-controls">
           {projectsError && <small className="activity-asana-mirror-picker-error">Project list unavailable</small>}
-          {(projectsLoading || projectOptions.length > 0) && (
+          {!useBoardSelector && (projectsLoading || projectOptions.length > 0) && (
             <label className="activity-asana-project-picker">
               <span>Project</span>
               <select
@@ -213,9 +270,62 @@ const AsanaProjectMirror: React.FC<AsanaProjectMirrorProps> = ({ initials, viewM
               </select>
             </label>
           )}
-          {!loading && !error && <span>{totalTasks}</span>}
+          {!loading && !error && <span className="activity-asana-mirror-count">Tasks {totalTasks}</span>}
         </div>
       </div>
+
+      {showBoardSelector && (
+        <div className="activity-asana-board-selector" data-helix-region="system/tasks/asana-board-list">
+          <div className="activity-asana-board-selector-head">
+            <span>Boards</span>
+            {!projectsLoading && <strong>{boardSelectorProjects.length}</strong>}
+          </div>
+          <div className="activity-asana-board-selector-grid">
+            {projectsLoading ? (
+              <span className="activity-asana-board-selector-loading">Loading boards...</span>
+            ) : boardSelectorProjects.length === 0 ? (
+              <span className="activity-asana-board-selector-empty">No boards visible.</span>
+            ) : (
+              boardSelectorProjects.map((project) => (
+                <div
+                  key={project.gid}
+                  className="activity-asana-board-option-wrap"
+                >
+                  <button
+                    type="button"
+                    className="activity-asana-board-option"
+                    aria-pressed={project.gid === selectedProjectId}
+                    onClick={() => setSelectedProjectId(project.gid)}
+                  >
+                    <span className="activity-asana-board-option-kicker">Board</span>
+                    <span className="activity-asana-board-option-title">
+                      <strong>{project.name}</strong>
+                      <span className="activity-asana-board-option-count">
+                        {project.gid === selectedProjectId && !loading && !error ? totalTasks : projectTaskCounts[project.gid] ?? '-'}
+                      </span>
+                    </span>
+                    <span className="activity-asana-board-option-arrow" aria-hidden="true">&gt;</span>
+                  </button>
+                  {onOpenEditor && (
+                    <button
+                      type="button"
+                      className="activity-asana-board-option-edit"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setSelectedProjectId(project.gid);
+                        onOpenEditor({ gid: project.gid, name: project.name, teamName: project.teamName });
+                      }}
+                      title={`Edit Tasks: ${project.name}`}
+                    >
+                      Edit
+                    </button>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
 
       {loading && <p className="activity-asana-mirror-status">Loading {currentProjectName}...</p>}
 

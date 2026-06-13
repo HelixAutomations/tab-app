@@ -225,10 +225,10 @@ const SystemActivityView: React.FC<SystemActivityViewProps> = ({
             System
           </div>
           <h1 style={{ margin: '3px 0 0', fontSize: 24, lineHeight: 1.2, color: textColour, fontFamily: 'Raleway, sans-serif' }}>
-            Activity
+            API Audit
           </h1>
           <div style={{ fontSize: 12, color: mutedColour, marginTop: 6 }}>
-            Generic mutating API activity captured by the Process Hub fallback audit. Who did what, when, and what came back.
+            Fallback request rows and payload details.
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -238,9 +238,9 @@ const SystemActivityView: React.FC<SystemActivityViewProps> = ({
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, marginBottom: 16 }}>
-        <StatTile label="Captured" value={counts.total} accent={colours.highlight} isDarkMode={isDarkMode} />
+        <StatTile label="Rows" value={counts.total} accent={colours.highlight} isDarkMode={isDarkMode} />
         <StatTile label="Failed" value={counts.failed} accent={colours.cta} isDarkMode={isDarkMode} />
-        <StatTile label="Follow-up" value={counts.followUps} accent={colours.orange} isDarkMode={isDarkMode} />
+        <StatTile label="Action" value={counts.followUps} accent={colours.orange} isDarkMode={isDarkMode} />
         <StatTile label="Pending" value={counts.pending} accent={colours.blue} isDarkMode={isDarkMode} />
       </div>
 
@@ -249,10 +249,10 @@ const SystemActivityView: React.FC<SystemActivityViewProps> = ({
         <Chip label="Failed" active={statusFilter === 'failed'} accent={colours.cta} isDarkMode={isDarkMode} onClick={() => setStatusFilter('failed')} count={counts.failed} />
         <Chip label="Pending" active={statusFilter === 'pending'} accent={colours.blue} isDarkMode={isDarkMode} onClick={() => setStatusFilter('pending')} count={counts.pending} />
         <Chip label="Success" active={statusFilter === 'success'} accent={colours.green} isDarkMode={isDarkMode} onClick={() => setStatusFilter('success')} />
-        <Chip label="Follow-up only" active={followOnly} accent={colours.orange} isDarkMode={isDarkMode} onClick={() => setFollowOnly((v) => !v)} count={counts.followUps} />
+        <Chip label="Action only" active={followOnly} accent={colours.orange} isDarkMode={isDarkMode} onClick={() => setFollowOnly((v) => !v)} count={counts.followUps} />
         <input
           type="text"
-          placeholder="Filter path or summary..."
+          placeholder="Path or summary"
           value={pathQuery}
           onChange={(e) => setPathQuery(e.target.value)}
           style={{

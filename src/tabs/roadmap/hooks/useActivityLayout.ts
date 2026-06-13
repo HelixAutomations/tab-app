@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ActivityLens } from '../parts/ActivityHero';
 
 const STORAGE_KEY = 'helix:activity:layout:v1';
-const VALID_LENSES: ActivityLens[] = ['triage', 'all', 'forms', 'matters', 'sync', 'checks', 'errors', 'trace', 'signals', 'briefs', 'forge', 'actions', 'mechanisms', 'audit'];
+const VALID_LENSES: ActivityLens[] = ['triage', 'all', 'forms', 'cards', 'matters', 'sync', 'checks', 'errors', 'trace', 'signals', 'briefs', 'forge', 'actions', 'mechanisms', 'audit'];
 
 export type LayerKey = 'presence' | 'sessions' | 'apiHeat' | 'scheduler' | 'alerts';
 export type ToolsTab = 'releaseNotes' | 'apiHeat' | 'cardLab' | 'bootTrace';

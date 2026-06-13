@@ -30,6 +30,7 @@ import MatterCard, { MatterPitchTag } from '../matters/MatterCard';
 import MatterOverview from '../matters/MatterOverview';
 import { colours } from '../../app/styles/colours';
 import { useTheme } from '../../app/functionality/ThemeContext';
+import { getNormalizedEnquirySource, hasGoogleAdsPaidSignal } from '../../utils/enquirySource';
 import 'rc-slider/assets/index.css';
 import Slider from 'rc-slider';
 import MattersCombinedMenu from '../matters/MattersCombinedMenu';
@@ -1319,9 +1320,12 @@ const MattersReport: React.FC<MattersReportProps> = ({
         keywords: string;
         medium: string;
         campaign: string;
+        gclid?: string | null;
         recordingUrl: string | null;
         note: string;
         landingPageUrl?: string;
+        campaign_url?: string | null;
+        url?: string | null;
         channel?: string;
     }
     interface WebFormSignal {
@@ -1558,8 +1562,8 @@ const MattersReport: React.FC<MattersReportProps> = ({
                 // Collect phone numbers
                 const phones: string[] = [];
                 if (inspection.clientPhone) phones.push(inspection.clientPhone);
-                inspection.enquiryLookup?.legacy.matches.forEach(m => m.phone && phones.push(m.phone));
-                inspection.enquiryLookup?.instructions.matches.forEach(m => m.phone && phones.push(m.phone));
+
+
                 const uniquePhones = [...new Set(phones.filter(p => p && p.length > 5))];
                 
                 // Step 3: CallRail lookup if we have phone
@@ -3970,10 +3974,15 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                             const hasGoogleAdsData = !!googleAdsEntry && !googleAdsEntry.error;
                                             
                                             const formHasGclid = !!primaryForm?.gclid;
-                                            const callRailSource = latestCall?.source?.toLowerCase() || '';
-                                            const callRailIsPaid = callRailSource.includes('paid') || callRailSource.includes('google') || callRailSource.includes('ppc') || callRailSource.includes('cpc');
-                                            const enquirySource = preferredEnquiry?.source?.toLowerCase() || '';
-                                            const enquiryIsPaid = enquirySource.includes('paid') || enquirySource.includes('google') || enquirySource.includes('ppc');
+                                            const callRailIsPaid = hasGoogleAdsPaidSignal({
+                                                source: latestCall?.source,
+                                                medium: latestCall?.medium,
+                                                campaign: latestCall?.campaign,
+                                                gclid: latestCall?.gclid,
+                                                url: latestCall?.campaign_url || latestCall?.url,
+                                            });
+                                            const enquirySourceKey = getNormalizedEnquirySource(preferredEnquiry).key;
+                                            const enquiryIsPaid = enquirySourceKey === 'google_ads';
                                             const isPaid = formHasGclid || callRailIsPaid || enquiryIsPaid || !!preferredEnquiry?.gclid;
                                             
                                             // Prefer Google Ads data when available, fall back to existing sources
@@ -4943,25 +4952,18 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                                                                 background: isDarkMode ? 'rgba(30, 41, 59, 0.25)' : 'rgba(248, 250, 252, 0.8)',
                                                                                                 borderRadius: 6, border: `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.3)' : 'rgba(203, 213, 225, 0.5)'}`
                                                                                             }}>
-                                                                                                {/* Header: ID + Name */}
-                                                                                                <div style={{ marginBottom: 8 }}>
-                                                                                                    <span style={{ fontFamily: 'monospace', fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>#{m.id}</span>
-                                                                                                    {m.name && <span style={{ marginLeft: 8, fontWeight: 600, fontSize: 11, color: isDarkMode ? '#e2e8f0' : '#1e293b' }}>{m.name}</span>}
+                                                                                                        <div style={{ marginBottom: 8 }}>
+                                                                                                    <span style={{ fontFamily: 'monospace', fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Enquiry #{m.id}</span>
                                                                                                 </div>
-                                                                                                {/* Details grid */}
                                                                                                 <div style={{ display: 'grid', gridTemplateColumns: '70px 1fr', gap: '4px 8px', fontSize: 9, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
-                                                                                                    <span>Email</span>
-                                                                                                    <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{m.email || '—'}</span>
-                                                                                                    <span>Phone</span>
-                                                                                                    <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{m.phone || '—'}</span>
                                                                                                     <span>Area</span>
                                                                                                     <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{m.aow || '—'}</span>
                                                                                                     <span>Type</span>
                                                                                                     <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{m.tow || '—'}</span>
                                                                                                     <span>Date</span>
                                                                                                     <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{m.date ? new Date(m.date).toLocaleDateString() : '—'}</span>
-                                                                                                    <span>POC</span>
-                                                                                                    <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{m.poc || '—'}</span>
+                                                                                                    <span>Stage</span>
+                                                                                                    <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{m.stage || '—'}</span>
                                                                                                 </div>
                                                                                                 {/* Source Attribution */}
                                                                                                 <div style={{ marginTop: 10, paddingTop: 8, borderTop: `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.25)' : 'rgba(203, 213, 225, 0.4)'}` }}>
@@ -5012,18 +5014,10 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                                                                 background: isDarkMode ? 'rgba(30, 41, 59, 0.25)' : 'rgba(248, 250, 252, 0.8)',
                                                                                                 borderRadius: 6, border: `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.3)' : 'rgba(203, 213, 225, 0.5)'}`
                                                                                             }}>
-                                                                                                {/* Header: ID + ACID + Name */}
                                                                                                 <div style={{ marginBottom: 8 }}>
-                                                                                                    <span style={{ fontFamily: 'monospace', fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>#{m.id}</span>
-                                                                                                    {m.acid && <span style={{ marginLeft: 6, fontFamily: 'monospace', fontSize: 9, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>acid:{m.acid}</span>}
-                                                                                                    {m.name && <span style={{ marginLeft: 8, fontWeight: 600, fontSize: 11, color: isDarkMode ? '#e2e8f0' : '#1e293b' }}>{m.name}</span>}
+                                                                                                    <span style={{ fontFamily: 'monospace', fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Enquiry #{m.id}</span>
                                                                                                 </div>
-                                                                                                {/* Details grid */}
                                                                                                 <div style={{ display: 'grid', gridTemplateColumns: '70px 1fr', gap: '4px 8px', fontSize: 9, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
-                                                                                                    <span>Email</span>
-                                                                                                    <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{m.email || '—'}</span>
-                                                                                                    <span>Phone</span>
-                                                                                                    <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{m.phone || '—'}</span>
                                                                                                     <span>Area</span>
                                                                                                     <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{m.aow || '—'}</span>
                                                                                                     <span>Type</span>
@@ -5032,8 +5026,6 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                                                                     <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{m.stage || '—'}</span>
                                                                                                     <span>Date</span>
                                                                                                     <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{m.date ? new Date(m.date).toLocaleDateString() : '—'}</span>
-                                                                                                    <span>POC</span>
-                                                                                                    <span style={{ color: isDarkMode ? '#cbd5e1' : '#475569' }}>{m.poc || '—'}</span>
                                                                                                 </div>
                                                                                                 {/* Source Attribution */}
                                                                                                 <div style={{ marginTop: 10, paddingTop: 8, borderTop: `1px solid ${isDarkMode ? 'rgba(71, 85, 105, 0.25)' : 'rgba(203, 213, 225, 0.4)'}` }}>
@@ -5262,11 +5254,9 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                                             ) : (
                                                                                 <div style={{ fontSize: 9, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
                                                                                     {(() => {
-                                                                                        // Collect phone numbers from Clio and enquiry matches
+                                                                                        // Collect phone numbers from Clio only for CallRail lookup
                                                                                         const phones: string[] = [];
                                                                                         if (matterInspection.clientPhone) phones.push(matterInspection.clientPhone);
-                                                                                        matterInspection.enquiryLookup?.legacy.matches.forEach(m => m.phone && phones.push(m.phone));
-                                                                                        matterInspection.enquiryLookup?.instructions.matches.forEach(m => m.phone && phones.push(m.phone));
                                                                                         const uniquePhones = [...new Set(phones.filter(p => p && p.length > 5))];
                                                                                         if (uniquePhones.length > 0) {
                                                                                             return `${uniquePhones.length} phone number${uniquePhones.length !== 1 ? 's' : ''} available`;
@@ -5287,11 +5277,9 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                                             <button
                                                                                 onClick={async (e) => {
                                                                                     e.stopPropagation();
-                                                                                    // Collect phone numbers from Clio and enquiry matches
+                                                                                    // Collect phone numbers from Clio only for CallRail lookup
                                                                                     const phones: string[] = [];
                                                                                     if (matterInspection.clientPhone) phones.push(matterInspection.clientPhone);
-                                                                                    matterInspection.enquiryLookup?.legacy.matches.forEach(m => m.phone && phones.push(m.phone));
-                                                                                    matterInspection.enquiryLookup?.instructions.matches.forEach(m => m.phone && phones.push(m.phone));
                                                                                     const uniquePhones = [...new Set(phones.filter(p => p && p.length > 5))];
                                                                                     
                                                                                     if (uniquePhones.length === 0) return;
@@ -5339,8 +5327,6 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                                                 disabled={(() => {
                                                                                     const phones: string[] = [];
                                                                                     if (matterInspection.clientPhone) phones.push(matterInspection.clientPhone);
-                                                                                    matterInspection.enquiryLookup?.legacy.matches.forEach(m => m.phone && phones.push(m.phone));
-                                                                                    matterInspection.enquiryLookup?.instructions.matches.forEach(m => m.phone && phones.push(m.phone));
                                                                                     return phones.filter(p => p && p.length > 5).length === 0;
                                                                                 })()}
                                                                                 style={{
@@ -5353,8 +5339,6 @@ const MattersReport: React.FC<MattersReportProps> = ({
                                                                                     opacity: (() => {
                                                                                         const phones: string[] = [];
                                                                                         if (matterInspection.clientPhone) phones.push(matterInspection.clientPhone);
-                                                                                        matterInspection.enquiryLookup?.legacy.matches.forEach(m => m.phone && phones.push(m.phone));
-                                                                                        matterInspection.enquiryLookup?.instructions.matches.forEach(m => m.phone && phones.push(m.phone));
                                                                                         return phones.filter(p => p && p.length > 5).length === 0 ? 0.5 : 1;
                                                                                     })()
                                                                                 }}

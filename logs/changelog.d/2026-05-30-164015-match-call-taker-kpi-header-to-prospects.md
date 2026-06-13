@@ -1,1 +1,0 @@
-2026-05-30 / Match call-taker KPI header to Prospects / metrics-table-header (used by the call-taker KPI table on the Reception report) drops from navy 061733 to Helix blue 0D2F60 with white 0.85 text and white hover, matching the Prospects/Matters header treatment. (~ src/tabs/Reporting/ManagementDashboard.css)

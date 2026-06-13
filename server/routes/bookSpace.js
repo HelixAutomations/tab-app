@@ -90,9 +90,43 @@ async function getClioAccessToken() {
   return response.data.access_token;
 }
 
+// Returns the Europe/London UTC offset in whole hours for the given date
+// (1 during BST, 0 during GMT). Server may run in any TZ, so we ask Intl.
+function getLondonUtcOffsetHours(date) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Europe/London',
+      timeZoneName: 'longOffset',
+    }).formatToParts(date);
+    const tz = parts.find((p) => p.type === 'timeZoneName')?.value || 'GMT';
+    const match = tz.match(/GMT([+-]\d{1,2})(?::(\d{2}))?/);
+    return match ? parseInt(match[1], 10) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+// Build a UTC Date for the given London-local calendar date + HH:MM[:SS] time.
+// Probe the offset at noon UTC of the target date to stay clear of the 01:00 UTC DST boundary.
+function londonLocalToUtcDate(booking_date, booking_time) {
+  const [y, m, d] = booking_date.split('-').map((n) => parseInt(n, 10));
+  const [hh, mm = '0', ss = '0'] = String(booking_time).split(':');
+  const probe = new Date(Date.UTC(y, (m || 1) - 1, d || 1, 12, 0, 0, 0));
+  const offset = getLondonUtcOffsetHours(probe);
+  return new Date(Date.UTC(
+    y,
+    (m || 1) - 1,
+    d || 1,
+    parseInt(hh, 10) - offset,
+    parseInt(mm, 10),
+    parseInt(ss, 10) || 0,
+    0,
+  ));
+}
+
 // Create Clio calendar event
 async function createClioCalendarEvent(accessToken, { fee_earner, booking_date, booking_time, duration, reason, spaceType }) {
-  const startDateTime = new Date(`${booking_date}T${booking_time}Z`);
+  const startDateTime = londonLocalToUtcDate(booking_date, booking_time);
   const endDateTime = new Date(startDateTime.getTime() + duration * 3600000);
   
   const eventPayload = {

@@ -113,7 +113,12 @@ async function runAsanaTaskInspector({ params, requestor }) {
     };
   }
 
-  const payload = await inspectTask({ accessToken, taskGid });
+  const payload = await inspectTask({
+    accessToken,
+    taskGid,
+    operatorConsent: true,
+    operatorActor: requestor?.initials || requestor?.email || 'unknown',
+  });
   const markdown = buildMarkdown(payload);
   const summary = `Asana task ${payload.task.gid}: ${payload.task.completed ? 'completed' : 'open'} - ${payload.stories.length} stories, ${payload.subtasks.length} subtasks`;
 

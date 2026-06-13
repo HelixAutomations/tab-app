@@ -1,1 +1,0 @@
-2026-05-30 / Dedupe Reception stage bar pills / Rename Call pill to 'Dubber' (so it does not echo the 'Call detail' heading) and drop the trailing Matter rate pill (the Matter pill already shows the ratio). The full matter rate stays in the Matter pill tooltip. (~ src/tabs/Reporting/ReceptionReport.tsx)

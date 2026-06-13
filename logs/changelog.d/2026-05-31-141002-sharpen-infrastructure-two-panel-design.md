@@ -1,1 +1,0 @@
-2026-05-31 / Sharpen infrastructure two-panel design / Flatten SystemInfrastructureView corners to square (Helix CCL-style), merge groups + detail into one bordered surface with vertical divider, shrink IconBadge, replace pill tags with square hairline tags. (~ src/tabs/roadmap/system/SystemInfrastructureView.tsx)

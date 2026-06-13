@@ -694,8 +694,9 @@ router.post('/updateAttendance', async (req, res) => {
   let submissionId = null;
   try {
     const { initials, weekStart, attendanceDays } = req.body;
-    
-    if (!initials || !weekStart || !attendanceDays) {
+
+    const hasAttendanceDays = attendanceDays !== undefined && attendanceDays !== null;
+    if (!initials || !weekStart || !hasAttendanceDays) {
       return res.status(400).json({
         success: false,
         error: 'Missing required fields: initials, weekStart, attendanceDays'

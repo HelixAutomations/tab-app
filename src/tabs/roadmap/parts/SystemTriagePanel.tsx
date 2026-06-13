@@ -905,12 +905,12 @@ const SystemTriagePanel: React.FC<SystemTriagePanelProps> = ({ viewerInitials, i
       const body = await response.json().catch(() => null);
       if (ctrl.signal.aborted) return;
       if (!response.ok || !body?.ok) {
-        throw new Error(body?.message || body?.error || `System triage failed (${response.status})`);
+        throw new Error(body?.message || body?.error || `System health check failed (${response.status})`);
       }
       setData(body as TriageResponse);
     } catch (err) {
       if ((err as { name?: string })?.name !== 'AbortError') {
-        setError(err instanceof Error ? err.message : 'Could not load triage data');
+        setError(err instanceof Error ? err.message : 'Could not load system health data');
       }
     } finally {
       if (!ctrl.signal.aborted) setLoading(false);

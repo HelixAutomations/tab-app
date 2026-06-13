@@ -1,1 +1,0 @@
-2026-05-30 / Add claimed empty preview shortcut / Presenter notes now include a Prospects shortcut that enables the claimed queue holding-state preview and opens the Enquiries tab. (~ src/components/demoCheatSheet.data.ts, ~ src/components/DemoCheatSheetOverlay.tsx, ~ src/app/App.tsx)

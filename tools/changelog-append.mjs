@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -11,6 +12,7 @@ const ROOT = process.env.CHANGELOG_ROOT
   : path.resolve(__dirname, '..');
 const CHANGELOG_PATH = path.join(ROOT, 'logs', 'changelog.md');
 const FRAGMENT_DIR = path.join(ROOT, 'logs', 'changelog.d');
+const TYPECHECK_CACHE_PATH = path.join(ROOT, 'node_modules', '.cache', 'helix-changelog.tsbuildinfo');
 const ENTRY_PATTERN = /^\d{4}-\d{2}-\d{2} \/ [^/]+ \/ .+$/;
 const FORBIDDEN_DASHES = /[\u2013\u2014]/;
 
@@ -22,7 +24,10 @@ function usage() {
   node tools/changelog-append.mjs --check
 
 Creates one unique file in logs/changelog.d/, then rebuilds logs/changelog.md
-with fragment entries restored at the top and duplicate lines removed.`;
+with fragment entries restored at the top and duplicate lines removed.
+
+When the change touches .ts/.tsx files, a tsc --noEmit gate runs first and blocks
+the entry on type errors. Bypass with --no-typecheck or HELIX_SKIP_CHANGELOG_TYPECHECK=1.`;
 }
 
 function parseArgs(argv) {
@@ -274,8 +279,76 @@ function uniqueFragmentPath(entry) {
   fail('could not find a free fragment filename');
 }
 
+function shouldSkipTypecheckGate(args, entry) {
+  if (args['no-typecheck'] === true || args['skip-typecheck'] === true) {
+    return 'flag';
+  }
+  if (process.env.HELIX_SKIP_CHANGELOG_TYPECHECK === '1') {
+    return 'env';
+  }
+  // Only pay the typecheck cost when TypeScript sources are part of the change.
+  if (!/\.tsx?(?=[\s,)]|$)/i.test(entry)) {
+    return 'no-ts-files';
+  }
+  return null;
+}
+
+function runTypecheckGate(args, entry) {
+  const skip = shouldSkipTypecheckGate(args, entry);
+  if (skip === 'flag' || skip === 'env') {
+    console.warn(`changelog-append: typecheck gate skipped (${skip}); did not run tsc --noEmit.`);
+    return;
+  }
+  if (skip === 'no-ts-files') {
+    return;
+  }
+
+  const tscBin = path.join(ROOT, 'node_modules', 'typescript', 'bin', 'tsc');
+  if (!fs.existsSync(tscBin)) {
+    console.warn('changelog-append: typecheck gate skipped; local TypeScript compiler not found.');
+    return;
+  }
+
+  fs.mkdirSync(path.dirname(TYPECHECK_CACHE_PATH), { recursive: true });
+
+  console.log('changelog-append: running typecheck gate (tsc --noEmit --incremental)...');
+  const result = spawnSync(process.execPath, [
+    tscBin,
+    '--noEmit',
+    '--incremental',
+    '--tsBuildInfoFile',
+    TYPECHECK_CACHE_PATH,
+  ], {
+    cwd: ROOT,
+    encoding: 'utf8',
+  });
+
+  if (result.error) {
+    console.warn(`changelog-append: could not run typecheck (${result.error.message}); skipping gate.`);
+    return;
+  }
+
+  if (result.status !== 0) {
+    const out = `${result.stdout || ''}${result.stderr || ''}`;
+    const errorLines = out.split(/\r?\n/).filter((line) => /error TS/.test(line));
+    console.error('changelog-append: typecheck gate FAILED; not writing the changelog fragment.');
+    console.error(`changelog-append: tsc --noEmit reported ${errorLines.length} error(s):`);
+    for (const line of errorLines.slice(0, 20)) {
+      console.error(`  ${line.trim()}`);
+    }
+    if (errorLines.length > 20) {
+      console.error(`  ... and ${errorLines.length - 20} more`);
+    }
+    console.error('changelog-append: fix the type errors, or bypass with --no-typecheck (or HELIX_SKIP_CHANGELOG_TYPECHECK=1).');
+    process.exit(1);
+  }
+
+  console.log('changelog-append: typecheck gate passed.');
+}
+
 function append(args) {
   const entry = buildEntry(args);
+  runTypecheckGate(args, entry);
   ensureFragmentDir();
 
   const fragmentRecords = readFragmentRecords();

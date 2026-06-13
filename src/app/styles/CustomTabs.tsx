@@ -9,6 +9,7 @@ import {
   FiFileText,
   FiBookOpen,
   FiBarChart2,
+  FiTarget,
 } from 'react-icons/fi';
 import { colours } from './colours';
 import './CustomTabs.css';
@@ -159,6 +160,7 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
       case 'forms':        return <FiFileText size={navIconSize} strokeWidth={1.8} />;
       case 'resources':    return <FiBookOpen size={navIconSize} strokeWidth={1.8} />;
       case 'reporting':    return <FiBarChart2 size={navIconSize} strokeWidth={1.8} />;
+      case 'marketing':    return <FiTarget size={navIconSize} strokeWidth={1.8} />;
       default:             return <FiClipboard size={navIconSize} strokeWidth={1.8} />;
     }
   };

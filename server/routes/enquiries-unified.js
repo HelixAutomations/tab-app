@@ -4,7 +4,7 @@ const { cacheUnified, generateCacheKey, CACHE_CONFIG, deleteCachePattern, getCac
 const { loggers } = require('../utils/logger');
 const { attachEnquiriesStream, broadcastEnquiriesChanged } = require('../utils/enquiries-stream');
 const { emitEvent } = require('../utils/eventEmitter');
-const { trackEvent, trackMetric } = require('../utils/appInsights');
+const { trackEvent, trackMetric, trackException } = require('../utils/appInsights');
 const { VALID_SOURCE_BIASES, resolveSourceSelection, getDefaultSourceBiasForPolicy } = require('../utils/enquirySourcePolicy');
 const router = express.Router();
 const { annotate } = require('../utils/devConsole');
@@ -329,6 +329,531 @@ router.get('/pulse', async (req, res) => {
   });
 });
 
+const SOURCE_LEDGER_SORT_FIELDS = {
+  date: 'datetime',
+  id: 'id',
+  aow: 'aow',
+  moc: 'moc',
+  poc: 'poc',
+  source: 'source',
+};
+const SOURCE_LEDGER_OPTION_FIELDS = ['source', 'aow', 'moc', 'poc'];
+const SOURCE_LEDGER_ROW_EDITABLE_FIELDS = {
+  acid: { column: 'acid', type: 'text', maxLength: 255 },
+  datetime: { column: 'datetime', type: 'datetime' },
+  aow: { column: 'aow', type: 'text', maxLength: 255 },
+  moc: { column: 'moc', type: 'text', maxLength: 255 },
+  poc: { column: 'poc', type: 'text', maxLength: 255 },
+  phone: { column: 'phone', type: 'text', maxLength: 255 },
+  source: { column: 'source', type: 'text', maxLength: 255 },
+  url: { column: 'url', type: 'text', maxLength: 500 },
+};
+const SOURCE_LEDGER_DEV_PREVIEW_INITIALS = new Set(['LZ', 'AC']);
+
+function canAccessSourceLedger(req) {
+  const initials = String(req.user?.initials || req.headers?.['x-helix-initials'] || '').trim().toUpperCase();
+  if (SOURCE_LEDGER_DEV_PREVIEW_INITIALS.has(initials)) return true;
+  return process.env.NODE_ENV !== 'production' && !req.user;
+}
+
+function denySourceLedger(req, res, operation) {
+  const initials = String(req.user?.initials || req.headers?.['x-helix-initials'] || '').trim().toUpperCase();
+  trackEvent('Enquiry.Source.AccessDenied', {
+    operation,
+    triggeredBy: 'api',
+    userInitials: initials || 'unknown',
+  });
+  return res.status(403).json({ error: 'Forbidden' });
+}
+
+const normaliseSourceLedgerSort = (rawSort, rawDirection) => {
+  const sortKey = String(rawSort || 'date').trim().toLowerCase();
+  const direction = String(rawDirection || 'desc').trim().toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+  const column = SOURCE_LEDGER_SORT_FIELDS[sortKey] || SOURCE_LEDGER_SORT_FIELDS.date;
+  const safeSortKey = SOURCE_LEDGER_SORT_FIELDS[sortKey] ? sortKey : 'date';
+  return {
+    sortKey: safeSortKey,
+    direction,
+    orderClause: `${column} ${direction}, id DESC`,
+  };
+};
+
+const normaliseEditableLedgerTextValue = (value, maxLength = 255) => String(value ?? '').trim().slice(0, maxLength);
+
+const normaliseEditableSourceValue = (value) => normaliseEditableLedgerTextValue(value, 255);
+
+function normaliseEditableLedgerDateValue(value) {
+  if (value == null) return null;
+  const candidate = String(value).trim();
+  if (!candidate) return null;
+  const parsed = Date.parse(candidate);
+  if (!Number.isFinite(parsed)) return Number.NaN;
+  return new Date(parsed);
+}
+
+function getSanitisedSourceLedgerUpdates(rawUpdates) {
+  const source = rawUpdates && typeof rawUpdates === 'object' ? rawUpdates : {};
+  const updates = [];
+
+  Object.entries(SOURCE_LEDGER_ROW_EDITABLE_FIELDS).forEach(([field, config]) => {
+    if (!Object.prototype.hasOwnProperty.call(source, field)) return;
+
+    if (config.type === 'datetime') {
+      const nextValue = normaliseEditableLedgerDateValue(source[field]);
+      if (Number.isNaN(nextValue)) {
+        updates.push({ field, invalid: true, reason: 'Invalid datetime value' });
+        return;
+      }
+      updates.push({ field, column: config.column, type: config.type, value: nextValue });
+      return;
+    }
+
+    updates.push({
+      field,
+      column: config.column,
+      type: config.type,
+      value: normaliseEditableLedgerTextValue(source[field], config.maxLength),
+    });
+  });
+
+  return updates;
+}
+
+async function invalidateSourceLedgerCaches(reason, payload = {}) {
+  try { clearUnifiedMemoryCache(); } catch { /* ignore */ }
+  try {
+    const deletedData = await deleteCachePattern(`${CACHE_CONFIG.PREFIXES.UNIFIED}:data:*`);
+    const deletedEnquiries = await deleteCachePattern(`${CACHE_CONFIG.PREFIXES.UNIFIED}:enquiries:*`);
+    log.debug(`Invalidated cache after source ledger mutation (data:${deletedData}, enquiries:${deletedEnquiries})`);
+  } catch (cacheError) {
+    log.warn('Failed to invalidate cache after source ledger mutation:', cacheError?.message);
+  }
+  try { broadcastEnquiriesChanged({ changeType: payload.changeType || 'source-ledger-update', reason, ...payload }); } catch { /* non-blocking */ }
+}
+
+// Route: GET /api/enquiries-unified/source/options
+// Returns aggregated editable field values only (no row-level client content).
+router.get('/source/options', async (_req, res) => {
+  const startedAt = Date.now();
+  const instructionsConnectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+
+  if (!canAccessSourceLedger(_req)) {
+    return denySourceLedger(_req, res, 'source-options');
+  }
+
+  trackEvent('Enquiry.Source.Options.Started', {
+    operation: 'source-options',
+    triggeredBy: 'api',
+  });
+
+  try {
+    if (!instructionsConnectionString) {
+      const durationMs = Date.now() - startedAt;
+      trackEvent('Enquiry.Source.Options.Failed', {
+        operation: 'source-options',
+        triggeredBy: 'api',
+        durationMs: String(durationMs),
+        phase: 'config',
+        error: 'Instructions database configuration missing',
+      });
+      return res.status(500).json({ error: 'Instructions database configuration missing' });
+    }
+
+    const result = await withRequest(instructionsConnectionString, async (request) => {
+      return request.query(`
+        SELECT
+          fieldName,
+          NULLIF(LTRIM(RTRIM(fieldValue)), '') AS value,
+          COUNT_BIG(*) AS count
+        FROM (
+          SELECT 'source' AS fieldName, source AS fieldValue FROM dbo.enquiries
+          UNION ALL
+          SELECT 'aow' AS fieldName, aow AS fieldValue FROM dbo.enquiries
+          UNION ALL
+          SELECT 'moc' AS fieldName, moc AS fieldValue FROM dbo.enquiries
+          UNION ALL
+          SELECT 'poc' AS fieldName, poc AS fieldValue FROM dbo.enquiries
+        ) AS fieldValues
+        GROUP BY fieldName, NULLIF(LTRIM(RTRIM(fieldValue)), '')
+        ORDER BY fieldName ASC, COUNT_BIG(*) DESC, NULLIF(LTRIM(RTRIM(fieldValue)), '') ASC
+      `);
+    });
+
+    const fieldOptions = SOURCE_LEDGER_OPTION_FIELDS.reduce((acc, field) => {
+      acc[field] = [];
+      return acc;
+    }, {});
+
+    (result?.recordset || []).forEach((row) => {
+      const fieldName = String(row.fieldName || '').trim().toLowerCase();
+      if (!SOURCE_LEDGER_OPTION_FIELDS.includes(fieldName)) return;
+      fieldOptions[fieldName].push({
+        value: row.value == null ? '' : String(row.value),
+        count: Number(row.count || 0),
+      });
+    });
+
+    const options = fieldOptions.source || [];
+
+    const durationMs = Date.now() - startedAt;
+    trackEvent('Enquiry.Source.Options.Completed', {
+      operation: 'source-options',
+      triggeredBy: 'api',
+      durationMs: String(durationMs),
+      rowCount: String(options.length),
+    });
+    trackMetric('Enquiry.Source.Options.Duration', durationMs, {
+      operation: 'source-options',
+    });
+
+    return res.json({
+      options,
+      fieldOptions,
+      count: options.length,
+    });
+  } catch (error) {
+    const durationMs = Date.now() - startedAt;
+    trackException(error, {
+      operation: 'source-options',
+      phase: 'query',
+    });
+    trackEvent('Enquiry.Source.Options.Failed', {
+      operation: 'source-options',
+      triggeredBy: 'api',
+      durationMs: String(durationMs),
+      error: error?.message || 'Unknown error',
+    });
+    log.error('Error loading enquiry source options:', error?.message || error);
+    return res.status(500).json({ error: 'Failed to load enquiry source options' });
+  }
+});
+
+// Route: POST /api/enquiries-unified/source/row-update
+// Updates editable Instructions ledger fields for a single enquiry row.
+router.post('/source/row-update', async (req, res) => {
+  const startedAt = Date.now();
+  const instructionsConnectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+  const parsedId = Number.parseInt(String(req.body?.id || ''), 10);
+  const operation = 'source-ledger-row-update';
+
+  if (!canAccessSourceLedger(req)) {
+    return denySourceLedger(req, res, operation);
+  }
+
+  if (!Number.isFinite(parsedId) || parsedId <= 0) {
+    return res.status(400).json({ error: 'Valid enquiry id is required' });
+  }
+
+  if (!instructionsConnectionString) {
+    return res.status(500).json({ error: 'Instructions database configuration missing' });
+  }
+
+  const updates = getSanitisedSourceLedgerUpdates(req.body?.updates);
+  const invalidUpdate = updates.find((entry) => entry.invalid);
+  if (invalidUpdate) {
+    return res.status(400).json({ error: invalidUpdate.reason || 'Invalid update payload' });
+  }
+
+  if (!updates.length) {
+    return res.status(400).json({ error: 'At least one editable field update is required' });
+  }
+
+  trackEvent('Enquiry.Source.RowUpdate.Started', {
+    operation,
+    triggeredBy: 'api',
+    updatedFields: updates.map((entry) => entry.field).join(','),
+  });
+
+  try {
+    const result = await withRequest(instructionsConnectionString, async (request) => {
+      request.input('id', sql.Int, parsedId);
+
+      const setClauses = updates.map((entry) => {
+        const parameterName = `value_${entry.field}`;
+        if (entry.type === 'datetime') {
+          request.input(parameterName, sql.DateTime2, entry.value);
+        } else {
+          request.input(parameterName, sql.NVarChar(entry.field === 'url' ? 500 : 255), entry.value);
+        }
+        return `${entry.column} = @${parameterName}`;
+      });
+
+      return request.query(`
+        SET XACT_ABORT ON;
+        DECLARE @rowsAffected INT = 0;
+        BEGIN TRANSACTION;
+        UPDATE dbo.enquiries
+        SET ${setClauses.join(', ')}
+        WHERE id = @id;
+        SET @rowsAffected = @@ROWCOUNT;
+        COMMIT TRANSACTION;
+        SELECT @rowsAffected AS rowsAffected;
+      `);
+    });
+
+    const rowsAffected = Number(result?.recordset?.[0]?.rowsAffected || 0);
+    const updatedFields = updates.map((entry) => entry.field);
+    await invalidateSourceLedgerCaches(operation, {
+      enquiryId: String(parsedId),
+      changeType: 'source-ledger-row-update',
+      updatedFields: updatedFields.join(','),
+    });
+    try { emitEvent('enquiry.source_changed', 'tab-app', String(parsedId), 'enquiry', { updatedFields }); } catch { /* non-blocking */ }
+
+    const durationMs = Date.now() - startedAt;
+    trackEvent('Enquiry.Source.RowUpdate.Completed', {
+      operation,
+      triggeredBy: 'api',
+      rowsAffected: String(rowsAffected),
+      durationMs: String(durationMs),
+      updatedFields: updatedFields.join(','),
+    });
+    trackMetric('Enquiry.Source.RowUpdate.Duration', durationMs, { operation });
+
+    return res.json({ success: true, rowsAffected, updatedFields });
+  } catch (error) {
+    const durationMs = Date.now() - startedAt;
+    trackException(error, { operation, phase: 'update-row' });
+    trackEvent('Enquiry.Source.RowUpdate.Failed', {
+      operation,
+      triggeredBy: 'api',
+      durationMs: String(durationMs),
+      error: error?.message || 'Unknown error',
+    });
+    log.error('Error updating enquiry source ledger row:', error?.message || error);
+    return res.status(500).json({ error: 'Failed to update enquiry row' });
+  }
+});
+
+// Route: GET /api/enquiries-unified/source/ledger
+// Returns a lean non-PII ledger for source management.
+router.get('/source/ledger', async (req, res) => {
+  const startedAt = Date.now();
+  const instructionsConnectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+  const requestedLimit = Number.parseInt(String(req.query.limit || '100'), 10);
+  const limit = Number.isFinite(requestedLimit)
+    ? Math.max(1, Math.min(requestedLimit, 200))
+    : 100;
+  const sortSpec = normaliseSourceLedgerSort(req.query.sort, req.query.direction);
+
+  if (!canAccessSourceLedger(req)) {
+    return denySourceLedger(req, res, 'source-ledger');
+  }
+
+  trackEvent('Enquiry.Source.Ledger.Started', {
+    operation: 'source-ledger',
+    triggeredBy: 'api',
+    sort: sortSpec.sortKey,
+    direction: sortSpec.direction,
+    limit: String(limit),
+  });
+
+  try {
+    if (!instructionsConnectionString) {
+      const durationMs = Date.now() - startedAt;
+      trackEvent('Enquiry.Source.Ledger.Failed', {
+        operation: 'source-ledger',
+        triggeredBy: 'api',
+        durationMs: String(durationMs),
+        phase: 'config',
+        sort: sortSpec.sortKey,
+        direction: sortSpec.direction,
+        limit: String(limit),
+        error: 'Instructions database configuration missing',
+      });
+      return res.status(500).json({ error: 'Instructions database configuration missing' });
+    }
+
+    const result = await withRequest(instructionsConnectionString, async (request) => {
+      request.input('limit', sql.Int, limit);
+      return request.query(`
+        SELECT TOP (@limit)
+          e.id,
+          e.acid,
+          e.datetime,
+          e.aow,
+          e.moc,
+          e.poc,
+          e.phone,
+          e.source,
+          e.url,
+          linkedMatter.displayNumber AS matterDisplayNumber
+        FROM dbo.enquiries AS e
+        OUTER APPLY (
+          SELECT TOP (1)
+            m.DisplayNumber AS displayNumber
+          FROM dbo.Matters AS m
+          WHERE TRY_CONVERT(varchar(50), m.EnquiryID) = TRY_CONVERT(varchar(50), e.id)
+            AND LTRIM(RTRIM(ISNULL(TRY_CONVERT(varchar(50), m.DisplayNumber), ''))) <> ''
+          ORDER BY m.MatterID DESC
+        ) AS linkedMatter
+        ORDER BY ${sortSpec.orderClause}
+      `);
+    });
+
+    const rows = (result?.recordset || []).map((row) => ({
+      id: row.id == null ? null : Number(row.id),
+      acid: row.acid == null ? '' : String(row.acid),
+      datetime: row.datetime ? new Date(row.datetime).toISOString() : null,
+      aow: row.aow == null ? '' : String(row.aow),
+      moc: row.moc == null ? '' : String(row.moc),
+      poc: row.poc == null ? '' : String(row.poc),
+      phone: row.phone == null ? '' : String(row.phone),
+      source: row.source == null ? '' : String(row.source),
+      url: row.url == null ? '' : String(row.url),
+      matterDisplayNumber: row.matterDisplayNumber == null ? '' : String(row.matterDisplayNumber),
+    }));
+
+    const durationMs = Date.now() - startedAt;
+    trackEvent('Enquiry.Source.Ledger.Completed', {
+      operation: 'source-ledger',
+      triggeredBy: 'api',
+      sort: sortSpec.sortKey,
+      direction: sortSpec.direction,
+      limit: String(limit),
+      rowCount: String(rows.length),
+      durationMs: String(durationMs),
+    });
+    trackMetric('Enquiry.Source.Ledger.Duration', durationMs, {
+      operation: 'source-ledger',
+      sort: sortSpec.sortKey,
+    });
+
+    return res.json({
+      rows,
+      count: rows.length,
+      sort: sortSpec.sortKey,
+      direction: sortSpec.direction.toLowerCase(),
+      limit,
+    });
+  } catch (error) {
+    const durationMs = Date.now() - startedAt;
+    trackException(error, {
+      operation: 'source-ledger',
+      phase: 'query',
+    });
+    trackEvent('Enquiry.Source.Ledger.Failed', {
+      operation: 'source-ledger',
+      triggeredBy: 'api',
+      durationMs: String(durationMs),
+      sort: sortSpec.sortKey,
+      direction: sortSpec.direction,
+      limit: String(limit),
+      error: error?.message || 'Unknown error',
+    });
+    log.error('Error loading enquiry source ledger:', error?.message || error);
+    return res.status(500).json({ error: 'Failed to load enquiry source ledger' });
+  }
+});
+
+// Route: POST /api/enquiries-unified/source/reassign
+// Updates Instructions source values only. Responses and telemetry stay counts-only.
+router.post('/source/reassign', async (req, res) => {
+  const startedAt = Date.now();
+  const instructionsConnectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+  const hasId = Object.prototype.hasOwnProperty.call(req.body || {}, 'id');
+  const hasFrom = Object.prototype.hasOwnProperty.call(req.body || {}, 'from');
+  const targetSource = normaliseEditableSourceValue(req.body?.to);
+  const mode = hasId ? 'single' : hasFrom ? 'bulk' : 'unknown';
+  const operation = mode === 'bulk' ? 'source-reassign-bulk' : 'source-reassign-single';
+
+  if (!canAccessSourceLedger(req)) {
+    return denySourceLedger(req, res, operation);
+  }
+
+  if (!targetSource) {
+    return res.status(400).json({ error: 'Target source is required' });
+  }
+
+  if (hasId === hasFrom) {
+    return res.status(400).json({ error: 'Provide either id or from, not both' });
+  }
+
+  if (!instructionsConnectionString) {
+    return res.status(500).json({ error: 'Instructions database configuration missing' });
+  }
+
+  const parsedId = hasId ? Number.parseInt(String(req.body.id), 10) : null;
+  const fromSource = hasFrom ? normaliseEditableSourceValue(req.body.from) : '';
+  if (hasId && (!Number.isFinite(parsedId) || parsedId <= 0)) {
+    return res.status(400).json({ error: 'Valid enquiry id is required' });
+  }
+
+  trackEvent(`Enquiry.Source.${mode === 'bulk' ? 'ReassignBulk' : 'ReassignSingle'}.Started`, {
+    operation,
+    triggeredBy: 'api',
+    mode,
+  });
+
+  try {
+    const result = await withRequest(instructionsConnectionString, async (request) => {
+      request.input('to', sql.NVarChar(255), targetSource);
+
+      if (mode === 'single') {
+        request.input('id', sql.Int, parsedId);
+        return request.query(`
+          SET XACT_ABORT ON;
+          DECLARE @rowsAffected INT = 0;
+          BEGIN TRANSACTION;
+          UPDATE dbo.enquiries
+          SET source = @to
+          WHERE id = @id;
+          SET @rowsAffected = @@ROWCOUNT;
+          COMMIT TRANSACTION;
+          SELECT @rowsAffected AS rowsAffected;
+        `);
+      }
+
+      request.input('from', sql.NVarChar(255), fromSource);
+      const fromPredicate = fromSource
+        ? 'LOWER(LTRIM(RTRIM(source))) = LOWER(@from)'
+        : "NULLIF(LTRIM(RTRIM(source)), '') IS NULL";
+
+      return request.query(`
+        SET XACT_ABORT ON;
+        DECLARE @rowsAffected INT = 0;
+        BEGIN TRANSACTION;
+        UPDATE dbo.enquiries
+        SET source = @to
+        WHERE ${fromPredicate};
+        SET @rowsAffected = @@ROWCOUNT;
+        COMMIT TRANSACTION;
+        SELECT @rowsAffected AS rowsAffected;
+      `);
+    });
+
+    const rowsAffected = Number(result?.recordset?.[0]?.rowsAffected || 0);
+    await invalidateSourceLedgerCaches(operation, mode === 'single' ? { enquiryId: String(parsedId) } : { mode: 'bulk' });
+    if (mode === 'single') {
+      try { emitEvent('enquiry.source_changed', 'tab-app', String(parsedId), 'enquiry', { updatedFields: ['source'] }); } catch { /* non-blocking */ }
+    }
+
+    const durationMs = Date.now() - startedAt;
+    trackEvent(`Enquiry.Source.${mode === 'bulk' ? 'ReassignBulk' : 'ReassignSingle'}.Completed`, {
+      operation,
+      triggeredBy: 'api',
+      mode,
+      rowsAffected: String(rowsAffected),
+      durationMs: String(durationMs),
+    });
+    trackMetric(`Enquiry.Source.${mode === 'bulk' ? 'ReassignBulk' : 'ReassignSingle'}.Duration`, durationMs, { operation });
+
+    return res.json({ success: true, mode, rowsAffected });
+  } catch (error) {
+    const durationMs = Date.now() - startedAt;
+    trackException(error, { operation, phase: 'update-source', mode });
+    trackEvent(`Enquiry.Source.${mode === 'bulk' ? 'ReassignBulk' : 'ReassignSingle'}.Failed`, {
+      operation,
+      triggeredBy: 'api',
+      mode,
+      durationMs: String(durationMs),
+      error: error?.message || 'Unknown error',
+    });
+    log.error('Error reassigning enquiry source:', error?.message || error);
+    return res.status(500).json({ error: 'Failed to reassign enquiry source' });
+  }
+});
+
 // Route: GET /api/enquiries-unified
 // Direct database connections to fetch enquiries from BOTH database sources
 router.get('/', async (req, res) => {
@@ -502,6 +1027,12 @@ async function performUnifiedEnquiriesQuery(queryParams) {
   // Collect warnings and debug info
   const warnings = [];
   const hasInstructionsSharedWithColumn = await getCachedInstructionsColumnPresence(instructionsConnectionString, 'shared_with');
+  const hasInstructionsTouchpointDateColumn =
+    await getCachedInstructionsColumnPresence(instructionsConnectionString, 'touchpoint_date')
+    || await getCachedInstructionsColumnPresence(instructionsConnectionString, 'Touchpoint_Date');
+  const instructionsDateField = hasInstructionsTouchpointDateColumn
+    ? 'COALESCE(touchpoint_date, datetime)'
+    : 'datetime';
 
   let mainWhereClause = '';
   let instWhereClause = '';
@@ -609,13 +1140,13 @@ async function performUnifiedEnquiriesQuery(queryParams) {
           const filters = [];
           if (dateFrom && !hasProspectId) {
             request.input('dateFrom', sql.DateTime2, new Date(dateFrom));
-            filters.push('datetime >= @dateFrom');
+            filters.push(`${instructionsDateField} >= @dateFrom`);
           }
           if (dateTo && !hasProspectId) {
             const endDate = new Date(dateTo);
             endDate.setHours(23, 59, 59, 999);
             request.input('dateTo', sql.DateTime2, endDate);
-            filters.push('datetime <= @dateTo');
+            filters.push(`${instructionsDateField} <= @dateTo`);
           }
           if (hasProspectId) {
             request.input('prospectIdStr', sql.NVarChar(100), prospectIdRaw);
@@ -647,6 +1178,7 @@ async function performUnifiedEnquiriesQuery(queryParams) {
             SELECT TOP (@limit)
               id,
               datetime,
+              ${instructionsDateField} as Touchpoint_Date,
               stage,
               claim,
               poc,

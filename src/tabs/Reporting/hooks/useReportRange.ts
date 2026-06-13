@@ -206,6 +206,7 @@ export function formatDateTag(date: Date | null): string {
 
 interface UseReportRangeOptions {
   defaultKey?: RangeKey;
+  defaultCustomDateRange?: { start: Date | null; end: Date | null };
 }
 
 export function useReportRange(opts: UseReportRangeOptions = {}): UseReportRangeReturn {
@@ -213,8 +214,8 @@ export function useReportRange(opts: UseReportRangeOptions = {}): UseReportRange
 
   const [rangeKey, setRangeKey] = useState<RangeKey>(defaultKey);
   const [customDateRange, setCustomDateRange] = useState<{ start: Date | null; end: Date | null }>({
-    start: null,
-    end: null,
+    start: opts.defaultCustomDateRange?.start ? new Date(opts.defaultCustomDateRange.start) : null,
+    end: opts.defaultCustomDateRange?.end ? new Date(opts.defaultCustomDateRange.end) : null,
   });
 
   const showCustomPickers = rangeKey === 'custom';

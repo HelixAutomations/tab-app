@@ -1,1 +1,0 @@
-2026-05-30 / Clarify grouped compare record IDs / The grouped prospect compare modal now labels record identifiers by store, showing New ID, Legacy ID, and AC bridge values explicitly instead of placing bare numbers side by side. (~ src/tabs/enquiries/Enquiries.tsx, ~ src/app/styles/Prospects.css)

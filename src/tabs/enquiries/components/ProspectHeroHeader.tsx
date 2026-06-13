@@ -114,6 +114,30 @@ const getActivePitchLinkSummary = (pitches: any[]): { label: string; passcode: s
   return null;
 };
 
+const collectEnquiryEventIds = (enquiry: Enquiry): string[] => {
+  const enquiryAny = enquiry as Enquiry & {
+    acid?: string | number;
+    ACID?: string | number;
+    id?: string | number;
+    ProspectId?: string | number;
+    prospectId?: string | number;
+    legacyEnquiryId?: string | number;
+    processingEnquiryId?: string | number;
+    pitchEnquiryId?: string | number;
+  };
+  return Array.from(new Set([
+    enquiryAny.acid,
+    enquiryAny.ACID,
+    enquiryAny.ID,
+    enquiryAny.id,
+    enquiryAny.ProspectId,
+    enquiryAny.prospectId,
+    enquiryAny.legacyEnquiryId,
+    enquiryAny.processingEnquiryId,
+    enquiryAny.pitchEnquiryId,
+  ].map((value) => String(value ?? '').trim()).filter(Boolean)));
+};
+
 /* ── Component ───────────────────────────────────────────── */
 
 const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
@@ -273,11 +297,12 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
         dealId: data?.dealId ?? null,
         instructionRef: data?.instructionRef ?? null,
       });
-      // Notify pitch composer and timeline to hydrate without a remount.
+      const enquiryIds = Array.from(new Set([String(prospectId), ...collectEnquiryEventIds(enquiry)]));
       try {
         window.dispatchEvent(new CustomEvent('helix:pitch-link-activated', {
           detail: {
             enquiryId: String(prospectId),
+            enquiryIds,
             dealId: data?.dealId ?? null,
             instructionRef: data?.instructionRef ?? null,
             passcode,
@@ -293,6 +318,9 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
             createdAt: new Date().toISOString(),
           },
         }));
+      } catch { /* event dispatch best-effort */ }
+      try {
+        window.dispatchEvent(new CustomEvent('refreshInstructionData'));
       } catch { /* event dispatch best-effort */ }
       // Forms Stream visibility: fire and forget.
       void recordProcessEvent({

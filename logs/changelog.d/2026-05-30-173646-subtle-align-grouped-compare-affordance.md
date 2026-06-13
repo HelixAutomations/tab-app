@@ -1,1 +1,0 @@
-2026-05-30 / Subtle-align grouped compare affordance / Grouped prospect rows now keep the Compare label as a quieter hover/focus affordance, right-aligned in the summary lane beside the expansion chevron rather than reading as pipeline content. (~ src/app/styles/Prospects.css)

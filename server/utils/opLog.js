@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const MAX_EVENTS = 1000;
+const DEV_RETENTION_DAYS = 3;
 const events = [];
 const sessionId = Math.random().toString(36).slice(2);
 // In dev, __dirname is <repo>/server/utils, so logs land at <repo>/logs (outside the
@@ -29,12 +30,55 @@ function ensureLogDir() {
   } catch (_) { /* ignore */ }
 }
 
+function retentionCutoffIso() {
+  return new Date(Date.now() - (DEV_RETENTION_DAYS * 24 * 60 * 60 * 1000)).toISOString();
+}
+
+function parseLines(text) {
+  return text.split(/\r?\n/).filter(Boolean);
+}
+
+function filterRetainedLines(lines, cutoffIso) {
+  return lines.filter((line) => {
+    try {
+      const obj = JSON.parse(line);
+      return !obj?.ts || obj.ts >= cutoffIso;
+    } catch {
+      return false;
+    }
+  });
+}
+
+function pruneLogFileIfNeeded() {
+  if (!IS_DEV_LAYOUT) {
+    return [];
+  }
+
+  try {
+    if (!fs.existsSync(LOG_FILE)) {
+      return [];
+    }
+
+    const current = fs.readFileSync(LOG_FILE, 'utf8');
+    const lines = parseLines(current);
+    const kept = filterRetainedLines(lines, retentionCutoffIso());
+
+    if (kept.length !== lines.length) {
+      const next = kept.length ? `${kept.join('\n')}\n` : '';
+      fs.writeFileSync(LOG_FILE, next, 'utf8');
+    }
+
+    return kept;
+  } catch {
+    return [];
+  }
+}
+
 function init() {
   ensureLogDir();
   try {
     if (fs.existsSync(LOG_FILE)) {
-      const data = fs.readFileSync(LOG_FILE, 'utf8');
-      const lines = data.split(/\r?\n/).filter(Boolean);
+      const lines = pruneLogFileIfNeeded();
       const tail = lines.slice(-MAX_EVENTS);
       for (const line of tail) {
         try {
@@ -58,6 +102,7 @@ function append(event) {
   if (events.length > MAX_EVENTS) events.splice(0, events.length - MAX_EVENTS);
   try {
     ensureLogDir();
+    pruneLogFileIfNeeded();
     fs.appendFile(LOG_FILE, JSON.stringify(entry) + '\n', () => {});
   } catch { /* ignore write errors */ }
   return entry;

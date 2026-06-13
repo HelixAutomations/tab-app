@@ -471,6 +471,7 @@ router.get('/asana/tech-automations', requireForgeReader, async (req, res) => {
   trackEvent('DevConsole.Asana.ProjectMirror.Started', { operation: 'asana-project-mirror', actor, viewMode });
 
   const projectId = String(req.query?.projectId || ASANA_TECH_AUTOMATIONS_PROJECT_ID || '').trim();
+  const forceFresh = String(req.query?.refresh || '').trim() === '1';
   if (!projectId) {
     trackEvent('DevConsole.Asana.ProjectMirror.Skipped', { operation: 'asana-project-mirror', reason: 'no_project_id', actor, viewMode });
     return res.status(503).json({
@@ -483,7 +484,7 @@ router.get('/asana/tech-automations', requireForgeReader, async (req, res) => {
   try {
     const cacheKey = `${lookupInitials}::${projectId}`;
     const cached = asanaProjectMirrorCache.get(cacheKey);
-    if (cached?.data && Date.now() < cached.expires) {
+    if (!forceFresh && cached?.data && Date.now() < cached.expires) {
       trackEvent('DevConsole.Asana.ProjectMirror.CacheHit', { operation: 'asana-project-mirror', actor, viewMode, projectId });
       return res.json({ ...cached.data, cached: true });
     }
@@ -494,10 +495,18 @@ router.get('/asana/tech-automations', requireForgeReader, async (req, res) => {
       return res.status(500).json({ success: false, error: 'Unable to acquire Asana access token.' });
     }
 
-    const projectRes = await fetch(
-      `${ASANA_BASE_URL}/projects/${encodeURIComponent(projectId)}?opt_fields=gid,name,archived,team.name`,
-      { headers: { Authorization: `Bearer ${accessToken}` }, timeout: 10000 },
-    );
+    const projectUrl = `${ASANA_BASE_URL}/projects/${encodeURIComponent(projectId)}?opt_fields=gid,name,archived,team.name`;
+    const sectionsUrl = `${ASANA_BASE_URL}/projects/${encodeURIComponent(projectId)}/sections?opt_fields=name,gid`;
+    const tasksUrl = `${ASANA_BASE_URL}/projects/${encodeURIComponent(projectId)}/tasks?completed_since=now&opt_fields=${encodeURIComponent('gid,name,completed,assignee.name,permalink_url,due_on,created_at,memberships.section.gid,memberships.section.name')}&limit=100`;
+    const taskFetch = fetchAsanaCollection(tasksUrl, accessToken)
+      .then((tasks) => ({ ok: true, tasks }))
+      .catch((error) => ({ ok: false, error }));
+    const [projectRes, sectionsRes, taskResult] = await Promise.all([
+      fetch(projectUrl, { headers: { Authorization: `Bearer ${accessToken}` }, timeout: 10000 }),
+      fetch(sectionsUrl, { headers: { Authorization: `Bearer ${accessToken}` }, timeout: 10000 }),
+      taskFetch,
+    ]);
+
     if (!projectRes.ok) {
       const text = await projectRes.text();
       trackEvent('DevConsole.Asana.ProjectMirror.Failed', { operation: 'asana-project-mirror', reason: 'project_http', status: String(projectRes.status), actor, viewMode, projectId });
@@ -505,49 +514,46 @@ router.get('/asana/tech-automations', requireForgeReader, async (req, res) => {
     }
     const project = (await projectRes.json()).data || {};
 
-    const sectionsRes = await fetch(
-      `${ASANA_BASE_URL}/projects/${encodeURIComponent(projectId)}/sections?opt_fields=name,gid`,
-      { headers: { Authorization: `Bearer ${accessToken}` }, timeout: 10000 },
-    );
     if (!sectionsRes.ok) {
       const text = await sectionsRes.text();
       trackEvent('DevConsole.Asana.ProjectMirror.Failed', { operation: 'asana-project-mirror', reason: 'sections_http', status: String(sectionsRes.status), actor, viewMode, projectId });
       return res.status(sectionsRes.status).json({ success: false, error: text || 'Asana sections fetch failed.' });
     }
     const sections = (await sectionsRes.json()).data || [];
+    if (!taskResult.ok) throw taskResult.error;
+    const tasksData = taskResult.tasks;
 
-    const sectionResults = await Promise.all(
-      sections.map(async (section) => {
-        try {
-          const tasksRes = await fetch(
-            `${ASANA_BASE_URL}/sections/${section.gid}/tasks?completed_since=now&opt_fields=gid,name,completed,assignee.name,permalink_url,due_on,created_at,notes&limit=100`,
-            { headers: { Authorization: `Bearer ${accessToken}` }, timeout: 10000 },
-          );
-          if (!tasksRes.ok) return { section: section.name, sectionGid: section.gid, tasks: [] };
-          const tasksData = (await tasksRes.json()).data || [];
-          return {
-            section: section.name,
-            sectionGid: section.gid,
-            tasks: tasksData.map((t) => ({
-              gid: t.gid,
-              name: t.name,
-              assignee: t.assignee?.name || null,
-              dueOn: t.due_on || null,
-              createdAt: t.created_at || null,
-              url: t.permalink_url || null,
-              notes: typeof t.notes === 'string' ? t.notes.slice(0, 600) : '',
-            })),
-          };
-        } catch (sectionErr) {
-          trackException(sectionErr, { operation: 'DevConsole.Asana.ProjectMirror', phase: 'section_tasks', viewMode, projectId, sectionGid: section.gid });
-          return { section: section.name, sectionGid: section.gid, tasks: [] };
-        }
-      }),
-    );
+    const sectionLookup = new Map(sections.map((section) => [String(section.gid || ''), section.name || 'Unsectioned']));
 
-    const tasks = [];
-    for (const sr of sectionResults) {
-      for (const t of sr.tasks) tasks.push({ ...t, section: sr.section, sectionGid: sr.sectionGid });
+    const tasks = tasksData.map((task) => {
+      const membership = Array.isArray(task.memberships)
+        ? task.memberships.find((m) => m?.section?.gid && sectionLookup.has(String(m.section.gid)))
+        : null;
+      const sectionGid = String(membership?.section?.gid || 'unsectioned');
+      const section = sectionLookup.get(sectionGid) || membership?.section?.name || 'Unsectioned';
+      return {
+        gid: task.gid,
+        name: task.name,
+        assignee: task.assignee?.name || null,
+        dueOn: task.due_on || null,
+        createdAt: task.created_at || null,
+        url: task.permalink_url || null,
+        section,
+        sectionGid,
+      };
+    });
+
+    const sectionCounts = new Map(sections.map((section) => [String(section.gid || ''), 0]));
+    for (const task of tasks) {
+      sectionCounts.set(task.sectionGid, (sectionCounts.get(task.sectionGid) || 0) + 1);
+    }
+    const responseSections = sections.map((section) => ({
+      name: section.name || 'Untitled section',
+      gid: String(section.gid || ''),
+      count: sectionCounts.get(String(section.gid || '')) || 0,
+    }));
+    if (sectionCounts.get('unsectioned')) {
+      responseSections.push({ name: 'Unsectioned', gid: 'unsectioned', count: sectionCounts.get('unsectioned') || 0 });
     }
 
     const result = {
@@ -557,7 +563,7 @@ router.get('/asana/tech-automations', requireForgeReader, async (req, res) => {
       teamName: project.team?.name || null,
       generatedAt: new Date().toISOString(),
       tasks,
-      sections: sectionResults.map((s) => ({ name: s.section, gid: s.sectionGid, count: s.tasks.length })),
+      sections: responseSections,
     };
     asanaProjectMirrorCache.set(cacheKey, { data: result, expires: Date.now() + ASANA_PROJECT_CACHE_TTL });
 
@@ -570,7 +576,7 @@ router.get('/asana/tech-automations', requireForgeReader, async (req, res) => {
       projectId,
       durationMs,
       taskCount: String(tasks.length),
-      sectionCount: String(sectionResults.length),
+      sectionCount: String(responseSections.length),
     });
     res.json(result);
   } catch (err) {

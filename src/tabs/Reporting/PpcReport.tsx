@@ -5,7 +5,7 @@ import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';
 import { debugLog, debugWarn } from '../../utils/debug';
 import ReportShell from './components/ReportShell';
-import type { UseReportRangeReturn } from './hooks/useReportRange';
+import type { DateRange as SharedDateRange, RangeKey as SharedRangeKey, UseReportRangeReturn } from './hooks/useReportRange';
 import type {
   PpcIncomeBreakdown,
   PpcIncomeMetrics,
@@ -440,6 +440,17 @@ const PpcReport: React.FC<PpcReportProps> = ({
     debugLog('PpcReport: transformed googleAdsData:', transformed);
     return transformed;
   }, [cachedGoogleAdsData]);
+
+  const isPresetAvailable = useMemo(
+    () => (_key: SharedRangeKey, candidateRange: SharedDateRange | null) => {
+      if (!candidateRange || googleAdsData.length === 0) return true;
+      return googleAdsData.some((row) => {
+        const rowDate = parseDateLoose(row.date);
+        return !!rowDate && rowDate >= candidateRange.start && rowDate <= candidateRange.end;
+      });
+    },
+    [googleAdsData],
+  );
 
   // Meta enquiry overlay removed 2026-04-30 — Meta surface gated off across Reports.
 
@@ -1042,6 +1053,7 @@ const PpcReport: React.FC<PpcReportProps> = ({
       isFetching={isFetching}
       lastRefreshTimestamp={lastRefreshTimestamp}
       onRefresh={refresh}
+      isPresetAvailable={isPresetAvailable}
     >
       <div data-helix-region="reports/ppc" style={{
         padding: 0,

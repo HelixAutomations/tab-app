@@ -64,6 +64,17 @@ const FocalSurface: React.FC<FocalSurfaceProps> = ({
     );
   }
 
+  if (lens === 'cards') {
+    return (
+      <UnifiedStream
+        isDarkMode={isDarkMode}
+        activityItems={activityItems}
+        filterSource="cards"
+        title="Card tracking"
+      />
+    );
+  }
+
   if (lens === 'sync') {
     return <SyncTimelineSection scheduler={opsPulse.scheduler} isDarkMode={isDarkMode} />;
   }

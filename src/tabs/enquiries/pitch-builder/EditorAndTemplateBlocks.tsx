@@ -5,7 +5,7 @@ import { Text } from '@fluentui/react/lib/Text';
 import { Icon } from '@fluentui/react/lib/Icon';
 import { Pivot, PivotItem } from '@fluentui/react/lib/Pivot';
 import { TextField } from '@fluentui/react/lib/TextField';
-import { FaBolt, FaEdit, FaFileAlt, FaEraser, FaInfoCircle, FaThumbtack, FaCalculator, FaExclamationTriangle, FaEnvelope, FaPaperPlane, FaChevronDown, FaChevronUp, FaCopy, FaEye, FaCheck, FaTimes, FaUsers, FaArrowLeft, FaArrowRight, FaPoundSign, FaUndo, FaRedo } from 'react-icons/fa';
+import { FaBolt, FaEdit, FaFileAlt, FaEraser, FaInfoCircle, FaThumbtack, FaCalculator, FaExclamationTriangle, FaEnvelope, FaPaperPlane, FaChevronDown, FaChevronUp, FaCopy, FaEye, FaCheck, FaTimes, FaUsers, FaArrowLeft, FaArrowRight, FaPoundSign, FaUndo, FaRedo, FaPlus } from 'react-icons/fa';
 import DealCapture from './DealCapture';
 import PitchTypeformWizard, { PitchWizardStepDescriptor, PitchWizardStepId, PitchWizardStepStatus } from './PitchTypeformWizard';
 import { colours, withAlpha } from '../../../app/styles/colours';
@@ -13,7 +13,7 @@ import { TemplateBlock } from '../../../app/customisation/ProductionTemplateBloc
 import { placeholderSuggestions } from '../../../app/customisation/InsertSuggestions';
 import { wrapInsertPlaceholders } from './emailUtils';
 import { DEFAULT_PITCH_AMOUNT, DEFAULT_PITCH_SUBJECT, SCENARIOS, SCENARIOS_VERSION } from './scenarios';
-import { applyDynamicSubstitutions, convertDoubleBreaksToParagraphs } from './emailUtils';
+import { applyDynamicSubstitutions, convertDoubleBreaksToParagraphs, hasInstructLinkReference } from './emailUtils';
 import { processEmailContentV2 } from './emailFormattingV2';
 import FormattingToolbar from './FormattingToolbar';
 import { processEditorContentForEmail, KEYBOARD_SHORTCUTS, type FormattingCommand } from './emailFormattingUtils';
@@ -1545,6 +1545,26 @@ interface EditorAndTemplateBlocksProps {
   initialScenario?: string;
   hasRestoredDraft?: boolean;
   restoredDraftSavedAt?: string | null;
+  draftRecoveryPrompt?: {
+    savedAtLabel?: string | null;
+    scenarioId: string;
+    subject: string;
+    service: string;
+    amount: string;
+    amountDisplay: string;
+    bodyPreview: string;
+    bodyText: string;
+  };
+  onDraftRecoveryChange?: (updates: Partial<{
+    scenarioId: string;
+    subject: string;
+    service: string;
+    amount: string;
+    bodyText: string;
+  }>) => void;
+  onRecoverDraft?: () => void;
+  onStartNewDraft?: () => void;
+  draftRecoveryReplayKey?: number;
 }
 
 const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
@@ -1603,7 +1623,12 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
   onScenarioChange,
   initialScenario,
   hasRestoredDraft = false,
-  restoredDraftSavedAt = null
+  restoredDraftSavedAt = null,
+  draftRecoveryPrompt,
+  onDraftRecoveryChange,
+  onRecoverDraft,
+  onStartNewDraft,
+  draftRecoveryReplayKey = 0
 }) => {
   const isPitchFlowLocked = pitchFlowLocked;
   // State for removed blocks
@@ -1617,6 +1642,21 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
   const bespokeDraftRef = useRef<string>(initialScopeDescription || '');
   const [amountValue, setAmountValue] = useState(amount && amount.trim() !== '' ? amount : DEFAULT_PITCH_AMOUNT);
   const [amountError, setAmountError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const nextScope = initialScopeDescription || '';
+    setScopeDescription((current) => current === nextScope ? current : nextScope);
+    if (nextScope.trim() && nextScope !== 'Payment on account of costs') {
+      bespokeDraftRef.current = nextScope;
+    }
+  }, [initialScopeDescription]);
+
+  useEffect(() => {
+    const nextAmount = amount == null ? '' : String(amount).trim();
+    if (!nextAmount) return;
+    setAmountValue((current) => current === nextAmount ? current : nextAmount);
+  }, [amount]);
+
   // VAT toggle state for international clients
   const [includeVat, setIncludeVat] = useState(true);
   // Removed PIC placeholder insertion feature per user request
@@ -1625,7 +1665,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
   const [selectedScenarioId, setSelectedScenarioId] = useState<string>(initialScenario || '');
   const isBeforeCallCall = selectedScenarioId === 'before-call-call';
   const requiresInstructLink = !!selectedScenarioId && selectedScenarioId !== 'before-call-call';
-  const hasInstructLinkToken = /\[InstructLink\]/i.test(body || '');
+  const hasInstructLinkToken = hasInstructLinkReference(body);
   const latestBodyRef = useRef(body);
   latestBodyRef.current = body;
   const amountSyncFlightRef = useRef<string | null>(null);
@@ -1658,7 +1698,6 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
   const [isSubjectEditing, setIsSubjectEditing] = useState(true); // Start expanded to prevent autopilot
   // Email confirmation modal state
   const [showSendConfirmModal, setShowSendConfirmModal] = useState(false);
-  const [confirmReady, setConfirmReady] = useState(false);
   const previewRef = useRef<HTMLDivElement | null>(null);
   // Copy feedback flag (for toolbar)
   const [copiedToolbar, setCopiedToolbar] = useState(false);
@@ -1678,6 +1717,15 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
   const [editableCc, setEditableCc] = useState<string>(cc || '');
   // Rich text mode is always enabled for WYSIWYG experience
   const richTextMode = true;
+  const [showDraftBodyDetails, setShowDraftBodyDetails] = useState(false);
+  const [draftRecoveryChoice, setDraftRecoveryChoice] = useState<'draft' | null>(null);
+
+  useEffect(() => {
+    if (!draftRecoveryPrompt) {
+      setDraftRecoveryChoice(null);
+      setShowDraftBodyDetails(false);
+    }
+  }, [draftRecoveryPrompt]);
 
   const focusSubjectComposer = useCallback(() => {
     setIsSubjectCollapsed(false);
@@ -1695,11 +1743,20 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
 
   // Update allPlaceholdersSatisfied state when body or subject changes
   useEffect(() => {
-    const unresolvedBody = findPlaceholders(body || '');
+    const checkoutPreviewUrl = 'https://instruct.helix-law.com/pitch';
+    const substitutedBody = applyDynamicSubstitutions(
+      body || '',
+      userData,
+      enquiry,
+      amount,
+      passcode || undefined,
+      checkoutPreviewUrl
+    );
+    const unresolvedBody = findPlaceholders(substitutedBody);
     const unresolvedSubject = findPlaceholders(subject || '');
     const satisfied = unresolvedBody.length === 0 && unresolvedSubject.length === 0;
     setAllPlaceholdersSatisfied(satisfied);
-  }, [body, subject]);
+  }, [amount, body, enquiry, passcode, subject, userData]);
 
   // Update editable To when prop changes
   React.useEffect(() => {
@@ -1744,28 +1801,40 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
     const bodyReady = htmlToPlainText(body || '').length > 0 && allPlaceholdersSatisfied;
     const scenarioPicked = !!selectedScenarioId;
     const stepStatus = (stepIndex: number, ready: boolean): PitchWizardStepStatus => {
+      if (draftRecoveryPrompt) return stepIndex === wizardIndex ? 'active' : 'pending';
       if (!scenarioPicked && stepIndex > 0) return 'pending';
       if (stepIndex < wizardIndex) return ready ? 'done' : 'attention';
       if (stepIndex === wizardIndex) return 'active';
       return 'pending';
     };
-    const steps: PitchWizardStepDescriptor[] = [
-      {
-        id: 'scenario',
-        label: 'Scenario',
-        question: 'Which template fits this enquiry?',
-        hint: 'Pick the path that matches where the conversation is right now.',
-        status: stepStatus(0, scenarioPicked),
-      },
-    ];
+    const steps: PitchWizardStepDescriptor[] = [];
+    let stepIndex = 0;
+    if (draftRecoveryPrompt) {
+      steps.push({
+        id: 'draft',
+        label: 'Draft',
+        question: 'Continue from the saved pitch draft?',
+        hint: 'Review the saved details, then recover the draft or start a fresh Pitch Builder flow for this prospect.',
+        status: stepStatus(stepIndex, false),
+      });
+      stepIndex += 1;
+    }
+    steps.push({
+      id: 'scenario',
+      label: 'Scenario',
+      question: 'Which template fits this enquiry?',
+      hint: 'Pick the path that matches where the conversation is right now.',
+      status: stepStatus(stepIndex, scenarioPicked),
+    });
+    stepIndex += 1;
     steps.push({
       id: 'subject',
       label: 'Subject',
       question: 'What is the email subject?',
       hint: 'Keep it short and recognisable in the recipient\u2019s inbox.',
-      status: stepStatus(1, subjectReady),
+      status: stepStatus(stepIndex, subjectReady),
     });
-    let stepIndex = 2;
+    stepIndex += 1;
     if (!isBeforeCallCall) {
       steps.push({
         id: 'scope',
@@ -1800,7 +1869,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
       status: stepStatus(stepIndex, bodyReady),
     });
     return steps;
-  }, [selectedScenarioId, subject, scopeDescription, amountValue, body, isBeforeCallCall, isCfa, allPlaceholdersSatisfied, wizardIndex]);
+  }, [selectedScenarioId, subject, scopeDescription, amountValue, body, isBeforeCallCall, isCfa, allPlaceholdersSatisfied, wizardIndex, draftRecoveryPrompt]);
 
   // Clamp wizard index when step list shrinks (e.g. scenario change drops fee)
   React.useEffect(() => {
@@ -1815,6 +1884,7 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
   const wizardCanAdvance = React.useMemo(() => {
     if (!activeWizardStep) return false;
     switch (activeWizardStep.id) {
+      case 'draft': return false;
       case 'delivery': return true; // legacy fallthrough, no longer in step list
       case 'scenario': return !!selectedScenarioId;
       case 'subject': return isPitchSubjectReady(subject);
@@ -1832,6 +1902,32 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
   const goWizardBack = useCallback(() => {
     setWizardIndex(idx => Math.max(idx - 1, 0));
   }, []);
+
+  const lastDraftReplayKeyRef = useRef(0);
+  useEffect(() => {
+    if (!hasRestoredDraft || !draftRecoveryReplayKey || lastDraftReplayKeyRef.current === draftRecoveryReplayKey) return;
+    const restoredScenario = initialScenario || selectedScenarioId;
+    if (restoredScenario && selectedScenarioId !== restoredScenario) {
+      setSelectedScenarioId(restoredScenario);
+      return;
+    }
+
+    lastDraftReplayKeyRef.current = draftRecoveryReplayKey;
+    setIsTemplatesCollapsed(true);
+    setIsSubjectCollapsed(true);
+    setIsScopeCollapsed(true);
+    setIsAmountCollapsed(true);
+
+    const includeMatterSteps = restoredScenario !== 'before-call-call';
+    const replayIndices = includeMatterSteps ? [0, 1, 2, 3, 4] : [0, 1, 2];
+    const timers = replayIndices.map((index, order) => window.setTimeout(() => {
+      setWizardIndex(index);
+    }, 120 * order));
+
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer));
+    };
+  }, [draftRecoveryReplayKey, hasRestoredDraft, initialScenario, selectedScenarioId]);
 
   // Wizard restart: clears scenario, subject, scope, fee, and editor body and returns to step 0.
   const handleWizardRestart = useCallback(() => {
@@ -2835,6 +2931,250 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
               }
             >
             <div className="pitch-typeform__steps-host" data-active-step={activeStepId}>
+            {activeStepId === 'draft' && draftRecoveryPrompt ? (
+              <div
+                className="pitch-step-shell"
+                data-helix-region="pitch-builder/draft-recovery-step"
+                data-wizard-step="draft"
+                style={{
+                  marginBottom: 16,
+                  padding: '14px 16px',
+                  borderRadius: '2px',
+                  background: isDarkMode ? withAlpha(colours.darkBlue, 0.75) : withAlpha(colours.grey, 0.9),
+                  border: `1px solid ${isDarkMode ? withAlpha(colours.dark.border, 0.35) : withAlpha(colours.highlightNeutral, 0.9)}`,
+                  boxShadow: isDarkMode
+                    ? `0 6px 18px ${withAlpha(colours.dark.background, 0.35)}`
+                    : `0 4px 12px ${withAlpha(colours.helixBlue, 0.06)}`
+                }}
+              >
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: draftRecoveryChoice === 'draft' || window.innerWidth < 1024 ? '1fr' : 'repeat(2, minmax(0, 1fr))',
+                  gap: 14,
+                  marginBottom: 16,
+                }}>
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    className={`draft-recovery-card ${draftRecoveryChoice === 'draft' ? 'active' : ''}`}
+                    onClick={() => setDraftRecoveryChoice('draft')}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        setDraftRecoveryChoice('draft');
+                      }
+                    }}
+                    style={{
+                      ['--scenario-accent' as any]: colours.blue,
+                      ['--scenario-icon-hover-bg' as any]: isDarkMode ? colours.dark.cardBackground : colours.sectionBackground,
+                      position: 'relative',
+                      background: getScenarioCardBackground(isDarkMode, draftRecoveryChoice === 'draft'),
+                      border: `1px solid ${withAlpha(colours.blue, draftRecoveryChoice === 'draft' ? (isDarkMode ? 0.62 : 0.5) : (isDarkMode ? 0.28 : 0.18))}`,
+                      padding: '18px 18px 16px',
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+                      <span className="scenario-choice-card__icon-shell" style={{
+                        width: 34,
+                        height: 34,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        border: `1px solid ${withAlpha(colours.blue, 0.35)}`,
+                        background: getScenarioAccentBackground(colours.blue, isDarkMode, true),
+                        color: colours.blue,
+                      }}>
+                        <FaCheck />
+                      </span>
+                      <span style={{ fontSize: 16, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.darkBlue }}>
+                        Edit saved draft
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 13, color: isDarkMode ? '#d1d5db' : '#374151', lineHeight: 1.45 }}>
+                      Review and update the saved draft details before continuing.
+                    </div>
+                    {draftRecoveryChoice === 'draft' ? (
+                      <div
+                        onClick={(event) => event.stopPropagation()}
+                        onKeyDown={(event) => event.stopPropagation()}
+                        style={{
+                          marginTop: 16,
+                          borderTop: `1px solid ${isDarkMode ? withAlpha(colours.dark.border, 0.36) : withAlpha(colours.highlightNeutral, 0.9)}`,
+                          paddingTop: 14,
+                          display: 'grid',
+                          gap: 10,
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+                          <span style={{ fontSize: 12, fontWeight: 800, color: isDarkMode ? colours.dark.text : colours.darkBlue, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                            Confirm draft details{draftRecoveryPrompt.savedAtLabel ? ` (${draftRecoveryPrompt.savedAtLabel})` : ''}
+                          </span>
+                          {draftRecoveryPrompt.bodyText ? (
+                            <button
+                              type="button"
+                              onClick={() => setShowDraftBodyDetails((value) => !value)}
+                              style={{
+                                border: 'none',
+                                background: 'transparent',
+                                color: colours.blue,
+                                fontSize: 12,
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                padding: 0,
+                              }}
+                            >
+                              {showDraftBodyDetails ? 'Hide body' : 'Show body'}
+                            </button>
+                          ) : null}
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: window.innerWidth < 900 ? '1fr' : 'repeat(2, minmax(0, 1fr))', gap: 10 }}>
+                          <label style={{
+                            padding: '10px 12px',
+                            background: isDarkMode ? withAlpha(colours.dark.background, 0.46) : withAlpha(colours.light.cardBackground, 0.82),
+                            border: `1px solid ${isDarkMode ? withAlpha(colours.dark.border, 0.28) : withAlpha(colours.greyText, 0.14)}`,
+                          }}>
+                            <div style={{ fontSize: 10, fontWeight: 800, color: isDarkMode ? 'rgba(209,213,219,0.66)' : '#5f6b7a', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 }}>Scenario</div>
+                            <select
+                              className="pitch-typeform__input"
+                              value={draftRecoveryPrompt.scenarioId}
+                              onChange={(event) => onDraftRecoveryChange?.({ scenarioId: event.currentTarget.value })}
+                              style={{ width: '100%' }}
+                            >
+                              <option value="">Not selected</option>
+                              {SCENARIOS.map((scenario) => (
+                                <option key={scenario.id} value={scenario.id}>{scenario.name}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label style={{
+                            padding: '10px 12px',
+                            background: isDarkMode ? withAlpha(colours.dark.background, 0.46) : withAlpha(colours.light.cardBackground, 0.82),
+                            border: `1px solid ${isDarkMode ? withAlpha(colours.dark.border, 0.28) : withAlpha(colours.greyText, 0.14)}`,
+                          }}>
+                            <div style={{ fontSize: 10, fontWeight: 800, color: isDarkMode ? 'rgba(209,213,219,0.66)' : '#5f6b7a', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 }}>Subject</div>
+                            <input
+                              className="pitch-typeform__input"
+                              value={draftRecoveryPrompt.subject === 'Not set' ? '' : draftRecoveryPrompt.subject}
+                              onChange={(event) => onDraftRecoveryChange?.({ subject: event.currentTarget.value })}
+                              placeholder="Email subject"
+                              style={{ width: '100%' }}
+                            />
+                          </label>
+                          <label style={{
+                            padding: '10px 12px',
+                            background: isDarkMode ? withAlpha(colours.dark.background, 0.46) : withAlpha(colours.light.cardBackground, 0.82),
+                            border: `1px solid ${isDarkMode ? withAlpha(colours.dark.border, 0.28) : withAlpha(colours.greyText, 0.14)}`,
+                          }}>
+                            <div style={{ fontSize: 10, fontWeight: 800, color: isDarkMode ? 'rgba(209,213,219,0.66)' : '#5f6b7a', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 }}>Service</div>
+                            <input
+                              className="pitch-typeform__input"
+                              value={draftRecoveryPrompt.service === 'Not set' ? '' : draftRecoveryPrompt.service}
+                              onChange={(event) => onDraftRecoveryChange?.({ service: event.currentTarget.value })}
+                              placeholder="Scope or service summary"
+                              style={{ width: '100%' }}
+                            />
+                          </label>
+                          <label style={{
+                            padding: '10px 12px',
+                            background: isDarkMode ? withAlpha(colours.dark.background, 0.46) : withAlpha(colours.light.cardBackground, 0.82),
+                            border: `1px solid ${isDarkMode ? withAlpha(colours.dark.border, 0.28) : withAlpha(colours.greyText, 0.14)}`,
+                          }}>
+                            <div style={{ fontSize: 10, fontWeight: 800, color: isDarkMode ? 'rgba(209,213,219,0.66)' : '#5f6b7a', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 }}>Amount</div>
+                            <input
+                              className="pitch-typeform__input"
+                              value={draftRecoveryPrompt.amount}
+                              onChange={(event) => onDraftRecoveryChange?.({ amount: event.currentTarget.value })}
+                              placeholder="Fee amount"
+                              style={{ width: '100%' }}
+                            />
+                            {draftRecoveryPrompt.amountDisplay !== 'Not set' ? (
+                              <div style={{ marginTop: 5, fontSize: 11, color: isDarkMode ? 'rgba(209,213,219,0.66)' : '#5f6b7a' }}>
+                                Preview: {draftRecoveryPrompt.amountDisplay}
+                              </div>
+                            ) : null}
+                          </label>
+                        </div>
+                        {draftRecoveryPrompt.bodyPreview ? (
+                          <div style={{
+                            padding: '10px 12px',
+                            background: isDarkMode ? withAlpha(colours.dark.background, 0.46) : withAlpha(colours.light.cardBackground, 0.82),
+                            border: `1px solid ${isDarkMode ? withAlpha(colours.dark.border, 0.28) : withAlpha(colours.greyText, 0.14)}`,
+                          }}>
+                            <div style={{ fontSize: 10, fontWeight: 800, color: isDarkMode ? 'rgba(209,213,219,0.66)' : '#5f6b7a', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 }}>Body</div>
+                            {showDraftBodyDetails ? (
+                              <textarea
+                                className="pitch-typeform__textarea"
+                                value={draftRecoveryPrompt.bodyText}
+                                onChange={(event) => onDraftRecoveryChange?.({ bodyText: event.currentTarget.value })}
+                                rows={10}
+                                style={{ width: '100%', resize: 'vertical' }}
+                              />
+                            ) : (
+                              <div style={{ fontSize: 13, lineHeight: 1.5, color: isDarkMode ? '#d1d5db' : '#374151', whiteSpace: 'pre-wrap' }}>
+                                {draftRecoveryPrompt.bodyPreview}
+                              </div>
+                            )}
+                          </div>
+                        ) : null}
+                        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                          <button
+                            type="button"
+                            className="pitch-typeform__nav pitch-typeform__nav--next"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onRecoverDraft?.();
+                            }}
+                            style={{ minWidth: 190 }}
+                          >
+                            Confirm draft details
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                  <button
+                    type="button"
+                    className="draft-recovery-card"
+                    onClick={onStartNewDraft}
+                    style={{
+                      ['--scenario-accent' as any]: colours.cta,
+                      ['--scenario-icon-hover-bg' as any]: isDarkMode ? colours.dark.cardBackground : colours.sectionBackground,
+                      position: 'relative',
+                      background: getScenarioCardBackground(isDarkMode, false),
+                      border: `1px solid ${withAlpha(colours.cta, isDarkMode ? 0.34 : 0.22)}`,
+                      padding: '18px 18px 16px',
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      opacity: draftRecoveryChoice === 'draft' ? 0.48 : 1,
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+                      <span className="scenario-choice-card__icon-shell" style={{
+                        width: 34,
+                        height: 34,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        border: `1px solid ${withAlpha(colours.cta, 0.3)}`,
+                        background: getScenarioAccentBackground(colours.cta, isDarkMode, false),
+                        color: colours.cta,
+                      }}>
+                        <FaPlus />
+                      </span>
+                      <span style={{ fontSize: 16, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.darkBlue }}>
+                        Start new
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 13, color: isDarkMode ? '#d1d5db' : '#374151', lineHeight: 1.45 }}>
+                      Clear this saved draft and start at the normal scenario question.
+                    </div>
+                  </button>
+                </div>
+              </div>
+            ) : (
+            <>
             {/* Step 1: Template Selection */}
             <div
               className="pitch-step-shell"
@@ -4465,64 +4805,6 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
                       flexWrap: 'wrap',
                       backdropFilter: 'blur(8px)'
                     }}>
-                      <div
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 12,
-                          padding: '12px 16px',
-                          background: confirmReady
-                            ? (isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(32, 178, 108, 0.1)')
-                            : (isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.05)'),
-                          border: confirmReady
-                            ? `2px solid ${isDarkMode ? colours.green : colours.green}`
-                            : `2px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)'}`,
-                          borderRadius: '10px',
-                          cursor: 'pointer',
-                          transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                          transform: confirmReady ? 'translateY(-1px)' : 'none',
-                          boxShadow: confirmReady
-                            ? (isDarkMode ? '0 4px 16px rgba(32, 178, 108, 0.3)' : '0 4px 16px rgba(32, 178, 108, 0.2)')
-                            : 'none'
-                        }}
-                        onClick={() => setConfirmReady(!confirmReady)}
-                      >
-                        <div style={{
-                          width: '20px',
-                          height: '20px',
-                          borderRadius: '4px',
-                          background: confirmReady
-                            ? (isDarkMode ? colours.green : colours.green)
-                            : 'transparent',
-                          border: confirmReady
-                            ? 'none'
-                            : `2px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(148, 163, 184, 0.3)'}`,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          transition: 'all 0.2s ease'
-                        }}>
-                          {confirmReady && (
-                            <svg width="12" height="9" viewBox="0 0 12 9" fill="none">
-                              <path
-                                d="M1 4L5 8L11 1"
-                                stroke="white"
-                                strokeWidth="2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                              />
-                            </svg>
-                          )}
-                        </div>
-                        <span style={{
-                          fontSize: '14px',
-                          color: isDarkMode ? colours.dark.text : colours.light.text,
-                          fontWeight: 600,
-                          userSelect: 'none'
-                        }}>
-                          Everything looks good, ready to proceed
-                        </span>
-                      </div>
                       <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, position: 'relative' }}>
                         {(() => {
                           const userDataLocal = (typeof userData !== 'undefined') ? userData : undefined;
@@ -4661,6 +4943,8 @@ const EditorAndTemplateBlocks: React.FC<EditorAndTemplateBlocksProps> = ({
 
             {/* Passcode-only receipt step removed in Phase A2 (direct-referral-onboarding). */}
 
+            </>
+            )}
             </div>
             </PitchTypeformWizard>
           </div>

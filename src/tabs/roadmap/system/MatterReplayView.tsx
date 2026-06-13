@@ -146,10 +146,10 @@ function validationForField(validation: RepairValidation | null, field: string):
 }
 
 function statusFilterDescription(status: ReplayStatus): string {
-  if (status === 'all') return 'Showing successful, pending and problem opening requests.';
-  if (status === 'failed') return 'Showing requests that need attention before or after replay.';
-  if (status === 'pending') return 'Showing pending Hub matter request placeholders.';
-  return 'Showing successful openings only.';
+  if (status === 'all') return 'All requests.';
+  if (status === 'failed') return 'Needs attention.';
+  if (status === 'pending') return 'Pending placeholders.';
+  return 'Opened matters.';
 }
 
 const STEP_REPAIR_FIELDS: Record<string, string[]> = {
@@ -216,7 +216,7 @@ const ProcessTraceList: React.FC<{
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
         <div>
           <div style={{ fontSize: 11, color: mutedColour, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Process trace</div>
-          <div style={{ fontSize: 11, color: mutedColour, marginTop: 3 }}>Click a step to inspect its values.</div>
+          <div style={{ fontSize: 11, color: mutedColour, marginTop: 3 }}>Step values and repair fields.</div>
         </div>
         <div style={{ color: issueCount > 0 ? colours.cta : colours.green, fontSize: 11, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.5px', whiteSpace: 'nowrap' }}>
           {completeCount} / {steps.length} resolved
@@ -653,7 +653,7 @@ const MatterReplayView: React.FC<MatterReplayViewProps> = ({ viewerInitials, isD
 
               {!canMutate && detail.status === 'open' && (
                 <div style={{ border: `1px solid ${colours.green}`, background: `${colours.green}12`, color: colours.green, padding: '8px 10px', fontSize: 12, fontWeight: 800 }}>
-                  This opening request is already complete. Repair and replay controls are locked to prevent duplicate matter creation.
+                  Complete. Replay locked.
                 </div>
               )}
 
@@ -695,7 +695,7 @@ const MatterReplayView: React.FC<MatterReplayViewProps> = ({ viewerInitials, isD
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'baseline', marginBottom: 10 }}>
                   <div>
                     <div style={{ fontSize: 11, color: mutedColour, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Submission events</div>
-                    <div style={{ fontSize: 11, color: mutedColour, marginTop: 3 }}>What the matter-opening pipeline actually recorded for this request.</div>
+                    <div style={{ fontSize: 11, color: mutedColour, marginTop: 3 }}>Recorded pipeline events.</div>
                   </div>
                   {detail.submissions && (
                     <div style={{ fontSize: 11, color: detail.submissions.errors > 0 ? colours.cta : mutedColour, fontWeight: 900 }}>
@@ -705,7 +705,7 @@ const MatterReplayView: React.FC<MatterReplayViewProps> = ({ viewerInitials, isD
                 </div>
                 {(!detail.submissionEvents || detail.submissionEvents.length === 0) ? (
                   <div style={{ color: mutedColour, fontSize: 12 }}>
-                    No pipeline events recorded. The request was likely opened outside the Hub form (one-off script, manual SQL, or external sync). Inspect the underlying rows below to confirm outcome.
+                    No pipeline events recorded. Check rows below.
                   </div>
                 ) : (
                   <div style={{ display: 'grid', gap: 6 }}>

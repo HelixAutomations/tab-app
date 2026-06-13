@@ -19,7 +19,7 @@ import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';
 import { useRealtimeChannel } from '../../hooks/useRealtimeChannel';
 import ReportShell from './components/ReportShell';
-import { useReportRange } from './hooks/useReportRange';
+import { useReportRange, type DateRange, type RangeKey } from './hooks/useReportRange';
 import type { WorkbenchJourneyStage } from '../../components/workbench/WorkbenchJourneyRail';
 import { aowColour } from '../../components/command-centre/types';
 import './ReceptionReport.css';
@@ -228,7 +228,7 @@ interface PhonePickupsBlock {
   source?: string;
 }
 
-interface ReceptionKpisResponse {
+export interface ReceptionKpisResponse {
   window: { from: string; to: string; days: number };
   handlers: HandlerRow[];
   totals: HandlerRow & { handler?: string };
@@ -244,6 +244,13 @@ interface ReceptionKpisResponse {
   conversionStages?: ConversionStages;
   phonePickups?: PhonePickupsBlock;
   evidence?: EvidenceSummary;
+}
+
+export interface ReceptionReportProps {
+  initialData?: ReceptionKpisResponse | null;
+  initialLoadedAt?: number;
+  initialRangeKey?: RangeKey;
+  initialCustomDateRange?: DateRange | null;
 }
 
 interface RealtimePayload {
@@ -757,15 +764,20 @@ const liveStatusLabel = (status: 'open' | 'connecting' | 'closed'): string => {
 
 // ── Component ──────────────────────────────────────────────────────────────
 
-const ReceptionReport: React.FC = () => {
+const ReceptionReport: React.FC<ReceptionReportProps> = ({
+  initialData = null,
+  initialLoadedAt,
+  initialRangeKey = 'month',
+  initialCustomDateRange = null,
+}) => {
   const { isDarkMode } = useTheme();
-  const range = useReportRange({ defaultKey: 'month' });
+  const range = useReportRange({ defaultKey: initialRangeKey, defaultCustomDateRange: initialCustomDateRange ?? undefined });
 
-  const [data, setData] = useState<ReceptionKpisResponse | null>(null);
+  const [data, setData] = useState<ReceptionKpisResponse | null>(() => initialData);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshNonce, setRefreshNonce] = useState(0);
-  const [lastLoadedAt, setLastLoadedAt] = useState<number | undefined>(undefined);
+  const [lastLoadedAt, setLastLoadedAt] = useState<number | undefined>(() => initialLoadedAt);
   const [liveCue, setLiveCue] = useState<LiveCue | null>(null);
   const [expandedHandler, setExpandedHandler] = useState<string | null>(null);
   const [selectedEvidenceId, setSelectedEvidenceId] = useState<number | null>(null);
@@ -788,12 +800,31 @@ const ReceptionReport: React.FC = () => {
   type TranscriptEntry = { status: 'loading' | 'ready' | 'error' | 'empty'; sentences?: TranscriptSentence[]; aiStatus?: string | null; error?: string };
   const [transcripts, setTranscripts] = useState<Record<string, TranscriptEntry>>({});
   const [openTranscripts, setOpenTranscripts] = useState<Set<string>>(() => new Set());
-  const dataRef = useRef<ReceptionKpisResponse | null>(null);
+  const dataRef = useRef<ReceptionKpisResponse | null>(initialData);
+  const initialPayloadWindowRef = useRef<{ from: string; to: string } | null>(
+    initialData?.window ? { from: initialData.window.from, to: initialData.window.to } : null,
+  );
   const liveReasonRef = useRef<string | null>(null);
   const liveCueTimerRef = useRef<number | null>(null);
 
   const fromIso = range.range ? toIsoDate(range.range.start) : null;
   const toIso = range.range ? toIsoDate(range.range.end) : null;
+
+  const loadedWindow = useMemo(() => {
+    if (!data?.window?.from || !data.window.to) return null;
+    const start = new Date(`${data.window.from}T00:00:00`);
+    const end = new Date(`${data.window.to}T23:59:59.999`);
+    if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) return null;
+    return { start, end };
+  }, [data?.window?.from, data?.window?.to]);
+
+  const isPresetAvailable = useCallback(
+    (_key: RangeKey, candidateRange: DateRange | null) => {
+      if (!candidateRange || !loadedWindow) return true;
+      return candidateRange.start >= loadedWindow.start && candidateRange.end <= loadedWindow.end;
+    },
+    [loadedWindow],
+  );
 
   const showLiveCue = useCallback((cue: LiveCue) => {
     if (liveCueTimerRef.current !== null) {
@@ -844,6 +875,13 @@ const ReceptionReport: React.FC = () => {
     let cancelled = false;
     if (!fromIso || !toIso) {
       setData(null);
+      return () => { cancelled = true; };
+    }
+    const initialWindow = initialPayloadWindowRef.current;
+    if (initialWindow && initialWindow.from === fromIso && initialWindow.to === toIso && dataRef.current) {
+      initialPayloadWindowRef.current = null;
+      setLoading(false);
+      setError(null);
       return () => { cancelled = true; };
     }
     setLoading(true);
@@ -2647,7 +2685,7 @@ const ReceptionReport: React.FC = () => {
 
   if (error && !data) {
     return (
-      <ReportShell range={range} isFetching={isFetching} lastRefreshTimestamp={lastLoadedAt} onRefresh={handleRefresh} toolbarExtras={toolbarExtras}>
+      <ReportShell range={range} isFetching={isFetching} lastRefreshTimestamp={lastLoadedAt} onRefresh={handleRefresh} toolbarExtras={toolbarExtras} isPresetAvailable={isPresetAvailable} toolbarDensity="compact" allowAllRange={false}>
         <div className="reception-empty-state" style={{ color: colours.cta }}>
           Could not load Reception KPIs: {error}
         </div>
@@ -2657,7 +2695,7 @@ const ReceptionReport: React.FC = () => {
 
   if (!data && loading) {
     return (
-      <ReportShell range={range} isFetching={isFetching} lastRefreshTimestamp={lastLoadedAt} onRefresh={handleRefresh} toolbarExtras={toolbarExtras}>
+      <ReportShell range={range} isFetching={isFetching} lastRefreshTimestamp={lastLoadedAt} onRefresh={handleRefresh} toolbarExtras={toolbarExtras} isPresetAvailable={isPresetAvailable} toolbarDensity="compact" allowAllRange={false}>
         {renderKpiStrip()}
         {renderHandlerSkeleton(5)}
         {renderKpiBreakdown()}
@@ -2667,7 +2705,7 @@ const ReceptionReport: React.FC = () => {
 
   if (data && handlers.length === 0 && !shouldRenderMpPickupRow) {
     return (
-      <ReportShell range={range} isFetching={isFetching} lastRefreshTimestamp={lastLoadedAt} onRefresh={handleRefresh} toolbarExtras={toolbarExtras}>
+      <ReportShell range={range} isFetching={isFetching} lastRefreshTimestamp={lastLoadedAt} onRefresh={handleRefresh} toolbarExtras={toolbarExtras} isPresetAvailable={isPresetAvailable} toolbarDensity="compact" allowAllRange={false}>
         {refreshErrorBanner}
         {renderKpiStrip()}
         <div className="reception-empty-state" style={{ color: textBody }}>
@@ -2680,7 +2718,7 @@ const ReceptionReport: React.FC = () => {
   }
 
   return (
-    <ReportShell range={range} isFetching={isFetching} lastRefreshTimestamp={lastLoadedAt} onRefresh={handleRefresh} toolbarExtras={toolbarExtras}>
+    <ReportShell range={range} isFetching={isFetching} lastRefreshTimestamp={lastLoadedAt} onRefresh={handleRefresh} toolbarExtras={toolbarExtras} isPresetAvailable={isPresetAvailable} toolbarDensity="compact" allowAllRange={false}>
       {refreshErrorBanner}
       {renderKpiStrip()}
       {renderHandlerTable()}

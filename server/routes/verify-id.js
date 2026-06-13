@@ -13,6 +13,7 @@ const { deleteCachePattern, CACHE_CONFIG } = require('../utils/redisClient');
 
 const { getTeamData } = require('../utils/teamData');
 const { sql, getPool } = require('../utils/db');
+const { sendHelixEmail } = require('../utils/helixEmail');
 const {
   recordSubmission,
   recordStep,
@@ -366,7 +367,7 @@ router.post('/:instructionRef/request-documents', async (req, res) => {
 
     try {
       await sendDocumentRequestEmail(instructionRef, instruction.Email, clientFirstName, sendingContact, {
-        requestOrigin: `${req.protocol}://${req.get('host')}`
+        req,
       });
 
       await runInstructionQuery((request, s) =>
@@ -511,7 +512,7 @@ router.post('/:instructionRef/approve', async (req, res) => {
 async function sendDocumentRequestEmail(instructionRef, clientEmail, clientFirstName, sendingContact, options = {}) {
   console.log(`[verify-id] Sending document request email to ${clientEmail} for ${instructionRef} from ${sendingContact}`);
   const ccEmail = typeof options.ccEmail === 'string' ? options.ccEmail.trim() : '';
-  const requestOrigin = typeof options.requestOrigin === 'string' ? options.requestOrigin.trim() : '';
+  const callerReq = options.req || null;
 
   // Get team data from cache/API
   const teamData = await getTeamData();
@@ -584,16 +585,8 @@ async function sendDocumentRequestEmail(instructionRef, clientEmail, clientFirst
   `;
 
   try {
-    if (!requestOrigin) {
-      throw new Error('Missing request origin for sendEmail relay');
-    }
-
-    const relayResponse = await fetch(`${requestOrigin}/api/sendEmail`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
+    const result = await sendHelixEmail({
+      body: {
         body_html: `${emailBody}<p>${contactFirstName}</p>`,
         use_personal_signature: true,
         signature_initials: contactInitials,
@@ -602,12 +595,14 @@ async function sendDocumentRequestEmail(instructionRef, clientEmail, clientFirst
         from_email: senderEmail,
         cc_emails: ccEmail || senderEmail,
         saveToSentItems: true,
-      })
+      },
+      req: callerReq,
+      route: 'server:verify-id/sendDocumentRequestEmail',
     });
 
-    if (!relayResponse.ok) {
-      const relayError = await relayResponse.text();
-      throw new Error(relayError || `Relay failed: ${relayResponse.status}`);
+    if (!result || !result.ok) {
+      const message = (result && (result.error || result.responseText)) || `sendHelixEmail failed (status ${result?.status || 'unknown'})`;
+      throw new Error(typeof message === 'string' ? message : JSON.stringify(message));
     }
 
     console.log(`[verify-id] Document request email sent successfully to ${clientEmail}`);
@@ -885,7 +880,7 @@ router.post('/:instructionRef/draft-request', async (req, res) => {
     try {
       await sendDocumentRequestEmail(instructionRef, recipientEmail, clientFirstName, feeEarner, {
         ccEmail,
-        requestOrigin: `${req.protocol}://${req.get('host')}`
+        req,
       });
 
       await runInstructionQuery((request, s) =>

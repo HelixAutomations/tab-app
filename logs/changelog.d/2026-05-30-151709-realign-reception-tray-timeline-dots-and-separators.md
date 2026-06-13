@@ -1,1 +1,0 @@
-2026-05-30 / Realign Reception tray timeline dots and separators / Drop the negative transform on the timeline dot so its centre sits exactly on the vertical line, and move the per-item separator off the line by drawing it from the body column to the right edge only. (~ src/tabs/Reporting/ReceptionReport.css)

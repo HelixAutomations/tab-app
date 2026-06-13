@@ -1,6 +1,6 @@
 import React, { CSSProperties } from 'react';
 import { colours } from '../../../app/styles/colours';
-import { HeaderButton, SystemModuleSection, SystemPageHeader, useSystemTokens } from './shared';
+import { HeaderButton, SystemIntroPanel, SystemModuleSection, SystemPageHeader, useSystemTokens } from './shared';
 import azureInfrastructureEnrichmentJson from './data/azureInfrastructureEnrichment.json';
 import './SystemInfrastructureView.css';
 
@@ -631,9 +631,20 @@ const SystemInfrastructureView: React.FC<SystemInfrastructureViewProps> = ({ isD
         onOpenDashboard={onOpenDashboard}
       />
 
+      <SystemIntroPanel
+        eyebrow="Reference"
+        title="Azure inventory"
+        description="Subscriptions, resource groups, resources, cost."
+        isDarkMode={isDarkMode}
+        accent={colours.accent}
+        actionLabel={onOpenAuditPack ? 'Open audit pack' : undefined}
+        onAction={onOpenAuditPack}
+        dataRegion="system/infrastructure/intro"
+      />
+
       <SystemModuleSection
         label="Tenant"
-        description={`${snapshot.source} - snapshot ${snapshot.date}`}
+        description={`${snapshot.source} | ${snapshot.date}`}
         accent={tenantAccent}
         dataRegion="system/infrastructure/tenant"
         isDarkMode={isDarkMode}
@@ -658,8 +669,8 @@ const SystemInfrastructureView: React.FC<SystemInfrastructureViewProps> = ({ isD
       </SystemModuleSection>
 
       <SystemModuleSection
-        label="Tenant explorer"
-        description={`${snapshot.tenant} \u2192 ${selectedSubscription.name} \u2192 ${focusGroup ? focusGroup.name : 'select a group'}`}
+        label="Explorer"
+        description={`${selectedSubscription.name} / ${focusGroup ? focusGroup.name : 'select a group'}`}
         accent={explorerAccent}
         dataRegion="system/infrastructure/explorer"
         isDarkMode={isDarkMode}
@@ -856,7 +867,7 @@ const SystemInfrastructureView: React.FC<SystemInfrastructureViewProps> = ({ isD
 
       {onOpenAuditPack ? (
         <div style={{ marginTop: 4, fontSize: 11, color: mutedColour, fontFamily: 'Raleway, sans-serif' }}>
-          Evidence and confidentiality posture lives in the{' '}
+          Related:{' '}
           <button type="button" onClick={onOpenAuditPack} style={{ border: 0, background: 'transparent', color: colours.highlight, fontWeight: 900, cursor: 'pointer', padding: 0, font: 'inherit', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Audit Pack</button>.
         </div>
       ) : null}

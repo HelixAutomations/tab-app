@@ -55,6 +55,7 @@ const loadHomeTab = () => retryImport(() => import('../tabs/home/Home'));
 const loadEnquiriesTab = () => retryImport(() => import('../tabs/enquiries/Enquiries'));
 const loadInstructionsTab = () => retryImport(() => import('../tabs/instructions/Instructions'));
 const loadReportingTab = () => retryImport(() => import('../tabs/Reporting/ReportingHome'));
+const loadMarketingTab = () => retryImport(() => import('../tabs/marketing/MarketingHome'));
 const Home = lazy(loadHomeTab);
 const Enquiries = lazy(loadEnquiriesTab);
 const Instructions = lazy(loadInstructionsTab);
@@ -62,6 +63,7 @@ const loadMattersTab = () => retryImport(() => import('../tabs/matters/Matters')
 const Matters = lazy(loadMattersTab);
 const Roadmap = lazy(() => retryImport(() => import('../tabs/roadmap/Roadmap')));
 const ReportingHome = lazy(loadReportingTab);
+const MarketingHome = lazy(loadMarketingTab);
 
 type LocalInstructionFixtures = {
   instructionData: InstructionData[];
@@ -70,6 +72,29 @@ type LocalInstructionFixtures = {
 };
 
 let localInstructionFixturesPromise: Promise<LocalInstructionFixtures> | null = null;
+
+const FEATURE_TOGGLE_DEFAULTS = {
+  rateChangeTracker: false,
+  showAttendance: true,
+  cclGuideMode: false,
+  showOpsQueue: false,
+  showHomeOpsCclDates: false,
+  previewClaimedQueueHolding: false,
+};
+
+function productionViewDefaultUserKey(user?: UserData | null): string {
+  if (!user) return '';
+  const initials = user.Initials?.toUpperCase().trim();
+  const email = user.Email?.toLowerCase().trim();
+  if (initials === 'LZ' || email === 'lz@helix-law.com') return 'LZ';
+  if (initials === 'AC' || email === 'ac@helix-law.com') return 'AC';
+  return '';
+}
+
+function withProductionViewDefault(toggles: Record<string, boolean>, user?: UserData | null): Record<string, boolean> {
+  const shouldStartInProd = Boolean(productionViewDefaultUserKey(user));
+  return shouldStartInProd ? { ...toggles, viewAsProd: true } : toggles;
+}
 
 function mapLocalIdVerifications(rawIdVerifications: any[]): POID[] {
   return rawIdVerifications
@@ -164,7 +189,7 @@ interface AppProps {
   lastPipelineEventAt?: number | null;
 }
 
-type ReportingNavigationView = 'logMonitor' | 'dataCentre' | 'ppcReport';
+type ReportingNavigationView = 'overview' | 'logMonitor' | 'dataCentre' | 'ppcReport';
 
 interface ReportingNavigationRequest {
   view: ReportingNavigationView;
@@ -461,9 +486,9 @@ const App: React.FC<AppProps> = ({
       // rateChangeTracker defaults to false - users opt-in via UserBubble
       // showAttendance defaults to true - annual leave visible by default
       // showOpsQueue defaults to false - expensive preview surface, opt-in via Hub Tools
-      return { rateChangeTracker: false, showAttendance: true, cclGuideMode: false, showOpsQueue: false, showHomeOpsCclDates: false, previewClaimedQueueHolding: false, ...parsed };
+      return withProductionViewDefault({ ...FEATURE_TOGGLE_DEFAULTS, ...parsed }, userData?.[0] || null);
     } catch {
-      return { rateChangeTracker: false, showAttendance: true, cclGuideMode: false, showOpsQueue: false, showHomeOpsCclDates: false, previewClaimedQueueHolding: false };
+      return withProductionViewDefault({ ...FEATURE_TOGGLE_DEFAULTS }, userData?.[0] || null);
     }
   });
 
@@ -504,6 +529,18 @@ const App: React.FC<AppProps> = ({
     () => ({ ...(featureToggles || {}) }),
     [featureToggles]
   );
+  const productionViewDefaultAppliedForRef = React.useRef<string | null>(null);
+  useEffect(() => {
+    const userKey = productionViewDefaultUserKey(currentUser);
+    if (!userKey || productionViewDefaultAppliedForRef.current === userKey) return;
+    productionViewDefaultAppliedForRef.current = userKey;
+    setFeatureToggles(prev => {
+      if (prev.viewAsProd === true) return prev;
+      const next = { ...prev, viewAsProd: true };
+      try { localStorage.setItem('featureToggles', JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  }, [currentUser]);
   // Phase Access.D: consult /api/access/effective so LZ can grant the
   // capability via the Access panel without a redeploy. Hardcoded check is
   // the bootstrap fallback (used until the fetch returns or if it fails).
@@ -511,7 +548,7 @@ const App: React.FC<AppProps> = ({
     'feature:activity-tab',
     canSeeActivityTab(currentUser, isLocalDev),
   );
-  const showActivityTab = activityTabCap && !isProductionPreview;
+  const showActivityTab = activityTabCap;
   const matterSeedUserName = useMemo(() => {
     const user = userData?.[0];
     if (!user) {
@@ -798,6 +835,7 @@ const App: React.FC<AppProps> = ({
       if (activeTab !== 'enquiries') void loadEnquiriesTab();
       if (activeTab !== 'matters') void loadMattersTab();
       if (activeTab !== 'reporting') void loadReportingTab();
+      if (activeTab !== 'marketing') void loadMarketingTab();
       void retryImport(() => import('../tabs/roadmap/Roadmap'));
     };
 
@@ -851,13 +889,15 @@ const App: React.FC<AppProps> = ({
     const navNode = navigatorChromeRef.current;
     const actNode = actionsWrapperRef.current;
     if (navNode) {
-      navNode.classList.toggle('chrome-tab-hidden', activeTab !== 'home' && activeTab !== 'enquiries' && activeTab !== 'matters' && activeTab !== 'reporting');
+      navNode.classList.toggle('chrome-tab-hidden', activeTab !== 'home' && activeTab !== 'enquiries' && activeTab !== 'matters' && activeTab !== 'reporting' && activeTab !== 'marketing' && activeTab !== 'roadmap');
     }
     if (actNode) {
-      // ImmediateActions portal is populated by Home only. Hide it on every
+      // ImmediateActions portal is populated by Home only today. Keep the
+      // wrapper available for navigator-owning tabs so their chrome can settle
+      // consistently even when they have no immediate actions of their own.
       // other tab, including Reporting (which keeps the navigator visible
       // for its title bar but does not own any actions of its own).
-      actNode.classList.toggle('chrome-tab-hidden', activeTab !== 'home');
+      actNode.classList.toggle('chrome-tab-hidden', activeTab !== 'home' && activeTab !== 'roadmap');
     }
   }, [activeTab]);
 
@@ -1098,6 +1138,9 @@ const App: React.FC<AppProps> = ({
       case 'reporting':
         void loadReportingTab();
         break;
+      case 'marketing':
+        void loadMarketingTab();
+        break;
       case 'roadmap':
         // Roadmap chunk is small but still benefits from prefetch on hover/pointerdown.
         void retryImport(() => import('../tabs/roadmap/Roadmap'));
@@ -1186,7 +1229,7 @@ const App: React.FC<AppProps> = ({
     const handleNavigateToTab = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       const requestedTab = typeof detail?.tab === 'string' ? detail.tab : '';
-      if (!['home', 'enquiries', 'matters', 'forms', 'reporting', 'roadmap'].includes(requestedTab)) return;
+      if (!['home', 'enquiries', 'matters', 'forms', 'reporting', 'marketing', 'roadmap'].includes(requestedTab)) return;
       actionLog('Navigate → tab', requestedTab);
       activateTab(requestedTab);
     };
@@ -1220,7 +1263,7 @@ const App: React.FC<AppProps> = ({
       const detail = (e as CustomEvent).detail;
       const requestedView = detail?.view;
       actionLog('Navigate → reporting', requestedView || undefined);
-      if (requestedView === 'logMonitor' || requestedView === 'dataCentre' || requestedView === 'ppcReport') {
+      if (requestedView === 'overview' || requestedView === 'logMonitor' || requestedView === 'dataCentre' || requestedView === 'ppcReport') {
         setReportingNavigationRequest({
           view: requestedView,
           requestedAt: Date.now(),
@@ -1543,7 +1586,9 @@ const App: React.FC<AppProps> = ({
   }, [subscribeToPipelineStream]);
 
   // Fetch instruction data when Instructions or Enquiries tab is active.
-  // Enquiries needs workbench data (instruction/EID/payment/risk/matter) for pipeline chips.
+  // Marketing switches to its own streamed ledger datasets after a reporting
+  // window is chosen, so keep the heavyweight instructions corpus out of
+  // first-paint reloads for that tab.
   useEffect(() => {
     const currentUser = userData?.[0] || null;
 
@@ -1724,10 +1769,10 @@ const App: React.FC<AppProps> = ({
   }, [activeTab, userInitials, userData, instructionRefreshTrigger, useLocalData]);
 
   // Tabs visible to all users start with the Enquiries tab.
-  // Only show the Reports tab to admins.
+  // Show the Reports (and Marketing) tab only to internal reporting users: EA, LZ, AC.
   const tabs: Tab[] = useMemo(() => {
-    const isAdmin = isAdminUser(currentUser);
-    const showReportsTab = isAdmin;
+    const initials = String((currentUser && (currentUser.Initials || '')) || '').toUpperCase().trim();
+    const showReportsTab = initials === 'LZ' || initials === 'AC' || initials === 'EA';
 
     return [
       { key: 'enquiries', text: 'Prospects' },
@@ -1736,6 +1781,7 @@ const App: React.FC<AppProps> = ({
       { key: 'resources', text: 'Resources' },
       ...(showActivityTab ? [{ key: 'roadmap', text: 'System' }] : []),
       ...(showReportsTab ? [{ key: 'reporting', text: 'Reports' }] : []),
+      ...(showReportsTab ? [{ key: 'marketing', text: 'Marketing' }] : []),
     ];
   }, [currentUser, showActivityTab]);
 
@@ -1753,9 +1799,9 @@ const App: React.FC<AppProps> = ({
   }, [tabs, activeTab]);
 
   // Clear the shared navigator only for tabs that do not own banner content.
-  // Home, Enquiries, and Matters all manage the navigator themselves.
+  // Home, Enquiries, Matters, and System all manage the navigator themselves.
   React.useEffect(() => {
-    if (activeTab !== 'home' && activeTab !== 'enquiries' && activeTab !== 'matters') {
+    if (activeTab !== 'home' && activeTab !== 'enquiries' && activeTab !== 'matters' && activeTab !== 'marketing' && activeTab !== 'roadmap') {
       setContent(null);
     }
   }, [activeTab, setContent]);
@@ -1783,6 +1829,9 @@ const App: React.FC<AppProps> = ({
             onTabSelect={(key) => {
               if (key === 'roadmap' && activeTab === 'roadmap') {
                 window.dispatchEvent(new Event('helix:system-entry-reset'));
+              }
+              if (key === 'reporting' && activeTab === 'reporting') {
+                setReportingNavigationRequest({ view: 'overview', requestedAt: Date.now() });
               }
               actionLog(`Tab → ${key}`);
               trackClientEvent('Nav', 'tab-switch', { from: prevTabRef.current, to: key });
@@ -2003,9 +2052,23 @@ const App: React.FC<AppProps> = ({
                   teamData={teamData}
                   demoModeEnabled={demoModeEnabled}
                   featureToggles={featureToggles}
+                  localSupportSettings={localSupportSettings}
                   navigationRequest={reportingNavigationRequest}
                   onNavigationRequestHandled={handleNavigationRequestHandled}
                 />
+                </TabMountMeter>
+              </Suspense>
+            )}
+            {/* Marketing: admin-only, mount/unmount is fine */}
+            {activeTab === 'marketing' && (
+              <Suspense fallback={<ThemedSuspenseFallback />}>
+                <TabMountMeter name="marketing">
+                  <MarketingHome
+                    userData={userData}
+                    instructionData={allInstructionData}
+                    enquiries={enquiries}
+                    matters={matters}
+                  />
                 </TabMountMeter>
               </Suspense>
             )}

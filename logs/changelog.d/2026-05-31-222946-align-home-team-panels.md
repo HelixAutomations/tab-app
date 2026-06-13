@@ -1,1 +1,0 @@
-2026-05-31 / Align Home team panels / Matched the Home Attendance and Team Leave panel inset to the Billing, Conversion, To Do and risk policy containers so the lower team boxes no longer render wider than the sections above. (~ src/tabs/home/Home.tsx)

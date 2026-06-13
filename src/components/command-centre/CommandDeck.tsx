@@ -389,6 +389,22 @@ const CommandDeck: React.FC<CommandDeckProps> = (props) => {
                     showToast('Pulse sent', 'success');
                 },
             });
+            tools.push({
+                key: 'reportProcessingPanel',
+                label: 'Report panel',
+                hint: 'Show the report refresh processing panel preview.',
+                icon: icons.refresh,
+                group: 'demo',
+                onClick: () => {
+                    try { window.sessionStorage.setItem('helix.reports.simulateProcessingPanel', '1'); } catch { /* noop */ }
+                    try { window.dispatchEvent(new CustomEvent('navigateToReporting', { detail: { view: 'overview' } })); } catch { /* noop */ }
+                    window.setTimeout(() => {
+                        try { window.dispatchEvent(new CustomEvent('helix:reports:simulate-processing-panel')); } catch { /* noop */ }
+                    }, 80);
+                    showToast('Report panel preview shown', 'success');
+                    onClose();
+                },
+            });
         }
         if (demoModeEnabled && isAdminEligible) {
             LEDGER_VISIBLE_STATUSES.forEach((status) => {

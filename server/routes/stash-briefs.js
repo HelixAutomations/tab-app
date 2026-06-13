@@ -1,9 +1,11 @@
 // server/routes/stash-briefs.js
-// Dev-owner-only API for the Activity tab "Stashed briefs" panel.
-// Surfaces docs/notes/*.md (the project briefs) for read + manage in-app.
+// Stashed brief API for System / Projects and the Activity tab briefs panel.
+// Summary cards are available to System/admin users. Full bodies and mutation
+// routes remain dev-owner only.
 //
 // Routes:
-//   GET    /api/stash-briefs                  → list with metadata
+//   GET    /api/stash-briefs                  → list with metadata (dev-owner)
+//   GET    /api/stash-briefs/cards            → safe summary cards (System/admin)
 //   GET    /api/stash-briefs/:id              → full body
 //   POST   /api/stash-briefs/:id/reverify     → bump verified to today
 //   POST   /api/stash-briefs/:id/close        → mark shipped + archive
@@ -28,6 +30,7 @@ const {
   regenerateIndex,
 } = require('../utils/stashMeta');
 const { trackEvent, trackException } = require('../utils/appInsights');
+const { isAdmin: isAdminRequest } = require('../utils/userTier');
 
 const router = express.Router();
 
@@ -42,6 +45,17 @@ function gate(req, res, next) {
     return res.status(403).json({ error: 'forbidden' });
   }
   next();
+}
+
+function cardsGate(req, res, next) {
+  if (!isDevOwner(req) && !isAdminRequest(req)) {
+    return res.status(403).json({ error: 'forbidden' });
+  }
+  next();
+}
+
+function actor(req) {
+  return String(req.user?.initials || req.query?.initials || req.headers['x-user-initials'] || req.user?.email || req.query?.email || 'unknown').trim() || 'unknown';
 }
 
 function summarize(brief) {
@@ -64,6 +78,28 @@ function summarize(brief) {
   };
 }
 
+function summarizeCard(brief) {
+  const summary = summarize(brief);
+  const touches = summary.touches || {};
+  const touchCount = ['client', 'server', 'submodules'].reduce((total, key) => {
+    const value = touches[key];
+    return total + (Array.isArray(value) ? value.length : 0);
+  }, 0);
+  return {
+    id: summary.id,
+    title: summary.title,
+    status: summary.status,
+    verified: summary.verified,
+    ageDays: summary.ageDays,
+    branch: summary.branch,
+    shipped: summary.shipped,
+    touchCount,
+    dependencyCount: Array.isArray(summary.depends_on) ? summary.depends_on.length : 0,
+    coordinationCount: Array.isArray(summary.coordinates_with) ? summary.coordinates_with.length : 0,
+    conflictCount: Array.isArray(summary.conflicts_with) ? summary.conflicts_with.length : 0,
+  };
+}
+
 function findById(id) {
   const briefs = loadAllBriefs();
   return briefs.find((b) => b.meta && b.meta.id === id) || null;
@@ -78,6 +114,26 @@ router.get('/stash-briefs', gate, (req, res) => {
   } catch (err) {
     trackException(err, { operation: 'StashBriefs.List' });
     res.status(500).json({ error: 'failed to load briefs', detail: err.message });
+  }
+});
+
+router.get('/stash-briefs/cards', cardsGate, (req, res) => {
+  const startedAt = Date.now();
+  const triggeredBy = actor(req);
+  try {
+    const briefs = loadAllBriefs().filter((b) => b.hasMetaBlock);
+    const cards = briefs.map(summarizeCard);
+    trackEvent('StashBriefs.Cards.Completed', {
+      operation: 'cards',
+      triggeredBy,
+      rowCount: cards.length,
+      durationMs: Date.now() - startedAt,
+    });
+    res.json({ items: cards, total: cards.length, generatedAt: Date.now(), canSeeFull: isDevOwner(req) });
+  } catch (err) {
+    trackException(err, { operation: 'StashBriefs.Cards', triggeredBy });
+    trackEvent('StashBriefs.Cards.Failed', { operation: 'cards', triggeredBy, error: err.message });
+    res.status(500).json({ error: 'failed to load stash cards', detail: err.message });
   }
 });
 

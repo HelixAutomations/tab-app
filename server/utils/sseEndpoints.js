@@ -17,6 +17,7 @@ const SSE_PATH_PREFIXES = [
     '/api/future-bookings/stream',
     '/api/data-operations/stream',
     '/api/ops-pulse',
+    '/api/tasks/intake/stream',
 ];
 
 function isSsePath(path) {

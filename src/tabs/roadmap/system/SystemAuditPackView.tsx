@@ -1,8 +1,8 @@
 import React from 'react';
 import { colours } from '../../../app/styles/colours';
 import {
-  HeaderButton,
   StatusPill,
+  SystemIntroPanel,
   SystemModuleSection,
   SystemPageHeader,
   StatusTone,
@@ -56,26 +56,58 @@ interface TenantNode {
   tone: StatusTone;
 }
 
+interface ConceptNode {
+  label: string;
+  question: string;
+  answer: string;
+  evidence: string;
+  tone: StatusTone;
+}
+
+const conceptNodes: ConceptNode[] = [
+  {
+    label: 'Boundary',
+    question: 'What system are we actually auditing?',
+    answer: 'Three app surfaces with one shared operational data plane.',
+    evidence: 'Repos, App Service apps, SQL databases, storage accounts, Key Vaults.',
+    tone: 'live',
+  },
+  {
+    label: 'Data exits',
+    question: 'Where can client or operational data leave Helix control?',
+    answer: 'AI providers, payment and ID providers, Graph, Teams, logs, exports.',
+    evidence: 'Provider list, outbound routes, app settings, telemetry samples.',
+    tone: 'watch',
+  },
+  {
+    label: 'Proof',
+    question: 'What would make tomorrow-me comfortable?',
+    answer: 'A repeatable evidence pack, not confidence from memory.',
+    evidence: 'Config exports, RBAC review, retention matrix, log-leak scan, route checks.',
+    tone: 'partial',
+  },
+];
+
 const tenantSnapshot: TenantNode[] = [
-  { label: 'Tenant', detail: 'Helix Law (helix-law.com) — UK South estate.', tone: 'live' },
+  { label: 'Tenant', detail: 'Helix Law tenant and UK South Azure estate.', tone: 'live' },
   { label: 'Apps in scope', detail: 'Team Hub, Instruct App, Enquiry Processing.', tone: 'live' },
-  { label: 'Shared data plane', detail: 'Instructions SQL, Core Data SQL, storage and Key Vault.', tone: 'watch' },
-  { label: 'Cross-app contract', detail: 'Lifecycle events, shared identifiers and evidence handoff.', tone: 'partial' },
+  { label: 'Shared data plane', detail: 'Instructions SQL, Core Data SQL, storage, Key Vault.', tone: 'watch' },
+  { label: 'Cross-app contract', detail: 'Shared IDs, lifecycle events, handoff rows.', tone: 'partial' },
 ];
 
 const appPacks: AppPack[] = [
   {
     name: 'Team Hub',
-    role: 'Internal operations hub, CCL, Attendance Note, matter workflow and evidence control plane.',
+    role: 'Internal operations app: CCL, attendance notes, matter workflow, ops telemetry.',
     repo: 'tab-app',
     status: 'partial',
     data: ['Matter and instruction records', 'CCL/client-care material', 'Attendance note transcripts', 'Operational telemetry'],
     controls: ['CCL paused outside localhost', 'Attendance Note AI gated to local or LZ', 'Local LLM brief in progress'],
-    gaps: ['Author Team Hub evidence pack', 'Prove local inference boundary', 'Document CCL trace retention', 'Audit App Insights payload posture'],
+    gaps: ['Team Hub control sheet', 'Local inference boundary', 'CCL trace retention', 'App Insights payload check'],
   },
   {
     name: 'Enquiry Processing',
-    role: 'Lead intake, Teams cards, routing, operational AI and provider evidence.',
+    role: 'Lead intake, Teams cards, routing, operational AI.',
     repo: 'submodules/enquiry-processing-v2',
     status: 'scoped',
     data: ['Potential-client details', 'Enquiry narratives', 'Call and Dubber records', 'Teams and provider metadata'],
@@ -84,7 +116,7 @@ const appPacks: AppPack[] = [
   },
   {
     name: 'Instruct App',
-    role: 'Client-facing checkout, ID verification, payment, document upload and matter portal.',
+    role: 'Client-facing checkout, ID, payments, uploads, portal.',
     repo: 'submodules/instruct-pitch',
     status: 'partial',
     data: ['Identity data', 'Payment metadata', 'Instruction content', 'Uploaded documents', 'Passcodes'],
@@ -97,25 +129,25 @@ const providerRows: ProviderRow[] = [
   {
     target: 'Microsoft Foundry / Azure OpenAI',
     purpose: 'Classification, extraction and operational AI where approved.',
-    position: 'Use for confidential data only after Modified Abuse Monitoring and contractual evidence are verified.',
+    position: 'Confidential use blocked until MAM and contract checks are verified.',
     status: 'partial',
   },
   {
     target: 'Non-Microsoft models',
     purpose: 'Claude, Anthropic or any other non-Microsoft model path.',
-    position: 'Blocked for confidential or privileged material until a separate provider review and control pack exists.',
+    position: 'No confidential or privileged material.',
     status: 'blocked',
   },
   {
     target: 'Helix local inference',
     purpose: 'Future private path for paused CCL and Attendance Note content.',
-    position: 'Planned for a private Azure VM with no public endpoint, controlled egress and metadata-only telemetry.',
+    position: 'Planned private VM, no public endpoint, controlled egress.',
     status: 'to-scope',
   },
   {
     target: 'Application Insights and app logs',
     purpose: 'Operational telemetry and failure diagnosis.',
-    position: 'Metadata-only by default. Prompt text, response text, raw bodies and provider payloads must not be logged.',
+    position: 'Metadata only. No prompts, responses, raw bodies or provider payloads.',
     status: 'partial',
   },
 ];
@@ -131,7 +163,7 @@ const flowRows: FlowRow[] = [
 const actionRows: ActionRow[] = [
   { priority: 'P0', item: 'Verify Microsoft ContentLogging=false', evidence: 'Azure CLI output after Microsoft approval' },
   { priority: 'P0', item: 'Freeze non-Microsoft confidential model use', evidence: 'Written policy and config review' },
-  { priority: 'P1', item: 'Author Team Hub evidence pack', evidence: 'Data classes, AI calls, logs, stores and gaps' },
+  { priority: 'P1', item: 'Write Team Hub control sheet', evidence: 'Data classes, AI calls, logs, stores and gaps' },
   { priority: 'P1', item: 'Define SQL, blob and transcript retention', evidence: 'Table and container retention matrix' },
   { priority: 'P1', item: 'Review RBAC and production access', evidence: 'SQL, Key Vault, App Insights, AI and Storage exports' },
   { priority: 'P2', item: 'Add repeatable log-leak scan', evidence: 'CI or script checking raw body, prompt and provider response patterns' },
@@ -150,7 +182,7 @@ const SystemAuditPackView: React.FC<SystemAuditPackViewProps> = ({
   onOpenInfrastructure,
 }) => {
   const tokens = useSystemTokens(isDarkMode);
-  const { textColour, mutedColour, borderColour, cardStyle, panelBg } = tokens;
+  const { textColour, mutedColour, borderColour, panelBg } = tokens;
 
   return (
     <section data-helix-region="system/audit-pack">
@@ -162,26 +194,49 @@ const SystemAuditPackView: React.FC<SystemAuditPackViewProps> = ({
         onOpenDashboard={onOpenDashboard}
       />
 
-      <div style={{ ...cardStyle, borderLeft: `4px solid ${colours.green}`, marginBottom: 14 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-          <div style={{ maxWidth: 820 }}>
-            <div style={{ fontSize: 11, fontWeight: 900, color: colours.green, textTransform: 'uppercase', letterSpacing: '0.6px' }}>Read-only evidence pack</div>
-            <div style={{ marginTop: 7, fontSize: 20, fontWeight: 900, color: textColour, lineHeight: 1.25 }}>
-              A modular audit pack for the Helix tenant: who runs what, where data goes, what we already control and what is still open.
-            </div>
-            <div style={{ marginTop: 8, fontSize: 13, lineHeight: 1.6, color: mutedColour }}>
-              This page is metadata-only and does not embed client content. Modules below can grow independently as new evidence becomes available, starting with the cross-app posture we already have.
-            </div>
-          </div>
-          {onOpenInfrastructure ? (
-            <HeaderButton label="Open infrastructure" isDarkMode={isDarkMode} accent={colours.accent} onClick={onOpenInfrastructure} />
-          ) : null}
-        </div>
-      </div>
+      <SystemIntroPanel
+        eyebrow="Start here"
+        title="Audit starting map"
+        description="Scope, data exits, evidence needed."
+        isDarkMode={isDarkMode}
+        accent={colours.green}
+        actionLabel={onOpenInfrastructure ? 'Open infrastructure' : undefined}
+        onAction={onOpenInfrastructure}
+        dataRegion="system/audit-pack/intro"
+      />
 
       <SystemModuleSection
-        label="01 — Tenant snapshot"
-        description="A high-level view of the tenant scope before drilling into resources."
+        label="01 Start here"
+        description="The three questions."
+        accent={colours.green}
+        dataRegion="system/audit-pack/start-map"
+        isDarkMode={isDarkMode}
+      >
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 260px), 1fr))', gap: 10 }}>
+          {conceptNodes.map((node) => {
+            const accent = toneColour(node.tone);
+            return (
+              <div key={node.label} style={{ border: `1px solid ${borderColour}`, background: panelBg, padding: 14, borderTop: `3px solid ${accent}` }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 8 }}>
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.5px', color: accent }}>{node.label}</div>
+                    <div style={{ marginTop: 4, fontSize: 14, fontWeight: 900, color: textColour, lineHeight: 1.3 }}>{node.question}</div>
+                  </div>
+                  <StatusPill tone={node.tone} isDarkMode={isDarkMode} />
+                </div>
+                <div style={{ fontSize: 12, color: mutedColour, lineHeight: 1.5, marginBottom: 8 }}>{node.answer}</div>
+                <div style={{ borderTop: `1px solid ${borderColour}`, paddingTop: 8, fontSize: 11, color: mutedColour, lineHeight: 1.45 }}>
+                  <strong style={{ color: textColour }}>Evidence:</strong> {node.evidence}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </SystemModuleSection>
+
+      <SystemModuleSection
+        label="02 Boundary"
+        description="What is in scope."
         accent={colours.accent}
         dataRegion="system/audit-pack/tenant-snapshot"
         isDarkMode={isDarkMode}
@@ -203,8 +258,8 @@ const SystemAuditPackView: React.FC<SystemAuditPackViewProps> = ({
       </SystemModuleSection>
 
       <SystemModuleSection
-        label="02 — App packs"
-        description="Per-app evidence packs. Each one covers data handled, current controls and open gaps."
+        label="03 Apps"
+        description="Data, controls, gaps."
         accent={colours.highlight}
         dataRegion="system/audit-pack/app-packs"
         isDarkMode={isDarkMode}
@@ -247,8 +302,8 @@ const SystemAuditPackView: React.FC<SystemAuditPackViewProps> = ({
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 360px), 1fr))', gap: 14, alignItems: 'start' }}>
         <SystemModuleSection
-          label="03 — AI and provider posture"
-          description="Confidentiality and ZDR position for every external path that could touch client material."
+          label="03 Providers"
+          description="External exits."
           accent={colours.green}
           dataRegion="system/audit-pack/provider-posture"
           isDarkMode={isDarkMode}
@@ -268,8 +323,8 @@ const SystemAuditPackView: React.FC<SystemAuditPackViewProps> = ({
         </SystemModuleSection>
 
         <SystemModuleSection
-          label="04 — Open actions"
-          description="Cross-app actions still owed before we can claim full audit coverage."
+          label="04 Open actions"
+          description="Evidence still missing."
           accent={colours.cta}
           dataRegion="system/audit-pack/open-actions"
           isDarkMode={isDarkMode}
@@ -292,8 +347,8 @@ const SystemAuditPackView: React.FC<SystemAuditPackViewProps> = ({
       </div>
 
       <SystemModuleSection
-        label="05 — Data-flow register"
-        description="Each row pairs a real data flow with its current control and the next evidence we owe."
+        label="05 Data flows"
+        description="Path, control, gap."
         accent={colours.orange}
         dataRegion="system/audit-pack/data-flows"
         isDarkMode={isDarkMode}

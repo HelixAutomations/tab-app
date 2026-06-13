@@ -11,3 +11,6 @@
 [submodule "submodules/transaction-intake"]
 	path = submodules/transaction-intake
 	url = git@github.com:HelixAutomations/transaction-intake.git
+[submodule "submodules/tasking-v3"]
+	path = submodules/tasking-v3
+	url = git@github.com:HelixAutomations/tasking-v3.git

@@ -1,6 +1,6 @@
 import React from 'react';
 
-export type PitchWizardStepId = 'delivery' | 'scenario' | 'subject' | 'scope' | 'fee' | 'body' | 'receipt';
+export type PitchWizardStepId = 'draft' | 'delivery' | 'scenario' | 'subject' | 'scope' | 'fee' | 'body' | 'receipt';
 
 export type PitchWizardStepStatus = 'pending' | 'active' | 'done' | 'attention';
 

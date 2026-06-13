@@ -15,7 +15,7 @@ import {
 import { ProcessStreamItem, streamStatusMeta } from '../../forms/processHubData';
 import type { ActivityFeedItem } from './types';
 
-export type UnifiedSource = 'forms' | 'activity' | 'matters';
+export type UnifiedSource = 'forms' | 'activity' | 'cards' | 'matters';
 
 export interface UnifiedEvent {
   id: string;
@@ -50,8 +50,16 @@ const STATUS_COLOUR: Record<UnifiedEvent['status'], { light: string; dark: strin
 const SOURCE_LABEL: Record<UnifiedSource, string> = {
   forms: 'Form',
   activity: 'Activity',
+  cards: 'Card',
   matters: 'Matter',
 };
+
+const CARD_ACTIVITY_SOURCES = new Set<ActivityFeedItem['source']>([
+  'teams.card',
+  'activity.cardlab',
+  'activity.card.send',
+  'activity.dm.send',
+]);
 
 function safeParse(iso: string): number {
   const t = Date.parse(iso);
@@ -64,6 +72,17 @@ function relTime(ts: number, now: number): string {
   if (diff < 3600) return `${Math.floor(diff / 60)}m`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
   return `${Math.floor(diff / 86400)}d`;
+}
+
+function clockTime(ts: number): string {
+  if (!ts) return '-';
+  const date = new Date(ts);
+  const today = new Date();
+  const sameDay = date.toDateString() === today.toDateString();
+  if (sameDay) {
+    return date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  }
+  return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
 }
 
 function formForms(items: ProcessStreamItem[]): UnifiedEvent[] {
@@ -91,23 +110,28 @@ function formForms(items: ProcessStreamItem[]): UnifiedEvent[] {
 }
 
 function fromActivity(items: ActivityFeedItem[]): UnifiedEvent[] {
-  return items.map((item) => ({
-    id: `activity:${item.id}`,
-    source: 'activity',
-    sourceLabel: `${SOURCE_LABEL.activity} - ${item.sourceLabel}`,
-    title: item.title,
-    detail: item.summary,
-    status: item.status === 'success' || item.status === 'error' || item.status === 'active' || item.status === 'info'
-      ? item.status
-      : 'info',
-    ts: safeParse(item.timestamp),
-    link: item.teamsLink,
-  }));
+  return items.map((item) => {
+    const source: UnifiedSource = CARD_ACTIVITY_SOURCES.has(item.source) ? 'cards' : 'activity';
+    return {
+      id: `activity:${item.id}`,
+      source,
+      sourceLabel: `${SOURCE_LABEL[source]} - ${item.sourceLabel}`,
+      title: item.title,
+      detail: item.summary,
+      status: item.status === 'success' || item.status === 'error' || item.status === 'active' || item.status === 'info'
+        ? item.status
+        : 'info',
+      ts: safeParse(item.timestamp),
+      link: item.teamsLink,
+    };
+  });
 }
 
 const SourceTag: React.FC<{ source: UnifiedSource; isDarkMode: boolean }> = ({ source, isDarkMode }) => {
   const tone = source === 'forms'
     ? (isDarkMode ? colours.accent : colours.highlight)
+    : source === 'cards'
+      ? colours.orange
     : source === 'matters'
       ? colours.green
       : (isDarkMode ? colours.subtleGrey : colours.greyText);
@@ -129,7 +153,7 @@ const SourceTag: React.FC<{ source: UnifiedSource; isDarkMode: boolean }> = ({ s
   );
 };
 
-const Row: React.FC<{ event: UnifiedEvent; isDarkMode: boolean; now: number; isFresh?: boolean }> = ({ event, isDarkMode, now, isFresh }) => {
+const LedgerRow: React.FC<{ event: UnifiedEvent; isDarkMode: boolean; now: number; isFresh?: boolean; compact?: boolean }> = ({ event, isDarkMode, now, isFresh, compact }) => {
   const [hovered, setHovered] = useState(false);
   const statusPair = STATUS_COLOUR[event.status];
   const statusColour = isDarkMode ? statusPair.dark : statusPair.light;
@@ -145,33 +169,61 @@ const Row: React.FC<{ event: UnifiedEvent; isDarkMode: boolean; now: number; isF
     }
   };
 
+  const handleKeyDown = (eventInfo: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!event.link) return;
+    if (eventInfo.key === 'Enter' || eventInfo.key === ' ') {
+      eventInfo.preventDefault();
+      handleClick();
+    }
+  };
+
   return (
     <div
       data-fresh={isFresh ? 'true' : undefined}
+      role={event.link ? 'button' : undefined}
+      tabIndex={event.link ? 0 : undefined}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onClick={event.link ? handleClick : undefined}
+      onKeyDown={event.link ? handleKeyDown : undefined}
       style={{
         display: 'grid',
-        gridTemplateColumns: '12px 64px 1fr 60px',
+        gridTemplateColumns: compact ? '52px minmax(0, 1fr) 42px' : '54px 74px 74px minmax(160px, 1.2fr) minmax(190px, 1fr) 46px',
         alignItems: 'center',
-        gap: 12,
-        padding: '10px 14px',
+        gap: compact ? 8 : 10,
+        padding: compact ? '7px 10px' : '7px 12px',
         background: hovered ? (isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.025)') : 'transparent',
         cursor: event.link ? 'pointer' : 'default',
         transition: 'background 0.12s',
         borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)'}`,
+        minHeight: compact ? 38 : 42,
       }}
     >
-      <div style={{ width: 8, height: 8, borderRadius: 999, background: statusColour, flexShrink: 0 }} />
-      <SourceTag source={event.source} isDarkMode={isDarkMode} />
+      <span style={{ fontSize: 11, color: muted, fontFamily: 'monospace' }}>{clockTime(event.ts)}</span>
+      {!compact && <SourceTag source={event.source} isDarkMode={isDarkMode} />}
+      {!compact && (
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            fontSize: 10,
+            fontWeight: 800,
+            color: statusColour,
+            fontFamily: 'monospace',
+            textTransform: 'uppercase',
+          }}
+        >
+          <span style={{ width: 6, height: 6, borderRadius: 999, background: statusColour, flexShrink: 0 }} />
+          {event.status}
+        </span>
+      )}
       <div style={{ minWidth: 0 }}>
         <div
           style={{
-            fontSize: 13,
+            fontSize: compact ? 11 : 12,
             fontWeight: 600,
             color: textColour,
-            letterSpacing: '-0.1px',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
@@ -182,7 +234,7 @@ const Row: React.FC<{ event: UnifiedEvent; isDarkMode: boolean; now: number; isF
         {event.detail && (
           <div
             style={{
-              fontSize: 11,
+              fontSize: compact ? 10 : 11,
               color: muted,
               marginTop: 2,
               overflow: 'hidden',
@@ -194,17 +246,88 @@ const Row: React.FC<{ event: UnifiedEvent; isDarkMode: boolean; now: number; isF
           </div>
         )}
       </div>
-      <span
-        style={{
-          fontSize: 11,
-          color: muted,
-          fontFamily: 'monospace',
-          textAlign: 'right',
-        }}
-      >
-        {event.ts ? relTime(event.ts, now) : '—'}
+      {!compact && (
+        <div style={{ minWidth: 0, fontSize: 11, color: muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {event.sourceLabel}
+        </div>
+      )}
+      <span style={{ fontSize: 10, color: event.link ? (isDarkMode ? colours.accent : colours.highlight) : muted, fontFamily: 'monospace', textAlign: 'right' }}>
+        {event.link ? 'open' : relTime(event.ts, now)}
       </span>
     </div>
+  );
+};
+
+const LedgerTable: React.FC<{
+  title: string;
+  events: UnifiedEvent[];
+  isDarkMode: boolean;
+  now: number;
+  freshIds: Set<string>;
+  compact?: boolean;
+  emptyText: string;
+  region: string;
+}> = ({ title, events, isDarkMode, now, freshIds, compact, emptyText, region }) => {
+  const borderCol = isDarkMode ? colours.dark.border : colours.light.border;
+  const textColour = isDarkMode ? colours.dark.text : colours.light.text;
+  const muted = isDarkMode ? colours.subtleGrey : colours.greyText;
+
+  return (
+    <section data-helix-region={region} style={{ minWidth: 0, border: `1px solid ${borderCol}`, borderRadius: 0, overflow: 'hidden' }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: compact ? '8px 10px' : '9px 12px',
+          borderBottom: `1px solid ${borderCol}`,
+          background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.018)',
+        }}
+      >
+        <span style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px', color: textColour, fontFamily: 'Raleway, sans-serif' }}>
+          {title}
+        </span>
+        <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 700, color: muted, fontFamily: 'monospace' }}>{events.length}</span>
+      </div>
+
+      {!compact && events.length > 0 && (
+        <div
+          aria-hidden="true"
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '54px 74px 74px minmax(160px, 1.2fr) minmax(190px, 1fr) 46px',
+            gap: 10,
+            padding: '6px 12px',
+            borderBottom: `1px solid ${borderCol}`,
+            fontSize: 9,
+            fontWeight: 800,
+            textTransform: 'uppercase',
+            letterSpacing: '0.5px',
+            color: muted,
+            fontFamily: 'Raleway, sans-serif',
+          }}
+        >
+          <span>Time</span>
+          <span>Type</span>
+          <span>Status</span>
+          <span>Subject</span>
+          <span>Detail</span>
+          <span style={{ textAlign: 'right' }}>Link</span>
+        </div>
+      )}
+
+      {events.length === 0 ? (
+        <div style={{ padding: compact ? '18px 10px' : '24px 12px', textAlign: 'center', fontSize: 12, color: muted, fontFamily: 'Raleway, sans-serif' }}>
+          {emptyText}
+        </div>
+      ) : (
+        <div className="system-activity-scroll" style={{ maxHeight: compact ? 430 : 560, overflowY: 'auto' }}>
+          {events.map((event) => (
+            <LedgerRow key={event.id} event={event} isDarkMode={isDarkMode} now={now} isFresh={freshIds.has(event.id)} compact={compact} />
+          ))}
+        </div>
+      )}
+    </section>
   );
 };
 
@@ -241,6 +364,10 @@ const UnifiedStream: React.FC<UnifiedStreamProps> = ({
     return filtered.sort((a, b) => b.ts - a.ts).slice(0, limit);
   }, [forms, activityItems, filterSource, limit]);
 
+  const cardEvents = useMemo(() => {
+    return events.filter((event) => event.source === 'cards').slice(0, 16);
+  }, [events]);
+
   const freshIds = useFreshIds(events, (event) => event.id);
 
   const bg = isDarkMode ? colours.darkBlue : colours.light.sectionBackground;
@@ -251,7 +378,7 @@ const UnifiedStream: React.FC<UnifiedStreamProps> = ({
   const heading = title || (filterSource ? `${SOURCE_LABEL[filterSource]} stream` : 'Live stream');
 
   return (
-    <div style={{ background: bg, border: `1px solid ${borderCol}`, borderRadius: 0 }}>
+    <div data-helix-region="roadmap/activity-ledger" style={{ background: bg, border: `1px solid ${borderCol}`, borderRadius: 0 }}>
       <div
         style={{
           display: 'flex',
@@ -285,27 +412,52 @@ const UnifiedStream: React.FC<UnifiedStreamProps> = ({
         >
           {events.length}
         </span>
+        {!filterSource && (
+          <span
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              padding: '1px 6px',
+              background: `${colours.orange}20`,
+              color: colours.orange,
+              fontFamily: 'monospace',
+            }}
+          >
+            cards {cardEvents.length}
+          </span>
+        )}
       </div>
 
-      {events.length === 0 ? (
-        <div
-          style={{
-            padding: '32px 16px',
-            textAlign: 'center',
-            fontSize: 12,
-            color: muted,
-            fontFamily: 'Raleway, sans-serif',
-          }}
-        >
-          Nothing here yet — events will appear in real time.
-        </div>
-      ) : (
-        <div style={{ maxHeight: 600, overflowY: 'auto' }}>
-          {events.map((event) => (
-            <Row key={event.id} event={event} isDarkMode={isDarkMode} now={now} isFresh={freshIds.has(event.id)} />
-          ))}
-        </div>
-      )}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: !filterSource ? 'minmax(360px, 1.5fr) minmax(280px, 0.8fr)' : '1fr',
+          gap: 10,
+          padding: 10,
+        }}
+      >
+        <LedgerTable
+          title={filterSource ? heading : 'All activity ledger'}
+          events={events}
+          isDarkMode={isDarkMode}
+          now={now}
+          freshIds={freshIds}
+          emptyText="Nothing here yet. Events will appear in real time."
+          region="roadmap/activity-ledger/all"
+        />
+        {!filterSource && (
+          <LedgerTable
+            title="Card tracking"
+            events={cardEvents}
+            isDarkMode={isDarkMode}
+            now={now}
+            freshIds={freshIds}
+            compact
+            emptyText="No tracked card activity in this window."
+            region="roadmap/activity-ledger/cards"
+          />
+        )}
+      </div>
     </div>
   );
 };

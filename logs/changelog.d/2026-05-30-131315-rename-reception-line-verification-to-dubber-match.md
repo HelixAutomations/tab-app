@@ -1,1 +1,0 @@
-2026-05-30 / Rename Reception line verification to Dubber match / Replace user-facing 'verified line' and line-match phrasing across the Reception report with 'Dubber match' / 'No Dubber match' so the label says exactly what it means. (~ src/tabs/Reporting/ReceptionReport.tsx)

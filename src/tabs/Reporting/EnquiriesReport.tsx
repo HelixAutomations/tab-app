@@ -3061,7 +3061,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
       {metaMetrics && metaMetrics.length > 0 && (
         <div style={surface(isDarkMode)}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-            <h3 style={sectionTitle()}>Marketing Performance</h3>
+            <h3 style={sectionTitle()}>Marketing</h3>
             <button
               type="button"
               onClick={() => setShowMarketing(v => !v)}

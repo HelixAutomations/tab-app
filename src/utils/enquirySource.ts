@@ -54,6 +54,53 @@ function looksLikeFacebookLead(notes: string, campaign: string): boolean {
   return n.includes('facebook lead id') || c.includes('facebook');
 }
 
+export function hasGoogleAdsPaidSignal(entry: Record<string, unknown>): boolean {
+  const source = safeLower(entry.source ?? entry.Source ?? entry['Source of Enquiry'] ?? entry['Ultimate Source'] ?? entry.Ultimate_Source);
+  const medium = safeLower(entry.medium ?? entry.Medium ?? entry.utm_medium);
+  const campaign = safeLower(entry.campaign ?? entry.Campaign ?? entry.utm_campaign);
+  const gclid = safeLower(entry.gclid ?? entry.GCLID);
+  const url = safeLower(entry.url ?? entry.Referral_URL ?? entry.referral_url);
+
+  const hasGoogleAdsSource = source.includes('google ads') || source.includes('adwords') || source.includes('paid search');
+  const hasGoogleAdsMedium = medium.includes('cpc') || medium.includes('ppc');
+  const hasGoogleAdsUrl = url.includes('utm_source=google') && (url.includes('utm_medium=cpc') || url.includes('utm_medium=ppc'));
+  const hasGoogleAdsCampaign = campaign.includes('google ads') || campaign.includes('adwords');
+
+  return Boolean(gclid || hasGoogleAdsSource || hasGoogleAdsMedium || hasGoogleAdsUrl || hasGoogleAdsCampaign);
+}
+
+const SYSTEM_SOURCE_MARKERS = new Set(['instructions', 'legacy', 'core-data', 'core data', 'new']);
+
+function firstMarketingSource(e: Record<string, unknown>): { raw: string; normalized: string } {
+  const candidates = [
+    e.Ultimate_Source,
+    e.ultimate_source,
+    e['Ultimate Source'],
+    e.Enquiry_Source,
+    e.enquiry_source,
+    e['Enquiry Source'],
+    e.Source_of_Enquiry,
+    e.source_of_enquiry,
+    e['Source of Enquiry'],
+    e.Lead_Source,
+    e.lead_source,
+    e['Lead Source'],
+    e.Marketing_Source,
+    e.marketing_source,
+    e['Marketing Source'],
+    e.Source,
+    e.source,
+  ];
+
+  for (const value of candidates) {
+    const raw = toStr(value).trim();
+    const normalized = safeLower(raw);
+    if (!normalized || SYSTEM_SOURCE_MARKERS.has(normalized)) continue;
+    return { raw, normalized };
+  }
+  return { raw: '', normalized: '' };
+}
+
 /**
  * Derive a normalized source from an enquiry record with mixed schema.
  * Priority order:
@@ -69,7 +116,8 @@ function looksLikeFacebookLead(notes: string, campaign: string): boolean {
  */
 export function getNormalizedEnquirySource(raw: unknown): NormalizedEnquirySource {
   const e = (raw ?? {}) as Record<string, unknown>;
-  const ultimate = safeLower(e.Ultimate_Source ?? (e as any).source ?? (e as any).Source);
+  const sourceValue = firstMarketingSource(e);
+  const ultimate = sourceValue.normalized;
   const contactRef = toStr(e.Contact_Referrer ?? (e as any).contact_referrer).trim();
   const referringCompany = toStr(e.Referring_Company ?? (e as any).referring_company).trim();
   const url = toStr(e.Referral_URL ?? (e as any).referral_url).trim();
@@ -81,14 +129,23 @@ export function getNormalizedEnquirySource(raw: unknown): NormalizedEnquirySourc
   const contactMethods = ['phone call', 'phone', 'call in', 'direct email', 'web form', 'website form', 'online form', 'chat', 'chatgpt'];
   const isUltimateActuallyMOC = contactMethods.some(method => ultimate.includes(method));
 
-  // 1) Google Ads (paid search)
+  // 1) Google Ads (paid search) — only when explicit Google Ads / GCLID / Google CPC signals exist
   const utm = url ? getUtmParams(url) : {};
   const hasPaidMedium = safeLower(utm.medium).includes('cpc') || safeLower(utm.medium).includes('ppc');
+  const googleAdsPaidSignal = hasGoogleAdsPaidSignal({
+    source: sourceValue.raw,
+    medium: utm.medium,
+    campaign: campaign || utm.campaign,
+    gclid,
+    url,
+    Ultimate_Source: e.Ultimate_Source,
+    Source: e.Source,
+    'Source of Enquiry': e['Source of Enquiry'],
+  });
   if (
     hasGclid(gclid) ||
     (safeLower(utm.source) === 'google' && (hasPaidMedium || ultimate.includes('paid') || ultimate.includes('ads'))) ||
-    (ultimate.includes('google ads') && !isUltimateActuallyMOC) ||
-    (ultimate.includes('paid search') && !isUltimateActuallyMOC)
+    (googleAdsPaidSignal && !isUltimateActuallyMOC)
   ) {
     return { key: 'google_ads', label: 'Google Ads', detail: campaign || utm.campaign };
   }
@@ -112,8 +169,12 @@ export function getNormalizedEnquirySource(raw: unknown): NormalizedEnquirySourc
     return { key: 'meta_ads', label: 'Meta Ads', detail: campaign };
   }
 
-  // 4) Organic Search (amalgamate organic search and google organic)
-  if ((ultimate.includes('organic search') && !isUltimateActuallyMOC) || 
+  // 4) Organic Search (amalgamate organic search, plain organic, SEO and google organic)
+  if ((ultimate === 'organic' && !isUltimateActuallyMOC) ||
+      (ultimate === 'seo' && !isUltimateActuallyMOC) ||
+      (ultimate.includes('organic search') && !isUltimateActuallyMOC) ||
+      (ultimate.includes('search engine') && !isUltimateActuallyMOC) ||
+      (ultimate.includes('natural search') && !isUltimateActuallyMOC) ||
       (ultimate.includes('google organic') && !isUltimateActuallyMOC) ||
       safeLower(utm.medium) === 'organic') {
     return { key: 'organic', label: 'Organic search' };
@@ -128,7 +189,7 @@ export function getNormalizedEnquirySource(raw: unknown): NormalizedEnquirySourc
 
   // 7) Actual source value (when not a contact method)
   if (ultimate && !isUltimateActuallyMOC) {
-    return { key: ultimate.replace(/\s+/g, '_'), label: toStr(e.Ultimate_Source as any) || toStr((e as any).Source) };
+    return { key: ultimate.replace(/\s+/g, '_'), label: sourceValue.raw };
   }
 
   // 8) Not Recorded (when source is empty or was actually a contact method)

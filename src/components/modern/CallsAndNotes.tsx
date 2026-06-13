@@ -2570,22 +2570,25 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
     fetchTranscript(call.recording_id);
     if (notedIds.has(call.recording_id) || call.attendance) fetchSavedNote(call.recording_id);
   }, [defaultJourneyFilter, fetchSavedNote, fetchTranscript, notedIds, resetSelectedWorkspace]);
-  const streamDateColumnWidth = 58;
-  const streamRowGap = 6;
-  const streamRowPadding = '6px 8px';
-  const streamDetailPadding = '0 8px 6px';
-  const streamCardPadding = '6px 8px';
-  const streamIconColumnWidth = 14;
-  const streamAccessoryColumnWidth = 22;
+  const streamDateColumnWidth = 64;
+  const streamRowGap = 8;
+  const streamRowPadding = '8px 10px';
+  const streamDetailPadding = '0 10px 8px';
+  const streamCardPadding = '8px 10px';
+  const streamIconColumnWidth = 16;
+  const streamAccessoryColumnWidth = 24;
+  const streamTitleFontSize = 11;
+  const streamMetaFontSize = 9;
+  const streamBadgeFontSize = 8;
   const renderJourneyStamp = (stamp: { primary: string; secondary?: string }) => {
     const isTodayStamp = stamp.secondary === 'Today';
     const todayTone = isDarkMode ? '#ffffff' : accent;
     const timeTone = isTodayStamp ? todayTone : muted;
     return (
-    <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'flex-start', gap: 3, minWidth: 0, color: muted, lineHeight: 1.08 }}>
-      <span style={{ fontSize: stamp.secondary ? 11 : 9, fontWeight: 800, lineHeight: 1, color: timeTone, fontVariantNumeric: 'tabular-nums', paddingBottom: isTodayStamp ? 2 : 0, boxShadow: isTodayStamp ? `inset 0 -1px 0 ${withAlpha(todayTone, isDarkMode ? 0.32 : 0.34)}` : undefined }}>{stamp.primary}</span>
+    <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'flex-start', gap: 4, minWidth: 0, color: muted, lineHeight: 1.1 }}>
+      <span style={{ fontSize: stamp.secondary ? 12 : 10, fontWeight: 800, lineHeight: 1, color: timeTone, fontVariantNumeric: 'tabular-nums', paddingBottom: isTodayStamp ? 2 : 0, boxShadow: isTodayStamp ? `inset 0 -1px 0 ${withAlpha(todayTone, isDarkMode ? 0.32 : 0.34)}` : undefined }}>{stamp.primary}</span>
       {stamp.secondary ? (
-        <span style={{ fontSize: 9, fontWeight: 500, lineHeight: 1.05, color: muted, opacity: isTodayStamp ? 0.92 : 0.78, letterSpacing: '0.02em' }}>{stamp.secondary}</span>
+        <span style={{ fontSize: 10, fontWeight: 500, lineHeight: 1.05, color: muted, opacity: isTodayStamp ? 0.92 : 0.78, letterSpacing: '0.02em' }}>{stamp.secondary}</span>
       ) : null}
     </div>
     );
@@ -3565,10 +3568,11 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                     const selectedCallShadow = isSelected
                       ? (isDarkMode ? `0 0 0 1px ${withAlpha(accent, 0.22)}, 0 10px 22px rgba(0,0,0,0.26)` : `0 0 0 1px ${withAlpha(accent, 0.18)}, 0 10px 22px rgba(6,23,51,0.1)`)
                       : 'none';
+                    const isCueTooltipOpen = hoveredCallCue?.recordingId === call.recording_id;
 
                     return (
-                      <div key={item.key} data-journey-item="true" style={{ display: 'flex', flexDirection: 'column' }}>
-                        <div data-fresh={freshJourneyKeys.has(item.key) ? 'true' : undefined} style={{ display: 'grid', gridTemplateColumns: `${streamDateColumnWidth}px minmax(0, 1fr)`, gap: streamRowGap, padding: streamRowPadding, borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)'}`, animation: freshJourneyKeys.has(item.key) ? 'opsDashRowFade 0.2s ease both' : undefined }}>
+                      <div key={item.key} data-journey-item="true" style={{ display: 'flex', flexDirection: 'column', position: 'relative', zIndex: isCueTooltipOpen ? 8 : 1 }}>
+                        <div data-fresh={freshJourneyKeys.has(item.key) ? 'true' : undefined} style={{ display: 'grid', gridTemplateColumns: `${streamDateColumnWidth}px minmax(0, 1fr)`, gap: streamRowGap, padding: streamRowPadding, borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)'}`, animation: freshJourneyKeys.has(item.key) ? 'opsDashRowFade 0.2s ease both' : undefined, position: 'relative', zIndex: isCueTooltipOpen ? 8 : 1 }}>
                           {renderJourneyStamp(stamp)}
                           <div
                             role="button"
@@ -3578,8 +3582,11 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                             onClick={selectCallForFiling}
                             onKeyDown={handleCallCardKeyDown}
                             style={{
+                              position: 'relative',
+                              zIndex: isCueTooltipOpen ? 8 : (isSelected ? 2 : 1),
                               padding: streamCardPadding,
-                              fontSize: 10,
+                              fontSize: streamTitleFontSize,
+                              lineHeight: 1.3,
                               color: text,
                               cursor: 'pointer',
                               background: isSelected ? (isDarkMode ? 'rgba(13,47,96,0.5)' : 'rgba(214,232,255,0.55)') : 'transparent',
@@ -3596,18 +3603,18 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                             onFocus={e => { if (!isSelected) e.currentTarget.style.boxShadow = `0 0 0 2px ${withAlpha(accent, isDarkMode ? 0.24 : 0.18)}`; }}
                             onBlur={e => { e.currentTarget.style.boxShadow = selectedCallShadow; }}
                           >
-                            <div style={{ display: 'grid', gridTemplateColumns: `${streamIconColumnWidth}px minmax(0, 1fr) auto`, alignItems: 'center', gap: 6 }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: `${streamIconColumnWidth}px minmax(0, 1fr) auto`, alignItems: 'center', gap: 8 }}>
                               <span style={{ display: 'flex', alignItems: 'center' }}>
                                 {isInbound
-                                  ? <FiPhoneIncoming size={10} style={{ color: colours.green }} />
-                                  : <FiPhoneOutgoing size={10} style={{ color: accent }} />
+                                  ? <FiPhoneIncoming size={11} style={{ color: colours.green }} />
+                                  : <FiPhoneOutgoing size={11} style={{ color: accent }} />
                                 }
                               </span>
-                              <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontStyle: hasResolvedSuggestion ? 'italic' : 'normal', color: hasResolvedSuggestion ? accent : text }}>
+                              <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: streamTitleFontSize, fontWeight: 600, lineHeight: 1.25, fontStyle: hasResolvedSuggestion ? 'italic' : 'normal', color: hasResolvedSuggestion ? accent : text }}>
                                   {partyName}
                                 </span>
-                                <span style={{ fontSize: 8, color: muted, display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: streamMetaFontSize, color: muted, display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', lineHeight: 1.35 }}>
                                   <span>{isInbound ? 'Incoming call' : 'Outgoing call'}</span>
                                   {call.resolved_ref && <span style={{ color: accent }}>{call.resolved_ref}</span>}
                                   {call.resolved_area && <span>· {call.resolved_area}</span>}
@@ -3625,7 +3632,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                                       style={{ minWidth: 38, textAlign: 'right', fontVariantNumeric: 'tabular-nums', flexShrink: 0, order: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', lineHeight: 1 }}
                                       title={`Duration ${formatDuration(call.duration_seconds)} · ${units} billable unit${units === 1 ? '' : 's'} (6 min each)`}
                                     >
-                                      <span style={{ fontSize: 9, color: muted }}>{formatDuration(call.duration_seconds)}</span>
+                                      <span style={{ fontSize: 10, color: muted }}>{formatDuration(call.duration_seconds)}</span>
                                     </span>
                                   );
                                 })()}
@@ -4189,11 +4196,11 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                           onMouseLeave={e => { if (linkedCall) e.currentTarget.style.background = isDarkMode ? 'rgba(255,140,0,0.05)' : 'rgba(255,140,0,0.03)'; }}
                           title={linkedCall ? 'Open linked call' : 'Saved attendance note'}
                         >
-                          <div style={{ display: 'grid', gridTemplateColumns: `${streamIconColumnWidth}px minmax(0, 1fr) auto`, gap: 6, alignItems: 'start' }}>
-                            <span style={{ display: 'flex', alignItems: 'center' }}><FiFileText size={10} style={{ color: colours.orange }} /></span>
-                            <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
-                              <span style={{ fontSize: 10, fontWeight: 600, color: text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{note.summary || 'Attendance note'}</span>
-                              <span style={{ fontSize: 8, color: muted, display: 'flex', flexWrap: 'wrap', gap: 5, alignItems: 'center' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: `${streamIconColumnWidth}px minmax(0, 1fr) auto`, gap: 8, alignItems: 'start' }}>
+                            <span style={{ display: 'flex', alignItems: 'center' }}><FiFileText size={11} style={{ color: colours.orange }} /></span>
+                            <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                              <span style={{ fontSize: streamTitleFontSize, fontWeight: 600, color: text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{note.summary || 'Attendance note'}</span>
+                              <span style={{ fontSize: streamMetaFontSize, color: muted, display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', lineHeight: 1.35 }}>
                                 {note.matter_ref && <span style={{ color: accent }}>{note.matter_ref}</span>}
                                 {linkedCall && <span>Call {callStamp || formatTime(linkedCall.start_time_utc)}</span>}
                                 {linkedCall && <span>{externalPartyName(linkedCall)}</span>}
@@ -4202,15 +4209,15 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><FiLink size={8} style={{ color: accent, opacity: 0.6 }} />Time entry matched</span>
                                 )}
                               </span>
-                              <span style={{ fontSize: 8, color: muted, display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                              <span style={{ fontSize: streamMetaFontSize, color: muted, display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', lineHeight: 1.35 }}>
                                 <span>{note.uploaded_nd ? 'Uploaded to ND' : 'Ready to upload to ND'}</span>
                               </span>
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                               {note.uploaded_nd ? (
-                                <span style={{ fontSize: 7, fontWeight: 700, padding: '1px 5px', borderRadius: 999, background: isDarkMode ? 'rgba(32,178,108,0.12)' : 'rgba(32,178,108,0.08)', color: colours.green, letterSpacing: '0.3px' }}>ND ✓</span>
+                                <span style={{ fontSize: streamBadgeFontSize, fontWeight: 700, padding: '2px 6px', borderRadius: 999, background: isDarkMode ? 'rgba(32,178,108,0.12)' : 'rgba(32,178,108,0.08)', color: colours.green, letterSpacing: '0.3px' }}>ND ✓</span>
                               ) : (
-                                <span style={{ fontSize: 7, fontWeight: 700, padding: '1px 5px', borderRadius: 999, background: isDarkMode ? 'rgba(255,140,0,0.12)' : 'rgba(255,140,0,0.08)', color: colours.orange, letterSpacing: '0.3px' }}>Saved</span>
+                                <span style={{ fontSize: streamBadgeFontSize, fontWeight: 700, padding: '2px 6px', borderRadius: 999, background: isDarkMode ? 'rgba(255,140,0,0.12)' : 'rgba(255,140,0,0.08)', color: colours.orange, letterSpacing: '0.3px' }}>Saved</span>
                               )}
                             </div>
                           </div>
@@ -4228,11 +4235,11 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                       <div key={item.key} data-journey-item="true" data-fresh={freshJourneyKeys.has(item.key) ? 'true' : undefined} style={{ display: 'grid', gridTemplateColumns: `${streamDateColumnWidth}px minmax(0, 1fr)`, gap: streamRowGap, padding: streamRowPadding, borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)'}`, animation: freshJourneyKeys.has(item.key) ? 'opsDashRowFade 0.2s ease both' : undefined }}>
                         {renderJourneyStamp(stamp)}
                         <div style={{ padding: streamCardPadding, borderStyle: 'solid', borderWidth: '1px 1px 1px 2px', borderColor: `${cardBorder} ${cardBorder} ${cardBorder} ${colours.green}`, background: isDarkMode ? 'rgba(32,178,108,0.05)' : 'rgba(32,178,108,0.03)' }}>
-                          <div style={{ display: 'grid', gridTemplateColumns: `${streamIconColumnWidth}px minmax(0, 1fr) auto`, gap: 6, alignItems: 'start' }}>
-                            <span style={{ display: 'flex', alignItems: 'center' }}><FiMail size={10} style={{ color: colours.green }} /></span>
-                            <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
-                              <span style={{ fontSize: 10, fontWeight: 600, color: text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{email.subject || 'Sent email'}</span>
-                              <span style={{ fontSize: 8, color: muted, display: 'flex', flexWrap: 'wrap', gap: 5, alignItems: 'center' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: `${streamIconColumnWidth}px minmax(0, 1fr) auto`, gap: 8, alignItems: 'start' }}>
+                            <span style={{ display: 'flex', alignItems: 'center' }}><FiMail size={11} style={{ color: colours.green }} /></span>
+                            <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                              <span style={{ fontSize: streamTitleFontSize, fontWeight: 600, color: text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{email.subject || 'Sent email'}</span>
+                              <span style={{ fontSize: streamMetaFontSize, color: muted, display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', lineHeight: 1.35 }}>
                                 <span>{email.senderInitials || email.senderEmail}</span>
                                 <span>to {email.recipientSummary}</span>
                                 {email.source && <span style={{ color: accent }}>{email.source}</span>}
@@ -4241,7 +4248,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                               </span>
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                              <span style={{ fontSize: 7, fontWeight: 700, padding: '1px 5px', borderRadius: 999, background: isDarkMode ? 'rgba(32,178,108,0.12)' : 'rgba(32,178,108,0.08)', color: colours.green, letterSpacing: '0.3px' }}>EMAIL</span>
+                              <span style={{ fontSize: streamBadgeFontSize, fontWeight: 700, padding: '2px 6px', borderRadius: 999, background: isDarkMode ? 'rgba(32,178,108,0.12)' : 'rgba(32,178,108,0.08)', color: colours.green, letterSpacing: '0.3px' }}>EMAIL</span>
                             </div>
                           </div>
                         </div>
@@ -4261,16 +4268,16 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, use
                     <div key={item.key} data-journey-item="true" data-fresh={freshJourneyKeys.has(item.key) ? 'true' : undefined} style={{ display: 'grid', gridTemplateColumns: `${streamDateColumnWidth}px minmax(0, 1fr)`, gap: streamRowGap, padding: streamRowPadding, borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)'}`, animation: freshJourneyKeys.has(item.key) ? 'opsDashRowFade 0.2s ease both' : undefined }}>
                       {renderJourneyStamp(stamp)}
                       <div style={{ padding: streamCardPadding, borderStyle: 'solid', borderWidth: '1px 1px 1px 2px', borderColor: `${cardBorder} ${cardBorder} ${cardBorder} ${accent}`, background: isDarkMode ? 'rgba(54,144,206,0.04)' : 'rgba(13,47,96,0.02)' }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: `${streamIconColumnWidth}px minmax(0, 1fr) auto`, gap: 6, alignItems: 'start' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: `${streamIconColumnWidth}px minmax(0, 1fr) auto`, gap: 8, alignItems: 'start' }}>
                           <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}><img src={clioLogo} alt="Clio" style={{ width: 12, height: 12, opacity: isDarkMode ? 0.88 : 0.72, filter: clioLogoFilter }} /></span>
-                          <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
-                            <span style={{ fontSize: 10, fontWeight: 600, color: text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{activityLabel}</span>
-                            <span style={{ fontSize: 8, color: muted, display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                          <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <span style={{ fontSize: streamTitleFontSize, fontWeight: 600, color: text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{activityLabel}</span>
+                            <span style={{ fontSize: streamMetaFontSize, color: muted, display: 'flex', flexWrap: 'wrap', gap: 6, lineHeight: 1.35 }}>
                               {activity.user?.name && <span>{activity.user.name}</span>}
                               {activity.note && <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{activity.note}</span>}
                             </span>
                           </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end', fontSize: 8, color: muted }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end', fontSize: streamMetaFontSize, color: muted, lineHeight: 1.35 }}>
                             {activityHours && <span>{activityHours}</span>}
                             {activityValue && <span>{activityValue}</span>}
                           </div>

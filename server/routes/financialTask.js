@@ -18,6 +18,9 @@ const ASANA_PROJECT_ID = "1203336124217593";
 const ASANA_WORKSPACE_ID = process.env.ASANA_WORKSPACE_ID || "1203336123398249";
 const ASANA_REQUESTED_SECTION_ID = process.env.ASANA_ACCOUNTS_REQUESTED_SECTION_ID || "1203336124217594";
 const PAYMENT_REQUESTS_WEBHOOK_SECRET_NAME = 'payment-request-logic-app-url';
+const GRAPH_FINANCIAL_TENANT_SECRET_NAME = 'team-hub-notification-tenant-id';
+const GRAPH_FINANCIAL_CLIENT_ID_SECRET_NAME = 'team-hub-notification-app-id';
+const GRAPH_FINANCIAL_CLIENT_SECRET_SECRET_NAME = 'team-hub-notification-client-secret';
 const SIMPLE_UPLOAD_MAX_BYTES = 4 * 1024 * 1024;
 const UPLOAD_CHUNK_SIZE = 10 * 320 * 1024;
 const ASANA_ATTACHMENTS_URL = 'https://app.asana.com/api/1.0/attachments';
@@ -173,15 +176,15 @@ async function getAsanaAccessToken(credentials, requestId) {
 
 // Get Microsoft Graph access token
 async function getGraphAccessToken() {
-  const [clientId, clientSecret] = await Promise.all([
-    getSecret("graph-aidenteams-clientid"),
-    getSecret("graph-aiden-teamhub-financialattachments-clientsecret")
+  const [tenantId, clientId, clientSecret] = await Promise.all([
+    getSecret(GRAPH_FINANCIAL_TENANT_SECRET_NAME),
+    getSecret(GRAPH_FINANCIAL_CLIENT_ID_SECRET_NAME),
+    getSecret(GRAPH_FINANCIAL_CLIENT_SECRET_SECRET_NAME)
   ]);
-  if (!clientId || !clientSecret) {
-    throw createHttpError(502, 'GRAPH_TOKEN_CONFIG_MISSING', 'Failed to get Graph token: client credentials are not configured.', 'Missing Graph client secret value');
+  if (!tenantId || !clientId || !clientSecret) {
+    throw createHttpError(502, 'GRAPH_TOKEN_CONFIG_MISSING', 'Failed to get Graph token: client credentials are not configured.', 'Missing Graph client credentials');
   }
   
-  const tenantId = "7fbc252f-3ce5-460f-9740-4e1cb8bf78b8";
   const params = new URLSearchParams({
     client_id: clientId,
     scope: "https://graph.microsoft.com/.default",

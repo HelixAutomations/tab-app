@@ -1254,7 +1254,7 @@ const AppWithContext: React.FC = () => {
         const userAow = originalAdminUser ? "" : (userData[0].AOW || "");
         const userInitials = effectiveUser.initials;
 
-        const adminFetchAll = isDevOwner(userData[0]) && !originalAdminUser;
+        const adminFetchAll = false;
         const enquiriesRes = await fetchEnquiries(userEmail, dateFrom, dateTo, userAow, userInitials, adminFetchAll, true);
         setEnquiries(enquiriesRes);
         setLastEnquiriesLiveSyncAt(Date.now());
@@ -2049,7 +2049,7 @@ const AppWithContext: React.FC = () => {
         });
         setEnquiriesLiveRefreshInFlight(true);
 
-          const enquiriesRes = await fetchEnquiries(enquiriesEmail, dateFrom, dateTo, initialUserData[0].AOW || "", userInitials, isDevOwner(initialUserData[0] as UserData), false)
+          const enquiriesRes = await fetchEnquiries(enquiriesEmail, dateFrom, dateTo, initialUserData[0].AOW || "", userInitials, false, false)
           .catch(err => {
             console.warn('⚠️ Enquiries API failed, using fallback:', err);
             return import('./tabs/home/liveLocalEnquiries').then(m => m.getLiveLocalEnquiries(initialUserData[0].Email) as Enquiry[]);
@@ -2104,7 +2104,7 @@ const AppWithContext: React.FC = () => {
             email: enquiriesEmail,
             initials: userInitials,
             userAow: initialUserData[0].AOW || '',
-            fetchAll: isDevOwner(initialUserData[0] as UserData),
+            fetchAll: false,
             dateFrom,
             dateTo,
             restoredSnapshot: restoredGateSnapshot,
@@ -2269,7 +2269,7 @@ const AppWithContext: React.FC = () => {
             trackBootStage('teams', 'enquiries', 'started', {
               entry: 'teams',
               restoredSnapshot: restoredShellSnapshot,
-              fetchAll: isDevOwner(primaryUser),
+              fetchAll: false,
             });
             fetchEnquiries(
               enquiriesEmail,
@@ -2277,7 +2277,7 @@ const AppWithContext: React.FC = () => {
               dateTo,
               "", // Empty AOW - frontend will apply AOW logic for Claimable state only
               userInitials,
-              isDevOwner(primaryUser),
+              false,
               false,
             ).then(res => {
               const enquiriesMs = Math.round(performance.now() - t0Enq);
@@ -2291,7 +2291,7 @@ const AppWithContext: React.FC = () => {
               trackBootStage('teams', 'enquiries', 'completed', {
                 entry: 'teams',
                 restoredSnapshot: restoredShellSnapshot,
-                fetchAll: isDevOwner(primaryUser),
+                fetchAll: false,
                 enquiriesCount: res.length,
                 deliveryMode: deferLiveEnquiriesRefresh ? 'cached-first' : 'direct',
               }, {
@@ -2314,7 +2314,7 @@ const AppWithContext: React.FC = () => {
               trackBootStage('teams', 'enquiries', 'failed', {
                 entry: 'teams',
                 restoredSnapshot: restoredShellSnapshot,
-                fetchAll: isDevOwner(primaryUser),
+                fetchAll: false,
               }, {
                 duration: enquiriesMs,
                 error: err instanceof Error ? err.message : String(err),
@@ -2328,7 +2328,7 @@ const AppWithContext: React.FC = () => {
                   email: enquiriesEmail,
                   initials: userInitials,
                   userAow: '',
-                  fetchAll: isDevOwner(primaryUser),
+                  fetchAll: false,
                   dateFrom,
                   dateTo,
                   restoredSnapshot: restoredShellSnapshot,

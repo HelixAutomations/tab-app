@@ -1,1 +1,0 @@
-2026-05-31 / Add sortable infrastructure resource headers / Make the Infrastructure resource-group list and resource inventory headers clickable, with toggled ascending/descending sorting for group name, 30-day cost, resource count, resource name, type, region, SKU and cost across the compact pane and full drill-in view. (~ src/tabs/roadmap/system/SystemInfrastructureView.tsx)

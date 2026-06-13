@@ -17,7 +17,7 @@ export const CCL_USERS = ['localhost'] as const;
 export const PRIVATE_HUB_CONTROL_USERS = ['LZ'] as const;
 export const SESSION_MODE_CONTROL_USERS = ['LZ', 'AC'] as const;
 export const DEMO_MODE_CONTROL_USERS = ['LZ', 'AC', 'EA'] as const;
-export const ACTIVITY_TAB_USERS = ['LZ', 'EA'] as const;
+export const ACTIVITY_TAB_USERS = ['LZ', 'AC', 'EA'] as const;
 
 export function isCclOperationsAvailable(options?: { viewAsProd?: boolean }): boolean {
     if (options?.viewAsProd) return false;
@@ -157,6 +157,9 @@ export function canSeeActivityTab(user?: UserData | null, isLocalDev = false): b
         first === 'luke' ||
         nickname === 'luke' ||
         email === 'lz@helix-law.com' ||
+        first === 'alex' ||
+        nickname === 'alex' ||
+        email === 'ac@helix-law.com' ||
         first === 'emma' ||
         nickname === 'emma' ||
         email === 'ea@helix-law.com'

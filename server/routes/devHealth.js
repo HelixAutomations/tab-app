@@ -24,12 +24,17 @@ const BOOT_ID =
 const BOOT_AT = Date.now();
 
 router.get('/', (req, res) => {
+  const backgroundWorkersEnabled =
+    process.env.NODE_ENV === 'production'
+    || process.env.HELIX_ENABLE_BACKGROUND === '1'
+    || process.env.HELIX_LAZY_INIT === '0';
   res.set('Cache-Control', 'no-store');
   res.json({
     bootId: BOOT_ID,
     uptime: Date.now() - BOOT_AT,
     pid: process.pid,
-    lazyInit: !!process.env.HELIX_LAZY_INIT,
+    lazyInit: !backgroundWorkersEnabled,
+    backgroundWorkersEnabled,
     nodeEnv: process.env.NODE_ENV || 'development',
   });
 });

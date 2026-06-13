@@ -67,6 +67,7 @@ const { getRedisClient } = require('./utils/redisClient');
 const { getPool } = require('./utils/db');
 const { getSecret } = require('./utils/getSecret');
 const { startDataOperationsScheduler, stopScheduler, getSchedulerState } = require('./utils/dataOperationsScheduler');
+const { startMirrorSync: startTasksMirrorSync, stopMirrorSync: stopTasksMirrorSync } = require('./utils/asanaTasksMirror');
 const { startEventPoller, POLL_INTERVAL_MS } = require('./utils/eventPoller');
 const { requestTrackerMiddleware } = require('./utils/requestTracker');
 const { setStatus: setServerStatus } = require('./utils/serverStatus');
@@ -423,6 +424,7 @@ const formsAiRouter = lazyRouter('./routes/formsAi');
 const updateEnquiryPOCRouter = lazyRouter('./routes/updateEnquiryPOC');
 const pitchesRouter = lazyRouter('./routes/pitches');
 const paymentsRouter = lazyRouter('./routes/payments');
+const marketingAttributionChainRouter = lazyRouter('./routes/marketing-attribution-chain');
 const instructionDetailsRouter = lazyRouter('./routes/instruction-details');
 const instructionsRouter = lazyRouter('./routes/instructions');
 const updateInstructionStatusRouter = lazyRouter('./routes/updateInstructionStatus');
@@ -517,6 +519,8 @@ const systemTriageRouter = lazyRouter('./routes/system-triage');
 const matterReplayRouter = lazyRouter('./routes/matter-replay');
 const operatorActionsRouter = lazyRouter('./routes/operator-actions');
 const accessRouter = lazyRouter('./routes/access');
+const systemTasksRouter = lazyRouter('./routes/system-tasks');
+const taskIntakeRouter = lazyRouter('./routes/task-intake');
 _bootMark('routes:require:done');
 
 const isProd = process.env.NODE_ENV === 'production';
@@ -846,6 +850,7 @@ app.post('/api/deal-capture', require('./routes/dealCapture'));
 app.use('/api/deals', require('./routes/dealUpdate'));
 app.use('/api/pitches', pitchesRouter);
 app.use('/api/payments', paymentsRouter);
+app.use('/api/marketing-attribution-chain', marketingAttributionChainRouter);
 app.use('/api/instruction-details', instructionDetailsRouter);
 app.use('/api/instructions', instructionsRouter);
 app.use('/api/update-instruction-status', updateInstructionStatusRouter);
@@ -890,6 +895,8 @@ app.use('/api/ops-pulse', opsPulseRouter);
 app.use('/api/ops-checks', opsChecksRouter);
 app.use('/api/system-triage', systemTriageRouter);
 app.use('/api/matter-replay', matterReplayRouter);
+app.use('/api/system-tasks', systemTasksRouter);
+app.use('/api/tasks', taskIntakeRouter);
 
 // In-app operator actions (B1) — first-class, audited replacements for
 // LZ-only tools/*.mjs one-offs. Phase A: dev-owner only, person lookup pilot.
@@ -1063,11 +1070,14 @@ app.listen(PORT, () => {
 
     // Defer scheduler + event poller until hydration completes
     _hydrationReady.then(() => {
-        // Dev opt-in: HELIX_LAZY_INIT skips the scheduler + event poller so the
-        // local boot is snappy and nodemon restarts don't re-spin all of them.
-        // Always runs in production, regardless of the env flag.
-        const skipBackground =
-            process.env.NODE_ENV !== 'production' && process.env.HELIX_LAZY_INIT === '1';
+        // Local dev now defaults to skipping scheduler/poller boot work unless
+        // the operator explicitly opts in. Production always runs background
+        // workers regardless of local dev flags.
+        const enableBackgroundWorkers =
+            process.env.NODE_ENV === 'production'
+            || process.env.HELIX_ENABLE_BACKGROUND === '1'
+            || process.env.HELIX_LAZY_INIT === '0';
+        const skipBackground = !enableBackgroundWorkers;
 
         banner({
             port: PORT,
@@ -1076,13 +1086,14 @@ app.listen(PORT, () => {
             instructionsSql: _connStatus.instructionsSql,
             clio: _connStatus.clio,
             scheduler: !skipBackground,
-            eventPoller: skipBackground ? 'skipped (HELIX_LAZY_INIT)' : POLL_INTERVAL_MS / 1000,
+            eventPoller: skipBackground ? 'skipped (local default)' : POLL_INTERVAL_MS / 1000,
+            tasksMirror: skipBackground ? 'skipped (local default)' : `${(Number(process.env.HELIX_TASKS_MIRROR_INTERVAL_MS) || 30000) / 1000}s`,
         });
 
         if (skipBackground) {
             try {
                 trackEvent('Server.Boot.LazyInit.Skipped', {
-                    reason: 'HELIX_LAZY_INIT',
+                    reason: process.env.HELIX_LAZY_INIT === '1' ? 'HELIX_LAZY_INIT' : 'local-default',
                     skipped: 'scheduler,eventPoller',
                 });
             } catch { /* */ }
@@ -1093,6 +1104,15 @@ app.listen(PORT, () => {
             startDataOperationsScheduler();
             startEventPoller();
             setServerStatus('eventPoller', true);
+            // System Tasks Hub-side mirror: 30s drift sync against Asana.
+            // Same gate as the scheduler so local dev skips it unless background
+            // workers were explicitly enabled.
+            try {
+                startTasksMirrorSync();
+                setServerStatus('tasksMirror', true);
+            } catch (mirrorErr) {
+                console.warn('[TasksMirror] failed to start:', mirrorErr?.message || mirrorErr);
+            }
             // Phase Access.4 — daily-ish expiry sweep. Same gate as scheduler.
             try {
                 const access = require('./utils/access');
@@ -1109,6 +1129,7 @@ app.listen(PORT, () => {
 async function gracefulShutdown(signal) {
     schedulerLogger.info(`${signal} received — initiating graceful shutdown`);
     stopScheduler();
+    try { stopTasksMirrorSync(); } catch { /* */ }
 
     // Stop background pre-warm timers so Node can exit cleanly.
     try {

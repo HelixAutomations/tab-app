@@ -294,6 +294,30 @@
 .scenario-choice-card.active {
   border-color: var(--scenario-accent) !important;
 }
+
+.draft-recovery-card {
+  border-radius: 0 !important;
+  box-sizing: border-box;
+  display: block;
+  min-height: 0 !important;
+  min-width: 0;
+  width: 100%;
+  transition: background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease;
+}
+
+.draft-recovery-card:hover,
+.draft-recovery-card:focus-visible {
+  border-color: var(--scenario-accent) !important;
+  outline: none;
+}
+
+.draft-recovery-card.active {
+  border-color: var(--scenario-accent) !important;
+}
+
+.draft-recovery-card .scenario-choice-card__icon-shell {
+  flex: 0 0 auto;
+}
 /* Pitch composer wizard — Typeform-style progress strip + denser collapsed steps */
 .pitch-wizard {
   margin-bottom: 14px;
@@ -1204,6 +1228,11 @@ button.pitch-wizard__progress-chip:focus-visible {
 /* Body step exception: the email editor needs a visible container so the
    editor surface, formatting toolbar and Copy/Preview controls feel held
    together as one unit. */
+.pitch-typeform__steps-host .pitch-step-shell[data-wizard-step="draft"] {
+  margin-bottom: 16px !important;
+  padding: 0 !important;
+}
+
 .pitch-typeform__steps-host .pitch-step-shell[data-wizard-step="body"] {
   background: var(--surface-section) !important;
   border: 1px solid var(--border-base) !important;
@@ -1212,6 +1241,7 @@ button.pitch-wizard__progress-chip:focus-visible {
 }
 
 .pitch-typeform__steps-host .pitch-step-shell { display: none; }
+.pitch-typeform__steps-host[data-active-step="draft"] .pitch-step-shell[data-wizard-step="draft"],
 .pitch-typeform__steps-host[data-active-step="delivery"] .pitch-step-shell[data-wizard-step="delivery"],
 .pitch-typeform__steps-host[data-active-step="scenario"] .pitch-step-shell[data-wizard-step="scenario"],
 .pitch-typeform__steps-host[data-active-step="subject"] .pitch-step-shell[data-wizard-step="subject"],

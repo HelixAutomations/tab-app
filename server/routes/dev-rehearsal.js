@@ -11,11 +11,35 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
+const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
 
 const router = express.Router();
 
 const SEED_SCRIPT = path.resolve(__dirname, '..', '..', 'scripts', 'seed-rehearsal-record-sql.mjs');
 const DEMO_REFERENCE_PATH = path.resolve(__dirname, '..', '..', '.github', 'instructions', 'DEMO_MODE_REFERENCE.md');
+const REPORTING_DIR = path.resolve(__dirname, '..', '..', 'src', 'tabs', 'Reporting');
+
+const toWorkspacePath = (filePath) => filePath.replace(path.resolve(__dirname, '..', '..') + path.sep, '').split(path.sep).join('/');
+
+const walkFiles = async (dir) => {
+    const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    const files = [];
+    for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+            files.push(...await walkFiles(fullPath));
+        } else if (entry.isFile() && !entry.name.endsWith('.bak')) {
+            files.push(fullPath);
+        }
+    }
+    return files;
+};
+
+const countLines = async (filePath) => {
+    const content = await fs.promises.readFile(filePath, 'utf8');
+    if (!content) return 0;
+    return content.split(/\r\n|\r|\n/).length;
+};
 
 router.post('/reseed-rehearsal', (req, res) => {
     if (process.env.NODE_ENV === 'production') {
@@ -71,6 +95,49 @@ router.post('/reseed-rehearsal', (req, res) => {
             stderrTail: stderr.slice(-2000),
         });
     });
+});
+
+router.get('/reporting-structure', async (req, res) => {
+    if (process.env.NODE_ENV === 'production') {
+        return res.status(403).json({ ok: false, error: 'Disabled in production' });
+    }
+
+    const startedAt = Date.now();
+    trackEvent('Dev.ReportingStructure.Started', { operation: 'reporting-structure', triggeredBy: 'local-ui' });
+    try {
+        const files = await walkFiles(REPORTING_DIR);
+        const fileRows = await Promise.all(files.map(async (filePath) => {
+            const lines = await countLines(filePath);
+            const relativePath = toWorkspacePath(filePath);
+            const modulePath = toWorkspacePath(path.dirname(filePath));
+            return { path: relativePath, module: modulePath, lines };
+        }));
+
+        const modules = Array.from(fileRows.reduce((map, file) => {
+            const current = map.get(file.module) || { module: file.module, files: 0, lines: 0 };
+            current.files += 1;
+            current.lines += file.lines;
+            map.set(file.module, current);
+            return map;
+        }, new Map()).values()).sort((a, b) => b.lines - a.lines);
+
+        const largestFiles = [...fileRows].sort((a, b) => b.lines - a.lines).slice(0, 12);
+        const durationMs = Date.now() - startedAt;
+        trackMetric('Dev.ReportingStructure.Duration', durationMs, { operation: 'reporting-structure' });
+        trackEvent('Dev.ReportingStructure.Completed', {
+            operation: 'reporting-structure',
+            triggeredBy: 'local-ui',
+            durationMs,
+            files: fileRows.length,
+            modules: modules.length,
+        });
+        res.set('Cache-Control', 'no-store');
+        return res.json({ ok: true, generatedAt: new Date().toISOString(), totals: { files: fileRows.length, lines: fileRows.reduce((sum, file) => sum + file.lines, 0) }, modules, largestFiles });
+    } catch (err) {
+        trackException(err, { operation: 'Dev.ReportingStructure', phase: 'scan' });
+        trackEvent('Dev.ReportingStructure.Failed', { operation: 'reporting-structure', triggeredBy: 'local-ui', error: err.message });
+        return res.status(500).json({ ok: false, error: String(err && err.message ? err.message : err) });
+    }
 });
 
 // Serve the Demo Mode runbook as markdown so the in-app "About demo mode"

@@ -476,6 +476,19 @@ export function replacePlaceholders(
   return result;
 }
 
+export function hasInstructLinkReference(html: string | undefined | null): boolean {
+  const value = String(html || '');
+  if (/\[InstructLink\]/i.test(value)) return true;
+  if (/\[\[INSTRUCT_LINK::[^\]]+\]\]/i.test(value)) return true;
+  if (/<span\b(?=[^>]*\bclass=(['"])[^'"]*\binstruct-link-pending\b[^'"]*\1)[^>]*>\s*Instruct\s+Helix\s+Law\s*<\/span>/i.test(value)) {
+    return true;
+  }
+  if (/<a\b(?=[^>]*\bclass=(['"])[^'"]*\binstruct-link\b[^'"]*\1)[^>]*>\s*Instruct\s+Helix\s+Law\s*<\/a>/i.test(value)) {
+    return true;
+  }
+  return /<a\b(?=[^>]*\bhref=(['"])https?:\/\/instruct\.helix-law\.com\/pitch(?:\/[^'"]+)?[^'"]*\1)[^>]*>\s*Instruct\s+Helix\s+Law\s*<\/a>/i.test(value);
+}
+
 /**
  * Helper function to replace [FE] and [ACID] with dynamic values.
  */

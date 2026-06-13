@@ -1,9 +1,9 @@
 ---
-applyTo: "**"
+applyTo: "tools/dev-*.mjs,src/setupProxy.js,.github/instructions/dev-loop.instructions.md"
 allowGlobalApplyTo: true
 ---
 
-# Dev Loop (always-on)
+# Dev Loop
 
 Last verified: 2026-05-23
 
@@ -17,6 +17,10 @@ Trigger phrases and cleanup ladder for the local dev/browser loop. Boot-mode det
 | `npm run dev:all` | Working on schedulers, sync logic, Clio polling, anything timer-driven. |
 
 Both scripts route through `tools/dev-all-with-logs.mjs`, which now runs a pre-boot cleanup guard after confirming ports `3000` and `8080` are free. It clears old dev logs every boot and clears heavy webpack/build cache only when recoverable clutter exceeds 500MB. Use `--clean-full` or `HELIX_DEV_CLEAN_MODE=full` for a forced full wipe; use `--no-auto-clean` or `HELIX_DEV_AUTO_CLEAN=0` only when debugging the cleanup itself.
+
+## Build validation cadence
+
+`npm run build` is expensive in this repo. Do not run it automatically after every completed change. Prefer the cheapest focused validation that matches the touched slice: editor diagnostics, `node --check` for server files, a route smoke, a narrow test, or changelog checks. Ask the operator before running a full build unless they explicitly requested build/deploy readiness, the change touches production packaging, or a narrower validation cannot cover the risk.
 
 ## Local browser snappiness reset
 

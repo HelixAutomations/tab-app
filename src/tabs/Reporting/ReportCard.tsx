@@ -45,6 +45,7 @@ interface ReportCardData {
   description?: string;
   disabled?: boolean;
   development?: boolean;
+  tier?: 'prod' | 'devPreview';
   readiness: ButtonState;
   dependencies: ReportDependency[];
   readyDependencies: number;
@@ -424,7 +425,12 @@ const ReportCard: React.FC<ReportCardProps> = ({
   const { readiness, dependencies, readyDependencies, totalDependencies, ...report } = card;
   const visualState: ReportVisualState = (report.disabled && !testMode) ? 'disabled' : readiness;
   const isReportReady = readiness === 'ready' || testMode;
+  const isDevPreview = report.tier === 'devPreview';
   const stateTokens = REPORT_CARD_STATE_TOKENS[visualState];
+  const darkHeaderBase = 'rgba(6, 23, 51, 0.9)';
+  const darkHeaderHover = 'rgba(9, 30, 58, 0.96)';
+  const darkHeaderActive = 'rgba(12, 36, 68, 0.96)';
+  const darkHeaderLoading = 'rgba(14, 38, 70, 0.98)';
 
   const isPrimaryRow = isPrimary && (expandedReportCards.some(key => ['dashboard', 'enquiries', 'matters'].includes(key)));
   const isActive = isPrimary && activePrimaryCard === report.key;
@@ -450,6 +456,7 @@ const ReportCard: React.FC<ReportCardProps> = ({
 
   return (
     <div
+      className={isDevPreview ? 'reports-dev-preview-card' : undefined}
       key={report.key}
       onClick={() => {
         if (isPrimary && isExpanded) {
@@ -461,6 +468,8 @@ const ReportCard: React.FC<ReportCardProps> = ({
         borderRadius: 0,
         background: isDarkMode ? 'rgba(6, 23, 51, 0.45)' : 'rgba(255, 255, 255, 0.6)',
         border: `0.5px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.18)' : 'rgba(6, 23, 51, 0.06)'}`,
+        borderLeft: isPrimary ? `3px solid ${isReportReady ? colours.highlight : colours.subtleGrey}` : undefined,
+        ['--reports-dev-preview-accent' as string]: isDevPreview ? colours.cta : undefined,
         overflow: 'hidden',
         transition: 'all 0.2s ease',
         opacity: visualState === 'disabled' ? 0.38 : 1,
@@ -468,6 +477,7 @@ const ReportCard: React.FC<ReportCardProps> = ({
         cursor: isPrimary && isExpanded ? 'pointer' : 'default',
         animation: 'fadeInUp 0.35s ease forwards',
         animationDelay: `${animationIndex * 0.06}s`,
+        position: 'relative',
       }}
     >
       {/* ── Header row ─────────────────────────────────────────────── */}
@@ -487,10 +497,11 @@ const ReportCard: React.FC<ReportCardProps> = ({
           justifyContent: 'space-between',
           gap: 14,
           background: reportProgressStates[report.key]?.isLoading
-            ? (isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.04)')
+            ? (isDarkMode ? darkHeaderLoading : 'rgba(54, 144, 206, 0.04)')
             : (isPrimary && isActive && isExpanded)
-            ? (isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.03)')
-            : 'transparent',
+            ? (isDarkMode ? darkHeaderActive : 'rgba(54, 144, 206, 0.03)')
+            : (isDarkMode ? darkHeaderBase : 'transparent'),
+          borderBottom: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.24)' : 'rgba(6, 23, 51, 0.06)'}`,
           transition: 'all 0.2s ease',
           boxShadow: 'none',
           position: 'relative' as const,
@@ -498,16 +509,16 @@ const ReportCard: React.FC<ReportCardProps> = ({
         }}
         onMouseEnter={(e) => {
           if (report.action && (!report.disabled || testMode) && !reportProgressStates[report.key]?.isLoading) {
-            e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.04)' : 'rgba(54, 144, 206, 0.03)';
+            e.currentTarget.style.background = isDarkMode ? darkHeaderHover : 'rgba(54, 144, 206, 0.03)';
           }
         }}
         onMouseLeave={(e) => {
           const currentProgress = reportProgressStates[report.key];
           e.currentTarget.style.background = currentProgress?.isLoading
-            ? (isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.04)')
+            ? (isDarkMode ? darkHeaderLoading : 'rgba(54, 144, 206, 0.04)')
             : (isPrimary && isActive && isExpanded)
-            ? (isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.03)')
-            : 'transparent';
+            ? (isDarkMode ? darkHeaderActive : 'rgba(54, 144, 206, 0.03)')
+            : (isDarkMode ? darkHeaderBase : 'transparent');
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1 }}>
@@ -1123,6 +1134,24 @@ const ReportCard: React.FC<ReportCardProps> = ({
                     onClick={refreshGoogleAnalyticsOnly}
                     styles={subtleButtonStyles(isDarkMode)}
                     disabled={reportLoadingStates.seoReport}
+                    iconProps={{ iconName: 'Refresh' }}
+                  />
+                </>
+              )}
+
+              {report.action === 'marketingPerformance' && (
+                <>
+                  <PrimaryButton
+                    text={resolvePrimaryButtonLabel('Open marketing report')}
+                    onClick={() => { if ((!report.disabled || testMode) && isReportReady) onNavigateToReport('marketingPerformance'); }}
+                    styles={isReportReady && (!report.disabled || testMode) ? primaryButtonStyles(isDarkMode) : notReadyButtonStyles(isDarkMode)}
+                    disabled={(report.disabled && !testMode) || !isReportReady}
+                  />
+                  <DefaultButton
+                    text={reportLoadingStates.marketingPerformance ? 'Refreshing...' : 'Refresh GA4'}
+                    onClick={refreshGoogleAnalyticsOnly}
+                    styles={subtleButtonStyles(isDarkMode)}
+                    disabled={reportLoadingStates.marketingPerformance}
                     iconProps={{ iconName: 'Refresh' }}
                   />
                 </>

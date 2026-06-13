@@ -20,6 +20,24 @@ import { useNavigatorActions } from '../../app/functionality/NavigatorContext';
 import NavigatorDetailBar from '../../components/NavigatorDetailBar';
 import OutstandingMatterExplorer from './components/OutstandingMatterExplorer';
 import ManagementDashboardTrustRail from './ManagementDashboardTrustRail';
+import DataHubDatasetDetail from './components/DataHubDatasetDetail';
+import DataHubDatasetPicker from './components/DataHubDatasetPicker';
+import DataHubAttributionWorkbench from './components/DataHubAttributionWorkbench';
+import GoogleAnalyticsProviderPanel from './components/GoogleAnalyticsProviderPanel';
+import EnquirySourceLedger from './components/EnquirySourceLedger';
+import MattersSourceLedger from './components/MattersSourceLedger';
+import {
+  REPORTING_DATASET_BY_KEY,
+  type Ga4ProviderCheckState,
+  type Ga4ProviderPayload,
+  type ReportingDatasetKey,
+  type ReportingLiveDatasetSummary,
+} from './reportingDatasets';
+
+/* Local helper: subtle border stroke used across reporting UI */
+const subtleStroke = (isDarkMode: boolean): string => (
+  isDarkMode ? 'rgba(75, 85, 99, 0.28)' : 'rgba(6, 23, 51, 0.06)'
+);
 
 type PlanData = {
   startDate: string;
@@ -29,16 +47,7 @@ type PlanData = {
   message: string;
 };
 
-type DatasetSummary = {
-  definition: {
-    key: string;
-    name: string;
-  };
-  status: 'idle' | 'loading' | 'ready' | 'error';
-  updatedAt: number | null | undefined;
-  count: number;
-  cached: boolean;
-};
+type DatasetSummary = ReportingLiveDatasetSummary;
 
 type OperationLogEntry = {
   id: string;
@@ -303,6 +312,10 @@ interface DataCentreProps {
   datasets: DatasetSummary[];
   /** Current user's full name for audit trail */
   userName?: string;
+  /** Current user's initials for dev-preview gates */
+  userInitials?: string;
+  /** Mark this surface as the restricted production audience view */
+  showProdAudienceBadge?: boolean;
 }
 
 type RangePreset = 'custom' | 'today' | 'yesterday' | 'thisWeek' | 'lastWeek' | 'rolling7d' | 'rolling14d' | 'thisMonth' | 'lastMonth' | 'ytd' | 'thisYear' | 'lastYear';
@@ -554,12 +567,56 @@ const DataCentre: React.FC<DataCentreProps> = ({
   elapsedLabel,
   datasets,
   userName,
+  userInitials,
+  showProdAudienceBadge = false,
 }) => {
   const { isDarkMode } = useTheme();
   const { showToast, updateToast } = useToast();
   const { setContent } = useNavigatorActions();
-  type ActiveTab = 'collected' | 'wip' | 'agedDebt' | 'people' | 'finance' | 'compliance' | 'ads';
-  const [activeOp, setActiveOp] = React.useState<ActiveTab>('collected');
+  type ActiveTab = 'datasets' | 'datasetDetail' | 'collected' | 'wip' | 'agedDebt' | 'people' | 'finance' | 'compliance' | 'ads';
+  const datasetTargetTabs = React.useMemo<Record<ReportingDatasetKey, ActiveTab>>(() => ({
+    userData: 'people',
+    teamData: 'people',
+    enquiries: 'people',
+    allMatters: 'finance',
+    wip: 'wip',
+    recoveredFees: 'collected',
+    annualLeave: 'compliance',
+    metaMetrics: 'ads',
+    googleAnalytics: 'ads',
+    googleAds: 'ads',
+    deals: 'people',
+    instructions: 'people',
+    dubberCalls: 'people',
+  }), []);
+  const datasetTargetLabels = React.useMemo<Record<ActiveTab, string>>(() => ({
+    datasets: 'Datasets',
+    datasetDetail: 'Dataset detail',
+    collected: 'Collected ledger',
+    wip: 'WIP ledger',
+    agedDebt: 'Aged Debt',
+    people: 'People',
+    finance: 'Finance',
+    compliance: 'Compliance',
+    ads: 'Ads',
+  }), []);
+  const [activeOp, setActiveOp] = React.useState<ActiveTab>('datasets');
+  const [selectedDatasetKey, setSelectedDatasetKey] = React.useState<ReportingDatasetKey | null>(null);
+  const handleDatasetSelect = React.useCallback((key: ReportingDatasetKey) => {
+    setSelectedDatasetKey(key);
+    setActiveOp('datasetDetail');
+  }, []);
+  const handleBackToDatasets = React.useCallback(() => {
+    setActiveOp('datasets');
+    setSelectedDatasetKey(null);
+  }, []);
+  const handleOpenSelectedOperationalView = React.useCallback(() => {
+    if (!selectedDatasetKey) return;
+    setActiveOp(datasetTargetTabs[selectedDatasetKey] ?? 'datasets');
+  }, [datasetTargetTabs, selectedDatasetKey]);
+  const getDatasetTargetLabel = React.useCallback((key: ReportingDatasetKey) => {
+    return 'dataset detail';
+  }, []);
 
   /* ─── Navigator bar — managed by DataCentre itself ─── */
   React.useEffect(() => {
@@ -567,17 +624,13 @@ const DataCentre: React.FC<DataCentreProps> = ({
       <NavigatorDetailBar
         onBack={onBack}
         backLabel="Back"
-        tabs={[
-          { key: 'collected', label: 'Collected' },
-          { key: 'wip', label: 'WIP' },
-          { key: 'agedDebt', label: 'Aged Debt' },
-          { key: 'people', label: 'People' },
-          { key: 'finance', label: 'Finance' },
-          { key: 'compliance', label: 'Compliance' },
-          { key: 'ads', label: 'Ads' },
-        ]}
-        activeTab={activeOp}
-        onTabChange={(key) => setActiveOp(key as ActiveTab)}
+        staticLabel={
+          activeOp === 'datasets'
+            ? `Data Hub${showProdAudienceBadge ? ' · LZ/AC prod' : ''}`
+            : activeOp === 'datasetDetail'
+              ? `Data Hub${showProdAudienceBadge ? ' · LZ/AC prod' : ''}: ${selectedDatasetKey ? REPORTING_DATASET_BY_KEY[selectedDatasetKey]?.name ?? 'Dataset' : 'Dataset'}`
+              : `Data Hub${showProdAudienceBadge ? ' · LZ/AC prod' : ''}: ${datasetTargetLabels[activeOp]}`
+        }
         rightContent={
           <DefaultButton
             text={isRefreshing ? 'Refreshing…' : 'Refresh'}
@@ -600,7 +653,7 @@ const DataCentre: React.FC<DataCentreProps> = ({
       />,
     );
     return () => { setContent(null); };
-  }, [activeOp, onBack, onRefreshAll, isRefreshing, isDarkMode, setContent]);  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeOp, datasetTargetLabels, onBack, onRefreshAll, isRefreshing, isDarkMode, selectedDatasetKey, setContent]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ─── Per-operation independent range state ─── */
   const getDefaultRangeState = (): OperationRangeState => {
@@ -628,6 +681,15 @@ const DataCentre: React.FC<DataCentreProps> = ({
   const [outstandingBalancesSyncing, setOutstandingBalancesSyncing] = React.useState(false);
   const [outstandingBalancesReconciling, setOutstandingBalancesReconciling] = React.useState(false);
   const [outstandingBalancesReconcile, setOutstandingBalancesReconcile] = React.useState<OutstandingBalancesReconcileSummary | null>(null);
+  const [ga4ProviderCheck, setGa4ProviderCheck] = React.useState<Ga4ProviderCheckState>({
+    status: 'idle',
+    checkedAt: null,
+    rowCount: null,
+    startDate: null,
+    endDate: null,
+    source: null,
+    error: null,
+  });
   
   const [planData, setPlanData] = React.useState<PlanData | null>(null);
   const [isPlanning, setIsPlanning] = React.useState(false);
@@ -662,6 +724,13 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
 
   /* ─── Data Hub lazy-load state ─── */
   const [dataHubLoaded, setDataHubLoaded] = React.useState(true);
+  const readyCount = React.useMemo(() => (Array.isArray(datasets) ? datasets.filter(d => d.status === 'ready').length : 0), [datasets]);
+  const totalFeeds = React.useMemo(() => (Array.isArray(datasets) ? datasets.length : 0), [datasets]);
+  const isProdAudience = React.useMemo(() => {
+    const initials = String(userInitials || '').trim().toUpperCase();
+    return initials === 'LZ' || initials === 'AC';
+  }, [userInitials]);
+  const [audienceHintVisible, setAudienceHintVisible] = React.useState(false);
   const [dataHubLoading, setDataHubLoading] = React.useState(false);
   const opsLogIntervalRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const schedulerStatusIntervalRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
@@ -1532,6 +1601,72 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
     [datasetByKey]
   );
 
+  const runGa4ProviderCheck = React.useCallback(async () => {
+    const definition = REPORTING_DATASET_BY_KEY.googleAnalytics;
+    const providerCheck = definition.provider.providerCheck;
+    const daysBack = providerCheck?.defaultDaysBack ?? 7;
+    const end = new Date();
+    const start = new Date(end);
+    start.setDate(end.getDate() - daysBack);
+    const startDate = start.toISOString().slice(0, 10);
+    const endDate = end.toISOString().slice(0, 10);
+    const params = new URLSearchParams({ startDate, endDate });
+
+    setGa4ProviderCheck({
+      status: 'loading',
+      checkedAt: Date.now(),
+      rowCount: null,
+      startDate,
+      endDate,
+      source: definition.provider.sourceLabel,
+      error: null,
+    });
+
+    try {
+      const response = await fetch(`${providerCheck?.route ?? '/api/marketing-metrics/ga4'}?${params}`, {
+        method: 'GET',
+        credentials: 'include',
+      });
+      const payload = await response.json() as Ga4ProviderPayload;
+      if (!response.ok || payload.success === false) {
+        throw new Error(payload.error || `GA4 provider check failed (${response.status})`);
+      }
+      const rowCount = Array.isArray(payload.data) ? payload.data.length : 0;
+      setGa4ProviderCheck({
+        status: 'ready',
+        checkedAt: Date.now(),
+        rowCount,
+        startDate: payload.dateRange?.start ?? startDate,
+        endDate: payload.dateRange?.end ?? endDate,
+        source: payload.source ?? definition.provider.sourceLabel,
+        error: null,
+      });
+      showToast({
+        type: 'success',
+        title: 'GA4 provider checked',
+        message: `${rowCount.toLocaleString('en-GB')} aggregate rows returned for ${daysBack} days.`,
+        duration: 4500,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unexpected GA4 provider error';
+      setGa4ProviderCheck({
+        status: 'error',
+        checkedAt: Date.now(),
+        rowCount: null,
+        startDate,
+        endDate,
+        source: definition.provider.sourceLabel,
+        error: message,
+      });
+      showToast({
+        type: 'error',
+        title: 'GA4 provider check failed',
+        message,
+        duration: 6500,
+      });
+    }
+  }, [showToast]);
+
   const statusCount = React.useMemo(() => {
     return datasets.reduce(
       (acc, d) => {
@@ -1750,7 +1885,7 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
       {
         key: 'people',
         title: 'People & enquiries',
-        feeds: ['userData', 'teamData', 'enquiries', 'deals', 'instructions'],
+        feeds: ['userData', 'teamData', 'enquiries', 'deals', 'instructions', 'dubberCalls'],
       },
       {
         key: 'finance',
@@ -1833,8 +1968,64 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
     return map[key] ?? null;
   }, []);
 
+  const selectedDatasetDefinition = selectedDatasetKey ? REPORTING_DATASET_BY_KEY[selectedDatasetKey] ?? null : null;
+  const selectedDataset = selectedDatasetKey ? getDataset(selectedDatasetKey) : null;
+  const selectedPreviewTable = selectedDatasetKey ? getPreviewTableForDataset(selectedDatasetKey) : null;
+  const canAccessDataHubLedgers = React.useMemo(() => {
+    const initials = String(userInitials || '').trim().toUpperCase();
+    return initials === 'LZ' || initials === 'AC';
+  }, [userInitials]);
+  const selectedContextDatasets = React.useMemo(() => {
+    if (!selectedDatasetDefinition?.provider.contextDatasets) return [];
+    return selectedDatasetDefinition.provider.contextDatasets.map((key) => {
+      const registryEntry = REPORTING_DATASET_BY_KEY[key as ReportingDatasetKey] ?? null;
+      const liveDataset = getDataset(key);
+      return {
+        key,
+        name: registryEntry?.name ?? key,
+        status: liveDataset?.status ?? 'idle',
+        count: liveDataset?.count ?? null,
+      };
+    });
+  }, [getDataset, selectedDatasetDefinition]);
+
+  const tableOnlyMattersView = activeOp === 'datasetDetail'
+    && selectedDatasetKey === 'allMatters'
+    && canAccessDataHubLedgers;
+  const tableOnlyEnquiriesView = activeOp === 'datasetDetail'
+    && selectedDatasetKey === 'enquiries'
+    && canAccessDataHubLedgers;
+
+  if (tableOnlyMattersView || tableOnlyEnquiriesView) {
+    return (
+      <div
+        style={{
+          minHeight: '100vh',
+          height: '100%',
+          width: '100%',
+          background: '#ffffff',
+          color: colours.light.text,
+          position: 'relative',
+          display: 'flex',
+          flexDirection: 'column',
+          flex: 1,
+          padding: 0,
+          margin: 0,
+          gap: 0,
+        }}
+      >
+        {tableOnlyMattersView ? (
+          <MattersSourceLedger isDarkMode={isDarkMode} presentation="fullPage" />
+        ) : (
+          <EnquirySourceLedger isDarkMode={isDarkMode} presentation="fullPage" />
+        )}
+      </div>
+    );
+  }
+
   return (
-    <div style={pageStyle(isDarkMode)}>
+    <div style={{ ...pageStyle(isDarkMode), position: 'relative' }}>
+
       {/* Status banner */}
       {bannerVariant !== 'healthy' && (
       <div style={{
@@ -1871,6 +2062,76 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
             <span>{elapsedLabel}</span>
           </div>
         </div>
+      )}
+
+      {activeOp === 'datasets' && (
+        <>
+          <DataHubAttributionWorkbench
+            isDarkMode={isDarkMode}
+            userInitials={userInitials}
+          />
+
+          <DataHubDatasetPicker
+            isDarkMode={isDarkMode}
+            datasets={datasets}
+            getTargetLabel={getDatasetTargetLabel}
+            onSelectDataset={handleDatasetSelect}
+          />
+        </>
+      )}
+
+      {activeOp !== 'datasets' && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            onClick={handleBackToDatasets}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 7,
+              border: 'none',
+              background: 'transparent',
+              padding: 0,
+              cursor: 'pointer',
+              color: isDarkMode ? colours.greyText : colours.subtleGrey,
+              fontSize: 11,
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              letterSpacing: 0,
+            }}
+          >
+            <span style={{ color: isDarkMode ? colours.accent : colours.highlight }}>Datasets</span>
+            <span style={{ color: isDarkMode ? colours.greyText : colours.subtleGrey }}>/</span>
+            <span>{activeOp === 'datasetDetail' && selectedDatasetDefinition ? selectedDatasetDefinition.name : datasetTargetLabels[activeOp]}</span>
+          </button>
+        </div>
+      )}
+
+      {activeOp === 'datasetDetail' && selectedDatasetDefinition && (
+        <>
+          <DataHubDatasetDetail
+            isDarkMode={isDarkMode}
+            definition={selectedDatasetDefinition}
+            liveDataset={selectedDataset}
+            contextDatasets={selectedContextDatasets}
+            previewTable={selectedPreviewTable}
+            operationalViewLabel={selectedDatasetKey ? datasetTargetLabels[datasetTargetTabs[selectedDatasetKey]] : 'operational view'}
+            isProductionInactive={Boolean(selectedDatasetDefinition.provider.devPreviewOnly) || selectedDatasetDefinition.provider.reportUsage.length === 0}
+            onPreviewRows={() => {
+              if (!selectedPreviewTable) return;
+              fetchPreview(selectedPreviewTable, selectedDatasetDefinition.name);
+            }}
+            onOpenOperationalView={handleOpenSelectedOperationalView}
+          />
+
+          {selectedDatasetKey === 'enquiries' && canAccessDataHubLedgers && (
+            <EnquirySourceLedger isDarkMode={isDarkMode} />
+          )}
+
+          {selectedDatasetKey === 'allMatters' && canAccessDataHubLedgers && (
+            <MattersSourceLedger isDarkMode={isDarkMode} />
+          )}
+        </>
       )}
 
       {/* ─── Data Operations (Collected / WIP) ─── */}
@@ -2918,6 +3179,16 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
             </div>
 
             {/* Feed cards grid */}
+            {activeOp === 'ads' && (
+              <GoogleAnalyticsProviderPanel
+                isDarkMode={isDarkMode}
+                googleAnalytics={getDataset('googleAnalytics')}
+                ga4ProviderCheck={ga4ProviderCheck}
+                onRunProviderCheck={runGa4ProviderCheck}
+                getDataset={getDataset}
+              />
+            )}
+
             {activeOp === 'finance' && (
               <div style={{
                 display: 'grid',

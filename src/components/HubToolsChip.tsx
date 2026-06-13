@@ -30,7 +30,7 @@ class CommandDeckErrorBoundary extends React.Component<
         if (this.state.err) {
             return (
                 <div role="alert" style={{
-                    position: 'fixed', right: 18, bottom: 80, zIndex: 2099,
+                    position: 'fixed', left: 18, bottom: 80, zIndex: 2099,
                     width: 360, padding: 16, background: '#1a0a0a',
                     border: '1px solid #ff6b6b', borderRadius: 2, color: '#ffdada',
                     fontFamily: 'Raleway, sans-serif', fontSize: 12, lineHeight: 1.5,
@@ -52,7 +52,7 @@ class CommandDeckErrorBoundary extends React.Component<
 
 const CommandDeckLoading: React.FC<{ isDarkMode: boolean; panelBottom: number }> = ({ isDarkMode, panelBottom }) => (
     <div style={{
-        position: 'fixed', right: 18, bottom: panelBottom, zIndex: 2099,
+        position: 'fixed', left: 18, bottom: panelBottom, zIndex: 2099,
         padding: '10px 14px',
         background: isDarkMode ? 'rgba(6, 23, 51, 0.92)' : 'rgba(255, 255, 255, 0.95)',
         border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(6,23,51,0.12)'}`,
@@ -647,12 +647,12 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
             <div
                 style={{
                     position: 'fixed',
-                    right: 18,
+                    left: 18,
                     bottom: chipBottom,
                     zIndex: 2100,
                     display: 'flex',
                     flexDirection: 'column' as const,
-                    alignItems: 'flex-end',
+                    alignItems: 'flex-start',
                     gap: 4,
                     pointerEvents: 'none',
                 }}>
@@ -663,10 +663,11 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
             <div
                 style={{
                     display: 'flex',
+                    flexDirection: 'row-reverse' as const,
                     pointerEvents: 'auto',
                     alignItems: 'center',
                     gap: 2,
-                    justifyContent: 'flex-end',
+                    justifyContent: 'flex-start',
                     padding: '3px 4px',
                     background: isDarkMode ? 'rgba(6, 23, 51, 0.84)' : 'rgba(255, 255, 255, 0.90)',
                     border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.10)' : 'rgba(6, 23, 51, 0.10)'}`,

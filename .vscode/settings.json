@@ -11,7 +11,19 @@
     "azureFunctions.stopFuncTaskPostDebug": false,
     "azureFunctions.showProjectWarning": false,
     "csharp.suppressDotnetRestoreNotification": true,
-    "chatCustomizationsEvaluations.enable": true,
+    "chatCustomizationsEvaluations.enable": false,
+    "azureMcp.enabledServices": [
+        "bestpractices",
+        "compute",
+        "extension",
+        "functions",
+        "get_azure_bestpractices",
+        "pricing",
+        "subscription"
+    ],
+    "azureMcp.serverMode": "namespace",
+    "azureMcp.readOnly": true,
+    "windowsaistudio.autoCheckFoundrySkill": false,
     "chatCustomizationsEvaluations.customDiagnostics": [
         {
             "name": "Helix guardrail drift",

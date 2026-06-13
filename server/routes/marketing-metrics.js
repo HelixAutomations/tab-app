@@ -3,9 +3,19 @@ const { getClient } = require('../utils/getSecret');
 const fs = require('fs');
 const { getRedisClient, generateCacheKey, cacheWrapper } = require('../utils/redisClient');
 const { getCircuitBreaker } = require('../utils/circuitBreaker');
+const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
 const router = express.Router();
 
 let googleApis = null;
+
+const DEFAULT_GOOGLE_ADS_API_VERSION = 'v24';
+
+function normaliseGoogleAdsApiVersion(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return DEFAULT_GOOGLE_ADS_API_VERSION;
+  const match = raw.match(/v?(\d+)/i);
+  return match ? `v${match[1]}` : DEFAULT_GOOGLE_ADS_API_VERSION;
+}
 
 function getGoogleApis() {
   if (!googleApis) {
@@ -649,7 +659,7 @@ router.get('/ga4', async (req, res) => {
         { name: 'screenPageViews' },
         { name: 'bounceRate' },
         { name: 'averageSessionDuration' },
-        { name: 'conversions' },
+        { name: 'keyEvents' },
       ],
       dimensions: [{ name: 'date' }],
     };
@@ -722,6 +732,11 @@ router.get('/ga4', async (req, res) => {
  *  - GOOGLE_ADS_CUSTOMER_ID (target account, no dashes; can override via query)
  */
 router.get('/google-ads', async (req, res) => {
+  const startedAt = Date.now();
+  let apiVersion = DEFAULT_GOOGLE_ADS_API_VERSION;
+  let startDateForTelemetry = '';
+  let endDateForTelemetry = '';
+
   try {
     // Resolve credentials from env first; optionally from Key Vault if secret names provided
     const cfg = {
@@ -758,18 +773,44 @@ router.get('/google-ads', async (req, res) => {
       }
     }
 
+    // Allow configurable Google Ads API version while defaulting away from sunsetted v20.
+    let configuredApiVersion = process.env.GOOGLE_ADS_API_VERSION;
+    if (!configuredApiVersion) {
+      const verSecretName = process.env.GOOGLE_ADS_API_VERSION_SECRET;
+      if (verSecretName) {
+        const ver = await getSecretFromAnySource(verSecretName);
+        if (ver) configuredApiVersion = ver;
+      }
+    }
+    apiVersion = normaliseGoogleAdsApiVersion(configuredApiVersion);
+
     // Validate required configuration
     const requiredKeys = ['developerToken', 'clientId', 'clientSecret', 'refreshToken', 'loginCustomerId'];
     const missingKeys = requiredKeys.filter((k) => !cfg[k]);
     if (missingKeys.length > 0) {
+      trackEvent('Marketing.GoogleAds.Failed', {
+        operation: 'fetchDailyMetrics',
+        phase: 'configuration',
+        apiVersion,
+        missingKeys: missingKeys.join(','),
+        durationMs: Date.now() - startedAt,
+      });
       return res.status(400).json({
         success: false,
         error: `Missing Google Ads configuration: ${missingKeys.join(', ')}`,
         hint: 'Set env vars or configure Key Vault secrets for Google Ads credentials.',
+        apiVersion,
       });
     }
     if (!cfg.customerId) {
-      return res.status(400).json({ success: false, error: 'Missing customerId (set GOOGLE_ADS_CUSTOMER_ID or pass ?customerId=)' });
+      trackEvent('Marketing.GoogleAds.Failed', {
+        operation: 'fetchDailyMetrics',
+        phase: 'configuration',
+        apiVersion,
+        missingKeys: 'customerId',
+        durationMs: Date.now() - startedAt,
+      });
+      return res.status(400).json({ success: false, error: 'Missing customerId (set GOOGLE_ADS_CUSTOMER_ID or pass ?customerId=)', apiVersion });
     }
 
     // Date range
@@ -782,6 +823,16 @@ router.get('/google-ads', async (req, res) => {
       startDate = start.toISOString().split('T')[0];
       endDate = end.toISOString().split('T')[0];
     }
+    startDateForTelemetry = String(startDate);
+    endDateForTelemetry = String(endDate);
+
+    trackEvent('Marketing.GoogleAds.Started', {
+      operation: 'fetchDailyMetrics',
+      apiVersion,
+      startDate: startDateForTelemetry,
+      endDate: endDateForTelemetry,
+      triggeredBy: 'route',
+    });
 
     // OAuth2: exchange refresh token for access token
     const redirectUri = cfg.redirectUri || 'https://developers.google.com/oauthplayground';
@@ -793,28 +844,41 @@ router.get('/google-ads', async (req, res) => {
       // Cap OAuth token exchange at 5s so a stalled Google endpoint can't hang the route.
       const tokenResp = await raceTimeout(oauth2.getAccessToken(), 5000, null);
       if (!tokenResp) {
-        return res.status(504).json({ success: false, error: 'Google Ads OAuth token exchange timed out (5s)' });
+        trackEvent('Marketing.GoogleAds.Failed', {
+          operation: 'fetchDailyMetrics',
+          phase: 'oauth',
+          apiVersion,
+          startDate: startDateForTelemetry,
+          endDate: endDateForTelemetry,
+          durationMs: Date.now() - startedAt,
+        });
+        return res.status(504).json({ success: false, error: 'Google Ads OAuth token exchange timed out (5s)', apiVersion });
       }
       accessToken = typeof tokenResp === 'string' ? tokenResp : tokenResp?.token;
     } catch (e) {
       const msg = e?.response?.data?.error || e?.message || 'OAuth error';
-      return res.status(500).json({ success: false, error: `Failed to obtain Google Ads access token: ${msg}` });
+      trackException(e, { operation: 'fetchDailyMetrics', phase: 'oauth', apiVersion, startDate: startDateForTelemetry, endDate: endDateForTelemetry });
+      trackEvent('Marketing.GoogleAds.Failed', {
+        operation: 'fetchDailyMetrics',
+        phase: 'oauth',
+        apiVersion,
+        startDate: startDateForTelemetry,
+        endDate: endDateForTelemetry,
+        durationMs: Date.now() - startedAt,
+      });
+      return res.status(500).json({ success: false, error: `Failed to obtain Google Ads access token: ${msg}`, apiVersion });
     }
     if (!accessToken) {
-      return res.status(500).json({ success: false, error: 'Failed to obtain Google Ads access token (empty token)' });
+      trackEvent('Marketing.GoogleAds.Failed', {
+        operation: 'fetchDailyMetrics',
+        phase: 'oauth',
+        apiVersion,
+        startDate: startDateForTelemetry,
+        endDate: endDateForTelemetry,
+        durationMs: Date.now() - startedAt,
+      });
+      return res.status(500).json({ success: false, error: 'Failed to obtain Google Ads access token (empty token)', apiVersion });
     }
-
-    // Allow configurable Google Ads API version; default to a widely supported one
-    let apiVersion = process.env.GOOGLE_ADS_API_VERSION;
-    if (!apiVersion) {
-      const verSecretName = process.env.GOOGLE_ADS_API_VERSION_SECRET;
-      if (verSecretName) {
-        const ver = await getSecretFromAnySource(verSecretName);
-        if (ver) apiVersion = ver;
-      }
-    }
-    apiVersion = (apiVersion || 'v20').toString().trim();
-    if (!/^v\d+$/i.test(apiVersion)) apiVersion = `v${apiVersion.replace(/[^0-9]/g, '') || '20'}`;
 
     // Build GAQL query for daily metrics
     const query = `
@@ -873,6 +937,17 @@ router.get('/google-ads', async (req, res) => {
           }
         }
       } catch (_) { /* plain text/html */ }
+      const apiError = new Error(`Google Ads API error: ${resp.status} ${String(errMsg).slice(0, 200)}`);
+      trackException(apiError, { operation: 'fetchDailyMetrics', phase: 'gaqlSearch', apiVersion, startDate: startDateForTelemetry, endDate: endDateForTelemetry });
+      trackEvent('Marketing.GoogleAds.Failed', {
+        operation: 'fetchDailyMetrics',
+        phase: 'gaqlSearch',
+        apiVersion,
+        status: resp.status,
+        startDate: startDateForTelemetry,
+        endDate: endDateForTelemetry,
+        durationMs: Date.now() - startedAt,
+      });
       return res.status(resp.status).json({ success: false, error: `Google Ads API error: ${resp.status} ${String(errMsg).slice(0, 500)}`, details });
     }
     const json = await resp.json();
@@ -912,15 +987,36 @@ router.get('/google-ads', async (req, res) => {
       };
     });
 
+    const durationMs = Date.now() - startedAt;
+    trackEvent('Marketing.GoogleAds.Completed', {
+      operation: 'fetchDailyMetrics',
+      apiVersion,
+      startDate: startDateForTelemetry,
+      endDate: endDateForTelemetry,
+      rowCount: data.length,
+      durationMs,
+    });
+    trackMetric('Marketing.GoogleAds.Duration', durationMs, { operation: 'fetchDailyMetrics', apiVersion });
+
     return res.json({
       success: true,
       data,
       dateRange: { start: startDate, end: endDate, daysIncluded: data.length },
       source: 'Google Ads API (REST search)',
+      apiVersion,
     });
   } catch (err) {
     console.error('Google Ads endpoint error', err);
-    return res.status(500).json({ success: false, error: err.message || 'Unknown error' });
+    trackException(err, { operation: 'fetchDailyMetrics', phase: 'route', apiVersion, startDate: startDateForTelemetry, endDate: endDateForTelemetry });
+    trackEvent('Marketing.GoogleAds.Failed', {
+      operation: 'fetchDailyMetrics',
+      phase: 'route',
+      apiVersion,
+      startDate: startDateForTelemetry,
+      endDate: endDateForTelemetry,
+      durationMs: Date.now() - startedAt,
+    });
+    return res.status(500).json({ success: false, error: err.message || 'Unknown error', apiVersion });
   }
 });
 
@@ -984,7 +1080,7 @@ router.get('/ga4/channels', async (req, res) => {
     const result = await cacheWrapper(cacheKey, async () => {
       const requestBody = {
         dateRanges: [{ startDate, endDate }],
-        metrics: [{ name: 'sessions' }, { name: 'conversions' }],
+        metrics: [{ name: 'sessions' }, { name: 'keyEvents' }],
         dimensions: [{ name: 'sessionDefaultChannelGroup' }],
         orderBys: [{ desc: true, metric: { metricName: 'sessions' } }],
         dimensionFilter: maybeOrganicFilter(req.query.organicOnly),
@@ -1013,7 +1109,7 @@ router.get('/ga4/source-medium', async (req, res) => {
     const result = await cacheWrapper(cacheKey, async () => {
       const requestBody = {
         dateRanges: [{ startDate, endDate }],
-        metrics: [{ name: 'sessions' }, { name: 'conversions' }],
+        metrics: [{ name: 'sessions' }, { name: 'keyEvents' }],
         dimensions: [{ name: 'sessionSourceMedium' }],
         orderBys: [{ desc: true, metric: { metricName: 'sessions' } }],
         dimensionFilter: maybeOrganicFilter(req.query.organicOnly),
@@ -1043,7 +1139,7 @@ router.get('/ga4/landing-pages', async (req, res) => {
     const result = await cacheWrapper(cacheKey, async () => {
       const requestBody = {
         dateRanges: [{ startDate, endDate }],
-        metrics: [{ name: 'sessions' }, { name: 'conversions' }],
+        metrics: [{ name: 'sessions' }, { name: 'keyEvents' }],
         dimensions: [{ name: 'landingPage' }],
         orderBys: [{ desc: true, metric: { metricName: 'sessions' } }],
         limit: 1000,
@@ -1072,7 +1168,7 @@ router.get('/ga4/devices', async (req, res) => {
     const result = await cacheWrapper(cacheKey, async () => {
       const requestBody = {
         dateRanges: [{ startDate, endDate }],
-        metrics: [{ name: 'sessions' }, { name: 'conversions' }],
+        metrics: [{ name: 'sessions' }, { name: 'keyEvents' }],
         dimensions: [{ name: 'deviceCategory' }],
         orderBys: [{ desc: true, metric: { metricName: 'sessions' } }],
       };
@@ -1100,7 +1196,7 @@ router.get('/ga4/geo', async (req, res) => {
     const result = await cacheWrapper(cacheKey, async () => {
       const requestBody = {
         dateRanges: [{ startDate, endDate }],
-        metrics: [{ name: 'sessions' }, { name: 'conversions' }],
+        metrics: [{ name: 'sessions' }, { name: 'keyEvents' }],
         dimensions: [{ name: 'country' }],
         orderBys: [{ desc: true, metric: { metricName: 'sessions' } }],
         limit: 1000,
@@ -1129,7 +1225,7 @@ router.get('/ga4/events', async (req, res) => {
     const result = await cacheWrapper(cacheKey, async () => {
       const requestBody = {
         dateRanges: [{ startDate, endDate }],
-        metrics: [{ name: 'eventCount' }, { name: 'conversions' }],
+        metrics: [{ name: 'eventCount' }, { name: 'keyEvents' }],
         dimensions: [{ name: 'eventName' }],
         orderBys: [{ desc: true, metric: { metricName: 'eventCount' } }],
         limit: 1000,

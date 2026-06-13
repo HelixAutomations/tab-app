@@ -14,7 +14,8 @@ export interface ActivityFeedItem {
     | 'ai.proposal'
     | 'hub.todo'
     | 'activity.email.search'
-    | 'activity.email.forward';
+    | 'activity.email.forward'
+    | 'activity.matter-opening';
   sourceLabel: string;
   status: FeedStatus;
   title: string;

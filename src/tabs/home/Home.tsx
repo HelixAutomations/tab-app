@@ -68,7 +68,7 @@ import ActionSection from './ActionSection';
 import { sharedDefaultButtonStyles } from '../../app/styles/ButtonStyles';
 import { isInTeams } from '../../app/functionality/isInTeams';
 import { hasActiveMatterOpening } from '../../app/functionality/matterOpeningUtils';
-import { hasActivePitchBuilder } from '../../app/functionality/pitchBuilderUtils';
+import { hasActivePitchBuilder, isPitchBuilderDraftStorageKey } from '../../app/functionality/pitchBuilderUtils';
 import { normalizeMatterData } from '../../utils/matterNormalization';
 // Local JSON fixtures loaded dynamically (only when REACT_APP_USE_LOCAL_DATA=true) to keep ~75KB out of the production bundle
 import { checkIsLocalDev } from '../../utils/useIsLocalDev';
@@ -1913,14 +1913,17 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
     checkBoth();
 
     const onStorage = (e: StorageEvent) => {
-      if (e.key?.startsWith('matterOpeningDraft_') || e.key === 'pitchBuilderState') checkBoth();
+      if (e.key?.startsWith('matterOpeningDraft_') || isPitchBuilderDraftStorageKey(e.key)) checkBoth();
     };
+    const onPitchDraftChanged = () => checkBoth();
     const onVisibility = () => { if (document.visibilityState === 'visible') checkBoth(); };
 
     window.addEventListener('storage', onStorage);
+    window.addEventListener('helix:pitch-draft-storage-changed', onPitchDraftChanged);
     document.addEventListener('visibilitychange', onVisibility);
     return () => {
       window.removeEventListener('storage', onStorage);
+      window.removeEventListener('helix:pitch-draft-storage-changed', onPitchDraftChanged);
       document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [isActive, isInMatterOpeningWorkflow]);
@@ -6375,7 +6378,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     return [...annualLeaveRecords, ...futureLeaveRecords];
   }, [annualLeaveRecords, futureLeaveRecords]);
 
-  const APPROVERS = ['AC', 'JW', 'LZ', 'KW'];
+  const APPROVERS = ['AC', 'JW', 'LZ'];
   // Normalize initials for consistent matching
   const normalizedUserInitials = (userInitials || '').trim().toUpperCase();
   const isApprover = APPROVERS.includes(normalizedUserInitials);

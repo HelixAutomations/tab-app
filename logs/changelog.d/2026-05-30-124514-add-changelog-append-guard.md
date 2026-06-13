@@ -1,1 +1,0 @@
-2026-05-30 / Add changelog append guard / Added a guarded changelog writer that records each entry as a unique fragment before rebuilding release notes, plus check and rebuild scripts for stale accepted edits. (+ tools/changelog-append.mjs, ~ package.json, ~ .github/copilot-instructions.md, + logs/changelog.d/*.md, ~ logs/changelog.md)

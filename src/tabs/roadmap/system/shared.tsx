@@ -142,6 +142,125 @@ export const SystemPageHeader: React.FC<{
   );
 };
 
+export const SystemIntroPanel: React.FC<{
+  eyebrow: string;
+  title: string;
+  description?: string;
+  isDarkMode: boolean;
+  accent?: string;
+  actionLabel?: string;
+  onAction?: () => void;
+  dataRegion?: string;
+}> = ({ eyebrow, title, description, isDarkMode, accent, actionLabel, onAction, dataRegion }) => {
+  const activeAccent = accent || colours.accent;
+  const { borderColour, mutedColour, panelBg, textColour } = useSystemTokens(isDarkMode);
+
+  return (
+    <section
+      data-helix-region={dataRegion}
+      style={{
+        border: `1px solid ${borderColour}`,
+        borderLeft: `3px solid ${activeAccent}`,
+        background: panelBg,
+        padding: '15px 17px',
+        marginBottom: 14,
+        display: 'flex',
+        alignItems: 'flex-start',
+        justifyContent: 'space-between',
+        gap: 14,
+      }}
+    >
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 10, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.5px', color: activeAccent }}>
+          {eyebrow}
+        </div>
+        <div style={{ marginTop: 4, fontSize: 18, fontWeight: 900, lineHeight: 1.25, color: textColour, fontFamily: 'Raleway, sans-serif' }}>
+          {title}
+        </div>
+        {description ? (
+          <div style={{ marginTop: 5, fontSize: 12, lineHeight: 1.5, color: mutedColour, maxWidth: 760 }}>
+            {description}
+          </div>
+        ) : null}
+      </div>
+      {actionLabel && onAction ? (
+        <HeaderButton label={actionLabel} isDarkMode={isDarkMode} accent={activeAccent} onClick={onAction} />
+      ) : null}
+    </section>
+  );
+};
+
+export const SystemLandingTile: React.FC<{
+  label: string;
+  description: string;
+  isDarkMode: boolean;
+  accent: string;
+  onClick: () => void;
+  variant?: 'primary' | 'tool' | 'info';
+  eyebrow?: string;
+  dataRegion?: string;
+}> = ({ label, description, isDarkMode, accent, onClick, variant = 'tool', eyebrow, dataRegion }) => {
+  const [hovered, setHovered] = React.useState(false);
+  const { borderColour, cardBg, panelBg, mutedColour, textColour } = useSystemTokens(isDarkMode);
+  const isPrimary = variant === 'primary';
+  const isInfo = variant === 'info';
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      data-helix-region={dataRegion}
+      style={{
+        minHeight: isPrimary ? 142 : isInfo ? 92 : 122,
+        border: `1px solid ${hovered ? accent : borderColour}`,
+        borderLeft: `${isPrimary ? 5 : 3}px solid ${accent}`,
+        background: isPrimary ? cardBg : isInfo ? panelBg : cardBg,
+        color: textColour,
+        cursor: 'pointer',
+        display: 'flex',
+        alignItems: 'stretch',
+        justifyContent: 'space-between',
+        gap: 14,
+        padding: isPrimary ? '22px 24px' : isInfo ? '14px 16px' : '17px 18px',
+        fontFamily: 'Raleway, sans-serif',
+        textAlign: 'left',
+        transform: hovered ? 'translateY(-1px)' : 'translateY(0)',
+        transition: 'transform 0.14s ease, border-color 0.14s ease, background 0.14s ease',
+      }}
+    >
+      <span style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: 0, gap: isPrimary ? 8 : 6 }}>
+        {eyebrow ? (
+          <span style={{ fontSize: 10, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.7px', color: isPrimary ? accent : mutedColour }}>
+            {eyebrow}
+          </span>
+        ) : null}
+        <span style={{ fontSize: isPrimary ? 25 : isInfo ? 15 : 18, fontWeight: 900, lineHeight: 1.12, letterSpacing: 0, textTransform: isInfo ? 'none' : 'uppercase' }}>
+          {label}
+        </span>
+        <span style={{ fontSize: isPrimary ? 13 : 12, lineHeight: 1.5, color: mutedColour, maxWidth: isPrimary ? 680 : 360 }}>
+          {description}
+        </span>
+      </span>
+      <span
+        aria-hidden="true"
+        style={{
+          alignSelf: 'center',
+          color: accent,
+          fontSize: isPrimary ? 12 : 10,
+          fontWeight: 900,
+          textTransform: 'uppercase',
+          letterSpacing: '0.5px',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        Open
+      </span>
+    </button>
+  );
+};
+
 export interface SystemTab<K extends string> {
   key: K;
   label: string;

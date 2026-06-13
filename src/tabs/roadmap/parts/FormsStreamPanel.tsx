@@ -289,12 +289,15 @@ const FormsStreamPanel: React.FC<FormsStreamPanelProps> = ({ isDarkMode }) => {
         </div>
       ) : (
         <div
+          className="system-activity-scroll"
           style={{
             display: 'flex',
             flexDirection: 'column',
             gap: 1,
             borderLeft: `2px solid ${borderColour}`,
             paddingLeft: 16,
+            maxHeight: 330,
+            overflowY: 'auto',
           }}
         >
           {filtered.slice(0, 30).map((item) => (

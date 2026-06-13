@@ -1,0 +1,111 @@
+.app-scroll-region.system-activity-scroll-region,
+.system-activity-scroll {
+  scrollbar-width: none;
+  scrollbar-gutter: auto;
+}
+
+.app-scroll-region.system-activity-scroll-region::-webkit-scrollbar,
+.system-activity-scroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+html[data-show-scrollbars="1"] .app-scroll-region.system-activity-scroll-region,
+html[data-show-scrollbars="1"] .system-activity-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(54, 144, 206, 0.55) transparent;
+  scrollbar-gutter: stable;
+}
+
+html[data-show-scrollbars="1"] .app-scroll-region.system-activity-scroll-region::-webkit-scrollbar,
+html[data-show-scrollbars="1"] .system-activity-scroll::-webkit-scrollbar {
+  width: 8px !important;
+  height: 8px !important;
+  display: block;
+}
+
+html[data-show-scrollbars="1"] .app-scroll-region.system-activity-scroll-region::-webkit-scrollbar-thumb,
+html[data-show-scrollbars="1"] .system-activity-scroll::-webkit-scrollbar-thumb {
+  background-color: rgba(54, 144, 206, 0.55);
+  border-radius: 999px;
+}
+
+html[data-show-scrollbars="1"] .app-scroll-region.system-activity-scroll-region::-webkit-scrollbar-thumb:hover,
+html[data-show-scrollbars="1"] .system-activity-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(54, 144, 206, 0.8);
+}
+
+.system-activity-layout {
+  --system-activity-side-width: 390px;
+  display: grid;
+  grid-template-columns: minmax(460px, 1fr) 12px minmax(300px, var(--system-activity-side-width));
+  gap: 0;
+  align-items: start;
+}
+
+.system-activity-main-column {
+  min-width: 0;
+}
+
+.system-activity-column-resizer {
+  align-self: stretch;
+  width: 12px;
+  min-height: 360px;
+  display: flex;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.system-activity-column-resizer__line {
+  width: 1px;
+  min-height: 100%;
+  background: rgba(54, 144, 206, 0.22);
+  transition: width 140ms ease, background-color 140ms ease, box-shadow 140ms ease;
+}
+
+.system-activity-column-resizer:hover .system-activity-column-resizer__line,
+.system-activity-column-resizer:focus-visible .system-activity-column-resizer__line,
+.system-activity-layout--resizing .system-activity-column-resizer__line {
+  width: 3px;
+  background: rgba(54, 144, 206, 0.85);
+  box-shadow: 0 0 0 3px rgba(54, 144, 206, 0.12);
+}
+
+.system-activity-column-resizer:focus-visible {
+  outline: none;
+}
+
+body.system-activity-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.system-activity-side-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.system-activity-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(120px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+@media (max-width: 1180px) {
+  .system-activity-layout,
+  .system-activity-stat-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .system-activity-column-resizer {
+    display: none;
+  }
+}

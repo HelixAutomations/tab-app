@@ -1,1 +1,0 @@
-2026-05-30 / Promote Reception call phone to row title and drop tray name block / Show the caller phone next to the name in the day-cluster row, and remove the duplicate name+phone primary block inside the expanded tray. Tray now starts straight with the badges/links band. (~ src/tabs/Reporting/ReceptionReport.tsx, ~ src/tabs/Reporting/ReceptionReport.css)

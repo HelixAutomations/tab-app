@@ -21,7 +21,7 @@ import { DefaultButton } from '@fluentui/react/lib/Button';
 import { Icon } from '@fluentui/react/lib/Icon';
 import { useTheme } from '../../../app/functionality/ThemeContext';
 import { colours } from '../../../app/styles/colours';
-import type { UseReportRangeReturn } from '../hooks/useReportRange';
+import type { DateRange, RangeKey, UseReportRangeReturn } from '../hooks/useReportRange';
 import { formatDateForPicker, formatTimeAgo } from '../hooks/useReportRange';
 import {
   reportContainerStyle,
@@ -48,6 +48,9 @@ export interface ReportShellProps {
   /** Trigger a data refresh */
   onRefresh?: () => void;
 
+  /** Return false to grey out preset ranges that have no underlying data */
+  isPresetAvailable?: (key: RangeKey, candidateRange: DateRange | null) => boolean;
+
   /** Extra controls rendered inside the toolbar after the action buttons */
   toolbarExtras?: React.ReactNode;
 
@@ -60,10 +63,16 @@ export interface ReportShellProps {
   /**
    * Shell variant.
    * - `'full'` (default): full date range toolbar, presets, refresh indicator.
-   * - `'minimal'`: themed container only — no toolbar chrome. The consumer
-   *   owns all visible controls while still using useReportRange() for range state.
+   * - `'minimal'`: themed container only. The consumer owns all visible controls
+   *   while still using useReportRange() for range state.
    */
   variant?: 'full' | 'minimal';
+
+  /** Compact toolbar chrome for report detail pages */
+  toolbarDensity?: 'standard' | 'compact';
+
+  /** Whether users can clear back to an all-time range */
+  allowAllRange?: boolean;
 
   /** Report content */
   children: React.ReactNode;
@@ -85,10 +94,13 @@ const ReportShell: React.FC<ReportShellProps> = ({
   isFetching = false,
   lastRefreshTimestamp,
   onRefresh,
+  isPresetAvailable,
   toolbarExtras,
   toolbarBottom,
   autoRefreshIntervalSecs = 900,
   variant = 'full',
+  toolbarDensity = 'standard',
+  allowAllRange = true,
   children,
 }) => {
   const { isDarkMode } = useTheme();
@@ -114,6 +126,26 @@ const ReportShell: React.FC<ReportShellProps> = ({
     if (onRefresh && !isFetching) onRefresh();
   };
 
+  const isPresetDisabled = (key: RangeKey, candidateRange: DateRange | null): boolean => {
+    if (key === 'all' && !allowAllRange) return true;
+    if (!isPresetAvailable) return false;
+    return !isPresetAvailable(key, candidateRange);
+  };
+
+  const renderPresetButton = (q: { key: RangeKey; label: string; get: () => DateRange | null }) => {
+    const disabled = isPresetDisabled(q.key, q.get());
+    return (
+      <DefaultButton
+        key={q.key}
+        text={q.label}
+        onClick={() => r.handleRangeSelect(q.key)}
+        disabled={disabled}
+        title={disabled ? `${q.label} has no data in this report` : undefined}
+        styles={getRangeButtonStyles(isDarkMode, r.isActive(q.key), disabled, toolbarDensity === 'compact')}
+      />
+    );
+  };
+
   if (variant === 'minimal') {
     return <>{children}</>;
   }
@@ -121,7 +153,7 @@ const ReportShell: React.FC<ReportShellProps> = ({
   return (
     <div className={`management-dashboard-container ${themeClass}`} style={reportContainerStyle(isDarkMode)}>
       {/* ── Filter toolbar ── */}
-      <div className="filter-toolbar">
+      <div className={`filter-toolbar${toolbarDensity === 'compact' ? ' filter-toolbar--compact' : ''}`}>
         <div className="filter-toolbar__top">
           <span className="filter-section-label">Date range</span>
           <div className="filter-toolbar__date-inputs">
@@ -129,7 +161,7 @@ const ReportShell: React.FC<ReportShellProps> = ({
               <div className="date-pickers">
                 <DatePicker
                   label="From"
-                  styles={getDatePickerStyles(isDarkMode)}
+                  styles={getDatePickerStyles(isDarkMode, toolbarDensity === 'compact')}
                   value={r.customDateRange.start || undefined}
                   onSelectDate={(d) => r.setCustomDate('start', d || null)}
                   allowTextInput
@@ -138,7 +170,7 @@ const ReportShell: React.FC<ReportShellProps> = ({
                 />
                 <DatePicker
                   label="To"
-                  styles={getDatePickerStyles(isDarkMode)}
+                  styles={getDatePickerStyles(isDarkMode, toolbarDensity === 'compact')}
                   value={r.customDateRange.end || undefined}
                   onSelectDate={(d) => r.setCustomDate('end', d || null)}
                   allowTextInput
@@ -151,7 +183,7 @@ const ReportShell: React.FC<ReportShellProps> = ({
                 <button
                   type="button"
                   className="date-stamp-button toolbar-control"
-                  style={dateStampButtonStyle(isDarkMode)}
+                  style={dateStampButtonStyle(isDarkMode, toolbarDensity === 'compact')}
                   onClick={() => r.handleRangeSelect('custom')}
                   title="Click to customise the start date"
                 >
@@ -161,7 +193,7 @@ const ReportShell: React.FC<ReportShellProps> = ({
                 <button
                   type="button"
                   className="date-stamp-button toolbar-control"
-                  style={dateStampButtonStyle(isDarkMode)}
+                  style={dateStampButtonStyle(isDarkMode, toolbarDensity === 'compact')}
                   onClick={() => r.handleRangeSelect('custom')}
                   title="Click to customise the end date"
                 >
@@ -206,8 +238,8 @@ const ReportShell: React.FC<ReportShellProps> = ({
                 type="button"
                 onClick={handleRefresh}
                 disabled={isFetching}
-                className="filter-icon-button toolbar-control"
-                title={isFetching ? 'Refreshing data…' : 'Refresh datasets'}
+                className="filter-icon-button filter-tool-button toolbar-control"
+                title={isFetching ? 'Refreshing data' : 'Refresh datasets'}
                 aria-label={isFetching ? 'Refreshing data' : 'Refresh datasets'}
               >
                 <Icon
@@ -217,6 +249,7 @@ const ReportShell: React.FC<ReportShellProps> = ({
                     animation: isFetching ? 'spin 1s linear infinite' : 'none',
                   }}
                 />
+                <span className="filter-tool-button__label">{isFetching ? 'Refreshing' : 'Refresh'}</span>
               </button>
             )}
 
@@ -227,63 +260,23 @@ const ReportShell: React.FC<ReportShellProps> = ({
         {/* ── Preset range buttons ── */}
         <div className="filter-toolbar__presets">
           <div className="filter-preset-group">
-            {r.quickRanges.slice(0, 1).map((q) => (
-              <DefaultButton
-                key={q.key}
-                text={q.label}
-                onClick={() => r.handleRangeSelect(q.key)}
-                styles={getRangeButtonStyles(isDarkMode, r.isActive(q.key))}
-              />
+            {PRESET_GROUPS.map(([start, end], groupIndex) => (
+              <React.Fragment key={`${start}-${end}`}>
+                {groupIndex > 0 && <div className="preset-separator">|</div>}
+                {r.quickRanges.slice(start, end).map(renderPresetButton)}
+              </React.Fragment>
             ))}
             <div className="preset-separator">|</div>
-            {r.quickRanges.slice(1, 3).map((q) => (
-              <DefaultButton
-                key={q.key}
-                text={q.label}
-                onClick={() => r.handleRangeSelect(q.key)}
-                styles={getRangeButtonStyles(isDarkMode, r.isActive(q.key))}
-              />
-            ))}
-            <div className="preset-separator">|</div>
-            {r.quickRanges.slice(3, 5).map((q) => (
-              <DefaultButton
-                key={q.key}
-                text={q.label}
-                onClick={() => r.handleRangeSelect(q.key)}
-                styles={getRangeButtonStyles(isDarkMode, r.isActive(q.key))}
-              />
-            ))}
-            <div className="preset-separator">|</div>
-            {r.quickRanges.slice(5, 7).map((q) => (
-              <DefaultButton
-                key={q.key}
-                text={q.label}
-                onClick={() => r.handleRangeSelect(q.key)}
-                styles={getRangeButtonStyles(isDarkMode, r.isActive(q.key))}
-              />
-            ))}
-            <div className="preset-separator">|</div>
-            {r.quickRanges.slice(7, 9).map((q) => (
-              <DefaultButton
-                key={q.key}
-                text={q.label}
-                onClick={() => r.handleRangeSelect(q.key)}
-                styles={getRangeButtonStyles(isDarkMode, r.isActive(q.key))}
-              />
-            ))}
-            <div className="preset-separator">|</div>
-            {r.quickRanges.slice(9, 11).map((q) => (
-              <DefaultButton
-                key={q.key}
-                text={q.label}
-                onClick={() => r.handleRangeSelect(q.key)}
-                styles={getRangeButtonStyles(isDarkMode, r.isActive(q.key))}
-              />
-            ))}
-            {r.rangeKey !== 'all' && (
+            <DefaultButton
+              key="custom"
+              text="Custom Dates"
+              onClick={() => r.handleRangeSelect('custom')}
+              styles={getRangeButtonStyles(isDarkMode, r.isActive('custom'), false, toolbarDensity === 'compact')}
+            />
+            {allowAllRange && r.rangeKey !== 'all' && (
               <button
                 onClick={() => r.handleRangeSelect('all')}
-                style={clearFilterButtonStyle(isDarkMode)}
+                style={clearFilterButtonStyle(isDarkMode, toolbarDensity === 'compact')}
                 title="Clear date range filter"
               >
                 <span style={{ fontSize: 16 }}>×</span>

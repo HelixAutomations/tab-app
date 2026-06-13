@@ -5,7 +5,7 @@ import type { TeamData } from '../../app/functionality/types';
 import type { DubberCallRecord } from './dataSources';
 import ReportShell from './components/ReportShell';
 import ReportingSectionCard from './components/ReportingSectionCard';
-import { useReportRange } from './hooks/useReportRange';
+import { useReportRange, type DateRange, type RangeKey } from './hooks/useReportRange';
 import './CallsReport.css';
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -86,6 +86,17 @@ const CallsReport: React.FC<CallsReportProps> = ({
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [detailView, setDetailView] = useState<'transcript' | 'ai'>('transcript');
   const [teamSort, setTeamSort] = useState<{ col: TeamSortCol; dir: SortDir }>({ col: 'total', dir: 'desc' });
+
+  const isPresetAvailable = useMemo(
+    () => (_key: RangeKey, candidateRange: DateRange | null) => {
+      if (!candidateRange || !dubberCalls?.length) return true;
+      return dubberCalls.some((call) => {
+        const callDate = new Date(call.start_time_utc);
+        return Number.isFinite(callDate.getTime()) && callDate >= candidateRange.start && callDate <= candidateRange.end;
+      });
+    },
+    [dubberCalls],
+  );
 
   // ── Date-filtered calls ──────────────────────────────────────────────
   const filtered = useMemo(() => {
@@ -407,7 +418,7 @@ const CallsReport: React.FC<CallsReportProps> = ({
   // ── No data ──────────────────────────────────────────────────────────
   if (!dubberCalls) {
     return (
-      <ReportShell range={range} isFetching={isFetching} lastRefreshTimestamp={lastRefreshTimestamp} onRefresh={triggerRefresh} toolbarExtras={toolbarExtras}>
+      <ReportShell range={range} isFetching={isFetching} lastRefreshTimestamp={lastRefreshTimestamp} onRefresh={triggerRefresh} toolbarExtras={toolbarExtras} isPresetAvailable={isPresetAvailable}>
         <div className="calls-empty-state">Loading call data…</div>
       </ReportShell>
     );
@@ -415,14 +426,14 @@ const CallsReport: React.FC<CallsReportProps> = ({
 
   if (dubberCalls.length === 0) {
     return (
-      <ReportShell range={range} isFetching={isFetching} lastRefreshTimestamp={lastRefreshTimestamp} onRefresh={triggerRefresh} toolbarExtras={toolbarExtras}>
+      <ReportShell range={range} isFetching={isFetching} lastRefreshTimestamp={lastRefreshTimestamp} onRefresh={triggerRefresh} toolbarExtras={toolbarExtras} isPresetAvailable={isPresetAvailable}>
         <div className="calls-empty-state">No call recordings found.</div>
       </ReportShell>
     );
   }
 
   return (
-    <ReportShell range={range} isFetching={isFetching} lastRefreshTimestamp={lastRefreshTimestamp} onRefresh={triggerRefresh} toolbarExtras={toolbarExtras}>
+    <ReportShell range={range} isFetching={isFetching} lastRefreshTimestamp={lastRefreshTimestamp} onRefresh={triggerRefresh} toolbarExtras={toolbarExtras} isPresetAvailable={isPresetAvailable}>
       {/* ── Section 1: Summary Metrics ───────────────────────────────── */}
       <ReportingSectionCard title="Overview" animationDelay={0} variant="minimal">
         <div className="calls-report-metrics">

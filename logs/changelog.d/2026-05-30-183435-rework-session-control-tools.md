@@ -1,1 +1,0 @@
-2026-05-30 / Rework session control tools / The Session Tools popover now presents a purposeful session control layout with system state, setup switches, grouped demo and diagnostic commands, and integrated utilities. (~ src/components/command-centre/CommandDeck.tsx, ~ src/components/command-centre/CommandDeck.css)

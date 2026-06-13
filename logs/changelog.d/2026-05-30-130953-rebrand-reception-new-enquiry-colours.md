@@ -1,1 +1,0 @@
-2026-05-30 / Rebrand Reception new-enquiry colours / Replace the Reception report's purple new-enquiry timeline and call-type chip colours with Helix highlight blue token colours, keeping Teams purple only for Teams-specific links. (~ src/tabs/Reporting/ReceptionReport.tsx, ~ src/tabs/Reporting/ReceptionReport.css)
