@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { startInteraction } from '../utils/interactionTracker';
 import { disposeOnHmr } from '../utils/devHmr';
+import { recordReportingDatasetActivity } from '../utils/reportingDatasetActivity';
 
 interface DatasetUpdate {
   type: 'init' | 'dataset-complete' | 'dataset-error' | 'complete';
@@ -180,6 +181,12 @@ export function useStreamingDatasets(options: UseStreamingDatasetsOptions = {}):
                 update.datasets!.forEach(({ name, status }) => {
                   starts[name] = Date.now();
                   handles[name] = startInteraction(`hydrate.stream.${name}`);
+                  recordReportingDatasetActivity({
+                    key: name,
+                    status: status === 'loading' ? 'loading' : 'idle',
+                    updatedAt: starts[name],
+                    source: 'reporting-stream',
+                  });
                   next[name] = {
                     status: status as 'loading',
                     data: null,
@@ -214,6 +221,13 @@ export function useStreamingDatasets(options: UseStreamingDatasetsOptions = {}):
               }
               const elapsedMs = started ? Date.now() - started : 0;
               // Dataset ready - tracked via state
+              recordReportingDatasetActivity({
+                key: update.dataset,
+                status: 'ready',
+                count: update.count || 0,
+                cached: update.cached || false,
+                source: 'reporting-stream',
+              });
               setDatasetStates(prev => ({
                 ...prev,
                 [update.dataset!]: {
@@ -238,6 +252,12 @@ export function useStreamingDatasets(options: UseStreamingDatasetsOptions = {}):
               }
 
 
+              recordReportingDatasetActivity({
+                key: update.dataset,
+                status: 'error',
+                count: 0,
+                source: 'reporting-stream',
+              });
               setDatasetStates(prev => ({
                 ...prev,
                 [update.dataset!]: {

@@ -14,7 +14,7 @@ import { app } from '@microsoft/teams-js';
 import { Matter, UserData, Enquiry, Tab, TeamData, POID, Transaction, BoardroomBooking, SoundproofPodBooking, InstructionData, NormalizedMatter } from './functionality/types';
 import { hasActiveMatterOpening } from './functionality/matterOpeningUtils';
 import { normalizeMatterData } from '../utils/matterNormalization';
-import { isAdminUser, canSeePrivateHubControls, canSeeActivityTab, canUseDemoModeControls, canUseSessionModeControls, isCclOperationsAvailable } from './admin';
+import { isAdminUser, canSeePrivateHubControls, canSeeActivityTab, canUseDemoModeControls, canUseSessionModeControls, isCclOperationsAvailable, canAccessReports, EXTRA_TOP_NAV_USERS } from './admin';
 import { useCapability } from './useEffectiveCapabilities';
 import { EffectivePermissionsProvider } from './effectivePermissions';
 import HubToolsChip from '../components/HubToolsChip';
@@ -56,6 +56,7 @@ const loadEnquiriesTab = () => retryImport(() => import('../tabs/enquiries/Enqui
 const loadInstructionsTab = () => retryImport(() => import('../tabs/instructions/Instructions'));
 const loadReportingTab = () => retryImport(() => import('../tabs/Reporting/ReportingHome'));
 const loadMarketingTab = () => retryImport(() => import('../tabs/marketing/MarketingHome'));
+const loadTasksTab = () => retryImport(() => import('../tabs/tasks/TasksHome'));
 const Home = lazy(loadHomeTab);
 const Enquiries = lazy(loadEnquiriesTab);
 const Instructions = lazy(loadInstructionsTab);
@@ -64,6 +65,7 @@ const Matters = lazy(loadMattersTab);
 const Roadmap = lazy(() => retryImport(() => import('../tabs/roadmap/Roadmap')));
 const ReportingHome = lazy(loadReportingTab);
 const MarketingHome = lazy(loadMarketingTab);
+const TasksHome = lazy(loadTasksTab);
 
 type LocalInstructionFixtures = {
   instructionData: InstructionData[];
@@ -820,7 +822,8 @@ const App: React.FC<AppProps> = ({
     if (isLocalDev && localSupportSettings.mode !== 'full-live') {
       if (localSupportSettings.mode === 'enquiries' && activeTab !== 'enquiries') void loadEnquiriesTab();
       if (localSupportSettings.mode === 'matters' && activeTab !== 'matters') void loadMattersTab();
-      if (localSupportSettings.mode === 'reports' && activeTab !== 'reporting') void loadReportingTab();
+      if (localSupportSettings.mode === 'reports' && activeTab !== 'reporting' && activeTab !== 'dataHub') void loadReportingTab();
+      if (localSupportSettings.mode === 'tasks' && activeTab !== 'tasks') void loadTasksTab();
       return;
     }
 
@@ -835,7 +838,9 @@ const App: React.FC<AppProps> = ({
       if (activeTab !== 'enquiries') void loadEnquiriesTab();
       if (activeTab !== 'matters') void loadMattersTab();
       if (activeTab !== 'reporting') void loadReportingTab();
+      if (activeTab !== 'dataHub') void loadReportingTab();
       if (activeTab !== 'marketing') void loadMarketingTab();
+      if (activeTab !== 'tasks') void loadTasksTab();
       void retryImport(() => import('../tabs/roadmap/Roadmap'));
     };
 
@@ -889,7 +894,7 @@ const App: React.FC<AppProps> = ({
     const navNode = navigatorChromeRef.current;
     const actNode = actionsWrapperRef.current;
     if (navNode) {
-      navNode.classList.toggle('chrome-tab-hidden', activeTab !== 'home' && activeTab !== 'enquiries' && activeTab !== 'matters' && activeTab !== 'reporting' && activeTab !== 'marketing' && activeTab !== 'roadmap');
+      navNode.classList.toggle('chrome-tab-hidden', activeTab !== 'home' && activeTab !== 'enquiries' && activeTab !== 'matters' && activeTab !== 'reporting' && activeTab !== 'dataHub' && activeTab !== 'marketing' && activeTab !== 'roadmap');
     }
     if (actNode) {
       // ImmediateActions portal is populated by Home only today. Keep the
@@ -1138,8 +1143,14 @@ const App: React.FC<AppProps> = ({
       case 'reporting':
         void loadReportingTab();
         break;
+      case 'dataHub':
+        void loadReportingTab();
+        break;
       case 'marketing':
         void loadMarketingTab();
+        break;
+      case 'tasks':
+        void loadTasksTab();
         break;
       case 'roadmap':
         // Roadmap chunk is small but still benefits from prefetch on hover/pointerdown.
@@ -1229,7 +1240,7 @@ const App: React.FC<AppProps> = ({
     const handleNavigateToTab = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       const requestedTab = typeof detail?.tab === 'string' ? detail.tab : '';
-      if (!['home', 'enquiries', 'matters', 'forms', 'reporting', 'marketing', 'roadmap'].includes(requestedTab)) return;
+      if (!['home', 'enquiries', 'matters', 'forms', 'tasks', 'reporting', 'dataHub', 'marketing', 'roadmap'].includes(requestedTab)) return;
       actionLog('Navigate → tab', requestedTab);
       activateTab(requestedTab);
     };
@@ -1263,6 +1274,10 @@ const App: React.FC<AppProps> = ({
       const detail = (e as CustomEvent).detail;
       const requestedView = detail?.view;
       actionLog('Navigate → reporting', requestedView || undefined);
+      if (requestedView === 'dataCentre') {
+        activateTab('dataHub');
+        return;
+      }
       if (requestedView === 'overview' || requestedView === 'logMonitor' || requestedView === 'dataCentre' || requestedView === 'ppcReport') {
         setReportingNavigationRequest({
           view: requestedView,
@@ -1769,19 +1784,23 @@ const App: React.FC<AppProps> = ({
   }, [activeTab, userInitials, userData, instructionRefreshTrigger, useLocalData]);
 
   // Tabs visible to all users start with the Enquiries tab.
-  // Show the Reports (and Marketing) tab only to internal reporting users: EA, LZ, AC.
+  // Reports uses the shared reports permission gate; Data Hub and Marketing
+  // stay on the smaller custom top-nav audience.
   const tabs: Tab[] = useMemo(() => {
     const initials = String((currentUser && (currentUser.Initials || '')) || '').toUpperCase().trim();
-    const showReportsTab = initials === 'LZ' || initials === 'AC' || initials === 'EA';
+    const showReportsTab = canAccessReports(currentUser);
+    const showExtraTopNavTabs = EXTRA_TOP_NAV_USERS.includes(initials as any);
 
     return [
       { key: 'enquiries', text: 'Prospects' },
       { key: 'matters', text: 'Matters' },
       { key: 'forms', text: 'Forms' },
+      ...(showActivityTab ? [{ key: 'tasks', text: 'Tasks' }] : []),
       { key: 'resources', text: 'Resources' },
       ...(showActivityTab ? [{ key: 'roadmap', text: 'System' }] : []),
+      ...(showExtraTopNavTabs ? [{ key: 'dataHub', text: 'Data Hub' }] : []),
       ...(showReportsTab ? [{ key: 'reporting', text: 'Reports' }] : []),
-      ...(showReportsTab ? [{ key: 'marketing', text: 'Marketing' }] : []),
+      ...(showExtraTopNavTabs ? [{ key: 'marketing', text: 'Marketing' }] : []),
     ];
   }, [currentUser, showActivityTab]);
 
@@ -1801,7 +1820,7 @@ const App: React.FC<AppProps> = ({
   // Clear the shared navigator only for tabs that do not own banner content.
   // Home, Enquiries, Matters, and System all manage the navigator themselves.
   React.useEffect(() => {
-    if (activeTab !== 'home' && activeTab !== 'enquiries' && activeTab !== 'matters' && activeTab !== 'marketing' && activeTab !== 'roadmap') {
+    if (activeTab !== 'home' && activeTab !== 'enquiries' && activeTab !== 'matters' && activeTab !== 'dataHub' && activeTab !== 'marketing' && activeTab !== 'roadmap') {
       setContent(null);
     }
   }, [activeTab, setContent]);
@@ -2059,6 +2078,22 @@ const App: React.FC<AppProps> = ({
                 </TabMountMeter>
               </Suspense>
             )}
+            {/* Data Hub: promoted top-level tab, backed by the Reports data spine */}
+            {activeTab === 'dataHub' && (
+              <Suspense fallback={<ThemedSuspenseFallback />}>
+                <TabMountMeter name="dataHub">
+                <ReportingHome
+                  userData={userData}
+                  teamData={teamData}
+                  demoModeEnabled={demoModeEnabled}
+                  featureToggles={featureToggles}
+                  localSupportSettings={localSupportSettings}
+                  initialView="dataCentre"
+                  dedicatedDataHub
+                />
+                </TabMountMeter>
+              </Suspense>
+            )}
             {/* Marketing: admin-only, mount/unmount is fine */}
             {activeTab === 'marketing' && (
               <Suspense fallback={<ThemedSuspenseFallback />}>
@@ -2069,6 +2104,13 @@ const App: React.FC<AppProps> = ({
                     enquiries={enquiries}
                     matters={matters}
                   />
+                </TabMountMeter>
+              </Suspense>
+            )}
+            {activeTab === 'tasks' && (
+              <Suspense fallback={<ThemedSuspenseFallback />}>
+                <TabMountMeter name="tasks">
+                  <TasksHome userData={userData} />
                 </TabMountMeter>
               </Suspense>
             )}

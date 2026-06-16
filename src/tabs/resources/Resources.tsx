@@ -50,7 +50,7 @@ const EXTERNAL_LINKS: ExternalLink[] = [
   { title: 'Thomson Reuters', url: 'https://www.thomsonreuters.com/en.html', icon: thompsonReutersIcon, summary: 'Westlaw and Practical Law reference.', group: 'Practice' },
   { title: 'Land Registry', url: 'https://www.gov.uk/government/organisations/land-registry', icon: landRegistryIcon, summary: 'HM Land Registry property records portal.', group: 'Government' },
   { title: 'Companies House', url: 'https://www.gov.uk/government/organisations/companies-house', IconComponent: FaBuilding, summary: 'UK company filings and ownership data.', group: 'Government' },
-  { title: 'CC-Filing', url: 'https://efile.cefile-app.com/login?referer=%2F', IconComponent: FaGavel, summary: 'County Court electronic filing service.', group: 'Government' },
+  { title: 'CC-Filing', url: 'https://efile.cefile-app.com/login?referer=%2F', IconComponent: FaGavel, summary: 'High Court electronic filing service.', group: 'Government' },
   { title: 'Miro', url: 'https://miro.com/login/', IconComponent: SiMiro, summary: 'Collaborative whiteboarding and mapping.', group: 'Other' },
   { title: 'Psychometric Testing', url: 'https://links.helix-law.co.uk/assessment', IconComponent: FaClipboardCheck, summary: 'Candidate assessment portal for hiring.', group: 'Other' },
 ];

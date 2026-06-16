@@ -10,6 +10,15 @@
 
 User quote (2026-06-04): "the idea was to stand up a hub backed system, using the same asana boards so that it doesnt change anything in that way, but the intake and processing can come into hub. you see? as a parallel. this includes the tables and things - should be future proof and include other forms in hub as tasks since users can create tasks via forms and things, you see that?"
 
+Addendum (2026-06-16): this project now starts as a top-level `Tasks` tab rather than a System subpage. The first user-facing loop is deliberately narrow: Tech Idea and Tech Problem intake lands on a Hub-owned tasking page, with one later AI mode that checks whether the ticket already exists, is open, or is similar to existing tech ideas/problems. The privacy gate belongs before the AI call in the form experience as a visible team reminder not to include client details. The route must not rely on post-hoc sanitisation because by then content has already crossed the boundary. Asana remains in the page as mirror and controls, but Hub owns the lifecycle once proven. Home To Do receives only human pickup actions such as triage, test, review, or verify, not the whole backlog.
+
+Current first slice (2026-06-16):
+- New top-level `tasks` tab in the app shell.
+- New `src/tabs/tasks/TasksHome.tsx` page showing recent Tech Idea and Tech Problem rows from `/api/tech-tickets/ledger`.
+- Reuses the existing Asana board mirror and Asana task inspector as adapter panels.
+- System Projects promotes this brief as the Hub Tasks project so the context is visible from System > Projects.
+- No DB-backed Hub task schema has been created yet. The durable `OpsTaskRequests` direction below remains the next major phase.
+
 What this is:
 - A Hub-owned intake + processor pipeline that mirrors the workflow contract of `submodules/tasking-v3/` end-to-end (team lookup, optional Clio task on matter, Asana task in the right project with followers + approver, Teams adaptive card to assignee, email notification, state transitions for approval / claim / request-type changes).
 - Same Asana boards continue to be the board of record. Same `team` table is the source of identity. We do not move data away from Asana or Clio.

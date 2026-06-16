@@ -8,6 +8,7 @@ type MarketingHydrationFeed = {
   key: string;
   label: string;
   status: 'idle' | 'loading' | 'ready' | 'error';
+  detail?: string;
 };
 
 type MarketingHydrationChromeProps = {
@@ -22,6 +23,8 @@ type MarketingHydrationChromeProps = {
   total: number;
   feeds: MarketingHydrationFeed[];
   hasErrors: boolean;
+  isComplete?: boolean;
+  onReturnToMarketing?: () => void;
   onDismiss?: () => void;
   onRetry: () => void;
 };
@@ -45,42 +48,55 @@ const MarketingHydrationChrome: React.FC<MarketingHydrationChromeProps> = ({
   total,
   feeds,
   hasErrors,
+  isComplete = false,
+  onReturnToMarketing,
   onDismiss,
   onRetry,
 }) => {
   const [folded, setFolded] = React.useState(false);
 
+  React.useEffect(() => {
+    if (isComplete && !hasErrors) setFolded(true);
+    if (!isComplete && visible) setFolded(false);
+  }, [hasErrors, isComplete, visible]);
+
   if (!visible) return null;
 
   const totalSafe = Math.max(total, feeds.length, 1);
-  const needsAttention = !hasErrors && (phaseLabel.toLowerCase().includes('choose a reporting window') || progressLabel.toLowerCase().includes('no feeds will load'));
+  const hasFeedAttention = feeds.some((feed) => feed.status === 'error');
   const overallStatus: ReportProcessingRailStatus = hasErrors
     ? 'error'
-    : completed >= totalSafe && !needsAttention
+    : isComplete || completed >= totalSafe
       ? 'ready'
       : 'loading';
   const processingItem: ReportProcessingRailItem = {
     key: 'marketing-feed-breakdown',
-    title: 'Feed breakdown',
-    subtitle: phaseLabel,
+    title: isComplete ? 'Marketing data finalised' : 'Feed breakdown',
+    subtitle: isComplete
+      ? (hasFeedAttention ? 'Financial-year-to-date feeds landed with attention.' : 'Financial-year-to-date feeds have settled.')
+      : phaseLabel,
     status: overallStatus,
     rows: feeds.map((feed) => ({
       key: feed.key,
       label: feed.label,
       status: toProcessingStatus(feed.status),
-      detail: feed.status === 'ready'
+      detail: feed.detail ?? (feed.status === 'ready'
         ? 'Loaded'
         : feed.status === 'loading'
           ? 'Refreshing'
           : feed.status === 'error'
             ? 'Retry needed'
-            : 'Waiting',
+            : 'Waiting'),
     })),
-    ctaLabel: hasErrors ? 'Retry pull' : 'Pulling…',
-    ctaDisabled: !hasErrors,
-    onCta: hasErrors ? onRetry : undefined,
-    detail: progressLabel,
+    ctaLabel: hasErrors ? 'Retry pull' : isComplete ? 'Back to marketing' : 'Pulling...',
+    ctaDisabled: !hasErrors && !isComplete,
+    onCta: hasErrors ? onRetry : isComplete ? onReturnToMarketing : undefined,
+    detail: isComplete
+      ? (hasFeedAttention ? 'The workspace is ready. Attention lanes remain visible in the timeline while you work elsewhere.' : 'The workspace is ready and the panel can stay folded while you work elsewhere.')
+      : progressLabel,
     elapsedLabel: rangeLabel,
+    secondaryCtaLabel: isComplete ? 'Back to marketing' : undefined,
+    onSecondaryCta: isComplete ? onReturnToMarketing : undefined,
   };
 
   return (
@@ -103,7 +119,7 @@ const MarketingHydrationChrome: React.FC<MarketingHydrationChromeProps> = ({
       )}
 
       <aside
-        className={`reports-floating-processing-panel${folded ? ' is-folded' : ''}`}
+        className={`reports-floating-processing-panel marketing-processing-panel${folded ? ' is-folded' : ''}`}
         data-helix-region="marketing/refresh-rail"
         aria-label="Marketing feed breakdown"
         style={{ pointerEvents: 'auto' }}

@@ -338,6 +338,53 @@ function withRecordPreview(candidate, record) {
   return candidate ? { ...candidate, preview: buildRecordPreview(record) } : null;
 }
 
+function toIsoPreviewValue(value) {
+  const date = asNullableDate(value);
+  if (date) return date.toISOString();
+  return asNullableString(value, 80);
+}
+
+function mapCallIntakeCandidate(record) {
+  const callId = asTrimmed(record?.callId);
+  if (!callId) return null;
+  const intakeAt = record.callSubmittedAt || record.callStartedAt || record.createdAt || null;
+  const handler = asNullableString(record.handler, 80);
+  const durationSeconds = Number(record.durationSeconds);
+  const safeRecord = {
+    CallId: callId,
+    CallType: asNullableString(record.callType, 40),
+    Status: asNullableString(record.callStatus, 80),
+    EnquiryId: asNullableString(record.enquiryId, 120),
+    Handler: handler,
+    IntakeAt: toIsoPreviewValue(intakeAt),
+    CallSubmittedAt: toIsoPreviewValue(record.callSubmittedAt),
+    CallStartedAt: toIsoPreviewValue(record.callStartedAt),
+    CreatedAt: toIsoPreviewValue(record.createdAt),
+    AreaOfWork: asNullableString(record.areaOfWork, 160),
+    DurationSeconds: Number.isFinite(durationSeconds) ? durationSeconds : null,
+    ExternalCallId: asNullableString(record.externalCallId, 120),
+    TrackingSource: asNullableString(record.trackingSource, 160),
+  };
+  return withRecordPreview({
+    type: 'intake',
+    id: `incoming-call-${callId}`,
+    title: `Incoming call intake ${callId}`,
+    subtitle: [
+      safeRecord.IntakeAt,
+      safeRecord.CallType,
+      safeRecord.Status,
+      safeRecord.EnquiryId ? `Enquiry ${safeRecord.EnquiryId}` : null,
+      handler ? `Handler ${handler}` : null,
+      Number.isFinite(durationSeconds) ? `${durationSeconds}s` : null,
+    ].filter(Boolean).join(' / '),
+    patch: {
+      intake_type: 'call',
+      call_id: callId,
+      intake_at: intakeAt,
+    },
+  }, safeRecord);
+}
+
 function firstValue(record, keys) {
   for (const key of keys) {
     const value = record?.[key];
@@ -496,7 +543,7 @@ function mapLookupCandidate(type, record) {
     const sourceValue = asNullableString(firstValue(record, ['Source', 'source', 'Ultimate_Source']), 160);
     const sourceChannel = normaliseSourceChannel(sourceValue);
     const enquiryAt = firstValue(record, ['datetime', 'Date_Created', 'date_created', 'created_at']);
-    const methodOfContact = asNullableString(firstValue(record, ['Method_of_Contact', 'method_of_contact', 'methodOfContact', 'ContactMethod', 'contactMethod']), 80);
+    const methodOfContact = asNullableString(firstValue(record, ['Method_of_Contact', 'method_of_contact', 'MethodOfContact', 'methodOfContact', 'ContactMethod', 'contactMethod', 'MOC', 'moc']), 80);
     const intakeType = inferIntakeType(methodOfContact);
     return withRecordPreview({
       type,
@@ -778,6 +825,47 @@ async function queryPitchCandidates(query = '') {
   });
 }
 
+async function queryRecentCallIntakeCandidates({ enquiryId = '', limit = 12 } = {}) {
+  const trimmedEnquiryId = asTrimmed(enquiryId);
+  const safeLimit = Math.max(1, Math.min(25, Number(limit) || 12));
+  return withRequest(getInstructionsConn(), async (request) => {
+    request.input('limit', sql.Int, safeLimit);
+    request.input('enquiryId', sql.NVarChar, trimmedEnquiryId);
+    const result = await request.query(`
+      SELECT TOP (@limit)
+        ic.id AS callId,
+        ic.enquiry_id AS enquiryId,
+        ic.status AS callStatus,
+        ic.call_type AS callType,
+        ic.call_started_at AS callStartedAt,
+        ic.call_submitted_at AS callSubmittedAt,
+        ic.created_at AS createdAt,
+        COALESCE(NULLIF(LTRIM(RTRIM(ic.taken_by_resolved)), ''), NULLIF(LTRIM(RTRIM(ic.taken_by)), '')) AS handler,
+        ic.area_of_work AS areaOfWork,
+        ic.call_duration_seconds AS durationSeconds,
+        ic.external_call_id AS externalCallId,
+        ic.tracking_source AS trackingSource
+      FROM dbo.incoming_calls ic
+      WHERE (@enquiryId = '' OR CAST(ic.enquiry_id AS NVARCHAR(120)) = @enquiryId OR ic.enquiry_id IS NULL)
+        AND (
+          ic.call_type IS NULL
+          OR LOWER(LTRIM(RTRIM(ic.call_type))) NOT IN ('internal', 'outbound', 'outgoing')
+        )
+      ORDER BY
+        CASE
+          WHEN @enquiryId <> '' AND CAST(ic.enquiry_id AS NVARCHAR(120)) = @enquiryId THEN 0
+          WHEN ic.enquiry_id IS NULL THEN 1
+          ELSE 2
+        END,
+        COALESCE(ic.call_submitted_at, ic.call_started_at, ic.created_at) DESC,
+        ic.id DESC
+    `);
+    return (Array.isArray(result.recordset) ? result.recordset : [])
+      .map(mapCallIntakeCandidate)
+      .filter((candidate) => candidate?.id);
+  }, 2);
+}
+
 async function queryPitchAssist({ enquiryId, instructionRef }) {
   const trimmedEnquiryId = asTrimmed(enquiryId);
   const trimmedInstructionRef = asTrimmed(instructionRef);
@@ -973,6 +1061,26 @@ router.get('/recent-pitches', async (req, res) => {
   }
 });
 
+router.get('/recent-call-intakes', async (req, res) => {
+  const startedAt = Date.now();
+  const operation = 'MarketingAttributionChain.CallIntakes';
+  const actor = resolveRequestActor(req);
+  const enquiryId = req.query.enquiry_id || req.query.enquiryId || '';
+  const limit = Number(req.query.limit) || 12;
+  trackEvent('MarketingAttributionChain.CallIntakes.Started', { operation, triggeredBy: actor, hasEnquiryId: Boolean(asTrimmed(enquiryId)), limit });
+  try {
+    const candidates = await queryRecentCallIntakeCandidates({ enquiryId, limit });
+    const durationMs = Date.now() - startedAt;
+    trackEvent('MarketingAttributionChain.CallIntakes.Completed', { operation, triggeredBy: actor, candidateCount: candidates.length, durationMs });
+    trackMetric('MarketingAttributionChain.CallIntakes.Duration', durationMs, { operation });
+    res.json({ success: true, source: 'incoming_calls', candidates });
+  } catch (error) {
+    trackException(error, { operation, phase: 'recent-call-intakes', actor });
+    trackEvent('MarketingAttributionChain.CallIntakes.Failed', { operation, triggeredBy: actor, error: error.message });
+    res.status(500).json({ error: 'Failed to load incoming call intake candidates', details: error.message });
+  }
+});
+
 router.post('/pitch-check', async (req, res) => {
   const startedAt = Date.now();
   const operation = 'MarketingAttributionChain.PitchCheck';
@@ -1039,12 +1147,12 @@ router.post('/', async (req, res) => {
       if (targetId) {
         request.input('id', sql.BigInt, targetId);
         const setClause = columns.map((column) => `${column} = @${column}`).join(', ');
+        const updateColumns = [setClause]
+          .concat(asTrimmed(patch.matter_id) && !columns.includes('recent_sync_at') ? ['recent_sync_at = SYSUTCDATETIME()'] : [])
+          .concat(['updated_by = @actor', 'updated_at = SYSUTCDATETIME()']);
         const updateResult = await request.query(`
           UPDATE ${TABLE_NAME}
-          SET ${setClause},
-              recent_sync_at = SYSUTCDATETIME(),
-              updated_by = @actor,
-              updated_at = SYSUTCDATETIME()
+          SET ${updateColumns.join(',\n              ')}
           WHERE id = @id
             AND attribution_locked_at IS NULL
         `);
@@ -1058,8 +1166,9 @@ router.post('/', async (req, res) => {
         return selectChainById(request, targetId);
       }
 
-      const insertColumns = columns.concat(['recent_sync_at', 'created_by', 'updated_by', 'updated_at']);
-      const insertValues = columns.map((column) => `@${column}`).concat(['SYSUTCDATETIME()', '@actor', '@actor', 'SYSUTCDATETIME()']);
+      const shouldStampCollectedSync = asTrimmed(patch.matter_id) && !columns.includes('recent_sync_at');
+      const insertColumns = columns.concat(shouldStampCollectedSync ? ['recent_sync_at'] : []).concat(['created_by', 'updated_by', 'updated_at']);
+      const insertValues = columns.map((column) => `@${column}`).concat(shouldStampCollectedSync ? ['SYSUTCDATETIME()'] : []).concat(['@actor', '@actor', 'SYSUTCDATETIME()']);
       const insertResult = await request.query(`
         INSERT INTO ${TABLE_NAME} (${insertColumns.join(', ')})
         OUTPUT INSERTED.id
@@ -1099,11 +1208,11 @@ router.post('/:id/lock', async (req, res) => {
       request.input('actor', sql.NVarChar, actor);
       await request.query(`
         UPDATE ${TABLE_NAME}
-        SET attribution_locked_at = COALESCE(attribution_locked_at, SYSUTCDATETIME()),
-            attribution_locked_by = COALESCE(attribution_locked_by, @actor),
+        SET attribution_locked_at = SYSUTCDATETIME(),
+            attribution_locked_by = @actor,
             updated_by = @actor,
             updated_at = SYSUTCDATETIME(),
-            recent_sync_at = SYSUTCDATETIME()
+          recent_sync_at = CASE WHEN NULLIF(LTRIM(RTRIM(COALESCE(matter_id, ''))), '') IS NOT NULL THEN SYSUTCDATETIME() ELSE recent_sync_at END
         WHERE id = @id
       `);
       return selectChainById(request, id);

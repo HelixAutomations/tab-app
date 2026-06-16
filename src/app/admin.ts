@@ -5,6 +5,8 @@ export const ADMIN_USERS = ['LZ', 'AC', 'KW', 'JW', 'LA', 'EA', 'WH'] as const;
 
 // Admins who can access the Reports tab (LA is admin but no reports access)
 export const REPORTS_USERS = ['LZ', 'AC', 'KW', 'JW', 'EA', 'WH'] as const;
+export const EXTRA_TOP_NAV_USERS = ['LZ', 'AC', 'EA'] as const;
+const REPORTS_USER_EMAILS = ['lz@helix-law.com', 'ac@helix-law.com', 'kw@helix-law.com', 'jw@helix-law.com', 'ea@helix-law.com', 'wh@helix-law.com'] as const;
 
 // CCL operations are clipped under the ZDR/LPP containment position. They are
 // available on localhost only so the built workflow remains testable without
@@ -181,9 +183,11 @@ export function canAccessReports(user?: UserData | null): boolean {
     const initials = user.Initials?.toUpperCase().trim();
     const first = user.First?.toLowerCase().trim();
     const nickname = user.Nickname?.toLowerCase().trim();
+    const email = user.Email?.toLowerCase().trim();
     const reportsNames = ['lukasz', 'luke', 'alex', 'kanchel', 'jonathan', 'emma', 'wolfgang'];
     return !!(
         (initials && REPORTS_USERS.includes(initials as any)) ||
+        (email && REPORTS_USER_EMAILS.includes(email as any)) ||
         (first && reportsNames.includes(first)) ||
         (nickname && reportsNames.includes(nickname))
     );

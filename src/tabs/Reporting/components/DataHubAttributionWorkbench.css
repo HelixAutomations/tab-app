@@ -1,31 +1,37 @@
-.dhaw-preview-scroll {
+.dhaw-preview-scroll,
+.dhaw-inline-scroll {
   scrollbar-width: none;
   scrollbar-gutter: auto;
 }
 
-.dhaw-preview-scroll::-webkit-scrollbar {
+.dhaw-preview-scroll::-webkit-scrollbar,
+.dhaw-inline-scroll::-webkit-scrollbar {
   width: 0;
   height: 0;
   display: none;
 }
 
-html[data-show-scrollbars="1"] .dhaw-preview-scroll {
+html[data-show-scrollbars="1"] .dhaw-preview-scroll,
+html[data-show-scrollbars="1"] .dhaw-inline-scroll {
   scrollbar-width: thin;
   scrollbar-color: rgba(54, 144, 206, 0.55) transparent;
   scrollbar-gutter: stable;
 }
 
-html[data-show-scrollbars="1"] .dhaw-preview-scroll::-webkit-scrollbar {
+html[data-show-scrollbars="1"] .dhaw-preview-scroll::-webkit-scrollbar,
+html[data-show-scrollbars="1"] .dhaw-inline-scroll::-webkit-scrollbar {
   width: 8px !important;
   height: 8px !important;
   display: block;
 }
 
-html[data-show-scrollbars="1"] .dhaw-preview-scroll::-webkit-scrollbar-thumb {
+html[data-show-scrollbars="1"] .dhaw-preview-scroll::-webkit-scrollbar-thumb,
+html[data-show-scrollbars="1"] .dhaw-inline-scroll::-webkit-scrollbar-thumb {
   background: rgba(54, 144, 206, 0.55);
   border-radius: 999px;
 }
 
-html[data-show-scrollbars="1"] .dhaw-preview-scroll::-webkit-scrollbar-thumb:hover {
+html[data-show-scrollbars="1"] .dhaw-preview-scroll::-webkit-scrollbar-thumb:hover,
+html[data-show-scrollbars="1"] .dhaw-inline-scroll::-webkit-scrollbar-thumb:hover {
   background: rgba(54, 144, 206, 0.75);
 }

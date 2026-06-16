@@ -12,7 +12,7 @@ interface SystemProjectsViewProps {
   onOpenInfrastructure?: () => void;
 }
 
-type ProjectsSurface = 'overview' | 'local-llm' | 'stashes' | 'changelog';
+type ProjectsSurface = 'overview' | 'local-llm' | 'marketing-timeline' | 'hub-tasks' | 'stashes' | 'changelog';
 
 type StashCard = {
   id: string | null;
@@ -67,6 +67,71 @@ const LOCAL_LLM_PROJECT = {
     'No Azure OpenAI fallback for privileged flows.',
     'Model licence recorded before production.',
     'Manual workflow if local model is unhealthy.',
+  ],
+};
+
+const MARKETING_TIMELINE_PROJECT = {
+  id: 'marketing-timeline-attribution-workbench',
+  title: 'Marketing Timeline',
+  eyebrow: 'FYTD attribution workbench',
+  status: 'planned' as const,
+  briefPath: 'docs/notes/MARKETING_TIMELINE_ATTRIBUTION_WORKBENCH.md',
+  summary: 'Lock marketing into this financial year, show live feed hydration, and turn channels into one timeline-led proof surface for activity, attribution, conversion, and future ROI.',
+  intent: [
+    'Make financial-year-to-date the default lens from April 2026 onward.',
+    'Remove the manual range-picker entry step and replace it with a calm processing cue plus feed breakdown while data cooks.',
+    'Keep SEO and PPC under one channel workbench governor, then extend the same pattern to email, LinkedIn, content, and campaign activity.',
+    'Give Alex a compact direction-of-travel artefact: activity timeline first, evidence quality second, ROI once attribution is locked.',
+  ],
+  phases: [
+    { key: 'A', label: 'FYTD lock', detail: 'Auto-open the marketing workspace on current financial year and make the loading state feel intentional.' },
+    { key: 'B', label: 'Timeline spine', detail: 'Add a channel activity timeline below the summary banner and above the evidence/KPI strips.' },
+    { key: 'C', label: 'Channel expansion', detail: 'Bring email, LinkedIn posts, content efforts, and campaign notes into the same workbench model.' },
+    { key: 'D', label: 'Proof and ROI', detail: 'Surface three-month comparison, attribution gaps, conversion evidence, and ROI by channel once data is cleaned.' },
+  ],
+  timelineLanes: [
+    { label: 'SEO', detail: 'GA4 sessions, organic enquiries, content milestones, conversion path.' },
+    { label: 'PPC', detail: 'Ads spend, clicks, paid enquiries, conversion and cost evidence.' },
+    { label: 'Email', detail: 'Campaign sends, replies, intake attribution once source data is reliable.' },
+    { label: 'LinkedIn', detail: 'Posts, content pushes, engagement, eventual enquiry impact.' },
+    { label: 'Gaps', detail: 'Unknown source, unclassified records, missing attribution links, cleanup queue.' },
+  ],
+  acceptance: [
+    'Marketing entry no longer asks the user to choose a reporting window.',
+    'FYTD processing cue shows which feeds are loading, settled, or unavailable.',
+    'The channel workbench and timeline share one visible governor.',
+    'Evidence quality and intake KPI strips sit below the timeline as validation, not as the primary story.',
+    'Three-month versus three-month comparison is introduced only after the FYTD baseline is stable.',
+  ],
+};
+
+const HUB_TASKS_PROJECT = {
+  id: 'hub-native-task-intake-pipeline-parallel-to-tasking-v3',
+  title: 'Hub Tasks',
+  eyebrow: 'Top-level tasking system',
+  status: 'scoped' as const,
+  briefPath: 'docs/notes/HUB_NATIVE_TASK_INTAKE_PIPELINE_PARALLEL_TO_TASKING_V3.md',
+  summary: 'Create a first-class Tasks tab where Hub-owned tasking is canonical, Asana is an adapter, and Home To Do receives only human pickup actions.',
+  principles: [
+    'Tasks is a top navigation tab, not a System subpage.',
+    'Hub task records own the lifecycle once the pattern is proven.',
+    'Asana stays as mirror and control surface, but should not own Hub task state.',
+    'Home To Do is for assigned pickup moments, not the full backlog.',
+    'The first AI mode is only duplicate, open, or similar ticket checking across tech ideas and problems.',
+  ],
+  phases: [
+    { key: 'A', label: 'Top-level shell', detail: 'Add a Tasks tab, surface tech idea/problem intake, and reuse the Asana mirror and inspector.' },
+    { key: 'B', label: 'Hub queue', detail: 'Introduce a Hub-owned task queue and lifecycle stages beside existing form ledgers.' },
+    { key: 'C', label: 'Human pickup', detail: 'Create To Do cards only when a person needs to triage, test, review, or verify.' },
+    { key: 'D', label: 'Cutover', detail: 'After the new system proves reliable, retire the old Hub-only task surface while keeping Asana as needed.' },
+    { key: 'E', label: 'DB-backed', detail: 'Move to durable hub_tasks, task events, links, external refs, and review records.' },
+  ],
+  lanes: [
+    { label: 'Intake', detail: 'Tech ideas and problems from Forms land as structured Hub work.' },
+    { label: 'Cross-check', detail: 'AI checks only against existing tech ideas/problems for duplicate or similar open work.' },
+    { label: 'Lifecycle', detail: 'Sent off, ready, rejected, accepted, started, completed, optional check, verified.' },
+    { label: 'Asana', detail: 'Mirror, task lookup, and controls remain available as an integration panel.' },
+    { label: 'To Do', detail: 'Only assigned human actions are emitted into the personal pickup stream.' },
   ],
 };
 
@@ -400,6 +465,10 @@ const SystemProjectsView: React.FC<SystemProjectsViewProps> = ({ isDarkMode, vie
   };
   const showAllPanels = () => setOpenPanels(new Set(PROJECT_PANEL_IDS));
   const hideAllPanels = () => setOpenPanels(new Set());
+  const openTasksTab = () => {
+    if (typeof window === 'undefined') return;
+    window.dispatchEvent(new CustomEvent('navigateToTab', { detail: { tab: 'tasks' } }));
+  };
   const panelOpen = useMemo(() => ({
     models: openPanels.has('models'),
     rollout: openPanels.has('rollout'),
@@ -454,7 +523,7 @@ const SystemProjectsView: React.FC<SystemProjectsViewProps> = ({ isDarkMode, vie
   }, []);
 
   const visibleStashCards = useMemo(
-    () => stashCards.filter((card) => !card.shipped && card.id !== LOCAL_LLM_PROJECT.id),
+    () => stashCards.filter((card) => !card.shipped && card.id !== LOCAL_LLM_PROJECT.id && card.id !== MARKETING_TIMELINE_PROJECT.id && card.id !== HUB_TASKS_PROJECT.id),
     [stashCards],
   );
 
@@ -509,6 +578,32 @@ const SystemProjectsView: React.FC<SystemProjectsViewProps> = ({ isDarkMode, vie
                 mutedColour={mutedColour}
                 textColour={textColour}
                 onClick={isDevOwner ? () => setSurface('local-llm') : undefined}
+              />
+              <ProjectOptionCard
+                label="Marketing Timeline"
+                eyebrow="Project"
+                note="FYTD marketing workbench. Channel timeline first, evidence and ROI once attribution is clean."
+                meta={isDevOwner ? 'full view' : 'card only'}
+                accent={colours.green}
+                isDarkMode={isDarkMode}
+                borderColour={borderColour}
+                cardBg={cardBg}
+                mutedColour={mutedColour}
+                textColour={textColour}
+                onClick={isDevOwner ? () => setSurface('marketing-timeline') : undefined}
+              />
+              <ProjectOptionCard
+                label="Hub Tasks"
+                eyebrow="Project"
+                note="Top-level tasking tab. Hub owns the lifecycle, Asana remains an adapter, To Do stays human-pickup only."
+                meta={isDevOwner ? 'full view' : 'card only'}
+                accent={colours.orange}
+                isDarkMode={isDarkMode}
+                borderColour={borderColour}
+                cardBg={cardBg}
+                mutedColour={mutedColour}
+                textColour={textColour}
+                onClick={isDevOwner ? () => setSurface('hub-tasks') : undefined}
               />
             </div>
           </SystemModuleSection>
@@ -684,6 +779,213 @@ const SystemProjectsView: React.FC<SystemProjectsViewProps> = ({ isDarkMode, vie
             ) : null}
           </div>
         ) : null}
+      </SystemModuleSection>
+      ) : null}
+
+      {surface === 'marketing-timeline' && isDevOwner ? (
+      <SystemModuleSection
+        label={MARKETING_TIMELINE_PROJECT.title}
+        description={MARKETING_TIMELINE_PROJECT.eyebrow}
+        accent={colours.green}
+        dataRegion="system/projects/marketing-timeline"
+        isDarkMode={isDarkMode}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <StatusPill tone={MARKETING_TIMELINE_PROJECT.status} isDarkMode={isDarkMode} />
+            <span style={{ fontSize: 11, fontWeight: 700, color: mutedColour }}>
+              Brief: <code style={{ fontSize: 11, fontWeight: 700, color: textColour }}>{MARKETING_TIMELINE_PROJECT.briefPath}</code>
+            </span>
+          </div>
+        </div>
+
+        <section
+          data-helix-region="system/projects/marketing-timeline/brief"
+          style={{
+            border: `1px solid ${borderColour}`,
+            borderLeft: `3px solid ${colours.green}`,
+            background: cardBg,
+            padding: 14,
+            marginBottom: 12,
+          }}
+        >
+          <div style={{ fontSize: 11, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.5px', color: colours.green }}>
+            Direction
+          </div>
+          <div style={{ marginTop: 4, fontSize: 12, lineHeight: 1.5, color: mutedColour }}>
+            {MARKETING_TIMELINE_PROJECT.summary}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10, marginTop: 12 }}>
+            {MARKETING_TIMELINE_PROJECT.intent.map((item) => (
+              <div key={item} style={{ border: `1px solid ${borderColour}`, background: isDarkMode ? 'rgba(255,255,255,0.025)' : 'rgba(13,47,96,0.035)', padding: 10 }}>
+                <span style={{ fontSize: 11, lineHeight: 1.45, fontWeight: 700, color: textColour }}>{item}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section
+          data-helix-region="system/projects/marketing-timeline/timeline"
+          style={{
+            border: `1px solid ${borderColour}`,
+            background: cardBg,
+            padding: 14,
+            marginBottom: 12,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.5px', color: colours.blue }}>
+                Timeline spine
+              </div>
+              <div style={{ marginTop: 3, fontSize: 11, lineHeight: 1.45, color: mutedColour }}>
+                The page story moves from feed hydration to channel activity to evidence quality.
+              </div>
+            </div>
+            <span style={{ fontSize: 10, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.5px', color: mutedColour }}>
+              FY 2026 onward
+            </span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 0, border: `1px solid ${borderColour}` }}>
+            {MARKETING_TIMELINE_PROJECT.timelineLanes.map((lane, index) => (
+              <div
+                key={lane.label}
+                style={{
+                  display: 'grid',
+                  gap: 6,
+                  minHeight: 116,
+                  padding: 11,
+                  borderRight: index === MARKETING_TIMELINE_PROJECT.timelineLanes.length - 1 ? 'none' : `1px solid ${borderColour}`,
+                  borderTop: `2px solid ${index % 2 === 0 ? colours.green : colours.blue}`,
+                }}
+              >
+                <span style={{ fontSize: 10, fontWeight: 900, letterSpacing: '0.06em', textTransform: 'uppercase', color: index % 2 === 0 ? colours.green : colours.blue }}>
+                  {lane.label}
+                </span>
+                <span style={{ fontSize: 11, lineHeight: 1.45, fontWeight: 700, color: mutedColour }}>{lane.detail}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
+          <RevealPanel id="marketing-phases" title="Phases" note="Lock the year, then build the timeline." isOpen isDarkMode={isDarkMode} accent={colours.green} borderColour={borderColour} cardBg={cardBg} mutedColour={mutedColour} textColour={textColour} onToggle={() => {}}>
+            <ul style={{ margin: 0, paddingLeft: 0, listStyle: 'none', color: textColour, fontSize: 12, lineHeight: 1.5 }}>
+              {MARKETING_TIMELINE_PROJECT.phases.map((phase) => (
+                <li key={phase.key} style={{ marginBottom: 8 }}>
+                  <div style={{ fontWeight: 900, color: textColour }}>{phase.label}</div>
+                  <div style={{ marginTop: 2, color: mutedColour }}>{phase.detail}</div>
+                </li>
+              ))}
+            </ul>
+          </RevealPanel>
+          <RevealPanel id="marketing-acceptance" title="Acceptance" note="What has to be true before Alex sees it as direction, not just charts." isOpen isDarkMode={isDarkMode} accent={colours.blue} borderColour={borderColour} cardBg={cardBg} mutedColour={mutedColour} textColour={textColour} onToggle={() => {}}>
+            <ul style={{ margin: 0, paddingLeft: 18, color: textColour, fontSize: 12, lineHeight: 1.55 }}>
+              {MARKETING_TIMELINE_PROJECT.acceptance.map((item) => (
+                <li key={item} style={{ marginBottom: 5 }}>{item}</li>
+              ))}
+            </ul>
+          </RevealPanel>
+        </div>
+      </SystemModuleSection>
+      ) : null}
+
+      {surface === 'hub-tasks' && isDevOwner ? (
+      <SystemModuleSection
+        label={HUB_TASKS_PROJECT.title}
+        description={HUB_TASKS_PROJECT.eyebrow}
+        accent={colours.orange}
+        dataRegion="system/projects/hub-tasks"
+        isDarkMode={isDarkMode}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <StatusPill tone={HUB_TASKS_PROJECT.status} isDarkMode={isDarkMode} />
+            <span style={{ fontSize: 11, fontWeight: 700, color: mutedColour }}>
+              Anchor: <code style={{ fontSize: 11, fontWeight: 700, color: textColour }}>{HUB_TASKS_PROJECT.briefPath}</code>
+            </span>
+          </div>
+          <HeaderButton label="Open Tasks" isDarkMode={isDarkMode} accent={colours.orange} onClick={openTasksTab} />
+        </div>
+
+        <section
+          data-helix-region="system/projects/hub-tasks/brief"
+          style={{
+            border: `1px solid ${borderColour}`,
+            borderLeft: `3px solid ${colours.orange}`,
+            background: cardBg,
+            padding: 14,
+            marginBottom: 12,
+          }}
+        >
+          <div style={{ fontSize: 11, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.5px', color: colours.orange }}>
+            Direction
+          </div>
+          <div style={{ marginTop: 4, fontSize: 12, lineHeight: 1.5, color: mutedColour }}>
+            {HUB_TASKS_PROJECT.summary}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10, marginTop: 12 }}>
+            {HUB_TASKS_PROJECT.principles.map((item) => (
+              <div key={item} style={{ border: `1px solid ${borderColour}`, background: isDarkMode ? 'rgba(255,255,255,0.025)' : 'rgba(13,47,96,0.035)', padding: 10 }}>
+                <span style={{ fontSize: 11, lineHeight: 1.45, fontWeight: 700, color: textColour }}>{item}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section
+          data-helix-region="system/projects/hub-tasks/lanes"
+          style={{
+            border: `1px solid ${borderColour}`,
+            background: cardBg,
+            padding: 14,
+            marginBottom: 12,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.5px', color: colours.blue }}>
+                Operating lanes
+              </div>
+              <div style={{ marginTop: 3, fontSize: 11, lineHeight: 1.45, color: mutedColour }}>
+                Keep the first build narrow while preserving the direction of travel.
+              </div>
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 0, border: `1px solid ${borderColour}` }}>
+            {HUB_TASKS_PROJECT.lanes.map((lane, index) => (
+              <div
+                key={lane.label}
+                style={{
+                  display: 'grid',
+                  gap: 6,
+                  minHeight: 112,
+                  padding: 11,
+                  borderRight: index === HUB_TASKS_PROJECT.lanes.length - 1 ? 'none' : `1px solid ${borderColour}`,
+                  borderTop: `2px solid ${index % 2 === 0 ? colours.orange : colours.blue}`,
+                }}
+              >
+                <span style={{ fontSize: 10, fontWeight: 900, letterSpacing: '0.06em', textTransform: 'uppercase', color: index % 2 === 0 ? colours.orange : colours.blue }}>
+                  {lane.label}
+                </span>
+                <span style={{ fontSize: 11, lineHeight: 1.45, fontWeight: 700, color: mutedColour }}>{lane.detail}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
+          <RevealPanel id="hub-tasks-phases" title="Phases" note="Prove the tab, then make Hub tasks durable." isOpen isDarkMode={isDarkMode} accent={colours.orange} borderColour={borderColour} cardBg={cardBg} mutedColour={mutedColour} textColour={textColour} onToggle={() => {}}>
+            <ul style={{ margin: 0, paddingLeft: 0, listStyle: 'none', color: textColour, fontSize: 12, lineHeight: 1.5 }}>
+              {HUB_TASKS_PROJECT.phases.map((phase) => (
+                <li key={phase.key} style={{ marginBottom: 8 }}>
+                  <div style={{ fontWeight: 900, color: textColour }}>{phase.label}</div>
+                  <div style={{ marginTop: 2, color: mutedColour }}>{phase.detail}</div>
+                </li>
+              ))}
+            </ul>
+          </RevealPanel>
+        </div>
       </SystemModuleSection>
       ) : null}
 

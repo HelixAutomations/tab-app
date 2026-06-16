@@ -70,9 +70,16 @@ import ReceptionReport, { type ReceptionKpisResponse } from './ReceptionReport';
 import EnquiryLedgerReport from './EnquiryLedgerReport';
 import ReportCard from './ReportCard';
 import { ReportProcessingRailItemCard, type ReportProcessingRailItem, type ReportProcessingRailRow, type ReportProcessingRailStatus } from './components/ReportProcessingRail';
+import AccessMatrixConnector from './components/AccessMatrixConnector';
 import { type RangeKey as ReportShellRangeKey } from './hooks/useReportRange';
 import { checkIsLocalDev } from '../../utils/useIsLocalDev';
 import { REPORTING_DATASET_DEFINITIONS } from './reportingDatasets';
+import {
+  getReportingDatasetActivitySnapshot,
+  recordReportingDatasetActivity,
+  subscribeReportingDatasetActivity,
+  type ReportingDatasetActivitySnapshot,
+} from '../../utils/reportingDatasetActivity';
 
 // Reception report is locked to call-taker-owning partners only.
 // Source of truth for who can see it; mirrored in the tab strip, the card grid,
@@ -2076,6 +2083,8 @@ interface ReportingHomeProps {
   demoModeEnabled?: boolean;
   featureToggles?: Record<string, boolean>;
   localSupportSettings?: LocalSupportSettings | null;
+  initialView?: ActiveViewType;
+  dedicatedDataHub?: boolean;
   navigationRequest?: ReportingNavigationRequest | null;
   onNavigationRequestHandled?: (requestedAt: number) => void;
 }
@@ -2111,6 +2120,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
   demoModeEnabled = false,
   featureToggles,
   localSupportSettings = null,
+  initialView = 'overview',
+  dedicatedDataHub = false,
   navigationRequest = null,
   onNavigationRequestHandled,
 }) => {
@@ -2120,7 +2131,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
   const loadingToastIdRef = useRef<string | null>(null);
   const slimDashboardRangeToastLabelRef = useRef<string | null>(null);
   const [currentTime, setCurrentTime] = useState(() => new Date());
-  const [activeView, setActiveView] = useState<ActiveViewType>('overview');
+  const [activeView, setActiveView] = useState<ActiveViewType>(initialView);
   const [mattersWipRangeKey, setMattersWipRangeKey] = useState<MattersWipRangeKey>('12m');
   const [pendingMattersRangeKey, setPendingMattersRangeKey] = useState<MattersWipRangeKey>(mattersWipRangeKey);
   const [enquiriesRangeKey, setEnquiriesRangeKey] = useState<ReportRangeKey>('12m');
@@ -2211,7 +2222,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     setPendingEnquiriesRangeKey(enquiriesRangeKey);
   }, [enquiriesRangeKey]);
   const [heroHovered, setHeroHovered] = useState(false);
-  const [dataHubHovered, setDataHubHovered] = useState(false);
   const [expandedReportCards, setExpandedReportCards] = useState<string[]>([]);
   const [activePrimaryCard, setActivePrimaryCard] = useState<string | null>(null); // Track which primary card is active
   const [slimManagementHeaderHovered, setSlimManagementHeaderHovered] = useState(false);
@@ -2324,8 +2334,12 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
   
   // Memoize handlers to prevent recreation on every render
   const handleBackToOverview = useCallback(() => {
+    if (dedicatedDataHub) {
+      setActiveView('dataCentre');
+      return;
+    }
     setActiveView('overview');
-  }, []);
+  }, [dedicatedDataHub]);
 
   useEffect(() => {
     setTestMode(demoModeEnabled);
@@ -2511,6 +2525,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     });
     return record as DatasetStatus;
   });
+  const [externalDatasetActivity, setExternalDatasetActivity] = useState<ReportingDatasetActivitySnapshot>(() => getReportingDatasetActivitySnapshot());
   const [lastRefreshTimestamp, setLastRefreshTimestamp] = useState<number | null>(cachedTimestamp);
   const [isFetching, setIsFetching] = useState<boolean>(false);
   const [showReportingOpsModal, setShowReportingOpsModal] = useState<boolean>(false);
@@ -3257,6 +3272,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     streamingQueryParamsRef.current = streamingRangeParams;
   }, [streamingRangeParams]);
 
+  useEffect(() => subscribeReportingDatasetActivity(setExternalDatasetActivity), []);
+
   useEffect(() => {
     refreshStartedAtRef.current = refreshStartedAt;
   }, [refreshStartedAt]);
@@ -3449,6 +3466,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
         const now = Date.now();
         setPpcGoogleAdsUpdatedAt(now);
         setDatasetData(prev => ({ ...prev, googleAds: data }));
+        recordReportingDatasetActivity({ key: 'googleAds', status: 'ready', updatedAt: now, count: data.length, source: 'reports' });
         setDatasetStatus(prev => ({
           ...prev,
           googleAds: { status: 'ready', updatedAt: now },
@@ -3531,6 +3549,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
         const data = rows || [];
         setDatasetData(prev => ({ ...prev, googleAnalytics: data }));
         const now = Date.now();
+        recordReportingDatasetActivity({ key: 'googleAnalytics', status: 'ready', updatedAt: now, count: data.length, source: 'reports' });
         setDatasetStatus(prev => ({
           ...prev,
           googleAnalytics: { status: 'ready', updatedAt: now },
@@ -4211,6 +4230,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       const data = rows || [];
       setDatasetData(prev => ({ ...prev, googleAnalytics: data }));
       const now = Date.now();
+      recordReportingDatasetActivity({ key: 'googleAnalytics', status: 'ready', updatedAt: now, count: data.length, source: 'reports' });
       setDatasetStatus(prev => ({
         ...prev,
         googleAnalytics: { status: 'ready', updatedAt: now },
@@ -4274,6 +4294,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       setDatasetData(prev => ({ ...prev, googleAds: data }));
       setPpcGoogleAdsData(data);
       const now = Date.now();
+      recordReportingDatasetActivity({ key: 'googleAds', status: 'ready', updatedAt: now, count: data.length, source: 'reports' });
       setDatasetStatus(prev => ({
         ...prev,
         googleAds: { status: 'ready', updatedAt: now },
@@ -4901,11 +4922,13 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
           } else if (datasetKey === 'googleAnalytics') {
             const data = await fetchGoogleAnalyticsData(RANGE_MONTH_LOOKUP[effectiveEnquiriesKey]);
             setDatasetData(prev => ({ ...prev, googleAnalytics: data }));
+            recordReportingDatasetActivity({ key: 'googleAnalytics', status: 'ready', updatedAt: now, count: data.length, source: 'reports' });
             setDatasetStatus(prev => ({ ...prev, googleAnalytics: { status: 'ready', updatedAt: now } }));
             cachedData = { ...cachedData, googleAnalytics: data };
           } else if (datasetKey === 'googleAds') {
             const data = await fetchGoogleAdsData(RANGE_MONTH_LOOKUP[effectiveEnquiriesKey]);
             setDatasetData(prev => ({ ...prev, googleAds: data }));
+            recordReportingDatasetActivity({ key: 'googleAds', status: 'ready', updatedAt: now, count: data.length, source: 'reports' });
             setDatasetStatus(prev => ({ ...prev, googleAds: { status: 'ready', updatedAt: now } }));
             cachedData = { ...cachedData, googleAds: data };
           }
@@ -5140,23 +5163,27 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
         : datasetStatus[dataset.key];
 
       const hasValue = Array.isArray(value) ? value.length > 0 : Boolean(value);
-      const status: DatasetStatusValue = meta.status === 'loading'
+      const localStatus: DatasetStatusValue = meta.status === 'loading'
         ? 'loading'
         : hasValue
           ? 'ready'
           : meta.status;
-      const count = useStreamingState ? (streamingState.count || 0) : (Array.isArray(value) ? value.length : hasValue ? 1 : 0);
-      const cached = useStreamingState ? streamingState.cached : false;
+      const localCount = useStreamingState ? (streamingState.count || 0) : (Array.isArray(value) ? value.length : hasValue ? 1 : 0);
+      const externalActivity = externalDatasetActivity[dataset.key];
+      const activityIsNewer = Boolean(externalActivity && externalActivity.updatedAt >= (meta.updatedAt ?? 0));
+      const status: DatasetStatusValue = activityIsNewer && externalActivity ? externalActivity.status : localStatus;
+      const count = activityIsNewer && externalActivity ? Math.max(localCount, externalActivity.count) : localCount;
+      const cached = activityIsNewer && externalActivity ? externalActivity.cached : (useStreamingState ? streamingState.cached : false);
       
       return {
         definition: dataset,
         status,
-        updatedAt: meta.updatedAt,
+        updatedAt: activityIsNewer && externalActivity ? externalActivity.updatedAt : meta.updatedAt,
         count,
         cached,
       };
     });
-  }, [datasetData, datasetStatus, streamingDatasets, isStreamingConnected, isReportsDevPreview]);
+  }, [datasetData, datasetStatus, externalDatasetActivity, streamingDatasets, isStreamingConnected, isReportsDevPreview]);
 
   const datasetSummariesSorted = useMemo(() => {
     const sortable = [...datasetSummaries];
@@ -5906,84 +5933,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       );
     };
 
-    const renderLocalDataHubButton = () => (
-      <button
-        type="button"
-        data-helix-region="reports/local-workspace/data-hub"
-        onClick={() => navigateToReport('dataCentre')}
-        style={{
-          appearance: 'none',
-          width: '100%',
-          marginTop: 12,
-          padding: '12px 14px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 14,
-          cursor: 'pointer',
-          textAlign: 'left' as const,
-          fontFamily: 'Raleway, sans-serif',
-          color: isDarkMode ? colours.dark.text : colours.light.text,
-          backgroundColor: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
-          border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
-          borderRadius: 0,
-        }}
-      >
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-          <span style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            width: 30,
-            height: 30,
-            flex: '0 0 auto',
-            color: readyCount > 0 ? colours.green : (isDarkMode ? colours.subtleGrey : colours.greyText),
-            backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.grey,
-            border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
-          }}>
-            <FontIcon iconName="Database" style={{ fontSize: 15 }} />
-          </span>
-          <span style={{ display: 'block', minWidth: 0 }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-              <span style={{ display: 'block', fontSize: 13, fontWeight: 800 }}>
-                Data Hub
-              </span>
-              {!isLocalReportsHost && (
-                <span style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  padding: '2px 6px',
-                  border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.42)' : 'rgba(54,144,206,0.34)'}`,
-                  fontSize: 9,
-                  fontWeight: 800,
-                  letterSpacing: '0.08em',
-                  textTransform: 'uppercase',
-                  color: isDarkMode ? colours.accent : colours.helixBlue,
-                }}>
-                  LZ/AC prod
-                </span>
-              )}
-            </span>
-            <span style={{
-              display: 'block',
-              marginTop: 3,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              fontSize: 11,
-              fontWeight: 600,
-              color: isDarkMode ? '#d1d5db' : '#374151',
-            }}>
-              {lastRefreshTimestamp
-                ? `${readyCount}/${datasetSummaries.length} feeds, updated ${formatRelativeTime(lastRefreshTimestamp)}`
-                : `${readyCount}/${datasetSummaries.length} feeds, awaiting refresh`}
-            </span>
-          </span>
-        </span>
-        <FontIcon iconName="ChevronRight" style={{ flex: '0 0 auto', fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText }} />
-      </button>
-    );
-    
     // Slim Reports surface: keep Management Dashboard as the primary path,
     // then show live secondary reports underneath it. Development and disabled
     // sections stay dropped so the workspace remains focused in production.
@@ -7301,8 +7250,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
                 </span>
               </div>
 
-              {canAccessDataHub ? renderLocalDataHubButton() : null}
-
               {canSimulateBlocker && (
                 <div
                   data-helix-region="reports/local-workspace/simulate-blocker"
@@ -7549,8 +7496,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
                 </span>
               </span>
             </div>
-
-            {canAccessDataHub ? renderLocalDataHubButton() : null}
 
             {localActiveCards.length > 0 && (
               <div style={{ position: 'relative' as const, padding: '4px 0 0' }}>
@@ -8425,6 +8370,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     return (
       <>
       {renderFloatingProcessingPanel()}
+      <AccessMatrixConnector isDarkMode={isDarkMode} surface="marketing" />
       <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
         <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
           <MarketingPerformanceReport
@@ -8610,8 +8556,9 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
         className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}
         style={{
           ...fullScreenWrapperStyle(isDarkMode),
-          background: '#ffffff',
-          color: colours.light.text,
+          padding: 0,
+          background: isDarkMode ? colours.dark.background : colours.light.background,
+          color: isDarkMode ? colours.dark.text : colours.light.text,
         }}
       >
         {
@@ -8642,6 +8589,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
               userName={propUserData?.[0]?.FullName || propUserData?.[0]?.Initials}
               userInitials={userInitialsForGate}
               showProdAudienceBadge={!isLocalReportsHost}
+              isDedicatedPage={dedicatedDataHub}
             />
           );
         })()}
@@ -8961,305 +8909,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
               </div>
             </Callout>
           )}
-
-
-          {canAccessDataHub && (
-          <>
-          {/* â”€â”€ Data Hub status strip â”€â”€ */}
-          <div
-            onClick={() => navigateToReport('dataCentre')}
-            role="button"
-            tabIndex={0}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigateToReport('dataCentre'); }}
-            onMouseEnter={() => setDataHubHovered(true)}
-            onMouseLeave={() => setDataHubHovered(false)}
-            style={{
-              marginBottom: 18,
-              padding: '11px 16px',
-              paddingRight: 140,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              cursor: 'pointer',
-              borderRadius: 0,
-              border: `0.5px solid ${
-                isActivelyLoading
-                  ? (isDarkMode ? 'rgba(54, 144, 206, 0.22)' : 'rgba(54, 144, 206, 0.14)')
-                  : subtleStroke(isDarkMode)
-              }`,
-              background: isActivelyLoading
-                ? (isDarkMode ? 'rgba(14, 36, 62, 0.5)' : 'rgba(255, 255, 255, 0.7)')
-                : (isDarkMode ? 'rgba(10, 28, 50, 0.45)' : 'rgba(255, 255, 255, 0.55)'),
-              backdropFilter: 'blur(16px) saturate(1.4)',
-              WebkitBackdropFilter: 'blur(16px) saturate(1.4)',
-              transform: dataHubHovered ? 'translateY(-1px)' : 'translateY(0)',
-              boxShadow: dataHubHovered
-                ? (isDarkMode ? '0 8px 24px rgba(6, 18, 32, 0.28)' : '0 8px 24px rgba(15, 23, 42, 0.10)')
-                : 'none',
-              transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
-              position: 'relative',
-              overflow: 'hidden',
-            }}
-          >
-              {/* Inner subtle audience badge (absolute so it doesn't shift layout) */}
-              <div style={{
-                position: 'absolute',
-                top: '50%',
-                right: 12,
-                transform: dataHubHovered ? 'translateY(-50%) scale(1.02)' : 'translateY(-50%) scale(1)',
-                padding: '4px 10px',
-                borderRadius: 12,
-                border: dataHubHovered
-                  ? (isDarkMode ? '1px solid rgba(96, 144, 206, 0.35)' : '1px solid rgba(54, 144, 206, 0.18)')
-                  : '1px solid rgba(96,16,16,0.08)',
-                background: dataHubHovered
-                  ? (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(255, 255, 255, 0.85)')
-                  : (isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.6)'),
-                boxShadow: dataHubHovered
-                  ? (isDarkMode ? '0 6px 18px rgba(54, 144, 206, 0.12)' : '0 6px 18px rgba(54, 144, 206, 0.10)')
-                  : 'none',
-                zIndex: 2,
-                pointerEvents: 'none',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                fontSize: 11,
-                transition: 'all 0.22s cubic-bezier(0.4, 0, 0.2, 1)',
-              }}>
-                <div style={{ color: isDarkMode ? 'rgba(255,255,255,0.85)' : 'rgba(6,23,51,0.6)', opacity: 0.95 }}>
-                  Visible to EA, LZ, AC
-                </div>
-              </div>
-              {/* Progress bar overlay */}
-            {isActivelyLoading && (
-              <div style={{
-                position: 'absolute',
-                left: 0,
-                bottom: 0,
-                height: 1.5,
-                width: `${streamingProgress.percentage}%`,
-                background: brandSignal(isDarkMode),
-                transition: 'width 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
-                borderRadius: '0 1px 1px 0',
-              }} />
-            )}
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 }}>
-              {/* Status indicator */}
-              <div style={{
-                width: 30,
-                height: 30,
-                borderRadius: 0,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                background: isActivelyLoading
-                  ? (isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.12)')
-                  : (readyCount > 0
-                    ? (isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(32, 178, 108, 0.1)')
-                    : (isDarkMode ? `${colours.dark.borderColor}1F` : `${colours.subtleGrey}14`)),
-                flexShrink: 0,
-              }}>
-                <FontIcon
-                  iconName={isActivelyLoading ? 'Sync' : 'Database'}
-                  style={{
-                    fontSize: 15,
-                    color: isActivelyLoading
-                      ? (isDarkMode ? colours.blue : colours.blue)
-                      : (readyCount > 0
-                        ? (isDarkMode ? colours.green : colours.green)
-                        : (isDarkMode ? colours.subtleGrey : colours.greyText)),
-                    animation: isActivelyLoading ? 'spin 1.5s linear infinite' : 'none',
-                  }}
-                />
-              </div>
-
-              {/* Text content */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0, justifyContent: 'center' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flexWrap: 'wrap' }}>
-                  <span style={{
-                    fontSize: 13,
-                    fontWeight: 600,
-                    color: isDarkMode ? colours.dark.text : colours.light.text,
-                    fontFamily: 'Raleway, sans-serif',
-                  }}>
-                    Data Hub
-                  </span>
-                  {!isLocalReportsHost && (
-                    <span style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      padding: '2px 6px',
-                      border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.42)' : 'rgba(54,144,206,0.34)'}`,
-                      fontSize: 9,
-                      fontWeight: 800,
-                      letterSpacing: '0.08em',
-                      textTransform: 'uppercase',
-                      color: isDarkMode ? colours.accent : colours.helixBlue,
-                    }}>
-                      LZ/AC prod
-                    </span>
-                  )}
-                </div>
-                <span style={{
-                  fontSize: 11,
-                  color: isDarkMode ? 'rgba(160, 160, 160, 0.88)' : 'rgba(107, 107, 107, 0.9)',
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  maxHeight: (dataHubHovered || isActivelyLoading) ? 20 : 0,
-                  opacity: (dataHubHovered || isActivelyLoading) ? 1 : 0,
-                  transition: 'opacity 0.2s ease, max-height 0.2s ease',
-                }}>
-                  {isActivelyLoading
-                    ? `${refreshPhaseLabel ?? 'Streaming'} \u00B7 ${Math.round(streamingProgress.percentage)}% \u00B7 ${formatDurationMs(refreshElapsedMs)}`
-                    : (lastRefreshTimestamp
-                      ? `${readyCount}/${datasetSummaries.length} feeds \u00B7 Updated ${formatRelativeTime(lastRefreshTimestamp)}`
-                      : `${readyCount}/${datasetSummaries.length} feeds \u00B7 Not refreshed yet`)}
-                </span>
-              </div>
-            </div>
-
-            <FontIcon
-              iconName="ChevronRight"
-              style={{
-                fontSize: 10,
-                color: isDarkMode ? colours.greyText : colours.subtleGrey,
-                flexShrink: 0,
-              }}
-            />
-          </div>
-
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: 12,
-              flexWrap: 'wrap',
-              marginBottom: 16,
-            }}
-          >
-            <h3
-              style={{
-                margin: 0,
-                fontSize: 9,
-                fontWeight: 700,
-                textTransform: 'uppercase',
-                letterSpacing: '0.5px',
-                color: isDarkMode ? 'rgba(75, 85, 99, 0.7)' : 'rgba(107, 107, 107, 0.7)',
-              }}
-            >
-              Reporting suite
-            </h3>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }} />
-          </div>
-
-          {/* Feed breakdown â€” visible during refresh or on hover */}
-          {isActivelyLoading && (
-            <div style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              gap: '4px 5px',
-              marginBottom: 12,
-              padding: '7px 11px',
-              background: isDarkMode ? 'rgba(10, 28, 50, 0.4)' : 'rgba(244, 244, 246, 0.4)',
-              border: `0.5px solid ${subtleStroke(isDarkMode)}`,
-              borderRadius: 0,
-            }}>
-              {datasetSummaries.map((ds) => {
-                const isLoading = ds.status === 'loading';
-                const isReady = ds.status === 'ready';
-                const dotColour = isLoading
-                  ? (isDarkMode ? colours.blue : colours.blue)
-                  : isReady
-                  ? colours.green
-                  : (isDarkMode ? colours.subtleGrey : colours.greyText);
-                return (
-                  <span
-                    key={ds.definition.key}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 5,
-                      fontSize: 9,
-                      fontWeight: 600,
-                      padding: '3px 7px',
-                      borderRadius: 2,
-                      whiteSpace: 'nowrap',
-                      textTransform: 'uppercase',
-                      letterSpacing: 0.3,
-                      background: isLoading
-                        ? (isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.04)')
-                        : isReady
-                        ? (isDarkMode ? 'rgba(32, 178, 108, 0.06)' : 'rgba(32, 178, 108, 0.04)')
-                        : (isDarkMode ? 'rgba(75, 85, 99, 0.06)' : 'rgba(75, 85, 99, 0.03)'),
-                      color: isDarkMode ? 'rgba(243, 244, 246, 0.85)' : colours.light.text,
-                      border: `0.5px solid ${isLoading
-                        ? (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)')
-                        : isReady
-                        ? (isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.08)')
-                        : (isDarkMode ? 'rgba(75, 85, 99, 0.12)' : 'rgba(75, 85, 99, 0.06)')}`,
-                      transition: 'all 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
-                    }}
-                  >
-                    {/* Status dot â€” spins when loading, pops when ready */}
-                    <span style={{
-                      position: 'relative',
-                      width: 8,
-                      height: 8,
-                      flexShrink: 0,
-                    }}>
-                      {/* Dot circle */}
-                      <span style={{
-                        position: 'absolute',
-                        inset: 0,
-                        borderRadius: '50%',
-                        background: isLoading ? 'transparent' : dotColour,
-                        border: isLoading ? `1.5px solid ${dotColour}` : 'none',
-                        borderTopColor: isLoading ? 'transparent' : undefined,
-                        animation: isLoading
-                          ? 'feedDotSpin 0.8s linear infinite'
-                          : isReady
-                          ? 'feedDotReady 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards'
-                          : 'none',
-                        transition: 'background 0.3s ease, border 0.3s ease',
-                      }} />
-                      {/* Tick SVG â€” only visible when ready */}
-                      {isReady && (
-                        <svg
-                          width="8"
-                          height="8"
-                          viewBox="0 0 8 8"
-                          fill="none"
-                          style={{
-                            position: 'absolute',
-                            inset: 0,
-                          }}
-                        >
-                          <path
-                            d="M2 4.2 L3.4 5.6 L6 2.8"
-                            stroke="#fff"
-                            strokeWidth="1.4"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            style={{
-                              strokeDasharray: 8,
-                              strokeDashoffset: 0,
-                              animation: 'feedTickDraw 0.35s cubic-bezier(0.4, 0, 0.2, 1) forwards',
-                            }}
-                          />
-                        </svg>
-                      )}
-                    </span>
-                    <span>{ds.definition.name}</span>
-                  </span>
-                );
-              })}
-            </div>
-          )}
-          </>
-          )}
+          <AccessMatrixConnector isDarkMode={isDarkMode} surface="reports" compact={isSlimReports} />
 
           {renderAvailableReportCards()}
 

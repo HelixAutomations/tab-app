@@ -15,6 +15,8 @@ import ActivityAlertsStrip from './parts/ActivityAlertsStrip';
 import FocalSurface from './parts/FocalSurface';
 import SideRail from './parts/SideRail';
 import ToolsDrawer from './parts/ToolsDrawer';
+import SystemAccessMatrix from './parts/SystemAccessMatrix';
+import AccessMatrixConnector from '../Reporting/components/AccessMatrixConnector';
 import NavigatorDetailBar from '../../components/NavigatorDetailBar';
 import SystemErrorsView from './system/SystemErrorsView';
 import SystemActivityView from './system/SystemActivityView';
@@ -163,6 +165,8 @@ function systemTabLabel(key: string): string {
     matters: 'Matters',
     forms: 'Forms',
     reporting: 'Reports',
+    dataHub: 'Data Hub',
+    marketing: 'Marketing',
     roadmap: 'System',
     resources: 'Resources',
   };
@@ -181,18 +185,62 @@ type SystemOverviewStatTone = 'ok' | 'warn' | 'danger' | 'neutral';
 const SystemOverviewInsights: React.FC<{
   isDarkMode: boolean;
   opsPulse: OpsPulseState;
+  activityItems: ActivityFeedItem[];
+  activityFeedRefreshing: boolean;
+  activityFeedUsingSnapshot: boolean;
+  activityFeedLastSyncAt: number | null;
+  activityError: string | null;
   onOpenErrors: () => void;
   onOpenDashboard: () => void;
-}> = ({ isDarkMode, opsPulse, onOpenErrors, onOpenDashboard }) => {
+  onOpenActivity: () => void;
+  onOpenApiAudit: () => void;
+}> = ({
+  isDarkMode,
+  opsPulse,
+  activityItems,
+  activityFeedRefreshing,
+  activityFeedUsingSnapshot,
+  activityFeedLastSyncAt,
+  activityError,
+  onOpenErrors,
+  onOpenDashboard,
+  onOpenActivity,
+  onOpenApiAudit,
+}) => {
+  const now = Date.now();
   const presence = opsPulse.presence;
-  const activeUsers = presence?.list?.slice(0, 6) ?? [];
-  const activeTabs = Object.entries(presence?.tabs ?? {}).sort((a, b) => b[1] - a[1]).slice(0, 4);
-  const onlineCount = presence?.online ?? 0;
+  const traceUsers: PresenceEntry[] = (opsPulse.sessionTraces?.list ?? [])
+    .filter((session) => session.user && session.user !== 'unknown')
+    .map((session) => ({
+      initials: session.user,
+      name: session.name && session.name !== 'unknown' ? session.name : session.user,
+      email: '',
+      tab: session.tab || 'unknown',
+      lastSeen: session.lastSeen,
+    }));
+  const activeUserByInitials = new Map<string, PresenceEntry>();
+  traceUsers.forEach((user) => activeUserByInitials.set(user.initials, user));
+  (presence?.list ?? []).forEach((user) => activeUserByInitials.set(user.initials, user));
+  const activeUsers = Array.from(activeUserByInitials.values())
+    .sort((a, b) => b.lastSeen - a.lastSeen)
+    .slice(0, 6);
+  const tabCounts = { ...(presence?.tabs ?? {}) };
+  traceUsers.forEach((user) => {
+    tabCounts[user.tab] = Math.max(tabCounts[user.tab] ?? 0, 1);
+  });
+  const activeTabs = Object.entries(tabCounts).sort((a, b) => b[1] - a[1]).slice(0, 4);
+  const onlineCount = Math.max(presence?.online ?? 0, activeUsers.length);
   const streamCount = opsPulse.sessions?.totalConnections ?? 0;
-  const errorCount = opsPulse.errors?.length ?? 0;
+  const traceCount = Math.max(opsPulse.sessionTraces?.active ?? 0, streamCount);
+  const busyTraceCount = opsPulse.sessionTraces?.busy ?? 0;
+  const degradedTraceCount = opsPulse.sessionTraces?.degraded ?? 0;
+  const importantErrors = (opsPulse.errors ?? []).filter((entry) => entry.status >= 500 || entry.status === 0);
+  const errorCount = importantErrors.length;
+  const slowRoutes = (opsPulse.requests ?? []).filter((request) => request.durationMs >= 1500 && request.status < 500).slice(0, 4);
   const checksFailingCount = opsPulse.opsChecks?.failingCount ?? 0;
   const checksWarningCount = opsPulse.opsChecks?.warningCount ?? 0;
   const checksTrackedCount = opsPulse.opsChecks?.totalTracked ?? 0;
+  const blockingCheckIssues = (opsPulse.opsChecks?.latest ?? []).reduce((sum, check) => sum + check.failingBlockingCount, 0);
   const checksTone: SystemOverviewStatTone = checksFailingCount > 0
     ? 'danger'
     : checksWarningCount > 0
@@ -200,17 +248,30 @@ const SystemOverviewInsights: React.FC<{
       : checksTrackedCount > 0
         ? 'ok'
         : 'neutral';
+  const schedulerLocked = Boolean(opsPulse.scheduler?.mutex?.locked);
+  const schedulerHolder = opsPulse.scheduler?.mutex?.holder?.name ?? null;
+  const recentActivity = activityItems.slice(0, 5);
+  const activityStatus = activityError
+    ? 'Activity feed warning'
+    : activityFeedRefreshing
+      ? 'Refreshing activity feed'
+      : activityFeedUsingSnapshot
+        ? 'Using last activity snapshot'
+        : activityFeedLastSyncAt
+          ? `Activity synced ${lastSeenLabel(activityFeedLastSyncAt)}`
+          : 'Activity feed waiting';
 
   const renderUser = (user: PresenceEntry) => (
-    <div key={`${user.email}-${user.tab}`} className="system-overview-user-pill" title={`${user.name} - ${systemTabLabel(user.tab)}`}>
-      <span className="system-overview-user-dot" />
-      <span className="system-overview-user-initials">{user.initials}</span>
-      <span className="system-overview-user-tab">{systemTabLabel(user.tab)}</span>
-      <span className="system-overview-user-seen">{lastSeenLabel(user.lastSeen)}</span>
+    <div key={`${user.email}-${user.tab}`} className="system-entry-user-row" title={`${user.name} - ${systemTabLabel(user.tab)}`}>
+      <span className={`system-entry-presence-dot ${now - user.lastSeen > 180_000 ? 'system-entry-presence-dot--idle' : ''}`} />
+      <span className="system-entry-user-initials">{user.initials}</span>
+      <span className="system-entry-user-name">{user.name}</span>
+      <span className="system-entry-user-tab">{systemTabLabel(user.tab)}</span>
+      <span className="system-entry-user-seen">{now - user.lastSeen > 180_000 ? 'Idle' : 'Active'} {lastSeenLabel(user.lastSeen)}</span>
     </div>
   );
 
-  const renderStat = ({
+  const renderSignal = ({
     label,
     value,
     detail,
@@ -227,75 +288,142 @@ const SystemOverviewInsights: React.FC<{
   }) => (
     <button
       type="button"
-      className={`system-overview-stat system-overview-stat--${tone}`}
+      className={`system-entry-signal system-entry-signal--${tone}`}
       onClick={onClick}
       data-helix-region={dataRegion}
     >
-      <span className="system-overview-stat-label">{label}</span>
-      <span className="system-overview-stat-value">{value}</span>
-      <span className="system-overview-stat-detail">{detail}</span>
+      <span className="system-entry-signal-label">{label}</span>
+      <span className="system-entry-signal-value">{value}</span>
+      <span className="system-entry-signal-detail">{detail}</span>
     </button>
   );
 
   return (
-    <section className={`system-overview-insights ${isDarkMode ? 'system-overview-insights--dark' : ''}`} data-helix-region="system/entry/overview-pulse">
-      <div className="system-overview-presence-card">
-        <div className="system-overview-presence-head">
-          <div>
-            <div className="system-overview-eyebrow">Active users</div>
-            <div className="system-overview-presence-title">Live usage</div>
-          </div>
-          <span className="system-overview-live-chip">Live</span>
+    <section className={`system-entry-live ${isDarkMode ? 'system-entry-live--dark' : ''}`} data-helix-region="system/entry/live-state">
+      <div className="system-entry-hero">
+        <div className="system-entry-hero-copy">
+          <div className="system-entry-eyebrow">System command view</div>
+          <h2>Live system state</h2>
+          <p>Who is on, what they are doing, route pressure, checks, and the latest operational movement.</p>
         </div>
-        <div className="system-overview-presence-main">
-          <div className="system-overview-presence-count">{onlineCount}</div>
-          <div className="system-overview-presence-copy">
-            <strong>{onlineCount === 1 ? 'person is active' : 'people are active'}</strong>
-            <span>{streamCount > 0 ? `${streamCount} live streams open` : opsPulse.connected ? 'Presence stream connected' : 'Presence stream waiting'}</span>
-          </div>
+        <div className="system-entry-hero-metrics">
+          <button type="button" className="system-entry-metric" onClick={onOpenActivity}>
+            <span>Users</span>
+            <strong>{onlineCount}</strong>
+            <small>{streamCount > 0 ? `${streamCount} streams` : opsPulse.connected ? 'stream connected' : 'waiting'}</small>
+          </button>
+          <button type="button" className="system-entry-metric" onClick={onOpenActivity}>
+            <span>Sessions</span>
+            <strong>{traceCount}</strong>
+            <small>{degradedTraceCount > 0 ? `${degradedTraceCount} degraded` : busyTraceCount > 0 ? `${busyTraceCount} busy` : 'steady'}</small>
+          </button>
+          <button type="button" className="system-entry-metric" onClick={onOpenDashboard}>
+            <span>Scheduler</span>
+            <strong>{schedulerLocked ? 'Busy' : 'Open'}</strong>
+            <small>{schedulerHolder || 'queue clear'}</small>
+          </button>
         </div>
-        {activeUsers.length > 0 ? (
-          <div className="system-overview-user-row">
-            {activeUsers.map(renderUser)}
-          </div>
-        ) : (
-          <div className="system-overview-empty">No active users reported yet.</div>
-        )}
-        {activeTabs.length > 0 ? (
-          <div className="system-overview-tab-row">
-            {activeTabs.map(([tab, count]) => (
-              <span key={tab}>{systemTabLabel(tab)} {count}</span>
-            ))}
-          </div>
-        ) : null}
       </div>
 
-      {renderStat({
-        label: 'Errors now',
-        value: errorCount,
-        detail: errorCount > 0 ? 'Open the error queue' : 'No active error rows',
-        tone: errorCount > 0 ? 'danger' : 'ok',
-        onClick: onOpenErrors,
-        dataRegion: 'system/entry/errors-stat',
-      })}
+      <div className="system-entry-signal-row">
+        {renderSignal({
+          label: 'Important errors',
+          value: errorCount,
+          detail: errorCount > 0 ? (importantErrors[0]?.path || 'Open error queue') : 'No 5xx errors in the live queue',
+          tone: errorCount > 0 ? 'danger' : 'ok',
+          onClick: onOpenErrors,
+          dataRegion: 'system/entry/important-errors',
+        })}
+        {renderSignal({
+          label: 'Slow routes',
+          value: slowRoutes.length,
+          detail: slowRoutes[0] ? `${slowRoutes[0].path} at ${Math.round(slowRoutes[0].durationMs)}ms` : 'No slow route pressure in the recent sample',
+          tone: slowRoutes.length > 0 ? 'warn' : 'ok',
+          onClick: onOpenApiAudit,
+          dataRegion: 'system/entry/slow-routes',
+        })}
+        {renderSignal({
+          label: 'Route checks',
+          value: checksTrackedCount > 0 ? `${opsPulse.opsChecks?.passCount ?? 0}/${checksTrackedCount}` : 'None',
+          detail: checksTrackedCount > 0
+            ? `${blockingCheckIssues} blocking, ${checksWarningCount} degraded/noise`
+            : 'Run checks from Dashboard',
+          tone: checksTone,
+          onClick: onOpenDashboard,
+          dataRegion: 'system/entry/route-checks',
+        })}
+      </div>
 
-      {renderStat({
-        label: 'Route checks',
-        value: checksTrackedCount > 0 ? `${opsPulse.opsChecks?.passCount ?? 0}/${checksTrackedCount}` : 'None',
-        detail: checksTrackedCount > 0
-          ? `${checksFailingCount} fail, ${checksWarningCount} warn`
-          : 'Run checks from Dashboard',
-        tone: checksTone,
-        onClick: onOpenDashboard,
-        dataRegion: 'system/entry/checks-stat',
-      })}
+      <div className="system-entry-grid">
+        <section className="system-entry-panel system-entry-panel--users" data-helix-region="system/entry/live-users">
+          <div className="system-entry-panel-head">
+            <div>
+              <div className="system-entry-eyebrow">Active users</div>
+              <h3>Who is on</h3>
+            </div>
+            <span className="system-entry-live-chip">Live</span>
+          </div>
+          {activeUsers.length > 0 ? (
+            <div className="system-entry-user-list">
+              {activeUsers.map(renderUser)}
+            </div>
+          ) : (
+            <div className="system-entry-empty">No active users reported yet.</div>
+          )}
+          {activeTabs.length > 0 ? (
+            <div className="system-entry-tab-row">
+              {activeTabs.map(([tab, count]) => (
+                <span key={tab}>{systemTabLabel(tab)} {count}</span>
+              ))}
+            </div>
+          ) : null}
+        </section>
+
+        <section className="system-entry-panel system-entry-panel--activity" data-helix-region="system/entry/recent-operations">
+          <div className="system-entry-panel-head">
+            <div>
+              <div className="system-entry-eyebrow">Recent operations</div>
+              <h3>Activity stream</h3>
+            </div>
+            <button type="button" className="system-entry-link-button" onClick={onOpenActivity}>Open ledger</button>
+          </div>
+          <div className="system-entry-feed-status">{activityStatus}</div>
+          {recentActivity.length > 0 ? (
+            <div className="system-entry-feed-list">
+              {recentActivity.map((item) => (
+                <div key={item.id} className={`system-entry-feed-row system-entry-feed-row--${item.status}`}>
+                  <span className="system-entry-feed-dot" />
+                  <span className="system-entry-feed-main">
+                    <strong>{item.title}</strong>
+                    <small>{item.summary || item.sourceLabel}</small>
+                  </span>
+                  <time>{lastSeenLabel(Date.parse(item.timestamp))}</time>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="system-entry-empty">No recent operational activity loaded yet.</div>
+          )}
+        </section>
+      </div>
     </section>
   );
 };
 
+const SystemAccessSection: React.FC<{ isDarkMode: boolean }> = ({ isDarkMode }) => (
+  <div className={`system-entry-support ${isDarkMode ? 'system-entry-support--dark' : ''}`}>
+    <SystemAccessMatrix region="system/entry/access-matrix" />
+  </div>
+);
+
 const SystemEntry: React.FC<{
   isDarkMode: boolean;
   opsPulse: OpsPulseState;
+  activityItems: ActivityFeedItem[];
+  activityFeedRefreshing: boolean;
+  activityFeedUsingSnapshot: boolean;
+  activityFeedLastSyncAt: number | null;
+  activityError: string | null;
   onOpenErrors: () => void;
   onOpenMatterReplay: () => void;
   onOpenActivity: () => void;
@@ -305,7 +433,24 @@ const SystemEntry: React.FC<{
   onOpenProjects: () => void;
   onOpenAuditPack: () => void;
   onOpenDashboard: () => void;
-}> = ({ isDarkMode, opsPulse, onOpenErrors, onOpenMatterReplay, onOpenActivity, onOpenTasks, onOpenApiAudit, onOpenInfrastructure, onOpenProjects, onOpenAuditPack, onOpenDashboard }) => {
+}> = ({
+  isDarkMode,
+  opsPulse,
+  activityItems,
+  activityFeedRefreshing,
+  activityFeedUsingSnapshot,
+  activityFeedLastSyncAt,
+  activityError,
+  onOpenErrors,
+  onOpenMatterReplay,
+  onOpenActivity,
+  onOpenTasks,
+  onOpenApiAudit,
+  onOpenInfrastructure,
+  onOpenProjects,
+  onOpenAuditPack,
+  onOpenDashboard,
+}) => {
   const textColour = isDarkMode ? colours.dark.text : colours.light.text;
   const mutedColour = isDarkMode ? '#d1d5db' : colours.greyText;
   const borderColour = isDarkMode ? colours.dark.border : colours.light.border;
@@ -337,27 +482,43 @@ const SystemEntry: React.FC<{
           <h1 style={{ margin: '6px 0 0', fontSize: 30, lineHeight: 1.15, color: textColour, fontFamily: 'Raleway, sans-serif' }}>
             System
           </h1>
+          <div style={{ marginTop: 7, maxWidth: 760, fontSize: 13, lineHeight: 1.5, color: mutedColour, fontWeight: 600 }}>
+            Live usage, operational activity, route health, and controlled system tools.
+          </div>
         </div>
-        <SystemOverviewInsights isDarkMode={isDarkMode} opsPulse={opsPulse} onOpenErrors={onOpenErrors} onOpenDashboard={onOpenDashboard} />
-        <div className="system-overview-dashboard">
+        <SystemOverviewInsights
+          isDarkMode={isDarkMode}
+          opsPulse={opsPulse}
+          activityItems={activityItems}
+          activityFeedRefreshing={activityFeedRefreshing}
+          activityFeedUsingSnapshot={activityFeedUsingSnapshot}
+          activityFeedLastSyncAt={activityFeedLastSyncAt}
+          activityError={activityError}
+          onOpenErrors={onOpenErrors}
+          onOpenDashboard={onOpenDashboard}
+          onOpenActivity={onOpenActivity}
+          onOpenApiAudit={onOpenApiAudit}
+        />
+        {sectionLabel('Core operations')}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
           <SystemLandingTile
             label="Dashboard"
-            eyebrow="Start here"
             description="Live status, route checks, traces, and drill-downs."
             isDarkMode={isDarkMode}
             accent={colours.highlight}
             onClick={onOpenDashboard}
-            variant="primary"
             dataRegion="system/entry/dashboard"
           />
-        </div>
-        {sectionLabel('Tools')}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14 }}>
-          <SystemLandingTile label="Errors" description="Exceptions and noisy routes." isDarkMode={isDarkMode} accent={colours.cta} onClick={onOpenErrors} dataRegion="system/entry/errors" />
-          <SystemLandingTile label="Matter Replay" description="Matter-opening repair and replay." isDarkMode={isDarkMode} accent={colours.orange} onClick={onOpenMatterReplay} dataRegion="system/entry/matter-replay" />
           <SystemLandingTile label="Activity" description="Live ledger, cards, and operational streams." isDarkMode={isDarkMode} accent={colours.green} onClick={onOpenActivity} dataRegion="system/entry/activity" />
+          <SystemLandingTile label="Errors" description="Priority exception queue and noisy routes." isDarkMode={isDarkMode} accent={colours.cta} onClick={onOpenErrors} dataRegion="system/entry/errors" />
           <SystemLandingTile label="Tasks" description="Read-only task mirror and task inspection." isDarkMode={isDarkMode} accent={colours.accent} onClick={onOpenTasks} dataRegion="system/entry/tasks" />
           <SystemLandingTile label="API Audit" description="Fallback request rows and payload details." isDarkMode={isDarkMode} accent={colours.blue} onClick={onOpenApiAudit} dataRegion="system/entry/api-audit" />
+        </div>
+        {sectionLabel('Access and rules')}
+        <SystemAccessSection isDarkMode={isDarkMode} />
+        {sectionLabel('Specialist tools')}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14 }}>
+          <SystemLandingTile label="Matter Replay" description="Matter-opening repair and replay." isDarkMode={isDarkMode} accent={colours.orange} onClick={onOpenMatterReplay} dataRegion="system/entry/matter-replay" />
         </div>
         {sectionLabel('Reference')}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
@@ -888,7 +1049,25 @@ const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, 
     return (
       <ActivityProvider value={layout}>
         <div style={containerStyles(isDarkMode)}>
-          <SystemEntry isDarkMode={isDarkMode} opsPulse={opsPulse} onOpenErrors={handleOpenErrors} onOpenMatterReplay={handleOpenMatterReplay} onOpenActivity={handleOpenActivity} onOpenTasks={handleOpenTasks} onOpenApiAudit={handleOpenApiAudit} onOpenInfrastructure={handleOpenInfrastructure} onOpenProjects={handleOpenProjects} onOpenAuditPack={handleOpenAuditPack} onOpenDashboard={handleOpenDashboard} />
+          <AccessMatrixConnector isDarkMode={isDarkMode} surface="system" />
+          <SystemEntry
+            isDarkMode={isDarkMode}
+            opsPulse={opsPulse}
+            activityItems={activityItems}
+            activityFeedRefreshing={activityFeedRefreshing}
+            activityFeedUsingSnapshot={activityFeedUsingSnapshot}
+            activityFeedLastSyncAt={activityFeedLastSyncAt}
+            activityError={activityError}
+            onOpenErrors={handleOpenErrors}
+            onOpenMatterReplay={handleOpenMatterReplay}
+            onOpenActivity={handleOpenActivity}
+            onOpenTasks={handleOpenTasks}
+            onOpenApiAudit={handleOpenApiAudit}
+            onOpenInfrastructure={handleOpenInfrastructure}
+            onOpenProjects={handleOpenProjects}
+            onOpenAuditPack={handleOpenAuditPack}
+            onOpenDashboard={handleOpenDashboard}
+          />
         </div>
       </ActivityProvider>
     );
@@ -1026,6 +1205,7 @@ const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, 
   return (
     <ActivityProvider value={layout}>
     <div style={containerStyles(isDarkMode)}>
+      <AccessMatrixConnector isDarkMode={isDarkMode} surface="system" />
       {/* ═══ Hero — title, lens chips, KPI tiles ═══ */}
       {(() => {
         const checksFailingCount = opsPulse.opsChecks?.failingCount ?? 0;

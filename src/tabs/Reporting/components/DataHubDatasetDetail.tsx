@@ -236,7 +236,7 @@ const FieldCard: React.FC<{
     border: `1px solid ${reportingPanelBorder(isDarkMode, 'base')}`,
     background: reportingPanelBackground(isDarkMode, 'elevated'),
   }}>
-    <span style={{ fontSize: 9, fontWeight: 700, color: isDarkMode ? colours.greyText : colours.subtleGrey, textTransform: 'uppercase', letterSpacing: 0 }}>
+    <span style={{ fontSize: 9, fontWeight: 700, color: isDarkMode ? '#d1d5db' : colours.subtleGrey, textTransform: 'uppercase', letterSpacing: 0 }}>
       {label}
     </span>
     <span style={{ fontSize: 12, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text, lineHeight: 1.4 }}>
@@ -271,6 +271,12 @@ const DataHubDatasetDetail: React.FC<DataHubDatasetDetailProps> = ({
       : 'No';
   const displayUpdatedAt = providerProbe.checkedAt ?? liveDataset?.updatedAt;
   const tone = isBuildFocus ? (isDarkMode ? colours.accent : colours.highlight) : isProductionInactive ? colours.subtleGrey : statusColour(displayStatus);
+  const text = isDarkMode ? colours.dark.text : colours.light.text;
+  const body = isDarkMode ? '#d1d5db' : '#374151';
+  const muted = isDarkMode ? '#d1d5db' : colours.subtleGrey;
+  const edge = reportingPanelBorder(isDarkMode, 'base');
+  const surface = reportingPanelBackground(isDarkMode, 'base');
+  const elevatedSurface = reportingPanelBackground(isDarkMode, 'elevated');
 
   const runProviderProbe = React.useCallback(async () => {
     const check = provider.providerCheck;
@@ -339,20 +345,21 @@ const DataHubDatasetDetail: React.FC<DataHubDatasetDetailProps> = ({
         flexDirection: 'column',
         gap: 14,
         padding: '18px 18px 16px',
-        border: `1px solid ${reportingPanelBorder(isDarkMode, 'base')}`,
-        borderLeft: `3px solid ${tone}`,
-        background: reportingPanelBackground(isDarkMode, 'base'),
+        borderStyle: 'solid',
+        borderWidth: '1px 1px 1px 3px',
+        borderColor: `${edge} ${edge} ${edge} ${tone}`,
+        background: surface,
         boxShadow: reportingPanelShadow(isDarkMode),
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 5, maxWidth: 760 }}>
-            <span style={{ fontSize: 10, fontWeight: 700, color: isDarkMode ? colours.accent : colours.highlight, textTransform: 'uppercase', letterSpacing: 0 }}>
+            <span style={{ fontSize: 10, fontWeight: 700, color: tone, textTransform: 'uppercase', letterSpacing: 0 }}>
               {definition.provider.category.replace(/-/g, ' ')}
             </span>
-            <span style={{ fontSize: 22, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text }}>
+            <span style={{ fontSize: 22, fontWeight: 700, color: text }}>
               {definition.name}
             </span>
-            <span style={{ fontSize: 12, lineHeight: 1.55, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
+            <span style={{ fontSize: 12, lineHeight: 1.55, color: body }}>
               {definition.provider.purpose}
             </span>
           </div>
@@ -360,10 +367,10 @@ const DataHubDatasetDetail: React.FC<DataHubDatasetDetailProps> = ({
             <span style={{ fontSize: 9, fontWeight: 700, color: tone, textTransform: 'uppercase', letterSpacing: 0 }}>
               {isBuildFocus ? 'Active focus' : isProductionInactive ? 'Not in production' : statusLabel(displayStatus)}
             </span>
-            <span style={{ fontSize: 28, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text }}>
+            <span style={{ fontSize: 28, fontWeight: 700, color: text }}>
               {rowCount}
             </span>
-            <span style={{ fontSize: 10, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
+            <span style={{ fontSize: 10, color: muted }}>
               rows
             </span>
           </div>
@@ -383,16 +390,16 @@ const DataHubDatasetDetail: React.FC<DataHubDatasetDetailProps> = ({
           flexDirection: 'column',
           gap: 12,
           padding: '14px 15px',
-          border: `1px solid ${reportingPanelBorder(isDarkMode, 'base')}`,
-          background: reportingPanelBackground(isDarkMode, 'base'),
+          border: `1px solid ${edge}`,
+          background: surface,
           boxShadow: reportingPanelShadow(isDarkMode),
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: text }}>
                 Provider check
               </span>
-              <span style={{ fontSize: 11, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
+              <span style={{ fontSize: 11, color: muted }}>
                 {providerProbe.status === 'ready'
                   ? `${providerProbe.source ?? provider.sourceLabel}${providerProbe.apiVersion ? ` on ${providerProbe.apiVersion}` : ''}`
                   : provider.providerCheck?.label ?? 'Test provider'}
@@ -412,14 +419,14 @@ const DataHubDatasetDetail: React.FC<DataHubDatasetDetailProps> = ({
                   fontSize: 10,
                   border: `1px solid ${reportingPanelBorder(isDarkMode, 'strong')}`,
                   background: isDarkMode ? colours.dark.cardHover : colours.light.cardBackground,
-                  color: isDarkMode ? colours.dark.text : colours.light.text,
+                  color: text,
                 },
               }}
             />
           </div>
           {providerProbe.status === 'loading' && (
             <div style={{ display: 'grid', gap: 6 }}>
-              <div style={{ height: 6, border: `1px solid ${reportingPanelBorder(isDarkMode, 'base')}`, background: reportingPanelBackground(isDarkMode, 'elevated') }}>
+              <div style={{ height: 6, border: `1px solid ${edge}`, background: elevatedSurface }}>
                 <div
                   style={{
                     height: '100%',
@@ -429,7 +436,7 @@ const DataHubDatasetDetail: React.FC<DataHubDatasetDetailProps> = ({
                   }}
                 />
               </div>
-              <span style={{ fontSize: 11, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
+              <span style={{ fontSize: 11, color: muted }}>
                 {providerProbe.phase === 'preparing'
                   ? 'Preparing matters check...'
                   : providerProbe.phase === 'fetching'
@@ -468,14 +475,14 @@ const DataHubDatasetDetail: React.FC<DataHubDatasetDetailProps> = ({
             flexDirection: 'column',
             gap: 10,
             padding: '14px 15px',
-            border: `1px solid ${reportingPanelBorder(isDarkMode, 'base')}`,
-            background: reportingPanelBackground(isDarkMode, 'base'),
+            border: `1px solid ${edge}`,
+            background: surface,
             boxShadow: reportingPanelShadow(isDarkMode),
           }}>
-            <span style={{ fontSize: 12, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: text }}>
               Dataset criteria
             </span>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 7, fontSize: 11, lineHeight: 1.5, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 7, fontSize: 11, lineHeight: 1.5, color: muted }}>
               <span>Route: {routeLabel}</span>
               <span>{provider.freshnessExpectation}</span>
               <span>Cached: {liveDataset?.cached ? 'Yes' : 'No'}</span>
@@ -487,20 +494,20 @@ const DataHubDatasetDetail: React.FC<DataHubDatasetDetailProps> = ({
             flexDirection: 'column',
             gap: 10,
             padding: '14px 15px',
-            border: `1px solid ${reportingPanelBorder(isDarkMode, 'base')}`,
-            background: reportingPanelBackground(isDarkMode, 'base'),
+            border: `1px solid ${edge}`,
+            background: surface,
             boxShadow: reportingPanelShadow(isDarkMode),
           }}>
-            <span style={{ fontSize: 12, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: text }}>
               Used by reports
             </span>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {reportUsage.map((label) => (
                 <span key={label} style={{
                   padding: '4px 7px',
-                  border: `1px solid ${reportingPanelBorder(isDarkMode, 'base')}`,
-                  background: reportingPanelBackground(isDarkMode, 'elevated'),
-                  color: isDarkMode ? colours.dark.text : colours.light.text,
+                  border: `1px solid ${edge}`,
+                  background: elevatedSurface,
+                  color: text,
                   fontSize: 10,
                   fontWeight: 700,
                 }}>
@@ -510,11 +517,11 @@ const DataHubDatasetDetail: React.FC<DataHubDatasetDetailProps> = ({
             </div>
             {contextDatasets.length > 0 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <span style={{ fontSize: 10, fontWeight: 700, color: isDarkMode ? colours.greyText : colours.subtleGrey, textTransform: 'uppercase', letterSpacing: 0 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: muted, textTransform: 'uppercase', letterSpacing: 0 }}>
                   Context datasets
                 </span>
                 {contextDatasets.map((dataset) => (
-                  <span key={dataset.key} style={{ fontSize: 10, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
+                  <span key={dataset.key} style={{ fontSize: 10, color: muted }}>
                     {dataset.name}: {statusLabel(dataset.status)} ({dataset.count == null ? 'No' : dataset.count.toLocaleString('en-GB')} rows)
                   </span>
                 ))}

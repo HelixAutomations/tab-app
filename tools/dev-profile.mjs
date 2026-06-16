@@ -35,6 +35,12 @@ const profiles = {
     dataScope: 'mine',
     disableLazyEventPoller: true,
   },
+  tasks: {
+    label: 'Tasks',
+    supportMode: 'tasks',
+    dataScope: 'mine',
+    disableLazyEventPoller: true,
+  },
   system: {
     label: 'System',
     supportMode: 'system',
@@ -47,7 +53,7 @@ const profileName = String(process.argv[2] || '').trim().toLowerCase();
 const wantsHelp = profileName === '--help' || profileName === '-h';
 
 if (!profileName || wantsHelp || !profiles[profileName]) {
-  console.log('Usage: node tools/dev-profile.mjs <nodata|enquiries|enqpipeline|matters|reports|system> [dev-all args]');
+  console.log('Usage: node tools/dev-profile.mjs <nodata|enquiries|enqpipeline|matters|reports|tasks|system> [dev-all args]');
   process.exit(!profileName || wantsHelp ? 0 : 1);
 }
 

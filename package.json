@@ -102,6 +102,7 @@
         "dev:enqpipeline": "node tools/dev-profile.mjs enqpipeline",
         "dev:matters": "node tools/dev-profile.mjs matters",
         "dev:reports": "node tools/dev-profile.mjs reports",
+        "dev:tasks": "node tools/dev-profile.mjs tasks",
         "dev:system": "node tools/dev-profile.mjs system",
         "dev:clean": "node tools/dev-clean.mjs",
         "dev:clean:logs": "node tools/dev-clean.mjs --logs-only --yes",

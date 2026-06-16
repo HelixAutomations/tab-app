@@ -10,6 +10,7 @@ import type { DubberCallRecord } from '../Reporting/dataSources';
 import { useStreamingDatasets } from '../../hooks/useStreamingDatasets';
 import MarketingHydrationChrome from './parts/MarketingHydrationChrome';
 import MarketingPerformanceWorkspace from './parts/MarketingPerformanceWorkspace';
+import AccessMatrixConnector from '../Reporting/components/AccessMatrixConnector';
 import {
   reportingPanelBackground,
   reportingPanelBorder,
@@ -41,6 +42,25 @@ type MarketingPitchRow = {
   sentAt: string;
   amountLabel: string;
   detail: string;
+  match?: MarketingLedgerMatch;
+};
+
+type MarketingLedgerMatch = {
+  sourceChannel?: 'seo' | 'ppc' | 'email' | 'other';
+  sourceValue?: string;
+  enquiryId?: string;
+  acid?: string;
+  pitchEnquiryId?: string;
+  legacyEnquiryId?: string;
+  processingEnquiryId?: string;
+  dealId?: string;
+  prospectId?: string;
+  instructionRef?: string;
+  matterRef?: string;
+  matterId?: string;
+  clientId?: string;
+  email?: string;
+  billId?: string;
 };
 
 type MarketingLedgerKey = 'calls' | 'enquiries' | 'pitches' | 'instructions' | 'matters' | 'collectedTime' | 'seo' | 'ppc';
@@ -55,9 +75,12 @@ type MarketingLedgerRow = {
   timestamp: string;
   value: string;
   detail: string;
+  match?: MarketingLedgerMatch;
 };
 
 type MarketingStreamRow = Record<string, any>;
+
+type MarketingFeedStatus = 'idle' | 'loading' | 'ready' | 'error';
 
 type MarketingDealCandidate = {
   deal: any;
@@ -158,6 +181,19 @@ function getStringValue(...values: unknown[]): string {
   return '';
 }
 
+function optionalStringValue(...values: unknown[]): string | undefined {
+  const value = getStringValue(...values);
+  return value || undefined;
+}
+
+function sourceChannelFromValue(value: unknown): MarketingLedgerMatch['sourceChannel'] {
+  const source = String(value ?? '').trim().toLowerCase();
+  if (source === 'organic search') return 'seo';
+  if (source === 'paid search') return 'ppc';
+  if (source.includes('email')) return 'email';
+  return source ? 'other' : undefined;
+}
+
 function asMarketingRecord(value: unknown): MarketingStreamRow | null {
   return value && typeof value === 'object' ? value as MarketingStreamRow : null;
 }
@@ -213,6 +249,15 @@ function getLedgerCountLabel(status: unknown, rowCount: number): string {
   return rowCount.toLocaleString('en-GB');
 }
 
+function isTerminalFeedStatus(status: MarketingFeedStatus): boolean {
+  return status === 'ready' || status === 'error';
+}
+
+function isGoogleAdsConfigError(value: unknown): boolean {
+  const text = String(value ?? '').toLowerCase();
+  return text.includes('missing google ads configuration');
+}
+
 function getLedgerColumnLabels(key: MarketingLedgerKey): { record: string; status: string; value: string; owner: string; evidence: string } {
   if (key === 'ppc') {
     return { record: 'Campaign', status: 'Channel', value: 'Spend', owner: 'Source', evidence: 'Performance' };
@@ -237,12 +282,13 @@ function mapDealStatusToPitchStatus(value: unknown): MarketingPitchRow['status']
 type MarketingPageRangeKey = 'lastWeek' | 'month' | 'threeMonths' | 'financialYearToDate';
 
 const marketingRangeFloor = new Date(2026, 3, 1, 0, 0, 0, 0);
+const lockedMarketingRangeKey: MarketingPageRangeKey = 'financialYearToDate';
 
 const marketingPageRanges: Array<{ key: MarketingPageRangeKey; label: string; shortLabel: string; disabled?: boolean; disabledReason?: string }> = [
   { key: 'lastWeek', label: 'Current week', shortLabel: 'Current week' },
   { key: 'month', label: 'Current Month', shortLabel: 'Current Month' },
   { key: 'threeMonths', label: 'Last month', shortLabel: 'Last month' },
-  { key: 'financialYearToDate', label: '90 days', shortLabel: '90 days' },
+  { key: 'financialYearToDate', label: 'Financial year to date', shortLabel: 'FYTD' },
 ];
 
 function formatWireDate(value: Date): string {
@@ -300,18 +346,27 @@ function formatRangeWindow(range: DateRange): string {
   return `${fmt(range.start)} to ${fmt(range.end)}`;
 }
 
-function getMarketingRangeRefreshEstimate(key: MarketingPageRangeKey): string {
-  switch (key) {
-    case 'lastWeek':
-      return '2-4s';
-    case 'month':
-      return '3-5s';
-    case 'threeMonths':
-      return '4-7s';
-    case 'financialYearToDate':
-      return '6-10s';
-    default:
-      return '3-5s';
+const MARKETING_READY_STORAGE_PREFIX = 'helix:marketing:ready-range:v1';
+
+function marketingReadyStorageKey(range: DateRange): string {
+  return `${MARKETING_READY_STORAGE_PREFIX}:${formatWireDate(range.start)}:${formatWireDate(range.end)}`;
+}
+
+function readMarketingReadySeen(range: DateRange): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.sessionStorage.getItem(marketingReadyStorageKey(range)) === 'ready';
+  } catch {
+    return false;
+  }
+}
+
+function storeMarketingReadySeen(range: DateRange): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.setItem(marketingReadyStorageKey(range), 'ready');
+  } catch {
+    // Ignore restricted storage contexts.
   }
 }
 
@@ -327,27 +382,19 @@ function getRangeMonths(range: DateRange): number {
 const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructionData = [], enquiries = [], matters = [] }) => {
   const { isDarkMode } = useTheme();
   const { setContent } = useNavigatorActions();
-  const [selectedRange, setSelectedRange] = useState<MarketingPageRangeKey | null>(null);
-  const [localPreviewWithoutData, setLocalPreviewWithoutData] = useState(false);
-  const [hoveredRange, setHoveredRange] = useState<MarketingPageRangeKey | null>(null);
+  const selectedRange = lockedMarketingRangeKey;
+  const localPreviewWithoutData = false;
   const [activeLedgerTab, setActiveLedgerTab] = useState<MarketingLedgerKey>('enquiries');
   const [localHydrationDismissed, setLocalHydrationDismissed] = useState(false);
-  const [rangeRefreshNonce, setRangeRefreshNonce] = useState(0);
   const [marketingUnlockToastVisible, setMarketingUnlockToastVisible] = useState(false);
   const previousReportingWindowSettledRef = useRef(false);
-  const canUseLocalPreviewWithoutData = typeof window !== 'undefined'
-    && ['localhost', '127.0.0.1', '0.0.0.0'].includes(window.location.hostname);
   const isBlueprintMode = !selectedRange && !localPreviewWithoutData;
-  const effectiveRangeKey = selectedRange ?? 'financialYearToDate';
+  const effectiveRangeKey = lockedMarketingRangeKey;
   const activeRange = useMemo(() => computeMarketingPageRange(effectiveRangeKey), [effectiveRangeKey]);
   const deferredRange = useDeferredValue(activeRange);
   const isRangeSwitching = deferredRange !== activeRange;
   const selectedRangeLabel = marketingPageRanges.find((item) => item.key === effectiveRangeKey)?.label ?? 'Selected';
-  const hoveredRangeDetail = hoveredRange
-    ? `${marketingPageRanges.find((item) => item.key === hoveredRange)?.shortLabel ?? selectedRangeLabel} refresh est. ${getMarketingRangeRefreshEstimate(hoveredRange)}`
-    : selectedRange
-      ? null
-      : 'Choose a reporting window before pulling marketing feeds';
+  const [marketingReadySeen, setMarketingReadySeen] = useState(() => readMarketingReadySeen(activeRange));
   const ledgerStreamDatasetList = useMemo(() => [...marketingLedgerStreamDatasets], []);
   const reportingLedgerQueryParams = useMemo(() => ({
     enquiriesRangeStart: formatWireDate(deferredRange.start),
@@ -358,6 +405,10 @@ const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructio
     instructionsRangeEnd: formatWireDate(deferredRange.end),
     recoveredRangeStart: formatWireDate(deferredRange.start),
     recoveredRangeEnd: formatWireDate(deferredRange.end),
+    gaRangeStart: formatWireDate(deferredRange.start),
+    gaRangeEnd: formatWireDate(deferredRange.end),
+    googleAdsRangeStart: formatWireDate(deferredRange.start),
+    googleAdsRangeEnd: formatWireDate(deferredRange.end),
     gaMonths: getRangeMonths(deferredRange),
     googleAdsMonths: getRangeMonths(deferredRange),
   }), [deferredRange.end, deferredRange.start]);
@@ -384,7 +435,7 @@ const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructio
       queryParams: reportingLedgerQueryParams,
     });
     return () => stopLedgerStream({ resetComplete: false });
-  }, [ledgerStreamDatasetList, reportingLedgerQueryParams, rangeRefreshNonce, selectedRange, startLedgerStream, stopLedgerStream]);
+  }, [ledgerStreamDatasetList, reportingLedgerQueryParams, selectedRange, startLedgerStream, stopLedgerStream]);
 
   useEffect(() => {
     if (!selectedRange) return;
@@ -416,6 +467,24 @@ const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructio
     unwrapMarketingRows(ledgerDatasets.googleAds?.data)
   ), [ledgerDatasets.googleAds?.data]);
 
+  const googleAnalyticsRowsByDateRange = useMemo<MarketingStreamRow[]>(() => {
+    if (!selectedRange) return [];
+    return streamedGoogleAnalytics.filter((entry: MarketingStreamRow) => {
+      const metrics = getMarketingMetricRecord(entry, 'googleAnalytics');
+      const date = toDateOrNull(metrics.date ?? entry.date ?? entry.Date ?? entry.day);
+      return isDateInRange(date, deferredRange);
+    });
+  }, [selectedRange, streamedGoogleAnalytics, deferredRange]);
+
+  const googleAdsRowsByDateRange = useMemo<MarketingStreamRow[]>(() => {
+    if (!selectedRange) return [];
+    return streamedGoogleAds.filter((entry: MarketingStreamRow) => {
+      const metrics = getMarketingMetricRecord(entry, 'googleAds');
+      const date = toDateOrNull(metrics.date ?? entry.date ?? entry.Date ?? entry.day);
+      return isDateInRange(date, deferredRange);
+    });
+  }, [selectedRange, streamedGoogleAds, deferredRange]);
+
   const livePitchRows = useMemo<MarketingPitchRow[]>(() => {
     const source = Array.isArray(instructionData) ? instructionData : [];
     const wrappedDeals: MarketingDealCandidate[] = source.flatMap((entry) => {
@@ -434,7 +503,7 @@ const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructio
     const rangeStartTs = deferredRange.start.getTime();
     const rangeEndTs = deferredRange.end.getTime();
     const pitchedDeals = flattenedDeals
-      .map(({ deal, fromReportingStream, fromPitchOnlyInstruction }: MarketingDealCandidate, index) => {
+      .map(({ deal, fromReportingStream, fromPitchOnlyInstruction }: MarketingDealCandidate, index): MarketingPitchRow | null => {
         const pitchedBy = String(deal?.PitchedBy ?? deal?.pitchedBy ?? deal?.pitched_by ?? '').trim();
         const pitchedDateRaw = getDealPitchDateValue(deal);
         const pitchedTimeRaw = getDealPitchTimeValue(deal);
@@ -459,6 +528,7 @@ const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructio
           const combinedDate = combineDateAndTime(pitchedDateRaw, pitchedTimeRaw);
           const sortTs = combinedDate?.getTime() ?? (fromReportingStream || fromPitchOnlyInstruction ? rangeEndTs : 0);
         const clientEmail = String(deal?.LeadClientEmail ?? deal?.leadClientEmail ?? '').trim();
+        const prospectId = optionalStringValue(deal?.ProspectId, deal?.prospectId, deal?.prospect_id, deal?.ACID, deal?.acid);
         const serviceDescription = String(deal?.ServiceDescription ?? deal?.serviceDescription ?? '').trim();
         const areaOfWork = String(deal?.AreaOfWork ?? deal?.areaOfWork ?? '').trim();
         const status = mapDealStatusToPitchStatus(statusRaw);
@@ -476,6 +546,13 @@ const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructio
           sentAt: formatPitchTimestamp(combinedDate ?? (fromReportingStream || fromPitchOnlyInstruction ? deferredRange.end : null)),
           amountLabel,
           detail: `Status: ${statusRaw || 'Open'}${scenarioId ? ` | Scenario ${scenarioId}` : ''}`,
+          match: {
+            dealId: optionalStringValue(dealId),
+            prospectId,
+            acid: prospectId,
+            instructionRef: optionalStringValue(instructionRef),
+            email: optionalStringValue(clientEmail),
+          },
         };
       })
       .filter((row): row is (MarketingPitchRow & { sortTs: number }) => Boolean(row));
@@ -541,16 +618,29 @@ const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructio
           enquiry.Email,
           enquiry.ID,
         );
+        const sourceValue = getStringValue(enquiry.Ultimate_Source, enquiry.source, 'Unknown source');
+        const enquiryId = optionalStringValue(enquiry.ID, enquiry.id, `enquiry-${index}`);
+        const acid = optionalStringValue(enquiry.acid, enquiry.ACID, enquiry.pitchEnquiryId, enquiry.processingEnquiryId, enquiry.legacyEnquiryId, enquiry.ID, enquiry.id);
         return {
-          id: getStringValue(enquiry.ID, enquiry.id, `enquiry-${index}`),
+          id: getStringValue(enquiryId, `enquiry-${index}`),
           sortTs: date?.getTime() ?? 0,
           primary: name,
           secondary: `${getStringValue(enquiry.Area_of_Work, enquiry.aow, 'Unknown area')} | ${getStringValue(enquiry.Method_of_Contact, enquiry.moc, 'Unknown contact')}`,
-          status: getStringValue(enquiry.Ultimate_Source, enquiry.source, 'Unknown source'),
+          status: sourceValue,
           owner: getStringValue(enquiry.Call_Taker, enquiry.rep, enquiry.Point_of_Contact, enquiry.poc, 'Unassigned'),
           timestamp: formatPitchTimestamp(date),
           value: getStringValue(enquiry.Value, enquiry.value, '-'),
           detail: getStringValue(enquiry.Campaign, enquiry.GCLID, enquiry.Type_of_Work, enquiry.notes, enquiry.Initial_first_call_notes),
+          match: {
+            sourceChannel: sourceChannelFromValue(sourceValue),
+            sourceValue,
+            enquiryId,
+            acid,
+            pitchEnquiryId: optionalStringValue(enquiry.pitchEnquiryId, enquiry.pitch, enquiry.PitchEnquiryId),
+            legacyEnquiryId: optionalStringValue(enquiry.legacyEnquiryId, enquiry.ID),
+            processingEnquiryId: optionalStringValue(enquiry.processingEnquiryId, enquiry.id),
+            email: optionalStringValue(enquiry.Email, enquiry.email),
+          },
         };
       })
       .filter((row): row is MarketingLedgerRow => Boolean(row))
@@ -566,22 +656,33 @@ const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructio
       timestamp: row.sentAt,
       value: row.amountLabel,
       detail: row.detail,
+      match: row.match,
     }));
 
     const instructionRows = instructionSource
       .map((instruction: any, index): MarketingLedgerRow | null => {
         const date = toDateOrNull(instruction.CreatedDate ?? instruction.SubmissionDate ?? instruction.createdAt ?? instruction.Date_Created);
         if (!isDateInRange(date, deferredRange)) return null;
+        const instructionRef = optionalStringValue(instruction.InstructionRef, instruction.instructionRef);
+        const matterRef = optionalStringValue(instruction.MatterId, instruction.MatterID, instruction.matterId, instruction.matter_id);
         return {
-          id: getStringValue(instruction.InstructionRef, instruction.instructionRef, instruction.ProspectId, instruction.id, `instruction-${index}`),
+          id: getStringValue(instructionRef, instruction.ProspectId, instruction.id, `instruction-${index}`),
           sortTs: date?.getTime() ?? 0,
-          primary: getStringValue(instruction.InstructionRef, instruction.Email, instruction.ClientName, `Instruction ${index + 1}`),
-          secondary: `${getStringValue(instruction.Stage, instruction.workflow, 'Workflow')} | ${getStringValue(instruction.MatterId, instruction.MatterID, 'No matter')}`,
+          primary: getStringValue(instructionRef, instruction.Email, instruction.ClientName, `Instruction ${index + 1}`),
+          secondary: `${getStringValue(instruction.Stage, instruction.workflow, 'Workflow')} | ${getStringValue(matterRef, 'No matter')}`,
           status: getStringValue(instruction.Status, instruction.Stage, 'Open'),
           owner: getStringValue(instruction.Owner, instruction.ResponsibleSolicitor, instruction.AssignedTo, 'Unassigned'),
           timestamp: formatPitchTimestamp(date),
           value: getStringValue(instruction.ClientId, instruction.ProspectId, '-'),
           detail: getStringValue(instruction.ServiceDescription, instruction.AreaOfWork, instruction.workflow, instruction.Email),
+          match: {
+            instructionRef,
+            matterRef,
+            matterId: matterRef,
+            prospectId: optionalStringValue(instruction.ProspectId, instruction.prospectId, instruction.id, instruction.acid),
+            clientId: optionalStringValue(instruction.ClientId, instruction.clientId),
+            email: optionalStringValue(instruction.Email, instruction.email),
+          },
         };
       })
       .filter((row): row is MarketingLedgerRow => Boolean(row))
@@ -591,16 +692,26 @@ const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructio
       .map((matter: any, index): MarketingLedgerRow | null => {
         const date = toDateOrNull(matter.OpenDate ?? matter.openDate ?? matter.CreatedDate ?? matter.mod_stamp);
         if (!isDateInRange(date, deferredRange)) return null;
+        const matterId = optionalStringValue(matter.MatterID, matter.matterId, matter.UniqueID, matter.id);
+        const displayNumber = optionalStringValue(matter.DisplayNumber, matter.displayNumber);
+        const instructionRef = optionalStringValue(matter.InstructionRef, matter.instructionRef);
         return {
-          id: getStringValue(matter.MatterID, matter.matterId, matter.UniqueID, matter.DisplayNumber, `matter-${index}`),
+          id: getStringValue(matterId, displayNumber, `matter-${index}`),
           sortTs: date?.getTime() ?? 0,
-          primary: getStringValue(matter.DisplayNumber, matter.MatterID, matter.matterId, `Matter ${index + 1}`),
+          primary: getStringValue(displayNumber, matterId, `Matter ${index + 1}`),
           secondary: getStringValue(matter.PracticeArea, matter.practiceArea, 'Unknown area'),
           status: getStringValue(matter.Status, matter.status, matter.CloseDate ? 'Closed' : 'Active'),
           owner: getStringValue(matter.ResponsibleSolicitor, matter.OriginatingSolicitor, matter.responsibleSolicitor, 'Unassigned'),
           timestamp: formatPitchTimestamp(date),
           value: getStringValue(matter.ApproxValue, matter.value, '-'),
           detail: getStringValue(matter.OriginatingSolicitor, matter.originatingSolicitor, matter.ResponsibleSolicitor, matter.responsibleSolicitor, 'Unassigned'),
+          match: {
+            matterId,
+            matterRef: displayNumber,
+            instructionRef,
+            clientId: optionalStringValue(matter.ClientID, matter.clientId),
+            email: optionalStringValue(matter.ClientEmail, matter.clientEmail),
+          },
         };
       })
       .filter((row): row is MarketingLedgerRow => Boolean(row))
@@ -610,6 +721,7 @@ const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructio
       .map((fee: any, index): MarketingLedgerRow | null => {
         const date = toDateOrNull(fee.payment_date ?? fee.date ?? fee.created_at);
         if (!isDateInRange(date, deferredRange)) return null;
+        const matterId = optionalStringValue(fee.matter_id, fee.matterId, fee.MatterID);
         return {
           id: getStringValue(fee.bill_id, fee.id, `${fee.payment_date}-${fee.matter_id}-${index}`),
           sortTs: date?.getTime() ?? 0,
@@ -620,6 +732,10 @@ const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructio
           timestamp: formatPitchTimestamp(date),
           value: formatLedgerMoney(fee.payment_allocated ?? fee.amount ?? fee.total),
           detail: getStringValue(fee.activity_type, fee.bill_id ? `Bill ${fee.bill_id}` : '', fee.matter_id ? `Matter ${fee.matter_id}` : ''),
+          match: {
+            matterId,
+            billId: optionalStringValue(fee.bill_id, fee.billId),
+          },
         };
       })
       .filter((row): row is MarketingLedgerRow => Boolean(row))
@@ -689,52 +805,119 @@ const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructio
     : activeLedgerMeta.key === 'pitches' && livePitchRows.length > 0
     ? 'ready'
     : activeDatasetState?.status ?? (activeLedgerRows.length > 0 ? 'ready' : 'idle');
+  const getFeedStatus = (datasetLabel: string): MarketingFeedStatus => {
+    const datasetState = ledgerDatasets[datasetLabel];
+    return !selectedRange ? 'idle' : (datasetState?.status ?? (ledgerStreamComplete ? 'error' : 'loading'));
+  };
+  const googleAnalyticsFeedStatus = getFeedStatus('googleAnalytics');
+  const googleAdsFeedStatus = getFeedStatus('googleAds');
+  const googleAdsFeedError = ledgerDatasets.googleAds?.error;
+  const googleAdsConfigAttention = googleAdsFeedStatus === 'error' && isGoogleAdsConfigError(googleAdsFeedError);
   const datasetFeedRows = marketingFeedTabs.map((tab) => {
     const datasetState = ledgerDatasets[tab.datasetLabel];
-    const status = !selectedRange ? 'idle' : (datasetState?.status ?? (ledgerStreamComplete ? 'error' : 'loading'));
+    const status = getFeedStatus(tab.datasetLabel);
+    const detail = status === 'error'
+      ? (tab.datasetLabel === 'googleAds' && isGoogleAdsConfigError(datasetState?.error) ? 'Config needed' : 'Retry needed')
+      : undefined;
     return {
       key: tab.datasetLabel,
       label: tab.label,
       status,
+      detail,
     } as const;
   });
   const datasetFeedTotal = datasetFeedRows.length;
   const datasetFeedCompleted = datasetFeedRows.filter((feed) => feed.status === 'ready' || feed.status === 'error').length;
   const datasetFeedErrors = datasetFeedRows.filter((feed) => feed.status === 'error').length;
-  const marketingHasHydrationErrors = datasetFeedErrors > 0;
+  const blockingDatasetFeedErrors = datasetFeedRows.filter((feed) => feed.status === 'error' && !(feed.key === 'googleAds' && googleAdsConfigAttention)).length;
+  const marketingHasHydrationAttention = datasetFeedErrors > 0;
+  const marketingHasHydrationErrors = blockingDatasetFeedErrors > 0;
   const marketingHydrationPending = Boolean(selectedRange) && (isRangeSwitching || !ledgerStreamComplete || datasetFeedRows.some((feed) => feed.status === 'loading' || feed.status === 'idle'));
-  const marketingHydrationVisible = Boolean(selectedRange) && (marketingHydrationPending || marketingHasHydrationErrors);
-  const marketingHydrationPanelVisible = marketingHydrationVisible && !localHydrationDismissed;
+  const marketingHydrationVisible = Boolean(selectedRange) && (marketingHydrationPending || marketingHasHydrationAttention);
+  const feedSyncLabel = datasetFeedCompleted > 0 ? `${datasetFeedCompleted}/${datasetFeedTotal} feeds syncing` : 'feeds syncing';
   const marketingHydrationPhaseLabel = marketingHasHydrationErrors
     ? 'Marketing pull needs a retry'
     : isRangeSwitching
       ? `Preparing ${selectedRangeLabel.toLowerCase()}`
       : ledgerStreamConnected
         ? `Pulling ${datasetFeedCompleted} of ${datasetFeedTotal} feeds`
-        : selectedRange
-          ? 'Connecting marketing feeds'
-          : 'Choose a reporting window';
+        : 'Connecting marketing feeds';
   const marketingHydrationProgressLabel = marketingHasHydrationErrors
     ? `${datasetFeedErrors} feed${datasetFeedErrors === 1 ? '' : 's'} need attention`
     : ledgerStreamConnected
       ? `${datasetFeedCompleted} of ${datasetFeedTotal} reporting feeds settled`
-      : selectedRange
-        ? 'Opening the reporting stream for this window'
-        : 'No feeds will load until you choose a range';
+      : 'Opening the reporting stream for this financial year';
   const hasSelectedRange = Boolean(selectedRange);
   const isReportingWindowSettled = localPreviewWithoutData || (hasSelectedRange && !marketingHydrationPending && !marketingHasHydrationErrors);
-  const marketingEntryStatus = !hasSelectedRange
-    ? 'Select a reporting window.'
-    : marketingHasHydrationErrors
-      ? 'Retry required.'
-      : 'Preparing feeds.';
-  const marketingEntryDetail = !hasSelectedRange
-    ? 'No data pulled yet.'
-    : `${datasetFeedCompleted} of ${datasetFeedTotal} reporting feeds settled.`;
+  const coreChannelTelemetrySettled = isTerminalFeedStatus(googleAnalyticsFeedStatus) && isTerminalFeedStatus(googleAdsFeedStatus);
+  const hasCoreChannelTelemetryData = googleAnalyticsRowsByDateRange.length > 0 || googleAdsRowsByDateRange.length > 0;
+  const marketingWorkspaceIsPreparing = hasSelectedRange && !coreChannelTelemetrySettled && !hasCoreChannelTelemetryData;
+  const marketingWorkspaceIsRefreshing = hasSelectedRange && marketingHydrationPending && !marketingWorkspaceIsPreparing && !marketingHasHydrationErrors;
+  const [marketingReadyCueVisible, setMarketingReadyCueVisible] = useState(false);
+  const marketingReadyRailVisible = marketingReadyCueVisible && isReportingWindowSettled && !localHydrationDismissed;
+  const shouldSurfaceHydrationPanel = marketingHydrationVisible && (marketingHydrationPending || !marketingReadySeen || marketingHasHydrationErrors);
+  const marketingHydrationPanelVisible = (shouldSurfaceHydrationPanel || marketingReadyRailVisible) && !localHydrationDismissed;
+  const shouldShowMarketingWorkspace = hasSelectedRange || localPreviewWithoutData;
+  const reportingStreamStatusLabel = marketingWorkspaceIsPreparing
+    ? (ledgerStreamConnected && ledgerStreamProgress.completed > 0 ? `${ledgerStreamProgress.completed}/${ledgerStreamProgress.total}` : 'syncing')
+    : ledgerStreamComplete
+      ? 'ready'
+      : ledgerStreamConnected
+        ? `${ledgerStreamProgress.completed}/${ledgerStreamProgress.total}`
+        : 'warming';
+  const lockedWindowStatusText = localPreviewWithoutData
+    ? 'Local preview: no data loaded'
+    : `${formatRangeWindow(activeRange)} | ${marketingHasHydrationErrors
+      ? 'feed retry needed'
+      : googleAdsConfigAttention
+        ? 'PPC config needed'
+      : marketingWorkspaceIsPreparing
+        ? feedSyncLabel
+        : marketingWorkspaceIsRefreshing
+          ? `${feedSyncLabel} in background`
+          : 'feeds settled'}`;
+  const lockedWindowStateClass = marketingHasHydrationErrors
+    ? 'marketing-locked-window--attention'
+    : googleAdsConfigAttention
+      ? 'marketing-locked-window--attention'
+    : marketingWorkspaceIsPreparing
+      ? 'marketing-locked-window--syncing'
+      : marketingWorkspaceIsRefreshing
+        ? 'marketing-locked-window--refreshing'
+        : 'marketing-locked-window--settled';
+  const lockedWindowRailColour = marketingHasHydrationErrors
+    ? colours.cta
+    : googleAdsConfigAttention
+      ? colours.cta
+    : marketingWorkspaceIsPreparing || marketingWorkspaceIsRefreshing
+      ? colours.highlight
+      : colours.green;
   const lockedWindowSurface = isDarkMode ? 'rgba(10, 26, 45, 0.92)' : 'rgba(255, 255, 255, 0.96)';
   const lockedWindowBorder = isDarkMode ? 'rgba(142, 209, 255, 0.22)' : 'rgba(13, 47, 96, 0.14)';
   const lockedWindowAccent = isDarkMode ? '#8ed1ff' : colours.helixBlue;
   const lockedWindowSubTextColor = isDarkMode ? '#d1d5db' : '#4b5563';
+  const marketingTimelineStatusLabel = marketingHasHydrationErrors
+    ? `${blockingDatasetFeedErrors} feed${blockingDatasetFeedErrors === 1 ? '' : 's'} need retry`
+    : googleAdsConfigAttention
+      ? 'PPC config needed'
+    : marketingWorkspaceIsPreparing
+      ? feedSyncLabel
+      : marketingWorkspaceIsRefreshing
+        ? 'background refresh'
+        : 'timeline settled';
+  const marketingUnlockToastDetail = googleAdsConfigAttention
+    ? `${selectedRangeLabel} landed with PPC config attention.`
+    : `${selectedRangeLabel} feeds settled.`;
+
+  useEffect(() => {
+    if (marketingHydrationPending) setLocalHydrationDismissed(false);
+  }, [marketingHydrationPending]);
+
+  useEffect(() => {
+    setMarketingReadySeen(readMarketingReadySeen(activeRange));
+    setMarketingReadyCueVisible(false);
+    setLocalHydrationDismissed(false);
+  }, [activeRange]);
 
   useEffect(() => {
     setContent(
@@ -748,22 +931,39 @@ const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructio
   }, [setContent]);
 
   useEffect(() => {
+    if (marketingHasHydrationAttention) setLocalHydrationDismissed(false);
+  }, [marketingHasHydrationAttention]);
+
+  useEffect(() => {
     const wasSettled = previousReportingWindowSettledRef.current;
     previousReportingWindowSettledRef.current = isReportingWindowSettled;
 
     if (!hasSelectedRange || marketingHydrationPending) {
       setMarketingUnlockToastVisible(false);
+      setMarketingReadyCueVisible(false);
       return undefined;
     }
 
     if (isReportingWindowSettled && !wasSettled) {
-      setMarketingUnlockToastVisible(true);
+      const wasAlreadySeen = marketingReadySeen;
+      storeMarketingReadySeen(activeRange);
+      setMarketingReadySeen(true);
+      setMarketingReadyCueVisible(true);
+      setMarketingUnlockToastVisible(!wasAlreadySeen);
+      if (wasAlreadySeen) return undefined;
       const timeout = window.setTimeout(() => setMarketingUnlockToastVisible(false), 3200);
       return () => window.clearTimeout(timeout);
     }
 
     return undefined;
-  }, [hasSelectedRange, isReportingWindowSettled, marketingHydrationPending]);
+  }, [activeRange, hasSelectedRange, isReportingWindowSettled, marketingHydrationPending, marketingReadySeen]);
+
+  const handleReturnToMarketingMasthead = () => {
+    setMarketingReadyCueVisible(false);
+    setLocalHydrationDismissed(true);
+    if (typeof document === 'undefined') return;
+    document.querySelector('[data-helix-region="marketing/intent-strip"]')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  };
 
   // Marketing rides the shared .app-scroll-region. Hide scrollbar chrome by
   // default and let UserBubble's show-scrollbars toggle reveal it on demand.
@@ -779,6 +979,7 @@ const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructio
   return (
     <div
       data-helix-region="tab/marketing"
+      className={marketingWorkspaceIsPreparing ? 'marketing-workspace-processing' : 'marketing-workspace-ready'}
       style={{
         minHeight: 'calc(100vh - 140px)',
         padding: '0 22px 32px',
@@ -788,10 +989,11 @@ const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructio
         position: 'relative',
       }}
     >
-      {isReportingWindowSettled && (
+      <AccessMatrixConnector isDarkMode={isDarkMode} surface="marketing" />
+      {shouldShowMarketingWorkspace && (
       <section data-helix-region="marketing/intent-strip" style={{ padding: '14px 0 0' }}>
         <div
-          className="marketing-locked-window"
+          className={`marketing-locked-window ${lockedWindowStateClass}`}
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -801,6 +1003,8 @@ const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructio
             background: lockedWindowSurface,
             border: `1px solid ${lockedWindowBorder}`,
             boxShadow: isDarkMode ? '0 12px 28px rgba(0, 3, 25, 0.20)' : '0 12px 26px rgba(6, 23, 51, 0.08)',
+            position: 'relative',
+            overflow: 'hidden',
           }}
         >
           <div
@@ -821,9 +1025,9 @@ const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructio
                 width: 4,
                 height: 28,
                 flex: '0 0 auto',
-                backgroundColor: colours.green,
+                backgroundColor: lockedWindowRailColour,
                 borderRadius: 999,
-                boxShadow: '0 0 0 1px rgba(255, 255, 255, 0.10), 0 0 16px rgba(32, 178, 108, 0.18)',
+                boxShadow: `0 0 0 1px rgba(255, 255, 255, 0.10), 0 0 16px ${lockedWindowRailColour}33`,
               }}
             />
             <span style={{ display: 'block', minWidth: 0 }}>
@@ -835,7 +1039,7 @@ const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructio
                 textTransform: 'uppercase',
                 color: lockedWindowAccent,
               }}>
-                Reporting window locked
+                Financial year to date live
               </span>
               <span
                 style={{
@@ -849,7 +1053,7 @@ const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructio
                   whiteSpace: 'nowrap',
                 }}
               >
-                {localPreviewWithoutData ? 'Local preview: no data loaded' : `${selectedRangeLabel}: ${formatRangeWindow(activeRange)}`}
+                {lockedWindowStatusText}
               </span>
             </span>
           </div>
@@ -863,16 +1067,8 @@ const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructio
               justifyContent: 'flex-end',
             }}
           >
-            <button
-              type="button"
-              aria-label="Amend marketing reporting window"
-              onClick={() => {
-                setLocalHydrationDismissed(false);
-                setMarketingUnlockToastVisible(false);
-                setHoveredRange(null);
-                setLocalPreviewWithoutData(false);
-                setSelectedRange(null);
-              }}
+            <span
+              aria-label="Marketing financial year to date status"
               style={{
                 minHeight: 34,
                 padding: '0 13px',
@@ -884,11 +1080,12 @@ const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructio
                 fontWeight: 900,
                 letterSpacing: '0.05em',
                 textTransform: 'uppercase',
-                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
               }}
             >
-              Amend
-            </button>
+              FYTD locked
+            </span>
           </div>
         </div>
       </section>
@@ -919,16 +1116,16 @@ const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructio
             Marketing workspace ready
           </span>
           <span style={{ fontSize: 12, fontWeight: 700, color: isDarkMode ? '#d1d5db' : '#374151' }}>
-            {selectedRangeLabel} feeds settled.
+            {marketingUnlockToastDetail}
           </span>
         </div>
       )}
 
-      {isReportingWindowSettled ? (
+      {shouldShowMarketingWorkspace ? (
       <div
         data-helix-region="marketing/production-frame"
         className="marketing-production-frame marketing-production-frame--unlocked"
-        aria-busy={false}
+        aria-busy={marketingHydrationPending}
         style={{ display: 'grid', gap: 18, position: 'relative' }}
       >
         <div data-helix-region="marketing/performance" style={{ display: 'grid', gap: 12 }}>
@@ -940,13 +1137,18 @@ const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructio
               minHeight: 360,
             }}
           >
-            <div style={{ opacity: marketingHydrationPending ? 0.74 : 1, transition: 'opacity 180ms ease' }}>
+            <div style={{ opacity: 1, transition: 'opacity 180ms ease' }}>
               <MarketingPerformanceWorkspace
                 isDarkMode={isDarkMode}
-                googleAnalyticsRows={localPreviewWithoutData ? [] : streamedGoogleAnalytics}
-                googleAdsRows={localPreviewWithoutData ? [] : streamedGoogleAds}
+                googleAnalyticsRows={localPreviewWithoutData ? [] : googleAnalyticsRowsByDateRange}
+                googleAdsRows={localPreviewWithoutData ? [] : googleAdsRowsByDateRange}
                 ledgerRowsByTab={localPreviewWithoutData ? {} : ledgerRowsByTab}
-                isBlueprintMode={isBlueprintMode}
+                isBlueprintMode={isBlueprintMode || marketingWorkspaceIsPreparing}
+                timelineRangeLabel={formatRangeWindow(activeRange)}
+                timelineRangeStartTs={activeRange.start.getTime()}
+                timelineRangeEndTs={activeRange.end.getTime()}
+                timelineStatusLabel={marketingTimelineStatusLabel}
+                timelineIsProcessing={marketingWorkspaceIsPreparing || marketingWorkspaceIsRefreshing}
               />
             </div>
           </div>
@@ -954,6 +1156,7 @@ const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructio
 
         <section
           data-helix-region="marketing/source-ledgers"
+          className="marketing-source-ledgers"
           style={{
             ...panelStyle(isDarkMode),
             display: 'grid',
@@ -965,7 +1168,9 @@ const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructio
             <div style={{ display: 'grid', gap: 3, minWidth: 0 }}>
               <h2 style={{ ...sectionHeadingStyle(isDarkMode), fontSize: 15 }}>Evidence ledgers</h2>
               <span style={{ fontSize: 11, fontWeight: 700, color: isDarkMode ? '#d1d5db' : '#4b5563' }}>
-                {activeLedgerMeta.label} | {getLedgerCountLabel(activeDatasetStatus, activeLedgerRows.length)} rows | {activeDatasetStatus}
+                {marketingWorkspaceIsPreparing
+                  ? 'Preparing source ledgers'
+                  : `${activeLedgerMeta.label} | ${getLedgerCountLabel(activeDatasetStatus, activeLedgerRows.length)} rows | ${activeDatasetStatus}`}
               </span>
             </div>
             <span
@@ -979,7 +1184,7 @@ const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructio
                 color: ledgerStreamConnected || ledgerStreamComplete ? (isDarkMode ? '#9de7c2' : '#0f6c4c') : (isDarkMode ? colours.subtleGrey : colours.greyText),
               }}
             >
-              Reporting stream {ledgerStreamComplete ? 'ready' : ledgerStreamConnected ? `${ledgerStreamProgress.completed}/${ledgerStreamProgress.total}` : 'warming'}
+              Reporting stream {reportingStreamStatusLabel}
             </span>
           </div>
 
@@ -996,9 +1201,10 @@ const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructio
           >
             {marketingLedgerTabs.map((tab) => {
               const selected = activeLedgerTab === tab.key;
-              // Hide actual counts until user selects a reporting range to avoid misleading ready states
-              const rowCount = selectedRange ? (ledgerRowsByTab[tab.key]?.length ?? 0) : 0;
-              const datasetStatus = !selectedRange
+              const rowCount = marketingWorkspaceIsPreparing ? 0 : (selectedRange ? (ledgerRowsByTab[tab.key]?.length ?? 0) : 0);
+              const datasetStatus = marketingWorkspaceIsPreparing
+                ? 'loading'
+                : !selectedRange
                 ? 'idle'
                 : (tab.key === 'pitches' && rowCount > 0
                   ? 'ready'
@@ -1038,7 +1244,7 @@ const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructio
                     </span>
                   </span>
                   <span style={{ fontSize: 11, fontWeight: 800 }}>
-                    {getLedgerCountLabel(datasetStatus, rowCount)}
+                    {marketingWorkspaceIsPreparing ? 'Syncing' : getLedgerCountLabel(datasetStatus, rowCount)}
                   </span>
                 </button>
               );
@@ -1076,8 +1282,7 @@ const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructio
             </div>
 
               <div className="marketing-scroll-chrome" style={{ maxHeight: 380, overflowY: 'auto' }}>
-              {!selectedRange ? (
-                // Render skeleton placeholders when no range selected
+              {marketingWorkspaceIsPreparing || !selectedRange ? (
                 Array.from({ length: 6 }).map((_, idx) => (
                   <div
                     key={`skeleton-${idx}`}
@@ -1088,14 +1293,13 @@ const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructio
                       padding: '12px 10px',
                       borderBottom: `1px solid ${reportingPanelBorder(isDarkMode)}`,
                       alignItems: 'center',
-                      opacity: 0.65,
                     }}
                   >
-                    <span style={{ display: 'block', height: 16, width: '60%', background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(15, 23, 42, 0.06)', borderRadius: 2 }} />
-                    <span style={{ display: 'block', height: 12, width: 80, background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(15, 23, 42, 0.04)', borderRadius: 2 }} />
-                    <span style={{ display: 'block', height: 14, width: 70, background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(15, 23, 42, 0.04)', borderRadius: 2 }} />
-                    <span style={{ display: 'block', height: 14, width: 70, background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(15, 23, 42, 0.04)', borderRadius: 2 }} />
-                    <span style={{ display: 'block', height: 12, width: '40%', background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(15, 23, 42, 0.03)', borderRadius: 2 }} />
+                    <span className="marketing-skeleton-line" style={{ height: 16, width: '60%' }} />
+                    <span className="marketing-skeleton-line" style={{ height: 12, width: 80 }} />
+                    <span className="marketing-skeleton-line" style={{ height: 14, width: 70 }} />
+                    <span className="marketing-skeleton-line" style={{ height: 14, width: 70 }} />
+                    <span className="marketing-skeleton-line" style={{ height: 12, width: '40%' }} />
                   </div>
                 ))
               ) : (
@@ -1157,7 +1361,7 @@ const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructio
               )}
             </div>
 
-            {activeLedgerRows.length === 0 && (
+            {!marketingWorkspaceIsPreparing && activeLedgerRows.length === 0 && (
               <div style={{ padding: '14px 10px', fontSize: 11, color: isDarkMode ? '#d1d5db' : '#4b5563' }}>
                 {activeDatasetStatus === 'loading' || activeDatasetStatus === 'idle'
                   ? (!selectedRange
@@ -1171,197 +1375,7 @@ const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructio
           </div>
         </section>
       </div>
-      ) : (
-        <section
-          data-helix-region="marketing/entry"
-          className="marketing-entry"
-          aria-busy={Boolean(selectedRange) && !marketingHasHydrationErrors}
-          style={{
-            ...panelStyle(isDarkMode),
-            display: 'grid',
-            gap: 18,
-            marginTop: 14,
-            minHeight: 420,
-            alignContent: 'center',
-            justifyItems: 'center',
-            textAlign: 'center',
-            overflow: 'hidden',
-            background: reportingPanelBackground(isDarkMode, 'elevated'),
-            border: `1px solid ${reportingPanelBorder(isDarkMode, 'strong')}`,
-          }}
-        >
-          <div style={{ display: 'grid', gap: 8, maxWidth: 520, justifyItems: 'center' }}>
-            <span
-              aria-hidden="true"
-              style={{
-                display: 'inline-flex',
-                width: 46,
-                height: 46,
-                border: `1px solid ${isDarkMode ? 'rgba(84, 169, 228, 0.44)' : 'rgba(54, 144, 206, 0.28)'}`,
-                background: isDarkMode ? colours.dark.sectionBackground : colours.grey,
-                boxShadow: selectedRange ? `inset 0 -3px 0 ${colours.green}` : `inset 0 -3px 0 ${colours.helixBlue}`,
-              }}
-            />
-            <h2 style={{ ...sectionHeadingStyle(isDarkMode), margin: 0, fontSize: 18 }}>
-              Prepare marketing data
-            </h2>
-            <span style={{ fontSize: 12, fontWeight: 700, color: isDarkMode ? '#d1d5db' : '#374151', lineHeight: 1.5 }}>
-              {marketingEntryStatus}
-            </span>
-            <span style={{ fontSize: 11, fontWeight: 700, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
-              {marketingEntryDetail}
-            </span>
-          </div>
-
-          <div
-            role="radiogroup"
-            aria-label="Marketing reporting window"
-            data-helix-region="marketing/entry/range-strip"
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-              gap: 8,
-              width: 'min(100%, 620px)',
-              minWidth: 0,
-            }}
-          >
-            {marketingPageRanges.map((item) => {
-              const selected = selectedRange === item.key;
-              const previewed = hoveredRange === item.key;
-              const disabled = Boolean(item.disabled);
-              return (
-                <button
-                  type="button"
-                  key={item.key}
-                  className={`reports-management-range-option marketing-range-option${previewed ? ' is-previewed' : ''}`}
-                  role="radio"
-                  aria-checked={selected}
-                  aria-disabled={disabled}
-                  disabled={disabled}
-                  onClick={() => {
-                    if (disabled) return;
-                    setLocalHydrationDismissed(false);
-                    setLocalPreviewWithoutData(false);
-                    setSelectedRange(item.key);
-                    setRangeRefreshNonce((current) => current + 1);
-                  }}
-                  onMouseEnter={() => {
-                    if (disabled) return;
-                    setHoveredRange(item.key);
-                  }}
-                  onMouseLeave={() => {
-                    setHoveredRange((current) => current === item.key ? null : current);
-                  }}
-                  onFocus={() => {
-                    if (disabled) return;
-                    setHoveredRange(item.key);
-                  }}
-                  onBlur={() => {
-                    setHoveredRange((current) => current === item.key ? null : current);
-                  }}
-                  title={disabled
-                    ? (item.disabledReason ?? `${item.label} is temporarily unavailable.`)
-                    : `${item.label}. Est. refresh ${getMarketingRangeRefreshEstimate(item.key)}.`}
-                  aria-label={item.label}
-                  style={{
-                    minWidth: 0,
-                    minHeight: 44,
-                    display: 'grid',
-                    alignContent: 'center',
-                    justifyItems: 'center',
-                    rowGap: 0,
-                    textAlign: 'center',
-                    padding: '10px 12px',
-                    borderRadius: 0,
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    color: disabled
-                      ? (isDarkMode ? 'rgba(203, 213, 225, 0.42)' : 'rgba(55, 65, 81, 0.42)')
-                      : previewed || selected
-                        ? '#ffffff'
-                        : (isDarkMode ? '#cbd5e1' : colours.light.text),
-                    backgroundColor: disabled
-                      ? (isDarkMode ? 'rgba(10, 26, 45, 0.38)' : 'rgba(243, 244, 246, 0.92)')
-                      : selected
-                        ? 'rgba(54, 144, 206, 0.92)'
-                        : previewed
-                          ? 'rgba(54, 144, 206, 0.92)'
-                          : (isDarkMode ? 'rgba(10, 26, 45, 0.78)' : colours.grey),
-                    borderColor: disabled
-                      ? (isDarkMode ? 'rgba(62, 88, 116, 0.28)' : 'rgba(156, 163, 175, 0.42)')
-                      : selected || previewed
-                        ? 'rgba(54, 144, 206, 0.92)'
-                        : (isDarkMode ? 'rgba(62, 88, 116, 0.62)' : colours.highlightNeutral),
-                    boxShadow: 'none',
-                    cursor: disabled ? 'not-allowed' : 'pointer',
-                    opacity: disabled ? 0.72 : 1,
-                    transition: 'background-color 220ms ease, border-color 220ms ease, color 220ms ease, transform 180ms ease, box-shadow 180ms ease',
-                  }}
-                >
-                  <span className="reports-range-label-full" style={{ display: 'block', fontSize: 12, fontWeight: 900, letterSpacing: '0.02em', lineHeight: 1.1 }}>{item.shortLabel}</span>
-                </button>
-              );
-            })}
-          </div>
-
-          {canUseLocalPreviewWithoutData && !selectedRange && !localPreviewWithoutData && (
-            <button
-              type="button"
-              data-helix-region="marketing/entry/load-without-data"
-              onClick={() => {
-                setHoveredRange(null);
-                setLocalHydrationDismissed(true);
-                setLocalPreviewWithoutData(true);
-                setMarketingUnlockToastVisible(false);
-              }}
-              style={{
-                minHeight: 34,
-                padding: '0 13px',
-                border: `1px solid ${reportingPanelBorder(isDarkMode)}`,
-                background: isDarkMode ? 'rgba(10, 26, 45, 0.72)' : 'rgba(255, 255, 255, 0.74)',
-                color: isDarkMode ? '#d1d5db' : colours.darkBlue,
-                fontSize: 11,
-                fontWeight: 900,
-                letterSpacing: '0.05em',
-                textTransform: 'uppercase',
-                cursor: 'pointer',
-              }}
-            >
-              Load without data
-            </button>
-          )}
-
-          <div
-            aria-hidden="true"
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(4, minmax(72px, 1fr))',
-              gap: 10,
-              width: 'min(100%, 620px)',
-              marginTop: 8,
-            }}
-          >
-            {['SEO', 'PPC', 'Ledgers', 'Revenue'].map((label, index) => (
-              <span
-                key={label}
-                style={{
-                  display: 'grid',
-                  gap: 8,
-                  minHeight: 82,
-                  padding: 10,
-                  border: `1px solid ${reportingPanelBorder(isDarkMode)}`,
-                  background: reportingPanelBackground(isDarkMode),
-                  animation: `marketing-entry-breathe 1600ms ease-in-out ${index * 120}ms infinite alternate`,
-                }}
-              >
-                <span style={{ height: 9, width: '54%', background: isDarkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(15, 23, 42, 0.07)' }} />
-                <span style={{ height: 18, width: '74%', background: isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(15, 23, 42, 0.05)' }} />
-                <span style={{ height: 8, width: '42%', background: isDarkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(15, 23, 42, 0.04)' }} />
-              </span>
-            ))}
-          </div>
-        </section>
-      )}
+      ) : null}
 
       <MarketingHydrationChrome
         isDarkMode={isDarkMode}
@@ -1375,6 +1389,8 @@ const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructio
         total={datasetFeedTotal}
         feeds={datasetFeedRows}
         hasErrors={marketingHasHydrationErrors}
+        isComplete={isReportingWindowSettled}
+        onReturnToMarketing={handleReturnToMarketingMasthead}
         onDismiss={() => setLocalHydrationDismissed(true)}
         onRetry={() => startLedgerStream({
           datasets: ledgerStreamDatasetList,
@@ -1445,42 +1461,64 @@ const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructio
           background-color: rgba(54, 144, 206, 0.8);
         }
 
-        .marketing-range-option {
-          border: 1px solid rgba(54, 144, 206, 0.28);
-          background: rgba(255, 255, 255, 0.86);
-          box-shadow: none;
-          transition: background-color 180ms ease, border-color 180ms ease, color 180ms ease, transform 180ms ease, box-shadow 180ms ease;
-        }
-
-        .marketing-range-option:last-child {
-          border-right: 1px solid ${isDarkMode ? 'rgba(84, 169, 228, 0.36)' : 'rgba(54, 144, 206, 0.28)'} !important;
-        }
-
-        .marketing-range-option:hover:not(:disabled),
-        .marketing-range-option:focus-visible:not(:disabled) {
-          /* Use a stronger, high-contrast accent on hover so labels remain readable in light mode */
-          background: rgba(54, 144, 206, 0.92) !important;
-          border-color: rgba(54, 144, 206, 0.92) !important;
-          color: #ffffff !important;
-          box-shadow: none !important;
-          transform: translateY(-1px);
-        }
-
-        .marketing-range-option.is-previewed:not(:disabled),
-        .marketing-range-option[aria-checked="true"]:not(:disabled) {
-          /* Selected/previewed state should also use high-contrast white text */
-          background: rgba(54, 144, 206, 0.92) !important;
-          border-color: rgba(54, 144, 206, 0.92) !important;
-          color: #ffffff !important;
-        }
-
-        .marketing-range-option .reports-range-label-full {
-          overflow: hidden;
-          text-overflow: ellipsis;
-        }
-
         .marketing-production-frame--unlocked {
           animation: marketing-production-unlock 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+        }
+
+        .marketing-workspace-processing .marketing-performance-workspace,
+        .marketing-workspace-processing .marketing-source-ledgers {
+          animation: marketing-skeleton-settle 380ms cubic-bezier(0.22, 1, 0.36, 1) both;
+        }
+
+        .marketing-workspace-ready .marketing-locked-window {
+          animation: marketing-ready-soft-pop 380ms cubic-bezier(0.22, 1, 0.36, 1) both;
+        }
+
+        .marketing-locked-window--syncing::after,
+        .marketing-locked-window--refreshing::after {
+          content: '';
+          position: absolute;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          height: 2px;
+          background: linear-gradient(90deg, transparent, rgba(54, 144, 206, 0.92), transparent);
+          animation: marketing-window-progress 1500ms ease-in-out infinite;
+        }
+
+        .marketing-locked-window--settled::after {
+          content: '';
+          position: absolute;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          height: 2px;
+          background: rgba(32, 178, 108, 0.58);
+        }
+
+        .marketing-processing-panel {
+          transition: transform 320ms cubic-bezier(0.22, 1, 0.36, 1), opacity 220ms ease, width 320ms cubic-bezier(0.22, 1, 0.36, 1);
+        }
+
+        .marketing-processing-panel.is-folded {
+          transform: translateY(4px) scale(0.985);
+        }
+
+        .marketing-skeleton-line {
+          display: block;
+          position: relative;
+          overflow: hidden;
+          border-radius: 2px;
+          background: ${isDarkMode ? 'rgba(209, 213, 219, 0.11)' : 'rgba(13, 47, 96, 0.075)'};
+        }
+
+        .marketing-skeleton-line::after {
+          content: '';
+          position: absolute;
+          inset: 0;
+          transform: translateX(-100%);
+          background: linear-gradient(90deg, transparent, ${isDarkMode ? 'rgba(255, 255, 255, 0.16)' : 'rgba(255, 255, 255, 0.44)'}, transparent);
+          animation: marketing-skeleton-sheen 1800ms ease-in-out infinite;
         }
 
         @keyframes marketing-production-unlock {
@@ -1507,15 +1545,45 @@ const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructio
           }
         }
 
-        @keyframes marketing-entry-breathe {
+        @keyframes marketing-skeleton-settle {
           from {
-            opacity: 0.58;
-            transform: translateY(0);
+            opacity: 0;
+            transform: translateY(8px);
           }
 
           to {
-            opacity: 0.9;
-            transform: translateY(-1px);
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        @keyframes marketing-ready-soft-pop {
+          from {
+            box-shadow: 0 0 0 rgba(32, 178, 108, 0);
+          }
+
+          to {
+            box-shadow: ${isDarkMode ? '0 12px 28px rgba(0, 3, 25, 0.20)' : '0 12px 26px rgba(6, 23, 51, 0.08)'};
+          }
+        }
+
+        @keyframes marketing-skeleton-sheen {
+          0% {
+            transform: translateX(-100%);
+          }
+
+          52%, 100% {
+            transform: translateX(100%);
+          }
+        }
+
+        @keyframes marketing-window-progress {
+          0% {
+            transform: translateX(-100%);
+          }
+
+          52%, 100% {
+            transform: translateX(100%);
           }
         }
       `}</style>

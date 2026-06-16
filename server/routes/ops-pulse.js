@@ -135,7 +135,7 @@ router.get('/snapshot', (req, res) => {
 
   const monitorUser = getMonitorUser(req);
   if (monitorUser) {
-    update(monitorUser, 'activity');
+    update(monitorUser, 'roadmap');
   }
 
   const serverStatus = getStatus();
@@ -173,7 +173,7 @@ router.get('/stream', (req, res) => {
 
   const monitorUser = getMonitorUser(req);
   if (monitorUser) {
-    update(monitorUser, 'activity');
+    update(monitorUser, 'roadmap');
   }
   const sessionId = register(monitorUser?.initials || req.query?.initials || 'unknown', 'ops-pulse');
 

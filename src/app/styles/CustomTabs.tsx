@@ -9,7 +9,9 @@ import {
   FiFileText,
   FiBookOpen,
   FiBarChart2,
+  FiDatabase,
   FiTarget,
+  FiCheckSquare,
 } from 'react-icons/fi';
 import { colours } from './colours';
 import './CustomTabs.css';
@@ -159,8 +161,10 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
       case 'matters':      return <FiFolder size={navIconSize} strokeWidth={1.8} />;
       case 'forms':        return <FiFileText size={navIconSize} strokeWidth={1.8} />;
       case 'resources':    return <FiBookOpen size={navIconSize} strokeWidth={1.8} />;
+      case 'dataHub':      return <FiDatabase size={navIconSize} strokeWidth={1.8} />;
       case 'reporting':    return <FiBarChart2 size={navIconSize} strokeWidth={1.8} />;
       case 'marketing':    return <FiTarget size={navIconSize} strokeWidth={1.8} />;
+      case 'tasks':        return <FiCheckSquare size={navIconSize} strokeWidth={1.8} />;
       default:             return <FiClipboard size={navIconSize} strokeWidth={1.8} />;
     }
   };

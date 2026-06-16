@@ -34,7 +34,7 @@ function raceTimeout(promise, ms, onTimeoutValue) {
 }
 
 // Helper: best-effort secret retrieval from ENV then Key Vault. Key Vault is bounded so a slow vault can't stall the request.
-async function getSecretFromAnySource(secretName) {
+async function getSecretFromAnySource(secretName, timeoutMs = 5000) {
   if (!secretName) return null;
   const envExact = process.env[secretName];
   if (envExact && String(envExact).trim()) return String(envExact).trim();
@@ -42,7 +42,7 @@ async function getSecretFromAnySource(secretName) {
   if (envSnake && String(envSnake).trim()) return String(envSnake).trim();
 
   try {
-    const sec = await raceTimeout(getClient().getSecret(secretName), 5000, null);
+    const sec = await raceTimeout(getClient().getSecret(secretName), timeoutMs, null);
     if (sec?.value) return sec.value;
   } catch (_) {
     // swallow
@@ -74,6 +74,38 @@ function withTimeout(promise, ms, onTimeoutMsg = 'Request timed out') {
     promise(ac.signal),
     new Promise((_, reject) => ac.signal.addEventListener('abort', () => reject(new Error(onTimeoutMsg))))
   ]).finally(() => clearTimeout(t));
+}
+
+async function fetchGoogleAdsAccessToken(cfg, timeoutMs = 5000) {
+  const body = new URLSearchParams({
+    client_id: cfg.clientId,
+    client_secret: cfg.clientSecret,
+    refresh_token: cfg.refreshToken,
+    grant_type: 'refresh_token',
+  });
+
+  const response = await withTimeout(
+    (signal) => fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+      signal,
+    }),
+    timeoutMs,
+    `Google Ads OAuth token exchange timed out (${Math.round(timeoutMs / 1000)}s)`
+  );
+
+  let payload = null;
+  try { payload = await response.json(); } catch (_) { /* ignore non-json OAuth errors */ }
+
+  if (!response.ok) {
+    const errorDescription = payload?.error_description || payload?.error || response.statusText || `HTTP ${response.status}`;
+    const error = new Error(`Google Ads OAuth token exchange failed: ${errorDescription}`);
+    error.status = response.status;
+    throw error;
+  }
+
+  return payload?.access_token || '';
 }
 
 /**
@@ -752,6 +784,8 @@ router.get('/google-ads', async (req, res) => {
     // If any are missing and we have secret names, try Key Vault
     const missing = Object.entries(cfg).filter(([k, v]) => !v && k !== 'customerId');
     if (missing.length > 0 || !cfg.redirectUri) {
+      const googleAdsSecretLookupTimeoutMs = Number(process.env.GOOGLE_ADS_SECRET_LOOKUP_TIMEOUT_MS)
+        || (process.env.NODE_ENV === 'production' ? 5000 : 1200);
       const secretNameMap = {
         developerToken: process.env.GOOGLE_ADS_DEVELOPER_TOKEN_SECRET,
         clientId: process.env.GOOGLE_ADS_CLIENT_ID_SECRET,
@@ -761,16 +795,14 @@ router.get('/google-ads', async (req, res) => {
         customerId: process.env.GOOGLE_ADS_CUSTOMER_ID_SECRET,
         redirectUri: process.env.GOOGLE_ADS_REDIRECT_URI_SECRET,
       };
-      for (const [key, envSecretName] of Object.entries(secretNameMap)) {
-        if (!cfg[key] && envSecretName) {
-          const secVal = await getSecretFromAnySource(envSecretName);
-          if (secVal) {
-            cfg[key] = (key === 'loginCustomerId' || key === 'customerId')
-              ? secVal.replace(/-/g, '')
-              : secVal;
-          }
-        }
-      }
+      await Promise.all(Object.entries(secretNameMap).map(async ([key, envSecretName]) => {
+        if (cfg[key] || !envSecretName) return;
+        const secVal = await getSecretFromAnySource(envSecretName, googleAdsSecretLookupTimeoutMs);
+        if (!secVal) return;
+        cfg[key] = (key === 'loginCustomerId' || key === 'customerId')
+          ? secVal.replace(/-/g, '')
+          : secVal;
+      }));
     }
 
     // Allow configurable Google Ads API version while defaulting away from sunsetted v20.
@@ -778,7 +810,9 @@ router.get('/google-ads', async (req, res) => {
     if (!configuredApiVersion) {
       const verSecretName = process.env.GOOGLE_ADS_API_VERSION_SECRET;
       if (verSecretName) {
-        const ver = await getSecretFromAnySource(verSecretName);
+        const googleAdsSecretLookupTimeoutMs = Number(process.env.GOOGLE_ADS_SECRET_LOOKUP_TIMEOUT_MS)
+          || (process.env.NODE_ENV === 'production' ? 5000 : 1200);
+        const ver = await getSecretFromAnySource(verSecretName, googleAdsSecretLookupTimeoutMs);
         if (ver) configuredApiVersion = ver;
       }
     }
@@ -835,38 +869,25 @@ router.get('/google-ads', async (req, res) => {
     });
 
     // OAuth2: exchange refresh token for access token
-    const redirectUri = cfg.redirectUri || 'https://developers.google.com/oauthplayground';
     let accessToken;
     try {
-      const google = getGoogleApis();
-      const oauth2 = new google.auth.OAuth2(cfg.clientId, cfg.clientSecret, redirectUri);
-      oauth2.setCredentials({ refresh_token: cfg.refreshToken });
-      // Cap OAuth token exchange at 5s so a stalled Google endpoint can't hang the route.
-      const tokenResp = await raceTimeout(oauth2.getAccessToken(), 5000, null);
-      if (!tokenResp) {
-        trackEvent('Marketing.GoogleAds.Failed', {
-          operation: 'fetchDailyMetrics',
-          phase: 'oauth',
-          apiVersion,
-          startDate: startDateForTelemetry,
-          endDate: endDateForTelemetry,
-          durationMs: Date.now() - startedAt,
-        });
-        return res.status(504).json({ success: false, error: 'Google Ads OAuth token exchange timed out (5s)', apiVersion });
-      }
-      accessToken = typeof tokenResp === 'string' ? tokenResp : tokenResp?.token;
+      // Use an abortable direct token request. googleapis OAuth helpers can keep their HTTP
+      // request alive after Promise.race has timed out, delaying the Express response.
+      accessToken = await fetchGoogleAdsAccessToken(cfg, 5000);
     } catch (e) {
       const msg = e?.response?.data?.error || e?.message || 'OAuth error';
+      const isTimeout = msg.includes('timed out');
       trackException(e, { operation: 'fetchDailyMetrics', phase: 'oauth', apiVersion, startDate: startDateForTelemetry, endDate: endDateForTelemetry });
       trackEvent('Marketing.GoogleAds.Failed', {
         operation: 'fetchDailyMetrics',
         phase: 'oauth',
         apiVersion,
+        timeout: isTimeout,
         startDate: startDateForTelemetry,
         endDate: endDateForTelemetry,
         durationMs: Date.now() - startedAt,
       });
-      return res.status(500).json({ success: false, error: `Failed to obtain Google Ads access token: ${msg}`, apiVersion });
+      return res.status(isTimeout ? 504 : 500).json({ success: false, error: isTimeout ? msg : `Failed to obtain Google Ads access token: ${msg}`, apiVersion });
     }
     if (!accessToken) {
       trackEvent('Marketing.GoogleAds.Failed', {

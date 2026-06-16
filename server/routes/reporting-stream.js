@@ -399,12 +399,10 @@ async function fetchDatasetByName(datasetName, { connectionString, instructionsC
     case 'wipDbCurrentWeek':
       return fetchWipDbCurrentWeek({ connectionString });
     case 'googleAnalytics': {
-      const months = sanitizeMonths(rangeOverrides.googleAnalytics, 24) ?? 3;
-      return fetchGoogleAnalyticsData(months);
+      return fetchGoogleAnalyticsData(rangeOverrides.googleAnalytics ?? 3);
     }
     case 'googleAds': {
-      const months = sanitizeMonths(rangeOverrides.googleAds, 24) ?? 3;
-      return fetchGoogleAdsData(months);
+      return fetchGoogleAdsData(rangeOverrides.googleAds ?? 3);
     }
     case 'metaMetrics': {
       const daysBack = sanitizeDays(rangeOverrides.metaMetrics, 90) ?? 30;
@@ -700,7 +698,10 @@ function getLast24MonthsExcludingCurrentWeek() {
 }
 
 function formatDateOnly(date) {
-  return date.toISOString().split('T')[0];
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 // Enumerate calendar-month windows between two dates (inclusive)
@@ -765,6 +766,14 @@ function buildRangeOverridesFromQuery(query) {
     getQueryValue(query.instructionsRangeStart) ?? getQueryValue(query.enquiriesRangeStart),
     getQueryValue(query.instructionsRangeEnd) ?? getQueryValue(query.enquiriesRangeEnd)
   ) || enquiriesRange;
+  const gaRange = createRangeOverride(
+    getQueryValue(query.gaRangeStart) ?? getQueryValue(query.enquiriesRangeStart),
+    getQueryValue(query.gaRangeEnd) ?? getQueryValue(query.enquiriesRangeEnd)
+  );
+  const adsRange = createRangeOverride(
+    getQueryValue(query.googleAdsRangeStart) ?? getQueryValue(query.enquiriesRangeStart),
+    getQueryValue(query.googleAdsRangeEnd) ?? getQueryValue(query.enquiriesRangeEnd)
+  );
 
   const metaDaysBack = parsePositiveInt(getQueryValue(query.metaDaysBack));
   const gaMonths = parsePositiveInt(getQueryValue(query.gaMonths));
@@ -778,8 +787,8 @@ function buildRangeOverridesFromQuery(query) {
     deals: dealsRange,
     instructions: instructionsRange,
     metaMetrics: metaDaysBack,
-    googleAnalytics: gaMonths,
-    googleAds: adsMonths,
+    googleAnalytics: gaRange || gaMonths,
+    googleAds: adsRange || adsMonths,
   };
 }
 
@@ -795,8 +804,8 @@ function getQueryValue(value) {
 
 function createRangeOverride(rawStart, rawEnd) {
   if (!rawStart && !rawEnd) return null;
-  const parsedStart = rawStart ? new Date(rawStart) : null;
-  const parsedEnd = rawEnd ? new Date(rawEnd) : null;
+  const parsedStart = rawStart ? parseDateOverride(rawStart) : null;
+  const parsedEnd = rawEnd ? parseDateOverride(rawEnd) : null;
   if (parsedStart && Number.isNaN(parsedStart.getTime())) {
     return null;
   }
@@ -814,6 +823,15 @@ function createRangeOverride(rawStart, rawEnd) {
     return null;
   }
   return { from, to };
+}
+
+function parseDateOverride(value) {
+  const raw = String(value || '').trim();
+  const dateOnly = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnly) {
+    return new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]));
+  }
+  return new Date(raw);
 }
 
 function parsePositiveInt(raw) {
@@ -837,6 +855,40 @@ function sanitizeDays(value, defaultCap = 90) {
   return Math.min(days, defaultCap);
 }
 
+function resolveProviderDateRange(rangeOrMonths, defaultMonths = 3) {
+  if (rangeOrMonths && typeof rangeOrMonths === 'object' && rangeOrMonths.from && rangeOrMonths.to) {
+    return {
+      startDate: formatDateOnly(rangeOrMonths.from),
+      endDate: formatDateOnly(rangeOrMonths.to),
+    };
+  }
+
+  const months = sanitizeMonths(rangeOrMonths, 24) ?? defaultMonths;
+  const endDate = new Date();
+  const startDate = new Date();
+  startDate.setMonth(startDate.getMonth() - months);
+
+  return {
+    startDate: startDate.toISOString().split('T')[0],
+    endDate: endDate.toISOString().split('T')[0],
+  };
+}
+
+function parseJsonResponse(data, label, statusCode) {
+  let result;
+  try {
+    result = JSON.parse(data);
+  } catch (error) {
+    throw new Error(`Failed to parse ${label} response: ${error.message}`);
+  }
+
+  if (statusCode >= 400) {
+    throw new Error(`${label} request failed with ${statusCode}: ${result?.error || result?.message || 'Unknown error'}`);
+  }
+
+  return result;
+}
+
 function getInternalApiPort() {
   return process.env.PORT || 8080;
 }
@@ -844,18 +896,14 @@ function getInternalApiPort() {
 const INTERNAL_META_TIMEOUT_MS = 50000;
 
 // Google Analytics data fetcher
-async function fetchGoogleAnalyticsData(months = 3) {
+async function fetchGoogleAnalyticsData(rangeOrMonths = 3) {
   const http = require('http');
   const querystring = require('querystring');
-  
-  // Calculate date range
-  const endDate = new Date();
-  const startDate = new Date();
-  startDate.setMonth(startDate.getMonth() - months);
+  const { startDate, endDate } = resolveProviderDateRange(rangeOrMonths, 3);
   
   const params = querystring.stringify({
-    startDate: startDate.toISOString().split('T')[0],
-    endDate: endDate.toISOString().split('T')[0],
+    startDate,
+    endDate,
   });
 
   return new Promise((resolve, reject) => {
@@ -885,10 +933,10 @@ async function fetchGoogleAnalyticsData(months = 3) {
       });
       res.on('end', () => {
         try {
-          const result = JSON.parse(data);
+          const result = parseJsonResponse(data, 'Google Analytics', res.statusCode || 0);
           resolve(result);
         } catch (error) {
-          reject(new Error(`Failed to parse Google Analytics response: ${error.message}`));
+          reject(error);
         }
       });
     });
@@ -902,18 +950,14 @@ async function fetchGoogleAnalyticsData(months = 3) {
 }
 
 // Google Ads data fetcher
-async function fetchGoogleAdsData(months = 3) {
+async function fetchGoogleAdsData(rangeOrMonths = 3) {
   const http = require('http');
   const querystring = require('querystring');
-  
-  // Calculate date range
-  const endDate = new Date();
-  const startDate = new Date();
-  startDate.setMonth(startDate.getMonth() - months);
+  const { startDate, endDate } = resolveProviderDateRange(rangeOrMonths, 3);
   
   const params = querystring.stringify({
-    startDate: startDate.toISOString().split('T')[0],
-    endDate: endDate.toISOString().split('T')[0],
+    startDate,
+    endDate,
   });
 
   return new Promise((resolve, reject) => {
@@ -943,10 +987,10 @@ async function fetchGoogleAdsData(months = 3) {
       });
       res.on('end', () => {
         try {
-          const result = JSON.parse(data);
+          const result = parseJsonResponse(data, 'Google Ads', res.statusCode || 0);
           resolve(result);
         } catch (error) {
-          reject(new Error(`Failed to parse Google Ads response: ${error.message}`));
+          reject(error);
         }
       });
     });
