@@ -20,6 +20,7 @@ export const PRIVATE_HUB_CONTROL_USERS = ['LZ'] as const;
 export const SESSION_MODE_CONTROL_USERS = ['LZ', 'AC'] as const;
 export const DEMO_MODE_CONTROL_USERS = ['LZ', 'AC', 'EA'] as const;
 export const ACTIVITY_TAB_USERS = ['LZ', 'AC', 'EA'] as const;
+export const TASKS_TAB_USERS = ['LZ'] as const;
 
 export function isCclOperationsAvailable(options?: { viewAsProd?: boolean }): boolean {
     if (options?.viewAsProd) return false;
@@ -165,6 +166,21 @@ export function canSeeActivityTab(user?: UserData | null, isLocalDev = false): b
         first === 'emma' ||
         nickname === 'emma' ||
         email === 'ea@helix-law.com'
+    );
+}
+
+export function canSeeTasksTab(user?: UserData | null): boolean {
+    if (!user) return false;
+    const initials = user.Initials?.toUpperCase().trim();
+    const first = user.First?.toLowerCase().trim();
+    const nickname = user.Nickname?.toLowerCase().trim();
+    const email = user.Email?.toLowerCase().trim();
+    const allowedInitials = TASKS_TAB_USERS as readonly string[];
+    return !!(
+        (initials && allowedInitials.includes(initials)) ||
+        first === 'luke' ||
+        nickname === 'luke' ||
+        email === 'lz@helix-law.com'
     );
 }
 

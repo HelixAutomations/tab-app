@@ -11,6 +11,7 @@ interface ColumnSelectorProps {
   onShowAll: () => void;
   onHideAll: () => void;
   onReset: () => void;
+  menuAlign?: 'left' | 'right';
 }
 
 export const ColumnSelector: React.FC<ColumnSelectorProps> = ({
@@ -20,6 +21,7 @@ export const ColumnSelector: React.FC<ColumnSelectorProps> = ({
   onShowAll,
   onHideAll,
   onReset,
+  menuAlign = 'right',
 }) => {
   const { isDarkMode } = useTheme();
   const [isOpen, setIsOpen] = useState(false);
@@ -42,15 +44,18 @@ export const ColumnSelector: React.FC<ColumnSelectorProps> = ({
           alignItems: 'center',
           justifyContent: 'center',
           gap: 6,
-          padding: '6px 10px',
+          minHeight: 30,
+          padding: '0 10px',
           border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.light.borderColor}`,
           background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
           color: isDarkMode ? colours.dark.text : colours.light.text,
-          fontSize: 12,
-          fontWeight: 600,
-          borderRadius: 4,
+          fontSize: 10,
+          fontWeight: 800,
+          letterSpacing: '0.02em',
+          textTransform: 'uppercase',
+          borderRadius: 0,
           cursor: 'pointer',
-          transition: 'all 0.2s ease',
+          transition: 'border-color 0.16s ease, background 0.16s ease, color 0.16s ease',
         }}
         title="Show/hide columns"
       >
@@ -63,14 +68,15 @@ export const ColumnSelector: React.FC<ColumnSelectorProps> = ({
           style={{
             position: 'absolute',
             top: '100%',
-            right: 0,
+            ...(menuAlign === 'left' ? { left: 0 } : { right: 0 }),
             marginTop: 4,
             zIndex: 1000,
-            minWidth: 280,
-            maxHeight: 400,
+            width: 'min(320px, calc(100vw - 24px))',
+            maxWidth: 'calc(100vw - 24px)',
+            maxHeight: 'min(400px, calc(100vh - 96px))',
             background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
             border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.light.borderColor}`,
-            borderRadius: 6,
+            borderRadius: 0,
             boxShadow: isDarkMode
               ? '0 8px 24px rgba(0, 0, 0, 0.3)'
               : '0 8px 24px rgba(0, 0, 0, 0.12)',
@@ -190,7 +196,7 @@ export const ColumnSelector: React.FC<ColumnSelectorProps> = ({
                 border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.light.borderColor}`,
                 background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
                 color: colours.cta,
-                borderRadius: 3,
+                borderRadius: 0,
                 cursor: 'pointer',
                 transition: 'all 0.15s ease',
               }}
@@ -221,7 +227,7 @@ export const ColumnSelector: React.FC<ColumnSelectorProps> = ({
                 border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.light.borderColor}`,
                 background: isDarkMode ? 'rgba(220, 38, 38, 0.12)' : 'rgba(220, 38, 38, 0.08)',
                 color: colours.cta,
-                borderRadius: 3,
+                borderRadius: 0,
                 cursor: 'pointer',
                 transition: 'all 0.15s ease',
               }}
@@ -252,7 +258,7 @@ export const ColumnSelector: React.FC<ColumnSelectorProps> = ({
                 border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.light.borderColor}`,
                 background: isDarkMode ? 'rgba(107, 114, 128, 0.12)' : 'rgba(107, 114, 128, 0.08)',
                 color: colours.greyText,
-                borderRadius: 3,
+                borderRadius: 0,
                 cursor: 'pointer',
                 transition: 'all 0.15s ease',
               }}

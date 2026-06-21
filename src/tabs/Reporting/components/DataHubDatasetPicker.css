@@ -1,0 +1,28 @@
+.data-hub-dataset-open-cue {
+  align-items: center;
+  display: inline-flex;
+  font-family: inherit;
+  justify-content: center;
+  line-height: 1;
+  overflow: hidden;
+  position: relative;
+  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+
+.data-hub-dataset-open-cue span {
+  position: relative;
+  z-index: 1;
+}
+
+.data-hub-dataset-open-cue:hover,
+.data-hub-dataset-open-cue:focus-visible {
+  border-color: var(--data-hub-dataset-open-tone, currentColor) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .data-hub-dataset-open-cue,
+  .data-hub-dataset-open-cue:hover,
+  .data-hub-dataset-open-cue:focus-visible {
+    transition: none !important;
+  }
+}

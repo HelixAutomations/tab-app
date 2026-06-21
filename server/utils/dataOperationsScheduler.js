@@ -1,9 +1,10 @@
-const { syncCollectedTime, syncWip, logOperation, logProgress, refreshReconciliationSnapshot } = require('../routes/dataOperations');
+const { syncCollectedTime, syncWip, syncMattersMigration, logOperation, logProgress, refreshReconciliationSnapshot } = require('../routes/dataOperations');
 const { createLogger } = require('./logger');
 const { trackEvent, trackException, trackMetric } = require('./appInsights');
 const { acquire, getState: getMutexState } = require('./syncMutex');
 const { getCache, setCache } = require('./redisClient');
 const { status: devStatus } = require('./devConsole');
+const { getMattersAutoSyncRuntime, isMattersAutoSyncEnabled } = require('./mattersAutoSyncRuntime');
 
 const schedulerLogger = createLogger('DataOpsScheduler');
 
@@ -128,6 +129,7 @@ function getLatestPreviousMonthSealSlotKey(now, targetMinute) {
 const _tierState = {
   collected: { currentHourly: null, previousSeal: null },
   wip:       { currentHourly: null, previousSeal: null },
+  matters:   { migrationCurrentMonth: null, previousSeal: null },
 };
 
 function recordTier(op, tier, status, slotKey, extra) {
@@ -138,6 +140,10 @@ function getTierOperationName(entity, tier) {
   if (entity === 'CollectedTime') {
     if (tier === 'previousSeal') return 'syncCollectedTimePreviousSeal';
     return 'syncCollectedTimeCurrentHourly';
+  }
+  if (entity === 'Matters') {
+    if (tier === 'previousSeal') return 'syncMattersMigrationPreviousSeal';
+    return 'syncMattersMigrationCurrentMonth';
   }
   if (tier === 'previousSeal') return 'syncWipPreviousSeal';
   return 'syncWipCurrentHourly';
@@ -172,6 +178,8 @@ const _memDedup = {
   wipCurrentHourlyLastSlot: null,
   collectedPreviousSealLastSlot: null,
   wipPreviousSealLastSlot: null,
+  mattersMigrationCurrentMonthLastSlot: null,
+  mattersPreviousSealLastSlot: null,
 };
 
 /** Check if a tier already fired for the given slot. Redis first, memory fallback. */
@@ -231,15 +239,20 @@ function startDataOperationsScheduler() {
   _shuttingDown = false;
   _idleStreak = 0;
   _currentTickMs = BASE_TICK_MS;
+  const mattersAutoSync = getMattersAutoSyncRuntime();
 
   schedulerLogger.info('Data operations scheduler started — hourly full-month re-clear (Europe/London)');
   devStatus('Data scheduler', true, 'started — hourly full-month re-clear (Europe/London)');
   trackEvent('Scheduler.Started', {
-    cadence: 'current collected :05 hourly, current wip :20 hourly, previous seal :33/:50 on day1/day2-14/day21/last-day',
-    operations: 'CollectedTime,Wip',
+    cadence: 'current collected :05 hourly, current wip :20 hourly, current matters :35 hourly, previous seals :33/:50/:58 on day1/day2-14/day21/last-day',
+    operations: mattersAutoSync.enabled ? 'CollectedTime,Wip,Matters' : 'CollectedTime,Wip',
     mutex: true,
     bootCatchUpDelay: String(BOOT_CATCHUP_DELAY_MS),
     bootCatchUpEnabled: String(isBootCatchUpEnabled()),
+    mattersAutoSyncEnabled: String(mattersAutoSync.enabled),
+    mattersAutoSyncTarget: mattersAutoSync.target,
+    mattersAutoSyncEnvironment: mattersAutoSync.environment,
+    mattersAutoSyncReason: mattersAutoSync.reason,
     syncTimeout: String(SYNC_TIMEOUT_MS),
   });
 
@@ -282,7 +295,7 @@ function stopScheduler() {
 async function runWithMutex(opName, tier, entity, slotKey, fn, triggeredBy = 'scheduler', reconcileScope = null) {
   if (_shuttingDown) return;
 
-  const opKey = entity === 'CollectedTime' ? 'collected' : 'wip';
+  const opKey = entity === 'CollectedTime' ? 'collected' : entity === 'Matters' ? 'matters' : 'wip';
   const tierLabel = tier.charAt(0).toUpperCase() + tier.slice(1);
   recordTier(opKey, tier, 'queued', slotKey);
 
@@ -387,6 +400,8 @@ async function runBootCatchUp() {
   const dueSlots = {
     collectedCurrentHourly: getLatestHourlySlotKey(now, 5),
     wipCurrentHourly: getLatestHourlySlotKey(now, 20),
+    mattersMigrationCurrentMonth: getLatestHourlySlotKey(now, 35),
+    mattersPreviousSeal: getLatestPreviousMonthSealSlotKey(now, 58),
     collectedPreviousSeal: getLatestPreviousMonthSealSlotKey(now, 33),
     wipPreviousSeal: getLatestPreviousMonthSealSlotKey(now, 50),
   };
@@ -431,6 +446,51 @@ async function runBootCatchUp() {
     );
   } else {
     trackEvent('Scheduler.BootCatchUp.WipCurrentHourly.Skipped', { slotKey: dueSlots.wipCurrentHourly });
+  }
+
+  if (isMattersAutoSyncEnabled()) {
+    const mattersCurrentDue = !(await isDedupHit('matters:migration-current-month', dueSlots.mattersMigrationCurrentMonth, 'mattersMigrationCurrentMonthLastSlot'));
+    if (mattersCurrentDue) {
+      schedulerLogger.info(`Boot catch-up: firing Matters Clio reconciliation current month (${dueSlots.mattersMigrationCurrentMonth})`);
+      devStatus('Data scheduler', true, `boot catch-up: Matters Clio reconciliation current month`);
+      trackEvent('Scheduler.BootCatchUp.MattersMigration.Started', { slotKey: dueSlots.mattersMigrationCurrentMonth });
+      logProgress('syncMattersMigrationCurrentMonth',
+        `Boot catch-up Matters Clio reconciliation current month due (${dueSlots.mattersMigrationCurrentMonth}) - ${monthStart} -> ${monthEnd}`,
+        { triggeredBy: 'scheduler-boot', entity: 'Matters' }
+      );
+      await recordDedup('matters:migration-current-month', dueSlots.mattersMigrationCurrentMonth, 'mattersMigrationCurrentMonthLastSlot', DEDUP_TTL.hourly);
+      runWithMutex(
+        'bootCatchUpMattersMigrationCurrentMonth', 'migrationCurrentMonth', 'Matters',
+        `boot:${dueSlots.mattersMigrationCurrentMonth}`,
+        () => syncMattersMigration({ startDate: monthStart, endDate: monthEnd, triggeredBy: 'scheduler-boot' }),
+        'scheduler-boot', null
+      );
+    } else {
+      trackEvent('Scheduler.BootCatchUp.MattersMigration.Skipped', { slotKey: dueSlots.mattersMigrationCurrentMonth });
+    }
+
+    const mattersPreviousDue = dueSlots.mattersPreviousSeal
+      && !(await isDedupHit('matters:previous-seal', dueSlots.mattersPreviousSeal, 'mattersPreviousSealLastSlot'));
+    if (mattersPreviousDue) {
+      schedulerLogger.info(`Boot catch-up: firing Matters previous-month seal (${dueSlots.mattersPreviousSeal})`);
+      devStatus('Data scheduler', true, `boot catch-up: Matters previous-month seal`);
+      trackEvent('Scheduler.BootCatchUp.MattersPreviousSeal.Started', { slotKey: dueSlots.mattersPreviousSeal });
+      logProgress('syncMattersMigrationPreviousSeal',
+        `Boot catch-up Matters previous-month seal due (${dueSlots.mattersPreviousSeal}) - ${previousMonthStart} -> ${previousMonthEnd}`,
+        { triggeredBy: 'scheduler-boot', entity: 'Matters' }
+      );
+      await recordDedup('matters:previous-seal', dueSlots.mattersPreviousSeal, 'mattersPreviousSealLastSlot', DEDUP_TTL.previousSeal);
+      runWithMutex(
+        'bootCatchUpMattersPreviousSeal', 'previousSeal', 'Matters',
+        `boot:${dueSlots.mattersPreviousSeal}`,
+        () => syncMattersMigration({ startDate: previousMonthStart, endDate: previousMonthEnd, triggeredBy: 'scheduler-boot' }),
+        'scheduler-boot', null
+      );
+    } else {
+      trackEvent('Scheduler.BootCatchUp.MattersPreviousSeal.Skipped', { slotKey: dueSlots.mattersPreviousSeal || 'none-due' });
+    }
+  } else {
+    trackEvent('Scheduler.BootCatchUp.MattersMigration.Disabled', { slotKey: dueSlots.mattersMigrationCurrentMonth });
   }
 
   // ── Collected previous month seal ──
@@ -531,6 +591,40 @@ async function schedulerTick() {
     }
   }
 
+  if (minute === 35 && isMattersAutoSyncEnabled()) {
+    const slotKey = formatSlotKey(now);
+    if (!(await isDedupHit('matters:migration-current-month', slotKey, 'mattersMigrationCurrentMonthLastSlot'))) {
+      await recordDedup('matters:migration-current-month', slotKey, 'mattersMigrationCurrentMonthLastSlot', DEDUP_TTL.hourly);
+      firedThisTick = true;
+      logProgress('syncMattersMigrationCurrentMonth',
+        `Hourly Matters Clio reconciliation current month sync (${slotKey}) - ${monthStart} -> ${monthEnd}`,
+        { triggeredBy: 'scheduler', entity: 'Matters' }
+      );
+      runWithMutex(
+        'syncMattersMigrationCurrentMonth', 'migrationCurrentMonth', 'Matters', slotKey,
+        () => syncMattersMigration({ startDate: monthStart, endDate: monthEnd, triggeredBy: 'scheduler' }),
+        'scheduler', null
+      );
+    }
+  }
+
+  if (isPreviousMonthSealSlot(now, 58) && isMattersAutoSyncEnabled()) {
+    const slotKey = formatSlotKey(now);
+    if (!(await isDedupHit('matters:previous-seal', slotKey, 'mattersPreviousSealLastSlot'))) {
+      await recordDedup('matters:previous-seal', slotKey, 'mattersPreviousSealLastSlot', DEDUP_TTL.previousSeal);
+      firedThisTick = true;
+      logProgress('syncMattersMigrationPreviousSeal',
+        `Matters previous-month seal (${slotKey}) - ${previousMonthStart} -> ${previousMonthEnd}`,
+        { triggeredBy: 'scheduler', entity: 'Matters' }
+      );
+      runWithMutex(
+        'syncMattersMigrationPreviousSeal', 'previousSeal', 'Matters', slotKey,
+        () => syncMattersMigration({ startDate: previousMonthStart, endDate: previousMonthEnd, triggeredBy: 'scheduler' }),
+        'scheduler', null
+      );
+    }
+  }
+
   // ═══════════════════════════════════════════════
   // COLLECTED — previous month seal slots at :33
   // ═══════════════════════════════════════════════
@@ -613,8 +707,10 @@ function getSchedulerState() {
     nextFires: {
       collectedCurrentHourly:  { minsUntil: minsUntil(5),  schedule: ':05 current month' },
       wipCurrentHourly:        { minsUntil: minsUntil(20), schedule: ':20 current month' },
+      mattersMigrationCurrentMonth: { minsUntil: minsUntil(35), schedule: ':35 current month' },
       collectedPreviousSeal:   { minsUntil: null, schedule: 'day 1 at 03:33/12:33/23:33, days 2-14 at 02:33, day 21 at 02:33, last day at 23:33' },
       wipPreviousSeal:         { minsUntil: null, schedule: 'day 1 at 03:50/12:50/23:50, days 2-14 at 02:50, day 21 at 02:50, last day at 23:50' },
+      mattersPreviousSeal:     { minsUntil: null, schedule: 'day 1 at 03:58/12:58/23:58, days 2-14 at 02:58, day 21 at 02:58, last day at 23:58' },
     },
   };
 }

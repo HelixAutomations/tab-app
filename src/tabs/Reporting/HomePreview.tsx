@@ -13,7 +13,13 @@ import './HomePreview.css';
 interface RecoveredFee {
   payment_date: string;
   payment_allocated: number;
+  kind?: string;
 }
+
+const isCollectedFeeRow = (row: RecoveredFee): boolean => {
+  const kind = typeof row.kind === 'string' ? row.kind.trim().toLowerCase() : '';
+  return kind !== 'expense' && kind !== 'product';
+};
 
 interface HomePreviewProps {
   enquiries: Enquiry[] | null;
@@ -226,6 +232,7 @@ const HomePreview: React.FC<HomePreviewProps> = ({ enquiries, allMatters, wip, r
     : 'N/A';
 
   const filteredRecoveredFees = recoveredFees?.filter(r => {
+    if (!isCollectedFeeRow(r)) return false;
     const date = new Date(r.payment_date);
     return date >= startDate && date <= endDate;
   }) || [];

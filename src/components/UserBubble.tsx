@@ -8,12 +8,15 @@ import { useTheme } from '../app/functionality/ThemeContext';
 import { colours } from '../app/styles/colours';
 import lightAvatarMark from '../assets/dark blue mark.svg';
 import darkAvatarMark from '../assets/markwhite.svg';
+import azureLogo from '../assets/azure.svg';
+import clioLogo from '../assets/clio.svg';
+import asanaLogo from '../assets/asana.svg';
 import { CommandCentreTokens, BubbleToastTone, AVAILABLE_AREAS } from './command-centre/types';
-import SessionFiltersSection from './command-centre/SessionFiltersSection';
 import TodayStripSection from './command-centre/TodayStripSection';
 import CommsFrameworkSection from './command-centre/CommsFrameworkSection';
 import PromptCoachSection from './command-centre/PromptCoachSection';
 import { checkIsLocalDev } from '../utils/useIsLocalDev';
+import IconAreaFilter from './filter/IconAreaFilter';
 
 /*
  * UserBubble — identity + personal context surface.
@@ -85,6 +88,26 @@ const userIdentityKey = (user: UserData): string => {
         || user.Initials
         || '',
     ).trim().toLowerCase();
+};
+
+const readUserField = (user: UserData, keys: string[]): string => {
+    const record = user as unknown as Record<string, unknown>;
+    for (const key of keys) {
+        const value = record[key];
+        if (value !== undefined && value !== null && String(value).trim() !== '') {
+            return String(value).trim();
+        }
+    }
+    return '';
+};
+
+const maskConfidentialValue = (value: string, visibleStart = 4, visibleEnd = 3): string => {
+    const normalisedValue = value.trim();
+    if (!normalisedValue) return 'Not linked';
+    if (normalisedValue.length <= visibleStart + visibleEnd + 3) {
+        return `${normalisedValue.slice(0, Math.max(visibleStart, 1))}...`;
+    }
+    return `${normalisedValue.slice(0, visibleStart)}...${normalisedValue.slice(-visibleEnd)}`;
 };
 
 const UserBubble: React.FC<UserBubbleProps> = ({
@@ -192,6 +215,13 @@ const UserBubble: React.FC<UserBubbleProps> = ({
         ? String(user.Rate)
         : undefined;
 
+    const userDisplayName = user.FullName || `${user.First || ''} ${user.Last || ''}`.trim() || 'Helix user';
+    const entraReference = readUserField(user, ['EntraID', 'Entra ID', 'entraId', 'entra_id']);
+    const clioReference = readUserField(user, ['ClioID', 'Clio ID', 'clioId', 'clio_id']);
+    const asanaReference = readUserField(user, ['ASANA_ID', 'ASANAUserID', 'ASANATeamID', 'ASANAClientID', 'asanaUserId', 'asana_id']);
+    const areaFilterOptions = defaultAreasRef.current.length > 0 ? defaultAreasRef.current : [...AVAILABLE_AREAS];
+    const canResetAreas = hasSessionFilters && !sameAreaSet(areasOfWork, areaFilterOptions);
+
     // ── Callbacks ──
     const closePopover = useCallback((restoreFocus = true) => {
         setOpen(false);
@@ -209,6 +239,35 @@ const UserBubble: React.FC<UserBubbleProps> = ({
             toastTimerRef.current = null;
         }, 1800);
     }, []);
+
+    const handleCopyAuthReference = useCallback((rawValue: string | undefined, label: string) => {
+        if (!rawValue) {
+            showToast(`${label} reference is not linked`, 'warning');
+            return;
+        }
+        if (typeof navigator === 'undefined' || !navigator.clipboard) {
+            showToast('Clipboard unavailable', 'warning');
+            return;
+        }
+        navigator.clipboard.writeText(rawValue)
+            .then(() => showToast(`${label} reference copied`, 'success'))
+            .catch(() => showToast('Could not copy reference', 'warning'));
+    }, [showToast]);
+
+    const commitAreasOfWork = useCallback((next: string[]) => {
+        if (!onAreasChange) return;
+        const filterAreas = defaultAreasRef.current.length > 0 ? defaultAreasRef.current : [...AVAILABLE_AREAS];
+        const allowed = new Set(filterAreas);
+        const scopedNext = next.filter(area => allowed.has(area));
+        const safeNext = scopedNext.length > 0 ? scopedNext : filterAreas;
+        if (sameAreaSet(areasOfWork, safeNext)) return;
+        setAreasOfWork(safeNext);
+        onAreasChange(safeNext);
+    }, [areasOfWork, onAreasChange]);
+
+    const handleResetAreas = useCallback(() => {
+        commitAreasOfWork(defaultAreasRef.current.length > 0 ? defaultAreasRef.current : [...AVAILABLE_AREAS]);
+    }, [commitAreasOfWork]);
 
     // ── Effects ──
     useEffect(() => {
@@ -370,6 +429,7 @@ const UserBubble: React.FC<UserBubbleProps> = ({
         <div className="user-bubble-container">
             <button
                 ref={bubbleRef}
+                className="user-auth-trigger"
                 onClick={() => {
                     if (open) closePopover();
                     else { previouslyFocusedElement.current = document.activeElement as HTMLElement; setOpen(true); }
@@ -378,7 +438,7 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                     display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                     width: 32, height: 32, background: avatarBg,
                     border: `1px solid ${avatarBorder}`, borderRadius: '2px',
-                    cursor: 'pointer', transition: 'all 0.15s ease',
+                    cursor: 'pointer', transition: 'all 0.15s ease', position: 'relative',
                     boxShadow: avatarShadow
                 }}
                 onMouseEnter={(e) => {
@@ -391,9 +451,10 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                 }}
                 aria-haspopup="dialog"
                 aria-expanded={open}
-                aria-label={`User menu for ${user.FullName || initials}`}
+                aria-label={`Authentication and user menu for ${userDisplayName || initials}`}
             >
                 <img src={avatarIcon} alt="User" style={{ width: 18, height: 18, filter: isDarkMode ? 'drop-shadow(0 1px 2px rgba(0,0,0,0.35))' : 'none' }} />
+                <span className="user-auth-trigger-status" aria-hidden="true" />
             </button>
 
             {open && typeof document !== 'undefined' && createPortal(
@@ -413,6 +474,7 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                         id={popoverId}
                         role="dialog"
                         aria-modal="true"
+                        data-helix-region="modal/user-bubble"
                         tabIndex={-1}
                         onClick={(e) => e.stopPropagation()}
                         style={{
@@ -457,7 +519,7 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, minWidth: 0 }}>
                                                     <span style={{ fontSize: 12, fontWeight: 700, color: textPrimary, opacity: 0.9, flexShrink: 0 }}>{initials}</span>
                                                     <span style={{ fontSize: 12, fontWeight: 600, color: textPrimary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
-                                                        {user.FullName || `${user.First || ''} ${user.Last || ''}`.trim() || 'User'}
+                                                        {userDisplayName}
                                                     </span>
                                                     {canSwitchUser && (
                                                         <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ color: textMuted, opacity: 0.7, flexShrink: 0, transform: showUserPicker ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.15s ease' }}>
@@ -620,98 +682,109 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                             )}
                         </div>
 
-                        {/* Content — My Helix */}
+                        {/* Content - authentication and personal context */}
                         <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
-                            {/* System IDs strip */}
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-                                <span
-                                    style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 9, fontWeight: 600, color: user.ClioID ? textMuted : colours.cta, letterSpacing: '0.2px', cursor: user.ClioID ? 'pointer' : 'default' }}
-                                    onClick={() => {
-                                        if (user.ClioID) {
-                                            navigator.clipboard.writeText(String(user.ClioID));
-                                            showToast('Clio ID copied', 'success');
-                                        }
-                                    }}
-                                    title={user.ClioID ? `Click to copy: ${user.ClioID}` : 'No Clio ID'}
-                                    role={user.ClioID ? 'button' : undefined}
-                                    aria-label={user.ClioID ? `Copy Clio ID ${user.ClioID}` : 'No Clio ID'}
-                                    tabIndex={user.ClioID ? 0 : undefined}
-                                    onKeyDown={user.ClioID ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigator.clipboard.writeText(String(user.ClioID)); showToast('Clio ID copied', 'success'); } } : undefined}
-                                >
-                                    <span style={{ width: 4, height: 4, borderRadius: '50%', background: user.ClioID ? colours.green : colours.cta, flexShrink: 0 }} />
-                                    Clio {user.ClioID || '\u2014'}
-                                    {user.ClioID && (
-                                        <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ opacity: 0.5 }}>
-                                            <rect x="9" y="9" width="13" height="13" rx="1"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/>
-                                        </svg>
-                                    )}
-                                </span>
-                                <span
-                                    style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 9, fontWeight: 600, color: user.EntraID ? textMuted : colours.cta, letterSpacing: '0.2px', cursor: user.EntraID ? 'pointer' : 'default' }}
-                                    onClick={() => {
-                                        if (user.EntraID) {
-                                            navigator.clipboard.writeText(String(user.EntraID));
-                                            showToast('Entra ID copied', 'success');
-                                        }
-                                    }}
-                                    title={user.EntraID ? `Click to copy: ${user.EntraID}` : 'No Entra ID'}
-                                    role={user.EntraID ? 'button' : undefined}
-                                    aria-label={user.EntraID ? `Copy Entra ID` : 'No Entra ID'}
-                                    tabIndex={user.EntraID ? 0 : undefined}
-                                    onKeyDown={user.EntraID ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigator.clipboard.writeText(String(user.EntraID)); showToast('Entra ID copied', 'success'); } } : undefined}
-                                >
-                                    <span style={{ width: 4, height: 4, borderRadius: '50%', background: user.EntraID ? colours.green : colours.cta, flexShrink: 0 }} />
-                                    Entra {user.EntraID ? `${String(user.EntraID).substring(0, 8)}\u2026` : '\u2014'}
-                                    {user.EntraID && (
-                                        <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ opacity: 0.5 }}>
-                                            <rect x="9" y="9" width="13" height="13" rx="1"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/>
-                                        </svg>
-                                    )}
-                                </span>
-                            </div>
-
-                            {/* Active state warnings (admin view-as, demo mode) */}
-                            {(demoModeEnabled || featureToggles.viewAsProd || originalAdminUser) && (
-                                <div style={{
-                                    display: 'flex', alignItems: 'center', gap: 6,
-                                    padding: '8px 12px', marginBottom: 16,
-                                    background: demoModeEnabled
-                                        ? (isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.08)')
-                                        : (isDarkMode ? 'rgba(214, 85, 65, 0.10)' : 'rgba(214, 85, 65, 0.06)'),
-                                    border: `1px solid ${demoModeEnabled
-                                        ? (isDarkMode ? 'rgba(32, 178, 108, 0.34)' : 'rgba(32, 178, 108, 0.24)')
-                                        : (isDarkMode ? 'rgba(214, 85, 65, 0.30)' : 'rgba(214, 85, 65, 0.20)')}`,
-                                    borderRadius: '2px', fontSize: 10, fontWeight: 600,
-                                    color: demoModeEnabled ? colours.green : colours.cta
-                                }}>
-                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-                                        <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-                                    </svg>
-                                    {[
-                                        demoModeEnabled && 'Demo mode',
-                                        featureToggles.viewAsProd && 'Production view',
-                                        originalAdminUser && `Viewing as ${user.FullName || user.Initials}`,
-                                    ].filter(Boolean).join(' · ')}
+                            <section className="user-session-card" data-helix-region="modal/user-bubble/auth" aria-label="Session authentication and scope">
+                                <div className="user-session-card__header">
+                                    <div>
+                                        <span>Session context</span>
+                                        <strong>{userDisplayName}</strong>
+                                    </div>
+                                    <span className="user-session-live" role="status" aria-live="polite">
+                                        <span aria-hidden="true" />
+                                        Live
+                                    </span>
                                 </div>
-                            )}
+
+                                <div className="user-session-card__rows">
+                                    <button
+                                        type="button"
+                                        className={`user-session-row ${entraReference ? 'is-linked' : 'is-missing'}`}
+                                        onClick={() => handleCopyAuthReference(entraReference || undefined, 'Entra')}
+                                        disabled={!entraReference}
+                                        title={entraReference ? 'Copy Entra confidential reference' : 'Entra is not linked'}
+                                        aria-label={entraReference ? 'Copy Entra confidential reference' : 'Entra is not linked'}
+                                    >
+                                        <span className="user-session-row__icon" aria-hidden="true">
+                                            <img src={azureLogo} alt="" className="user-session-logo" />
+                                        </span>
+                                        <span className="user-session-row__body">
+                                            <span>Entra identity</span>
+                                            <strong>{entraReference ? maskConfidentialValue(entraReference, 8, 4) : 'Not linked'}</strong>
+                                        </span>
+                                        <span className="user-session-row__state">{entraReference ? 'Copy' : 'Missing'}</span>
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        className={`user-session-row ${clioReference ? 'is-linked' : 'is-missing'}`}
+                                        onClick={() => handleCopyAuthReference(clioReference || undefined, 'Clio')}
+                                        disabled={!clioReference}
+                                        title={clioReference ? 'Copy Clio confidential reference' : 'Clio is not linked'}
+                                        aria-label={clioReference ? 'Copy Clio confidential reference' : 'Clio is not linked'}
+                                    >
+                                        <span className="user-session-row__icon" aria-hidden="true">
+                                            <img src={clioLogo} alt="" className="user-session-logo" />
+                                        </span>
+                                        <span className="user-session-row__body">
+                                            <span>Clio profile</span>
+                                            <strong>{clioReference ? maskConfidentialValue(clioReference, 5, 3) : 'Not linked'}</strong>
+                                        </span>
+                                        <span className="user-session-row__state">{clioReference ? 'Copy' : 'Missing'}</span>
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        className={`user-session-row ${asanaReference ? 'is-linked' : 'is-missing'}`}
+                                        onClick={() => handleCopyAuthReference(asanaReference || undefined, 'Asana')}
+                                        disabled={!asanaReference}
+                                        title={asanaReference ? 'Copy Asana confidential reference' : 'Asana is not linked'}
+                                        aria-label={asanaReference ? 'Copy Asana confidential reference' : 'Asana is not linked'}
+                                    >
+                                        <span className="user-session-row__icon" aria-hidden="true">
+                                            <img src={asanaLogo} alt="" className="user-session-logo" />
+                                        </span>
+                                        <span className="user-session-row__body">
+                                            <span>Asana profile</span>
+                                            <strong>{asanaReference ? maskConfidentialValue(asanaReference, 5, 3) : 'Not linked'}</strong>
+                                        </span>
+                                        <span className="user-session-row__state">{asanaReference ? 'Copy' : 'Missing'}</span>
+                                    </button>
+
+                                    {hasSessionFilters && (
+                                        <div className="user-session-row user-session-row--areas">
+                                            <span className="user-session-row__icon" aria-hidden="true">
+                                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                    <path d="M4 7h16" />
+                                                    <path d="M7 12h10" />
+                                                    <path d="M10 17h4" />
+                                                </svg>
+                                            </span>
+                                            <span className="user-session-row__body">
+                                                <span>Areas of work</span>
+                                                <strong>{areasOfWork.length}/{areaFilterOptions.length} visible</strong>
+                                            </span>
+                                            <div className="user-session-areas-control">
+                                                <IconAreaFilter
+                                                    selectedAreas={areasOfWork}
+                                                    availableAreas={areaFilterOptions}
+                                                    onAreaChange={commitAreasOfWork}
+                                                    ariaLabel="Set session Areas of Work"
+                                                    variant="glyph"
+                                                />
+                                                {canResetAreas && (
+                                                    <button type="button" onClick={handleResetAreas} className="user-session-reset">
+                                                        Reset
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </section>
 
                             {/* ── My Helix sections (all users) ── */}
                             <TodayStripSection tokens={tokens} userInitials={initials} sessionStartMs={sessionStartRef.current} />
-
-                            {/* ── Working-areas scope strip ── */}
-                            {hasSessionFilters && (
-                                <div style={{ marginBottom: 12 }}>
-                                    <SessionFiltersSection
-                                        tokens={tokens}
-                                        onAreasChange={onAreasChange}
-                                        areasOfWork={areasOfWork}
-                                        setAreasOfWork={setAreasOfWork}
-                                        defaultAreasOfWork={defaultAreasRef.current}
-                                        availableAreas={defaultAreasRef.current}
-                                    />
-                                </div>
-                            )}
 
                             {/* Admin box removed 2026-04-22 — Switch User lives in the header name;
                                 the view-as tier override was unused in practice. */}

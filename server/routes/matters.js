@@ -515,42 +515,21 @@ router.post('/enquiry-linkage', async (req, res) => {
             const instructionsRows = await withRequest(instructionsConnStr, async (request) => {
                 const placeholders = buildSqlInParams(request, prospectIds, 'prospectIdInst');
                 return request.query(`
-                    IF COL_LENGTH('dbo.enquiries', 'Touchpoint_Date') IS NOT NULL
-                    BEGIN
-                        WITH Ranked AS (
-                            SELECT
-                                CAST(COALESCE(NULLIF(LTRIM(RTRIM(acid)), ''), LTRIM(RTRIM(id))) AS NVARCHAR(100)) AS ProspectId,
-                                CAST(id AS NVARCHAR(100)) AS EnquiryId,
-                                NULLIF(LTRIM(RTRIM(source)), '') AS Source,
-                                ROW_NUMBER() OVER (
-                                    PARTITION BY CAST(COALESCE(NULLIF(LTRIM(RTRIM(acid)), ''), LTRIM(RTRIM(id))) AS NVARCHAR(100))
-                                    ORDER BY COALESCE(Touchpoint_Date, datetime) DESC
-                                ) AS rn
-                            FROM dbo.enquiries WITH (NOLOCK)
-                            WHERE CAST(COALESCE(NULLIF(LTRIM(RTRIM(acid)), ''), LTRIM(RTRIM(id))) AS NVARCHAR(100)) IN (${placeholders.join(',')})
-                        )
-                        SELECT ProspectId, EnquiryId, Source
-                        FROM Ranked
-                        WHERE rn = 1;
-                    END
-                    ELSE
-                    BEGIN
-                        WITH Ranked AS (
-                            SELECT
-                                CAST(COALESCE(NULLIF(LTRIM(RTRIM(acid)), ''), LTRIM(RTRIM(id))) AS NVARCHAR(100)) AS ProspectId,
-                                CAST(id AS NVARCHAR(100)) AS EnquiryId,
-                                NULLIF(LTRIM(RTRIM(source)), '') AS Source,
-                                ROW_NUMBER() OVER (
-                                    PARTITION BY CAST(COALESCE(NULLIF(LTRIM(RTRIM(acid)), ''), LTRIM(RTRIM(id))) AS NVARCHAR(100))
-                                    ORDER BY datetime DESC
-                                ) AS rn
-                            FROM dbo.enquiries WITH (NOLOCK)
-                            WHERE CAST(COALESCE(NULLIF(LTRIM(RTRIM(acid)), ''), LTRIM(RTRIM(id))) AS NVARCHAR(100)) IN (${placeholders.join(',')})
-                        )
-                        SELECT ProspectId, EnquiryId, Source
-                        FROM Ranked
-                        WHERE rn = 1;
-                    END
+                    WITH Ranked AS (
+                        SELECT
+                            CAST(NULLIF(LTRIM(RTRIM(acid)), '') AS NVARCHAR(100)) AS ProspectId,
+                            CAST(id AS NVARCHAR(100)) AS EnquiryId,
+                            NULLIF(LTRIM(RTRIM(source)), '') AS Source,
+                            ROW_NUMBER() OVER (
+                                PARTITION BY CAST(NULLIF(LTRIM(RTRIM(acid)), '') AS NVARCHAR(100))
+                                ORDER BY datetime DESC, id DESC
+                            ) AS rn
+                        FROM dbo.enquiries WITH (NOLOCK)
+                        WHERE CAST(NULLIF(LTRIM(RTRIM(acid)), '') AS NVARCHAR(100)) IN (${placeholders.join(',')})
+                    )
+                    SELECT ProspectId, EnquiryId, Source
+                    FROM Ranked
+                    WHERE rn = 1;
                 `);
             });
 
@@ -574,7 +553,7 @@ router.post('/enquiry-linkage', async (req, res) => {
                         WITH Ranked AS (
                             SELECT
                                 CAST(ID AS NVARCHAR(100)) AS ProspectId,
-                                CAST(ID AS NVARCHAR(100)) AS EnquiryId,
+                                CAST(NULL AS NVARCHAR(100)) AS EnquiryId,
                                 NULLIF(LTRIM(RTRIM(Ultimate_Source)), '') AS Source,
                                 ROW_NUMBER() OVER (PARTITION BY CAST(ID AS NVARCHAR(100)) ORDER BY datetime DESC, CAST(ID AS NVARCHAR(100)) DESC) AS rn
                             FROM dbo.enquiries WITH (NOLOCK)
@@ -609,7 +588,7 @@ router.post('/enquiry-linkage', async (req, res) => {
                 linkedEnquiryId: linked?.enquiryId || null,
                 enquirySource,
                 sourceOrigin: linked?.sourceOrigin || null,
-                linkStatus: linked ? 'linked' : 'unlinked',
+                linkStatus: linked?.enquiryId ? 'linked' : linked ? 'source-only' : 'unlinked',
                 sourceCheckStatus: !linked ? 'unlinked' : enquirySource ? 'completed' : 'pending',
             };
         });
@@ -776,7 +755,7 @@ router.post('/client-name/resolve', async (req, res) => {
  * POST /api/matters/enquiry-linkage/write
  * User-invoked linkage helper for Data Hub.
  * Resolves ClientID -> Clio email -> new-space enquiry, then stores
- * EnquiryID and MatterRef on dbo.Matters for the selected matter row.
+ * dbo.enquiries.id on dbo.Matters.EnquiryID.
  */
 router.post('/enquiry-linkage/write', async (req, res) => {
     const startedAt = Date.now();
@@ -825,7 +804,7 @@ router.post('/enquiry-linkage/write', async (req, res) => {
                         CAST(id AS NVARCHAR(100)) AS EnquiryID,
                         NULLIF(LTRIM(RTRIM(source)), '') AS EnquirySource,
                         ROW_NUMBER() OVER (
-                            ORDER BY datetime DESC, CAST(ID AS NVARCHAR(100)) DESC
+                            ORDER BY datetime DESC, CAST(id AS NVARCHAR(100)) DESC
                         ) AS rn
                     FROM dbo.enquiries WITH (NOLOCK)
                     WHERE LOWER(LTRIM(RTRIM(Email))) = @email
@@ -912,6 +891,17 @@ router.post('/enquiry-linkage/write', async (req, res) => {
     }
 });
 
+const MATTERS_ROW_UPDATE_FIELDS = {
+    source: { column: 'Source', maxLength: 255 },
+    method_of_contact: { column: 'method_of_contact', maxLength: 255 },
+    description: { column: 'Description', maxLength: 500 },
+    practiceArea: { column: 'PracticeArea', maxLength: 255 },
+    approxValue: { column: 'ApproxValue', maxLength: 100 },
+    responsibleSolicitor: { column: 'ResponsibleSolicitor', maxLength: 255 },
+    originatingSolicitor: { column: 'OriginatingSolicitor', maxLength: 255 },
+    referrer: { column: 'Referrer', maxLength: 255 },
+};
+
 router.post('/row-update', async (req, res) => {
     const startedAt = Date.now();
     const uniqueId = String(req.body?.uniqueId || '').trim();
@@ -925,23 +915,40 @@ router.post('/row-update', async (req, res) => {
         return res.status(400).json({ error: 'updates object is required.' });
     }
 
-    const hasSource = Object.prototype.hasOwnProperty.call(updates, 'source');
-    const hasMethod = Object.prototype.hasOwnProperty.call(updates, 'method_of_contact');
+    const supportedUpdates = Object.entries(MATTERS_ROW_UPDATE_FIELDS)
+        .filter(([field]) => Object.prototype.hasOwnProperty.call(updates, field))
+        .map(([field, config]) => ({
+            field,
+            ...config,
+            parameterName: `${field}Value`.replace(/[^a-zA-Z0-9_]/g, ''),
+            value: String(updates[field] ?? '').trim().slice(0, config.maxLength) || null,
+        }));
 
-    if (!hasSource && !hasMethod) {
+    if (!supportedUpdates.length) {
         return res.status(400).json({ error: 'No supported matter fields to update.' });
     }
 
     try {
         const instructionsConnStr = getInstrConnStr();
-        const setClauses = [];
-        if (hasSource) setClauses.push('Source = @sourceValue');
-        if (hasMethod) setClauses.push('method_of_contact = @methodValue');
+        const setClauses = supportedUpdates.map((entry) => `[${entry.column.replace(/]/g, ']]')}] = @${entry.parameterName}`);
+        const parameterDefinitions = ['@uniqueId NVARCHAR(255)']
+            .concat(supportedUpdates.map((entry) => `@${entry.parameterName} NVARCHAR(${entry.maxLength})`))
+            .join(', ');
+        const parameterAssignments = ['@uniqueId = @uniqueId']
+            .concat(supportedUpdates.map((entry) => `@${entry.parameterName} = @${entry.parameterName}`))
+            .join(', ');
+
+        trackEvent('Matters.RowUpdate.Started', {
+            operation: 'matters-row-update',
+            triggeredBy: 'api',
+            updatedFields: supportedUpdates.map((entry) => entry.field).join(','),
+        });
 
         const result = await withRequest(instructionsConnStr, async (request) => {
             request.input('uniqueId', sql.NVarChar(255), uniqueId);
-            request.input('sourceValue', sql.NVarChar(255), hasSource ? String(updates.source ?? '').trim() || null : null);
-            request.input('methodValue', sql.NVarChar(255), hasMethod ? String(updates.method_of_contact ?? '').trim() || null : null);
+            supportedUpdates.forEach((entry) => {
+                request.input(entry.parameterName, sql.NVarChar(entry.maxLength), entry.value);
+            });
 
             const dynamicSql = `
                 DECLARE @whereColumn NVARCHAR(128) = NULL;
@@ -965,10 +972,8 @@ router.post('/row-update', async (req, res) => {
 
                 EXEC sp_executesql
                     @sql,
-                    N'@uniqueId NVARCHAR(255), @sourceValue NVARCHAR(255), @methodValue NVARCHAR(255)',
-                    @uniqueId = @uniqueId,
-                    @sourceValue = @sourceValue,
-                    @methodValue = @methodValue;
+                    N'${parameterDefinitions}',
+                    ${parameterAssignments};
             `;
 
             return request.query(dynamicSql);
@@ -985,11 +990,11 @@ router.post('/row-update', async (req, res) => {
             triggeredBy: 'api',
             durationMs: String(durationMs),
             rowsUpdated: String(rowsUpdated),
-            updatedFields: [hasSource ? 'source' : '', hasMethod ? 'method_of_contact' : ''].filter(Boolean).join(','),
+            updatedFields: supportedUpdates.map((entry) => entry.field).join(','),
         });
         trackMetric('Matters.RowUpdate.Duration', durationMs, { operation: 'matters-row-update' });
 
-        return res.json({ ok: true, uniqueId, rowsUpdated, updatedFields: [hasSource ? 'source' : '', hasMethod ? 'method_of_contact' : ''].filter(Boolean) });
+        return res.json({ ok: true, uniqueId, rowsUpdated, updatedFields: supportedUpdates.map((entry) => entry.field) });
     } catch (error) {
         const durationMs = Date.now() - startedAt;
         trackException(error, { operation: 'matters-row-update', phase: 'update' });

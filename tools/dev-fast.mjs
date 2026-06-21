@@ -2,8 +2,8 @@
  * `npm run dev:fast` — boots the dev stack without the heavy server-side
  * background work that's not useful when you just want to iterate on UI/code.
  *
- * What it skips (compared to `npm run dev:all`):
- *   - Data Operations scheduler (collected-time + WIP sync tiers)
+ * What it skips:
+ *   - Data Operations scheduler (also skipped by local default unless opted in)
  *   - Event poller (Clio → Hub)
  *   - All boot-time warmups (already gated by FORCE_BOOT_WARMUPS)
  *

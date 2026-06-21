@@ -1,6 +1,6 @@
 import React from 'react';
 import '../../Reporting/ReportingScroll.css';
-import { colours } from '../../../app/styles/colours';
+import { colours, withAlpha } from '../../../app/styles/colours';
 import { FontIcon } from '@fluentui/react/lib/Icon';
 import { ReportProcessingRailItemCard, type ReportProcessingRailItem, type ReportProcessingRailStatus } from '../../Reporting/components/ReportProcessingRail';
 
@@ -24,7 +24,6 @@ type MarketingHydrationChromeProps = {
   feeds: MarketingHydrationFeed[];
   hasErrors: boolean;
   isComplete?: boolean;
-  onReturnToMarketing?: () => void;
   onDismiss?: () => void;
   onRetry: () => void;
 };
@@ -49,7 +48,6 @@ const MarketingHydrationChrome: React.FC<MarketingHydrationChromeProps> = ({
   feeds,
   hasErrors,
   isComplete = false,
-  onReturnToMarketing,
   onDismiss,
   onRetry,
 }) => {
@@ -88,15 +86,13 @@ const MarketingHydrationChrome: React.FC<MarketingHydrationChromeProps> = ({
             ? 'Retry needed'
             : 'Waiting'),
     })),
-    ctaLabel: hasErrors ? 'Retry pull' : isComplete ? 'Back to marketing' : 'Pulling...',
-    ctaDisabled: !hasErrors && !isComplete,
-    onCta: hasErrors ? onRetry : isComplete ? onReturnToMarketing : undefined,
+    ctaLabel: hasErrors ? 'Retry pull' : isComplete ? 'Settled' : 'Pulling...',
+    ctaDisabled: !hasErrors,
+    onCta: hasErrors ? onRetry : undefined,
     detail: isComplete
       ? (hasFeedAttention ? 'The workspace is ready. Attention lanes remain visible in the timeline while you work elsewhere.' : 'The workspace is ready and the panel can stay folded while you work elsewhere.')
       : progressLabel,
     elapsedLabel: rangeLabel,
-    secondaryCtaLabel: isComplete ? 'Back to marketing' : undefined,
-    onSecondaryCta: isComplete ? onReturnToMarketing : undefined,
   };
 
   return (
@@ -110,7 +106,7 @@ const MarketingHydrationChrome: React.FC<MarketingHydrationChromeProps> = ({
             inset: 0,
             zIndex: 3,
             pointerEvents: 'auto',
-            background: isDarkMode ? 'rgba(6, 23, 51, 0.12)' : 'rgba(255, 255, 255, 0.16)',
+            background: withAlpha(isDarkMode ? colours.darkBlue : colours.sectionBackground, isDarkMode ? 0.12 : 0.16),
             backdropFilter: 'blur(1.5px)',
             WebkitBackdropFilter: 'blur(1.5px)',
             cursor: dismissible ? 'pointer' : 'default',

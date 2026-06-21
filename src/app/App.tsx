@@ -14,7 +14,7 @@ import { app } from '@microsoft/teams-js';
 import { Matter, UserData, Enquiry, Tab, TeamData, POID, Transaction, BoardroomBooking, SoundproofPodBooking, InstructionData, NormalizedMatter } from './functionality/types';
 import { hasActiveMatterOpening } from './functionality/matterOpeningUtils';
 import { normalizeMatterData } from '../utils/matterNormalization';
-import { isAdminUser, canSeePrivateHubControls, canSeeActivityTab, canUseDemoModeControls, canUseSessionModeControls, isCclOperationsAvailable, canAccessReports, EXTRA_TOP_NAV_USERS } from './admin';
+import { isAdminUser, canSeePrivateHubControls, canSeeActivityTab, canSeeTasksTab, canUseDemoModeControls, canUseSessionModeControls, isCclOperationsAvailable, canAccessReports, EXTRA_TOP_NAV_USERS } from './admin';
 import { useCapability } from './useEffectiveCapabilities';
 import { EffectivePermissionsProvider } from './effectivePermissions';
 import HubToolsChip from '../components/HubToolsChip';
@@ -551,6 +551,11 @@ const App: React.FC<AppProps> = ({
     canSeeActivityTab(currentUser, isLocalDev),
   );
   const showActivityTab = activityTabCap;
+  const tasksTabCap = useCapability(
+    'feature:tasks-tab',
+    canSeeTasksTab(currentUser),
+  );
+  const showTasksTab = tasksTabCap;
   const matterSeedUserName = useMemo(() => {
     const user = userData?.[0];
     if (!user) {
@@ -823,6 +828,7 @@ const App: React.FC<AppProps> = ({
       if (localSupportSettings.mode === 'enquiries' && activeTab !== 'enquiries') void loadEnquiriesTab();
       if (localSupportSettings.mode === 'matters' && activeTab !== 'matters') void loadMattersTab();
       if (localSupportSettings.mode === 'reports' && activeTab !== 'reporting' && activeTab !== 'dataHub') void loadReportingTab();
+      if (localSupportSettings.mode === 'marketing' && activeTab !== 'marketing') void loadMarketingTab();
       if (localSupportSettings.mode === 'tasks' && activeTab !== 'tasks') void loadTasksTab();
       return;
     }
@@ -1213,7 +1219,12 @@ const App: React.FC<AppProps> = ({
     const timer = setTimeout(() => {
       fetch('/api/cache-preheater/preheat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: buildRequestAuthHeaders({
+          'Content-Type': 'application/json',
+          ...(userData[0].Email ? { 'x-user-email': String(userData[0].Email) } : {}),
+          ...(userData[0].Initials ? { 'x-helix-initials': String(userData[0].Initials) } : {}),
+          ...(userData[0].EntraID ? { 'x-helix-entra-id': String(userData[0].EntraID) } : {}),
+        }),
         body: JSON.stringify({
           datasets: ['teamData', 'userData', 'enquiries', 'allMatters'],
           entraId: userData[0].EntraID,
@@ -1795,14 +1806,14 @@ const App: React.FC<AppProps> = ({
       { key: 'enquiries', text: 'Prospects' },
       { key: 'matters', text: 'Matters' },
       { key: 'forms', text: 'Forms' },
-      ...(showActivityTab ? [{ key: 'tasks', text: 'Tasks' }] : []),
+      ...(showTasksTab ? [{ key: 'tasks', text: 'Tasks' }] : []),
       { key: 'resources', text: 'Resources' },
       ...(showActivityTab ? [{ key: 'roadmap', text: 'System' }] : []),
       ...(showExtraTopNavTabs ? [{ key: 'dataHub', text: 'Data Hub' }] : []),
       ...(showReportsTab ? [{ key: 'reporting', text: 'Reports' }] : []),
       ...(showExtraTopNavTabs ? [{ key: 'marketing', text: 'Marketing' }] : []),
     ];
-  }, [currentUser, showActivityTab]);
+  }, [currentUser, showActivityTab, showTasksTab]);
 
   // Ensure the active tab is still valid when tabs change (e.g., when switching users)
   // If current tab is no longer available, redirect to home instead of breaking navigation
@@ -2094,7 +2105,7 @@ const App: React.FC<AppProps> = ({
                 </TabMountMeter>
               </Suspense>
             )}
-            {/* Marketing: admin-only, mount/unmount is fine */}
+            {/* Marketing: admin-only; streamed ledger data is retained by its dataset hook across remounts. */}
             {activeTab === 'marketing' && (
               <Suspense fallback={<ThemedSuspenseFallback />}>
                 <TabMountMeter name="marketing">
@@ -2107,7 +2118,7 @@ const App: React.FC<AppProps> = ({
                 </TabMountMeter>
               </Suspense>
             )}
-            {activeTab === 'tasks' && (
+            {activeTab === 'tasks' && showTasksTab && (
               <Suspense fallback={<ThemedSuspenseFallback />}>
                 <TabMountMeter name="tasks">
                   <TasksHome userData={userData} />

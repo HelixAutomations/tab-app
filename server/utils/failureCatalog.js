@@ -10,7 +10,7 @@
 
 /**
  * @typedef {Object} CatalogAction
- * @property {'retrigger-submission'|'replay-matter'|'open-form-detail'|'open-schema-ref'|'copy-curl'|'none'} kind
+ * @property {'retrigger-submission'|'open-form-detail'|'open-schema-ref'|'copy-curl'|'none'} kind
  * @property {string} label
  * @property {Object} [payload]
  */
@@ -70,15 +70,13 @@ const RULES = [
     }),
   },
 
-  // Matter opening: invalid practice area. Replay tool can rebuild the payload from Instructions DB.
+  // Matter opening: invalid practice area. Data Hub Matters owns replay and repair.
   {
     test: (e) => /invalid practice area/i.test(combinedText(e)),
     build: (e) => ({
       headline: 'Practice area not mapped to Clio',
-      explanation: 'The matter payload reached Clio but the area of work did not resolve to a Clio practice area id. Replay (dry-run first) once the mapping is corrected.',
-      action: e.instructionRef
-        ? { kind: 'replay-matter', label: 'Replay matter (dry run)', payload: { instructionRef: e.instructionRef } }
-        : { kind: 'none', label: 'No instruction reference captured' },
+      explanation: 'Review the matter opening in Data Hub Matters.',
+      action: { kind: 'none', label: 'Review in Data Hub Matters' },
     }),
   },
 
@@ -87,10 +85,8 @@ const RULES = [
     test: (e) => isMatterOpeningRoute(e) && Number(e.status) >= 500,
     build: (e) => ({
       headline: 'Matter opening route returned 5xx',
-      explanation: 'Use the replay tool to rerun the chain (opponents, matter-request, Clio contacts, Clio matter, instruction link, matter-request patch) with the original instruction ref.',
-      action: e.instructionRef
-        ? { kind: 'replay-matter', label: 'Replay matter (dry run)', payload: { instructionRef: e.instructionRef } }
-        : { kind: 'none', label: 'No instruction reference captured' },
+      explanation: 'Review the matter opening in Data Hub Matters.',
+      action: { kind: 'none', label: 'Review in Data Hub Matters' },
     }),
   },
 

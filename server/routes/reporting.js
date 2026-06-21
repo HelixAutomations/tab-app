@@ -1,6 +1,6 @@
 const express = require('express');
 const { withRequest } = require('../utils/db');
-const { getMatterDateExpressions } = require('../utils/matterDateColumns');
+const { fetchCombinedReportingMatters } = require('../utils/reportingMatters');
 const { getClient } = require('../utils/getSecret');
 const fetch = require('node-fetch');
 const { getRedisClient, cacheWrapper, generateCacheKey } = require('../utils/redisClient');
@@ -13,7 +13,15 @@ const { annotate } = require('../utils/devConsole');
 // Use lightweight last-week snapshot instead of full WIP to keep management fast
 const DEFAULT_DATASETS = ['userData', 'teamData', 'enquiries', 'allMatters', 'wipDbLastWeek', 'recoveredFees', 'wipClioCurrentWeek'];
 const CACHE_TTL_MS = Number(process.env.REPORTING_DATASET_TTL_MS || 2 * 60 * 1000);
+const ALL_MATTERS_CACHE_VERSION = 'combined-matters-v1';
 const cache = new Map();
+const WIP_TIME_ENTRY_FILTER = `
+        AND LOWER(LTRIM(RTRIM(COALESCE(type, '')))) = 'timeentry'
+        AND NULLIF(LTRIM(RTRIM(COALESCE(expense_category, ''))), '') IS NULL
+      `;
+const COLLECTED_FEES_FILTER = `
+        AND LOWER(LTRIM(RTRIM(COALESCE(kind, '')))) NOT IN ('expense', 'product')
+      `;
 
 // Helper: evict a Redis cache key before fetching fresh data
 async function evictAndFetch(key, queryFn, ttl) {
@@ -45,7 +53,7 @@ const datasetFetchers = {
   },
   // 15 min - matters update moderately
   allMatters: ({ connectionString, bypassCache }) => {
-    const key = generateCacheKey('rpt', 'allMatters');
+    const key = generateCacheKey('rpt', 'allMatters', ALL_MATTERS_CACHE_VERSION);
     return cachedFetch(key, () => fetchAllMatters({ connectionString }), 900, bypassCache);
   },
   // 5 min - WIP data changes frequently (DB-sourced historical)
@@ -337,34 +345,11 @@ async function fetchEnquiries({ connectionString }) {
 }
 
 async function fetchAllMatters({ connectionString, range }) {
-  const shouldApplyRange = Boolean(range?.from && range?.to);
-  const dateExpressions = shouldApplyRange ? await getMatterDateExpressions(connectionString) : [];
-
-  return withRequest(connectionString, async (request, sqlClient) => {
-    let query = 'SELECT * FROM [dbo].[matters]';
-
-    if (shouldApplyRange) {
-      if (dateExpressions.length) {
-        const [fromDate, toDate] = [formatDateOnly(range.from), formatDateOnly(range.to)];
-        request.input('dateFrom', sqlClient.Date, fromDate);
-        request.input('dateTo', sqlClient.Date, toDate);
-        const coalesceClause = dateExpressions.join(', ');
-        query = `
-          SELECT *
-          FROM [dbo].[matters]
-          WHERE TRY_CONVERT(date, COALESCE(${coalesceClause}))
-            BETWEEN @dateFrom AND @dateTo
-        `;
-        console.log(`[Reporting] Fetching matters scoped (${coalesceClause}) ${fromDate} → ${toDate}`);
-      } else {
-        console.warn('[Reporting] Range requested for matters but no recognized date columns; returning unfiltered dataset');
-      }
-    } else {
-      console.log('[Reporting] Fetching matters without range filter');
-    }
-
-    const result = await request.query(query);
-    return Array.isArray(result.recordset) ? result.recordset : [];
+  return fetchCombinedReportingMatters({
+    legacyConnectionString: process.env.SQL_CONNECTION_STRING_LEGACY || connectionString,
+    newSpaceConnectionString: process.env.SQL_CONNECTION_STRING_VNET || process.env.INSTRUCTIONS_SQL_CONNECTION_STRING,
+    range,
+    operation: 'Reporting.Matters.Fetch',
   });
 }
 
@@ -396,6 +381,7 @@ async function fetchWip({ connectionString }) {
         billed
       FROM [dbo].[wip]
       WHERE created_at_date BETWEEN @dateFrom AND @dateTo
+        ${WIP_TIME_ENTRY_FILTER}
       ORDER BY created_at_date DESC
     `);
     if (!Array.isArray(result.recordset)) {
@@ -447,6 +433,7 @@ async function fetchWipDbLastWeek({ connectionString }) {
         billed
       FROM [dbo].[wip]
       WHERE created_at_date BETWEEN @dateFrom AND @dateTo
+        ${WIP_TIME_ENTRY_FILTER}
     `);
     if (!Array.isArray(result.recordset)) {
       return [];
@@ -490,6 +477,7 @@ async function fetchWipDbCurrentWeek({ connectionString }) {
         billed
       FROM [dbo].[wip]
       WHERE created_at_date BETWEEN @dateFrom AND @dateTo
+        ${WIP_TIME_ENTRY_FILTER}
     `);
     if (!Array.isArray(result.recordset)) {
       return [];
@@ -886,7 +874,7 @@ async function fetchAllClioActivities(startDate, endDate, accessToken, userId = 
 function convertClioActivitiesToWIP(activities) {
   if (!Array.isArray(activities)) return [];
   
-  return activities.map(activity => {
+  return activities.filter(isTimeEntryActivity).map(activity => {
     // Round up quantity_in_hours to one decimal place (matching Azure Function)
     const quantity = activity.quantity_in_hours !== undefined 
       ? Math.ceil(activity.quantity_in_hours * 10) / 10 
@@ -910,6 +898,11 @@ function convertClioActivitiesToWIP(activities) {
       billed: activity.billed || undefined,
     };
   });
+}
+
+function isTimeEntryActivity(activity) {
+  const type = String(activity?.type || '').trim().toLowerCase();
+  return type === 'timeentry' && !activity?.expense_category;
 }
 
 // Helper functions for date handling and ranges
@@ -1027,6 +1020,7 @@ async function fetchRecoveredFeesSummary({ connectionString, entraId, clioId, fi
         SUM(CASE WHEN payment_date BETWEEN @prevStart AND @prevEnd THEN payment_allocated ELSE 0 END) AS prev_total
       FROM [dbo].[collectedTime]
       WHERE payment_date BETWEEN @prevStart AND @currentEnd
+        ${COLLECTED_FEES_FILTER}
         ${firm ? '' : 'AND user_id = @userId'}
     `);
 

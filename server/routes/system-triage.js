@@ -16,12 +16,9 @@ const { getPresence } = require('../utils/presenceTracker');
 const { listSessionTraces } = require('../utils/sessionTraceTracker');
 const { isDevGroupOrHigher } = require('../utils/userTier');
 const { matchCatalog } = require('../utils/failureCatalog');
-const { runMatterReplay } = require('../utils/matterReplay');
 const { listRecentSubmissionsForUser } = require('../utils/formSubmissionLog');
 
 const router = express.Router();
-
-const REPLAY_ALLOWED_INITIALS = new Set(['LZ', 'AC']);
 
 const MAX_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_WINDOW_MS = 6 * 60 * 60 * 1000;
@@ -1039,63 +1036,6 @@ router.get('/', async (req, res) => {
       durationMs: Date.now() - startedMs,
     });
     return res.status(500).json({ ok: false, error: 'triage_failed', message: error.message });
-  }
-});
-
-// POST /api/system-triage/replay-matter
-// Re-runs the matter-opening chain for a given instruction. Dry-run by default.
-// Gated to LZ/AC initially; commit also requires dev-group-or-higher.
-router.post('/replay-matter', express.json({ limit: '64kb' }), async (req, res) => {
-  if (!canAccessSystemTriage(req)) return res.status(403).json({ ok: false, error: 'forbidden' });
-
-  const headerInitials = String(req.headers?.['x-helix-initials'] || req.user?.initials || '').trim().toUpperCase();
-  if (!REPLAY_ALLOWED_INITIALS.has(headerInitials)) {
-    return res.status(403).json({ ok: false, error: 'forbidden_replay_role' });
-  }
-
-  const body = req.body || {};
-  const instructionRef = String(body.instructionRef || '').trim();
-  const initials = String(body.initials || headerInitials || '').trim().toUpperCase();
-  const commit = body.commit === true;
-  const dryRun = !commit;
-
-  if (!/^[A-Z]+-?\d+-\d+$/i.test(instructionRef)) {
-    return res.status(400).json({ ok: false, error: 'invalid_instruction_ref' });
-  }
-
-  const startedMs = Date.now();
-  trackEvent('System.Errors.Action.ReplayStarted', {
-    triggeredBy: headerInitials,
-    instructionRef,
-    initials,
-    dryRun: String(dryRun),
-  });
-
-  try {
-    const result = await runMatterReplay({ instructionRef, initials, dryRun });
-    trackMetric('System.Errors.Action.ReplayDuration', Date.now() - startedMs, { dryRun: String(dryRun) });
-    trackEvent('System.Errors.Action.ReplayCompleted', {
-      triggeredBy: headerInitials,
-      instructionRef,
-      dryRun: String(dryRun),
-      ok: String(result.ok),
-      exitCode: String(result.exitCode),
-    });
-    return res.json({
-      ok: result.ok,
-      dryRun: result.dryRun,
-      output: result.output,
-      stderr: result.stderr ? result.stderr.slice(0, 2000) : '',
-      exitCode: result.exitCode,
-    });
-  } catch (error) {
-    trackException(error, { operation: 'System.Errors.Action.Replay', instructionRef, dryRun: String(dryRun) });
-    const status = error?.message === 'matter_replay_timeout' ? 504 : 500;
-    return res.status(status).json({
-      ok: false,
-      error: error?.message || 'replay_failed',
-      message: error?.userMessage || error?.message || 'Matter replay failed',
-    });
   }
 });
 

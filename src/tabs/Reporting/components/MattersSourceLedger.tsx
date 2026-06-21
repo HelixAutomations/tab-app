@@ -8,6 +8,7 @@ import { ReportProcessingRailItemCard } from '../components/ReportProcessingRail
 import { useColumnVisibility, type ColumnDefinition } from '../hooks/useColumnVisibility';
 import { ColumnSelector } from './ColumnSelector';
 import type { ReportProcessingRailItem, ReportProcessingRailRow, ReportProcessingRailStatus } from '../components/ReportProcessingRail';
+import './EnquirySourceLedger.css';
 
 type MattersLedgerRow = {
   rowKey: string;
@@ -35,12 +36,56 @@ type MattersLedgerRow = {
   sourceCheckStatus: 'completed' | 'pending' | 'unlinked';
 };
 
+type MattersDuplicateInfo = {
+  isDuplicate: boolean;
+  hasNewSpaceTwin: boolean;
+  duplicateCount: number;
+};
+
+type MatterEditableField = 'description' | 'practiceArea' | 'approxValue' | 'responsibleSolicitor' | 'originatingSolicitor' | 'referrer' | 'methodOfContact' | 'source';
+type MatterRowDrafts = Record<string, Partial<Record<MatterEditableField, string>>>;
+
+type SearchAttributionSummary = {
+  range: { from: string; to: string | null; matterOpenDateFiltered: boolean };
+  unresolved: Array<{ sourceLabel: string; matters: number; missingEnquiryId: number }>;
+  searchReady: { organicSearch: number; paidSearch: number; genericSearch: number };
+};
+
+type SearchAttributionValue = {
+  searchEnquiries?: { organicSearch: number; paidSearch: number; totalSearch: number };
+  searchMatters: { organicSearch: number; paidSearch: number; total: number };
+  spendAssumption?: { ppcSpend: number; seoEstimate: number; totalEstimatedSearchSpend: number; seoBasis: string };
+  collected: Record<'organicSearch' | 'paidSearch' | 'totalSearch', { collected: number; payments: number; mattersWithCollected: number }>;
+  upfrontPayments: Record<'organicSearch' | 'paidSearch' | 'totalSearch', { amount: number; payments: number; mattersWithPayments: number }>;
+  chargeableWip: Record<'organicSearch' | 'paidSearch' | 'totalSearch', { amount: number; rows: number; mattersWithWip: number }>;
+  combinedCollectedAndUpfront: Record<'organicSearch' | 'paidSearch' | 'totalSearch', number>;
+  providerReadiness: Record<string, string>;
+};
+
+type SearchAttributionDryRun = {
+  dryRunToken: string;
+  planHash: string;
+  expiresAt: string;
+  summary: {
+    scannedMatters: number;
+    bridgeMatches: number;
+    emailMatches: number;
+    proposedMatterUpdates: number;
+    sourceToSearchOrganic: number;
+    sourceToSearchPpc: number;
+    failures: number;
+  };
+  planPreview: Array<{ matterId: string; targetMatterSource: string; matchMethod: string; updateFields: string[] }>;
+  planTruncated: number;
+};
+
 type LedgerSortKey = 'date' | 'matterRef';
 type LedgerDirection = 'asc' | 'desc';
 
 // Column definitions for the matters table
 const MATTERS_TABLE_COLUMNS: ColumnDefinition[] = [
   { key: 'date', label: 'Opened', defaultVisible: true },
+  { key: 'state', label: 'State', defaultVisible: true },
   { key: 'matterRef', label: 'Matter', defaultVisible: true },
   { key: 'instructionRef', label: 'Instruction', defaultVisible: true },
   { key: 'client', label: 'Client', defaultVisible: true },
@@ -48,12 +93,42 @@ const MATTERS_TABLE_COLUMNS: ColumnDefinition[] = [
   { key: 'practiceArea', label: 'Practice Area', defaultVisible: true },
   { key: 'approxValue', label: 'Value', defaultVisible: true },
   { key: 'responsibleSolicitor', label: 'Responsible', defaultVisible: true },
-  { key: 'originatingSolicitor', label: 'Originating', defaultVisible: false },
-  { key: 'referrer', label: 'Referrer', defaultVisible: false },
+  { key: 'originatingSolicitor', label: 'Originating', defaultVisible: true },
+  { key: 'referrer', label: 'Referrer', defaultVisible: true },
   { key: 'methodOfContact', label: 'Method', defaultVisible: true },
   { key: 'source', label: 'Source', defaultVisible: true },
   { key: 'enquiryId', label: 'Enquiry ID', defaultVisible: true },
 ];
+
+const MATTERS_TABLE_COLUMN_WEIGHTS: Record<string, number> = {
+  date: 5,
+  state: 6,
+  matterRef: 9,
+  instructionRef: 8,
+  client: 8,
+  description: 8,
+  practiceArea: 11,
+  approxValue: 7,
+  responsibleSolicitor: 5,
+  originatingSolicitor: 8,
+  referrer: 8,
+  methodOfContact: 7,
+  source: 8,
+  enquiryId: 8,
+};
+
+const MATTER_DRAFT_FIELDS: MatterEditableField[] = ['description', 'practiceArea', 'approxValue', 'responsibleSolicitor', 'originatingSolicitor', 'referrer', 'methodOfContact', 'source'];
+const MATTER_DROPDOWN_FIELDS: MatterEditableField[] = ['practiceArea', 'approxValue', 'responsibleSolicitor', 'originatingSolicitor', 'source', 'referrer', 'methodOfContact'];
+const MATTER_DRAFT_API_FIELDS: Record<MatterEditableField, string> = {
+  description: 'description',
+  practiceArea: 'practiceArea',
+  approxValue: 'approxValue',
+  responsibleSolicitor: 'responsibleSolicitor',
+  originatingSolicitor: 'originatingSolicitor',
+  referrer: 'referrer',
+  methodOfContact: 'method_of_contact',
+  source: 'source',
+};
 
 type MattersSourceLedgerProps = {
   isDarkMode: boolean;
@@ -61,10 +136,24 @@ type MattersSourceLedgerProps = {
 };
 
 const SKELETON_ROW_COUNT = 6;
+const MATTERS_LEDGER_INITIAL_RENDER_LIMIT = 260;
+const MATTERS_LEDGER_FULLPAGE_INITIAL_RENDER_LIMIT = 520;
+const MATTERS_LEDGER_RENDER_INCREMENT = 160;
 const MATTERS_LEDGER_ENDPOINT = '/api/matters-unified';
 const MATTERS_ENQUIRY_LINKAGE_WRITE_ENDPOINT = '/api/matters/enquiry-linkage/write';
 const MATTERS_CLIENT_NAME_RESOLVE_ENDPOINT = '/api/matters/client-name/resolve';
 const MATTERS_ROW_UPDATE_ENDPOINT = '/api/matters/row-update';
+const SEARCH_ATTRIBUTION_SUMMARY_ENDPOINT = '/api/search-attribution/summary';
+const SEARCH_ATTRIBUTION_VALUE_ENDPOINT = '/api/search-attribution/fy-value';
+const SEARCH_ATTRIBUTION_DRY_RUN_ENDPOINT = '/api/search-attribution/dry-run';
+const SEARCH_ATTRIBUTION_APPLY_ENDPOINT = '/api/search-attribution/apply';
+const SEARCH_ATTRIBUTION_PPC_SPEND_ESTIMATE = 35100;
+const SEARCH_ATTRIBUTION_SEO_MONTHLY_COST = 8400;
+const SEARCH_ATTRIBUTION_SEO_MONTHS_INCLUDED = 3;
+
+function formatCurrency(value: number): string {
+  return new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP', maximumFractionDigits: 0 }).format(Number.isFinite(value) ? value : 0);
+}
 
 function formatDate(value: string | null): string {
   if (!value) return 'Not set';
@@ -181,15 +270,78 @@ function compareStrings(left: string, right: string): number {
   return left.localeCompare(right, 'en-GB', { sensitivity: 'base', numeric: true });
 }
 
+function normalizeLedgerKey(value: string | null | undefined): string {
+  return String(value || '').trim().toLowerCase();
+}
+
+function getDuplicateKeys(row: MattersLedgerRow): string[] {
+  return [row.uniqueId, row.matterRef, row.storedMatterRef]
+    .map(normalizeLedgerKey)
+    .filter(Boolean)
+    .filter((value, index, values) => values.indexOf(value) === index);
+}
+
+function isBlankMatterValue(value: unknown): boolean {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  return !normalized || normalized === 'not set' || normalized === 'unassigned' || normalized === '--' || normalized === '-';
+}
+
+function isMaskedMatterValue(value: unknown): boolean {
+  const raw = String(value ?? '').trim();
+  return raw.length > 0 && /^[*\s]+$/.test(raw);
+}
+
+function getMatterAttentionReasons(row: MattersLedgerRow): string[] {
+  const reasons: string[] = [];
+  if (String(row.methodOfContact || '').toLowerCase().includes('clio-reconciliation')) reasons.push('Clio reconciliation row');
+  if (isMaskedMatterValue(row.clientName)) reasons.push('Client name is masked');
+  if (isBlankMatterValue(row.clientName)) reasons.push('Client name missing');
+  if (isBlankMatterValue(row.approxValue)) reasons.push('Value missing');
+  if (isBlankMatterValue(row.source)) reasons.push('Source missing');
+  if (isBlankMatterValue(row.methodOfContact)) reasons.push('Method missing');
+  if (!row.storedEnquiryId && row.system === 'new-space') reasons.push('No linked enquiry');
+  return reasons;
+}
+
 const MattersSourceLedger: React.FC<MattersSourceLedgerProps> = ({ isDarkMode, presentation = 'embedded' }) => {
   const { showToast } = useToast();
   void showToast; // kept for compatibility — processing now uses the floating panel
   const isFullPage = presentation === 'fullPage';
-  const fullPageSurface = '#ffffff';
-  const fullPageText = '#111827';
-  const fullPageMuted = '#6b7280';
-  const tableCellFontSize = isFullPage ? 10 : 8;
-  const tableCellPadding = isFullPage ? '6px 8px' : '3px 4px';
+  const fullPageSurface = isDarkMode ? colours.dark.background : colours.light.background;
+  const fullPageText = isDarkMode ? colours.dark.text : colours.light.text;
+  const fullPageMuted = isDarkMode ? colours.greyText : colours.subtleGrey;
+  const tableHeaderSurface = isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground;
+  const tableCellFontSize = isFullPage ? 10 : 9;
+  const tableCellPadding = isFullPage ? '6px 8px' : '4px 6px';
+  const tableHeaderPadding = isFullPage ? '9px 8px' : '8px 6px';
+  const ledgerToolbarBorder = isDarkMode ? withAlpha(colours.accent, 0.28) : withAlpha(colours.highlight, 0.3);
+  const ledgerToolbarSurface = isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground;
+  const ledgerToolbarStyle: React.CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    padding: isFullPage ? '8px 10px' : '10px 12px',
+    border: `1px solid ${ledgerToolbarBorder}`,
+    backgroundColor: ledgerToolbarSurface,
+    flexWrap: 'wrap',
+    flex: '0 0 auto',
+  };
+  const ledgerToolbarButtonStyle = (active: boolean, tone: string): React.CSSProperties => ({
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    minHeight: 30,
+    padding: '0 10px',
+    border: `1px solid ${withAlpha(tone, active ? 0.42 : 0.3)}`,
+    backgroundColor: withAlpha(tone, active ? (isDarkMode ? 0.14 : 0.1) : (isDarkMode ? 0.08 : 0.05)),
+    color: tone,
+    fontSize: 10,
+    fontWeight: 800,
+    cursor: 'pointer',
+    textTransform: 'uppercase',
+    fontFamily: 'Raleway, sans-serif',
+  });
   const [rows, setRows] = React.useState<MattersLedgerRow[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -198,11 +350,18 @@ const MattersSourceLedger: React.FC<MattersSourceLedgerProps> = ({ isDarkMode, p
   const [processingRowKey, setProcessingRowKey] = React.useState<string | null>(null);
   const [processingClientRowKey, setProcessingClientRowKey] = React.useState<string | null>(null);
   const [feedback, setFeedback] = React.useState<{ type: 'success' | 'error'; message: string } | null>(null);
-  const [editCell, setEditCell] = React.useState<{ rowKey: string; field: string; label: string; x: number; y: number } | null>(null);
-  const [editInputValue, setEditInputValue] = React.useState('');
+  const [hideLegacyDuplicates, setHideLegacyDuplicates] = React.useState(true);
+  const [visibleRowLimit, setVisibleRowLimit] = React.useState(isFullPage ? MATTERS_LEDGER_FULLPAGE_INITIAL_RENDER_LIMIT : MATTERS_LEDGER_INITIAL_RENDER_LIMIT);
+  const [activeEditCell, setActiveEditCell] = React.useState<{ rowKey: string; field: MatterEditableField } | null>(null);
   const [processingPanel, setProcessingPanel] = React.useState<ReportProcessingRailItem | null>(null);
-  const [rowDrafts, setRowDrafts] = React.useState<Record<string, Partial<Record<'source' | 'methodOfContact', string>>>>({});
+  const [rowDrafts, setRowDrafts] = React.useState<MatterRowDrafts>({});
   const [savingDrafts, setSavingDrafts] = React.useState(false);
+  const [searchAttributionSummary, setSearchAttributionSummary] = React.useState<SearchAttributionSummary | null>(null);
+  const [searchAttributionValue, setSearchAttributionValue] = React.useState<SearchAttributionValue | null>(null);
+  const [searchAttributionDryRun, setSearchAttributionDryRun] = React.useState<SearchAttributionDryRun | null>(null);
+  const [searchAttributionBusy, setSearchAttributionBusy] = React.useState<'loading' | 'dry-run' | 'apply' | null>(null);
+  const [searchAttributionError, setSearchAttributionError] = React.useState<string | null>(null);
+  const [searchAttributionApplied, setSearchAttributionApplied] = React.useState<number | null>(null);
   const processingTimersRef = React.useRef<ReturnType<typeof setTimeout>[]>([]);
 
   // Column visibility state
@@ -212,12 +371,98 @@ const MattersSourceLedger: React.FC<MattersSourceLedgerProps> = ({ isDarkMode, p
     handleShowAll,
     handleHideAll,
     handleReset,
-  } = useColumnVisibility('matters-ledger', MATTERS_TABLE_COLUMNS);
+  } = useColumnVisibility('matters-ledger-v3', MATTERS_TABLE_COLUMNS);
+  const visibleLedgerColumns = React.useMemo(
+    () => MATTERS_TABLE_COLUMNS.filter((column) => visibleColumns.has(column.key)),
+    [visibleColumns],
+  );
+  const visibleLedgerColumnWeight = React.useMemo(
+    () => visibleLedgerColumns.reduce((total, column) => total + (MATTERS_TABLE_COLUMN_WEIGHTS[column.key] ?? 8), 0) || 1,
+    [visibleLedgerColumns],
+  );
+  const visibleLedgerColumnCount = Math.max(visibleLedgerColumns.length, 1);
+
+  const searchAttributionRequestBody = React.useMemo(() => ({
+    from: '2026-04-01',
+    currentSource: 'search',
+    includePreRangeMatters: true,
+    limit: 500,
+  }), []);
 
   const clearProcessingTimers = React.useCallback(() => {
     processingTimersRef.current.forEach(clearTimeout);
     processingTimersRef.current = [];
   }, []);
+
+  const loadSearchAttributionStatus = React.useCallback(async () => {
+    setSearchAttributionBusy('loading');
+    setSearchAttributionError(null);
+    const params = new URLSearchParams({ from: searchAttributionRequestBody.from, includePreRangeMatters: String(searchAttributionRequestBody.includePreRangeMatters) });
+    try {
+      const [summaryResponse, valueResponse] = await Promise.all([
+        fetch(getApiUrl(`${SEARCH_ATTRIBUTION_SUMMARY_ENDPOINT}?${params.toString()}`), { method: 'GET', credentials: 'include' }),
+        fetch(getApiUrl(`${SEARCH_ATTRIBUTION_VALUE_ENDPOINT}?${params.toString()}`), { method: 'GET', credentials: 'include' }),
+      ]);
+      const summaryPayload = await summaryResponse.json().catch(() => ({} as any));
+      const valuePayload = await valueResponse.json().catch(() => ({} as any));
+      if (!summaryResponse.ok) throw new Error(String(summaryPayload?.message || summaryPayload?.error || 'Search attribution summary failed'));
+      if (!valueResponse.ok) throw new Error(String(valuePayload?.message || valuePayload?.error || 'Search attribution value failed'));
+      setSearchAttributionSummary(summaryPayload?.summary || null);
+      setSearchAttributionValue(valuePayload?.value || null);
+    } catch (statusError) {
+      setSearchAttributionError(statusError instanceof Error ? statusError.message : 'Search attribution status failed');
+    } finally {
+      setSearchAttributionBusy(null);
+    }
+  }, [searchAttributionRequestBody]);
+
+  React.useEffect(() => {
+    void loadSearchAttributionStatus();
+  }, [loadSearchAttributionStatus]);
+
+  const runSearchAttributionDryRun = React.useCallback(async () => {
+    setSearchAttributionBusy('dry-run');
+    setSearchAttributionError(null);
+    setSearchAttributionApplied(null);
+    try {
+      const response = await fetch(getApiUrl(SEARCH_ATTRIBUTION_DRY_RUN_ENDPOINT), {
+        method: 'POST',
+        credentials: 'include',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify(searchAttributionRequestBody),
+      });
+      const payload = await response.json().catch(() => ({} as any));
+      if (!response.ok) throw new Error(String(payload?.message || payload?.error || 'Search attribution dry-run failed'));
+      setSearchAttributionDryRun(payload as SearchAttributionDryRun);
+    } catch (dryRunError) {
+      setSearchAttributionError(dryRunError instanceof Error ? dryRunError.message : 'Search attribution dry-run failed');
+    } finally {
+      setSearchAttributionBusy(null);
+    }
+  }, [searchAttributionRequestBody]);
+
+  const applySearchAttributionDryRun = React.useCallback(async () => {
+    if (!searchAttributionDryRun) return;
+    setSearchAttributionBusy('apply');
+    setSearchAttributionError(null);
+    try {
+      const response = await fetch(getApiUrl(SEARCH_ATTRIBUTION_APPLY_ENDPOINT), {
+        method: 'POST',
+        credentials: 'include',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dryRunToken: searchAttributionDryRun.dryRunToken, planHash: searchAttributionDryRun.planHash }),
+      });
+      const payload = await response.json().catch(() => ({} as any));
+      if (!response.ok) throw new Error(String(payload?.message || payload?.error || 'Search attribution apply failed'));
+      setSearchAttributionApplied(Number(payload?.updatedMatters || 0));
+      setSearchAttributionDryRun(null);
+      await loadSearchAttributionStatus();
+    } catch (applyError) {
+      setSearchAttributionError(applyError instanceof Error ? applyError.message : 'Search attribution apply failed');
+    } finally {
+      setSearchAttributionBusy(null);
+    }
+  }, [loadSearchAttributionStatus, searchAttributionDryRun]);
 
   const buildPanelItem = React.useCallback((
     key: string,
@@ -310,8 +555,7 @@ const MattersSourceLedger: React.FC<MattersSourceLedgerProps> = ({ isDarkMode, p
             const leftTs = left.openDate ? Date.parse(left.openDate) : 0;
             const rightTs = right.openDate ? Date.parse(right.openDate) : 0;
             return rightTs - leftTs;
-          })
-          .slice(0, 220);
+          });
 
         const hydrated: MattersLedgerRow[] = merged.map((row) => {
           const hasStoredId = Boolean(String(row.storedEnquiryId || '').trim());
@@ -376,8 +620,49 @@ const MattersSourceLedger: React.FC<MattersSourceLedgerProps> = ({ isDarkMode, p
     };
   }, [buildPanelItem, clearProcessingTimers, isFullPage]);
 
+  const duplicateInfoByRowKey = React.useMemo(() => {
+    const groups = new Map<string, MattersLedgerRow[]>();
+    for (const row of rows) {
+      for (const key of getDuplicateKeys(row)) {
+        const group = groups.get(key) ?? [];
+        group.push(row);
+        groups.set(key, group);
+      }
+    }
+    const info = new Map<string, MattersDuplicateInfo>();
+    for (const row of rows) {
+      const related = new Map<string, MattersLedgerRow>();
+      for (const key of getDuplicateKeys(row)) {
+        for (const match of groups.get(key) ?? []) {
+          related.set(match.rowKey, match);
+        }
+      }
+      const relatedRows = Array.from(related.values());
+      info.set(row.rowKey, {
+        isDuplicate: relatedRows.length > 1,
+        hasNewSpaceTwin: relatedRows.some((match) => match.system === 'new-space'),
+        duplicateCount: relatedRows.length,
+      });
+    }
+    return info;
+  }, [rows]);
+
+  const duplicateSummary = React.useMemo(() => {
+    let duplicateRows = 0;
+    let legacyDuplicates = 0;
+    for (const row of rows) {
+      const info = duplicateInfoByRowKey.get(row.rowKey);
+      if (info?.isDuplicate) duplicateRows += 1;
+      if (row.system === 'legacy' && info?.hasNewSpaceTwin) legacyDuplicates += 1;
+    }
+    return { duplicateRows, legacyDuplicates };
+  }, [duplicateInfoByRowKey, rows]);
+
   const sortedRows = React.useMemo(() => {
-    const next = [...rows];
+    const visibleRows = hideLegacyDuplicates
+      ? rows.filter((row) => !(row.system === 'legacy' && duplicateInfoByRowKey.get(row.rowKey)?.hasNewSpaceTwin))
+      : rows;
+    const next = [...visibleRows];
     const factor = direction === 'asc' ? 1 : -1;
     next.sort((left, right) => {
       if (sort === 'date') {
@@ -389,7 +674,12 @@ const MattersSourceLedger: React.FC<MattersSourceLedgerProps> = ({ isDarkMode, p
       return 0;
     });
     return next;
-  }, [rows, sort, direction]);
+  }, [direction, duplicateInfoByRowKey, hideLegacyDuplicates, rows, sort]);
+  const renderedRows = React.useMemo(() => sortedRows.slice(0, visibleRowLimit), [sortedRows, visibleRowLimit]);
+
+  React.useEffect(() => {
+    setVisibleRowLimit(isFullPage ? MATTERS_LEDGER_FULLPAGE_INITIAL_RENDER_LIMIT : MATTERS_LEDGER_INITIAL_RENDER_LIMIT);
+  }, [direction, hideLegacyDuplicates, isFullPage, sort, visibleColumns]);
 
   const toggleSort = React.useCallback((nextSort: LedgerSortKey) => {
     setSort((current) => {
@@ -404,7 +694,7 @@ const MattersSourceLedger: React.FC<MattersSourceLedgerProps> = ({ isDarkMode, p
 
   const summaryLabel = loading
     ? 'Loading matters ledger'
-    : `${rows.length.toLocaleString('en-GB')} recent matter rows`;
+    : `${renderedRows.length.toLocaleString('en-GB')} rendered of ${sortedRows.length.toLocaleString('en-GB')} visible rows · ${rows.length.toLocaleString('en-GB')} loaded · ${duplicateSummary.legacyDuplicates.toLocaleString('en-GB')} legacy duplicate${duplicateSummary.legacyDuplicates === 1 ? '' : 's'}`;
 
   const handleResolveAndWrite = React.useCallback(async (row: MattersLedgerRow) => {
     if (row.system !== 'new-space') {
@@ -532,33 +822,33 @@ const MattersSourceLedger: React.FC<MattersSourceLedgerProps> = ({ isDarkMode, p
     }
   }, [buildPanelItem, clearProcessingTimers]);
 
-  const DROPDOWN_FIELDS = React.useMemo(() => new Set(['practiceArea', 'responsibleSolicitor', 'originatingSolicitor', 'source', 'referrer', 'methodOfContact']), []);
+  const dropdownFields = React.useMemo(() => new Set<MatterEditableField>(MATTER_DROPDOWN_FIELDS), []);
 
   const uniqueFieldValues = React.useMemo(() => {
-    const map = new Map<string, string[]>();
-    for (const field of DROPDOWN_FIELDS) {
+    const map = new Map<MatterEditableField, string[]>();
+    for (const field of dropdownFields) {
       const seen = new Set<string>();
       for (const r of rows) {
         const v = String((r as unknown as Record<string, unknown>)[field] ?? '').trim();
-        if (v && v !== '—' && v !== 'Not set' && v !== 'Unassigned') seen.add(v);
+        if (!isBlankMatterValue(v)) seen.add(v);
       }
       map.set(field, Array.from(seen).sort((a, b) => a.localeCompare(b, 'en-GB', { sensitivity: 'base' })));
     }
     return map;
-  }, [rows, DROPDOWN_FIELDS]);
+  }, [rows, dropdownFields]);
 
   const changedRows = React.useMemo(() => {
     return rows.filter((row) => {
       const draft = rowDrafts[row.rowKey];
       if (!draft) return false;
-      const sourceDraft = draft.source;
-      const methodDraft = draft.methodOfContact;
-      return (sourceDraft != null && sourceDraft.trim() !== String(row.source || '').trim())
-        || (methodDraft != null && methodDraft.trim() !== String(row.methodOfContact || '').trim());
+      return MATTER_DRAFT_FIELDS.some((field) => {
+        const value = draft[field];
+        return value != null && value.trim() !== String((row as Record<string, unknown>)[field] || '').trim();
+      });
     });
   }, [rowDrafts, rows]);
 
-  const setRowDraft = React.useCallback((row: MattersLedgerRow, field: 'source' | 'methodOfContact', value: string) => {
+  const setRowDraft = React.useCallback((row: MattersLedgerRow, field: MatterEditableField, value: string) => {
     setRowDrafts((prev) => {
       const next = { ...prev };
       const current = String((row as Record<string, unknown>)[field] ?? '').trim();
@@ -575,33 +865,10 @@ const MattersSourceLedger: React.FC<MattersSourceLedgerProps> = ({ isDarkMode, p
     });
   }, []);
 
-  const getDraftedValue = React.useCallback((row: MattersLedgerRow, field: 'source' | 'methodOfContact') => {
+  const getDraftedValue = React.useCallback((row: MattersLedgerRow, field: MatterEditableField) => {
     const draft = rowDrafts[row.rowKey]?.[field];
     return draft == null ? String((row as Record<string, unknown>)[field] ?? '').trim() : draft;
   }, [rowDrafts]);
-
-  const openEditCell = React.useCallback((e: React.MouseEvent<HTMLElement>, row: MattersLedgerRow, field: keyof MattersLedgerRow, label: string) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const popoverWidth = 240;
-    const popoverHeight = 150;
-    const x = Math.min(rect.left, window.innerWidth - popoverWidth - 12);
-    const y = Math.min(rect.bottom + 4, window.innerHeight - popoverHeight - 8);
-    const rawVal = (row as unknown as Record<string, unknown>)[field];
-    setEditInputValue(rawVal == null ? '' : String(rawVal));
-    setEditCell({ rowKey: row.rowKey, field, label, x, y });
-  }, []);
-
-  const closeEditCell = React.useCallback(() => setEditCell(null), []);
-
-  const confirmEditCell = React.useCallback(() => {
-    if (!editCell) return;
-    const field = editCell.field as keyof MattersLedgerRow;
-    setRows((prev) => prev.map((r) => {
-      if (r.rowKey !== editCell.rowKey) return r;
-      return { ...r, [field]: editInputValue.trim() || null } as MattersLedgerRow;
-    }));
-    setEditCell(null);
-  }, [editCell, editInputValue]);
 
   const handleSaveDraftedChanges = React.useCallback(async () => {
     if (!changedRows.length) return;
@@ -614,8 +881,12 @@ const MattersSourceLedger: React.FC<MattersSourceLedgerProps> = ({ isDarkMode, p
     for (const row of changedRows) {
       const draft = rowDrafts[row.rowKey] || {};
       const updates: Record<string, string> = {};
-      if (draft.source != null && draft.source.trim() !== String(row.source || '').trim()) updates.source = draft.source.trim();
-      if (draft.methodOfContact != null && draft.methodOfContact.trim() !== String(row.methodOfContact || '').trim()) updates.method_of_contact = draft.methodOfContact.trim();
+      MATTER_DRAFT_FIELDS.forEach((field) => {
+        const nextValue = draft[field];
+        if (nextValue != null && nextValue.trim() !== String((row as Record<string, unknown>)[field] || '').trim()) {
+          updates[MATTER_DRAFT_API_FIELDS[field]] = nextValue.trim();
+        }
+      });
       if (!Object.keys(updates).length) continue;
 
       try {
@@ -637,13 +908,18 @@ const MattersSourceLedger: React.FC<MattersSourceLedgerProps> = ({ isDarkMode, p
       setRows((prev) => prev.map((row) => {
         const draft = rowDrafts[row.rowKey];
         if (!draft) return row;
-        return {
-          ...row,
-          source: draft.source != null ? draft.source.trim() : row.source,
-          methodOfContact: draft.methodOfContact != null ? draft.methodOfContact.trim() : row.methodOfContact,
-        };
+        const updatedRow = { ...row } as MattersLedgerRow;
+        MATTER_DRAFT_FIELDS.forEach((field) => {
+          if (draft[field] == null) return;
+          const nextValue = draft[field]?.trim() || null;
+          if (field === 'source') updatedRow.source = nextValue || 'Unassigned';
+          else if (field === 'methodOfContact') updatedRow.methodOfContact = nextValue || 'Not set';
+          else updatedRow[field] = nextValue;
+        });
+        return updatedRow;
       }));
       setRowDrafts({});
+      setActiveEditCell(null);
     }
 
     setFeedback({
@@ -655,15 +931,17 @@ const MattersSourceLedger: React.FC<MattersSourceLedgerProps> = ({ isDarkMode, p
     setSavingDrafts(false);
   }, [changedRows, rowDrafts]);
 
-  React.useEffect(() => {
-    if (!editCell) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') closeEditCell();
-      if (e.key === 'Enter') confirmEditCell();
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [editCell, closeEditCell, confirmEditCell]);
+  const searchAttributionSpendAssumption = searchAttributionValue?.spendAssumption ?? {
+    ppcSpend: SEARCH_ATTRIBUTION_PPC_SPEND_ESTIMATE,
+    seoEstimate: SEARCH_ATTRIBUTION_SEO_MONTHLY_COST * SEARCH_ATTRIBUTION_SEO_MONTHS_INCLUDED,
+    totalEstimatedSearchSpend: SEARCH_ATTRIBUTION_PPC_SPEND_ESTIMATE + (SEARCH_ATTRIBUTION_SEO_MONTHLY_COST * SEARCH_ATTRIBUTION_SEO_MONTHS_INCLUDED),
+    seoBasis: 'GBP 8,400 per month for April, May, and June',
+  };
+  const searchAttributionTotalValue = (searchAttributionValue?.combinedCollectedAndUpfront.totalSearch ?? 0)
+    + (searchAttributionValue?.chargeableWip.totalSearch.amount ?? 0);
+  const searchAttributionEstimatedRoi = searchAttributionSpendAssumption.totalEstimatedSearchSpend > 0
+    ? `${(searchAttributionTotalValue / searchAttributionSpendAssumption.totalEstimatedSearchSpend).toFixed(2)}x`
+    : '0.00x';
 
   return (
     <section
@@ -678,6 +956,7 @@ const MattersSourceLedger: React.FC<MattersSourceLedgerProps> = ({ isDarkMode, p
           ? fullPageSurface
           : (isDarkMode ? withAlpha(colours.dark.cardBackground, 0.86) : withAlpha(colours.light.cardBackground, 0.95)),
         minHeight: isFullPage ? '100vh' : undefined,
+        height: isFullPage ? '100vh' : undefined,
       }}
     >
       {!isFullPage && (
@@ -703,17 +982,137 @@ const MattersSourceLedger: React.FC<MattersSourceLedgerProps> = ({ isDarkMode, p
         </span>
       )}
 
-      {/* Column selector toolbar */}
-      <div
+      <section
+        data-helix-region="reports/data-hub/matters/search-attribution-control"
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'flex-start',
-          gap: 8,
-          padding: isFullPage ? '12px 16px' : '8px 10px',
-          borderBottom: isFullPage ? `1px solid ${withAlpha(isDarkMode ? colours.accent : colours.highlight, 0.16)}` : 'none',
-          background: isFullPage ? fullPageSurface : 'transparent',
+          display: 'grid',
+          gap: isFullPage ? 10 : 8,
+          padding: isFullPage ? '10px 12px' : '9px 10px',
+          border: `1px solid ${withAlpha(isDarkMode ? colours.accent : colours.highlight, 0.22)}`,
+          background: isDarkMode ? withAlpha(colours.dark.cardBackground, 0.72) : withAlpha(colours.light.cardBackground, 0.95),
         }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ display: 'grid', gap: 2 }}>
+            <span style={{ fontSize: isFullPage ? 12 : 11, fontWeight: 900, color: isDarkMode ? colours.dark.text : colours.light.text }}>
+              Search attribution control
+            </span>
+            <span style={{ fontSize: 10, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
+              Value activity from 1 Apr. SEO uses £8.4k/month for Apr-May-Jun.
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              disabled={Boolean(searchAttributionBusy)}
+              onClick={loadSearchAttributionStatus}
+              style={ledgerToolbarButtonStyle(searchAttributionBusy === 'loading', colours.highlight)}
+            >
+              {searchAttributionBusy === 'loading' ? 'Refreshing...' : 'Refresh checks'}
+            </button>
+            <button
+              type="button"
+              disabled={Boolean(searchAttributionBusy)}
+              onClick={runSearchAttributionDryRun}
+              style={ledgerToolbarButtonStyle(searchAttributionBusy === 'dry-run', colours.orange)}
+            >
+              {searchAttributionBusy === 'dry-run' ? 'Matching...' : 'Dry-run repair'}
+            </button>
+            <button
+              type="button"
+              disabled={!searchAttributionDryRun || Boolean(searchAttributionBusy)}
+              onClick={applySearchAttributionDryRun}
+              style={{
+                ...ledgerToolbarButtonStyle(Boolean(searchAttributionDryRun), colours.green),
+                opacity: !searchAttributionDryRun || Boolean(searchAttributionBusy) ? 0.5 : 1,
+              }}
+            >
+              {searchAttributionBusy === 'apply' ? 'Applying...' : 'Apply verified'}
+            </button>
+          </div>
+        </div>
+
+        {searchAttributionError && (
+          <span style={{ fontSize: 10, fontWeight: 800, color: colours.cta }}>
+            {searchAttributionError}
+          </span>
+        )}
+        {searchAttributionApplied != null && (
+          <span style={{ fontSize: 10, fontWeight: 800, color: colours.green }}>
+            Applied {searchAttributionApplied.toLocaleString('en-GB')} verified matter update{searchAttributionApplied === 1 ? '' : 's'}.
+          </span>
+        )}
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8 }}>
+          {[
+            { label: 'Generic search', value: searchAttributionSummary?.searchReady.genericSearch ?? 0, tone: colours.orange },
+            { label: 'Search enquiries', value: searchAttributionValue?.searchEnquiries?.totalSearch ?? 0, tone: colours.accent },
+            { label: 'Organic matters', value: searchAttributionSummary?.searchReady.organicSearch ?? searchAttributionValue?.searchMatters.organicSearch ?? 0, tone: colours.green },
+            { label: 'PPC matters', value: searchAttributionSummary?.searchReady.paidSearch ?? searchAttributionValue?.searchMatters.paidSearch ?? 0, tone: colours.highlight },
+            { label: 'PPC spend', value: formatCurrency(searchAttributionSpendAssumption.ppcSpend), tone: colours.orange },
+            { label: 'SEO estimate', value: formatCurrency(searchAttributionSpendAssumption.seoEstimate), tone: colours.orange },
+            { label: 'Est. search spend', value: formatCurrency(searchAttributionSpendAssumption.totalEstimatedSearchSpend), tone: colours.cta },
+            { label: 'Received', value: formatCurrency(searchAttributionValue?.combinedCollectedAndUpfront.totalSearch ?? 0), tone: colours.accent },
+            { label: 'Chargeable WIP', value: formatCurrency(searchAttributionValue?.chargeableWip.totalSearch.amount ?? 0), tone: colours.green },
+            { label: 'Est. ROI', value: searchAttributionEstimatedRoi, tone: colours.green },
+          ].map((metric) => (
+            <div
+              key={metric.label}
+              style={{
+                display: 'grid',
+                gap: 3,
+                minHeight: isFullPage ? 58 : 50,
+                padding: isFullPage ? '8px 9px' : '7px 8px',
+                border: `1px solid ${withAlpha(metric.tone, 0.24)}`,
+                background: withAlpha(metric.tone, isDarkMode ? 0.08 : 0.055),
+              }}
+            >
+              <span style={{ fontSize: 9, fontWeight: 800, textTransform: 'uppercase', color: metric.tone }}>{metric.label}</span>
+              <span style={{ fontSize: isFullPage ? 16 : 14, fontWeight: 900, color: isDarkMode ? colours.dark.text : colours.light.text }}>
+                {typeof metric.value === 'number' ? metric.value.toLocaleString('en-GB') : metric.value}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {searchAttributionDryRun && (
+          <div style={{ display: 'grid', gap: 8, border: `1px solid ${withAlpha(colours.orange, 0.26)}`, background: withAlpha(colours.orange, isDarkMode ? 0.09 : 0.06), padding: 9 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 11, fontWeight: 900, color: isDarkMode ? colours.dark.text : colours.light.text }}>
+                Dry-run ready: {searchAttributionDryRun.summary.proposedMatterUpdates.toLocaleString('en-GB')} proposed update{searchAttributionDryRun.summary.proposedMatterUpdates === 1 ? '' : 's'}
+              </span>
+              <span style={{ fontSize: 9, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
+                Expires {new Date(searchAttributionDryRun.expiresAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 10, color: colours.green }}>{searchAttributionDryRun.summary.sourceToSearchOrganic.toLocaleString('en-GB')} organic</span>
+              <span style={{ fontSize: 10, color: colours.highlight }}>{searchAttributionDryRun.summary.sourceToSearchPpc.toLocaleString('en-GB')} PPC</span>
+              <span style={{ fontSize: 10, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>{searchAttributionDryRun.summary.bridgeMatches.toLocaleString('en-GB')} bridge matches</span>
+              <span style={{ fontSize: 10, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>{searchAttributionDryRun.summary.emailMatches.toLocaleString('en-GB')} email matches</span>
+            </div>
+            {searchAttributionDryRun.planPreview.length > 0 && (
+              <div style={{ display: 'grid', gap: 4 }}>
+                {searchAttributionDryRun.planPreview.slice(0, isFullPage ? 5 : 3).map((entry) => (
+                  <div key={`${entry.matterId}:${entry.targetMatterSource}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '5px 7px', border: `1px solid ${withAlpha(isDarkMode ? colours.accent : colours.highlight, 0.12)}`, background: isDarkMode ? withAlpha(colours.dark.sectionBackground, 0.68) : withAlpha(colours.light.sectionBackground, 0.85) }}>
+                    <span style={{ fontSize: 10, color: isDarkMode ? colours.dark.text : colours.light.text }}>{entry.matterId}</span>
+                    <span style={{ fontSize: 10, color: entry.targetMatterSource.includes('ppc') ? colours.highlight : colours.green }}>{entry.targetMatterSource}</span>
+                    <span style={{ fontSize: 9, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>{entry.matchMethod} · {entry.updateFields.join(', ')}</span>
+                  </div>
+                ))}
+                {searchAttributionDryRun.planTruncated > 0 && (
+                  <span style={{ fontSize: 9, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
+                    {searchAttributionDryRun.planTruncated.toLocaleString('en-GB')} additional structural updates hidden from preview.
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+
+      <div
+        style={ledgerToolbarStyle}
       >
         <ColumnSelector
           columns={MATTERS_TABLE_COLUMNS}
@@ -722,56 +1121,48 @@ const MattersSourceLedger: React.FC<MattersSourceLedgerProps> = ({ isDarkMode, p
           onShowAll={handleShowAll}
           onHideAll={handleHideAll}
           onReset={handleReset}
+          menuAlign="left"
         />
+        <button
+          type="button"
+          onClick={() => setHideLegacyDuplicates((current) => !current)}
+          style={{
+            ...ledgerToolbarButtonStyle(hideLegacyDuplicates, hideLegacyDuplicates ? colours.green : colours.orange),
+          }}
+          title={`${duplicateSummary.legacyDuplicates.toLocaleString('en-GB')} legacy duplicate rows have a new-space match`}
+        >
+          <span style={{ width: 7, height: 7, borderRadius: '50%', background: hideLegacyDuplicates ? colours.green : colours.orange }} />
+          {hideLegacyDuplicates ? 'Legacy duplicates hidden' : 'Legacy duplicates visible'}
+        </button>
       </div>
 
       <div
         className="enquiry-source-ledger-scroll"
         style={{
-          maxHeight: isFullPage ? 'calc(100vh - 2px)' : 300,
-          height: isFullPage ? 'calc(100vh - 2px)' : undefined,
+          maxHeight: isFullPage ? undefined : 'min(78vh, 920px)',
+          height: isFullPage ? undefined : 'min(78vh, 920px)',
+          flex: isFullPage ? '1 1 auto' : '1 1 auto',
+          minHeight: isFullPage ? 0 : 560,
           overflow: 'auto',
           border: isFullPage ? 'none' : `1px solid ${withAlpha(isDarkMode ? colours.accent : colours.highlight, 0.18)}`,
           background: isFullPage
             ? fullPageSurface
             : (isDarkMode ? withAlpha(colours.dark.sectionBackground, 0.7) : withAlpha(colours.light.sectionBackground, 0.9)),
+          paddingBottom: isFullPage ? 14 : undefined,
         }}
       >
-        <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse', borderSpacing: 0 }}>
+        <table className="enquiry-source-ledger-table" style={{ width: '100%', minWidth: '100%', tableLayout: 'fixed', borderCollapse: 'collapse', borderSpacing: 0 }}>
           <colgroup>
-            <col style={{ width: '5%' }} />
-            <col style={{ width: '9%' }} />
-            <col style={{ width: '8%' }} />
-            <col style={{ width: '8%' }} />
-            <col style={{ width: '8%' }} />
-            <col style={{ width: '11%' }} />
-            <col style={{ width: '7%' }} />
-            <col style={{ width: '5%' }} />
-            <col style={{ width: '8%' }} />
-            <col style={{ width: '8%' }} />
-            <col style={{ width: '7%' }} />
-            <col style={{ width: '8%' }} />
-            <col style={{ width: '8%' }} />
+            {visibleLedgerColumns.map((column) => (
+              <col
+                key={`matters-ledger-col-${column.key}`}
+                style={{ width: `${(((MATTERS_TABLE_COLUMN_WEIGHTS[column.key] ?? 8) / visibleLedgerColumnWeight) * 100).toFixed(4)}%` }}
+              />
+            ))}
           </colgroup>
           <thead>
             <tr>
-              {[
-                { key: 'date', label: 'Opened' },
-                { key: 'matterRef', label: 'Matter' },
-                { key: 'instructionRef', label: 'Instruction' },
-                { key: 'client', label: 'Client' },
-                { key: 'description', label: 'Description' },
-                { key: 'practiceArea', label: 'Practice Area' },
-                { key: 'approxValue', label: 'Value' },
-                { key: 'responsibleSolicitor', label: 'Responsible' },
-                { key: 'originatingSolicitor', label: 'Originating' },
-                { key: 'referrer', label: 'Referrer' },
-                { key: 'methodOfContact', label: 'Method' },
-                { key: 'source', label: 'Source' },
-                { key: 'id', label: 'Enquiry ID' },
-              ]
-                .filter((column) => visibleColumns.has(column.key))
-                .map((column) => {
+              {visibleLedgerColumns.map((column) => {
                 const isActive = sort === column.key;
                 const canSort = column.key === 'date' || column.key === 'matterRef';
                 return (
@@ -782,13 +1173,15 @@ const MattersSourceLedger: React.FC<MattersSourceLedgerProps> = ({ isDarkMode, p
                       top: 0,
                       zIndex: 1,
                       textAlign: 'left',
-                      padding: tableCellPadding,
-                      fontSize: isFullPage ? 9 : 8,
+                      padding: tableHeaderPadding,
+                      height: isFullPage ? 38 : 36,
+                      verticalAlign: 'middle',
+                      fontSize: isFullPage ? 10 : 9,
                       fontWeight: 700,
-                      letterSpacing: 0,
+                      letterSpacing: '0.02em',
                       textTransform: 'uppercase',
                       color: isFullPage ? fullPageMuted : (isDarkMode ? colours.greyText : colours.subtleGrey),
-                      background: isFullPage ? fullPageSurface : (isDarkMode ? withAlpha(colours.dark.cardBackground, 0.96) : withAlpha(colours.light.cardBackground, 0.96)),
+                      backgroundColor: tableHeaderSurface,
                       borderBottom: `1px solid ${withAlpha(isDarkMode ? colours.accent : colours.highlight, 0.16)}`,
                       cursor: canSort ? 'pointer' : 'default',
                     }}
@@ -806,7 +1199,7 @@ const MattersSourceLedger: React.FC<MattersSourceLedgerProps> = ({ isDarkMode, p
           <tbody>
             {loading && !isFullPage && Array.from({ length: SKELETON_ROW_COUNT }).map((_, index) => (
               <tr key={`skeleton:${index}`}>
-                {Array.from({ length: visibleColumns.size }).map((__, cellIndex) => (
+                {Array.from({ length: visibleLedgerColumns.length }).map((__, cellIndex) => (
                   <td
                     key={`skeleton:${index}:${cellIndex}`}
                     style={{
@@ -826,7 +1219,7 @@ const MattersSourceLedger: React.FC<MattersSourceLedgerProps> = ({ isDarkMode, p
               </tr>
             ))}
 
-            {!loading && sortedRows.map((row) => (
+            {!loading && renderedRows.map((row) => (
               <tr key={row.rowKey}>
                 {visibleColumns.has('date') && (
                   <td style={{ padding: tableCellPadding, fontSize: tableCellFontSize, color: isFullPage ? fullPageText : (isDarkMode ? colours.dark.text : colours.light.text), borderBottom: `1px solid ${withAlpha(isDarkMode ? colours.accent : colours.highlight, 0.09)}`, whiteSpace: 'nowrap' }} title={`${formatDate(row.openDate)} ${formatTime(row.openDate)}`}>
@@ -836,6 +1229,34 @@ const MattersSourceLedger: React.FC<MattersSourceLedgerProps> = ({ isDarkMode, p
                     </div>
                   </td>
                 )}
+                {visibleColumns.has('state') && (() => {
+                  const duplicateInfo = duplicateInfoByRowKey.get(row.rowKey);
+                  const attentionReasons = getMatterAttentionReasons(row);
+                  const isLegacyDuplicate = row.system === 'legacy' && duplicateInfo?.hasNewSpaceTwin;
+                  const tone = isLegacyDuplicate ? colours.orange : row.system === 'new-space' ? colours.green : (isFullPage ? fullPageMuted : colours.subtleGrey);
+                  const label = isLegacyDuplicate
+                    ? 'Legacy duplicate'
+                    : duplicateInfo?.isDuplicate && row.system === 'new-space'
+                      ? 'Migrated copy'
+                      : duplicateInfo?.isDuplicate
+                        ? 'Duplicate'
+                      : row.system === 'new-space'
+                        ? 'New-space'
+                        : 'Legacy';
+                  return (
+                    <td style={{ padding: tableCellPadding, borderBottom: `1px solid ${withAlpha(isDarkMode ? colours.accent : colours.highlight, 0.09)}`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={`${label}${duplicateInfo?.duplicateCount ? ` (${duplicateInfo.duplicateCount} linked rows)` : ''}${attentionReasons.length ? ` | Check: ${attentionReasons.join('; ')}` : ''}`}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: '100%', padding: '2px 5px', border: `1px solid ${withAlpha(tone, 0.28)}`, background: withAlpha(tone, isDarkMode ? 0.12 : 0.08), color: tone, fontSize: tableCellFontSize, fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <span style={{ width: 5, height: 5, borderRadius: '50%', background: tone, flexShrink: 0 }} />
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+                      </span>
+                      {attentionReasons.length > 0 && (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', marginLeft: 4, padding: '2px 4px', border: `1px solid ${withAlpha(colours.orange, 0.36)}`, background: withAlpha(colours.orange, isDarkMode ? 0.14 : 0.1), color: colours.orange, fontSize: tableCellFontSize, fontWeight: 900, verticalAlign: 'middle' }}>
+                          Check
+                        </span>
+                      )}
+                    </td>
+                  );
+                })()}
                 {visibleColumns.has('matterRef') && (
                   <td style={{ padding: tableCellPadding, fontSize: tableCellFontSize, color: isFullPage ? fullPageText : (isDarkMode ? colours.dark.text : colours.light.text), borderBottom: `1px solid ${withAlpha(isDarkMode ? colours.accent : colours.highlight, 0.09)}`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={row.matterRef}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
@@ -860,13 +1281,18 @@ const MattersSourceLedger: React.FC<MattersSourceLedgerProps> = ({ isDarkMode, p
                   </td>
                 )}
                 {visibleColumns.has('client') && (
-                  <td style={{ padding: tableCellPadding, borderBottom: `1px solid ${withAlpha(isDarkMode ? colours.accent : colours.highlight, 0.09)}`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={row.clientName || ''}>
+                  <td style={{ padding: tableCellPadding, borderBottom: `1px solid ${withAlpha(isDarkMode ? colours.accent : colours.highlight, 0.09)}`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', background: isMaskedMatterValue(row.clientName) ? withAlpha(colours.orange, isDarkMode ? 0.1 : 0.06) : 'transparent' }} title={row.clientName || 'Client name missing'}>
                     {row.clientName ? (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
                         <span style={{ color: isFullPage ? fullPageText : (isDarkMode ? colours.dark.text : colours.light.text), fontSize: tableCellFontSize, overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>
                           {row.clientName}
                         </span>
                         <span style={{ fontSize: tableCellFontSize, color: isFullPage ? fullPageMuted : (isDarkMode ? colours.greyText : colours.subtleGrey), overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.clientId || ''}</span>
+                        {isMaskedMatterValue(row.clientName) && (
+                          <span style={{ alignSelf: 'flex-start', marginTop: 2, padding: '1px 4px', border: `1px solid ${withAlpha(colours.orange, 0.34)}`, background: withAlpha(colours.orange, isDarkMode ? 0.13 : 0.08), color: colours.orange, fontSize: tableCellFontSize, fontWeight: 900 }}>
+                            Masked
+                          </span>
+                        )}
                       </div>
                     ) : (
                       <button
@@ -894,20 +1320,26 @@ const MattersSourceLedger: React.FC<MattersSourceLedgerProps> = ({ isDarkMode, p
                   </td>
                 )}
                 {(['description', 'practiceArea', 'approxValue', 'responsibleSolicitor', 'originatingSolicitor', 'referrer', 'methodOfContact', 'source'] as const).map((field) => {
-                  const LABELS: Record<string, string> = { description: 'Description', practiceArea: 'Practice Area', approxValue: 'Value', responsibleSolicitor: 'Responsible', originatingSolicitor: 'Originating', source: 'Source', referrer: 'Referrer', methodOfContact: 'Method' };
-                  const rawVal = (row as unknown as Record<string, unknown>)[field];
-                  const displayVal = rawVal == null ? '' : String(rawVal);
-                  const isEmpty = !displayVal || displayVal === 'Unassigned' || displayVal === 'Not set';
-                  const isActive = editCell?.rowKey === row.rowKey && editCell?.field === field;
+                  const LABELS: Record<MatterEditableField, string> = { description: 'Description', practiceArea: 'Practice Area', approxValue: 'Value', responsibleSolicitor: 'Responsible', originatingSolicitor: 'Originating', source: 'Source', referrer: 'Referrer', methodOfContact: 'Method' };
+                  const currentValue = getDraftedValue(row, field);
+                  const isDrafted = rowDrafts[row.rowKey]?.[field] != null;
+                  const isActive = activeEditCell?.rowKey === row.rowKey && activeEditCell?.field === field;
+                  const isEmpty = isBlankMatterValue(currentValue);
+                  const hasUniqueId = Boolean(row.uniqueId);
+                  const needsCheck = isEmpty && (field === 'approxValue' || field === 'source' || field === 'methodOfContact');
+                  const cellBackground = isDrafted
+                    ? withAlpha(isDarkMode ? colours.accent : colours.highlight, 0.12)
+                    : needsCheck
+                      ? withAlpha(colours.orange, isDarkMode ? 0.1 : 0.06)
+                      : (isActive ? withAlpha(colours.highlight, 0.08) : 'transparent');
 
                   // Skip rendering if column is not visible
                   if (!visibleColumns.has(field)) {
                     return null;
                   }
 
-                  if (field === 'source' || field === 'methodOfContact') {
-                    const choices = uniqueFieldValues.get(field === 'source' ? 'source' : 'methodOfContact') || [];
-                    const currentValue = getDraftedValue(row, field);
+                  if (dropdownFields.has(field)) {
+                    const choices = uniqueFieldValues.get(field) || [];
                     const normalizedCurrent = (currentValue || '').trim();
                     const normalizedCurrentLower = normalizedCurrent.toLowerCase();
                     const isPlaceholderValue = !normalizedCurrent
@@ -919,17 +1351,22 @@ const MattersSourceLedger: React.FC<MattersSourceLedgerProps> = ({ isDarkMode, p
                       ? choices.some((choice) => choice.trim().toLowerCase() === effectiveValue.toLowerCase())
                       : false;
                     const hasValue = effectiveValue.length > 0;
+                    const newOptionValue = `__new_${field}__`;
                     return (
                       <td
                         key={field}
-                        style={{ padding: tableCellPadding, borderBottom: `1px solid ${withAlpha(isDarkMode ? colours.accent : colours.highlight, 0.09)}`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                        style={{ padding: tableCellPadding, borderBottom: `1px solid ${withAlpha(isDarkMode ? colours.accent : colours.highlight, 0.09)}`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', background: cellBackground }}
                       >
                         <select
                           value={effectiveValue}
+                          disabled={!hasUniqueId || savingDrafts}
+                          title={hasUniqueId ? `${LABELS[field]}: ${effectiveValue || 'Not set'}` : 'This row is missing a stable matter id'}
+                          onFocus={() => setActiveEditCell({ rowKey: row.rowKey, field })}
+                          onBlur={() => setActiveEditCell((current) => (current?.rowKey === row.rowKey && current.field === field ? null : current))}
                           onChange={(event) => {
                             const nextValue = event.target.value;
-                            if (field === 'methodOfContact' && nextValue === '__new_method__') {
-                              const typed = window.prompt('Enter new method of contact', effectiveValue || '');
+                            if (nextValue === newOptionValue) {
+                              const typed = window.prompt(`Enter new ${LABELS[field].toLowerCase()}`, effectiveValue || '');
                               if (typed !== null) {
                                 setRowDraft(row, field, typed);
                               }
@@ -940,8 +1377,8 @@ const MattersSourceLedger: React.FC<MattersSourceLedgerProps> = ({ isDarkMode, p
                           style={{
                             width: '100%',
                             border: hasValue
-                              ? '1px solid transparent'
-                              : `1px solid ${withAlpha(isDarkMode ? colours.accent : colours.highlight, isFullPage ? 0.12 : 0.24)}`,
+                              ? `1px solid ${isDrafted ? withAlpha(colours.highlight, 0.36) : 'transparent'}`
+                              : `1px solid ${withAlpha(needsCheck ? colours.orange : (isDarkMode ? colours.accent : colours.highlight), isFullPage ? 0.22 : 0.3)}`,
                             background: hasValue
                               ? 'transparent'
                               : (isFullPage
@@ -952,10 +1389,8 @@ const MattersSourceLedger: React.FC<MattersSourceLedgerProps> = ({ isDarkMode, p
                             fontSize: tableCellFontSize,
                             boxSizing: 'border-box',
                             borderRadius: 2,
-                            appearance: 'none',
-                            WebkitAppearance: 'none',
-                            MozAppearance: 'none',
-                            backgroundImage: 'none',
+                            cursor: hasUniqueId && !savingDrafts ? 'pointer' : 'default',
+                            opacity: hasUniqueId ? 1 : 0.58,
                           }}
                         >
                           <option value="">--</option>
@@ -965,9 +1400,7 @@ const MattersSourceLedger: React.FC<MattersSourceLedgerProps> = ({ isDarkMode, p
                           {choices.map((choice) => (
                             <option key={`${row.rowKey}-${field}-${choice}`} value={choice}>{choice}</option>
                           ))}
-                          {field === 'methodOfContact' && (
-                            <option value="__new_method__">+ Add new value…</option>
-                          )}
+                          <option value={newOptionValue}>+ Add new value...</option>
                         </select>
                       </td>
                     );
@@ -976,13 +1409,36 @@ const MattersSourceLedger: React.FC<MattersSourceLedgerProps> = ({ isDarkMode, p
                   return (
                     <td
                       key={field}
-                      onClick={(e) => openEditCell(e, row, field, LABELS[field])}
-                      style={{ padding: tableCellPadding, borderBottom: `1px solid ${withAlpha(isDarkMode ? colours.accent : colours.highlight, 0.09)}`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer', background: isActive ? withAlpha(colours.highlight, 0.1) : 'transparent' }}
-                      title={displayVal || LABELS[field]}
+                      style={{ padding: tableCellPadding, borderBottom: `1px solid ${withAlpha(isDarkMode ? colours.accent : colours.highlight, 0.09)}`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', background: cellBackground }}
+                      title={currentValue || LABELS[field]}
                     >
-                      <span style={{ fontSize: tableCellFontSize, color: isEmpty ? (isFullPage ? fullPageMuted : (isDarkMode ? colours.greyText : colours.subtleGrey)) : (isFullPage ? fullPageText : (isDarkMode ? colours.dark.text : colours.light.text)), overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>
-                        {isEmpty ? '—' : displayVal}
-                      </span>
+                      <input
+                        type="text"
+                        value={currentValue}
+                        disabled={!hasUniqueId || savingDrafts}
+                        onFocus={() => setActiveEditCell({ rowKey: row.rowKey, field })}
+                        onBlur={() => setActiveEditCell((current) => (current?.rowKey === row.rowKey && current.field === field ? null : current))}
+                        onChange={(event) => setRowDraft(row, field, event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Escape') {
+                            setActiveEditCell(null);
+                            event.currentTarget.blur();
+                          }
+                        }}
+                        placeholder="--"
+                        style={{
+                          width: '100%',
+                          border: isDrafted ? `1px solid ${withAlpha(colours.highlight, 0.36)}` : '1px solid transparent',
+                          background: isDrafted ? withAlpha(isDarkMode ? colours.accent : colours.highlight, 0.08) : 'transparent',
+                          color: isEmpty ? (isFullPage ? fullPageMuted : (isDarkMode ? colours.greyText : colours.subtleGrey)) : (isFullPage ? fullPageText : (isDarkMode ? colours.dark.text : colours.light.text)),
+                          padding: isFullPage ? '4px 6px' : '2px 4px',
+                          fontSize: tableCellFontSize,
+                          boxSizing: 'border-box',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          opacity: hasUniqueId ? 1 : 0.58,
+                        }}
+                      />
                     </td>
                   );
                 })}
@@ -1048,7 +1504,7 @@ const MattersSourceLedger: React.FC<MattersSourceLedgerProps> = ({ isDarkMode, p
             {!loading && !error && sortedRows.length === 0 && (
               <tr>
                 <td
-                  colSpan={visibleColumns.size}
+                  colSpan={visibleLedgerColumnCount}
                   style={{
                     padding: '8px 8px',
                     textAlign: 'center',
@@ -1064,74 +1520,30 @@ const MattersSourceLedger: React.FC<MattersSourceLedgerProps> = ({ isDarkMode, p
         </table>
       </div>
 
-      {editCell && (
-        <>
-          <div
-            style={{ position: 'fixed', inset: 0, zIndex: 900 }}
-            onClick={closeEditCell}
-          />
-          <div
+      {!loading && !error && renderedRows.length < sortedRows.length && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: isFullPage ? '8px 16px' : '6px 2px', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 10, color: isFullPage ? fullPageMuted : (isDarkMode ? colours.greyText : colours.subtleGrey) }}>
+            Showing {renderedRows.length.toLocaleString('en-GB')} of {sortedRows.length.toLocaleString('en-GB')} visible rows.
+          </span>
+          <button
+            type="button"
+            onClick={() => setVisibleRowLimit((current) => Math.min(current + MATTERS_LEDGER_RENDER_INCREMENT, sortedRows.length))}
             style={{
-              position: 'fixed',
-              left: editCell.x,
-              top: editCell.y,
-              zIndex: 901,
-              width: 240,
-              background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
+              height: 28,
+              padding: '0 10px',
               border: `1px solid ${withAlpha(isDarkMode ? colours.accent : colours.highlight, 0.28)}`,
-              boxShadow: '0 6px 20px rgba(0,0,0,0.22)',
-              padding: '10px 12px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 8,
+              background: isFullPage ? fullPageSurface : (isDarkMode ? withAlpha(colours.dark.cardBackground, 0.92) : withAlpha(colours.light.cardBackground, 0.95)),
+              color: isDarkMode ? colours.accent : colours.highlight,
+              fontSize: 10,
+              fontWeight: 800,
+              cursor: 'pointer',
             }}
           >
-            <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.3, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
-              {editCell.label}
-            </span>
-            <input
-              type="text"
-              list={`ecl-${editCell.field}`}
-              value={editInputValue}
-              onChange={(e) => setEditInputValue(e.target.value)}
-              autoFocus
-              style={{
-                fontSize: 11,
-                padding: '4px 7px',
-                border: `1px solid ${withAlpha(isDarkMode ? colours.accent : colours.highlight, 0.28)}`,
-                background: isDarkMode ? withAlpha(colours.dark.sectionBackground, 0.95) : withAlpha(colours.light.sectionBackground, 0.95),
-                color: isDarkMode ? colours.dark.text : colours.light.text,
-                outline: 'none',
-                width: '100%',
-                boxSizing: 'border-box',
-              }}
-            />
-            {DROPDOWN_FIELDS.has(editCell.field) && (
-              <datalist id={`ecl-${editCell.field}`}>
-                {(uniqueFieldValues.get(editCell.field) ?? []).map((v) => (
-                  <option key={v} value={v} />
-                ))}
-              </datalist>
-            )}
-            <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-              <button
-                type="button"
-                onClick={closeEditCell}
-                style={{ fontSize: 10, padding: '3px 10px', background: 'transparent', border: `1px solid ${withAlpha(isDarkMode ? colours.accent : colours.highlight, 0.2)}`, color: isDarkMode ? colours.greyText : colours.subtleGrey, cursor: 'pointer' }}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={confirmEditCell}
-                style={{ fontSize: 10, padding: '3px 10px', background: withAlpha(colours.highlight, 0.16), border: `1px solid ${withAlpha(colours.highlight, 0.32)}`, color: isDarkMode ? colours.dark.text : colours.light.text, cursor: 'pointer', fontWeight: 700 }}
-              >
-                Apply
-              </button>
-            </div>
-          </div>
-        </>
+            Show next {Math.min(MATTERS_LEDGER_RENDER_INCREMENT, sortedRows.length - renderedRows.length).toLocaleString('en-GB')}
+          </button>
+        </div>
       )}
+
       {changedRows.length > 0 && (
         <div
           style={{

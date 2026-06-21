@@ -23,6 +23,8 @@ const CHAIN_COLUMNS = [
   'enquiry_id',
   'enquiry_at',
   'enquiry_owner',
+  'enquiry_contact_method',
+  'enquiry_area_of_work',
   'pitch_id',
   'pitch_at',
   'pitch_status',
@@ -60,7 +62,7 @@ const CHAIN_COLUMNS = [
 
 const TEXT_COLUMNS = new Set([
   'source_channel', 'source_value', 'source_detail', 'intake_type', 'call_id', 'form_submission_id', 'email_thread_id',
-  'enquiry_id', 'enquiry_owner', 'pitch_id', 'pitch_status', 'pitched_by', 'instruction_ref', 'instruction_stage',
+  'enquiry_id', 'enquiry_owner', 'enquiry_contact_method', 'enquiry_area_of_work', 'pitch_id', 'pitch_status', 'pitched_by', 'instruction_ref', 'instruction_stage',
   'instruction_owner', 'client_id', 'client_type', 'identity_check_id', 'identity_check_result', 'identity_check_status',
   'risk_assessment_id', 'risk_assessment_result', 'risk_assessment_status', 'payment_id', 'payment_method', 'payment_status',
   'matter_id', 'matter_work_type', 'responsible_solicitor', 'originating_solicitor', 'attribution_note',
@@ -408,6 +410,8 @@ function mapChainRow(row) {
     enquiry_id: row.enquiry_id,
     enquiry_at: row.enquiry_at,
     enquiry_owner: row.enquiry_owner,
+    enquiry_contact_method: row.enquiry_contact_method,
+    enquiry_area_of_work: row.enquiry_area_of_work,
     pitch_id: row.pitch_id,
     pitch_at: row.pitch_at,
     pitch_status: row.pitch_status,
@@ -456,7 +460,14 @@ function bindChainValue(request, column, value) {
 
 function bindChainParam(request, paramName, column, value) {
   if (TEXT_COLUMNS.has(column)) {
-    request.input(paramName, sql.NVarChar, asNullableString(value, column === 'source_detail' || column === 'attribution_note' ? 500 : undefined));
+    const maxLength = column === 'source_detail' || column === 'attribution_note'
+      ? 500
+      : column === 'enquiry_contact_method'
+        ? 80
+        : column === 'enquiry_area_of_work'
+          ? 160
+          : undefined;
+    request.input(paramName, sql.NVarChar, asNullableString(value, maxLength));
     return;
   }
   if (DATE_COLUMNS.has(column)) {
@@ -554,6 +565,8 @@ function mapLookupCandidate(type, record) {
         enquiry_id: enquiryId || null,
         enquiry_at: enquiryAt,
         enquiry_owner: asNullableString(firstValue(record, ['poc', 'Point_of_Contact', 'point_of_contact']), 160),
+        enquiry_contact_method: methodOfContact,
+        enquiry_area_of_work: asNullableString(firstValue(record, ['Area_of_Work', 'area_of_work', 'AreaOfWork', 'areaOfWork', 'area', 'practiceArea', 'PracticeArea']), 160),
         source_channel: sourceChannel,
         source_value: sourceValue,
         intake_type: intakeType,

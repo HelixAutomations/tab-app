@@ -1,6 +1,7 @@
 const express = require('express');
 const { withRequest, sql } = require('../utils/db');
 const { cacheUnified, generateCacheKey, CACHE_CONFIG } = require('../utils/redisClient');
+const { buildDateParseExpression } = require('../utils/matterDateColumns');
 const { annotate } = require('../utils/devConsole');
 const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
 
@@ -15,7 +16,22 @@ const openedCountsCache = new Map();
 const NEW_SPACE_CACHE_TTL_MS = Number(process.env.NEW_SPACE_MATTERS_TTL_MS || 2 * 60 * 1000);
 const NEW_SPACE_STALE_GRACE_MS = 5 * 60 * 1000;
 const OPENED_COUNTS_CACHE_TTL_MS = Number(process.env.HOME_MATTERS_OPENED_COUNTS_TTL_MS || 5 * 60 * 1000);
+const OPENED_COUNTS_CACHE_VERSION = 'combined-date-v1';
 let backgroundRefreshInFlight = false;
+let cacheGeneration = 0;
+
+function clearMattersNewSpaceCaches(reason = 'manual') {
+  const previousOpenedCountsSize = openedCountsCache.size;
+  cacheGeneration += 1;
+  newSpaceCache = { data: null, ts: 0 };
+  openedCountsCache.clear();
+  backgroundRefreshInFlight = false;
+  trackEvent('Matters.NewSpace.CacheCleared', {
+    operation: 'matters-new-space-cache-clear',
+    reason,
+    openedCountsEntries: String(previousOpenedCountsSize),
+  });
+}
 
 function normalizeName(name) {
   if (!name) return '';
@@ -271,12 +287,12 @@ function parseOpenedCountsWindow(queryParams) {
 }
 
 function matterDedupeKey(row) {
-  const matterId = row.matterId != null ? String(row.matterId).trim() : '';
-  if (matterId) return `matter:${matterId.toLowerCase()}`;
   const displayNumber = row.displayNumber != null ? String(row.displayNumber).trim() : '';
   if (displayNumber) return `display:${displayNumber.toLowerCase()}`;
   const uniqueId = row.uniqueId != null ? String(row.uniqueId).trim() : '';
   if (uniqueId) return `unique:${uniqueId.toLowerCase()}`;
+  const matterId = row.matterId != null ? String(row.matterId).trim() : '';
+  if (matterId) return `matter:${matterId.toLowerCase()}`;
   return `source:${row.source}:${row.rowNumber}`;
 }
 
@@ -284,50 +300,84 @@ async function queryOpenedCounts(queryParams) {
   const { year, month, start, endExclusive, startDate, endDate } = parseOpenedCountsWindow(queryParams);
   const fullName = queryParams.fullName ? String(queryParams.fullName).trim() : '';
   const legacyConn = process.env.SQL_CONNECTION_STRING_LEGACY || process.env.SQL_CONNECTION_STRING;
-  const newConn = process.env.SQL_CONNECTION_STRING_VNET || process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+  const newSpaceConn = process.env.SQL_CONNECTION_STRING_VNET || process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+  const legacyOpenDateExpression = buildDateParseExpression('[Open Date]');
+  const newSpaceOpenDateExpression = buildDateParseExpression('[OpenDate]');
+  const errors = { legacy: null, newSpace: null };
 
-  if (!legacyConn || !newConn) {
-    throw new Error('Missing DB connection strings for matters opened counts');
+  if (!legacyConn && !newSpaceConn) {
+    throw new Error('Missing DB connection string for matters opened counts');
   }
 
-  const [legacyResult, newResult] = await Promise.allSettled([
-    withRequest(legacyConn, async (request) => {
-      request.input('start', sql.DateTime2, start);
-      request.input('end', sql.DateTime2, endExclusive);
-      const result = await request.query(`
-        SELECT
-          CAST([Unique ID] AS NVARCHAR(100)) AS uniqueId,
-          CAST([Unique ID] AS NVARCHAR(100)) AS matterId,
-          CAST([Display Number] AS NVARCHAR(100)) AS displayNumber,
-          CAST([Responsible Solicitor] AS NVARCHAR(200)) AS responsibleSolicitor,
-          CONVERT(date, [Open Date]) AS openDate
-        FROM matters
-        WHERE [Open Date] >= @start AND [Open Date] < @end
-      `);
-      return Array.isArray(result.recordset) ? result.recordset.map((row, index) => ({ ...row, source: 'legacy', rowNumber: index })) : [];
-    }),
-    withRequest(newConn, async (request) => {
-      request.input('start', sql.DateTime2, start);
-      request.input('end', sql.DateTime2, endExclusive);
-      const result = await request.query(`
-        SELECT
-          CAST(MatterID AS NVARCHAR(100)) AS matterId,
-          CAST(DisplayNumber AS NVARCHAR(100)) AS displayNumber,
-          CAST(NULL AS NVARCHAR(100)) AS uniqueId,
-          CAST(ResponsibleSolicitor AS NVARCHAR(200)) AS responsibleSolicitor,
-          CONVERT(date, OpenDate) AS openDate
-        FROM Matters
-        WHERE OpenDate >= @start AND OpenDate < @end
-      `);
-      return Array.isArray(result.recordset) ? result.recordset.map((row, index) => ({ ...row, source: 'new-space', rowNumber: index })) : [];
-    }),
-  ]);
+  const legacyRowsPromise = legacyConn ? withRequest(legacyConn, async (request) => {
+    request.input('start', sql.DateTime2, start);
+    request.input('end', sql.DateTime2, endExclusive);
+    const result = await request.query(`
+      SELECT
+        CAST([Unique ID] AS NVARCHAR(100)) AS uniqueId,
+        CAST([Unique ID] AS NVARCHAR(100)) AS matterId,
+        CAST([Display Number] AS NVARCHAR(100)) AS displayNumber,
+        CAST([Responsible Solicitor] AS NVARCHAR(200)) AS responsibleSolicitor,
+        ${legacyOpenDateExpression} AS openDate
+      FROM matters
+      WHERE ${legacyOpenDateExpression} >= @start AND ${legacyOpenDateExpression} < @end
+    `);
+    return Array.isArray(result.recordset)
+      ? result.recordset.map((row, index) => ({ ...row, source: 'legacy', rowNumber: index }))
+      : [];
+  }).catch((error) => {
+    errors.legacy = error?.message || String(error);
+    trackException(error, { operation: 'Matters.OpenedCounts', phase: 'legacy-query', startDate, endDate });
+    trackEvent('Matters.OpenedCounts.SourceFailed', {
+      operation: 'home-opened-counts',
+      source: 'legacy',
+      startDate,
+      endDate,
+      error: errors.legacy,
+    });
+    return [];
+  }) : Promise.resolve([]);
 
-  const legacyRows = legacyResult.status === 'fulfilled' ? legacyResult.value : [];
-  const newRows = newResult.status === 'fulfilled' ? newResult.value : [];
+  const newSpaceRowsPromise = newSpaceConn ? withRequest(newSpaceConn, async (request) => {
+    request.input('start', sql.DateTime2, start);
+    request.input('end', sql.DateTime2, endExclusive);
+    const result = await request.query(`
+      SELECT
+        CAST(NULL AS NVARCHAR(100)) AS uniqueId,
+        CAST([MatterID] AS NVARCHAR(100)) AS matterId,
+        CAST([DisplayNumber] AS NVARCHAR(100)) AS displayNumber,
+        CAST([ResponsibleSolicitor] AS NVARCHAR(200)) AS responsibleSolicitor,
+        ${newSpaceOpenDateExpression} AS openDate
+      FROM [dbo].[Matters]
+      WHERE ${newSpaceOpenDateExpression} >= @start AND ${newSpaceOpenDateExpression} < @end
+    `);
+    return Array.isArray(result.recordset)
+      ? result.recordset.map((row, index) => ({ ...row, source: 'newSpace', rowNumber: index }))
+      : [];
+  }).catch((error) => {
+    errors.newSpace = error?.message || String(error);
+    trackException(error, { operation: 'Matters.OpenedCounts', phase: 'new-space-query', startDate, endDate });
+    trackEvent('Matters.OpenedCounts.SourceFailed', {
+      operation: 'home-opened-counts',
+      source: 'newSpace',
+      startDate,
+      endDate,
+      error: errors.newSpace,
+    });
+    return [];
+  }) : Promise.resolve([]);
+
+  const [legacyRows, newSpaceRows] = await Promise.all([legacyRowsPromise, newSpaceRowsPromise]);
+  const configuredSourceCount = Number(Boolean(legacyConn)) + Number(Boolean(newSpaceConn));
+  const failedSourceCount = Number(Boolean(legacyConn && errors.legacy)) + Number(Boolean(newSpaceConn && errors.newSpace));
+
+  if (configuredSourceCount > 0 && failedSourceCount === configuredSourceCount) {
+    throw new Error(`Failed all matters opened count sources: ${[errors.newSpace, errors.legacy].filter(Boolean).join('; ')}`);
+  }
+
   const rowsByMatter = new Map();
 
-  for (const row of [...newRows, ...legacyRows]) {
+  for (const row of [...newSpaceRows, ...legacyRows]) {
     const key = matterDedupeKey(row);
     const existing = rowsByMatter.get(key);
     const isUserMatter = fullName ? namesMatch(row.responsibleSolicitor, fullName) : false;
@@ -350,10 +400,6 @@ async function queryOpenedCounts(queryParams) {
     if (row.isUserMatter) entry.userCount += 1;
     daily.set(row.dateKey, entry);
   }
-  const errors = {
-    legacy: legacyResult.status === 'rejected' ? legacyResult.reason?.message || String(legacyResult.reason) : null,
-    newSpace: newResult.status === 'rejected' ? newResult.reason?.message || String(newResult.reason) : null,
-  };
 
   return {
     year,
@@ -366,9 +412,10 @@ async function queryOpenedCounts(queryParams) {
     dailyCounts: [...daily.values()].sort((left, right) => left.date.localeCompare(right.date)),
     sourceCounts: {
       legacy: legacyRows.length,
-      newSpace: newRows.length,
+      newSpace: newSpaceRows.length,
       deduped: deduped.length,
     },
+    sourceBasis: newSpaceRows.length && legacyRows.length ? 'new-space+legacy' : newSpaceRows.length ? 'new-space' : 'legacy',
     errors,
   };
 }
@@ -377,7 +424,7 @@ router.get('/opened-counts', async (req, res) => {
   const startedAt = Date.now();
   const { year, month, startDate, endDate, rangeKey } = parseOpenedCountsWindow(req.query);
   const fullName = req.query.fullName ? String(req.query.fullName).trim() : '';
-  const cacheKey = `${rangeKey}:${normalizeName(fullName) || 'firm'}`;
+  const cacheKey = `${rangeKey}:${normalizeName(fullName) || 'firm'}:${OPENED_COUNTS_CACHE_VERSION}`;
   const now = Date.now();
 
   trackEvent('Matters.OpenedCounts.Started', {
@@ -411,9 +458,12 @@ router.get('/opened-counts', async (req, res) => {
       month: String(data.month),
       firmCount: String(data.firmCount),
       userCount: String(data.userCount),
+      legacyCount: String(data.sourceCounts?.legacy ?? 0),
+      newSpaceCount: String(data.sourceCounts?.newSpace ?? 0),
+      sourceBasis: String(data.sourceBasis || ''),
     });
     trackMetric('Matters.OpenedCounts.Duration', durationMs, { operation: 'home-opened-counts' });
-    annotate(res, { source: 'sql', note: `${data.firmCount} deduped matters opened` });
+    annotate(res, { source: 'sql', note: `${data.firmCount} matters opened (${data.sourceBasis})` });
     return res.json({ ...data, cached: false, source: 'sql' });
   } catch (error) {
     const durationMs = Date.now() - startedAt;
@@ -479,9 +529,12 @@ router.get('/', async (req, res) => {
   if (!bypassCache && newSpaceCache.data && memoryAge < NEW_SPACE_CACHE_TTL_MS + NEW_SPACE_STALE_GRACE_MS) {
     if (!backgroundRefreshInFlight) {
       backgroundRefreshInFlight = true;
+      const refreshGeneration = cacheGeneration;
       queryNewSpaceMatters(req.query)
         .then((freshData) => {
-          newSpaceCache = { data: freshData, ts: Date.now() };
+          if (refreshGeneration === cacheGeneration) {
+            newSpaceCache = { data: freshData, ts: Date.now() };
+          }
         })
         .catch((error) => {
           trackFailed(startedAt, error, { phase: 'background-refresh', filtered: fullName ? 'true' : 'false' });
@@ -531,3 +584,4 @@ router.get('/', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.clearMattersNewSpaceCaches = clearMattersNewSpaceCaches;

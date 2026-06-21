@@ -63,6 +63,9 @@ prod-settings.txt
 
 # Legacy scripts directory (intentionally excluded)
 scripts/
+!scripts/
+scripts/*
+!scripts/generate-search-marketing-value-snapshot-pdf.mjs
 
 # Generated CCL artefacts
 logs/ccl-outputs/

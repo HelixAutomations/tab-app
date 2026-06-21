@@ -8,6 +8,7 @@ import {
   FIRM_WIDE_HOME_USERS,
   PRIVATE_HUB_CONTROL_USERS,
   SESSION_MODE_CONTROL_USERS,
+  TASKS_TAB_USERS,
 } from '../../../app/admin';
 
 interface RawGrant {
@@ -68,6 +69,13 @@ const SURFACE_RULES: SurfaceRule[] = [
     description: 'Top-level System tab, ops pulse, route checks, and activity surfaces.',
     audienceLabel: ACTIVITY_TAB_USERS.join(', '),
     allowed: ACTIVITY_TAB_USERS,
+  },
+  {
+    key: 'tasks',
+    label: 'Tasks',
+    description: 'Top-level Tasks canvas and Hub-native task intake workbench.',
+    audienceLabel: TASKS_TAB_USERS.join(', '),
+    allowed: TASKS_TAB_USERS,
   },
   {
     key: 'dataHub',

@@ -29,13 +29,17 @@ const milestoneMatchers = [
   { type: 'frontend-compiled', pattern: /compiled successfully|webpack compiled successfully/i },
   { type: 'frontend-starting', pattern: /starting the development server/i },
   { type: 'backend-ready', pattern: /listening on|server listening|app listening|running on port|server started/i },
-  { type: 'backend-restart', pattern: /restarting due to changes|nodemon restarting/i },
+  { type: 'backend-restart', pattern: /\[server-watch .*\] restart triggered by|restarting due to changes|nodemon restarting/i },
   { type: 'typecheck-error', pattern: /error|failed to compile|typescript error|ts\d{4}/i },
 ];
 
 const dryRun = process.argv.includes('--dry-run');
+const withDataOpsScheduler = process.argv.includes('--with-dataops');
+const dataOpsSchedulerEnv = withDataOpsScheduler
+  ? '1'
+  : (process.env.HELIX_ENABLE_DATAOPS_SCHEDULER ?? '0');
 
-const DEFAULT_AUTO_CLEAN_THRESHOLD_MB = 500;
+const DEFAULT_AUTO_CLEAN_THRESHOLD_MB = 2048;
 
 function parseAutoCleanThresholdMb(argv, env) {
   const arg = argv.find((value) => value.startsWith('--auto-clean-threshold-mb='));
@@ -93,6 +97,7 @@ const TERMINAL_NOISE_PATTERNS = [
   /\[teamData\] Summary \{/i,
   // Webpack-dev-server deprecation warnings (one-time, can't be silenced upstream)
   /DEP_WEBPACK_DEV_SERVER_/i,
+  /\[DEP\d{4}\]\s+DeprecationWarning/i,
   /\(Use `node --trace-deprecation/i,
   /\(node:\d+\)\s*\[DEP_/i,
   // Nodemon banner (keep "restarting due to changes", drop the noise)
@@ -100,7 +105,12 @@ const TERMINAL_NOISE_PATTERNS = [
   // CRA dev-server "you can now view" preamble (the "Compiled successfully"
   // line above it is the real signal)
   /You can now view teamhub/i,
-  /^(?:Local|On Your Network|Note that the development build|To create a production build):/i,
+  /^Starting the development server\.\.\.$/i,
+  /^Compiled successfully!?$/i,
+  /^webpack compiled successfully$/i,
+  /^(?:Local|On Your Network):/i,
+  /^Note that the development build is not optimized\.?$/i,
+  /^To create a production build, use npm run build\.?$/i,
   // CRA HPM proxy created banner
   /\[HPM\] Proxy created:/i,
   // CRACO still probes for CRA's ESLintWebpackPlugin even when dev-all
@@ -374,6 +384,9 @@ async function main() {
   if (idleTimeoutMs > 0) {
     announce(`idle auto-shutdown enabled (${idleTimeoutMinutes}m). Set HELIX_DEV_IDLE_TIMEOUT_MINUTES=0 or pass --no-idle-timeout to disable.`);
   }
+  announce(dataOpsSchedulerEnv === '1'
+    ? 'DataOps scheduler enabled for this local run.'
+    : 'DataOps scheduler skipped locally. Use --with-dataops only when working on report sync.');
 
   if (dryRun) {
     announce('dry run enabled; no child processes started');
@@ -451,6 +464,7 @@ async function main() {
           ...process.env,
           // dev:all is the explicit opt-in for background scheduler/poller work.
           HELIX_ENABLE_BACKGROUND: process.env.HELIX_ENABLE_BACKGROUND ?? (process.env.HELIX_LAZY_INIT === '1' ? '0' : '1'),
+          HELIX_ENABLE_DATAOPS_SCHEDULER: dataOpsSchedulerEnv,
           // Print elapsed-ms landmarks during boot so we can see what's slow
           // across nodemon restarts. Set HELIX_BOOT_TIMING=0 to silence.
           HELIX_BOOT_TIMING: process.env.HELIX_BOOT_TIMING ?? '1',

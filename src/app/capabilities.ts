@@ -70,6 +70,13 @@ export const CAPABILITIES = {
     description: 'Operations dashboard, ops pulse, Operator Actions surface.',
     defaultAllow: ['user:LZ', 'user:AC', 'user:EA'],
   },
+  'feature:tasks-tab': {
+    key: 'feature:tasks-tab',
+    kind: 'feature',
+    label: 'Tasks tab',
+    description: 'Top navigation Tasks canvas and Hub-native task intake workbench.',
+    defaultAllow: ['user:LZ'],
+  },
   'feature:ccl': {
     key: 'feature:ccl',
     kind: 'feature',

@@ -71,7 +71,7 @@ import '../../app/styles/Prospects.css';
 import Slider from 'rc-slider';
 import { debugLog, debugWarn } from '../../utils/debug';
 import type { WorkbenchItem } from '../../utils/workbenchTypes';
-import { shouldAlwaysShowProspectHistory, isSharedProspectRecord } from './sharedProspects';
+import { shouldAlwaysShowProspectHistory, isSharedProspectRecord, isGenericProspectEmail } from './sharedProspects';
 import { checkIsLocalDev, isActuallyLocalhost } from '../../utils/useIsLocalDev';
 import EmptyState from '../../components/states/EmptyState';
 import LoadingState from '../../components/states/LoadingState';
@@ -166,6 +166,38 @@ interface EnquiriesProps {
   pendingEnquiryPitchScenario?: string | null;
   onPendingEnquiryHandled?: () => void;
 }
+
+type EmailControlPreviewState = 'ready' | 'shared' | 'missing';
+
+const normaliseEmailControlText = (value: unknown): string => (
+  typeof value === 'string' ? value.trim() : ''
+);
+
+const getEmailControlPreview = (enquiry: Enquiry): { state: EmailControlPreviewState; status: string; list: string } => {
+  const email = normaliseEmailControlText((enquiry as any).Email ?? (enquiry as any).email);
+  const areaOfWork = normaliseEmailControlText((enquiry as any).Area_of_Work ?? (enquiry as any).area_of_work ?? (enquiry as any).Area);
+  if (!email) return { state: 'missing', status: 'No email', list: areaOfWork || 'Uncategorised' };
+  if (isGenericProspectEmail(email)) return { state: 'shared', status: 'Shared inbox', list: areaOfWork || 'Uncategorised' };
+  return { state: 'ready', status: 'Email-ready', list: areaOfWork || 'Uncategorised' };
+};
+
+const EnquiryEmailControlSpineStrip: React.FC<{ enquiry: Enquiry }> = ({ enquiry }) => {
+  const preview = getEmailControlPreview(enquiry);
+  return (
+    <section
+      className={`enquiry-email-control-spine enquiry-email-control-spine--${preview.state}`}
+      data-helix-region="enquiries/detail/email-controls"
+      aria-label="Email controls preview"
+    >
+      <span className="enquiry-email-control-spine__label">Email controls</span>
+      <span className="enquiry-email-control-spine__chip enquiry-email-control-spine__chip--status">{preview.status}</span>
+      <span className="enquiry-email-control-spine__chip">List: {preview.list}</span>
+      <span className="enquiry-email-control-spine__chip">Tags pending</span>
+      <span className="enquiry-email-control-spine__chip">Membership pending</span>
+      <span className="enquiry-email-control-spine__chip enquiry-email-control-spine__chip--muted">History on demand</span>
+    </section>
+  );
+};
 
 type GroupCompareState = {
   title: string;
@@ -6530,6 +6562,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
               overflowX: 'hidden',
             }}
           >
+            <EnquiryEmailControlSpineStrip enquiry={selectedEnquiry} />
             {renderDetailView(selectedEnquiry)}
           </div>
         ) : (

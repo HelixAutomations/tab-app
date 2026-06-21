@@ -1,4 +1,4 @@
-export type LocalSupportMode = 'fast-shell' | 'enquiries' | 'matters' | 'reports' | 'tasks' | 'system' | 'full-live';
+export type LocalSupportMode = 'fast-shell' | 'enquiries' | 'matters' | 'reports' | 'marketing' | 'tasks' | 'system' | 'full-live';
 export type LocalDataScope = 'none' | 'mine' | 'team';
 
 export interface LocalSupportSettings {
@@ -10,7 +10,7 @@ export interface LocalSupportModeOption {
   id: LocalSupportMode;
   label: string;
   hint: string;
-  targetTab: 'home' | 'enquiries' | 'matters' | 'reporting' | 'tasks' | 'roadmap';
+  targetTab: 'home' | 'enquiries' | 'matters' | 'reporting' | 'marketing' | 'tasks' | 'roadmap';
 }
 
 export interface LocalDataScopeOption {
@@ -47,6 +47,12 @@ export const LOCAL_SUPPORT_MODE_OPTIONS: LocalSupportModeOption[] = [
     label: 'Reports',
     hint: 'Land on Reports without paying the Home team boot tax.',
     targetTab: 'reporting',
+  },
+  {
+    id: 'marketing',
+    label: 'Marketing',
+    hint: 'Land on Marketing without paying the Home team boot tax.',
+    targetTab: 'marketing',
   },
   {
     id: 'tasks',

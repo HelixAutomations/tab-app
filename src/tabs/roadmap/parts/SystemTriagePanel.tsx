@@ -17,7 +17,7 @@ interface TriageIssue {
 }
 
 interface TriageCatalogAction {
-  kind: 'retrigger-submission' | 'replay-matter' | 'open-form-detail' | 'open-schema-ref' | 'copy-curl' | 'none';
+  kind: 'retrigger-submission' | 'open-form-detail' | 'open-schema-ref' | 'copy-curl' | 'none';
   label: string;
   payload?: Record<string, unknown>;
 }
@@ -534,7 +534,6 @@ const IncidentRow: React.FC<IncidentRowProps> = ({ incident, isDarkMode, text, m
   const [copied, setCopied] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
   const [actionResult, setActionResult] = useState<{ kind: 'info' | 'success' | 'error'; message: string } | null>(null);
-  const [replayPreview, setReplayPreview] = useState<unknown>(null);
   const colour = toneColour(incident.tone);
   const stateDimmed = state === 'resolved';
   const stateLabel = state === 'acknowledged' ? 'Acknowledged' : state === 'resolved' ? 'Resolved' : null;
@@ -554,7 +553,7 @@ const IncidentRow: React.FC<IncidentRowProps> = ({ incident, isDarkMode, text, m
     }
   }, []);
 
-  const dispatchAction = useCallback(async (commit = false) => {
+  const dispatchAction = useCallback(async () => {
     if (!catalog || actionBusy) return;
     const action = catalog.action;
     if (action.kind === 'none') return;
@@ -602,37 +601,6 @@ const IncidentRow: React.FC<IncidentRowProps> = ({ incident, isDarkMode, text, m
         setActionBusy(false);
       }
       return;
-    }
-    if (action.kind === 'replay-matter') {
-      const instructionRef = String((action.payload?.instructionRef as string) || firstRow?.instructionRef || '');
-      if (!instructionRef) {
-        setActionResult({ kind: 'error', message: 'No instruction ref captured for this incident.' });
-        return;
-      }
-      setActionBusy(true);
-      try {
-        const response = await fetch('/api/system-triage/replay-matter', {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json', ...buildRequestAuthHeaders() },
-          body: JSON.stringify({ instructionRef, commit }),
-        });
-        const body = await response.json().catch(() => null);
-        if (!response.ok || body?.ok === false) {
-          throw new Error(body?.error || body?.message || `Replay failed (${response.status})`);
-        }
-        if (commit) {
-          setReplayPreview(null);
-          setActionResult({ kind: 'success', message: `Replay committed for ${instructionRef}.` });
-        } else {
-          setReplayPreview(body?.output ?? body);
-          setActionResult({ kind: 'info', message: 'Dry run complete. Review the payload, then commit.' });
-        }
-      } catch (err) {
-        setActionResult({ kind: 'error', message: err instanceof Error ? err.message : 'Replay failed' });
-      } finally {
-        setActionBusy(false);
-      }
     }
   }, [catalog, firstRow, actionBusy, copyToClipboard]);
 
@@ -699,7 +667,7 @@ const IncidentRow: React.FC<IncidentRowProps> = ({ incident, isDarkMode, text, m
                 {catalog.action.kind !== 'none' && (
                   <button
                     type="button"
-                    onClick={() => dispatchAction(false)}
+                    onClick={() => dispatchAction()}
                     disabled={actionBusy}
                     style={{
                       height: 28,
@@ -717,47 +685,12 @@ const IncidentRow: React.FC<IncidentRowProps> = ({ incident, isDarkMode, text, m
                     {actionBusy ? 'Working...' : catalog.action.label}
                   </button>
                 )}
-                {catalog.action.kind === 'replay-matter' && replayPreview != null && (
-                  <button
-                    type="button"
-                    onClick={() => dispatchAction(true)}
-                    disabled={actionBusy}
-                    style={{
-                      height: 28,
-                      padding: '0 12px',
-                      border: `1px solid ${colours.cta}`,
-                      background: colours.cta,
-                      color: '#fff',
-                      cursor: actionBusy ? 'wait' : 'pointer',
-                      fontFamily: 'Raleway, sans-serif',
-                      fontSize: 11,
-                      fontWeight: 800,
-                    }}
-                  >
-                    Commit replay
-                  </button>
-                )}
                 {actionResult && (
                   <span style={{ fontSize: 11, color: actionResult.kind === 'error' ? colours.cta : actionResult.kind === 'success' ? colours.green : muted }}>
                     {actionResult.message}
                   </span>
                 )}
               </div>
-              {replayPreview != null && (
-                <pre style={{
-                  margin: 0,
-                  padding: 8,
-                  maxHeight: 220,
-                  overflow: 'auto',
-                  background: isDarkMode ? 'rgba(0,0,0,0.35)' : 'rgba(0,0,0,0.04)',
-                  border: `1px solid ${border}`,
-                  fontFamily: 'monospace',
-                  fontSize: 10,
-                  color: text,
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-word',
-                }}>{typeof replayPreview === 'string' ? replayPreview : JSON.stringify(replayPreview, null, 2)}</pre>
-              )}
             </div>
           )}
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>

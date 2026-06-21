@@ -35,7 +35,6 @@ import EnquiriesReport, { MarketingMetrics } from './EnquiriesReport';
 import LogMonitor from './LogMonitor';
 import CacheMonitor from './CacheMonitor';
 import AgedDebtsReport from './AgedDebtsReport';
-import DataCentre from './DataCentre';
 import SyncHistory from './SyncHistory';
 import ResponseTimeReport from './ResponseTimeReport';
 import ManagementAccessIndicator from './ManagementAccessIndicator';
@@ -55,6 +54,7 @@ import {
 import { useReadinessRemediate } from './useReadinessRemediate';
 import { useStreamingDatasets } from '../../hooks/useStreamingDatasets';
 import { fetchWithRetry, fetchJSON } from '../../utils/fetchUtils';
+import { buildRequestAuthHeaders } from '../../utils/requestAuthContext';
 import { canSeePrivateHubControls, isAdminUser, canUseSessionModeControls } from '../../app/admin';
 import type { LocalSupportSettings } from '../../app/localSupportMode';
 import { useEffectivePermissions } from '../../app/effectivePermissions';
@@ -73,13 +73,15 @@ import { ReportProcessingRailItemCard, type ReportProcessingRailItem, type Repor
 import AccessMatrixConnector from './components/AccessMatrixConnector';
 import { type RangeKey as ReportShellRangeKey } from './hooks/useReportRange';
 import { checkIsLocalDev } from '../../utils/useIsLocalDev';
-import { REPORTING_DATASET_DEFINITIONS } from './reportingDatasets';
+import { REPORTING_DATASET_DEFINITIONS, type ReportingDatasetKey } from './reportingDatasets';
 import {
   getReportingDatasetActivitySnapshot,
   recordReportingDatasetActivity,
   subscribeReportingDatasetActivity,
   type ReportingDatasetActivitySnapshot,
 } from '../../utils/reportingDatasetActivity';
+
+const DataCentre = React.lazy(() => import('./DataCentre'));
 
 // Reception report is locked to call-taker-owning partners only.
 // Source of truth for who can see it; mirrored in the tab strip, the card grid,
@@ -91,6 +93,13 @@ const canSeeReceptionReport = (initials: string | null | undefined): boolean => 
 };
 
 const RECEPTION_REPORT_DEFAULT_RANGE_KEY: ReportShellRangeKey = 'month';
+const RECEPTION_REPORT_FETCH_OPTIONS = {
+  credentials: 'include' as const,
+  timeout: 45000,
+  retries: 1,
+  retryDelay: 1200,
+  retryStatuses: [408, 425, 429, 500, 502, 503, 504],
+};
 
 const receptionReportHasData = (payload: ReceptionKpisResponse | null | undefined): boolean => {
   if (!payload) return false;
@@ -525,6 +534,7 @@ let cachedData: DatasetMap = {
   googleAds: null,
   deals: null,
   instructions: null,
+  emailLists: null,
   dubberCalls: null,
 };
 let cachedTimestamp: number | null = null;
@@ -556,13 +566,17 @@ const parseDateLoose = (input: unknown): Date | null => {
   if (!trimmed) {
     return null;
   }
-  const normalised = trimmed.includes('/') && !trimmed.includes('T')
+  const legacyDateParts = !trimmed.includes('T')
+    ? trimmed.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})(?:\s|$)/)
+    : null;
+  const normalised = legacyDateParts
     ? (() => {
-      const parts = trimmed.split('/');
-      if (parts.length !== 3) {
+      const [, day, month, year] = legacyDateParts;
+      const dayNumber = Number(day);
+      const monthNumber = Number(month);
+      if (dayNumber < 1 || dayNumber > 31 || monthNumber < 1 || monthNumber > 12) {
         return trimmed;
       }
-      const [day, month, year] = parts;
       const fullYear = year.length === 2 ? `20${year}` : year;
       return `${fullYear}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
     })()
@@ -878,6 +892,11 @@ interface RecoveredFee {
   user_name?: string;
 }
 
+const isCollectedFeeRow = (row: RecoveredFee): boolean => {
+  const kind = typeof row.kind === 'string' ? row.kind.trim().toLowerCase() : '';
+  return kind !== 'expense' && kind !== 'product';
+};
+
 interface GoogleAnalyticsData {
   date: string;
   sessions?: number;
@@ -924,6 +943,7 @@ interface DatasetMap {
   googleAds: GoogleAdsData[] | null;
   deals: DealRecord[] | null;
   instructions: InstructionRecord[] | null;
+  emailLists: unknown[] | null;
   dubberCalls: DubberCallRecord[] | null;
 }
 
@@ -933,6 +953,12 @@ interface AnnualLeaveFetchResult {
   future: AnnualLeaveRecord[];
   team: TeamData[];
   userDetails?: Record<string, unknown>;
+}
+
+interface AnnualLeaveFetchOptions {
+  timeoutMs?: number;
+  retries?: number;
+  retryDelay?: number;
 }
 
 const DATASETS = REPORTING_DATASET_DEFINITIONS;
@@ -1012,7 +1038,7 @@ const AVAILABLE_REPORTS: AvailableReport[] = [
     name: 'Management dashboard',
     status: 'Live today',
     action: 'dashboard',
-    requiredDatasets: ['enquiries', 'allMatters', 'wip', 'recoveredFees', 'teamData', 'userData', 'annualLeave'],
+    requiredDatasets: ['enquiries', 'allMatters', 'wip', 'recoveredFees', 'teamData', 'userData'],
     tier: 'prod',
   },
   {
@@ -1117,7 +1143,7 @@ const REPORT_DATASET_REQUIREMENTS = AVAILABLE_REPORTS.reduce<Record<string, Data
 
 const MANAGEMENT_DATASET_KEYS = DATASETS.map((dataset) => dataset.key);
 const GLOBAL_STREAM_DATASETS: StreamingDatasetKey[] = [
-  ...MANAGEMENT_DATASET_KEYS.filter((key) => key !== 'annualLeave'),
+  ...MANAGEMENT_DATASET_KEYS.filter((key) => key !== 'annualLeave' && key !== 'emailLists'),
   'wipClioCurrentWeek',
   'wipDbCurrentWeek',
 ];
@@ -1138,7 +1164,6 @@ const MANAGEMENT_DASHBOARD_STATUS_TARGETS: DatasetKey[] = [
   'allMatters',
   'wip',
   'recoveredFees',
-  'annualLeave',
 ];
 
 const STATUS_BADGE_COLOURS: Record<DatasetStatusValue, {
@@ -2419,7 +2444,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     setReceptionReportStatus('loading');
 
     try {
-      const response = await fetch(`/api/reporting/reception-kpis?from=${from}&to=${to}`, { credentials: 'include' });
+      const response = await fetchWithRetry(`/api/reporting/reception-kpis?from=${from}&to=${to}`, RECEPTION_REPORT_FETCH_OPTIONS);
       if (!response.ok) {
         throw new Error(`Reception KPIs request failed (${response.status})`);
       }
@@ -2510,6 +2535,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     googleAds: cachedData.googleAds,
     deals: cachedData.deals,
     instructions: cachedData.instructions,
+    emailLists: cachedData.emailLists,
     dubberCalls: cachedData.dubberCalls,
   }));
   const [datasetStatus, setDatasetStatus] = useState<DatasetStatus>(() => {
@@ -2694,6 +2720,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       googleAds: [],
       deals: [],
       instructions: [],
+      emailLists: [],
       dubberCalls: [],
     };
   }, [propUserData, propTeamData]);
@@ -3658,9 +3685,12 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     // when this tab unmounts during a tab switch.
   }, [activeView, canViewEnquiryLedger, handleBackToOverview, isDarkMode, setContent, propUserData, featureToggles, isReportsDevPreview]);
 
-  const fetchAnnualLeaveDataset = useCallback(async (forceRefresh: boolean): Promise<AnnualLeaveFetchResult> => {
+  const fetchAnnualLeaveDataset = useCallback(async (forceRefresh: boolean, options: AnnualLeaveFetchOptions = {}): Promise<AnnualLeaveFetchResult> => {
     const endpoint = forceRefresh ? '/api/attendance/getAnnualLeave?forceRefresh=true' : '/api/attendance/getAnnualLeave';
     const initials = extractUserInitials(propUserData);
+    const timeoutMs = options.timeoutMs ?? 45000;
+    const retries = options.retries ?? 2;
+    const retryDelay = options.retryDelay ?? 2000;
 
     let response: Response;
     try {
@@ -3672,9 +3702,10 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(initials ? { userInitials: initials } : {}),
-        timeout: 45000, // 45 second timeout (annual leave is a heavier query)
-        retries: 2, // Retry up to 2 times on transient failures
-        retryDelay: 2000, // Start with 2s delay, then exponential backoff
+        timeout: timeoutMs,
+        retries,
+        retryDelay,
+        retryStatuses: [429, 500, 502, 503, 504],
       });
     } catch (networkError) {
       throw new Error(networkError instanceof Error ? networkError.message : 'Network error while fetching annual leave data');
@@ -3854,6 +3885,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       let googleAdsData: GoogleAdsData[] = cachedData.googleAds || [];
       let refreshedTeamData: TeamData[] | undefined;
       let settledErrors: string[] = [];
+      let softErrors: string[] = [];
 
       if (shouldFetchAnnualLeave || shouldFetchMeta || shouldFetchGA || shouldFetchGAds) {
         setDatasetStatus(prev => ({
@@ -3864,7 +3896,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
 
         // Use Promise.allSettled so one dataset failure doesn't kill the others
         const [annualLeaveSettled, metaSettled, gaSettled, gAdsSettled] = await Promise.allSettled([
-          shouldFetchAnnualLeave ? fetchAnnualLeaveDataset(forceRefresh) : Promise.resolve<AnnualLeaveFetchResult | null>(null),
+          shouldFetchAnnualLeave ? fetchAnnualLeaveDataset(forceRefresh, { timeoutMs: 18000, retries: 1, retryDelay: 1200 }) : Promise.resolve<AnnualLeaveFetchResult | null>(null),
           shouldFetchMeta ? fetchMetaMetrics(effectiveMetaDaysBack) : Promise.resolve(metaMetricsData),
           shouldFetchGA ? fetchGoogleAnalyticsData(RANGE_MONTH_LOOKUP[effectiveEnquiriesKey]) : Promise.resolve(googleAnalyticsData),
           shouldFetchGAds ? fetchGoogleAdsData(RANGE_MONTH_LOOKUP[effectiveEnquiriesKey]) : Promise.resolve(googleAdsData),
@@ -3881,7 +3913,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
             }
           }
         } else if (shouldFetchAnnualLeave) {
-          settledErrors.push('annualLeave');
+          softErrors.push('annualLeave');
+          annualLeaveData = datasetData.annualLeave || cachedData.annualLeave || [];
           debugWarn('Annual leave fetch failed independently:', annualLeaveSettled.reason);
         }
 
@@ -3913,9 +3946,10 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
         }
 
         // Show a warning toast if some (but not all) datasets failed
-        if (settledErrors.length > 0) {
+        const warningErrors = [...softErrors, ...settledErrors];
+        if (warningErrors.length > 0) {
           showToast({
-            message: `Some datasets failed to load: ${settledErrors.join(', ')}. Other data loaded successfully.`,
+            message: `Some datasets failed to load: ${warningErrors.join(', ')}. Other data loaded successfully.`,
             type: 'warning',
             duration: 7000,
           });
@@ -3937,9 +3971,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
 
       setDatasetStatus(prev => ({
         ...prev,
-        annualLeave: settledErrors.includes('annualLeave')
-          ? { status: 'error', updatedAt: prev.annualLeave?.updatedAt ?? null }
-          : { status: 'ready', updatedAt: shouldFetchAnnualLeave ? nowTs : (prev.annualLeave?.updatedAt ?? nowTs) },
+        annualLeave: { status: 'ready', updatedAt: softErrors.includes('annualLeave') ? (prev.annualLeave?.updatedAt ?? nowTs) : (shouldFetchAnnualLeave ? nowTs : (prev.annualLeave?.updatedAt ?? nowTs)) },
         ...(includeMarketingFeeds && {
           metaMetrics: settledErrors.includes('metaMetrics')
             ? { status: 'error', updatedAt: prev.metaMetrics?.updatedAt ?? null }
@@ -3972,7 +4004,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       // Mark all non-streaming datasets as 'error' so they don't stay stuck in 'loading'
       setDatasetStatus(prev => {
         const next = { ...prev };
-        const nonStreamKeys: DatasetKey[] = ['annualLeave', 'metaMetrics', 'googleAnalytics', 'googleAds'];
+        const nonStreamKeys: DatasetKey[] = ['annualLeave', 'metaMetrics', 'googleAnalytics', 'googleAds', 'emailLists'];
         nonStreamKeys.forEach(key => {
           if (next[key]?.status === 'loading') {
             next[key] = { status: 'error', updatedAt: next[key]?.updatedAt ?? null };
@@ -4484,7 +4516,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       if (datasetState.status !== 'idle') {
         sawActivity = true;
       }
-      if (datasetState.status === 'ready' && datasetState.data) {
+      if (datasetState.status === 'ready') {
         // Update dataset data (special-case WIP to always include current-week merge)
         if (datasetName === 'wip') {
           const baseWip = Array.isArray(datasetState.data) ? (datasetState.data as WIP[]) : [];
@@ -4826,9 +4858,15 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
 
     preheatInFlightRef.current = true;
     try {
+      const preheatUser = propUserData?.[0];
       await fetch('/api/cache-preheater/preheat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: buildRequestAuthHeaders({
+          'Content-Type': 'application/json',
+          ...(preheatUser?.Email ? { 'x-user-email': String(preheatUser.Email) } : {}),
+          ...(preheatUser?.Initials ? { 'x-helix-initials': String(preheatUser.Initials) } : {}),
+          ...(preheatUser?.EntraID ? { 'x-helix-entra-id': String(preheatUser.EntraID) } : {}),
+        }),
         body: JSON.stringify({
           datasets: commonDatasets,
           entraId: propUserData?.[0]?.EntraID,
@@ -4896,9 +4934,9 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     try {
       // Use streaming for supported datasets, individual fetchers for others
       const supportedStreamingDatasets = datasets.filter(key => 
-        MANAGEMENT_DATASET_KEYS.includes(key) && key !== 'annualLeave' && key !== 'metaMetrics' && key !== 'googleAnalytics' && key !== 'googleAds'
+        MANAGEMENT_DATASET_KEYS.includes(key) && key !== 'annualLeave' && key !== 'metaMetrics' && key !== 'googleAnalytics' && key !== 'googleAds' && key !== 'emailLists'
       );
-      const specialDatasets = datasets.filter(key => !MANAGEMENT_DATASET_KEYS.includes(key) || ['annualLeave', 'metaMetrics', 'googleAnalytics', 'googleAds'].includes(key));
+      const specialDatasets = datasets.filter(key => !MANAGEMENT_DATASET_KEYS.includes(key) || ['annualLeave', 'metaMetrics', 'googleAnalytics', 'googleAds', 'emailLists'].includes(key));
 
       // Start streaming for supported datasets
       if (supportedStreamingDatasets.length > 0) {
@@ -4931,6 +4969,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
             recordReportingDatasetActivity({ key: 'googleAds', status: 'ready', updatedAt: now, count: data.length, source: 'reports' });
             setDatasetStatus(prev => ({ ...prev, googleAds: { status: 'ready', updatedAt: now } }));
             cachedData = { ...cachedData, googleAds: data };
+          } else if (datasetKey === 'emailLists') {
+            setDatasetStatus(prev => ({ ...prev, emailLists: { status: 'idle', updatedAt: prev.emailLists?.updatedAt ?? null } }));
           }
         } catch (error) {
           errors.push(datasetKey);
@@ -4970,6 +5010,11 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       setRefreshStartedAt(null);
     }
   }, [datasetStatus, enquiriesRangeKey, mattersWipRangeKey, setStatusesFor, startStreamingWithMemo, fetchAnnualLeaveDataset, fetchMetaMetrics, fetchGoogleAnalyticsData, fetchGoogleAdsData, showToast]);
+
+  const refreshDataHubDatasets = useCallback(async (keys: ReportingDatasetKey[]) => {
+    if (keys.length === 0) return false;
+    return refreshSpecificDatasets(keys as DatasetKey[], 'Data Hub', { bypassCooldown: true });
+  }, [refreshSpecificDatasets]);
 
   // ─── Trust gate (Phase B — visible to all users) ───
   // See docs/notes/MANAGEMENT_DASHBOARD_TRUST_GATE.md
@@ -5131,6 +5176,12 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
         cachedData = { ...cachedData, userData: propUserData ?? null };
         return next;
       });
+      if (Array.isArray(propUserData) && propUserData.length > 0) {
+        setDatasetStatus((prev) => ({
+          ...prev,
+          userData: { status: 'ready', updatedAt: prev.userData?.updatedAt ?? Date.now() },
+        }));
+      }
     }
   }, [propUserData]);
 
@@ -5144,6 +5195,12 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
         cachedData = { ...cachedData, teamData: propTeamData ?? null };
         return next;
       });
+      if (Array.isArray(propTeamData) && propTeamData.length > 0) {
+        setDatasetStatus((prev) => ({
+          ...prev,
+          teamData: { status: 'ready', updatedAt: prev.teamData?.updatedAt ?? Date.now() },
+        }));
+      }
     }
   }, [propTeamData]);
 
@@ -5278,7 +5335,13 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     const previousPeriod = buildEntryMonthPeriod(anchor, -1, elapsedDays);
 
     const getEnquiryDate = (row: Enquiry) => parseDateLoose(row.Date_Created || row.Touchpoint_Date);
-    const getMatterDate = (row: Matter) => parseDateLoose(row.OpenDate);
+    const getMatterDate = (row: Matter) => parseDateLoose(
+      row.OpenDate
+      || (row as any)['Open Date']
+      || (row as any).openDate
+      || (row as any).open_date
+      || (row as any).DateOpened
+    );
     const getInstructionDate = (row: InstructionRecord) => parseDateLoose(row.SubmissionDate || row.CreatedDate);
     const getWipDate = (row: WIP) => parseDateLoose(row.date || row.created_at);
     const getRecoveredDate = (row: RecoveredFee) => parseDateLoose(row.payment_date);
@@ -5291,8 +5354,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     const instructionsPrevious = sumEntriesForPeriod(datasetData.instructions, previousPeriod, getInstructionDate);
     const wipCurrent = sumEntriesForPeriod(datasetData.wip, currentPeriod, getWipDate, (row) => toNumberSafe(row.total));
     const wipPrevious = sumEntriesForPeriod(datasetData.wip, previousPeriod, getWipDate, (row) => toNumberSafe(row.total));
-    const collectedCurrent = sumEntriesForPeriod(datasetData.recoveredFees, currentPeriod, getRecoveredDate, (row) => toNumberSafe(row.payment_allocated));
-    const collectedPrevious = sumEntriesForPeriod(datasetData.recoveredFees, previousPeriod, getRecoveredDate, (row) => toNumberSafe(row.payment_allocated));
+    const collectedCurrent = sumEntriesForPeriod(datasetData.recoveredFees, currentPeriod, getRecoveredDate, (row) => isCollectedFeeRow(row) ? toNumberSafe(row.payment_allocated) : 0);
+    const collectedPrevious = sumEntriesForPeriod(datasetData.recoveredFees, previousPeriod, getRecoveredDate, (row) => isCollectedFeeRow(row) ? toNumberSafe(row.payment_allocated) : 0);
 
     const makeMetric = (
       key: EntrySnapshotMetricKey,
@@ -5313,8 +5376,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       base > 0 ? `${((value / base) * 100).toFixed(0)}% ${suffix}` : `No ${suffix.replace('of ', '')} base yet`
     );
 
-    const currentCollectedDaily = buildDailySeries(datasetData.recoveredFees, currentPeriod.start, currentPeriod.daysInMonth, getRecoveredDate, (row) => toNumberSafe(row.payment_allocated));
-    const previousCollectedDailyRaw = buildDailySeries(datasetData.recoveredFees, previousPeriod.start, previousPeriod.daysInMonth, getRecoveredDate, (row) => toNumberSafe(row.payment_allocated));
+    const currentCollectedDaily = buildDailySeries(datasetData.recoveredFees, currentPeriod.start, currentPeriod.daysInMonth, getRecoveredDate, (row) => isCollectedFeeRow(row) ? toNumberSafe(row.payment_allocated) : 0);
+    const previousCollectedDailyRaw = buildDailySeries(datasetData.recoveredFees, previousPeriod.start, previousPeriod.daysInMonth, getRecoveredDate, (row) => isCollectedFeeRow(row) ? toNumberSafe(row.payment_allocated) : 0);
     const previousCollectedDaily = Array.from({ length: currentPeriod.daysInMonth }, (_, index) => previousCollectedDailyRaw[index] ?? 0);
     const currentActualValues = cumulativeSeries(currentCollectedDaily, currentPeriod.elapsedDays).slice(0, currentPeriod.elapsedDays);
     const currentTotal = currentActualValues.at(-1) ?? 0;
@@ -7885,6 +7948,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
         googleAds: describeRangeKey(enquiriesRangeKey),
         deals: describeRangeKey(enquiriesRangeKey),
         instructions: describeRangeKey(enquiriesRangeKey),
+        emailLists: 'Not connected',
         dubberCalls: 'All',
       };
 
@@ -8027,16 +8091,15 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       return;
     }
 
-    if (activeProcessingPanelHasAttention) {
-      setActiveProcessingPanelFolded(false);
-      setActiveProcessingPanelForcedOpen(true);
-      setActiveProcessingPanelManualFolded(false);
-      return;
-    }
-
     if (activeProcessingPanelManualFolded !== null) {
       setActiveProcessingPanelFolded(activeProcessingPanelManualFolded);
       setActiveProcessingPanelForcedOpen(!activeProcessingPanelManualFolded);
+      return;
+    }
+
+    if (activeProcessingPanelHasAttention) {
+      setActiveProcessingPanelFolded(false);
+      setActiveProcessingPanelForcedOpen(true);
       return;
     }
 
@@ -8141,7 +8204,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     floatingProcessingPanelIsReal
     && activeProcessingPanelFolded
     && !activeProcessingPanelForcedOpen
-    && !activeProcessingPanelHasAttention
   );
 
   const renderFloatingProcessingPanel = () => {
@@ -8564,7 +8626,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
         {
           // When the production preview flag is active (toggled via Command Deck / Hub Tools),
           // restrict datasets shown in the Data Centre to reconciled ledgers and the
-          // enquiries + matters operational datasets only.
+          // production-facing operational datasets only.
         }
         {(() => {
           const isProductionPreview = Boolean(featureToggles?.viewAsProd);
@@ -8572,7 +8634,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
             ? datasetSummariesSorted.filter((s) => (
               (s.definition.provider.category === 'reconciled-ledger') ||
               s.definition.key === 'enquiries' ||
-              s.definition.key === 'allMatters'
+              s.definition.key === 'allMatters' ||
+              s.definition.key === 'emailLists'
             ))
             : datasetSummariesSorted;
 
@@ -8580,6 +8643,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
             <DataCentre
               onBack={handleBackToOverview}
               onRefreshAll={refreshDatasetsWithStreaming}
+              onRefreshDatasets={refreshDataHubDatasets}
               onRefreshCollected={refreshCollectedFeesOnly}
               isRefreshing={isActivelyLoading}
               progressPercent={streamingProgress.percentage}
@@ -8588,8 +8652,10 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
               datasets={datasetsForDataCentre}
               userName={propUserData?.[0]?.FullName || propUserData?.[0]?.Initials}
               userInitials={userInitialsForGate}
+              userEmail={propUserData?.[0]?.Email}
               showProdAudienceBadge={!isLocalReportsHost}
               isDedicatedPage={dedicatedDataHub}
+              demoModeEnabled={demoModeEnabled}
             />
           );
         })()}

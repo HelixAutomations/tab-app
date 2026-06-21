@@ -23,6 +23,7 @@
         "express-rate-limit": "^8.3.2",
         "googleapis": "^162.0.0",
         "helmet": "^8.1.0",
+        "jspdf": "^2.5.2",
         "morgan": "^1.10.0",
         "mssql": "^11.0.1",
         "multer": "^2.0.2",

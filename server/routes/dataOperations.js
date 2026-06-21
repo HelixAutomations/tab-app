@@ -11,18 +11,59 @@
 
 const express = require('express');
 const router = express.Router();
-const { getPool } = require('../utils/db');
+const { getPool, sql } = require('../utils/db');
 const { getSecret } = require('../utils/getSecret');
 const { createLogger } = require('../utils/logger');
 const { trackEvent, trackException, trackMetric, trackDependency } = require('../utils/appInsights');
 const { deleteCachePattern } = require('../utils/redisClient');
 const { attachDataOpsStream, broadcastDataOpsChanged } = require('../utils/dataOps-stream');
+const { getMattersAutoSyncRuntime } = require('../utils/mattersAutoSyncRuntime');
+const { clearMattersNewSpaceCaches } = require('./mattersNewSpace');
 
 const opsLogger = createLogger('DataOps');
 
 const fmtMoneyBE = (v) => v == null ? '—' : `£${Number(v).toFixed(2)}`;
 const RECONCILIATION_MONEY_TOLERANCE = 0.01;
 const RECONCILIATION_HOURS_TOLERANCE = 0.05;
+const MATTERS_MIGRATION_TAG = 'legacy-migration';
+const MATTERS_RECONCILIATION_TAG = 'clio-reconciliation';
+const MATTERS_LEGACY_CUTOFF_DATE = '2026-06-08';
+const MATTERS_MIGRATION_SOURCE_SYSTEM = 'Clio';
+const MATTERS_MIGRATION_CLIO_STATUSES = ['open', 'pending', 'closed'];
+const MATTERS_MIGRATION_DEFAULT_FIELDS = [
+  'id',
+  'display_number',
+  'status',
+  'open_date',
+  'close_date',
+  'created_at',
+  'updated_at',
+  'description',
+  'client{id,name,type}',
+  'responsible_attorney{id,name}',
+  'originating_attorney{id,name}',
+  'practice_area{id,name}',
+  'custom_field_values{id,field_name,value}',
+].join(',');
+const MATTERS_MIGRATION_INSERT_SCHEMA_COLUMNS = [
+  { name: 'MatterID', dataType: 'nvarchar', maxLength: 255, nullable: false, ordinal: 1 },
+  { name: 'InstructionRef', dataType: 'nvarchar', maxLength: 255, nullable: true, ordinal: 2 },
+  { name: 'Status', dataType: 'nvarchar', maxLength: 50, nullable: true, ordinal: 3 },
+  { name: 'OpenDate', dataType: 'date', maxLength: null, nullable: false, ordinal: 4 },
+  { name: 'CloseDate', dataType: 'date', maxLength: null, nullable: true, ordinal: 5 },
+  { name: 'ClientID', dataType: 'nvarchar', maxLength: 255, nullable: true, ordinal: 6 },
+  { name: 'DisplayNumber', dataType: 'nvarchar', maxLength: 255, nullable: false, ordinal: 7 },
+  { name: 'ClientName', dataType: 'nvarchar', maxLength: 255, nullable: true, ordinal: 8 },
+  { name: 'ClientType', dataType: 'nvarchar', maxLength: 255, nullable: true, ordinal: 9 },
+  { name: 'Description', dataType: 'nvarchar', maxLength: null, nullable: true, ordinal: 10 },
+  { name: 'PracticeArea', dataType: 'nvarchar', maxLength: 255, nullable: true, ordinal: 11 },
+  { name: 'ResponsibleSolicitor', dataType: 'nvarchar', maxLength: 255, nullable: true, ordinal: 12 },
+  { name: 'OriginatingSolicitor', dataType: 'nvarchar', maxLength: 255, nullable: true, ordinal: 13 },
+  { name: 'SupervisingPartner', dataType: 'nvarchar', maxLength: 255, nullable: true, ordinal: 14 },
+  { name: 'Source', dataType: 'nvarchar', maxLength: 255, nullable: true, ordinal: 15 },
+  { name: 'Referrer', dataType: 'nvarchar', maxLength: 255, nullable: true, ordinal: 16 },
+  { name: 'method_of_contact', dataType: 'nvarchar', maxLength: 255, nullable: true, ordinal: 17 },
+];
 
 function summariseClioErrorBody(text) {
   const raw = String(text || '').trim();
@@ -39,6 +80,204 @@ function summariseClioErrorBody(text) {
 function isClioNoDataReportResponse(text) {
   const summary = summariseClioErrorBody(text).toLowerCase();
   return /no\s+data/.test(summary) && /report/.test(summary);
+}
+
+function toSqlDateOnly(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString().slice(0, 10);
+}
+
+function normalizeDateRangeInput(startDate, endDate) {
+  const start = toSqlDateOnly(startDate);
+  const end = toSqlDateOnly(endDate);
+  if (!start || !end) {
+    throw new Error('startDate and endDate are required as valid dates');
+  }
+  if (start > end) {
+    throw new Error('startDate must be on or before endDate');
+  }
+  return { start, end };
+}
+
+function normalizeClioMatterDate(value) {
+  return toSqlDateOnly(value);
+}
+
+function coerceString(value, fallback = '') {
+  const raw = String(value ?? '').trim();
+  return raw || fallback;
+}
+
+function clampString(value, maxLength) {
+  const raw = coerceString(value);
+  return raw ? raw.slice(0, maxLength) : null;
+}
+
+function buildMatterMigrationOperationKey(startDateSql) {
+  return `syncMattersMigrationCustom_${startDateSql}`;
+}
+
+function getMatterImportTag(openDate) {
+  const date = toSqlDateOnly(openDate);
+  return date && date > MATTERS_LEGACY_CUTOFF_DATE ? MATTERS_RECONCILIATION_TAG : MATTERS_MIGRATION_TAG;
+}
+
+function getMatterPlanTag(startDateSql, endDateSql) {
+  if (startDateSql > MATTERS_LEGACY_CUTOFF_DATE) return MATTERS_RECONCILIATION_TAG;
+  if (endDateSql <= MATTERS_LEGACY_CUTOFF_DATE) return MATTERS_MIGRATION_TAG;
+  return `${MATTERS_MIGRATION_TAG} + ${MATTERS_RECONCILIATION_TAG}`;
+}
+
+function getMatterSourceTag(record, importTag) {
+  const existing = coerceString(record?.source ?? record?.Source);
+  if (!existing) return importTag;
+  if (existing.toLowerCase().includes(importTag)) return existing;
+  return `${existing}; ${importTag}`;
+}
+
+function normalizeClioMatterForMigration(record) {
+  const matterId = coerceString(record?.id);
+  const displayNumber = coerceString(record?.display_number ?? record?.displayNumber);
+  const openDate = normalizeClioMatterDate(record?.open_date ?? record?.openDate ?? record?.created_at);
+  if (!matterId || !displayNumber || !openDate) return null;
+  const importTag = getMatterImportTag(openDate);
+
+  const client = record?.client && typeof record.client === 'object' ? record.client : {};
+  const responsible = record?.responsible_attorney && typeof record.responsible_attorney === 'object' ? record.responsible_attorney : {};
+  const originating = record?.originating_attorney && typeof record.originating_attorney === 'object' ? record.originating_attorney : {};
+  const practiceArea = record?.practice_area && typeof record.practice_area === 'object' ? record.practice_area : {};
+
+  return {
+    matterId,
+    displayNumber,
+    status: clampString(record?.status || 'Open', 50),
+    openDate,
+    closeDate: normalizeClioMatterDate(record?.close_date ?? record?.closeDate),
+    clientId: clampString(client.id, 255),
+    clientName: clampString(client.name, 255),
+    clientType: clampString(client.type, 255),
+    description: clampString(record?.description, 2000),
+    practiceArea: clampString(practiceArea.name ?? record?.practice_area, 255),
+    responsibleSolicitor: clampString(responsible.name, 255),
+    originatingSolicitor: clampString(originating.name, 255),
+    supervisingPartner: null,
+    source: getMatterSourceTag(record, importTag),
+    referrer: null,
+    methodOfContact: importTag,
+    importTag,
+    rawShape: summarizeClioMatterShape(record),
+  };
+}
+
+function summarizeClioMatterShape(record) {
+  const customFields = Array.isArray(record?.custom_field_values) ? record.custom_field_values : [];
+  return {
+    topLevelKeys: record && typeof record === 'object' ? Object.keys(record).sort() : [],
+    hasClient: Boolean(record?.client),
+    hasResponsibleAttorney: Boolean(record?.responsible_attorney),
+    hasOriginatingAttorney: Boolean(record?.originating_attorney),
+    hasPracticeArea: Boolean(record?.practice_area),
+    customFieldCount: customFields.length,
+  };
+}
+
+function summarizeMatterMigrationRows(rows) {
+  const fieldCoverage = {
+    clientId: 0,
+    clientName: 0,
+    practiceArea: 0,
+    responsibleSolicitor: 0,
+    originatingSolicitor: 0,
+    description: 0,
+  };
+  for (const row of rows) {
+    Object.keys(fieldCoverage).forEach((field) => {
+      if (row[field]) fieldCoverage[field] += 1;
+    });
+  }
+  return {
+    rowCount: rows.length,
+    fieldCoverage,
+    sampleShape: rows[0]?.rawShape || null,
+  };
+}
+
+async function fetchClioMattersForMigration({ accessToken, startDateSql, endDateSql, operationKey }) {
+  const allRows = [];
+  const limit = 200;
+  const rangeStartMs = new Date(`${startDateSql}T00:00:00.000Z`).getTime();
+  const rangeEndMs = new Date(`${endDateSql}T23:59:59.999Z`).getTime();
+
+  for (const status of MATTERS_MIGRATION_CLIO_STATUSES) {
+    let offset = 0;
+
+    while (true) {
+      const url = new URL('https://eu.app.clio.com/api/v4/matters.json');
+      url.searchParams.set('fields', MATTERS_MIGRATION_DEFAULT_FIELDS);
+      url.searchParams.set('status', status);
+      url.searchParams.set('limit', String(limit));
+      url.searchParams.set('offset', String(offset));
+      url.searchParams.set('order', 'open_date(desc)');
+      url.searchParams.set('open_date_from', startDateSql);
+      url.searchParams.set('open_date_to', endDateSql);
+
+      const makeRequest = async (token) => fetch(url.toString(), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      let pageToken = accessToken;
+      let response = await makeRequest(pageToken);
+      if (response.status === 401) {
+        logProgress(operationKey, 'Access token expired (401). Refreshing...');
+        pageToken = await getClioAccessToken(true);
+        response = await makeRequest(pageToken);
+      }
+
+      if (response.status === 429) {
+        const MAX_429_RETRIES = 3;
+        for (let attempt = 1; attempt <= MAX_429_RETRIES; attempt++) {
+          const retryAfter = parseInt(response.headers?.get?.('Retry-After') || '0', 10);
+          const backoffMs = Math.max((retryAfter || Math.pow(2, attempt) * 15) * 1000, 15000);
+          logProgress(operationKey, `Rate limited (429) for ${status} matters at offset ${offset}. Retry ${attempt}/${MAX_429_RETRIES} after ${Math.round(backoffMs / 1000)}s...`);
+          trackEvent('DataOps.MattersMigration.RateLimited', {
+            operation: operationKey,
+            status,
+            attempt: String(attempt),
+            offset: String(offset),
+            backoffMs: String(backoffMs),
+          });
+          await new Promise((resolve) => setTimeout(resolve, backoffMs));
+          response = await makeRequest(pageToken);
+          if (response.status !== 429) break;
+        }
+      }
+
+      if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        throw new Error(`Clio matters fetch failed for ${status}: ${response.status}${text ? ` - ${summariseClioErrorBody(text)}` : ''}`);
+      }
+
+      const payload = await response.json();
+      const batch = Array.isArray(payload?.data) ? payload.data : [];
+      const normalized = batch
+        .map(normalizeClioMatterForMigration)
+        .filter(Boolean)
+        .filter((row) => {
+          const openMs = new Date(`${row.openDate}T00:00:00.000Z`).getTime();
+          return openMs >= rangeStartMs && openMs <= rangeEndMs;
+        });
+
+      allRows.push(...normalized);
+      logProgress(operationKey, `Fetched ${batch.length} ${status} Clio matters (offset ${offset}); ${normalized.length} in date window`);
+
+      if (batch.length < limit || !payload?.meta?.paging?.next) break;
+      offset += limit;
+    }
+  }
+
+  return allRows;
 }
 
 function buildClioReportRequestError(status, text) {
@@ -496,6 +735,7 @@ async function fetchCollectedClioMonthTotals({ startDate, endDate }) {
   const months = {};
   let rowCount = 0;
   let totalValue = 0;
+  let feeOnlyValue = 0;
 
   for (const [, matterData] of Object.entries(downloadData.report_data)) {
     if (!matterData.bill_data || !matterData.matter_payment_data || !matterData.line_items_data) continue;
@@ -504,18 +744,24 @@ async function fetchCollectedClioMonthTotals({ startDate, endDate }) {
     if (!monthKey) continue;
     const items = matterData.line_items_data.line_items || [];
     if (!months[monthKey]) {
-      months[monthKey] = { rowCount: 0, totalValue: 0 };
+      months[monthKey] = { rowCount: 0, totalValue: 0, feeOnlyValue: 0 };
     }
     for (const item of items) {
       const allocated = roundMoney(item.payment_allocated);
+      const kind = String(item.kind || '').trim().toLowerCase();
+      const isDisbursement = kind === 'expense' || kind === 'product';
       months[monthKey].rowCount += 1;
       months[monthKey].totalValue = roundMoney(months[monthKey].totalValue + allocated);
       rowCount += 1;
       totalValue = roundMoney(totalValue + allocated);
+      if (!isDisbursement) {
+        months[monthKey].feeOnlyValue = roundMoney(months[monthKey].feeOnlyValue + allocated);
+        feeOnlyValue = roundMoney(feeOnlyValue + allocated);
+      }
     }
   }
 
-  return { months, rowCount, totalValue, source: 'clio-report' };
+  return { months, rowCount, totalValue, feeOnlyValue, source: 'clio-report' };
 }
 
 function normalizeReconciliationScope(rawScope) {
@@ -731,17 +977,19 @@ async function buildReconciliationSnapshot(rawScope = 'all') {
           });
           const clioCurrentMonth = clioCollected.months[currentMonthKey]?.totalValue || 0;
           const clioPreviousMonth = clioCollected.months[previousMonthKey]?.totalValue || 0;
+          const clioCurrentMonthFeesOnly = clioCollected.months[currentMonthKey]?.feeOnlyValue || 0;
+          const clioPreviousMonthFeesOnly = clioCollected.months[previousMonthKey]?.feeOnlyValue || 0;
 
           checks.push(buildNumericParityCheck({
             key: 'collected-current-month-ui-vs-clio',
             scope: 'collected',
             label: 'Current month displayed collected total',
             actual: collectedProjection.currentMonthTotal,
-            expected: clioCurrentMonth,
+            expected: clioCurrentMonthFeesOnly,
             formatter: formatAuditCurrency,
             tolerance: RECONCILIATION_MONEY_TOLERANCE,
-            okDescription: (value) => `The displayed collected total matches the Clio source report for the current month at ${formatAuditCurrency(value)}.`,
-            mismatchDescription: ({ actual, expected, delta }) => `The displayed collected total shows ${formatAuditCurrency(actual)} but the Clio source report totals ${formatAuditCurrency(expected)} for the current month (${formatAuditDelta(delta, formatAuditCurrency)}).`,
+            okDescription: (value) => `The displayed collected-fees total matches Clio fee lines for the current month at ${formatAuditCurrency(value)}.`,
+            mismatchDescription: ({ actual, expected, delta }) => `The displayed collected-fees total shows ${formatAuditCurrency(actual)} but Clio fee lines total ${formatAuditCurrency(expected)} for the current month (${formatAuditDelta(delta, formatAuditCurrency)}).`,
             isCurrent: true,
           }));
           checks.push(buildNumericParityCheck({
@@ -749,11 +997,11 @@ async function buildReconciliationSnapshot(rawScope = 'all') {
             scope: 'collected',
             label: 'Previous month displayed collected total',
             actual: collectedProjection.previousMonthTotal,
-            expected: clioPreviousMonth,
+            expected: clioPreviousMonthFeesOnly,
             formatter: formatAuditCurrency,
             tolerance: RECONCILIATION_MONEY_TOLERANCE,
-            okDescription: (value) => `The displayed collected total matches the Clio source report for the previous month at ${formatAuditCurrency(value)}.`,
-            mismatchDescription: ({ actual, expected, delta }) => `The displayed collected total shows ${formatAuditCurrency(actual)} but the Clio source report totals ${formatAuditCurrency(expected)} for the previous month (${formatAuditDelta(delta, formatAuditCurrency)}).`,
+            okDescription: (value) => `The displayed collected-fees total matches Clio fee lines for the previous month at ${formatAuditCurrency(value)}.`,
+            mismatchDescription: ({ actual, expected, delta }) => `The displayed collected-fees total shows ${formatAuditCurrency(actual)} but Clio fee lines total ${formatAuditCurrency(expected)} for the previous month (${formatAuditDelta(delta, formatAuditCurrency)}).`,
           }));
           checks.push(buildNumericParityCheck({
             key: 'collected-current-month-sql-vs-clio',
@@ -2285,6 +2533,367 @@ async function syncWip(options = {}) {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Matters legacy migration sync
+// ─────────────────────────────────────────────────────────────
+async function getMattersSchemaSnapshot() {
+  const connectionString = process.env.SQL_CONNECTION_STRING_VNET || process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+  if (!connectionString) {
+    return {
+      columns: MATTERS_MIGRATION_INSERT_SCHEMA_COLUMNS,
+      source: 'fallback',
+      warning: 'New-space database connection is not configured, showing the planned insert contract.',
+    };
+  }
+
+  try {
+    const columns = await withRequest(connectionString, async (request) => {
+      const result = await request.query(`
+        SELECT
+          COLUMN_NAME AS name,
+          DATA_TYPE AS dataType,
+          CHARACTER_MAXIMUM_LENGTH AS maxLength,
+          IS_NULLABLE AS isNullable,
+          ORDINAL_POSITION AS ordinalPosition
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'Matters'
+        ORDER BY ORDINAL_POSITION
+      `);
+      return (result.recordset || []).map((row) => ({
+        name: row.name,
+        dataType: row.dataType,
+        maxLength: row.maxLength,
+        nullable: row.isNullable === 'YES',
+        ordinal: row.ordinalPosition,
+      }));
+    });
+    return { columns, source: 'database', warning: null };
+  } catch (error) {
+    trackException(error, { operation: 'matters-migration-schema', phase: 'fallback' });
+    return {
+      columns: MATTERS_MIGRATION_INSERT_SCHEMA_COLUMNS,
+      source: 'fallback',
+      warning: `Could not read live table schema, showing the planned insert contract. ${error.message}`,
+    };
+  }
+}
+
+async function syncMattersMigration(options = {}) {
+  const { startDate: customStart, endDate: customEnd, dryRun = false, triggeredBy = 'manual', invokedBy = null } = options;
+  const startedAt = Date.now();
+  const { start: startDateSql, end: endDateSql } = normalizeDateRangeInput(customStart, customEnd);
+  const operationKey = buildMatterMigrationOperationKey(startDateSql);
+
+  activeJobs.set(operationKey, { cancelled: false, startedAt });
+  logOperation({
+    operation: operationKey,
+    entity: 'Matters',
+    status: 'started',
+    triggeredBy,
+    invokedBy,
+    startDate: startDateSql,
+    endDate: endDateSql,
+    message: dryRun
+      ? `Planning matters migration ${startDateSql} -> ${endDateSql}`
+      : `Syncing matters migration ${startDateSql} -> ${endDateSql}`,
+  });
+
+  trackEvent('DataOps.MattersMigration.Started', {
+    operation: operationKey,
+    triggeredBy,
+    invokedBy: invokedBy || '',
+    startDate: startDateSql,
+    endDate: endDateSql,
+    dryRun: String(Boolean(dryRun)),
+  });
+
+  try {
+    let accessToken = await getClioAccessToken();
+    logProgress(operationKey, 'Access token ready', { entity: 'Matters', triggeredBy, invokedBy });
+
+    if (activeJobs.get(operationKey)?.cancelled) throw new Error('Operation cancelled by user');
+    logProgress(operationKey, `Requesting Clio matters for ${startDateSql} -> ${endDateSql}`, { entity: 'Matters', triggeredBy, invokedBy });
+    const clioRows = await fetchClioMattersForMigration({ accessToken, startDateSql, endDateSql, operationKey });
+    const clioSummary = summarizeMatterMigrationRows(clioRows);
+    logProgress(operationKey, `Clio returned ${clioRows.length} matters in date window`, { entity: 'Matters', triggeredBy, invokedBy });
+
+    if (activeJobs.get(operationKey)?.cancelled) throw new Error('Operation cancelled by user');
+
+    const connectionString = process.env.SQL_CONNECTION_STRING_VNET || process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+    if (!connectionString) throw new Error('INSTRUCTIONS_SQL_CONNECTION_STRING not configured');
+    const pool = await getPool(connectionString);
+
+    const existingResult = await pool.request()
+      .input('start', sql.Date, startDateSql)
+      .input('end', sql.Date, endDateSql)
+      .query(`
+        SELECT
+          CAST(MatterID AS NVARCHAR(255)) AS matterId,
+          CAST(DisplayNumber AS NVARCHAR(255)) AS displayNumber,
+          CAST(Source AS NVARCHAR(255)) AS source
+        FROM dbo.Matters
+        WHERE OpenDate >= @start AND OpenDate <= @end
+      `);
+    const existingRows = existingResult.recordset || [];
+    const existingMatterIds = new Set(existingRows.map((row) => coerceString(row.matterId).toLowerCase()).filter(Boolean));
+    const existingDisplayNumbers = new Set(existingRows.map((row) => coerceString(row.displayNumber).toLowerCase()).filter(Boolean));
+    const existingLegacyImports = existingRows.filter((row) => coerceString(row.source).toLowerCase().includes(MATTERS_MIGRATION_TAG)).length;
+    const existingClioReconciliations = existingRows.filter((row) => coerceString(row.source).toLowerCase().includes(MATTERS_RECONCILIATION_TAG)).length;
+
+    const candidates = [];
+    let skippedExisting = 0;
+    let skippedDuplicateInPayload = 0;
+    const payloadMatterIds = new Set();
+    const payloadDisplayNumbers = new Set();
+
+    for (const row of clioRows) {
+      const matterKey = row.matterId.toLowerCase();
+      const displayKey = row.displayNumber.toLowerCase();
+      if (payloadMatterIds.has(matterKey) || payloadDisplayNumbers.has(displayKey)) {
+        skippedDuplicateInPayload += 1;
+        continue;
+      }
+      payloadMatterIds.add(matterKey);
+      payloadDisplayNumbers.add(displayKey);
+      if (existingMatterIds.has(matterKey) || existingDisplayNumbers.has(displayKey)) {
+        skippedExisting += 1;
+        continue;
+      }
+      candidates.push(row);
+    }
+
+    const plan = {
+      startDate: startDateSql,
+      endDate: endDateSql,
+      sourceQuery: {
+        endpoint: '/api/v4/matters.json',
+        params: {
+          fields: MATTERS_MIGRATION_DEFAULT_FIELDS,
+          status: MATTERS_MIGRATION_CLIO_STATUSES,
+          order: 'open_date(desc)',
+          open_date_from: startDateSql,
+          open_date_to: endDateSql,
+          pageLimit: 200,
+        },
+      },
+      clioCount: clioRows.length,
+      existingInWindow: existingRows.length,
+      existingLegacyImports,
+      existingClioReconciliations,
+      skippedExisting,
+      skippedDuplicateInPayload,
+      rowsToInsert: candidates.length,
+      tag: getMatterPlanTag(startDateSql, endDateSql),
+      importTags: {
+        legacyMigration: MATTERS_MIGRATION_TAG,
+        clioReconciliation: MATTERS_RECONCILIATION_TAG,
+        legacyCutoffDate: MATTERS_LEGACY_CUTOFF_DATE,
+      },
+      shape: clioSummary,
+      pipeline: [
+        'Request Clio matters by open-date window',
+        'Normalize Clio JSON to dbo.Matters columns',
+        `Tag rows on or before ${MATTERS_LEGACY_CUTOFF_DATE} as ${MATTERS_MIGRATION_TAG}; later Clio-only rows as ${MATTERS_RECONCILIATION_TAG}`,
+        'Dedupe by MatterID and DisplayNumber against existing new-space matters',
+        'Insert missing rows only with Clio import tag',
+        'Record dataOpsLog counts and broadcast Data Hub update',
+      ],
+    };
+
+    if (dryRun) {
+      const durationMs = Date.now() - startedAt;
+      logOperation({
+        operation: operationKey,
+        entity: 'Matters',
+        status: 'completed',
+        triggeredBy,
+        invokedBy,
+        startDate: startDateSql,
+        endDate: endDateSql,
+        insertedRows: 0,
+        changedRows: candidates.length,
+        durationMs,
+        message: `Plan ready: ${candidates.length} matters would be imported; ${skippedExisting} already exist`,
+      });
+      activeJobs.delete(operationKey);
+      return { success: true, dryRun: true, plan, durationMs };
+    }
+
+    if (clioRows.length === 0) {
+      const durationMs = Date.now() - startedAt;
+      logOperation({
+        operation: operationKey,
+        entity: 'Matters',
+        status: 'no-data',
+        triggeredBy,
+        invokedBy,
+        startDate: startDateSql,
+        endDate: endDateSql,
+        insertedRows: 0,
+        durationMs,
+        message: `Clio returned no matters for ${startDateSql} -> ${endDateSql}. Existing data preserved.`,
+      });
+      activeJobs.delete(operationKey);
+      return { success: true, noData: true, insertedRows: 0, plan, durationMs };
+    }
+
+    let insertedRows = 0;
+    let failedRows = 0;
+    const transaction = pool.transaction();
+    await transaction.begin();
+    logProgress(operationKey, 'Transaction started (insert missing migration matters only)', { entity: 'Matters', triggeredBy, invokedBy });
+
+    try {
+      for (const row of candidates) {
+        if (activeJobs.get(operationKey)?.cancelled) throw new Error('Operation cancelled by user');
+        try {
+          await transaction.request()
+            .input('matterId', sql.NVarChar(255), row.matterId)
+            .input('instructionRef', sql.NVarChar(255), null)
+            .input('status', sql.NVarChar(50), row.status || 'Open')
+            .input('openDate', sql.Date, row.openDate)
+            .input('closeDate', sql.Date, row.closeDate)
+            .input('clientId', sql.NVarChar(255), row.clientId)
+            .input('displayNumber', sql.NVarChar(255), row.displayNumber)
+            .input('clientName', sql.NVarChar(255), row.clientName)
+            .input('clientType', sql.NVarChar(255), row.clientType)
+            .input('description', sql.NVarChar(sql.MAX), row.description)
+            .input('practiceArea', sql.NVarChar(255), row.practiceArea)
+            .input('responsibleSolicitor', sql.NVarChar(255), row.responsibleSolicitor)
+            .input('originatingSolicitor', sql.NVarChar(255), row.originatingSolicitor)
+            .input('supervisingPartner', sql.NVarChar(255), row.supervisingPartner)
+            .input('source', sql.NVarChar(255), row.source)
+            .input('referrer', sql.NVarChar(255), row.referrer)
+            .input('methodOfContact', sql.NVarChar(255), row.methodOfContact)
+            .query(`
+              IF NOT EXISTS (
+                SELECT 1 FROM dbo.Matters
+                WHERE MatterID = @matterId OR DisplayNumber = @displayNumber
+              )
+              BEGIN
+                INSERT INTO dbo.Matters (
+                  MatterID, InstructionRef, Status, OpenDate, CloseDate,
+                  ClientID, DisplayNumber, ClientName, ClientType,
+                  Description, PracticeArea,
+                  ResponsibleSolicitor, OriginatingSolicitor, SupervisingPartner,
+                  Source, Referrer, method_of_contact
+                ) VALUES (
+                  @matterId, @instructionRef, @status, @openDate, @closeDate,
+                  @clientId, @displayNumber, @clientName, @clientType,
+                  @description, @practiceArea,
+                  @responsibleSolicitor, @originatingSolicitor, @supervisingPartner,
+                  @source, @referrer, @methodOfContact
+                )
+              END
+            `);
+          insertedRows += 1;
+          if (insertedRows > 0 && insertedRows % 25 === 0) {
+            logProgress(operationKey, `Inserted ${insertedRows}/${candidates.length} migration matters`, { entity: 'Matters', triggeredBy, invokedBy });
+          }
+        } catch (insertError) {
+          failedRows += 1;
+          logProgress(operationKey, `Skipped one matter insert due to schema/value error (${failedRows} failed so far)`, { entity: 'Matters', triggeredBy, invokedBy });
+        }
+      }
+
+      await transaction.commit();
+      logProgress(operationKey, `Transaction committed (+${insertedRows} matters, ${failedRows} failed inserts)`, { entity: 'Matters', triggeredBy, invokedBy });
+    } catch (txError) {
+      try { await transaction.rollback(); } catch (_) { /* already rolled back */ }
+      logProgress(operationKey, `Transaction rolled back. Existing Matters data preserved. Error: ${txError.message}`, { entity: 'Matters', triggeredBy, invokedBy });
+      throw txError;
+    }
+
+    try {
+      await deleteCachePattern('stream:*matters*');
+      await deleteCachePattern('rpt:*matters*');
+      await deleteCachePattern('unified:matters*');
+      await deleteCachePattern('unified:matters-new-space*');
+    } catch (cacheError) {
+      console.warn('[DataOps] Post-sync Matters cache clear failed (non-fatal):', cacheError.message);
+    }
+
+    try {
+      clearMattersNewSpaceCaches('data-ops-matters-migration');
+    } catch (cacheError) {
+      console.warn('[DataOps] Post-sync Matters in-process cache clear failed (non-fatal):', cacheError.message);
+    }
+
+    try {
+      broadcastDataOpsChanged({
+        dataset: 'matters',
+        dateRange: { start: startDateSql, end: endDateSql },
+        rowCount: insertedRows,
+        triggeredBy,
+      });
+    } catch (_) { /* non-fatal */ }
+
+    const durationMs = Date.now() - startedAt;
+    logOperation({
+      operation: operationKey,
+      entity: 'Matters',
+      status: failedRows > 0 ? 'warn' : 'completed',
+      triggeredBy,
+      invokedBy,
+      startDate: startDateSql,
+      endDate: endDateSql,
+      insertedRows,
+      changedRows: candidates.length,
+      durationMs,
+      message: `Imported ${insertedRows} Clio matters; ${skippedExisting} already existed; ${failedRows} failed inserts`,
+    });
+
+    trackEvent('DataOps.MattersMigration.Completed', {
+      operation: operationKey,
+      triggeredBy,
+      startDate: startDateSql,
+      endDate: endDateSql,
+      clioCount: String(clioRows.length),
+      insertedRows: String(insertedRows),
+      skippedExisting: String(skippedExisting),
+      failedRows: String(failedRows),
+      durationMs: String(durationMs),
+    });
+    trackMetric('DataOps.MattersMigration.Duration', durationMs, { operation: operationKey, triggeredBy });
+    trackMetric('DataOps.MattersMigration.RowsInserted', insertedRows, { operation: operationKey });
+
+    activeJobs.delete(operationKey);
+    return { success: true, insertedRows, failedRows, skippedExisting, plan, durationMs };
+  } catch (error) {
+    const durationMs = Date.now() - startedAt;
+    activeJobs.delete(operationKey);
+    logOperation({
+      operation: operationKey,
+      entity: 'Matters',
+      status: 'error',
+      triggeredBy,
+      invokedBy,
+      startDate: startDateSql,
+      endDate: endDateSql,
+      durationMs,
+      message: error.message,
+    });
+    trackException(error, {
+      operation: operationKey,
+      phase: 'sync',
+      entity: 'Matters',
+      triggeredBy,
+      startDate: startDateSql,
+      endDate: endDateSql,
+      durationMs: String(durationMs),
+    });
+    trackEvent('DataOps.MattersMigration.Failed', {
+      operation: operationKey,
+      triggeredBy,
+      error: error.message,
+      startDate: startDateSql,
+      endDate: endDateSql,
+      durationMs: String(durationMs),
+    });
+    throw error;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
 // Routes
 // ─────────────────────────────────────────────────────────────
 
@@ -2514,6 +3123,57 @@ router.post('/sync-wip', async (req, res) => {
     const result = await syncWip({ daysBack, startDate, endDate, triggeredBy: 'manual', invokedBy });
     res.json(result);
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/matters-migration/schema', async (req, res) => {
+  const startedAt = Date.now();
+  try {
+    const schema = await getMattersSchemaSnapshot();
+    trackEvent('DataOps.MattersMigration.SchemaQueried', {
+      operation: 'matters-migration-schema',
+      triggeredBy: req.user?.initials || 'unknown',
+      columnCount: String(schema.columns.length),
+      schemaSource: schema.source,
+    });
+    res.json({
+      ok: true,
+      table: 'dbo.Matters',
+      migrationTag: MATTERS_MIGRATION_TAG,
+      reconciliationTag: MATTERS_RECONCILIATION_TAG,
+      legacyCutoffDate: MATTERS_LEGACY_CUTOFF_DATE,
+      schemaSource: schema.source,
+      warning: schema.warning,
+      columns: schema.columns,
+      durationMs: Date.now() - startedAt,
+    });
+  } catch (error) {
+    trackException(error, { operation: 'matters-migration-schema', phase: 'query' });
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/matters-migration/plan', async (req, res) => {
+  const { startDate, endDate } = req.body || {};
+  const invokedBy = req.user?.fullName || req.user?.initials || req.body?.invokedBy || req.query.invokedBy || null;
+  try {
+    const result = await syncMattersMigration({ startDate, endDate, dryRun: true, triggeredBy: 'manual-plan', invokedBy });
+    res.json(result);
+  } catch (error) {
+    trackException(error, { operation: 'matters-migration-plan', phase: 'plan' });
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/sync-matters', async (req, res) => {
+  const { startDate, endDate, dryRun = false } = req.body || {};
+  const invokedBy = req.user?.fullName || req.user?.initials || req.body?.invokedBy || req.query.invokedBy || null;
+  try {
+    const result = await syncMattersMigration({ startDate, endDate, dryRun, triggeredBy: 'manual', invokedBy });
+    res.json(result);
+  } catch (error) {
+    trackException(error, { operation: 'matters-migration-sync', phase: 'sync' });
     res.status(500).json({ error: error.message });
   }
 });
@@ -3160,7 +3820,7 @@ router.get('/table-stats', async (req, res) => {
 /**
  * GET /api/data-operations/month-audit
  * Returns last 24 months with their most recent sync/validate entries per operation.
- * Query params: operation (collectedTime | wip)
+ * Query params: operation (collectedTime | wip | matters)
  * Operation names in DB follow patterns like: syncCollectedTimeCustom_2026-01-01, syncWipRolling7d, *_validate
  */
 router.get('/month-audit', async (req, res) => {
@@ -3249,8 +3909,16 @@ router.get('/month-audit', async (req, res) => {
   }
 
   // Map frontend operation names to DB LIKE patterns
-  const syncLike = operation === 'collectedTime' ? 'syncCollectedTime%' : 'syncWip%';
-  const valLike = operation === 'collectedTime' ? 'syncCollectedTime%_validate' : 'syncWip%_validate';
+  const syncLike = operation === 'collectedTime'
+    ? 'syncCollectedTime%'
+    : operation === 'matters'
+      ? 'syncMattersMigration%'
+      : 'syncWip%';
+  const valLike = operation === 'collectedTime'
+    ? 'syncCollectedTime%_validate'
+    : operation === 'matters'
+      ? 'syncMattersMigration%_validate'
+      : 'syncWip%_validate';
 
   try {
     const logPool = await getLogPool();
@@ -3796,6 +4464,10 @@ const SCHEDULER_TIER_DEFS = {
     currentHourly: { operation: 'syncWipCurrentHourly', schedule: ':20 current month' },
     previousSeal: { operation: 'syncWipPreviousSeal', schedule: 'D1 03:50/12:50/23:50 · D2-14 02:50 · D21 02:50 · last day 23:50' },
   },
+  matters: {
+    migrationCurrentMonth: { operation: 'syncMattersMigrationCurrentMonth', schedule: ':35 current month' },
+    previousSeal: { operation: 'syncMattersMigrationPreviousSeal', schedule: 'D1 03:58/12:58/23:58 · D2-14 02:58 · D21 02:58 · last day 23:58' },
+  },
 };
 
 const TIER_LIFECYCLE_STATUSES = new Set(['queued', 'started', 'running', 'completed', 'validated', 'error', 'failed', 'timeout', 'skipped', 'no-data']);
@@ -3825,6 +4497,7 @@ function getSyncEntity(operation) {
   if (!operation) return null;
   if (operation.startsWith('syncCollectedTime')) return 'collected';
   if (operation.startsWith('syncWip')) return 'wip';
+  if (operation.startsWith('syncMattersMigration')) return 'matters';
   return null;
 }
 
@@ -3859,6 +4532,10 @@ function getSyncWindowLabel(row) {
       return 'Rolling 21 days';
     case 'syncWipRolling56d':
       return 'Rolling 56 days';
+    case 'syncMattersMigrationCurrentMonth':
+      return 'Current month';
+    case 'syncMattersMigrationPreviousSeal':
+      return 'Previous month seal';
     default:
       break;
   }
@@ -3914,6 +4591,7 @@ async function getPersistedSchedulerSnapshot(limit = 160) {
       AND (
         operation LIKE 'syncCollectedTime%'
         OR operation LIKE 'syncWip%'
+        OR operation LIKE 'syncMattersMigration%'
       )
     ORDER BY ts DESC
   `);
@@ -3986,7 +4664,23 @@ async function getPersistedSchedulerSnapshot(limit = 160) {
 router.get('/scheduler-status', async (req, res) => {
   try {
     const persisted = await getPersistedSchedulerSnapshot();
-    res.json({ enabled: true, ...persisted, serverTime: Date.now() });
+    const mattersAutoSync = getMattersAutoSyncRuntime();
+    res.json({
+      enabled: true,
+      ...persisted,
+      automation: {
+        matters: {
+          enabled: mattersAutoSync.enabled,
+          target: mattersAutoSync.target,
+          environment: mattersAutoSync.environment,
+          modeLabel: mattersAutoSync.modeLabel,
+          reason: mattersAutoSync.reason,
+          currentSchedule: SCHEDULER_TIER_DEFS.matters.migrationCurrentMonth.schedule,
+          sealSchedule: SCHEDULER_TIER_DEFS.matters.previousSeal.schedule,
+        },
+      },
+      serverTime: Date.now(),
+    });
   } catch (error) {
     trackException(error, { operation: 'scheduler-status', phase: 'query' });
     res.status(500).json({ error: 'Failed to retrieve scheduler status' });

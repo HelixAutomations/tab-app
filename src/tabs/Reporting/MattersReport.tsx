@@ -54,6 +54,11 @@ interface RecoveredFee {
   source?: 'clio' | 'sql' | 'manual'; // Data source tracking
 }
 
+const isCollectedFeeRow = (row: RecoveredFee): boolean => {
+        const kind = typeof row.kind === 'string' ? row.kind.trim().toLowerCase() : '';
+        return kind !== 'expense' && kind !== 'product';
+};
+
 export interface WIP {
   date?: string; // YYYY-MM-DD format date field from Clio/SQL
   created_at: string;
@@ -899,7 +904,9 @@ const MattersReport: React.FC<MattersReportProps> = ({
         }
 
         if (Array.isArray(recoveredFees)) {
-            recoveredFees.forEach(entry => upsertEntry(entry, 'collected'));
+            recoveredFees.forEach(entry => {
+                if (isCollectedFeeRow(entry)) upsertEntry(entry, 'collected');
+            });
         }
         
         return map;

@@ -20,7 +20,6 @@ import AccessMatrixConnector from '../Reporting/components/AccessMatrixConnector
 import NavigatorDetailBar from '../../components/NavigatorDetailBar';
 import SystemErrorsView from './system/SystemErrorsView';
 import SystemActivityView from './system/SystemActivityView';
-import MatterReplayView from './system/MatterReplayView';
 import SystemInfrastructureView from './system/SystemInfrastructureView';
 import SystemAuditPackView from './system/SystemAuditPackView';
 import SystemProjectsView from './system/SystemProjectsView';
@@ -138,14 +137,13 @@ const containerStyles = (isDarkMode: boolean): React.CSSProperties => ({
   transition: 'background-color 0.2s',
 });
 
-type SystemMode = 'entry' | 'errors' | 'matter-replay' | 'activity' | 'tasks' | 'api-audit' | 'infrastructure' | 'projects' | 'audit-pack' | 'dashboard';
+type SystemMode = 'entry' | 'errors' | 'activity' | 'tasks' | 'api-audit' | 'infrastructure' | 'projects' | 'audit-pack' | 'dashboard';
 
 const SYSTEM_NAV_TABS = [
   { key: 'dashboard', label: 'Dashboard' },
   { key: 'activity', label: 'Activity' },
   { key: 'tasks', label: 'Tasks' },
   { key: 'errors', label: 'Errors' },
-  { key: 'matter-replay', label: 'Matter Replay' },
   { key: 'api-audit', label: 'API Audit' },
   { key: 'infrastructure', label: 'Infrastructure' },
   { key: 'projects', label: 'Projects' },
@@ -425,7 +423,6 @@ const SystemEntry: React.FC<{
   activityFeedLastSyncAt: number | null;
   activityError: string | null;
   onOpenErrors: () => void;
-  onOpenMatterReplay: () => void;
   onOpenActivity: () => void;
   onOpenTasks: () => void;
   onOpenApiAudit: () => void;
@@ -442,7 +439,6 @@ const SystemEntry: React.FC<{
   activityFeedLastSyncAt,
   activityError,
   onOpenErrors,
-  onOpenMatterReplay,
   onOpenActivity,
   onOpenTasks,
   onOpenApiAudit,
@@ -516,10 +512,6 @@ const SystemEntry: React.FC<{
         </div>
         {sectionLabel('Access and rules')}
         <SystemAccessSection isDarkMode={isDarkMode} />
-        {sectionLabel('Specialist tools')}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14 }}>
-          <SystemLandingTile label="Matter Replay" description="Matter-opening repair and replay." isDarkMode={isDarkMode} accent={colours.orange} onClick={onOpenMatterReplay} dataRegion="system/entry/matter-replay" />
-        </div>
         {sectionLabel('Reference')}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
           <SystemLandingTile
@@ -719,13 +711,6 @@ const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, 
     setSystemMode('errors');
   }, [setLens]);
 
-  const handleOpenMatterReplay = useCallback(() => {
-    resetAppScrollTop();
-    setLens('triage');
-    setShowAdvancedLenses(false);
-    setSystemMode('matter-replay');
-  }, [setLens]);
-
   const handleOpenActivity = useCallback(() => {
     resetAppScrollTop();
     setLens('all');
@@ -786,9 +771,6 @@ const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, 
       case 'errors':
         handleOpenErrors();
         break;
-      case 'matter-replay':
-        handleOpenMatterReplay();
-        break;
       case 'activity':
         handleOpenActivity();
         break;
@@ -820,7 +802,6 @@ const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, 
     handleOpenInfrastructure,
     handleOpenProjects,
     handleOpenTasks,
-    handleOpenMatterReplay,
     resetToSystemEntry,
   ]);
 
@@ -1059,7 +1040,6 @@ const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, 
             activityFeedLastSyncAt={activityFeedLastSyncAt}
             activityError={activityError}
             onOpenErrors={handleOpenErrors}
-            onOpenMatterReplay={handleOpenMatterReplay}
             onOpenActivity={handleOpenActivity}
             onOpenTasks={handleOpenTasks}
             onOpenApiAudit={handleOpenApiAudit}
@@ -1078,21 +1058,6 @@ const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, 
       <ActivityProvider value={layout}>
         <div style={containerStyles(isDarkMode)}>
           <SystemErrorsView
-            viewerInitials={userInitials || null}
-            isDarkMode={isDarkMode}
-            onBack={resetToSystemEntry}
-            onOpenDashboard={handleOpenDashboard}
-          />
-        </div>
-      </ActivityProvider>
-    );
-  }
-
-  if (showLiveMonitor && systemMode === 'matter-replay') {
-    return (
-      <ActivityProvider value={layout}>
-        <div style={containerStyles(isDarkMode)}>
-          <MatterReplayView
             viewerInitials={userInitials || null}
             isDarkMode={isDarkMode}
             onBack={resetToSystemEntry}

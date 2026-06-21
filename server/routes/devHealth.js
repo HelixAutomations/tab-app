@@ -24,10 +24,14 @@ const BOOT_ID =
 const BOOT_AT = Date.now();
 
 router.get('/', (req, res) => {
+  const isProduction = process.env.NODE_ENV === 'production';
   const backgroundWorkersEnabled =
-    process.env.NODE_ENV === 'production'
+    isProduction
     || process.env.HELIX_ENABLE_BACKGROUND === '1'
     || process.env.HELIX_LAZY_INIT === '0';
+  const dataOpsSchedulerEnabled =
+    isProduction
+    || process.env.HELIX_ENABLE_DATAOPS_SCHEDULER === '1';
   res.set('Cache-Control', 'no-store');
   res.json({
     bootId: BOOT_ID,
@@ -35,6 +39,7 @@ router.get('/', (req, res) => {
     pid: process.pid,
     lazyInit: !backgroundWorkersEnabled,
     backgroundWorkersEnabled,
+    dataOpsSchedulerEnabled,
     nodeEnv: process.env.NODE_ENV || 'development',
   });
 });

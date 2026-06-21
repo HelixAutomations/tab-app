@@ -2090,6 +2090,68 @@
   transform: translateY(3px);
 }
 
+.enquiry-row__email-control-strip {
+  position: absolute;
+  left: 0;
+  top: calc(50% + 15px);
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: min(420px, 46vw);
+  overflow: hidden;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateY(5px);
+  transition: opacity 140ms ease, transform 160ms ease;
+  pointer-events: none;
+}
+
+.enquiry-row__email-control-label,
+.enquiry-row__email-control-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 17px;
+  padding: 0 6px;
+  border: 1px solid var(--border-base);
+  background: var(--surface-card);
+  color: var(--text-muted);
+  font-family: var(--font-primary);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.enquiry-row__email-control-label {
+  border-color: rgba(var(--accent-rgb), 0.2);
+  background: rgba(var(--accent-rgb), 0.06);
+  color: var(--helix-highlight);
+}
+
+.enquiry-row__email-control-chip {
+  max-width: 128px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.enquiry-row__email-control-chip--muted {
+  opacity: 0.68;
+}
+
+.enquiry-row__email-control-strip--ready .enquiry-row__email-control-chip:first-of-type {
+  border-color: rgba(var(--green-rgb), 0.28);
+  background: rgba(var(--green-rgb), 0.08);
+  color: var(--helix-green);
+}
+
+.enquiry-row__email-control-strip--shared .enquiry-row__email-control-chip:first-of-type,
+.enquiry-row__email-control-strip--missing .enquiry-row__email-control-chip:first-of-type {
+  border-color: rgba(var(--subtle-grey-rgb), 0.24);
+  background: rgba(var(--subtle-grey-rgb), 0.08);
+}
+
 .enquiry-row__quick-actions {
   opacity: 0;
   transform: translateX(6px);
@@ -2114,6 +2176,12 @@
   transform: translateY(6px);
 }
 
+.enquiry-row--css-hover:hover .enquiry-row__email-control-strip,
+.enquiry-row--css-hover:focus-within .enquiry-row__email-control-strip {
+  opacity: 1;
+  transform: translateY(8px);
+}
+
 .enquiry-row--css-hover:hover .enquiry-row__quick-actions {
   opacity: 1;
   transform: translateX(0);
@@ -2122,6 +2190,81 @@
 
 .prospect-date__bottom:empty {
   display: none;
+}
+
+.enquiry-email-control-spine {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  margin: 0 0 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-base);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  font-family: var(--font-primary);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.enquiry-email-control-spine::-webkit-scrollbar {
+  display: none;
+}
+
+.enquiry-email-control-spine__label,
+.enquiry-email-control-spine__chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-height: 20px;
+  padding: 0 8px;
+  border: 1px solid var(--border-base);
+  background: var(--surface-card-raised);
+  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: 0;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.enquiry-email-control-spine__label {
+  border-color: rgba(var(--accent-rgb), 0.24);
+  background: rgba(var(--accent-rgb), 0.07);
+  color: var(--helix-highlight);
+}
+
+.enquiry-email-control-spine__chip--status {
+  color: var(--text-primary);
+}
+
+.enquiry-email-control-spine--ready .enquiry-email-control-spine__chip--status {
+  border-color: rgba(var(--green-rgb), 0.3);
+  background: rgba(var(--green-rgb), 0.08);
+  color: var(--helix-green);
+}
+
+.enquiry-email-control-spine--shared .enquiry-email-control-spine__chip--status,
+.enquiry-email-control-spine--missing .enquiry-email-control-spine__chip--status {
+  border-color: rgba(var(--subtle-grey-rgb), 0.28);
+  background: rgba(var(--subtle-grey-rgb), 0.08);
+}
+
+.enquiry-email-control-spine__chip--muted {
+  opacity: 0.72;
+}
+
+@media (max-width: 840px) {
+  .enquiry-row__email-control-strip {
+    display: none;
+  }
+
+  .enquiry-email-control-spine {
+    margin-bottom: 6px;
+  }
 }
 
 /* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Pipeline row hover (composition interactive pattern) ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬

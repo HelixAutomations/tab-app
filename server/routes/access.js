@@ -55,6 +55,7 @@ router.get('/capabilities', (req, res) => {
     { key: 'feature:firm-wide-home', kind: 'feature', label: 'Firm-wide Home data', description: 'Home data-scope exception — see firm-wide datasets on Home.' },
     { key: 'feature:hub-controls', kind: 'feature', label: 'Private hub controls', description: 'DebugLatencyOverlay, CCL diff drawer, cache monitor, dev preview locks.' },
     { key: 'feature:activity-tab', kind: 'feature', label: 'Activity (System) tab', description: 'Operations dashboard, ops pulse, Operator Actions surface.' },
+    { key: 'feature:tasks-tab', kind: 'feature', label: 'Tasks tab', description: 'Top navigation Tasks canvas and Hub-native task intake workbench.' },
     { key: 'feature:ccl', kind: 'feature', label: 'CCL editing', description: 'CCL matter to-do items / lifecycle steps. Open to all.' },
     { key: 'action:matter-oneoff-replay', kind: 'action', label: 'Matter one-off replay (write)', description: 'Replays the matter-opening pipeline against prod for one InstructionRef.' },
   ];

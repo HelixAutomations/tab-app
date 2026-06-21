@@ -14,9 +14,12 @@ Trigger phrases and cleanup ladder for the local dev/browser loop. Boot-mode det
 | Script | Use when |
 |--------|----------|
 | `npm run dev:fast` | **Default.** UI work, AI prompts, route handlers, anything not timer-driven. Skips scheduler + event poller. |
-| `npm run dev:all` | Working on schedulers, sync logic, Clio polling, anything timer-driven. |
+| `npm run dev:all` | Full local server/frontend loop with background pollers, but DataOps report sync remains off by default. |
+| `npm run dev:marketing` | Marketing UI/workbench work. Lands on Marketing and keeps unrelated Home boot data quiet. |
 
-Both scripts route through `tools/dev-all-with-logs.mjs`, which now runs a pre-boot cleanup guard after confirming ports `3000` and `8080` are free. It clears old dev logs every boot and clears heavy webpack/build cache only when recoverable clutter exceeds 500MB. Use `--clean-full` or `HELIX_DEV_CLEAN_MODE=full` for a forced full wipe; use `--no-auto-clean` or `HELIX_DEV_AUTO_CLEAN=0` only when debugging the cleanup itself.
+Use `npm run dev:all -- --with-dataops` only when deliberately working on DataOps scheduler/report sync behaviour. The same opt-in is available as `HELIX_ENABLE_DATAOPS_SCHEDULER=1` for custom local runs. Production scheduling is not controlled by these local dev defaults.
+
+The boot scripts route through `tools/dev-all-with-logs.mjs`, which runs a pre-boot cleanup guard after confirming ports `3000` and `8080` are free. It clears old dev logs every boot and clears heavy webpack/build cache only when recoverable clutter exceeds 2048MB. Use `--clean-full` or `HELIX_DEV_CLEAN_MODE=full` for a forced full wipe; use `--no-auto-clean` or `HELIX_DEV_AUTO_CLEAN=0` only when debugging the cleanup itself.
 
 ## Build validation cadence
 
@@ -31,7 +34,7 @@ Goal: refresh the VS Code Simple Browser/webview session and clear local dev clu
 Recommended ladder:
 
 1. Run `npm run dev:clean -- --dry-run` first. Report the recoverable size and the largest bucket. Read-only.
-2. If the user asked for a full snappiness reset, or recoverable clutter is large (roughly 500MB+), run `npm run dev:clean -- --yes`. Tell the user the next webpack compile will be cold once.
+2. If the user asked for a full snappiness reset, or recoverable clutter is genuinely large (roughly 2GB+), run `npm run dev:clean -- --yes`. Tell the user the next webpack compile will be cold once.
 3. If the dev stack is still running and a full cache wipe is not needed, prefer the cheaper `npm run dev:clean:logs`.
 4. Reset the embedded browser state. Prefer VS Code `Developer: Reload Webviews` when available; otherwise tell the operator to close and reopen the Simple Browser tab. `Ctrl+Shift+R` is the lightest fallback.
 5. Reopen the happy-path shell at `http://localhost:3000`. If the dev stack is stopped, restart with `npm run dev:fast`. If ports `3000`/`8080` are already occupied, do not start another stack; use the existing one or stop it first.

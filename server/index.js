@@ -1,4 +1,5 @@
 const path = require('path');
+const crypto = require('crypto');
 
 // ── Application Insights (must init BEFORE express so HTTP is auto-instrumented) ──
 const appInsights = require('./utils/appInsights');
@@ -521,6 +522,7 @@ const operatorActionsRouter = lazyRouter('./routes/operator-actions');
 const accessRouter = lazyRouter('./routes/access');
 const systemTasksRouter = lazyRouter('./routes/system-tasks');
 const taskIntakeRouter = lazyRouter('./routes/task-intake');
+const searchAttributionRouter = lazyRouter('./routes/search-attribution');
 _bootMark('routes:require:done');
 
 const isProd = process.env.NODE_ENV === 'production';
@@ -536,25 +538,61 @@ function _rateLimitQueryValue(value) {
     return String(value);
 }
 
+function _rateLimitHeaderValue(req, name) {
+    const value = req.headers?.[name.toLowerCase()];
+    if (Array.isArray(value)) return String(value[0] || '');
+    if (value == null) return '';
+    return String(value);
+}
+
 const rateLimit = require('express-rate-limit');
 const { ipKeyGenerator } = rateLimit;
+const INTERNAL_REQUEST_SECRET = global.__HELIX_INTERNAL_REQUEST_SECRET || crypto.randomBytes(32).toString('hex');
+global.__HELIX_INTERNAL_REQUEST_SECRET = INTERNAL_REQUEST_SECRET;
 
 function _rateLimitKey(req) {
-    const entraId = _rateLimitQueryValue(req.query?.entraId).trim().toLowerCase();
+    const entraId = (
+        _rateLimitQueryValue(req.query?.entraId)
+        || _rateLimitHeaderValue(req, 'x-helix-entra-id')
+        || _rateLimitHeaderValue(req, 'x-ms-client-principal-id')
+    ).trim().toLowerCase();
     if (entraId) return `entra:${entraId}`;
 
-    const email = _rateLimitQueryValue(req.query?.email).trim().toLowerCase();
+    const email = (
+        _rateLimitQueryValue(req.query?.email)
+        || _rateLimitHeaderValue(req, 'x-user-email')
+        || _rateLimitHeaderValue(req, 'x-ms-client-principal-name')
+    ).trim().toLowerCase();
     if (email) return `email:${email}`;
 
-    const initials = _rateLimitQueryValue(req.query?.initials).trim().toUpperCase();
+    const initials = (
+        _rateLimitQueryValue(req.query?.initials)
+        || _rateLimitHeaderValue(req, 'x-helix-initials')
+    ).trim().toUpperCase();
     if (initials) return `initials:${initials}`;
 
     return `ip:${ipKeyGenerator(req.ip || 'unknown')}`;
 }
 
+function _isTrustedInternalRateLimitBypass(req) {
+    const originalUrl = String(req.originalUrl || '');
+    if (!originalUrl.startsWith('/api/marketing-metrics/')) return false;
+    if (_rateLimitHeaderValue(req, 'x-helix-internal-request') !== 'reporting-stream') return false;
+
+    const suppliedSecret = _rateLimitHeaderValue(req, 'x-helix-internal-secret');
+    if (!suppliedSecret || !INTERNAL_REQUEST_SECRET || suppliedSecret.length !== INTERNAL_REQUEST_SECRET.length) return false;
+
+    try {
+        return crypto.timingSafeEqual(Buffer.from(suppliedSecret), Buffer.from(INTERNAL_REQUEST_SECRET));
+    } catch {
+        return false;
+    }
+}
+
 function _shouldSkipGlobalRateLimit(req) {
     const originalUrl = String(req.originalUrl || '');
-    return req.path.includes('/stream')
+    return _isTrustedInternalRateLimitBypass(req)
+        || req.path.includes('/stream')
         || req.path === '/health'
         || originalUrl.startsWith('/api/health')
         || originalUrl.startsWith('/api/telemetry');
@@ -826,6 +864,7 @@ app.use('/api/updateEnquiryPOC', updateEnquiryPOCRouter);
 app.use('/api/claimEnquiry', claimEnquiryRouter);
 app.use('/api/pipeline-activity', pipelineActivityRouter);
 app.use('/api/response-metrics', responseMetricsRouter);
+app.use('/api/search-attribution', searchAttributionRouter);
 app.use('/api/reporting', receptionKpisRouter);
 app.use('/api/matters-unified', mattersUnifiedRouter);
 app.use('/api/ops', opsRouter);
@@ -1070,13 +1109,17 @@ app.listen(PORT, () => {
 
     // Defer scheduler + event poller until hydration completes
     _hydrationReady.then(() => {
-        // Local dev now defaults to skipping scheduler/poller boot work unless
-        // the operator explicitly opts in. Production always runs background
-        // workers regardless of local dev flags.
+        // Production always runs background workers. Local dev keeps report
+        // syncs off by default; opt in with HELIX_ENABLE_DATAOPS_SCHEDULER=1
+        // or `npm run dev:all -- --with-dataops` when working on sync logic.
+        const isProduction = process.env.NODE_ENV === 'production';
         const enableBackgroundWorkers =
-            process.env.NODE_ENV === 'production'
+            isProduction
             || process.env.HELIX_ENABLE_BACKGROUND === '1'
             || process.env.HELIX_LAZY_INIT === '0';
+        const enableDataOpsScheduler =
+            isProduction
+            || process.env.HELIX_ENABLE_DATAOPS_SCHEDULER === '1';
         const skipBackground = !enableBackgroundWorkers;
 
         banner({
@@ -1085,23 +1128,33 @@ app.listen(PORT, () => {
             sql: _connStatus.sql,
             instructionsSql: _connStatus.instructionsSql,
             clio: _connStatus.clio,
-            scheduler: !skipBackground,
+            scheduler: enableDataOpsScheduler ? true : 'skipped locally',
             eventPoller: skipBackground ? 'skipped (local default)' : POLL_INTERVAL_MS / 1000,
             tasksMirror: skipBackground ? 'skipped (local default)' : `${(Number(process.env.HELIX_TASKS_MIRROR_INTERVAL_MS) || 30000) / 1000}s`,
         });
+
+        if (enableDataOpsScheduler) {
+            setServerStatus('scheduler', true);
+            startDataOperationsScheduler();
+        } else {
+            setServerStatus('scheduler', false);
+            try {
+                trackEvent('Server.Boot.DataOpsScheduler.Skipped', {
+                    reason: 'local-default',
+                    optIn: 'HELIX_ENABLE_DATAOPS_SCHEDULER=1',
+                });
+            } catch { /* */ }
+        }
 
         if (skipBackground) {
             try {
                 trackEvent('Server.Boot.LazyInit.Skipped', {
                     reason: process.env.HELIX_LAZY_INIT === '1' ? 'HELIX_LAZY_INIT' : 'local-default',
-                    skipped: 'scheduler,eventPoller',
+                    skipped: 'eventPoller,tasksMirror,accessExpirySweep',
                 });
             } catch { /* */ }
-            setServerStatus('scheduler', false);
             setServerStatus('eventPoller', false);
         } else {
-            setServerStatus('scheduler', true);
-            startDataOperationsScheduler();
             startEventPoller();
             setServerStatus('eventPoller', true);
             // System Tasks Hub-side mirror: 30s drift sync against Asana.

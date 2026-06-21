@@ -54,8 +54,12 @@ type DatasetSummary = ReportingLiveDatasetSummary;
 type OperationLogEntry = {
   id: string;
   ts: number;
+  jobId?: string | null;
   operation: string;
-  status: 'started' | 'progress' | 'completed' | 'error';
+  entity?: string | null;
+  sourceSystem?: string | null;
+  direction?: string | null;
+  status: 'started' | 'progress' | 'completed' | 'error' | string;
   startDate?: string;
   endDate?: string;
   triggeredBy?: string;
@@ -63,9 +67,78 @@ type OperationLogEntry = {
   daysBack?: number;
   deletedRows?: number;
   insertedRows?: number;
+  changedRows?: number;
   durationMs?: number;
   message?: string;
 };
+
+function normaliseOperationLogEntry(entry: Partial<OperationLogEntry> & Record<string, unknown>, index: number): OperationLogEntry | null {
+  const operation = String(entry.operation || '').trim();
+  if (!operation) return null;
+  const rawTs = (entry as Record<string, unknown>).ts;
+  const ts = typeof rawTs === 'number'
+    ? rawTs
+    : rawTs instanceof Date
+      ? rawTs.getTime()
+      : Date.parse(String(rawTs || ''));
+  const safeTs = Number.isFinite(ts) ? ts : Date.now();
+  const id = String(entry.id || entry.jobId || `${operation}-${safeTs}-${index}`);
+  return {
+    id,
+    ts: safeTs,
+    jobId: typeof entry.jobId === 'string' ? entry.jobId : null,
+    operation,
+    entity: typeof entry.entity === 'string' ? entry.entity : null,
+    sourceSystem: typeof entry.sourceSystem === 'string' ? entry.sourceSystem : null,
+    direction: typeof entry.direction === 'string' ? entry.direction : null,
+    status: String(entry.status || 'recorded'),
+    startDate: typeof entry.startDate === 'string' ? entry.startDate : undefined,
+    endDate: typeof entry.endDate === 'string' ? entry.endDate : undefined,
+    triggeredBy: typeof entry.triggeredBy === 'string' ? entry.triggeredBy : undefined,
+    invokedBy: typeof entry.invokedBy === 'string' ? entry.invokedBy : undefined,
+    daysBack: typeof entry.daysBack === 'number' ? entry.daysBack : undefined,
+    deletedRows: typeof entry.deletedRows === 'number' ? entry.deletedRows : undefined,
+    insertedRows: typeof entry.insertedRows === 'number' ? entry.insertedRows : undefined,
+    changedRows: typeof entry.changedRows === 'number' ? entry.changedRows : undefined,
+    durationMs: typeof entry.durationMs === 'number' ? entry.durationMs : undefined,
+    message: typeof entry.message === 'string' ? entry.message : undefined,
+  };
+}
+
+type MatterOpeningActivityEntry = {
+  id: string;
+  ts: number;
+  status: string;
+};
+
+type ActivityFeedItem = {
+  id?: unknown;
+  source?: unknown;
+  status?: unknown;
+  timestamp?: unknown;
+};
+
+function mapMatterOpeningActivityItems(items: unknown): MatterOpeningActivityEntry[] {
+  if (!Array.isArray(items)) return [];
+  return items
+    .filter((item): item is ActivityFeedItem => String((item as ActivityFeedItem)?.source || '') === 'activity.matter-opening')
+    .map((item, index) => {
+      const parsedTs = Date.parse(String(item.timestamp || ''));
+      const rawStatus = String(item.status || '').toLowerCase();
+      const status = rawStatus === 'error' || rawStatus === 'failed'
+        ? 'error'
+        : rawStatus === 'warn' || rawStatus === 'warning'
+          ? 'warn'
+          : 'completed';
+      return {
+        id: String(item.id || `matter-opening-${index}`),
+        ts: Number.isNaN(parsedTs) ? Date.now() : parsedTs,
+        status,
+      };
+    })
+    .sort((left, right) => right.ts - left.ts)
+    .slice(0, 20);
+}
 
 /**
  * Translate raw server/Clio error messages into plain-English summaries.
@@ -180,10 +253,12 @@ type SchedulerTierInfo = {
   schedule: string;
 };
 
+type DataOpsSchedulerEntity = ReportingAuditScope | 'matters';
+
 type SchedulerRecentRun = {
   id: string;
   ts: number;
-  entity: ReportingAuditScope;
+  entity: DataOpsSchedulerEntity;
   operation: string;
   status: string;
   triggeredBy: string;
@@ -202,10 +277,18 @@ type SchedulerRecentRun = {
 type SchedulerStatus = {
   enabled: boolean;
   tiers: {
-    collected: { hot: SchedulerTierInfo; warm: SchedulerTierInfo; cold: SchedulerTierInfo; monthly: SchedulerTierInfo };
-    wip: { hot: SchedulerTierInfo; warm: SchedulerTierInfo; cold: SchedulerTierInfo };
+    collected: Record<string, SchedulerTierInfo>;
+    wip: Record<string, SchedulerTierInfo>;
+    matters?: Record<string, SchedulerTierInfo>;
   };
   recentRuns: SchedulerRecentRun[];
+  automation?: {
+    matters?: {
+      enabled?: boolean;
+      currentSchedule?: string;
+      sealSchedule?: string;
+    };
+  };
   serverTime?: number;
 };
 
@@ -311,6 +394,7 @@ type OutstandingBalancesStatus = {
 interface DataCentreProps {
   onBack: () => void;
   onRefreshAll: () => void;
+  onRefreshDatasets: (keys: ReportingDatasetKey[]) => void | Promise<unknown>;
   onRefreshCollected: () => void;
   isRefreshing: boolean;
   progressPercent: number;
@@ -321,10 +405,14 @@ interface DataCentreProps {
   userName?: string;
   /** Current user's initials for dev-preview gates */
   userInitials?: string;
+  /** Current user's email for demo-mode self-send simulations */
+  userEmail?: string;
   /** Mark this surface as the restricted production audience view */
   showProdAudienceBadge?: boolean;
   /** True when Data Hub is mounted as its own top-level tab */
   isDedicatedPage?: boolean;
+  /** Enables demo-only controls for walkthroughs and simulations */
+  demoModeEnabled?: boolean;
 }
 
 type RangePreset = 'custom' | 'today' | 'yesterday' | 'thisWeek' | 'lastWeek' | 'rolling7d' | 'rolling14d' | 'thisMonth' | 'lastMonth' | 'ytd' | 'thisYear' | 'lastYear';
@@ -725,29 +813,17 @@ const DataHubReconciliationPanel: React.FC<DataHubReconciliationPanelProps> = ({
         flexDirection: 'column',
         gap: 12,
         padding: 14,
-        border: `1px solid ${shellBorder}`,
-        borderLeft: `3px solid ${laneAccent}`,
-        background: `linear-gradient(135deg, ${withAlpha(laneAccent, isDarkMode ? 0.14 : 0.08)}, transparent 34%), ${shellBackground}`,
+        borderStyle: 'solid',
+        borderWidth: '1px 1px 1px 3px',
+        borderColor: `${shellBorder} ${shellBorder} ${shellBorder} ${laneAccent}`,
+        background: shellBackground,
         boxShadow: reportingPanelShadow(isDarkMode),
         borderRadius: 0,
       }}
     >
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12, alignItems: 'stretch' }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, minWidth: 0 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 7px)', gap: 4, padding: 8, border: `1px solid ${withAlpha(laneAccent, 0.28)}`, background: withAlpha(laneAccent, isDarkMode ? 0.12 : 0.08), flexShrink: 0 }}>
-            {Array.from({ length: 9 }).map((_, index) => (
-              <span
-                key={index}
-                style={{
-                  width: 7,
-                  height: 7,
-                  borderRadius: '50%',
-                  background: index === 1 || index === 4 ? colours.green : index === 2 ? colours.orange : laneAccent,
-                  opacity: index === 8 ? 0.35 : 1,
-                }}
-              />
-            ))}
-          </div>
+          <span style={{ width: 4, alignSelf: 'stretch', minHeight: 54, background: laneAccent, flexShrink: 0 }} />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
             <span style={{ fontSize: 10, fontWeight: 900, textTransform: 'uppercase', letterSpacing: 0, color: muted }}>
               Reconciliation
@@ -993,6 +1069,7 @@ const DataHubReconciliationPanel: React.FC<DataHubReconciliationPanelProps> = ({
 const DataCentre: React.FC<DataCentreProps> = ({
   onBack,
   onRefreshAll,
+  onRefreshDatasets,
   onRefreshCollected,
   isRefreshing,
   progressPercent,
@@ -1001,12 +1078,24 @@ const DataCentre: React.FC<DataCentreProps> = ({
   datasets,
   userName,
   userInitials,
+  userEmail,
   showProdAudienceBadge = false,
   isDedicatedPage = false,
+  demoModeEnabled = false,
 }) => {
   const { isDarkMode } = useTheme();
   const { showToast, updateToast } = useToast();
   const { setContent } = useNavigatorActions();
+  const dataHubBrandAccent = isDarkMode ? colours.accent : colours.highlight;
+  const dataHubHomeSurface = isDarkMode ? colours.dark.sectionBackground : withAlpha(colours.grey, 0.98);
+  const dataHubHomeCardSurface = isDarkMode ? colours.dark.cardBackground : withAlpha(colours.light.cardBackground, 0.98);
+  const dataHubHomeFooterSurface = isDarkMode ? colours.websiteBlue : colours.grey;
+  const dataHubHomeControlSurface = isDarkMode ? withAlpha(colours.dark.cardBackground, 0.42) : withAlpha(colours.light.cardBackground, 0.82);
+  const dataHubHomeHoverSurface = isDarkMode ? colours.dark.cardHover : colours.light.cardHover;
+  const dataHubHomeSelectedSurface = withAlpha(dataHubBrandAccent, isDarkMode ? 0.16 : 0.09);
+  const dataHubHomeBorder = isDarkMode ? withAlpha(colours.dark.borderColor, 0.38) : withAlpha(colours.greyText, 0.14);
+  const dataHubHomeBodyText = isDarkMode ? '#d1d5db' : '#374151';
+  const dataHubRootRef = React.useRef<HTMLDivElement | null>(null);
   type ActiveTab = 'datasets' | 'datasetDetail' | 'collected' | 'wip' | 'agedDebt' | 'people' | 'finance' | 'compliance' | 'ads';
   const datasetTargetTabs = React.useMemo<Record<ReportingDatasetKey, ActiveTab>>(() => ({
     userData: 'people',
@@ -1021,6 +1110,7 @@ const DataCentre: React.FC<DataCentreProps> = ({
     googleAds: 'ads',
     deals: 'people',
     instructions: 'people',
+    emailLists: 'datasetDetail',
     dubberCalls: 'people',
   }), []);
   const datasetTargetLabels = React.useMemo<Record<ActiveTab, string>>(() => ({
@@ -1036,14 +1126,32 @@ const DataCentre: React.FC<DataCentreProps> = ({
   }), []);
   const [activeOp, setActiveOp] = React.useState<ActiveTab>('datasets');
   const [selectedDatasetKey, setSelectedDatasetKey] = React.useState<ReportingDatasetKey | null>(null);
+  const [mattersLedgerOpen, setMattersLedgerOpen] = React.useState(false);
+  const scrollDataHubToTop = React.useCallback(() => {
+    window.requestAnimationFrame(() => {
+      const root = dataHubRootRef.current
+        ?? document.querySelector('[data-helix-region="reports/data-hub"]')
+        ?? document.querySelector('[data-helix-region="reports/data-hub/enquiries-ledger"]');
+      const scrollRegion = root instanceof HTMLElement
+        ? root.closest('.app-scroll-region')
+        : document.querySelector('.app-scroll-region');
+      if (scrollRegion instanceof HTMLElement) {
+        scrollRegion.scrollTo({ top: 0, behavior: 'auto' });
+        return;
+      }
+      window.scrollTo({ top: 0, behavior: 'auto' });
+    });
+  }, []);
   const handleDatasetSelect = React.useCallback((key: ReportingDatasetKey) => {
     setSelectedDatasetKey(key);
+    setMattersLedgerOpen(false);
     const target = datasetTargetTabs[key] ?? 'datasetDetail';
     setActiveOp(key === 'wip' || key === 'recoveredFees' ? target : 'datasetDetail');
   }, [datasetTargetTabs]);
   const handleBackToDatasets = React.useCallback(() => {
     setActiveOp('datasets');
     setSelectedDatasetKey(null);
+    setMattersLedgerOpen(false);
   }, []);
   const handleNavigatorBack = React.useCallback(() => {
     if (activeOp !== 'datasets') {
@@ -1054,12 +1162,23 @@ const DataCentre: React.FC<DataCentreProps> = ({
   }, [activeOp, handleBackToDatasets, onBack]);
   const handleOpenSelectedOperationalView = React.useCallback(() => {
     if (!selectedDatasetKey) return;
+    setMattersLedgerOpen(false);
     setActiveOp(datasetTargetTabs[selectedDatasetKey] ?? 'datasets');
   }, [datasetTargetTabs, selectedDatasetKey]);
   const getDatasetTargetLabel = React.useCallback((key: ReportingDatasetKey) => {
     const target = datasetTargetTabs[key] ?? 'datasetDetail';
     return key === 'wip' || key === 'recoveredFees' ? datasetTargetLabels[target] : 'Dataset detail';
   }, [datasetTargetLabels, datasetTargetTabs]);
+
+  React.useEffect(() => {
+    if (!mattersLedgerOpen) return;
+    window.requestAnimationFrame(() => {
+      const target = document.querySelector('[data-helix-region="reports/data-hub/matters-ledger"]');
+      if (target instanceof HTMLElement) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    });
+  }, [mattersLedgerOpen]);
 
   /* ─── Navigator bar — managed by DataCentre itself ─── */
   React.useEffect(() => {
@@ -1075,29 +1194,10 @@ const DataCentre: React.FC<DataCentreProps> = ({
               ? `Data Hub${showProdAudienceBadge ? ' · LZ/AC prod' : ''}: ${selectedDatasetKey ? REPORTING_DATASET_BY_KEY[selectedDatasetKey]?.name ?? 'Dataset' : 'Dataset'}`
               : `Data Hub${showProdAudienceBadge ? ' · LZ/AC prod' : ''}: ${datasetTargetLabels[activeOp]}`
         }
-        rightContent={
-          <DefaultButton
-            text={isRefreshing ? 'Refreshing…' : 'Refresh'}
-            onClick={onRefreshAll}
-            disabled={isRefreshing}
-            styles={{
-              root: {
-                borderRadius: 0,
-                height: 28,
-                padding: '0 10px',
-                fontWeight: 700,
-                fontSize: 11,
-                border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.55)' : 'rgba(54,144,206,0.45)'}`,
-                background: isDarkMode ? 'rgba(54,144,206,0.18)' : 'rgba(54,144,206,0.1)',
-                color: isDarkMode ? colours.dark.text : colours.helixBlue,
-              },
-            }}
-          />
-        }
       />,
     );
     return () => { setContent(null); };
-  }, [activeOp, datasetTargetLabels, handleNavigatorBack, isDedicatedPage, onRefreshAll, isRefreshing, isDarkMode, selectedDatasetKey, setContent]);  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeOp, datasetTargetLabels, handleNavigatorBack, isDedicatedPage, selectedDatasetKey, setContent]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ─── Per-operation independent range state ─── */
   const getDefaultRangeState = (): OperationRangeState => {
@@ -1152,6 +1252,7 @@ const DataCentre: React.FC<DataCentreProps> = ({
   const [collectedConfirmChecked, setCollectedConfirmChecked] = React.useState(false);
   const [wipConfirmChecked, setWipConfirmChecked] = React.useState(false);
   const [opsLog, setOpsLog] = React.useState<OperationLogEntry[]>([]);
+  const [matterOpeningEvents, setMatterOpeningEvents] = React.useState<MatterOpeningActivityEntry[]>([]);
   const [opsLogLoading, setOpsLogLoading] = React.useState(false);
   const [wipWeekExclusionChecked, setWipWeekExclusionChecked] = React.useState(false);
   /* Month coverage side panel state */
@@ -1680,10 +1781,46 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
   const fetchOpsLog = React.useCallback(async () => {
     setOpsLogLoading(true);
     try {
-      const res = await fetch('/api/data-operations/log');
-      if (res.ok) {
-        const data = await res.json();
-        setOpsLog(Array.isArray(data.operations) ? data.operations : []);
+      const [opsLogResult, persistedOpsLogResult, activityResult] = await Promise.allSettled([
+        fetch('/api/data-operations/log'),
+        fetch('/api/data-operations/ops-log?limit=80'),
+        fetch('/api/activity-feed?limit=60'),
+      ]);
+      const mergedEntries: OperationLogEntry[] = [];
+      if (opsLogResult.status === 'fulfilled' && opsLogResult.value.ok) {
+        const data = await opsLogResult.value.json();
+        if (Array.isArray(data.operations)) {
+          data.operations.forEach((entry: Record<string, unknown>, index: number) => {
+            const normalised = normaliseOperationLogEntry(entry, index);
+            if (normalised) mergedEntries.push(normalised);
+          });
+        }
+      }
+      if (persistedOpsLogResult.status === 'fulfilled' && persistedOpsLogResult.value.ok) {
+        const data = await persistedOpsLogResult.value.json();
+        if (Array.isArray(data.entries)) {
+          data.entries.forEach((entry: Record<string, unknown>, index: number) => {
+            const normalised = normaliseOperationLogEntry(entry, index + mergedEntries.length);
+            if (normalised) mergedEntries.push(normalised);
+          });
+        }
+      }
+      if (mergedEntries.length > 0 || opsLogResult.status === 'fulfilled' || persistedOpsLogResult.status === 'fulfilled') {
+        const seen = new Set<string>();
+        const merged = mergedEntries
+          .sort((left, right) => right.ts - left.ts)
+          .filter((entry) => {
+            const key = `${entry.jobId || ''}:${entry.operation}:${entry.status}:${entry.ts}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          })
+          .slice(0, 80);
+        setOpsLog(merged);
+      }
+      if (activityResult.status === 'fulfilled' && activityResult.value.ok) {
+        const data = await activityResult.value.json();
+        setMatterOpeningEvents(mapMatterOpeningActivityItems(data.items));
       }
     } catch (e) {
       console.warn('Failed to fetch data operations log:', e);
@@ -2433,21 +2570,25 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
     });
   }, [getDataset, selectedDatasetDefinition]);
 
-  const tableOnlyMattersView = activeOp === 'datasetDetail'
-    && selectedDatasetKey === 'allMatters'
-    && canAccessDataHubLedgers;
   const tableOnlyEnquiriesView = activeOp === 'datasetDetail'
     && selectedDatasetKey === 'enquiries'
     && canAccessDataHubLedgers;
 
-  if (tableOnlyMattersView || tableOnlyEnquiriesView) {
+  React.useEffect(() => {
+    if (activeOp !== 'wip' && activeOp !== 'collected' && !tableOnlyEnquiriesView) return;
+    scrollDataHubToTop();
+  }, [activeOp, scrollDataHubToTop, tableOnlyEnquiriesView]);
+
+  if (tableOnlyEnquiriesView) {
     return (
       <div
+        ref={dataHubRootRef}
+        data-helix-region="reports/data-hub/enquiries-ledger"
         style={{
           minHeight: '100vh',
           height: '100%',
           width: '100%',
-          background: reportingShellBackground(isDarkMode),
+          background: dataHubHomeSurface,
           color: isDarkMode ? colours.dark.text : colours.light.text,
           position: 'relative',
           display: 'flex',
@@ -2458,17 +2599,13 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
           gap: 0,
         }}
       >
-        {tableOnlyMattersView ? (
-          <MattersSourceLedger isDarkMode={isDarkMode} presentation="fullPage" />
-        ) : (
-          <EnquirySourceLedger isDarkMode={isDarkMode} presentation="fullPage" />
-        )}
+        <EnquirySourceLedger isDarkMode={isDarkMode} presentation="fullPage" />
       </div>
     );
   }
 
   return (
-    <div style={{ ...pageStyle(isDarkMode), position: 'relative' }}>
+    <div ref={dataHubRootRef} style={{ ...pageStyle(isDarkMode), position: 'relative' }}>
 
       {/* Status banner */}
       {bannerVariant !== 'healthy' && (
@@ -2525,10 +2662,6 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
             schedulerStatus={schedulerStatus}
             opsLog={opsLog}
             opsLogLoading={opsLogLoading}
-            isRefreshing={isRefreshing}
-            onRefreshAll={onRefreshAll}
-            onOpenDataset={handleDatasetSelect}
-            getTargetLabel={getDatasetTargetLabel}
           />
 
           <DataHubAttributionWorkbench
@@ -2539,7 +2672,8 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
           <DataHubDatasetPicker
             isDarkMode={isDarkMode}
             datasets={datasets}
-            getTargetLabel={getDatasetTargetLabel}
+            isRefreshing={isRefreshing}
+            onRefreshDatasets={onRefreshDatasets}
             onSelectDataset={handleDatasetSelect}
           />
 
@@ -2584,6 +2718,15 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
             previewTable={selectedPreviewTable}
             operationalViewLabel={selectedDatasetKey ? datasetTargetLabels[datasetTargetTabs[selectedDatasetKey]] : 'operational view'}
             isProductionInactive={Boolean(selectedDatasetDefinition.provider.devPreviewOnly) || selectedDatasetDefinition.provider.reportUsage.length === 0}
+            operatorName={userName}
+            operatorInitials={userInitials}
+            operatorEmail={userEmail}
+            demoModeEnabled={demoModeEnabled}
+            schedulerStatus={schedulerStatus}
+            opsLog={opsLog}
+            matterOpeningEvents={matterOpeningEvents}
+            mattersLedgerOpen={mattersLedgerOpen}
+            onOpenMattersLedger={() => setMattersLedgerOpen(true)}
             onPreviewRows={() => {
               if (!selectedPreviewTable) return;
               fetchPreview(selectedPreviewTable, selectedDatasetDefinition.name);
@@ -2596,14 +2739,55 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
           )}
 
           {selectedDatasetKey === 'allMatters' && canAccessDataHubLedgers && (
-            <MattersSourceLedger isDarkMode={isDarkMode} />
+            mattersLedgerOpen ? (
+              <MattersSourceLedger isDarkMode={isDarkMode} />
+            ) : (
+              <section
+                data-helix-region="reports/data-hub/matters-ledger-gate"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                  flexWrap: 'wrap',
+                  padding: '12px 13px',
+                  border: `1px solid ${reportingPanelBorder(isDarkMode, 'base')}`,
+                  background: reportingPanelBackground(isDarkMode, 'elevated'),
+                }}
+              >
+                <span style={{ display: 'grid', gap: 3 }}>
+                  <span style={{ fontSize: 10, fontWeight: 900, color: isDarkMode ? '#d1d5db' : colours.subtleGrey, textTransform: 'uppercase', letterSpacing: 0 }}>
+                    Matters ledger
+                  </span>
+                  <span style={{ fontSize: 11, color: isDarkMode ? '#d1d5db' : '#374151', lineHeight: 1.45 }}>
+                    Folded on entry so the dataset page can load without fetching and painting the full matter table.
+                  </span>
+                </span>
+                <DefaultButton
+                  text="Open ledger"
+                  onClick={() => setMattersLedgerOpen(true)}
+                  styles={{ root: { borderRadius: 0, height: 30, fontSize: 10, fontWeight: 800 } }}
+                />
+              </section>
+            )
           )}
         </>
       )}
 
       {/* ─── Data Operations (Collected / WIP) ─── */}
       {(activeOp === 'collected' || activeOp === 'wip') && (
-      <section style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <section
+        data-helix-region={`reports/data-hub/${activeOp}`}
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 12,
+          padding: 14,
+          border: `1px solid ${dataHubHomeBorder}`,
+          background: dataHubHomeSurface,
+          boxShadow: reportingPanelShadow(isDarkMode),
+        }}
+      >
         <>
         {/* Collected fees parity check — pressure-tests SQL against Clio
             across the rolling 6-month window. Lives here (the realtime
@@ -2618,9 +2802,11 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
             display: 'flex',
             alignItems: 'center',
             gap: 6,
-            padding: '4px 8px',
+            padding: '7px 9px',
+            border: `1px solid ${dataHubHomeBorder}`,
+            background: dataHubHomeCardSurface,
             fontSize: 9,
-            fontWeight: 500,
+            fontWeight: 800,
             color: isDarkMode ? colours.greyText : colours.subtleGrey,
           }}>
             <span style={{
@@ -2634,22 +2820,24 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
         {/* ─── Main Layout: coverage tabs → selected month detail → reconciliation ─── */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
 
-        {/* ─── Coverage: one-click compliance ─── */}
+        {/* ─── Coverage: one-click gap fill ─── */}
         <div style={{
           display: 'flex',
           flexWrap: 'wrap',
           alignItems: 'center',
           gap: 8,
-          padding: '6px 8px',
-          border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)'}`,
-          background: isDarkMode ? 'rgba(15,23,42,0.2)' : 'rgba(248,250,252,0.6)',
-          borderRadius: 2,
+          padding: '10px 12px',
+          borderStyle: 'solid',
+          borderWidth: '1px 1px 1px 3px',
+          borderColor: `${dataHubHomeBorder} ${dataHubHomeBorder} ${dataHubHomeBorder} ${dataHubBrandAccent}`,
+          background: dataHubHomeCardSurface,
+          borderRadius: 0,
         }}>
-          <span style={{ fontSize: 10, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-            Coverage Ledger
+          <span style={{ fontSize: 10, fontWeight: 900, color: isDarkMode ? colours.dark.text : colours.light.text, textTransform: 'uppercase', letterSpacing: 0 }}>
+            {activeOp === 'collected' ? 'Collected one-click fill' : 'WIP one-click fill'}
           </span>
-          <span style={{ fontSize: 9, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
-            Complete lane-scoped audit trail by month window
+          <span style={{ fontSize: 10, color: dataHubHomeBodyText, fontWeight: 600 }}>
+            Pick a month, inspect stored rows, then write the missing window
           </span>
         </div>
 
@@ -2669,7 +2857,7 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
 
           if (!activeMonth) return null;
 
-          const accent = monthAuditOp === 'collectedTime' ? colours.blue : colours.accent;
+          const accent = dataHubBrandAccent;
           const freshnessCue = getFreshnessCue(activeMonth.key, activeMonth.lastSync?.ts);
           const hasSynced = !!activeMonth.lastSync;
           const isError = activeMonth.lastSync?.status === 'error';
@@ -2683,6 +2871,21 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
             : null;
           const syncRows = activeMonth.lastSync?.insertedRows;
           const tableName = monthAuditOp === 'collectedTime' ? 'collectedTime' : 'wip';
+          const laneLabel = monthAuditOp === 'collectedTime' ? 'Collected' : 'WIP';
+          const storedRowsLabel = activeMonth.stats
+            ? `${activeMonth.stats.totalRows.toLocaleString()} stored`
+            : 'No table sample yet';
+          const valueLabel = activeMonth.stats && monthAuditOp === 'collectedTime'
+            ? `£${activeMonth.stats.totalValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
+            : activeMonth.stats && monthAuditOp === 'wip'
+              ? `${activeMonth.stats.billableRows.toLocaleString()} billable / ${activeMonth.stats.nonBillableRows.toLocaleString()} non-billable`
+              : 'Awaiting stats';
+          const lastWriteLabel = syncRows != null
+            ? `${syncRows.toLocaleString()} rows written`
+            : hasSynced
+              ? 'Write recorded'
+              : 'Not written';
+          const lastRunLabel = syncWho && syncDateStr ? `${syncWho} · ${syncDateStr}` : syncDateStr ? syncDateStr : 'No timestamp';
           const isPreviewOpen = windowPreviewOpen[activeMonth.key] ?? false;
           const previewForWindow = windowPreviewData[activeMonth.key] ?? null;
           const monthAuditEntries = coverageMonthAuditLogMap.get(activeMonth.key) || [];
@@ -2733,9 +2936,9 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
           const visibleTabKeys = new Set(visibleTabMonths.map((month) => month.key));
           const overflowMonths = sortedMonths.filter((month) => !visibleTabKeys.has(month.key));
           const activeMonthInOverflow = overflowMonths.some((month) => month.key === activeMonth.key);
-          const shellBorder = reportingPanelBorder(isDarkMode, 'strong');
-          const shellBackground = reportingPanelBackground(isDarkMode, 'elevated');
-          const tabRailBackground = isDarkMode ? 'rgba(2,6,23,0.72)' : 'rgba(248,250,252,0.96)';
+          const shellBorder = dataHubHomeBorder;
+          const shellBackground = dataHubHomeCardSurface;
+          const tabRailBackground = dataHubHomeFooterSurface;
 
           return (
             <div style={{
@@ -2759,7 +2962,7 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
                   const monthFreshness = getFreshnessCue(month.key, month.lastSync?.ts);
                   const monthSelected = month.key === activeMonth.key;
                   const monthHasStats = !!month.stats && month.stats.totalRows > 0;
-                  const monthTone = monthAuditOp === 'collectedTime' ? colours.blue : colours.accent;
+                  const monthTone = dataHubBrandAccent;
                   const monthSummary = monthHasStats && monthAuditOp === 'collectedTime' && month.stats
                     ? `£${month.stats.totalValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
                     : monthHasStats && month.stats
@@ -2783,7 +2986,7 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
                         flex: '1 1 0',
                         padding: monthSelected ? '9px 12px 10px' : '8px 10px 9px',
                         border: 'none',
-                        borderTop: `3px solid ${monthSelected ? monthTone : monthFreshness.color}`,
+                        borderTop: `3px solid ${monthSelected ? monthTone : withAlpha(dataHubBrandAccent, 0.24)}`,
                         borderRight: idx === visibleTabMonths.length - 1 && overflowMonths.length === 0 ? 'none' : `1px solid ${shellBorder}`,
                         borderBottom: monthSelected ? `1px solid ${shellBackground}` : `1px solid transparent`,
                         background: monthSelected
@@ -2806,7 +3009,7 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
                           {monthFreshness.label}
                         </span>
                       </div>
-                      <div style={{ fontSize: monthSelected ? 10 : 9, color: isDarkMode ? '#d1d5db' : '#374151', fontWeight: 600 }}>
+                      <div style={{ fontSize: monthSelected ? 10 : 9, color: dataHubHomeBodyText, fontWeight: 600 }}>
                         {monthSummary}
                       </div>
                     </button>
@@ -2839,10 +3042,10 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
                         transform: activeMonthInOverflow ? 'translateY(1px)' : 'none',
                       },
                       rootHovered: {
-                        background: activeMonthInOverflow ? shellBackground : (isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)'),
+                        background: activeMonthInOverflow ? shellBackground : dataHubHomeHoverSurface,
                       },
                       rootPressed: {
-                        background: activeMonthInOverflow ? shellBackground : (isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'),
+                        background: activeMonthInOverflow ? shellBackground : dataHubHomeSelectedSurface,
                       },
                       flexContainer: {
                         height: '100%',
@@ -2898,16 +3101,30 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
                   </span>
                 </div>
 
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, fontSize: 9, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
-                  <span>{syncWho ? `Last run by ${syncWho}` : 'Not synced yet'}</span>
-                  <span>{syncDateStr ? `on ${syncDateStr}` : 'No timestamp'}</span>
-                  {syncRows != null && <span>{syncRows.toLocaleString()} rows written</span>}
-                  {activeMonth.stats && monthAuditOp === 'collectedTime' && (
-                    <span>£{activeMonth.stats.totalValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
-                  )}
-                  {activeMonth.stats && monthAuditOp === 'wip' && (
-                    <span>{activeMonth.stats.billableRows.toLocaleString()} billable / {activeMonth.stats.nonBillableRows.toLocaleString()} non-billable</span>
-                  )}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(135px, 1fr))', gap: 6 }}>
+                  {[
+                    { label: 'Lane', value: laneLabel, tone: accent },
+                    { label: 'Stored rows', value: storedRowsLabel, tone: activeMonth.stats ? colours.green : (isDarkMode ? colours.greyText : colours.subtleGrey) },
+                    { label: monthAuditOp === 'collectedTime' ? 'Value' : 'Split', value: valueLabel, tone: activeMonth.stats ? accent : (isDarkMode ? colours.greyText : colours.subtleGrey) },
+                    { label: 'Last write', value: lastWriteLabel, tone: hasSynced ? colours.green : colours.orange },
+                    { label: 'Run', value: lastRunLabel, tone: syncWho ? colours.cta : (isDarkMode ? colours.greyText : colours.subtleGrey) },
+                  ].map((item) => (
+                    <span
+                      key={`${activeMonth.key}-${item.label}`}
+                      style={{
+                        display: 'grid',
+                        gap: 2,
+                        padding: '7px 9px',
+                        borderStyle: 'solid',
+                        borderWidth: '1px 1px 1px 2px',
+                        borderColor: `${dataHubHomeBorder} ${dataHubHomeBorder} ${dataHubHomeBorder} ${item.tone}`,
+                        background: dataHubHomeControlSurface,
+                      }}
+                    >
+                      <span style={{ fontSize: 8, fontWeight: 900, color: isDarkMode ? colours.greyText : colours.subtleGrey, textTransform: 'uppercase' }}>{item.label}</span>
+                      <span style={{ fontSize: 10, fontWeight: 850, color: item.tone, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.value}</span>
+                    </span>
+                  ))}
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
@@ -2920,17 +3137,17 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
                       }
                     }}
                     style={{
-                      border: `1px solid ${isDarkMode ? 'rgba(75,85,99,0.35)' : colours.highlightNeutral}`,
-                      background: 'transparent',
-                      color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                      border: `1px solid ${dataHubHomeBorder}`,
+                      background: dataHubHomeControlSurface,
+                      color: dataHubHomeBodyText,
                       fontSize: 9,
-                      fontWeight: 600,
+                      fontWeight: 800,
                       padding: '5px 8px',
                       cursor: 'pointer',
                       borderRadius: 0,
                     }}
                   >
-                    {isPreviewOpen ? 'Hide table' : 'Show table'}
+                    {isPreviewOpen ? 'Hide stored rows' : 'Preview stored rows'}
                   </button>
                   {isBackfilling ? (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 9, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
@@ -2955,7 +3172,7 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
                         opacity: backfillRunning ? 0.4 : 1,
                       }}
                     >
-                      {hasSynced ? 'Sync month again' : 'Sync this month'}
+                      {hasSynced ? 'Run month again' : 'Fill missing month'}
                     </button>
                   )}
                 </div>
@@ -2992,8 +3209,8 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
                           gap: 6,
                           fontSize: 8,
                           padding: '6px 8px',
-                          border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)'}`,
-                          background: isDarkMode ? 'rgba(2,6,23,0.45)' : 'rgba(255,255,255,0.92)',
+                          border: `1px solid ${dataHubHomeBorder}`,
+                          background: dataHubHomeControlSurface,
                           borderRadius: 0,
                         }}>
                           <span style={{ width: 5, height: 5, borderRadius: '50%', background: statusColor, flexShrink: 0 }} />
@@ -3003,12 +3220,12 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
                           <span style={{ color: isDarkMode ? colours.subtleGrey : colours.greyText, fontWeight: 700, textTransform: 'uppercase', minWidth: 44 }}>
                             {eventType}
                           </span>
-                          <span style={{ color: isAuto ? (isDarkMode ? colours.blue : colours.helixBlue) : colours.cta, fontWeight: 700, textTransform: 'uppercase', minWidth: 48 }}>
+                          <span style={{ color: isAuto ? dataHubBrandAccent : colours.cta, fontWeight: 700, textTransform: 'uppercase', minWidth: 48 }}>
                             {isAuto ? 'SYSTEM' : 'USER'}
                           </span>
                           <span
                             title={entry.message || entry.operation}
-                            style={{ color: isDarkMode ? colours.dark.text : colours.light.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 9 }}
+                            style={{ color: dataHubHomeBodyText, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 9 }}
                           >
                             {humaniseMessage(entry.message) || entry.operation}
                           </span>
@@ -3024,9 +3241,9 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
                 {isPreviewOpen && (
                   <div style={{
                     marginTop: 2,
-                    border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
+                    border: `1px solid ${dataHubHomeBorder}`,
                     borderRadius: 0,
-                    background: isDarkMode ? 'rgba(2,6,23,0.4)' : 'rgba(255,255,255,0.9)',
+                    background: dataHubHomeControlSurface,
                     padding: '8px 10px',
                   }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
@@ -3049,7 +3266,7 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
                           <thead>
                             <tr>
                               {previewForWindow.columns.slice(0, 6).map((col) => (
-                                <th key={col} style={{ textAlign: 'left', padding: '4px 6px', borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`, color: isDarkMode ? colours.subtleGrey : colours.greyText, fontWeight: 700 }}>
+                                <th key={col} style={{ textAlign: 'left', padding: '4px 6px', borderBottom: `1px solid ${dataHubHomeBorder}`, color: isDarkMode ? colours.subtleGrey : colours.greyText, fontWeight: 700 }}>
                                   {col}
                                 </th>
                               ))}
@@ -3059,7 +3276,7 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
                             {previewForWindow.rows.slice(0, 8).map((row, rowIdx) => (
                               <tr key={rowIdx}>
                                 {previewForWindow.columns.slice(0, 6).map((col) => (
-                                  <td key={col} style={{ padding: '4px 6px', borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)'}`, color: isDarkMode ? colours.dark.text : colours.light.text, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={String((row as Record<string, unknown>)[col] ?? '—')}>
+                                  <td key={col} style={{ padding: '4px 6px', borderBottom: `1px solid ${dataHubHomeBorder}`, color: dataHubHomeBodyText, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={String((row as Record<string, unknown>)[col] ?? '—')}>
                                     {String((row as Record<string, unknown>)[col] ?? '—')}
                                   </td>
                                 ))}
@@ -3089,7 +3306,7 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
 
         {/* Backfill controls */}
         {!monthAuditLoading && monthAuditData.some((m) => !m.lastSync) && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, borderTop: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`, paddingTop: 8 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, borderTop: `1px solid ${dataHubHomeBorder}`, paddingTop: 8 }}>
             {backfillRunning ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <Spinner size={SpinnerSize.xSmall} />
@@ -3103,17 +3320,13 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
                 style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
                   padding: '5px 8px',
-                  background: isDarkMode
-                    ? `${monthAuditOp === 'collectedTime' ? 'rgba(54,144,206,0.08)' : 'rgba(20,184,166,0.08)'}`
-                    : `${monthAuditOp === 'collectedTime' ? 'rgba(54,144,206,0.05)' : 'rgba(20,184,166,0.05)'}`,
-                  border: `1px solid ${isDarkMode
-                    ? `${monthAuditOp === 'collectedTime' ? 'rgba(54,144,206,0.2)' : 'rgba(20,184,166,0.2)'}`
-                    : `${monthAuditOp === 'collectedTime' ? 'rgba(54,144,206,0.15)' : 'rgba(20,184,166,0.15)'}`}`,
-                  borderRadius: 2,
+                  background: dataHubHomeSelectedSurface,
+                  border: `1px solid ${withAlpha(dataHubBrandAccent, isDarkMode ? 0.34 : 0.28)}`,
+                  borderRadius: 0,
                   cursor: 'pointer',
                   fontSize: 9,
                   fontWeight: 600,
-                  color: monthAuditOp === 'collectedTime' ? colours.blue : '#14b8a6',
+                  color: dataHubBrandAccent,
                   width: '100%',
                 }}
               >
@@ -3552,7 +3765,7 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
                       onClick={handleOutstandingBalancesReconcile}
                       disabled={outstandingBalancesReconciling}
                       style={{
-                        border: `1px solid ${isDarkMode ? 'rgba(135,243,243,0.35)' : 'rgba(54,144,206,0.25)'}`,
+                        border: `1px solid ${withAlpha(colours.highlight, isDarkMode ? 0.35 : 0.25)}`,
                         background: 'transparent',
                         color: isDarkMode ? colours.accent : colours.highlight,
                         padding: '6px 10px',

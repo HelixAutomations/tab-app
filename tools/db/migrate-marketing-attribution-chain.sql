@@ -48,6 +48,11 @@ BEGIN
         -- Current or claim owner at enquiry stage.
         enquiry_owner NVARCHAR(160) NULL,
 
+        -- Safe Prospects create-enquiry metadata for routing and reporting.
+        -- Do not store client narrative or contact details here.
+        enquiry_contact_method NVARCHAR(80) NULL,
+        enquiry_area_of_work NVARCHAR(160) NULL,
+
         -- Pitch/deal id.
         pitch_id NVARCHAR(120) NULL,
 
@@ -183,6 +188,24 @@ BEGIN
 END
 ELSE
     PRINT 'dbo.marketing_attribution_chain table already exists - skipped';
+GO
+
+IF OBJECT_ID(N'dbo.marketing_attribution_chain', N'U') IS NOT NULL
+   AND COL_LENGTH(N'dbo.marketing_attribution_chain', N'enquiry_contact_method') IS NULL
+BEGIN
+    ALTER TABLE dbo.marketing_attribution_chain
+        ADD enquiry_contact_method NVARCHAR(80) NULL;
+    PRINT 'Added dbo.marketing_attribution_chain.enquiry_contact_method';
+END
+GO
+
+IF OBJECT_ID(N'dbo.marketing_attribution_chain', N'U') IS NOT NULL
+   AND COL_LENGTH(N'dbo.marketing_attribution_chain', N'enquiry_area_of_work') IS NULL
+BEGIN
+    ALTER TABLE dbo.marketing_attribution_chain
+        ADD enquiry_area_of_work NVARCHAR(160) NULL;
+    PRINT 'Added dbo.marketing_attribution_chain.enquiry_area_of_work';
+END
 GO
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dbo.marketing_attribution_chain') AND name = N'IX_marketing_attribution_chain_source')

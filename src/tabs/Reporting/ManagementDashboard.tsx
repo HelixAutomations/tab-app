@@ -723,22 +723,150 @@ const getPreviousRangeLabel = (range: RangeKey): string => {
 };
 
 const parseDateValue = (input: unknown): Date | null => {
+  if (input instanceof Date) {
+    return Number.isNaN(input.getTime()) ? null : input;
+  }
   if (typeof input !== 'string' || input.trim().length === 0) {
     return null;
   }
   const trimmed = input.trim();
-  const normalised = trimmed.includes('/') && !trimmed.includes('T')
+  const legacyDateParts = !trimmed.includes('T')
+    ? trimmed.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})(?:\s|$)/)
+    : null;
+  const normalised = legacyDateParts
     ? (() => {
-      const parts = trimmed.split('/');
-      if (parts.length !== 3) {
+      const [, day, month, year] = legacyDateParts;
+      const dayNumber = Number(day);
+      const monthNumber = Number(month);
+      if (dayNumber < 1 || dayNumber > 31 || monthNumber < 1 || monthNumber > 12) {
         return trimmed;
       }
-      const [day, month, year] = parts;
       return `${year.length === 2 ? `20${year}` : year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
     })()
     : trimmed;
   const candidate = new Date(normalised);
   return Number.isNaN(candidate.getTime()) ? null : candidate;
+};
+
+const toDateKey = (input: unknown): string => {
+  const parsed = parseDateValue(input);
+  if (!parsed) {
+    return '';
+  }
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, '0');
+  const day = String(parsed.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const firstRecordValue = (record: unknown, keys: string[]): unknown => {
+  if (!record || typeof record !== 'object') {
+    return undefined;
+  }
+  const source = record as Record<string, unknown>;
+  for (const key of keys) {
+    const value = source[key];
+    if (value !== undefined && value !== null && (typeof value !== 'string' || value.trim().length > 0)) {
+      return value;
+    }
+  }
+  return undefined;
+};
+
+const fieldStrings = (record: unknown, keys: string[]): string[] => {
+  if (!record || typeof record !== 'object') {
+    return [];
+  }
+  const source = record as Record<string, unknown>;
+  const values: string[] = [];
+  const seen = new Set<string>();
+  keys.forEach((key) => {
+    const value = source[key];
+    if (value === undefined || value === null) {
+      return;
+    }
+    const text = String(value).trim();
+    const lookup = text.toLowerCase();
+    if (!text || seen.has(lookup)) {
+      return;
+    }
+    seen.add(lookup);
+    values.push(text);
+  });
+  return values;
+};
+
+const getEnquiryDateValue = (enquiry: unknown): unknown => firstRecordValue(enquiry, [
+  'Touchpoint_Date',
+  'Date_Created',
+  'datetime',
+  'created_at',
+  'createdAt',
+]);
+
+const getEnquiryOwnerValues = (enquiry: unknown): string[] => fieldStrings(enquiry, [
+  'Point_of_Contact',
+  'poc',
+  'point_of_contact',
+  'pointOfContact',
+  'Call_Taker',
+  'call_taker',
+  'callTaker',
+]);
+
+const getEnquiryIdentity = (enquiry: unknown): string => {
+  const identifier = firstRecordValue(enquiry, ['ID', 'id', 'processingEnquiryId', 'pitchEnquiryId']);
+  const dateKey = toDateKey(getEnquiryDateValue(enquiry));
+  return `${identifier ?? 'unknown'}|${dateKey}`;
+};
+
+const getMatterOpenDateValue = (matter: unknown): unknown => firstRecordValue(matter, [
+  'OpenDate',
+  'Open Date',
+  'openDate',
+  'open_date',
+  'DateOpened',
+  'dateOpened',
+]);
+
+const getMatterCloseDateValue = (matter: unknown): unknown => firstRecordValue(matter, [
+  'CloseDate',
+  'Close Date',
+  'closeDate',
+  'close_date',
+  'DateClosed',
+  'dateClosed',
+]);
+
+const getMatterDateValue = (matter: unknown): unknown => getMatterOpenDateValue(matter) ?? getMatterCloseDateValue(matter);
+
+const getMatterResponsibleValue = (matter: unknown): unknown => firstRecordValue(matter, [
+  'ResponsibleSolicitor',
+  'Responsible Solicitor',
+  'responsibleSolicitor',
+  'responsible_solicitor',
+]);
+
+const getMatterOriginatingValue = (matter: unknown): unknown => firstRecordValue(matter, [
+  'OriginatingSolicitor',
+  'Originating Solicitor',
+  'originatingSolicitor',
+  'originating_solicitor',
+]);
+
+const getMatterIdentity = (matter: unknown): string => {
+  const identifier = firstRecordValue(matter, [
+    'matterId',
+    'MatterID',
+    'MatterId',
+    'Unique ID',
+    'UniqueID',
+    'uniqueId',
+    'Display Number',
+    'DisplayNumber',
+    'displayNumber',
+  ]);
+  return identifier != null ? String(identifier) : JSON.stringify(matter);
 };
 
 const safeNumber = (value: unknown): number => {
@@ -885,13 +1013,12 @@ const formatDateTag = (date: Date | null): string => {
 };
 
 const enquiriesHandledBy = (enquiry: Enquiry, initials: string): boolean => (
-  matchesInitials(enquiry.Point_of_Contact, initials)
-  || matchesInitials(enquiry.Call_Taker, initials)
+  getEnquiryOwnerValues(enquiry).some((ownerValue) => matchesInitials(ownerValue, initials))
 );
 
 const matterOwnedBy = (matter: Matter, initials: string): boolean => (
-  matchesInitials(matter.ResponsibleSolicitor, initials)
-  || matchesInitials(matter.OriginatingSolicitor, initials)
+  matchesInitials(getMatterResponsibleValue(matter), initials)
+  || matchesInitials(getMatterOriginatingValue(matter), initials)
 );
 
 const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
@@ -1217,15 +1344,15 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     });
     
     // Second: Filter by date range
-    const filtered = validEnquiries.filter((entry) => withinRange(parseDateValue(entry.Touchpoint_Date)));
+    const filtered = validEnquiries.filter((entry) => withinRange(parseDateValue(getEnquiryDateValue(entry))));
     
     // Third: Deduplicate by ID + Week (same person with enquiries in different weeks = different matters)
     // Multiple calls within same week = follow-ups, count as one enquiry
     const seen = new Set<string>();
     const deduped: typeof filtered = [];
-    for (const e of filtered) {
-      const id = String((e as any).ID || (e as any).id || '');
-      const dateStr = (e.Touchpoint_Date || '').toString().split('T')[0];
+    for (const enquiry of filtered) {
+      const id = String((enquiry as any).ID || (enquiry as any).id || '');
+      const dateStr = toDateKey(getEnquiryDateValue(enquiry));
       
       // Calculate ISO week number
       let weekKey = '';
@@ -1244,7 +1371,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
       const key = `${id}|${weekKey}`;
       if (!id || !seen.has(key)) {
         if (id) seen.add(key);
-        deduped.push(e);
+        deduped.push(enquiry);
       }
     }
     return deduped;
@@ -1252,10 +1379,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
 
   const filteredMatters = useMemo(() => (
     matters.filter((entry) => {
-      const openDate = (entry as any)['Open Date'] ?? entry.OpenDate;
-      const closeDate = (entry as any)['Close Date'] ?? entry.CloseDate;
-      const dateToCheck = openDate ?? closeDate ?? '';
-      const parsedDate = parseDateValue(dateToCheck);
+      const parsedDate = parseDateValue(getMatterDateValue(entry));
       return withinRange(parsedDate);
     })
   ), [matters, activeStart, activeEnd]);
@@ -1519,23 +1643,24 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     const byInitials = new Map<string, typeof filteredEnquiries>();
     
     filteredEnquiries.forEach((enquiry) => {
-      // Index by email
-      if (typeof enquiry.Point_of_Contact === 'string') {
-        const email = enquiry.Point_of_Contact.toLowerCase();
-        if (!byEmail.has(email)) {
-          byEmail.set(email, []);
+      getEnquiryOwnerValues(enquiry).forEach((ownerValue) => {
+        const normalizedOwner = ownerValue.trim();
+        if (normalizedOwner.includes('@')) {
+          const email = normalizedOwner.toLowerCase();
+          if (!byEmail.has(email)) {
+            byEmail.set(email, []);
+          }
+          byEmail.get(email)!.push(enquiry);
         }
-        byEmail.get(email)!.push(enquiry);
-      }
-      
-      // Index by initials (for fallback matching)
-      const poc = String(enquiry.Point_of_Contact || '').toUpperCase();
-      if (poc && poc.length <= 4) { // Likely initials
-        if (!byInitials.has(poc)) {
-          byInitials.set(poc, []);
+
+        const ownerInitials = normalizedOwner.toUpperCase();
+        if (ownerInitials && ownerInitials.length <= 4) {
+          if (!byInitials.has(ownerInitials)) {
+            byInitials.set(ownerInitials, []);
+          }
+          byInitials.get(ownerInitials)!.push(enquiry);
         }
-        byInitials.get(poc)!.push(enquiry);
-      }
+      });
     });
     
     return { byEmail, byInitials };
@@ -1547,15 +1672,15 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     const index = new Map<string, Map<string, typeof filteredMatters[0]>>();
     
     filteredMatters.forEach((matter) => {
-      const rawOriginating = mapNameIfNeeded((matter as any)['Originating Solicitor'] ?? (matter as any).OriginatingSolicitor);
-      const rawResponsible = mapNameIfNeeded((matter as any)['Responsible Solicitor'] ?? (matter as any).ResponsibleSolicitor);
+      const rawOriginating = mapNameIfNeeded(String(getMatterOriginatingValue(matter) ?? ''));
+      const rawResponsible = mapNameIfNeeded(String(getMatterResponsibleValue(matter) ?? ''));
       
       // Normalize once per matter (cached by normalizePersonName)
       const normalizedOriginating = normalizeName(rawOriginating);
       const normalizedResponsible = normalizeName(rawResponsible);
       
       // Use matter ID as unique key to prevent duplicates
-      const matterId = (matter as any).matterId || (matter as any)['Unique ID'] || (matter as any).UniqueID || JSON.stringify(matter);
+      const matterId = getMatterIdentity(matter);
       
       // Index by originating solicitor - use deduplication map
       if (normalizedOriginating) {
@@ -1592,21 +1717,28 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
         ? String((member.record as Record<string, unknown>)['Full Name'])
         : member.display;
 
-      // OPTIMIZED: Use pre-indexed enquiries lookup
-      let enquiriesForMember: typeof filteredEnquiries = [];
+      const enquiriesForMemberMap = new Map<string, typeof filteredEnquiries[number]>();
+      const addEnquiriesForMember = (records: typeof filteredEnquiries) => {
+        records.forEach((enquiry) => {
+          enquiriesForMemberMap.set(getEnquiryIdentity(enquiry), enquiry);
+        });
+      };
       if (memberEmail) {
-        // Primary: lookup by email (O(1))
-        enquiriesForMember = enquiriesByContact.byEmail.get(memberEmail) || [];
-      } else {
-        // Fallback: lookup by initials (O(1))
-        enquiriesForMember = enquiriesByContact.byInitials.get(member.initials.toUpperCase()) || [];
+        addEnquiriesForMember(enquiriesByContact.byEmail.get(memberEmail) || []);
       }
+      addEnquiriesForMember(enquiriesByContact.byInitials.get(member.initials.toUpperCase()) || []);
+      const enquiriesForMember = Array.from(enquiriesForMemberMap.values());
 
-      // OPTIMIZED: Use pre-indexed matters lookup with normalized name (O(1))
+      const mattersForMemberMap = new Map<string, typeof filteredMatters[number]>();
       const normalizedMemberName = normalizeName(memberFullName);
-      const mattersForMember = normalizedMemberName 
-        ? (mattersBySolicitor.get(normalizedMemberName) || [])
-        : [];
+      const normalizedMemberInitials = normalizeName(member.initials);
+      const memberMatterKeys = new Set([normalizedMemberName, normalizedMemberInitials].filter(Boolean));
+      memberMatterKeys.forEach((matterKey) => {
+        (mattersBySolicitor.get(matterKey) || []).forEach((matter) => {
+          mattersForMemberMap.set(getMatterIdentity(matter), matter);
+        });
+      });
+      const mattersForMember = Array.from(mattersForMemberMap.values());
 
       // OPTIMIZED: Use pre-indexed lookups instead of filtering 156k+ entries
       const wipForMember = member.clioId ? (wipByClioId.get(member.clioId) || []) : [];
@@ -1764,16 +1896,12 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     debugLog('📊 Calculating previous metrics for range:', previousRange);
 
     const prevEnquiries = rawEnquiries?.filter((e: any) => {
-      const date = parseDateValue(e.Touchpoint_Date);
+      const date = parseDateValue(getEnquiryDateValue(e));
       return date && date >= previousRange.start && date <= previousRange.end;
     }) || [];
 
     const prevMatters = rawMatters?.filter((m: any) => {
-      // Align with current-period filtering: prefer Open Date, fallback to Close Date
-      const openDate = (m as any)['Open Date'] ?? m.OpenDate;
-      const closeDate = (m as any)['Close Date'] ?? m.CloseDate;
-      const dateToCheck = openDate ?? closeDate ?? '';
-      const date = parseDateValue(dateToCheck);
+      const date = parseDateValue(getMatterDateValue(m));
       return date && date >= previousRange.start && date <= previousRange.end;
     }) || [];
 
@@ -1804,16 +1932,12 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     if (!previousRange || !teamMembers.length) return new Map();
 
     const prevEnquiries = rawEnquiries?.filter((e: any) => {
-      const date = parseDateValue(e.Touchpoint_Date);
+      const date = parseDateValue(getEnquiryDateValue(e));
       return date && date >= previousRange.start && date <= previousRange.end;
     }) || [];
 
     const prevMatters = rawMatters?.filter((m: any) => {
-      // Align with current-period filtering: prefer Open Date, fallback to Close Date
-      const openDate = (m as any)['Open Date'] ?? m.OpenDate;
-      const closeDate = (m as any)['Close Date'] ?? m.CloseDate;
-      const dateToCheck = openDate ?? closeDate ?? '';
-      const date = parseDateValue(dateToCheck);
+      const date = parseDateValue(getMatterDateValue(m));
       return date && date >= previousRange.start && date <= previousRange.end;
     }) || [];
 
@@ -1836,7 +1960,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
       // Calculate previous period metrics for this member
       const prevEnquiriesForMember = prevEnquiries.filter((enquiry: any) => {
         const memberEmail = member.record.Email?.toLowerCase();
-        if (memberEmail && enquiry.Point_of_Contact?.toLowerCase() === memberEmail) {
+        if (memberEmail && getEnquiryOwnerValues(enquiry).some((ownerValue) => ownerValue.toLowerCase() === memberEmail)) {
           return true;
         }
         return enquiriesHandledBy(enquiry, member.initials);
@@ -1882,9 +2006,9 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
           prevMattersForMember: prevMattersForMember.length,
           memberInitials: member.initials,
           sampleMatters: prevMatters.slice(0, 3).map((m: any) => ({
-            DateOpened: m.DateOpened,
-            ResponsibleSolicitor: m.ResponsibleSolicitor,
-            OriginatingSolicitor: m.OriginatingSolicitor
+            DateOpened: getMatterDateValue(m),
+            ResponsibleSolicitor: getMatterResponsibleValue(m),
+            OriginatingSolicitor: getMatterOriginatingValue(m)
           }))
         });
       }

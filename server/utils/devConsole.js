@@ -194,7 +194,7 @@ function annotate(res, { source, note } = {}) {
 }
 
 // ── Startup banner ─────────────────────────────────────────────────
-function banner({ port, redis, sql, instructionsSql, clio, scheduler, eventPoller }) {
+function banner({ port, redis, sql, instructionsSql, clio, scheduler, eventPoller, tasksMirror }) {
   if (!isDev) return;
 
   const line = '─'.repeat(58);
@@ -202,6 +202,12 @@ function banner({ port, redis, sql, instructionsSql, clio, scheduler, eventPolle
   const warn = `${c.yellow}●${c.reset}`;
   const fail = `${c.red}●${c.reset}`;
   const dot = (status) => status === true ? ok : status === false ? fail : warn;
+  const statusText = (status, runningLabel, offLabel = 'off') => {
+    if (typeof status === 'string') return status;
+    if (status === true) return runningLabel;
+    if (status === false) return offLabel;
+    return 'pending';
+  };
 
   console.log('');
   console.log(`${c.dim}${line}${c.reset}`);
@@ -213,10 +219,13 @@ function banner({ port, redis, sql, instructionsSql, clio, scheduler, eventPolle
   console.log(`  ${c.dim}Instructions SQL${c.reset} ${dot(instructionsSql)} ${instructionsSql ? 'pool ready' : instructionsSql === false ? 'failed' : 'connecting...'}`);
   console.log(`  ${c.dim}Clio creds${c.reset}      ${dot(clio)} ${clio ? 'pre-warmed' : clio === false ? 'cold (first call ~3s)' : 'warming...'}`);
   if (scheduler !== undefined) {
-    console.log(`  ${c.dim}Scheduler${c.reset}       ${dot(scheduler)} ${scheduler ? 'running' : 'off'}`);
+    console.log(`  ${c.dim}Scheduler${c.reset}       ${dot(scheduler)} ${statusText(scheduler, 'running')}`);
   }
   if (eventPoller !== undefined) {
-    console.log(`  ${c.dim}Event poller${c.reset}    ${dot(eventPoller)} ${eventPoller ? `polling (${eventPoller}s)` : 'off'}`);
+    console.log(`  ${c.dim}Event poller${c.reset}    ${dot(eventPoller)} ${statusText(eventPoller, `polling (${eventPoller}s)`)}`);
+  }
+  if (tasksMirror !== undefined) {
+    console.log(`  ${c.dim}Tasks mirror${c.reset}    ${dot(tasksMirror)} ${statusText(tasksMirror, `syncing (${tasksMirror})`)}`);
   }
   console.log(`${c.dim}${line}${c.reset}`);
   console.log(`  ${c.dim}Source badges:${c.reset} ${sourceBadge('memory')} memory  ${sourceBadge('redis')} redis  ${sourceBadge('sql')} sql  ${sourceBadge('clio')} clio`);

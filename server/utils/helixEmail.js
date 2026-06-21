@@ -749,4 +749,5 @@ module.exports = {
   sendHelixEmail,
   normalizeEmails,
   loadPersonalSignatureHtml,
+  maybeWrapSignature,
 };

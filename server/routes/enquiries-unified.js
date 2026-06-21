@@ -1,11 +1,14 @@
 const express = require('express');
+const { randomUUID } = require('crypto');
 const { withRequest, sql } = require('../utils/db');
+const { getSecret } = require('../utils/getSecret');
 const { cacheUnified, generateCacheKey, CACHE_CONFIG, deleteCachePattern, getCache, setCache } = require('../utils/redisClient');
 const { loggers } = require('../utils/logger');
 const { attachEnquiriesStream, broadcastEnquiriesChanged } = require('../utils/enquiries-stream');
 const { emitEvent } = require('../utils/eventEmitter');
 const { trackEvent, trackMetric, trackException } = require('../utils/appInsights');
 const { VALID_SOURCE_BIASES, resolveSourceSelection, getDefaultSourceBiasForPolicy } = require('../utils/enquirySourcePolicy');
+const { loadPersonalSignatureHtml, maybeWrapSignature, normalizeEmails } = require('../utils/helixEmail');
 const router = express.Router();
 const { annotate } = require('../utils/devConsole');
 
@@ -337,7 +340,18 @@ const SOURCE_LEDGER_SORT_FIELDS = {
   poc: 'poc',
   source: 'source',
 };
+const SOURCE_LEDGER_COLUMN_CANDIDATES = {
+  campaign: ['Campaign', 'campaign', 'Campaign_Name', 'campaign_name', 'CampaignName', 'campaignName', 'Campaign Name', 'utm_campaign', 'Utm_Campaign', 'UTM_Campaign', 'utmCampaign', 'UtmCampaign', 'UTMCampaign', 'UTM Campaign'],
+  keyword: ['Search_Keyword', 'SearchKeyword', 'Search Keyword', 'search_keyword', 'Search_Term', 'search_term', 'Search Term', 'searchTerm', 'Keyword', 'keyword', 'Keywords', 'keywords', 'utm_term', 'Utm_Term', 'UTM_Term', 'utmTerm', 'UtmTerm', 'UTMTerm', 'UTM Term'],
+};
+const SOURCE_LEDGER_COLUMN_TOKENS = {
+  campaign: ['campaign', 'utmcampaign'],
+  keyword: ['keyword', 'keywords', 'searchterm', 'utmterm'],
+};
 const SOURCE_LEDGER_OPTION_FIELDS = ['source', 'aow', 'moc', 'poc'];
+const SOURCE_LEDGER_DEFAULT_LIMIT = 100;
+const SOURCE_LEDGER_MAX_LIMIT = 200;
+const SOURCE_LEDGER_MAX_OFFSET = 100000;
 const SOURCE_LEDGER_ROW_EDITABLE_FIELDS = {
   acid: { column: 'acid', type: 'text', maxLength: 255 },
   datetime: { column: 'datetime', type: 'datetime' },
@@ -345,10 +359,552 @@ const SOURCE_LEDGER_ROW_EDITABLE_FIELDS = {
   moc: { column: 'moc', type: 'text', maxLength: 255 },
   poc: { column: 'poc', type: 'text', maxLength: 255 },
   phone: { column: 'phone', type: 'text', maxLength: 255 },
+  campaign: { candidates: SOURCE_LEDGER_COLUMN_CANDIDATES.campaign, tokens: SOURCE_LEDGER_COLUMN_TOKENS.campaign, type: 'text', maxLength: 255 },
+  keyword: { candidates: SOURCE_LEDGER_COLUMN_CANDIDATES.keyword, tokens: SOURCE_LEDGER_COLUMN_TOKENS.keyword, type: 'text', maxLength: 255 },
   source: { column: 'source', type: 'text', maxLength: 255 },
   url: { column: 'url', type: 'text', maxLength: 500 },
 };
 const SOURCE_LEDGER_DEV_PREVIEW_INITIALS = new Set(['LZ', 'AC']);
+const EMAIL_LIST_COLUMN_CANDIDATES = {
+  id: ['id', 'ID'],
+  datetime: ['datetime', 'Touchpoint_Date', 'touchpoint_date'],
+  email: ['email', 'Email'],
+  aow: ['aow', 'Area_of_Work'],
+  moc: ['moc', 'Method_of_Contact'],
+  tags: ['Tags', 'tags', 'tag'],
+  doNotMarket: ['Do_not_Market', 'do_not_market', 'doNotMarket', 'do_not_send', 'DoNotSend'],
+  acid: ['acid', 'ACID'],
+  poc: ['poc', 'Point_of_Contact'],
+};
+const EMAIL_LIST_STREAM_CONSENT = 'email-lists-limited-stream';
+const EMAIL_LIST_DEMO_ENQUIRY_PREFIX = 'DEMO-ENQ-';
+const EMAIL_LIST_SENDGRID_ALLOWED_SENDERS = new Set([
+  'automations@helix-law.com',
+  'team@helix-law.com',
+  'lz@helix-law.com',
+]);
+const EMAIL_LIST_SENDGRID_SECRET_NAMES = [
+  'sendgrid-api-key',
+  'sendgrid-helix-email',
+  'sendgrid-apikey',
+  'sendgrid-api-token',
+  'sendgrid-mail-api-key',
+  'sendgrid-outreach-api-key',
+  'email-outreach-sendgrid-api-key',
+  'SendGridApiKey',
+];
+const EMAIL_LIST_SENDGRID_SIGNATURE_MODES = new Set(['data-hub-v2', 'legacy']);
+let emailListSendGridApiKeyCache = null;
+
+function getEmailListOperatorActor(req) {
+  return String(
+    req.user?.initials
+    || req.headers?.['x-helix-initials']
+    || req.body?.operatorActor
+    || req.query.operatorActor
+    || '',
+  ).trim();
+}
+
+function assertEmailListStreamConsent(req) {
+  if (process.env.NODE_ENV !== 'production' && process.env.HELIX_ALLOW_LOCAL_EMAIL_LIST_STREAM === '1') return;
+  const operatorConsent = String(req.body?.operatorConsent || req.query.operatorConsent || req.headers?.['x-helix-operator-consent'] || '').trim();
+  const operatorActor = getEmailListOperatorActor(req);
+  if (operatorConsent !== EMAIL_LIST_STREAM_CONSENT || !operatorActor) {
+    const error = new Error('Operator consent required for Email Lists stream');
+    error.statusCode = 403;
+    throw error;
+  }
+}
+
+async function getEmailListSendGridApiKey() {
+  const envValue = String(process.env.SENDGRID_API_KEY || process.env.HELIX_SENDGRID_API_KEY || process.env.SG_API_KEY || '').trim();
+  if (envValue) return envValue;
+  if (emailListSendGridApiKeyCache) return emailListSendGridApiKeyCache;
+
+  for (const secretName of EMAIL_LIST_SENDGRID_SECRET_NAMES) {
+    try {
+      const secretValue = String(await getSecret(secretName) || '').trim();
+      if (secretValue) {
+        emailListSendGridApiKeyCache = secretValue;
+        return secretValue;
+      }
+    } catch {
+      // Try the next supported secret name.
+    }
+  }
+
+  return null;
+}
+
+function escapeEmailListHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function emailListPlainTextToHtml(value) {
+  const blocks = String(value || '')
+    .trim()
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean);
+
+  return blocks.length > 0
+    ? blocks.map((block) => `<p style="font-family:Raleway,Arial,Helvetica,sans-serif;font-size:10pt;line-height:1.4;color:rgb(0,0,0);margin:0 0 12px 0;">${escapeEmailListHtml(block).replace(/\n/g, '<br />')}</p>`).join('')
+    : '';
+}
+
+function normaliseEmailListSignatureMode(value) {
+  const mode = String(value || '').trim().toLowerCase();
+  return EMAIL_LIST_SENDGRID_SIGNATURE_MODES.has(mode) ? mode : 'data-hub-v2';
+}
+
+function buildEmailListPreheaderHtml(value) {
+  const preheader = String(value || '').trim();
+  if (!preheader) return '';
+  return `<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;line-height:1px;font-size:1px;">${escapeEmailListHtml(preheader)}</div>`;
+}
+
+function stripEmailListDocumentShell(html, bodyMarker) {
+  const markerWrapper = `<div style="margin-bottom:12px;">${bodyMarker}</div>`;
+  return String(html || '')
+    .replace(/^\s*<!DOCTYPE[^>]*>/i, '')
+    .replace(/^\s*<html\b[^>]*>/i, '')
+    .replace(/^\s*<head\b[^>]*>[\s\S]*?<\/head>/i, '')
+    .replace(/^\s*<body\b[^>]*>/i, '')
+    .replace(/<\/body>\s*<\/html>\s*$/i, '')
+    .replace(markerWrapper, '')
+    .trim();
+}
+
+function buildEmailListSystemSignatureHtml() {
+  const bodyMarker = '<span data-email-list-v2-body-marker="1"></span>';
+  return stripEmailListDocumentShell(maybeWrapSignature(bodyMarker), bodyMarker);
+}
+
+function buildEmailListOutreachSignatureV2({ operatorEmail, signatureInitials }) {
+  const signatureEmail = normalizeEmails(operatorEmail)[0] || '';
+  const personalSignature = loadPersonalSignatureHtml({ signatureInitials, fromEmail: signatureEmail });
+  return personalSignature || buildEmailListSystemSignatureHtml();
+}
+
+function buildEmailListSendGridHtml({ bodyText, preheaderText, fromEmail, signatureInitials, signatureMode, operatorName, operatorEmail }) {
+  const bodyHtml = `<div style="font-family:Raleway,Arial,Helvetica,sans-serif;font-size:10pt;line-height:1.4;color:rgb(0,0,0);">${emailListPlainTextToHtml(bodyText)}</div>`;
+  const preheaderHtml = buildEmailListPreheaderHtml(preheaderText);
+  const resolvedSignatureMode = normaliseEmailListSignatureMode(signatureMode);
+  if (resolvedSignatureMode === 'data-hub-v2') {
+    return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8" /><title>Helix Email</title></head><body style="margin:0;padding:0;font-family:Raleway,Arial,Helvetica,sans-serif;font-size:10pt;line-height:1.4;color:rgb(0,0,0);">${preheaderHtml}${bodyHtml}${buildEmailListOutreachSignatureV2({ operatorName, operatorEmail, signatureInitials })}</body></html>`;
+  }
+
+  const personalSignature = loadPersonalSignatureHtml({ signatureInitials, fromEmail });
+  return personalSignature && personalSignature.trim()
+    ? `${preheaderHtml}${bodyHtml}<br />${personalSignature}`
+    : maybeWrapSignature(`${preheaderHtml}${bodyHtml}`);
+}
+
+function resolveEmailListSendGridSender(value) {
+  const sender = normalizeEmails(value)[0] || 'automations@helix-law.com';
+  const lower = sender.toLowerCase();
+  return EMAIL_LIST_SENDGRID_ALLOWED_SENDERS.has(lower) ? lower : null;
+}
+
+function splitEmailListTagTokens(value) {
+  return String(value || '')
+    .split(/[;,|\r\n]+/)
+    .map((token) => token.trim())
+    .filter(Boolean)
+    .slice(0, 12);
+}
+
+function normaliseEmailListAreaFilters(value) {
+  const rawValues = Array.isArray(value) ? value : [value];
+  const filters = [];
+  rawValues
+    .flatMap((entry) => String(entry || '').split(/[;,|]+/))
+    .map((entry) => entry.trim().toLowerCase())
+    .forEach((entry) => {
+      let normalised = entry;
+      if (entry === 'unsure' || entry === 'unknown' || entry === 'uncategorised' || entry === 'uncategorized') normalised = 'other';
+      if (normalised === 'all') {
+        filters.length = 0;
+        return;
+      }
+      if (['commercial', 'construction', 'property', 'employment', 'other'].includes(normalised) && !filters.includes(normalised)) {
+        filters.push(normalised);
+      }
+    });
+  return filters;
+}
+
+function emailListSingleAreaFilterPredicate(areaLowerExpr, areaFilter) {
+  if (areaFilter === 'commercial') return `(${areaLowerExpr} LIKE '%commercial%' OR ${areaLowerExpr} LIKE '%business%')`;
+  if (areaFilter === 'construction') return `(${areaLowerExpr} LIKE '%construction%' OR ${areaLowerExpr} LIKE '%building%')`;
+  if (areaFilter === 'property') return `(${areaLowerExpr} LIKE '%property%' OR ${areaLowerExpr} LIKE '%real estate%' OR ${areaLowerExpr} LIKE '%conveyancing%' OR ${areaLowerExpr} LIKE '%landlord%' OR ${areaLowerExpr} LIKE '%tenant%')`;
+  if (areaFilter === 'employment') return `(${areaLowerExpr} LIKE '%employment%' OR ${areaLowerExpr} LIKE '%hr%' OR ${areaLowerExpr} LIKE '%workplace%')`;
+  if (areaFilter === 'other') return `(
+    ${areaLowerExpr} = ''
+    OR (
+      ${areaLowerExpr} NOT LIKE '%commercial%'
+      AND ${areaLowerExpr} NOT LIKE '%business%'
+      AND ${areaLowerExpr} NOT LIKE '%construction%'
+      AND ${areaLowerExpr} NOT LIKE '%building%'
+      AND ${areaLowerExpr} NOT LIKE '%property%'
+      AND ${areaLowerExpr} NOT LIKE '%real estate%'
+      AND ${areaLowerExpr} NOT LIKE '%conveyancing%'
+      AND ${areaLowerExpr} NOT LIKE '%landlord%'
+      AND ${areaLowerExpr} NOT LIKE '%tenant%'
+      AND ${areaLowerExpr} NOT LIKE '%employment%'
+      AND ${areaLowerExpr} NOT LIKE '%hr%'
+      AND ${areaLowerExpr} NOT LIKE '%workplace%'
+    )
+  )`;
+  return null;
+}
+
+function emailListAreaFilterPredicate(areaLowerExpr, areaFilter) {
+  const filters = normaliseEmailListAreaFilters(areaFilter);
+  if (filters.length === 0) return null;
+  const predicates = filters
+    .map((filter) => emailListSingleAreaFilterPredicate(areaLowerExpr, filter))
+    .filter(Boolean);
+  return predicates.length > 0 ? `(${predicates.join('\n        OR ')})` : null;
+}
+
+function formatEmailListDateValue(date) {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function parseEmailListDateValue(value) {
+  const text = String(value || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return null;
+  const date = new Date(`${text}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime())) return null;
+  if (formatEmailListDateValue(date) !== text) return null;
+  return text;
+}
+
+function getDefaultEmailListDateRange() {
+  const today = new Date();
+  const start = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() - 29));
+  return {
+    startDate: formatEmailListDateValue(start),
+    endDate: formatEmailListDateValue(today),
+  };
+}
+
+function normaliseEmailListDateRange(dateFrom, dateTo) {
+  const hasFrom = String(dateFrom || '').trim().length > 0;
+  const hasTo = String(dateTo || '').trim().length > 0;
+  if (!hasFrom && !hasTo) return getDefaultEmailListDateRange();
+  const startDate = parseEmailListDateValue(dateFrom);
+  const endDate = parseEmailListDateValue(dateTo);
+  if (!startDate || !endDate) {
+    const error = new Error('A valid email list dateFrom and dateTo range is required');
+    error.statusCode = 400;
+    throw error;
+  }
+  if (startDate > endDate) {
+    const error = new Error('email list dateFrom must be before dateTo');
+    error.statusCode = 400;
+    throw error;
+  }
+  return { startDate, endDate };
+}
+
+function safeSqlIdentifier(columnName) {
+  const safeName = String(columnName || '').replace(/]/g, ']]');
+  return `[${safeName}]`;
+}
+
+function safeSqlColumnRef(columnName, alias = 'e') {
+  const identifier = safeSqlIdentifier(columnName);
+  return alias ? `${alias}.${identifier}` : identifier;
+}
+
+function trimSqlTextExpr(columnRef, length = 'max') {
+  const sqlLength = length === 'max' ? 'max' : String(Math.max(1, Math.min(Number(length) || 255, 4000)));
+  return `NULLIF(LTRIM(RTRIM(TRY_CONVERT(nvarchar(${sqlLength}), ${columnRef}))), '')`;
+}
+
+function tagSearchExpr(columnRef) {
+  return `LOWER(COALESCE(TRY_CONVERT(nvarchar(max), ${columnRef}), ''))`;
+}
+
+function normalisedTagListExpr(columnRef) {
+  return `REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(TRY_CONVERT(nvarchar(max), ${columnRef}), ''), CHAR(13), ','), CHAR(10), ','), ';', ','), '|', ',')`;
+}
+
+function digitTagListExpr(columnRef) {
+  return `(',' + REPLACE(${normalisedTagListExpr(columnRef)}, ' ', '') + ',')`;
+}
+
+function pickEnquiryColumn(columnNames, candidates) {
+  const byLower = new Map(columnNames.map((name) => [String(name).toLowerCase(), name]));
+  for (const candidate of candidates) {
+    const match = byLower.get(String(candidate).toLowerCase());
+    if (match) return match;
+  }
+  return null;
+}
+
+function normaliseColumnToken(columnName) {
+  return String(columnName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function pickSourceLedgerColumn(columnNames, candidates = [], tokens = []) {
+  const exact = pickEnquiryColumn(columnNames, candidates);
+  if (exact) return exact;
+  const normalisedTokens = tokens.map(normaliseColumnToken).filter(Boolean);
+  if (!normalisedTokens.length) return null;
+  for (const columnName of columnNames) {
+    const normalisedColumn = normaliseColumnToken(columnName);
+    if (normalisedColumn.endsWith('id') || normalisedColumn.endsWith('ids')) continue;
+    if (normalisedTokens.some((token) => normalisedColumn === token || normalisedColumn.includes(token))) {
+      return columnName;
+    }
+  }
+  return null;
+}
+
+async function getInstructionsEnquiryColumns(instructionsConnectionString) {
+  const result = await withRequest(instructionsConnectionString, async (request) => request.query(`
+    SELECT COLUMN_NAME AS name
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'enquiries'
+  `));
+  return (result?.recordset || [])
+    .map((row) => String(row.name || '').trim())
+    .filter(Boolean);
+}
+
+function buildEmailListOverviewSql(columns) {
+  const picked = {
+    email: pickEnquiryColumn(columns, EMAIL_LIST_COLUMN_CANDIDATES.email),
+    tags: pickEnquiryColumn(columns, EMAIL_LIST_COLUMN_CANDIDATES.tags),
+    doNotMarket: pickEnquiryColumn(columns, EMAIL_LIST_COLUMN_CANDIDATES.doNotMarket),
+    acid: pickEnquiryColumn(columns, EMAIL_LIST_COLUMN_CANDIDATES.acid),
+    poc: pickEnquiryColumn(columns, EMAIL_LIST_COLUMN_CANDIDATES.poc),
+  };
+
+  const emailExpr = picked.email ? trimSqlTextExpr(safeSqlColumnRef(picked.email)) : 'NULL';
+  const tagExpr = picked.tags ? trimSqlTextExpr(safeSqlColumnRef(picked.tags)) : 'NULL';
+  const tagSearch = picked.tags ? tagSearchExpr(safeSqlColumnRef(picked.tags)) : "''";
+  const digitTagSearch = picked.tags ? digitTagListExpr(safeSqlColumnRef(picked.tags)) : "''";
+  const acidExpr = picked.acid ? trimSqlTextExpr(safeSqlColumnRef(picked.acid)) : 'NULL';
+  const pocExpr = picked.poc ? trimSqlTextExpr(safeSqlColumnRef(picked.poc)) : 'NULL';
+  const doNotMarketExpr = picked.doNotMarket
+    ? `CASE WHEN TRY_CONVERT(bit, ${safeSqlColumnRef(picked.doNotMarket)}) = 1 OR LOWER(LTRIM(RTRIM(TRY_CONVERT(nvarchar(40), ${safeSqlColumnRef(picked.doNotMarket)})))) IN ('1', 'true', 'yes', 'y') THEN 1 ELSE 0 END`
+    : '0';
+  const digitPredicates = Array.from({ length: 10 }, (_, digit) => `${digitTagSearch} LIKE '%,${digit},%'`);
+  const singleDigitExists = picked.tags ? `(${digitPredicates.join(' OR ')})` : '0 = 1';
+  const doNotSendTagPredicate = picked.tags
+    ? `(${tagSearch} LIKE '%do not send%' OR ${tagSearch} LIKE '%do-not-send%' OR ${tagSearch} LIKE '%do not email%' OR ${tagSearch} LIKE '%do not market%' OR ${tagSearch} LIKE '%no email%' OR ${tagSearch} LIKE '%no marketing%')`
+    : '0 = 1';
+  const unsubscribeTagPredicate = picked.tags
+    ? `(${tagSearch} LIKE '%unsubscribe%' OR ${tagSearch} LIKE '%unsubscribed%' OR ${tagSearch} LIKE '%opt out%' OR ${tagSearch} LIKE '%opt-out%' OR ${tagSearch} LIKE '%opted out%')`
+    : '0 = 1';
+  const suppressionTagPredicate = picked.tags
+    ? `(${tagSearch} LIKE '%suppress%' OR ${tagSearch} LIKE '%suppression%' OR ${tagSearch} LIKE '%gdpr%' OR ${tagSearch} LIKE '%privacy%')`
+    : '0 = 1';
+  const complaintTagPredicate = picked.tags
+    ? `(${tagSearch} LIKE '%spam%' OR ${tagSearch} LIKE '%complaint%' OR ${tagSearch} LIKE '%bounce%' OR ${tagSearch} LIKE '%invalid email%')`
+    : '0 = 1';
+  const anyBlockerPredicate = `((${doNotMarketExpr}) = 1 OR ${doNotSendTagPredicate} OR ${unsubscribeTagPredicate} OR ${suppressionTagPredicate} OR ${complaintTagPredicate})`;
+  const pocUnclaimedPredicate = picked.poc
+    ? `(${pocExpr} IS NULL OR LOWER(${pocExpr}) IN ('team@helix-law.com', 'team', 'team inbox'))`
+    : '0 = 1';
+
+  return {
+    picked,
+    summarySql: `
+      SELECT
+        COUNT_BIG(*) AS totalRows,
+        SUM(CASE WHEN ${emailExpr} IS NOT NULL THEN 1 ELSE 0 END) AS withEmail,
+        SUM(CASE WHEN ${emailExpr} IS NULL THEN 1 ELSE 0 END) AS withoutEmail,
+        SUM(CASE WHEN ${emailExpr} IS NOT NULL AND CHARINDEX('@', ${emailExpr}) > 1 THEN 1 ELSE 0 END) AS emailLooksUsable,
+        SUM(CASE WHEN ${tagExpr} IS NOT NULL THEN 1 ELSE 0 END) AS withTags,
+        SUM(CASE WHEN ${singleDigitExists} THEN 1 ELSE 0 END) AS withSingleDigitTags,
+        SUM(CASE WHEN ${acidExpr} IS NOT NULL THEN 1 ELSE 0 END) AS withActiveCampaignBridge,
+        SUM(CASE WHEN ${acidExpr} IS NULL THEN 1 ELSE 0 END) AS withoutActiveCampaignBridge,
+        SUM(CASE WHEN ${pocUnclaimedPredicate} THEN 1 ELSE 0 END) AS unclaimed,
+        SUM(CASE WHEN (${doNotMarketExpr}) = 1 THEN 1 ELSE 0 END) AS doNotMarketColumn,
+        SUM(CASE WHEN ${doNotSendTagPredicate} THEN 1 ELSE 0 END) AS doNotSendTags,
+        SUM(CASE WHEN ${unsubscribeTagPredicate} THEN 1 ELSE 0 END) AS unsubscribeTags,
+        SUM(CASE WHEN ${suppressionTagPredicate} THEN 1 ELSE 0 END) AS suppressionTags,
+        SUM(CASE WHEN ${complaintTagPredicate} THEN 1 ELSE 0 END) AS complaintTags,
+        SUM(CASE WHEN ${anyBlockerPredicate} THEN 1 ELSE 0 END) AS knownBlocked,
+        SUM(CASE WHEN ${emailExpr} IS NOT NULL AND NOT (${anyBlockerPredicate}) THEN 1 ELSE 0 END) AS candidateRows
+      FROM dbo.enquiries AS e;
+    `,
+    digitSql: picked.tags ? `
+      ${Array.from({ length: 10 }, (_, digit) => `
+        SELECT '${digit}' AS digit, SUM(CASE WHEN ${digitTagSearch} LIKE '%,${digit},%' THEN 1 ELSE 0 END) AS count
+        FROM dbo.enquiries AS e
+      `).join('\nUNION ALL\n')}
+      ORDER BY digit ASC;
+    ` : null,
+  };
+}
+
+function buildEmailListStreamSql(columns, areaFilter = 'all', dateRange = null) {
+  const normalisedAreaFilters = normaliseEmailListAreaFilters(areaFilter);
+  const normalisedAreaFilter = normalisedAreaFilters.length > 0 ? normalisedAreaFilters.join(',') : 'all';
+  const picked = {
+    id: pickEnquiryColumn(columns, EMAIL_LIST_COLUMN_CANDIDATES.id),
+    datetime: pickEnquiryColumn(columns, EMAIL_LIST_COLUMN_CANDIDATES.datetime),
+    email: pickEnquiryColumn(columns, EMAIL_LIST_COLUMN_CANDIDATES.email),
+    aow: pickEnquiryColumn(columns, EMAIL_LIST_COLUMN_CANDIDATES.aow),
+    moc: pickEnquiryColumn(columns, EMAIL_LIST_COLUMN_CANDIDATES.moc),
+    tags: pickEnquiryColumn(columns, EMAIL_LIST_COLUMN_CANDIDATES.tags),
+    acid: pickEnquiryColumn(columns, EMAIL_LIST_COLUMN_CANDIDATES.acid),
+  };
+
+  const idExpr = picked.id ? safeSqlColumnRef(picked.id) : 'NULL';
+  const datetimeExpr = picked.datetime ? safeSqlColumnRef(picked.datetime) : 'NULL';
+  const emailExpr = picked.email ? trimSqlTextExpr(safeSqlColumnRef(picked.email)) : 'NULL';
+  const aowExpr = picked.aow ? trimSqlTextExpr(safeSqlColumnRef(picked.aow)) : 'NULL';
+  const areaBucketExpr = picked.aow ? `COALESCE(${trimSqlTextExpr(safeSqlColumnRef(picked.aow), 255)}, 'Uncategorised')` : `'Uncategorised'`;
+  const areaLowerExpr = picked.aow ? `LOWER(COALESCE(${trimSqlTextExpr(safeSqlColumnRef(picked.aow), 255)}, ''))` : `''`;
+  const mocExpr = picked.moc ? trimSqlTextExpr(safeSqlColumnRef(picked.moc)) : 'NULL';
+  const tagExpr = picked.tags ? trimSqlTextExpr(safeSqlColumnRef(picked.tags)) : 'NULL';
+  const acidExpr = picked.acid ? trimSqlTextExpr(safeSqlColumnRef(picked.acid)) : 'NULL';
+  const orderClause = picked.datetime
+    ? `${safeSqlColumnRef(picked.datetime)} DESC, ${idExpr} DESC`
+    : picked.id
+      ? `${idExpr} DESC`
+      : '(SELECT NULL)';
+  const dateWhereConditions = picked.datetime && dateRange?.startDate && dateRange?.endDate
+    ? [
+        `${datetimeExpr} >= CONVERT(datetime2, @dateFrom, 23)`,
+        `${datetimeExpr} < DATEADD(day, 1, CONVERT(datetime2, @dateTo, 23))`,
+      ]
+    : [];
+  const streamWhereConditions = [
+    `${emailExpr} IS NOT NULL`,
+    emailListAreaFilterPredicate(areaLowerExpr, normalisedAreaFilters),
+    ...dateWhereConditions,
+  ].filter(Boolean);
+  const areaWhereConditions = [
+    `${emailExpr} IS NOT NULL`,
+    ...dateWhereConditions,
+  ].filter(Boolean);
+
+  return {
+    picked,
+    areaFilter: normalisedAreaFilter,
+    areaFilters: normalisedAreaFilters,
+    dateRange,
+    dateRangeApplied: dateWhereConditions.length > 0,
+    sql: `
+      SELECT TOP (@limit)
+        COUNT_BIG(*) OVER() AS totalMatching,
+        ${idExpr} AS enquiryId,
+        ${datetimeExpr} AS receivedAt,
+        ${emailExpr} AS email,
+        ${aowExpr} AS areaOfWork,
+        ${mocExpr} AS methodOfContact,
+        ${tagExpr} AS tagText,
+        ${acidExpr} AS activeCampaignId
+      FROM dbo.enquiries AS e
+      WHERE ${streamWhereConditions.join('\n        AND ')}
+      ORDER BY ${orderClause};
+    `,
+    areaBreakdownSql: `
+      SELECT
+        areaOfWork,
+        COUNT_BIG(*) AS count
+      FROM (
+        SELECT ${areaBucketExpr} AS areaOfWork
+        FROM dbo.enquiries AS e
+        WHERE ${areaWhereConditions.join('\n          AND ')}
+      ) AS areaRows
+      GROUP BY areaOfWork
+      ORDER BY COUNT_BIG(*) DESC, areaOfWork ASC;
+    `,
+  };
+}
+
+async function getEmailListActiveCampaignConfig() {
+  const [apiToken, baseUrlSecret] = await Promise.all([
+    getSecret('ac-automations-apitoken').catch(() => null),
+    getSecret('ac-base-url').catch(() => null),
+  ]);
+  if (!apiToken) return { ok: false, error: 'ActiveCampaign token is not configured' };
+  return {
+    ok: true,
+    apiToken,
+    baseUrl: String(baseUrlSecret || 'https://helix-law54533.api-us1.com/api/3').replace(/\/$/, ''),
+  };
+}
+
+async function fetchActiveCampaignJson(config, path, searchParams) {
+  const url = new URL(`${config.baseUrl}${path}`);
+  Object.entries(searchParams || {}).forEach(([key, value]) => {
+    if (value != null && String(value).trim()) url.searchParams.set(key, String(value));
+  });
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: {
+      'Api-Token': config.apiToken,
+      Accept: 'application/json',
+    },
+  });
+  const text = await response.text();
+  let payload = null;
+  if (text) {
+    try { payload = JSON.parse(text); } catch { payload = null; }
+  }
+  if (!response.ok) {
+    const error = new Error(`ActiveCampaign request failed with ${response.status}`);
+    error.statusCode = response.status;
+    throw error;
+  }
+  return payload || {};
+}
+
+function mapActiveCampaignContact(contact) {
+  const record = contact && typeof contact === 'object' ? contact : {};
+  return {
+    id: record.id == null ? '' : String(record.id),
+    email: record.email == null ? '' : String(record.email),
+    firstName: record.firstName == null ? '' : String(record.firstName),
+    lastName: record.lastName == null ? '' : String(record.lastName),
+    phone: record.phone == null ? '' : String(record.phone),
+    status: record.status == null ? '' : String(record.status),
+    createdAt: record.cdate == null ? null : String(record.cdate),
+    updatedAt: record.udate == null ? null : String(record.udate),
+  };
+}
+
+async function resolveActiveCampaignContact(config, { activeCampaignId, email }) {
+  const contactId = String(activeCampaignId || '').trim();
+  if (contactId) {
+    const payload = await fetchActiveCampaignJson(config, `/contacts/${encodeURIComponent(contactId)}`);
+    return { source: 'activeCampaignId', contact: mapActiveCampaignContact(payload.contact) };
+  }
+
+  const lookupEmail = String(email || '').trim();
+  if (!lookupEmail) {
+    const error = new Error('ActiveCampaign id or email is required');
+    error.statusCode = 400;
+    throw error;
+  }
+  const payload = await fetchActiveCampaignJson(config, '/contacts', { email: lookupEmail });
+  const contact = Array.isArray(payload.contacts) ? payload.contacts.find((entry) => entry?.id != null) : null;
+  if (!contact) {
+    const error = new Error('ActiveCampaign contact was not found');
+    error.statusCode = 404;
+    throw error;
+  }
+  return { source: 'email', contact: mapActiveCampaignContact(contact) };
+}
 
 function canAccessSourceLedger(req) {
   const initials = String(req.user?.initials || req.headers?.['x-helix-initials'] || '').trim().toUpperCase();
@@ -366,17 +922,50 @@ function denySourceLedger(req, res, operation) {
   return res.status(403).json({ error: 'Forbidden' });
 }
 
-const normaliseSourceLedgerSort = (rawSort, rawDirection) => {
+function getSourceLedgerAttributionColumns(columnNames) {
+  return {
+    campaign: pickSourceLedgerColumn(columnNames, SOURCE_LEDGER_COLUMN_CANDIDATES.campaign, SOURCE_LEDGER_COLUMN_TOKENS.campaign),
+    keyword: pickSourceLedgerColumn(columnNames, SOURCE_LEDGER_COLUMN_CANDIDATES.keyword, SOURCE_LEDGER_COLUMN_TOKENS.keyword),
+  };
+}
+
+function sourceLedgerTextProjection(columnName, alias) {
+  return columnName
+    ? `${trimSqlTextExpr(safeSqlColumnRef(columnName), 255)} AS ${alias}`
+    : `CAST(NULL AS nvarchar(255)) AS ${alias}`;
+}
+
+const normaliseSourceLedgerSort = (rawSort, rawDirection, attributionColumns = {}) => {
   const sortKey = String(rawSort || 'date').trim().toLowerCase();
   const direction = String(rawDirection || 'desc').trim().toLowerCase() === 'asc' ? 'ASC' : 'DESC';
-  const column = SOURCE_LEDGER_SORT_FIELDS[sortKey] || SOURCE_LEDGER_SORT_FIELDS.date;
-  const safeSortKey = SOURCE_LEDGER_SORT_FIELDS[sortKey] ? sortKey : 'date';
+  const requestedColumn = sortKey === 'campaign'
+    ? attributionColumns.campaign
+    : sortKey === 'keyword'
+      ? attributionColumns.keyword
+      : SOURCE_LEDGER_SORT_FIELDS[sortKey];
+  const safeSortKey = requestedColumn ? sortKey : 'date';
+  const column = requestedColumn || SOURCE_LEDGER_SORT_FIELDS.date;
   return {
     sortKey: safeSortKey,
     direction,
-    orderClause: `${column} ${direction}, id DESC`,
+    orderClause: `${safeSqlColumnRef(column)} ${direction}, ${safeSqlColumnRef('id')} DESC`,
   };
 };
+
+function normaliseSourceLedgerDateRange(rawFrom, rawTo) {
+  const parseDate = (value) => {
+    const text = String(value || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return null;
+    const parsed = new Date(`${text}T00:00:00.000Z`);
+    return Number.isFinite(parsed.getTime()) ? parsed : null;
+  };
+  const from = parseDate(rawFrom);
+  const to = parseDate(rawTo);
+  if (!from || !to || from > to) return { from: null, toExclusive: null };
+  const toExclusive = new Date(to.getTime());
+  toExclusive.setUTCDate(toExclusive.getUTCDate() + 1);
+  return { from, toExclusive };
+}
 
 const normaliseEditableLedgerTextValue = (value, maxLength = 255) => String(value ?? '').trim().slice(0, maxLength);
 
@@ -391,12 +980,17 @@ function normaliseEditableLedgerDateValue(value) {
   return new Date(parsed);
 }
 
-function getSanitisedSourceLedgerUpdates(rawUpdates) {
+function getSanitisedSourceLedgerUpdates(rawUpdates, columnNames = []) {
   const source = rawUpdates && typeof rawUpdates === 'object' ? rawUpdates : {};
   const updates = [];
 
   Object.entries(SOURCE_LEDGER_ROW_EDITABLE_FIELDS).forEach(([field, config]) => {
     if (!Object.prototype.hasOwnProperty.call(source, field)) return;
+    const column = config.column || pickSourceLedgerColumn(columnNames, config.candidates || [], config.tokens || []);
+    if (!column) {
+      updates.push({ field, invalid: true, reason: `${field} column is not available in this enquiries space` });
+      return;
+    }
 
     if (config.type === 'datetime') {
       const nextValue = normaliseEditableLedgerDateValue(source[field]);
@@ -404,13 +998,13 @@ function getSanitisedSourceLedgerUpdates(rawUpdates) {
         updates.push({ field, invalid: true, reason: 'Invalid datetime value' });
         return;
       }
-      updates.push({ field, column: config.column, type: config.type, value: nextValue });
+      updates.push({ field, column, type: config.type, value: nextValue });
       return;
     }
 
     updates.push({
       field,
-      column: config.column,
+      column,
       type: config.type,
       value: normaliseEditableLedgerTextValue(source[field], config.maxLength),
     });
@@ -528,6 +1122,532 @@ router.get('/source/options', async (_req, res) => {
   }
 });
 
+// Route: GET /api/enquiries-unified/email-lists/overview
+// Returns aggregate-only email list readiness counts from new-space enquiries.
+router.get('/email-lists/overview', async (req, res) => {
+  const startedAt = Date.now();
+  const instructionsConnectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+  const operation = 'email-lists-overview';
+
+  trackEvent('Enquiry.EmailLists.Overview.Started', {
+    operation,
+    triggeredBy: req.user?.initials || req.user?.email || 'api',
+  });
+
+  try {
+    if (!instructionsConnectionString) {
+      trackEvent('Enquiry.EmailLists.Overview.Failed', {
+        operation,
+        triggeredBy: req.user?.initials || req.user?.email || 'api',
+        phase: 'config',
+        error: 'Instructions database configuration missing',
+      });
+      return res.status(500).json({ error: 'Instructions database configuration missing' });
+    }
+
+    const columns = await getInstructionsEnquiryColumns(instructionsConnectionString);
+    const { picked, summarySql, digitSql } = buildEmailListOverviewSql(columns);
+    const [summaryResult, digitResult] = await Promise.all([
+      withRequest(instructionsConnectionString, async (request) => request.query(summarySql)),
+      digitSql
+        ? withRequest(instructionsConnectionString, async (request) => request.query(digitSql))
+        : Promise.resolve({ recordset: [] }),
+    ]);
+
+    const row = summaryResult?.recordset?.[0] || {};
+    const toCount = (value) => Number(value || 0);
+    const tagDigits = (digitResult?.recordset || []).map((entry) => ({
+      digit: String(entry.digit || ''),
+      count: toCount(entry.count),
+    })).filter((entry) => /^[0-9]$/.test(entry.digit));
+
+    const summary = {
+      totalRows: toCount(row.totalRows),
+      withEmail: toCount(row.withEmail),
+      withoutEmail: toCount(row.withoutEmail),
+      emailLooksUsable: toCount(row.emailLooksUsable),
+      withTags: toCount(row.withTags),
+      withSingleDigitTags: toCount(row.withSingleDigitTags),
+      withActiveCampaignBridge: toCount(row.withActiveCampaignBridge),
+      withoutActiveCampaignBridge: toCount(row.withoutActiveCampaignBridge),
+      unclaimed: toCount(row.unclaimed),
+      candidateRows: toCount(row.candidateRows),
+      knownBlocked: toCount(row.knownBlocked),
+    };
+    const blockerBuckets = [
+      { key: 'doNotMarket', label: 'Do not market field', count: toCount(row.doNotMarketColumn) },
+      { key: 'doNotSendTags', label: 'Do not send tags', count: toCount(row.doNotSendTags) },
+      { key: 'unsubscribeTags', label: 'Unsubscribe tags', count: toCount(row.unsubscribeTags) },
+      { key: 'suppressionTags', label: 'Suppression/privacy tags', count: toCount(row.suppressionTags) },
+      { key: 'complaintTags', label: 'Bounce/spam/complaint tags', count: toCount(row.complaintTags) },
+    ];
+    const missingColumns = Object.entries(picked)
+      .filter(([, columnName]) => !columnName)
+      .map(([key]) => key);
+    const tagSignal = picked.tags ? 'explicit-tags' : 'missing';
+    const missingSignals = [
+      tagSignal === 'explicit-tags' ? null : 'explicitTags',
+      picked.doNotMarket ? null : 'doNotMarket',
+    ].filter(Boolean);
+    const durationMs = Date.now() - startedAt;
+
+    trackEvent('Enquiry.EmailLists.Overview.Completed', {
+      operation,
+      triggeredBy: req.user?.initials || req.user?.email || 'api',
+      durationMs: String(durationMs),
+      rowCount: String(summary.totalRows),
+      blockerCount: String(summary.knownBlocked),
+      missingColumns: missingColumns.join(','),
+    });
+    trackMetric('Enquiry.EmailLists.Overview.Duration', durationMs, { operation });
+    trackMetric('Enquiry.EmailLists.Overview.Rows', summary.totalRows, { operation });
+
+    return res.json({
+      source: 'instructions.dbo.enquiries',
+      generatedAt: new Date().toISOString(),
+      summary,
+      blockerBuckets,
+      tagDigits,
+      columns: {
+        email: Boolean(picked.email),
+        tags: Boolean(picked.tags),
+        doNotMarket: Boolean(picked.doNotMarket),
+        acid: Boolean(picked.acid),
+        poc: Boolean(picked.poc),
+      },
+      signals: {
+        tagSignal,
+        tagField: picked.tags || null,
+        explicitTags: tagSignal === 'explicit-tags',
+        doNotMarket: Boolean(picked.doNotMarket),
+      },
+      missingColumns,
+      missingSignals,
+    });
+  } catch (error) {
+    const durationMs = Date.now() - startedAt;
+    trackException(error, { operation, phase: 'aggregate-query' });
+    trackEvent('Enquiry.EmailLists.Overview.Failed', {
+      operation,
+      triggeredBy: req.user?.initials || req.user?.email || 'api',
+      durationMs: String(durationMs),
+      error: error?.message || 'Unknown error',
+    });
+    log.error('Error loading email lists overview:', error?.message || error);
+    return res.status(500).json({ error: 'Failed to load email list overview' });
+  }
+});
+
+// Route: GET /api/enquiries-unified/email-lists/stream
+// Returns a narrow CRM-style stream for Email Lists. This endpoint includes client email addresses,
+// so it is consent-gated and only returns the fields needed for list management.
+router.get('/email-lists/stream', async (req, res) => {
+  const startedAt = Date.now();
+  const instructionsConnectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+  const operation = 'email-lists-stream';
+  const requestedLimit = Number.parseInt(String(req.query.limit || '120'), 10);
+  const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(requestedLimit, 300)) : 120;
+  const requestedAreaFilters = normaliseEmailListAreaFilters(req.query.area);
+  const requestedAreaFilter = requestedAreaFilters.length > 0 ? requestedAreaFilters.join(',') : 'all';
+  const triggeredBy = getEmailListOperatorActor(req) || req.user?.email || 'api';
+
+  try {
+    assertEmailListStreamConsent(req);
+  } catch (error) {
+    trackEvent('Enquiry.EmailLists.Stream.AccessDenied', {
+      operation,
+      triggeredBy: triggeredBy || 'unknown',
+      reason: error?.message || 'Consent missing',
+    });
+    return res.status(error?.statusCode || 403).json({ error: 'Operator consent required for email list stream' });
+  }
+
+  let requestedDateRange;
+  try {
+    requestedDateRange = normaliseEmailListDateRange(req.query.dateFrom, req.query.dateTo);
+  } catch (error) {
+    trackEvent('Enquiry.EmailLists.Stream.Failed', {
+      operation,
+      triggeredBy,
+      phase: 'date-range',
+      error: error?.message || 'Invalid date range',
+    });
+    return res.status(error?.statusCode || 400).json({ error: error?.message || 'Invalid date range' });
+  }
+
+  trackEvent('Enquiry.EmailLists.Stream.Started', {
+    operation,
+    triggeredBy,
+    limit: String(limit),
+    areaFilter: requestedAreaFilter,
+    dateFrom: requestedDateRange.startDate,
+    dateTo: requestedDateRange.endDate,
+  });
+
+  try {
+    if (!instructionsConnectionString) {
+      trackEvent('Enquiry.EmailLists.Stream.Failed', {
+        operation,
+        triggeredBy,
+        phase: 'config',
+        error: 'Instructions database configuration missing',
+      });
+      return res.status(500).json({ error: 'Instructions database configuration missing' });
+    }
+
+    const columns = await getInstructionsEnquiryColumns(instructionsConnectionString);
+    const { picked, areaFilter, areaFilters, dateRange, dateRangeApplied, sql: streamSql, areaBreakdownSql } = buildEmailListStreamSql(columns, requestedAreaFilters, requestedDateRange);
+    if (!picked.email) {
+      trackEvent('Enquiry.EmailLists.Stream.Failed', {
+        operation,
+        triggeredBy,
+        phase: 'schema',
+        error: 'Email column missing',
+      });
+      return res.status(500).json({ error: 'Email column missing from new-space enquiries' });
+    }
+
+    const [result, areaResult] = await Promise.all([
+      withRequest(instructionsConnectionString, async (request) => {
+        request.input('limit', sql.Int, limit);
+        if (dateRangeApplied && dateRange) {
+          request.input('dateFrom', sql.NVarChar(10), dateRange.startDate);
+          request.input('dateTo', sql.NVarChar(10), dateRange.endDate);
+        }
+        return request.query(streamSql);
+      }),
+      withRequest(instructionsConnectionString, async (request) => {
+        if (dateRangeApplied && dateRange) {
+          request.input('dateFrom', sql.NVarChar(10), dateRange.startDate);
+          request.input('dateTo', sql.NVarChar(10), dateRange.endDate);
+        }
+        return request.query(areaBreakdownSql);
+      }),
+    ]);
+
+    const rows = (result?.recordset || []).map((row) => ({
+      enquiryId: row.enquiryId == null ? '' : String(row.enquiryId),
+      receivedAt: row.receivedAt ? new Date(row.receivedAt).toISOString() : null,
+      email: row.email == null ? '' : String(row.email),
+      areaOfWork: row.areaOfWork == null ? '' : String(row.areaOfWork),
+      methodOfContact: row.methodOfContact == null ? '' : String(row.methodOfContact),
+      activeCampaignId: row.activeCampaignId == null ? '' : String(row.activeCampaignId),
+      tags: splitEmailListTagTokens(row.tagText),
+    }));
+    const totalMatching = Number(result?.recordset?.[0]?.totalMatching || rows.length || 0);
+    const areaBreakdown = (areaResult?.recordset || [])
+      .map((row) => ({
+        areaOfWork: row.areaOfWork == null ? 'Uncategorised' : String(row.areaOfWork || '').trim() || 'Uncategorised',
+        count: Number(row.count || 0),
+      }))
+      .filter((row) => row.count > 0);
+    const tagSignal = picked.tags ? 'explicit-tags' : 'missing';
+    const durationMs = Date.now() - startedAt;
+
+    trackEvent('Enquiry.EmailLists.Stream.Completed', {
+      operation,
+      triggeredBy,
+      durationMs: String(durationMs),
+      rowCount: String(rows.length),
+      totalMatching: String(totalMatching),
+      areaBucketCount: String(areaBreakdown.length),
+      areaFilter,
+      dateFrom: dateRange?.startDate || '',
+      dateTo: dateRange?.endDate || '',
+      dateRangeApplied: String(Boolean(dateRangeApplied)),
+      tagSignal,
+    });
+    trackMetric('Enquiry.EmailLists.Stream.Duration', durationMs, { operation });
+    trackMetric('Enquiry.EmailLists.Stream.Rows', rows.length, { operation });
+
+    return res.json({
+      source: 'instructions.dbo.enquiries',
+      generatedAt: new Date().toISOString(),
+      count: rows.length,
+      totalMatching,
+      limit,
+      areaFilter,
+      areaFilters,
+      dateRange: {
+        startDate: dateRange?.startDate || null,
+        endDate: dateRange?.endDate || null,
+        applied: Boolean(dateRangeApplied),
+        field: picked.datetime || null,
+      },
+      areaBreakdown,
+      rows,
+      columns: {
+        email: Boolean(picked.email),
+        areaOfWork: Boolean(picked.aow),
+        methodOfContact: Boolean(picked.moc),
+        tags: Boolean(picked.tags),
+        activeCampaignId: Boolean(picked.acid),
+      },
+      signals: {
+        tagSignal,
+        tagField: picked.tags || null,
+      },
+    });
+  } catch (error) {
+    const durationMs = Date.now() - startedAt;
+    trackException(error, { operation, phase: 'query' });
+    trackEvent('Enquiry.EmailLists.Stream.Failed', {
+      operation,
+      triggeredBy,
+      durationMs: String(durationMs),
+      error: error?.message || 'Unknown error',
+    });
+    log.error('Error loading email lists stream:', error?.message || error);
+    return res.status(500).json({ error: 'Failed to load email list stream' });
+  }
+});
+
+// Route: POST /api/enquiries-unified/email-lists/test-send
+// Sends a real SendGrid test email for the demo Email Control Room row only.
+router.post('/email-lists/test-send', async (req, res) => {
+  const startedAt = Date.now();
+  const operation = 'email-lists-sendgrid-test-send';
+  const requestId = randomUUID();
+  const triggeredBy = getEmailListOperatorActor(req) || req.user?.email || 'api';
+
+  try {
+    assertEmailListStreamConsent(req);
+  } catch (error) {
+    trackEvent('Enquiry.EmailLists.SendGridTest.AccessDenied', {
+      operation,
+      requestId,
+      triggeredBy: triggeredBy || 'unknown',
+      reason: error?.message || 'Consent missing',
+    });
+    return res.status(error?.statusCode || 403).json({ error: 'Operator consent required for SendGrid test email' });
+  }
+
+  const isDemoMode = req.body?.demoMode === true || String(req.body?.demoMode || '').toLowerCase() === 'true';
+  const enquiryId = String(req.body?.enquiryId || '').trim().toUpperCase();
+  const subject = String(req.body?.subject || '').trim();
+  const bodyText = String(req.body?.body || req.body?.bodyText || '').trim();
+  const preheaderText = String(req.body?.preheader || req.body?.previewText || '').trim().slice(0, 180);
+  const campaignName = String(req.body?.campaignName || '').trim().slice(0, 120);
+  const authenticatedEmail = normalizeEmails(req.user?.email || req.headers?.['x-user-email'])[0] || '';
+  const requestedRecipient = normalizeEmails(req.body?.recipientEmail || req.body?.toEmail)[0] || '';
+  const recipientEmail = authenticatedEmail || requestedRecipient;
+  const senderEmail = resolveEmailListSendGridSender(req.body?.sender || req.body?.fromEmail);
+  const signatureInitials = String(req.body?.signatureInitials || req.user?.initials || '').trim().toUpperCase();
+  const signatureMode = normaliseEmailListSignatureMode(req.body?.signatureMode);
+  const operatorDisplayName = String(req.body?.operatorName || req.user?.name || req.user?.displayName || '').trim();
+  const operatorSignatureEmail = authenticatedEmail || normalizeEmails(req.body?.operatorEmail)[0] || recipientEmail;
+
+  if (!isDemoMode || !enquiryId.startsWith(EMAIL_LIST_DEMO_ENQUIRY_PREFIX)) {
+    return res.status(400).json({ error: 'SendGrid test emails are restricted to demo enquiries' });
+  }
+  if (authenticatedEmail && requestedRecipient && authenticatedEmail.toLowerCase() !== requestedRecipient.toLowerCase()) {
+    return res.status(400).json({ error: 'Test email recipient must be the current user' });
+  }
+  if (!recipientEmail || !/@helix-law\.com$/i.test(recipientEmail)) {
+    return res.status(400).json({ error: 'A current Helix user email is required' });
+  }
+  if (!senderEmail) {
+    return res.status(400).json({ error: 'Unsupported SendGrid sender' });
+  }
+  if (!subject || !bodyText) {
+    return res.status(400).json({ error: 'Subject and body are required' });
+  }
+
+  trackEvent('Enquiry.EmailLists.SendGridTest.Started', {
+    operation,
+    requestId,
+    triggeredBy,
+    sender: senderEmail,
+    enquiryId,
+    subjectLength: String(subject.length),
+    bodyLength: String(bodyText.length),
+    preheaderLength: String(preheaderText.length),
+    campaignNameLength: String(campaignName.length),
+    signatureMode,
+  });
+
+  try {
+    const apiKey = await getEmailListSendGridApiKey();
+    if (!apiKey) {
+      trackEvent('Enquiry.EmailLists.SendGridTest.Failed', {
+        operation,
+        requestId,
+        triggeredBy,
+        phase: 'config',
+        error: 'SendGrid API key missing',
+      });
+      return res.status(503).json({ error: 'SendGrid is not configured. Add SENDGRID_API_KEY, HELIX_SENDGRID_API_KEY, or Key Vault secret sendgrid-helix-email.' });
+    }
+
+    const html = buildEmailListSendGridHtml({
+      bodyText,
+      preheaderText,
+      fromEmail: senderEmail,
+      signatureInitials,
+      signatureMode,
+      operatorName: operatorDisplayName,
+      operatorEmail: operatorSignatureEmail,
+    });
+    const plainText = preheaderText ? `${preheaderText}\n\n${bodyText}` : bodyText;
+    const sendGridPayload = {
+      personalizations: [{
+        to: [{ email: recipientEmail }],
+        custom_args: {
+          source: 'email-control-room',
+          mode: 'demo-test',
+          enquiryId,
+          requestId,
+          signatureMode,
+        },
+      }],
+      from: { email: senderEmail, name: 'Helix Law' },
+      reply_to: { email: 'support@helix-law.com', name: 'Helix Law' },
+      subject,
+      content: [
+        { type: 'text/plain', value: plainText },
+        { type: 'text/html', value: html },
+      ],
+      categories: ['email-control-room', 'demo-test'],
+    };
+
+    const sendGridResponse = await fetch('https://api.sendgrid.com/v3/mail/send', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(sendGridPayload),
+    });
+    const durationMs = Date.now() - startedAt;
+    const sendGridMessageId = sendGridResponse.headers.get('x-message-id') || '';
+
+    if (sendGridResponse.status !== 202) {
+      const errorText = await sendGridResponse.text();
+      trackEvent('Enquiry.EmailLists.SendGridTest.Failed', {
+        operation,
+        requestId,
+        triggeredBy,
+        phase: 'sendgrid',
+        statusCode: String(sendGridResponse.status),
+        durationMs: String(durationMs),
+        error: errorText ? 'SendGrid rejected request' : 'SendGrid rejected request without body',
+      });
+      return res.status(502).json({ error: 'SendGrid rejected the test email' });
+    }
+
+    trackEvent('Enquiry.EmailLists.SendGridTest.Completed', {
+      operation,
+      requestId,
+      triggeredBy,
+      sender: senderEmail,
+      enquiryId,
+      durationMs: String(durationMs),
+      sendGridMessageId,
+    });
+    trackMetric('Enquiry.EmailLists.SendGridTest.Duration', durationMs, { operation });
+
+    return res.json({
+      success: true,
+      provider: 'sendgrid',
+      mode: 'demo-test',
+      signatureMode,
+      enquiryId,
+      requestId,
+      sendGridMessageId,
+      message: 'Test email sent',
+    });
+  } catch (error) {
+    const durationMs = Date.now() - startedAt;
+    trackException(error, { operation, phase: 'sendgrid-test-send', requestId });
+    trackEvent('Enquiry.EmailLists.SendGridTest.Failed', {
+      operation,
+      requestId,
+      triggeredBy,
+      durationMs: String(durationMs),
+      error: error?.message ? 'SendGrid test send failed' : 'Unknown error',
+    });
+    log.error('Error sending Email Control Room SendGrid test email:', error?.message || error);
+    return res.status(500).json({ error: 'Failed to send SendGrid test email' });
+  }
+});
+
+// Route: POST /api/enquiries-unified/email-lists/activecampaign-contact
+// Looks up a single ActiveCampaign record on explicit operator action. Responses can contain
+// client contact details and are guarded with the same Email Lists read consent as the stream.
+router.post('/email-lists/activecampaign-contact', async (req, res) => {
+  const startedAt = Date.now();
+  const operation = 'email-lists-activecampaign-contact';
+  const triggeredBy = getEmailListOperatorActor(req) || req.user?.email || 'api';
+
+  try {
+    assertEmailListStreamConsent(req);
+  } catch (error) {
+    trackEvent('Enquiry.EmailLists.ActiveCampaign.AccessDenied', {
+      operation,
+      triggeredBy: triggeredBy || 'unknown',
+      reason: error?.message || 'Consent missing',
+    });
+    return res.status(error?.statusCode || 403).json({ error: 'Operator consent required for ActiveCampaign lookup' });
+  }
+
+  trackEvent('Enquiry.EmailLists.ActiveCampaign.Started', {
+    operation,
+    triggeredBy,
+    hasActiveCampaignId: String(Boolean(String(req.body?.activeCampaignId || '').trim())),
+    hasEmail: String(Boolean(String(req.body?.email || '').trim())),
+  });
+
+  try {
+    const config = await getEmailListActiveCampaignConfig();
+    if (!config.ok) {
+      trackEvent('Enquiry.EmailLists.ActiveCampaign.Failed', {
+        operation,
+        triggeredBy,
+        phase: 'config',
+        error: config.error || 'ActiveCampaign configuration missing',
+      });
+      return res.status(503).json({ error: 'ActiveCampaign is not configured' });
+    }
+
+    const lookup = await resolveActiveCampaignContact(config, {
+      activeCampaignId: req.body?.activeCampaignId,
+      email: req.body?.email,
+    });
+    const durationMs = Date.now() - startedAt;
+
+    trackEvent('Enquiry.EmailLists.ActiveCampaign.Completed', {
+      operation,
+      triggeredBy,
+      durationMs: String(durationMs),
+      lookupSource: lookup.source,
+      found: String(Boolean(lookup.contact?.id)),
+    });
+    trackMetric('Enquiry.EmailLists.ActiveCampaign.Duration', durationMs, { operation });
+
+    return res.json({
+      source: 'activecampaign',
+      generatedAt: new Date().toISOString(),
+      lookupSource: lookup.source,
+      contact: lookup.contact,
+    });
+  } catch (error) {
+    const durationMs = Date.now() - startedAt;
+    const statusCode = Number(error?.statusCode || 500);
+    trackException(error, { operation, phase: 'lookup' });
+    trackEvent('Enquiry.EmailLists.ActiveCampaign.Failed', {
+      operation,
+      triggeredBy,
+      durationMs: String(durationMs),
+      statusCode: String(statusCode),
+      error: error?.message ? 'lookup failed' : 'Unknown error',
+    });
+    log.error('Error loading ActiveCampaign contact for Email Lists:', error?.message || error);
+    return res.status(statusCode >= 400 && statusCode < 500 ? statusCode : 500).json({
+      error: statusCode === 404 ? 'ActiveCampaign contact not found' : 'Failed to load ActiveCampaign contact',
+    });
+  }
+});
+
 // Route: POST /api/enquiries-unified/source/row-update
 // Updates editable Instructions ledger fields for a single enquiry row.
 router.post('/source/row-update', async (req, res) => {
@@ -548,23 +1668,24 @@ router.post('/source/row-update', async (req, res) => {
     return res.status(500).json({ error: 'Instructions database configuration missing' });
   }
 
-  const updates = getSanitisedSourceLedgerUpdates(req.body?.updates);
-  const invalidUpdate = updates.find((entry) => entry.invalid);
-  if (invalidUpdate) {
-    return res.status(400).json({ error: invalidUpdate.reason || 'Invalid update payload' });
-  }
-
-  if (!updates.length) {
-    return res.status(400).json({ error: 'At least one editable field update is required' });
-  }
-
-  trackEvent('Enquiry.Source.RowUpdate.Started', {
-    operation,
-    triggeredBy: 'api',
-    updatedFields: updates.map((entry) => entry.field).join(','),
-  });
-
   try {
+    const sourceLedgerColumnNames = await getInstructionsEnquiryColumns(instructionsConnectionString);
+    const updates = getSanitisedSourceLedgerUpdates(req.body?.updates, sourceLedgerColumnNames);
+    const invalidUpdate = updates.find((entry) => entry.invalid);
+    if (invalidUpdate) {
+      return res.status(400).json({ error: invalidUpdate.reason || 'Invalid update payload' });
+    }
+
+    if (!updates.length) {
+      return res.status(400).json({ error: 'At least one editable field update is required' });
+    }
+
+    trackEvent('Enquiry.Source.RowUpdate.Started', {
+      operation,
+      triggeredBy: 'api',
+      updatedFields: updates.map((entry) => entry.field).join(','),
+    });
+
     const result = await withRequest(instructionsConnectionString, async (request) => {
       request.input('id', sql.Int, parsedId);
 
@@ -575,7 +1696,7 @@ router.post('/source/row-update', async (req, res) => {
         } else {
           request.input(parameterName, sql.NVarChar(entry.field === 'url' ? 500 : 255), entry.value);
         }
-        return `${entry.column} = @${parameterName}`;
+        return `${safeSqlColumnRef(entry.column, '')} = @${parameterName}`;
       });
 
       return request.query(`
@@ -630,11 +1751,17 @@ router.post('/source/row-update', async (req, res) => {
 router.get('/source/ledger', async (req, res) => {
   const startedAt = Date.now();
   const instructionsConnectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
-  const requestedLimit = Number.parseInt(String(req.query.limit || '100'), 10);
+  const requestedLimit = Number.parseInt(String(req.query.limit || SOURCE_LEDGER_DEFAULT_LIMIT), 10);
   const limit = Number.isFinite(requestedLimit)
-    ? Math.max(1, Math.min(requestedLimit, 200))
-    : 100;
-  const sortSpec = normaliseSourceLedgerSort(req.query.sort, req.query.direction);
+    ? Math.max(1, Math.min(requestedLimit, SOURCE_LEDGER_MAX_LIMIT))
+    : SOURCE_LEDGER_DEFAULT_LIMIT;
+  const requestedOffset = Number.parseInt(String(req.query.offset || '0'), 10);
+  const offset = Number.isFinite(requestedOffset)
+    ? Math.max(0, Math.min(requestedOffset, SOURCE_LEDGER_MAX_OFFSET))
+    : 0;
+  const fetchLimit = limit + 1;
+  const dateRange = normaliseSourceLedgerDateRange(req.query.dateFrom, req.query.dateTo);
+  let sortSpec = normaliseSourceLedgerSort(req.query.sort, req.query.direction);
 
   if (!canAccessSourceLedger(req)) {
     return denySourceLedger(req, res, 'source-ledger');
@@ -646,6 +1773,9 @@ router.get('/source/ledger', async (req, res) => {
     sort: sortSpec.sortKey,
     direction: sortSpec.direction,
     limit: String(limit),
+    offset: String(offset),
+    dateFrom: dateRange.from ? dateRange.from.toISOString().slice(0, 10) : '',
+    dateToExclusive: dateRange.toExclusive ? dateRange.toExclusive.toISOString().slice(0, 10) : '',
   });
 
   try {
@@ -659,15 +1789,32 @@ router.get('/source/ledger', async (req, res) => {
         sort: sortSpec.sortKey,
         direction: sortSpec.direction,
         limit: String(limit),
+        offset: String(offset),
+        dateFrom: dateRange.from ? dateRange.from.toISOString().slice(0, 10) : '',
+        dateToExclusive: dateRange.toExclusive ? dateRange.toExclusive.toISOString().slice(0, 10) : '',
         error: 'Instructions database configuration missing',
       });
       return res.status(500).json({ error: 'Instructions database configuration missing' });
     }
 
+    const sourceLedgerColumnNames = await getInstructionsEnquiryColumns(instructionsConnectionString);
+    const attributionColumns = getSourceLedgerAttributionColumns(sourceLedgerColumnNames);
+    sortSpec = normaliseSourceLedgerSort(req.query.sort, req.query.direction, attributionColumns);
+    const campaignProjection = sourceLedgerTextProjection(attributionColumns.campaign, 'campaign');
+    const keywordProjection = sourceLedgerTextProjection(attributionColumns.keyword, 'keyword');
+
     const result = await withRequest(instructionsConnectionString, async (request) => {
-      request.input('limit', sql.Int, limit);
+      request.input('offset', sql.Int, offset);
+      request.input('fetchLimit', sql.Int, fetchLimit);
+      if (dateRange.from && dateRange.toExclusive) {
+        request.input('dateFrom', sql.DateTime2, dateRange.from);
+        request.input('dateToExclusive', sql.DateTime2, dateRange.toExclusive);
+      }
+      const whereClause = dateRange.from && dateRange.toExclusive
+        ? 'WHERE e.datetime >= @dateFrom AND e.datetime < @dateToExclusive'
+        : '';
       return request.query(`
-        SELECT TOP (@limit)
+        SELECT
           e.id,
           e.acid,
           e.datetime,
@@ -675,6 +1822,8 @@ router.get('/source/ledger', async (req, res) => {
           e.moc,
           e.poc,
           e.phone,
+          ${campaignProjection},
+          ${keywordProjection},
           e.source,
           e.url,
           linkedMatter.displayNumber AS matterDisplayNumber
@@ -687,11 +1836,16 @@ router.get('/source/ledger', async (req, res) => {
             AND LTRIM(RTRIM(ISNULL(TRY_CONVERT(varchar(50), m.DisplayNumber), ''))) <> ''
           ORDER BY m.MatterID DESC
         ) AS linkedMatter
+        ${whereClause}
         ORDER BY ${sortSpec.orderClause}
+        OFFSET @offset ROWS FETCH NEXT @fetchLimit ROWS ONLY
       `);
     });
 
-    const rows = (result?.recordset || []).map((row) => ({
+    const rawRows = result?.recordset || [];
+    const pageRows = rawRows.slice(0, limit);
+    const hasMore = rawRows.length > limit;
+    const rows = pageRows.map((row) => ({
       id: row.id == null ? null : Number(row.id),
       acid: row.acid == null ? '' : String(row.acid),
       datetime: row.datetime ? new Date(row.datetime).toISOString() : null,
@@ -699,10 +1853,13 @@ router.get('/source/ledger', async (req, res) => {
       moc: row.moc == null ? '' : String(row.moc),
       poc: row.poc == null ? '' : String(row.poc),
       phone: row.phone == null ? '' : String(row.phone),
+      campaign: row.campaign == null ? '' : String(row.campaign),
+      keyword: row.keyword == null ? '' : String(row.keyword),
       source: row.source == null ? '' : String(row.source),
       url: row.url == null ? '' : String(row.url),
       matterDisplayNumber: row.matterDisplayNumber == null ? '' : String(row.matterDisplayNumber),
     }));
+    const nextOffset = hasMore ? offset + rows.length : null;
 
     const durationMs = Date.now() - startedAt;
     trackEvent('Enquiry.Source.Ledger.Completed', {
@@ -711,6 +1868,10 @@ router.get('/source/ledger', async (req, res) => {
       sort: sortSpec.sortKey,
       direction: sortSpec.direction,
       limit: String(limit),
+      offset: String(offset),
+      dateFrom: dateRange.from ? dateRange.from.toISOString().slice(0, 10) : '',
+      dateToExclusive: dateRange.toExclusive ? dateRange.toExclusive.toISOString().slice(0, 10) : '',
+      hasMore: String(hasMore),
       rowCount: String(rows.length),
       durationMs: String(durationMs),
     });
@@ -725,6 +1886,17 @@ router.get('/source/ledger', async (req, res) => {
       sort: sortSpec.sortKey,
       direction: sortSpec.direction.toLowerCase(),
       limit,
+      offset,
+      hasMore,
+      nextOffset,
+      dateRange: {
+        from: dateRange.from ? dateRange.from.toISOString().slice(0, 10) : null,
+        to: dateRange.toExclusive ? new Date(dateRange.toExclusive.getTime() - 1).toISOString().slice(0, 10) : null,
+      },
+      columns: {
+        campaign: Boolean(attributionColumns.campaign),
+        keyword: Boolean(attributionColumns.keyword),
+      },
     });
   } catch (error) {
     const durationMs = Date.now() - startedAt;
@@ -739,6 +1911,9 @@ router.get('/source/ledger', async (req, res) => {
       sort: sortSpec.sortKey,
       direction: sortSpec.direction,
       limit: String(limit),
+      offset: String(offset),
+      dateFrom: dateRange.from ? dateRange.from.toISOString().slice(0, 10) : '',
+      dateToExclusive: dateRange.toExclusive ? dateRange.toExclusive.toISOString().slice(0, 10) : '',
       error: error?.message || 'Unknown error',
     });
     log.error('Error loading enquiry source ledger:', error?.message || error);

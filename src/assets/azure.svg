@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 768 768" role="img" aria-label="Azure">
+  <defs>
+    <linearGradient id="azureLeft" x1="260" y1="36" x2="244" y2="704" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1b5a9f"/>
+      <stop offset="1" stop-color="#0874bd"/>
+    </linearGradient>
+    <linearGradient id="azureRight" x1="503" y1="36" x2="530" y2="704" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#41c5e8"/>
+      <stop offset="1" stop-color="#2f9fe0"/>
+    </linearGradient>
+    <linearGradient id="azureFold" x1="226" y1="500" x2="500" y2="616" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1189d6"/>
+      <stop offset="1" stop-color="#0673bd"/>
+    </linearGradient>
+  </defs>
+  <path fill="url(#azureLeft)" d="M259.4 35.4h23.8c30.5 0 52.6 16.5 62.1 45.4l160.4 491.8c8.4 25.8-10.8 52.4-37.9 52.4H254.6c-18.3 0-32.5-17.1-28-35.8l156.9-267.4L299.9 66.5c-6.2-18.8-21-31.1-40.5-31.1Z"/>
+  <path fill="url(#azureLeft)" d="M259.4 35.4c-18.7 0-33.4 12-39.6 31.2L14.8 646.2C4.4 676.1 26.5 707 58.1 707h158c17.4 0 32.8-11.1 38.3-27.6l129.1-357.6L299.9 66.5c-6.2-18.8-21-31.1-40.5-31.1Z"/>
+  <path fill="url(#azureRight)" d="M299.9 35.4h209.2c22.8 0 42.9 14.7 49.9 36.4l194.4 581.7c8.8 26.4-10.8 53.5-38.6 53.5H469.7c-17.7 0-33.3-11.4-38.7-28.3L299.9 35.4Z"/>
+  <path fill="url(#azureFold)" d="M230.8 489.3h214.1c18.1 0 34.2 11.6 39.9 28.8l22.7 68.6c11.4 34.5-29.9 61.5-57.1 37.3L220.8 519.5c-13.7-12.2-4.9-30.2 10-30.2Z"/>
+</svg>

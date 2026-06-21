@@ -21,6 +21,7 @@ import {
   formatValueForDisplay,
   buildEnquiryIdentityKey,
 } from './prospectDisplayUtils';
+import { isGenericProspectEmail } from '../sharedProspects';
 import type { ProspectTableRowProps } from './rowTypes';
 
 const LOCKED_ACTIONS_COLUMN_WIDTH_PX = 56;
@@ -78,6 +79,14 @@ const ProspectTableRow: React.FC<ProspectTableRowProps> = ({
   })();
 
   const areaOfWork = item.Area_of_Work || 'Unspecified';
+  const emailAddress = typeof item.Email === 'string' ? item.Email.trim() : '';
+  const emailControlState = !emailAddress ? 'missing' : isGenericProspectEmail(emailAddress) ? 'shared' : 'ready';
+  const emailControlLabel = emailControlState === 'ready'
+    ? 'Email-ready'
+    : emailControlState === 'shared'
+      ? 'Shared inbox'
+      : 'No email';
+  const emailControlListLabel = areaOfWork && areaOfWork !== 'Unspecified' ? areaOfWork : 'Uncategorised';
   const dateReceived = item.Touchpoint_Date || item.Date_Created || '';
   const rawValue: any = (item as any).Value ?? (item as any).value ?? '';
   const value = typeof rawValue === 'string' ? rawValue.replace(/^Â£\s*/, '').trim() : rawValue;
@@ -365,6 +374,17 @@ const ProspectTableRow: React.FC<ProspectTableRowProps> = ({
                 {item.Email}
               </span>
             )}
+            <span
+              className={`enquiry-row__email-control-strip enquiry-row__email-control-strip--${emailControlState}`}
+              data-helix-region="enquiries/row/email-controls"
+              aria-label="Email controls preview"
+              title="Email controls preview"
+            >
+              <span className="enquiry-row__email-control-label">Email controls</span>
+              <span className="enquiry-row__email-control-chip">{emailControlLabel}</span>
+              <span className="enquiry-row__email-control-chip">List: {emailControlListLabel}</span>
+              <span className="enquiry-row__email-control-chip enquiry-row__email-control-chip--muted">Tags pending</span>
+            </span>
           </div>
         </div>
 

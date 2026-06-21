@@ -21,6 +21,8 @@ interface UseStreamingDatasetsOptions {
   autoStart?: boolean;
   maxConcurrent?: number; // Maximum number of datasets to fetch in parallel
   queryParams?: Record<string, string | number | boolean | null | undefined>;
+  clientCacheKey?: string;
+  reuseCachedSession?: boolean;
 }
 
 interface DatasetState {
@@ -46,6 +48,35 @@ interface UseStreamingDatasetsResult {
   };
 }
 
+const streamingDatasetClientCache = new Map<string, Record<string, DatasetState>>();
+
+function hasCompleteCachedSession(cachedStates: Record<string, DatasetState> | null | undefined, datasetNames: string[]): boolean {
+  if (!cachedStates || datasetNames.length === 0) return false;
+  return datasetNames.every((datasetName) => {
+    const cachedState = cachedStates[datasetName];
+    return cachedState?.status === 'ready' || cachedState?.status === 'error';
+  });
+}
+
+function normaliseStreamingQueryParams(source?: Record<string, string | number | boolean | null | undefined>): Record<string, string> {
+  const normalised: Record<string, string> = {};
+  if (!source) return normalised;
+  Object.entries(source).forEach(([key, value]) => {
+    if (value === undefined || value === null) return;
+    normalised[key] = String(value);
+  });
+  return normalised;
+}
+
+function getStreamingDatasetClientCacheKey(
+  clientCacheKey: string | undefined,
+  datasetNames: string[],
+  queryParams?: Record<string, string | number | boolean | null | undefined>,
+): string | null {
+  if (!clientCacheKey) return null;
+  return `${clientCacheKey}:${datasetNames.join(',')}:${JSON.stringify(normaliseStreamingQueryParams(queryParams))}`;
+}
+
 export function useStreamingDatasets(options: UseStreamingDatasetsOptions = {}): UseStreamingDatasetsResult {
   const {
     datasets = ['userData', 'teamData', 'enquiries', 'allMatters', 'wip', 'recoveredFees', 'wipClioCurrentWeek'],
@@ -54,13 +85,18 @@ export function useStreamingDatasets(options: UseStreamingDatasetsOptions = {}):
     autoStart = false,
     maxConcurrent = 3, // Process up to 3 datasets in parallel for optimal performance
     queryParams = {},
+    clientCacheKey,
+    reuseCachedSession = false,
   } = options;
 
-  const [datasetStates, setDatasetStates] = useState<Record<string, DatasetState>>({});
+  const initialClientCacheKey = getStreamingDatasetClientCacheKey(clientCacheKey, datasets, queryParams);
+  const initialCachedStates = initialClientCacheKey ? streamingDatasetClientCache.get(initialClientCacheKey) : null;
+  const [datasetStates, setDatasetStates] = useState<Record<string, DatasetState>>(() => (initialCachedStates ? { ...initialCachedStates } : {}));
   const [isConnected, setIsConnected] = useState(false);
-  const [isComplete, setIsComplete] = useState(false);
+  const [isComplete, setIsComplete] = useState(() => Boolean(initialCachedStates));
   const eventSourceRef = useRef<EventSource | null>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const connectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const stop = useCallback((options?: { resetComplete?: boolean }) => {
     if (eventSourceRef.current) {
@@ -70,6 +106,10 @@ export function useStreamingDatasets(options: UseStreamingDatasetsOptions = {}):
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
       timeoutRef.current = null;
+    }
+    if (connectTimeoutRef.current) {
+      clearTimeout(connectTimeoutRef.current);
+      connectTimeoutRef.current = null;
     }
     setIsConnected(false);
     if (options?.resetComplete ?? true) {
@@ -87,12 +127,11 @@ export function useStreamingDatasets(options: UseStreamingDatasetsOptions = {}):
       clearTimeout(timeoutRef.current);
       timeoutRef.current = null;
     }
+    if (connectTimeoutRef.current) {
+      clearTimeout(connectTimeoutRef.current);
+      connectTimeoutRef.current = null;
+    }
     
-    // Reset all states cleanly
-    setDatasetStates({});
-    setIsConnected(false);
-    setIsComplete(false);
-
     // Build URL with query parameters
     const effectiveDatasets = override?.datasets && override.datasets.length > 0 ? override.datasets : datasets;
     const effectiveBypass = override?.bypassCache ?? bypassCache;
@@ -109,6 +148,19 @@ export function useStreamingDatasets(options: UseStreamingDatasetsOptions = {}):
 
     addParams(queryParams);
     addParams(overrideQueryParams);
+
+    const effectiveClientCacheKey = getStreamingDatasetClientCacheKey(clientCacheKey, effectiveDatasets, mergedQueryParams);
+    const cachedStates = effectiveClientCacheKey ? streamingDatasetClientCache.get(effectiveClientCacheKey) : null;
+    const canReuseCachedSession = reuseCachedSession && !effectiveBypass && hasCompleteCachedSession(cachedStates, effectiveDatasets);
+
+    setDatasetStates(cachedStates ? { ...cachedStates } : {});
+    setIsConnected(false);
+    setIsComplete(Boolean(cachedStates));
+
+    if (canReuseCachedSession) {
+      setIsComplete(true);
+      return;
+    }
 
     const url = new URL('/api/reporting-stream/stream-datasets', window.location.origin);
     url.searchParams.set('datasets', effectiveDatasets.join(','));
@@ -139,8 +191,37 @@ export function useStreamingDatasets(options: UseStreamingDatasetsOptions = {}):
     let freshElapsed = 0;
 
     // Streaming started - progress tracked via datasetStates
+    connectTimeoutRef.current = setTimeout(() => {
+      if (eventSourceRef.current !== eventSource || eventSource.readyState === EventSource.OPEN) {
+        return;
+      }
+      console.warn('Reporting stream did not open in time - marking datasets as connection errors');
+      try { eventSource.close(); } catch { /* ignore */ }
+      if (eventSourceRef.current === eventSource) {
+        eventSourceRef.current = null;
+      }
+      setIsConnected(false);
+      setDatasetStates(prev => {
+        const next: Record<string, DatasetState> = { ...prev };
+        const names = Object.keys(next).length > 0 ? Object.keys(next) : effectiveDatasets;
+        names.forEach((dataset) => {
+          next[dataset] = {
+            ...(next[dataset] ?? { data: null, cached: false, count: 0 }),
+            status: 'error',
+            error: 'Connection failed before the reporting stream opened',
+            updatedAt: Date.now(),
+          };
+        });
+        return next;
+      });
+      setIsComplete(true);
+    }, 12000);
 
     eventSource.onopen = () => {
+      if (connectTimeoutRef.current) {
+        clearTimeout(connectTimeoutRef.current);
+        connectTimeoutRef.current = null;
+      }
       setIsConnected(true);
       setIsComplete(false);
       // Connected to streaming endpoint
@@ -187,11 +268,12 @@ export function useStreamingDatasets(options: UseStreamingDatasetsOptions = {}):
                     updatedAt: starts[name],
                     source: 'reporting-stream',
                   });
+                  const previous = prev[name];
                   next[name] = {
                     status: status as 'loading',
-                    data: null,
-                    cached: false,
-                    count: 0,
+                    data: previous?.data ?? null,
+                    cached: previous?.cached ?? false,
+                    count: previous?.count ?? 0,
                     updatedAt: undefined,
                     elapsedMs: 0,
                   };
@@ -228,17 +310,21 @@ export function useStreamingDatasets(options: UseStreamingDatasetsOptions = {}):
                 cached: update.cached || false,
                 source: 'reporting-stream',
               });
-              setDatasetStates(prev => ({
-                ...prev,
-                [update.dataset!]: {
-                  status: 'ready',
-                  data: update.data,
-                  cached: update.cached || false,
-                  count: update.count || 0,
-                  updatedAt: Date.now(),
-                  elapsedMs: started ? Date.now() - started : undefined,
-                },
-              }));
+              setDatasetStates(prev => {
+                const next = {
+                  ...prev,
+                  [update.dataset!]: {
+                    status: 'ready' as const,
+                    data: update.data,
+                    cached: update.cached || false,
+                    count: update.count || 0,
+                    updatedAt: Date.now(),
+                    elapsedMs: started ? Date.now() - started : undefined,
+                  },
+                };
+                if (effectiveClientCacheKey) streamingDatasetClientCache.set(effectiveClientCacheKey, next);
+                return next;
+              });
             }
             break;
 
@@ -258,21 +344,29 @@ export function useStreamingDatasets(options: UseStreamingDatasetsOptions = {}):
                 count: 0,
                 source: 'reporting-stream',
               });
-              setDatasetStates(prev => ({
-                ...prev,
-                [update.dataset!]: {
-                  ...prev[update.dataset!],
-                  status: 'error',
-                  error: update.error,
-                  updatedAt: Date.now(),
-                  elapsedMs: started ? Date.now() - started : undefined,
-                },
-              }));
+              setDatasetStates(prev => {
+                const next = {
+                  ...prev,
+                  [update.dataset!]: {
+                    ...prev[update.dataset!],
+                    status: 'error' as const,
+                    error: update.error,
+                    updatedAt: Date.now(),
+                    elapsedMs: started ? Date.now() - started : undefined,
+                  },
+                };
+                if (effectiveClientCacheKey) streamingDatasetClientCache.set(effectiveClientCacheKey, next);
+                return next;
+              });
             }
             break;
 
           case 'complete':
             setIsComplete(true);
+            if (connectTimeoutRef.current) {
+              clearTimeout(connectTimeoutRef.current);
+              connectTimeoutRef.current = null;
+            }
             // Clear timeout since we completed successfully
             if (timeoutRef.current) {
               clearTimeout(timeoutRef.current);
@@ -311,6 +405,10 @@ export function useStreamingDatasets(options: UseStreamingDatasetsOptions = {}):
       // Only close if connection is permanently failed (readyState 2) 
       // EventSource will auto-retry for temporary network issues (readyState 0)
       if (eventSource.readyState === EventSource.CLOSED) {
+        if (connectTimeoutRef.current) {
+          clearTimeout(connectTimeoutRef.current);
+          connectTimeoutRef.current = null;
+        }
         if (eventSourceRef.current) {
           eventSourceRef.current.close();
           eventSourceRef.current = null;
@@ -333,7 +431,7 @@ export function useStreamingDatasets(options: UseStreamingDatasetsOptions = {}):
         setIsComplete(true);
       }
     };
-  }, [datasets, entraId, bypassCache, maxConcurrent, queryParams]);
+  }, [clientCacheKey, datasets, entraId, bypassCache, maxConcurrent, queryParams, reuseCachedSession]);
 
   // Auto-start if requested (do not depend on `start` to avoid effect restarts on re-render)
   useEffect(() => {
@@ -344,11 +442,19 @@ export function useStreamingDatasets(options: UseStreamingDatasetsOptions = {}):
         try { eventSourceRef.current.close(); } catch { /* */ }
         eventSourceRef.current = null;
       }
+      if (connectTimeoutRef.current) {
+        clearTimeout(connectTimeoutRef.current);
+        connectTimeoutRef.current = null;
+      }
     });
     return () => {
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
         eventSourceRef.current = null;
+      }
+      if (connectTimeoutRef.current) {
+        clearTimeout(connectTimeoutRef.current);
+        connectTimeoutRef.current = null;
       }
       undoHmr();
       setIsConnected(false);

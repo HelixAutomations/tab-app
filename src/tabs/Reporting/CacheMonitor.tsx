@@ -4,6 +4,7 @@ import { FontIcon } from '@fluentui/react/lib/Icon';
 import { Spinner, SpinnerSize } from '@fluentui/react/lib/Spinner';
 import { colours } from '../../app/styles/colours';
 import { useTheme } from '../../app/functionality/ThemeContext';
+import { buildRequestAuthHeaders } from '../../utils/requestAuthContext';
 
 interface CacheKey {
   label: string;
@@ -73,8 +74,8 @@ const CacheMonitor: React.FC<CacheMonitorProps> = ({ onBack }) => {
   const fetchData = useCallback(async () => {
     try {
       const [diagRes, analyticsRes] = await Promise.all([
-        fetch('/api/cache-preheater/diagnostics'),
-        fetch('/api/cache-preheater/analytics'),
+        fetch('/api/cache-preheater/diagnostics', { headers: buildRequestAuthHeaders() }),
+        fetch('/api/cache-preheater/analytics', { headers: buildRequestAuthHeaders() }),
       ]);
       if (diagRes.ok) {
         const d = await diagRes.json();

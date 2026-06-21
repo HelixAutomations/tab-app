@@ -16,6 +16,10 @@ const MATTER_DATE_COLUMN_CANDIDATES = [
 
 const columnCache = new Map();
 
+function buildDateParseExpression(expression) {
+  return `COALESCE(TRY_CONVERT(date, ${expression}, 103), TRY_CONVERT(date, ${expression}, 105), TRY_CONVERT(date, ${expression}, 120), TRY_CONVERT(date, ${expression}, 126), TRY_CONVERT(date, ${expression}, 112), TRY_CONVERT(date, ${expression}))`;
+}
+
 async function getMatterDateExpressions(connectionString) {
   if (!connectionString) {
     return [];
@@ -36,7 +40,7 @@ async function getMatterDateExpressions(connectionString) {
 
   const expressions = MATTER_DATE_COLUMN_CANDIDATES
     .filter((candidate) => columns.includes(candidate.name))
-    .map((candidate) => candidate.expression);
+    .map((candidate) => buildDateParseExpression(candidate.expression));
 
   if (expressions.length) {
     console.log(`[Matters] Using date columns for filtering: ${expressions.join(', ')}`);
@@ -49,5 +53,6 @@ async function getMatterDateExpressions(connectionString) {
 }
 
 module.exports = {
+  buildDateParseExpression,
   getMatterDateExpressions,
 };

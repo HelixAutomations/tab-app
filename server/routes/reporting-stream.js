@@ -1,13 +1,18 @@
 const express = require('express');
 const { getRedisClient, cacheWrapper, generateCacheKey } = require('../utils/redisClient');
 const { loggers } = require('../utils/logger');
+const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
 
 const router = express.Router();
 const log = loggers.stream;
+const WIP_TIME_ENTRY_FILTER = `
+        AND LOWER(LTRIM(RTRIM(COALESCE(type, '')))) = 'timeentry'
+        AND NULLIF(LTRIM(RTRIM(COALESCE(expense_category, ''))), '') IS NULL
+      `;
 
 // Import dataset fetchers from the main reporting route
 const { withRequest } = require('../utils/db');
-const { getMatterDateExpressions } = require('../utils/matterDateColumns');
+const { fetchCombinedReportingMatters } = require('../utils/reportingMatters');
 const fetch = require('node-fetch');
 // Reuse the direct Clio current-week implementation from reporting route to avoid Azure Function fallback
 const reportingRoute = require('./reporting');
@@ -36,6 +41,10 @@ const DATASET_TTL = {
   deals: 1800,        // 30 min - Deal/pitch data for Meta metrics conversion tracking
   instructions: 1800, // 30 min - Instruction data for conversion funnel
   dubberCalls: 300,   // 5 min - Dubber call recordings
+};
+
+const DATASET_CACHE_VERSION = {
+  allMatters: 'combined-matters-v1',
 };
 
 // Server-Sent Events endpoint for progressive dataset loading
@@ -110,6 +119,8 @@ router.get('/stream-datasets', async (req, res) => {
     : null;
 
   const bypassCache = String(req.query.bypassCache || '').toLowerCase() === 'true';
+  const requestedMaxConcurrent = parsePositiveInt(getQueryValue(req.query.maxConcurrent));
+  const maxConcurrent = Math.max(1, Math.min(8, requestedMaxConcurrent || 3));
 
   const datasetRangeOverrides = buildRangeOverridesFromQuery(req.query);
   const getRangeCacheSuffix = (datasetName) => {
@@ -162,13 +173,14 @@ router.get('/stream-datasets', async (req, res) => {
       let fromCache = false;
 
       const rangeSuffix = getRangeCacheSuffix(datasetName);
+      const versionSuffix = DATASET_CACHE_VERSION[datasetName] ? `:${DATASET_CACHE_VERSION[datasetName]}` : '';
       if (!bypassCache) {
         try {
           const redisClient = await getRedisClient();
           if (redisClient) {
             // For wipClioCurrentWeek we always use team scope; key by 'team' to avoid per-user caching
             const scopeKey = datasetName === 'wipClioCurrentWeek' ? 'team' : (entraId || 'team');
-            const cacheKey = generateCacheKey('stream', `${datasetName}:${scopeKey}${rangeSuffix}`);
+            const cacheKey = generateCacheKey('stream', `${datasetName}:${scopeKey}${rangeSuffix}${versionSuffix}`);
             const cached = await redisClient.get(cacheKey);
             if (cached) {
               try {
@@ -228,7 +240,7 @@ router.get('/stream-datasets', async (req, res) => {
           // For heavy datasets, DON'T abort on client disconnect - continue fetching and cache the result
           // This ensures the next request gets a cache hit instead of starting another slow fetch
           const racePromises = [
-            fetchDatasetByName(datasetName, { connectionString, instructionsConnectionString, entraId, rangeOverrides: datasetRangeOverrides, bypassCache }),
+            fetchDatasetByName(datasetName, { connectionString, instructionsConnectionString, entraId, user: req.user, rangeOverrides: datasetRangeOverrides, bypassCache }),
             new Promise((_, reject) => setTimeout(() => reject(new Error(`Query timeout after ${timeoutMs}ms`)), timeoutMs))
           ];
           
@@ -263,7 +275,7 @@ router.get('/stream-datasets', async (req, res) => {
           const redisClient = await getRedisClient();
           if (redisClient) {
             const scopeKey2 = datasetName === 'wipClioCurrentWeek' ? 'team' : (entraId || 'team');
-            const cacheKey = generateCacheKey('stream', `${datasetName}:${scopeKey2}${rangeSuffix}`);
+            const cacheKey = generateCacheKey('stream', `${datasetName}:${scopeKey2}${rangeSuffix}${versionSuffix}`);
             const baseTtl = DATASET_TTL[datasetName] || 1800;
             
             // Use base TTL directly - no multipliers that cause unpredictable behavior
@@ -287,6 +299,15 @@ router.get('/stream-datasets', async (req, res) => {
 
       // Send completed dataset to client
       const totalTime = Date.now() - startTime;
+      trackEvent('Reporting.Stream.Dataset.Completed', {
+        operation: 'streamDataset',
+        triggeredBy: req.user?.initials || 'stream',
+        dataset: datasetName,
+        cached: fromCache,
+        rowCount: Array.isArray(result) ? result.length : (result ? 1 : 0),
+        durationMs: totalTime,
+      });
+      trackMetric('Reporting.Stream.Dataset.Duration', totalTime, { operation: 'streamDataset', dataset: datasetName, cached: fromCache });
       writeSse({
         type: 'dataset-complete',
         dataset: datasetName,
@@ -303,6 +324,14 @@ router.get('/stream-datasets', async (req, res) => {
       const totalTime = Date.now() - startTime;
       log.error(`❌ Dataset ${datasetName} failed after ${totalTime}ms:`, error.message);
       log.error('Full error:', error);
+      trackException(error, { operation: 'streamDataset', phase: 'datasetFetch', dataset: datasetName, triggeredBy: req.user?.initials || 'stream', durationMs: totalTime });
+      trackEvent('Reporting.Stream.Dataset.Failed', {
+        operation: 'streamDataset',
+        triggeredBy: req.user?.initials || 'stream',
+        dataset: datasetName,
+        error: error.message,
+        durationMs: totalTime,
+      });
       
       // Graceful degradation for Clio token errors - log but still send error status 
       // so frontend can fallback to wipDbCurrentWeek
@@ -342,10 +371,13 @@ router.get('/stream-datasets', async (req, res) => {
     const lightDatasets = datasetsParam.filter(d => !['wip', 'recoveredFees'].includes(d));
     const heavyDatasets = datasetsParam.filter(d => ['wip', 'recoveredFees'].includes(d));
 
-    log.debug(`🚀 Processing light datasets: [${lightDatasets.join(', ')}]`);
+    log.debug(`🚀 Processing light datasets: [${lightDatasets.join(', ')}] with max concurrency ${maxConcurrent}`);
     
-    // Process light datasets concurrently
-    await Promise.all(lightDatasets.map(processDataset));
+    // Process light datasets in bounded batches so provider-backed feeds do not burst.
+    for (let index = 0; index < lightDatasets.length; index += maxConcurrent) {
+      if (!isClientConnected || res.writableEnded || res.destroyed) break;
+      await Promise.all(lightDatasets.slice(index, index + maxConcurrent).map(processDataset));
+    }
 
     // If client disconnected during light set, stop early to avoid writes after end
     if (!isClientConnected || res.writableEnded || res.destroyed) {
@@ -376,7 +408,7 @@ router.get('/stream-datasets', async (req, res) => {
 });
 
 // Dataset fetcher dispatcher
-async function fetchDatasetByName(datasetName, { connectionString, instructionsConnectionString, entraId, clioId, rangeOverrides = {}, bypassCache = false }) {
+async function fetchDatasetByName(datasetName, { connectionString, instructionsConnectionString, entraId, clioId, user = null, rangeOverrides = {}, bypassCache = false }) {
   switch (datasetName) {
     case 'userData':
       return fetchUserData({ connectionString, entraId });
@@ -399,10 +431,10 @@ async function fetchDatasetByName(datasetName, { connectionString, instructionsC
     case 'wipDbCurrentWeek':
       return fetchWipDbCurrentWeek({ connectionString });
     case 'googleAnalytics': {
-      return fetchGoogleAnalyticsData(rangeOverrides.googleAnalytics ?? 3);
+      return fetchGoogleAnalyticsData(rangeOverrides.googleAnalytics ?? 3, { user, entraId });
     }
     case 'googleAds': {
-      return fetchGoogleAdsData(rangeOverrides.googleAds ?? 3);
+      return fetchGoogleAdsData(rangeOverrides.googleAds ?? 3, { user, entraId });
     }
     case 'metaMetrics': {
       const daysBack = sanitizeDays(rangeOverrides.metaMetrics, 90) ?? 30;
@@ -473,34 +505,11 @@ async function fetchEnquiries({ range }) {
 }
 
 async function fetchAllMatters({ connectionString, range }) {
-  const shouldApplyRange = Boolean(range?.from && range?.to);
-  const dateExpressions = shouldApplyRange ? await getMatterDateExpressions(connectionString) : [];
-
-  return withRequest(connectionString, async (request, sqlClient) => {
-    let query = 'SELECT * FROM [dbo].[matters]';
-
-    if (shouldApplyRange) {
-      if (dateExpressions.length) {
-        const [fromDate, toDate] = [formatDateOnly(range.from), formatDateOnly(range.to)];
-        request.input('dateFrom', sqlClient.Date, fromDate);
-        request.input('dateTo', sqlClient.Date, toDate);
-        const coalesceClause = dateExpressions.join(', ');
-        query = `
-          SELECT *
-          FROM [dbo].[matters]
-          WHERE TRY_CONVERT(date, COALESCE(${coalesceClause}))
-            BETWEEN @dateFrom AND @dateTo
-        `;
-        log.debug(`🔍 Matters Query (scoped via ${coalesceClause}): ${fromDate} → ${toDate}`);
-      } else {
-        log.warn('⚠️ Matters range requested but no recognized date columns found; returning full dataset');
-      }
-    } else {
-      log.debug('🔍 Matters Query: no range supplied, returning full dataset');
-    }
-
-    const result = await request.query(query);
-    return Array.isArray(result.recordset) ? result.recordset : [];
+  return fetchCombinedReportingMatters({
+    legacyConnectionString: process.env.SQL_CONNECTION_STRING_LEGACY || connectionString,
+    newSpaceConnectionString: process.env.SQL_CONNECTION_STRING_VNET || process.env.INSTRUCTIONS_SQL_CONNECTION_STRING,
+    range,
+    operation: 'Reporting.Stream.Matters.Fetch',
   });
 }
 
@@ -531,6 +540,7 @@ async function fetchWip({ connectionString, range }) {
                expense_category, activity_description_id, activity_description_name, user_id, bill_id, billed
         FROM [dbo].[wip] WITH (NOLOCK)
         WHERE created_at_date BETWEEN @dateFrom AND @dateTo
+          ${WIP_TIME_ENTRY_FILTER}
       `);
       const rows = Array.isArray(result.recordset) ? result.recordset : [];
       return rows.map((row) => {
@@ -657,6 +667,7 @@ async function fetchWipDbLastWeek({ connectionString }) {
              expense_category, activity_description_id, activity_description_name, user_id, bill_id, billed
       FROM [dbo].[wip]
       WHERE created_at_date BETWEEN @dateFrom AND @dateTo
+        ${WIP_TIME_ENTRY_FILTER}
     `);
     const rows = Array.isArray(result.recordset) ? result.recordset : [];
     return rows.map((row) => {
@@ -893,10 +904,60 @@ function getInternalApiPort() {
   return process.env.PORT || 8080;
 }
 
+function normaliseInternalHeaderValue(value) {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : '';
+}
+
+function buildInternalIdentityHeaders({ user = null, entraId = null } = {}) {
+  const resolvedEntraId = normaliseInternalHeaderValue(user?.entraId || user?.entraID || user?.['Entra ID'] || entraId);
+  const resolvedEmail = normaliseInternalHeaderValue(user?.email || user?.Email);
+  const resolvedInitials = normaliseInternalHeaderValue(user?.initials || user?.Initials);
+  const headers = {};
+
+  if (resolvedEntraId) headers['x-helix-entra-id'] = resolvedEntraId;
+  if (resolvedEmail) headers['x-user-email'] = resolvedEmail;
+  if (resolvedInitials) headers['x-helix-initials'] = resolvedInitials;
+
+  return headers;
+}
+
+function buildInternalRateLimitBypassHeaders() {
+  const secret = global.__HELIX_INTERNAL_REQUEST_SECRET;
+  if (!secret) return {};
+  return {
+    'x-helix-internal-request': 'reporting-stream',
+    'x-helix-internal-secret': secret,
+  };
+}
+
+function buildInternalApiRequestOptions(path, identityContext = {}) {
+  const port = getInternalApiPort();
+  const isNamedPipe = typeof port === 'string' && port.startsWith('\\\\.\\pipe\\');
+  const options = {
+    path,
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      'User-Agent': 'Helix-ReportingStream-Internal/1.0',
+      ...buildInternalRateLimitBypassHeaders(),
+      ...buildInternalIdentityHeaders(identityContext),
+    },
+  };
+
+  if (isNamedPipe) {
+    options.socketPath = port;
+  } else {
+    options.hostname = 'localhost';
+    options.port = port;
+  }
+
+  return options;
+}
+
 const INTERNAL_META_TIMEOUT_MS = 50000;
 
 // Google Analytics data fetcher
-async function fetchGoogleAnalyticsData(rangeOrMonths = 3) {
+async function fetchGoogleAnalyticsData(rangeOrMonths = 3, identityContext = {}) {
   const http = require('http');
   const querystring = require('querystring');
   const { startDate, endDate } = resolveProviderDateRange(rangeOrMonths, 3);
@@ -907,24 +968,7 @@ async function fetchGoogleAnalyticsData(rangeOrMonths = 3) {
   });
 
   return new Promise((resolve, reject) => {
-    const port = getInternalApiPort();
-    const isNamedPipe = typeof port === 'string' && port.startsWith('\\\\.\\pipe\\');
-    
-    const options = {
-      path: `/api/marketing-metrics/ga4?${params}`,
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    };
-
-    // Use socketPath for named pipes (Azure iisnode), otherwise use hostname + port
-    if (isNamedPipe) {
-      options.socketPath = port;
-    } else {
-      options.hostname = 'localhost';
-      options.port = port;
-    }
+    const options = buildInternalApiRequestOptions(`/api/marketing-metrics/ga4?${params}`, identityContext);
 
     const req = http.request(options, (res) => {
       let data = '';
@@ -950,7 +994,7 @@ async function fetchGoogleAnalyticsData(rangeOrMonths = 3) {
 }
 
 // Google Ads data fetcher
-async function fetchGoogleAdsData(rangeOrMonths = 3) {
+async function fetchGoogleAdsData(rangeOrMonths = 3, identityContext = {}) {
   const http = require('http');
   const querystring = require('querystring');
   const { startDate, endDate } = resolveProviderDateRange(rangeOrMonths, 3);
@@ -961,24 +1005,7 @@ async function fetchGoogleAdsData(rangeOrMonths = 3) {
   });
 
   return new Promise((resolve, reject) => {
-    const port = getInternalApiPort();
-    const isNamedPipe = typeof port === 'string' && port.startsWith('\\\\.\\pipe\\');
-    
-    const options = {
-      path: `/api/marketing-metrics/google-ads?${params}`,
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    };
-
-    // Use socketPath for named pipes (Azure iisnode), otherwise use hostname + port
-    if (isNamedPipe) {
-      options.socketPath = port;
-    } else {
-      options.hostname = 'localhost';
-      options.port = port;
-    }
+    const options = buildInternalApiRequestOptions(`/api/marketing-metrics/google-ads?${params}`, identityContext);
 
     const req = http.request(options, (res) => {
       let data = '';
@@ -1253,6 +1280,7 @@ async function fetchWipDbCurrentWeek({ connectionString }) {
              expense_category, activity_description_id, activity_description_name, user_id, bill_id, billed
       FROM [dbo].[wip]
       WHERE created_at_date BETWEEN @dateFrom AND @dateTo
+        ${WIP_TIME_ENTRY_FILTER}
     `);
     const rowsArr = Array.isArray(result.recordset) ? result.recordset : [];
     return rowsArr.map((row) => {

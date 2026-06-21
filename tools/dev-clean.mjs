@@ -14,7 +14,7 @@
 //   node tools/dev-clean.mjs --keep-logs       # keep logs/dev-all and server/logs
 //   node tools/dev-clean.mjs --logs-only       # only delete logs (cheap, no recompile cost)
 //   node tools/dev-clean.mjs --dry-run         # show sizes, change nothing
-//   node tools/dev-clean.mjs --if-over-mb=500  # delete only if selected targets exceed threshold
+//   node tools/dev-clean.mjs --if-over-mb=2048 # delete only if selected targets exceed threshold
 //
 // After running, restart `npm run dev:all` (or dev:fast). First boot will be
 // slower (cold webpack compile, ~30-60s) — every boot after is back to normal.

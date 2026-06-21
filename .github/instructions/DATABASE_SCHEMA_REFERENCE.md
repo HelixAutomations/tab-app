@@ -122,6 +122,7 @@ This document describes the key database tables, their relationships, and import
 5. Legacy enquiry (fallback): match `enquiries.ID = Deals.ProspectId`
 
 **Key rule**: `Deals.ProspectId` is the ActiveCampaign contact ID. For new-space records, this maps to `acid`, NOT `id`.
+**Storage rule**: `dbo.Matters.EnquiryID` stores the new-space `dbo.enquiries.id`. Use `acid` and legacy `enquiries.ID` only to resolve the new-space row. Never write `acid` or a legacy enquiry ID back to `dbo.Matters.EnquiryID`.
 
 ## Current Risk Assessment Lookup (CRITICAL)
 

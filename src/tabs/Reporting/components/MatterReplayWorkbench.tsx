@@ -1,5 +1,5 @@
 import React from 'react';
-import { colours } from '../../../app/styles/colours';
+import { colours, withAlpha } from '../../../app/styles/colours';
 import { buildRequestAuthHeaders } from '../../../utils/requestAuthContext';
 
 type ReplayStatus = 'failed' | 'pending' | 'all' | 'open';
@@ -110,12 +110,11 @@ interface MatterReplayDetail {
   submissions?: SubmissionSummary;
 }
 
-interface MatterReplayViewProps {
+interface MatterReplayWorkbenchProps {
   viewerInitials: string | null;
   isDarkMode: boolean;
   onBack?: () => void;
   onOpenDashboard?: () => void;
-  surface?: 'system' | 'data-hub';
 }
 
 const STATUS_OPTIONS: Array<{ key: ReplayStatus; label: string }> = [
@@ -173,14 +172,15 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
 
 const HeaderButton: React.FC<{ label: string; isDarkMode: boolean; accent?: string; onClick: () => void }> = ({ label, isDarkMode, accent, onClick }) => {
   const mutedColour = isDarkMode ? '#d1d5db' : colours.greyText;
-  const borderColour = accent || (isDarkMode ? colours.dark.border : colours.light.border);
+  const borderColour = accent || (isDarkMode ? withAlpha(colours.dark.borderColor, 0.38) : withAlpha(colours.greyText, 0.14));
+  const controlBackground = isDarkMode ? withAlpha(colours.dark.cardBackground, 0.42) : withAlpha(colours.light.cardBackground, 0.82);
   return (
     <button
       type="button"
       onClick={onClick}
       style={{
         border: `1px solid ${borderColour}`,
-        background: accent ? `${accent}1A` : 'transparent',
+        background: accent ? withAlpha(accent, isDarkMode ? 0.13 : 0.08) : controlBackground,
         color: accent || mutedColour,
         padding: '7px 10px',
         borderRadius: 0,
@@ -211,7 +211,7 @@ const ProcessTraceList: React.FC<{
 }> = ({ steps, expandedKey, onToggle, renderTray, isDarkMode, textColour, mutedColour, borderColour, cardBg, region }) => {
   const completeCount = steps.filter((step) => step.state === 'complete' || step.state === 'inferred').length;
   const issueCount = steps.filter((step) => step.state === 'failed' || step.state === 'missing' || step.state === 'warning').length;
-  const trayBg = isDarkMode ? 'rgba(10, 28, 50, 0.34)' : 'rgba(244, 247, 252, 0.72)';
+  const trayBg = isDarkMode ? colours.dark.cardHover : colours.light.cardHover;
 
   return (
     <section data-helix-region={region} style={{ border: `1px solid ${borderColour}`, background: cardBg, padding: 14 }}>
@@ -241,7 +241,7 @@ const ProcessTraceList: React.FC<{
                   textAlign: 'left', color: textColour, fontFamily: 'Raleway, sans-serif',
                 }}
               >
-                <span style={{ width: 22, height: 22, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', border: `1px solid ${accent}`, background: `${accent}1A`, color: accent, fontSize: 10, fontWeight: 900, fontVariantNumeric: 'tabular-nums' }}>
+                <span style={{ width: 22, height: 22, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', border: `1px solid ${accent}`, background: withAlpha(accent, isDarkMode ? 0.16 : 0.09), color: accent, fontSize: 10, fontWeight: 900, fontVariantNumeric: 'tabular-nums' }}>
                   {index + 1}
                 </span>
                 <span style={{ fontSize: 12, fontWeight: 900, lineHeight: 1.2 }}>{step.label}</span>
@@ -262,15 +262,16 @@ const ProcessTraceList: React.FC<{
   );
 };
 
-const MatterReplayView: React.FC<MatterReplayViewProps> = ({ viewerInitials, isDarkMode, onBack, onOpenDashboard, surface = 'system' }) => {
+const MatterReplayWorkbench: React.FC<MatterReplayWorkbenchProps> = ({ viewerInitials, isDarkMode, onBack, onOpenDashboard }) => {
   const textColour = isDarkMode ? colours.dark.text : colours.light.text;
   const mutedColour = isDarkMode ? '#d1d5db' : colours.greyText;
-  const borderColour = isDarkMode ? colours.dark.border : colours.light.border;
-  const panelBg = isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground;
-  const cardBg = isDarkMode ? colours.dark.cardBackground : '#fff';
-  const isDataHubSurface = surface === 'data-hub';
-  const rootRegion = isDataHubSurface ? 'reports/data-hub/matters/replay' : 'system/matter-replay';
-  const processRegion = isDataHubSurface ? 'reports/data-hub/matters/replay/process-trace' : 'system/matter-replay/process-trace';
+  const borderColour = isDarkMode ? withAlpha(colours.dark.borderColor, 0.38) : withAlpha(colours.greyText, 0.14);
+  const panelBg = isDarkMode ? colours.dark.sectionBackground : withAlpha(colours.grey, 0.98);
+  const cardBg = isDarkMode ? colours.dark.cardBackground : withAlpha(colours.light.cardBackground, 0.98);
+  const controlBg = isDarkMode ? withAlpha(colours.dark.cardBackground, 0.42) : withAlpha(colours.light.cardBackground, 0.82);
+  const selectedBg = withAlpha(colours.highlight, isDarkMode ? 0.16 : 0.09);
+  const rootRegion = 'reports/data-hub/matters/replay';
+  const processRegion = 'reports/data-hub/matters/replay/process-trace';
 
   const [status, setStatus] = React.useState<ReplayStatus>('all');
   const [windowDays, setWindowDays] = React.useState(7);
@@ -311,9 +312,8 @@ const MatterReplayView: React.FC<MatterReplayViewProps> = ({ viewerInitials, isD
   React.useEffect(() => { void loadRequests(); }, [loadRequests]);
 
   React.useEffect(() => {
-    if (!selectedRef && requests.length > 0) setSelectedRef(requests[0].instructionRef);
     if (selectedRef && requests.length > 0 && !requests.some((request) => request.instructionRef === selectedRef)) {
-      setSelectedRef(requests[0].instructionRef);
+      setSelectedRef('');
     }
   }, [requests, selectedRef]);
 
@@ -438,10 +438,10 @@ const MatterReplayView: React.FC<MatterReplayViewProps> = ({ viewerInitials, isD
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 18 }}>
         <div>
           <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px', color: mutedColour }}>
-            {isDataHubSurface ? 'Data Hub / Matters' : 'System'}
+            Data Hub / Matters
           </div>
           <h1 style={{ margin: '3px 0 0', fontSize: 24, lineHeight: 1.2, color: textColour, fontFamily: 'Raleway, sans-serif' }}>
-            {isDataHubSurface ? 'Matter replay workbench' : 'Matter Replay'}
+            Matter replay workbench
           </h1>
         </div>
         {(onBack || onOpenDashboard) && (
@@ -467,7 +467,7 @@ const MatterReplayView: React.FC<MatterReplayViewProps> = ({ viewerInitials, isD
                       height: 30,
                       padding: '0 10px',
                       border: `1px solid ${active ? colours.highlight : borderColour}`,
-                      background: active ? `${colours.highlight}1F` : 'transparent',
+                      background: active ? selectedBg : controlBg,
                       color: active ? colours.highlight : mutedColour,
                       cursor: 'pointer',
                       fontFamily: 'Raleway, sans-serif',
@@ -488,7 +488,7 @@ const MatterReplayView: React.FC<MatterReplayViewProps> = ({ viewerInitials, isD
               <select
                 value={windowDays}
                 onChange={(event) => setWindowDays(Number(event.target.value))}
-                style={{ height: 30, border: `1px solid ${borderColour}`, background: cardBg, color: textColour, fontFamily: 'Raleway, sans-serif', fontWeight: 700, padding: '0 8px' }}
+                style={{ height: 30, border: `1px solid ${borderColour}`, background: controlBg, color: textColour, fontFamily: 'Raleway, sans-serif', fontWeight: 700, padding: '0 8px' }}
               >
                 {WINDOW_OPTIONS.map((days) => <option key={days} value={days}>{days} days</option>)}
               </select>
@@ -496,7 +496,7 @@ const MatterReplayView: React.FC<MatterReplayViewProps> = ({ viewerInitials, isD
                 type="button"
                 onClick={() => void loadRequests()}
                 disabled={loadingList}
-                style={{ height: 30, border: 'none', background: colours.highlight, color: '#fff', padding: '0 12px', cursor: loadingList ? 'wait' : 'pointer', fontFamily: 'Raleway, sans-serif', fontWeight: 800 }}
+                style={{ height: 30, border: 'none', background: colours.highlight, color: colours.light.cardBackground, padding: '0 12px', cursor: loadingList ? 'wait' : 'pointer', fontFamily: 'Raleway, sans-serif', fontWeight: 800 }}
               >
                 {loadingList ? 'Refreshing' : 'Refresh'}
               </button>
@@ -506,7 +506,7 @@ const MatterReplayView: React.FC<MatterReplayViewProps> = ({ viewerInitials, isD
           {error && <div style={{ padding: 12, color: colours.cta, fontSize: 12 }}>{error}</div>}
           {!error && loadingList && (
             <div style={{ padding: 10, display: 'grid', gap: 8 }}>
-              {[0, 1, 2].map((row) => <div key={row} style={{ height: 78, border: `1px solid ${borderColour}`, background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)' }} />)}
+              {[0, 1, 2].map((row) => <div key={row} style={{ height: 78, border: `1px solid ${borderColour}`, background: controlBg }} />)}
             </div>
           )}
           {!error && !loadingList && requests.length === 0 && (
@@ -524,9 +524,9 @@ const MatterReplayView: React.FC<MatterReplayViewProps> = ({ viewerInitials, isD
                     onClick={() => setSelectedRef(request.instructionRef)}
                     style={{
                       textAlign: 'left',
-                      border: `1px solid ${active ? accent : borderColour}`,
+                      border: `1px solid ${active ? colours.highlight : borderColour}`,
                       borderLeft: `4px solid ${accent}`,
-                      background: active ? `${accent}14` : cardBg,
+                      background: active ? selectedBg : cardBg,
                       color: textColour,
                       padding: 10,
                       cursor: 'pointer',
@@ -561,10 +561,10 @@ const MatterReplayView: React.FC<MatterReplayViewProps> = ({ viewerInitials, isD
           {!selectedRequest && !loadingDetail && (
             <div style={{ border: `1px solid ${borderColour}`, background: panelBg, padding: 18, color: mutedColour }}>Select an opening request to inspect.</div>
           )}
-          {detailError && <div style={{ border: `1px solid ${colours.cta}`, background: `${colours.cta}12`, padding: 14, color: colours.cta }}>{detailError}</div>}
+          {detailError && <div style={{ border: `1px solid ${colours.cta}`, background: withAlpha(colours.cta, isDarkMode ? 0.14 : 0.08), padding: 14, color: colours.cta }}>{detailError}</div>}
           {loadingDetail && (
             <div style={{ border: `1px solid ${borderColour}`, background: panelBg, padding: 12, display: 'grid', gap: 10 }}>
-              {[0, 1, 2, 3].map((row) => <div key={row} style={{ height: row === 0 ? 82 : 54, background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)' }} />)}
+              {[0, 1, 2, 3].map((row) => <div key={row} style={{ height: row === 0 ? 82 : 54, background: controlBg }} />)}
             </div>
           )}
           {!loadingDetail && detail && (
@@ -575,7 +575,7 @@ const MatterReplayView: React.FC<MatterReplayViewProps> = ({ viewerInitials, isD
                     <div style={{ fontSize: 11, color: mutedColour, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Opening request</div>
                     <h2 style={{ margin: '4px 0 0', fontSize: 20, color: textColour }}>{detail.instructionRef}</h2>
                   </div>
-                  <div style={{ border: `1px solid ${stateColour(detail.status)}`, color: stateColour(detail.status), padding: '5px 9px', fontSize: 11, fontWeight: 900, textTransform: 'uppercase' }}>
+                  <div style={{ border: `1px solid ${stateColour(detail.status)}`, background: cardBg, color: stateColour(detail.status), padding: '5px 9px', fontSize: 11, fontWeight: 900, textTransform: 'uppercase' }}>
                     {detail.statusLabel}
                   </div>
                 </div>
@@ -622,14 +622,14 @@ const MatterReplayView: React.FC<MatterReplayViewProps> = ({ viewerInitials, isD
                                   value={repair[field.key] || ''}
                                   maxLength={field.maxLength}
                                   onChange={(event) => updateRepair(field.key, event.target.value)}
-                                  style={{ minHeight: 74, resize: 'vertical', border: `1px solid ${result ? accent : borderColour}`, background: cardBg, color: textColour, padding: 8, fontFamily: 'Raleway, sans-serif', fontSize: 12 }}
+                                  style={{ minHeight: 74, resize: 'vertical', border: `1px solid ${result ? accent : borderColour}`, background: controlBg, color: textColour, padding: 8, fontFamily: 'Raleway, sans-serif', fontSize: 12 }}
                                 />
                               ) : (
                                 <input
                                   value={repair[field.key] || ''}
                                   maxLength={field.maxLength}
                                   onChange={(event) => updateRepair(field.key, event.target.value)}
-                                  style={{ height: 32, border: `1px solid ${result ? accent : borderColour}`, background: cardBg, color: textColour, padding: '0 8px', fontFamily: 'Raleway, sans-serif', fontSize: 12 }}
+                                  style={{ height: 32, border: `1px solid ${result ? accent : borderColour}`, background: controlBg, color: textColour, padding: '0 8px', fontFamily: 'Raleway, sans-serif', fontSize: 12 }}
                                 />
                               )}
                               {result && <span style={{ color: accent, fontWeight: 700 }}>{result.message}</span>}
@@ -642,7 +642,7 @@ const MatterReplayView: React.FC<MatterReplayViewProps> = ({ viewerInitials, isD
                           type="button"
                           onClick={() => void saveRepair()}
                           disabled={!canMutate || !validation?.ok || actionBusy === 'repair'}
-                          style={{ height: 30, border: `1px solid ${colours.highlight}`, background: canMutate && validation?.ok ? colours.highlight : 'transparent', color: canMutate && validation?.ok ? '#fff' : mutedColour, cursor: canMutate && validation?.ok && actionBusy !== 'repair' ? 'pointer' : 'not-allowed', padding: '0 12px', fontFamily: 'Raleway, sans-serif', fontWeight: 900, fontSize: 11 }}
+                          style={{ height: 30, border: `1px solid ${colours.highlight}`, background: canMutate && validation?.ok ? colours.highlight : controlBg, color: canMutate && validation?.ok ? colours.light.cardBackground : mutedColour, cursor: canMutate && validation?.ok && actionBusy !== 'repair' ? 'pointer' : 'not-allowed', padding: '0 12px', fontFamily: 'Raleway, sans-serif', fontWeight: 900, fontSize: 11 }}
                         >
                           {actionBusy === 'repair' ? 'Saving' : 'Save repair'}
                         </button>
@@ -660,7 +660,7 @@ const MatterReplayView: React.FC<MatterReplayViewProps> = ({ viewerInitials, isD
               )}
 
               {!canMutate && detail.status === 'open' && (
-                <div style={{ border: `1px solid ${colours.green}`, background: `${colours.green}12`, color: colours.green, padding: '8px 10px', fontSize: 12, fontWeight: 800 }}>
+                <div style={{ border: `1px solid ${colours.green}`, background: withAlpha(colours.green, isDarkMode ? 0.14 : 0.08), color: colours.green, padding: '8px 10px', fontSize: 12, fontWeight: 800 }}>
                   Complete. Replay locked.
                 </div>
               )}
@@ -672,13 +672,13 @@ const MatterReplayView: React.FC<MatterReplayViewProps> = ({ viewerInitials, isD
                     value={typedConfirmation}
                     onChange={(event) => setTypedConfirmation(event.target.value)}
                     placeholder={`Type ${confirmationPhrase} for live replay`}
-                    style={{ height: 34, border: `1px solid ${typedConfirmation && typedConfirmation !== confirmationPhrase ? colours.cta : borderColour}`, background: cardBg, color: textColour, padding: '0 8px', fontFamily: 'Raleway, sans-serif', fontSize: 12 }}
+                    style={{ height: 34, border: `1px solid ${typedConfirmation && typedConfirmation !== confirmationPhrase ? colours.cta : borderColour}`, background: controlBg, color: textColour, padding: '0 8px', fontFamily: 'Raleway, sans-serif', fontSize: 12 }}
                   />
                   <button
                     type="button"
                     onClick={() => void runReplay(true)}
                     disabled={!canDryRun}
-                    style={{ height: 34, border: 'none', background: colours.highlight, color: '#fff', padding: '0 14px', cursor: canDryRun ? 'pointer' : 'not-allowed', fontFamily: 'Raleway, sans-serif', fontWeight: 900, opacity: canDryRun ? 1 : 0.6 }}
+                    style={{ height: 34, border: 'none', background: colours.highlight, color: colours.light.cardBackground, padding: '0 14px', cursor: canDryRun ? 'pointer' : 'not-allowed', fontFamily: 'Raleway, sans-serif', fontWeight: 900, opacity: canDryRun ? 1 : 0.6 }}
                   >
                     {actionBusy === 'dry-run' ? 'Running' : 'Dry run'}
                   </button>
@@ -686,14 +686,14 @@ const MatterReplayView: React.FC<MatterReplayViewProps> = ({ viewerInitials, isD
                     type="button"
                     onClick={() => void runReplay(false)}
                     disabled={!canCommit}
-                    style={{ height: 34, border: `1px solid ${colours.cta}`, background: canCommit ? colours.cta : 'transparent', color: canCommit ? '#fff' : mutedColour, padding: '0 14px', cursor: canCommit ? 'pointer' : 'not-allowed', fontFamily: 'Raleway, sans-serif', fontWeight: 900 }}
+                    style={{ height: 34, border: `1px solid ${colours.cta}`, background: canCommit ? colours.cta : controlBg, color: canCommit ? colours.light.cardBackground : mutedColour, padding: '0 14px', cursor: canCommit ? 'pointer' : 'not-allowed', fontFamily: 'Raleway, sans-serif', fontWeight: 900 }}
                   >
                     {actionBusy === 'commit' ? 'Replaying' : 'Commit replay'}
                   </button>
                 </div>
                 {actionMessage && <div style={{ marginTop: 10, color: actionColour, fontSize: 12, fontWeight: 800 }}>{actionMessage.text}</div>}
                 {runOutput != null && (
-                  <pre style={{ margin: '12px 0 0', maxHeight: 280, overflow: 'auto', border: `1px solid ${borderColour}`, background: isDarkMode ? 'rgba(0,0,0,0.35)' : 'rgba(0,0,0,0.04)', padding: 10, color: textColour, fontSize: 10, fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                  <pre style={{ margin: '12px 0 0', maxHeight: 280, overflow: 'auto', border: `1px solid ${borderColour}`, background: controlBg, padding: 10, color: textColour, fontSize: 10, fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                     {typeof runOutput === 'string' ? runOutput : JSON.stringify(runOutput, null, 2)}
                   </pre>
                 )}
@@ -764,10 +764,10 @@ const MatterReplayView: React.FC<MatterReplayViewProps> = ({ viewerInitials, isD
 };
 
 const InfoTile: React.FC<{ label: string; value: string; mutedColour: string; textColour: string; borderColour: string; isDarkMode: boolean }> = ({ label, value, mutedColour, textColour, borderColour, isDarkMode }) => (
-  <div style={{ border: `1px solid ${borderColour}`, background: isDarkMode ? colours.dark.cardBackground : '#fff', padding: 10, minHeight: 62 }}>
+  <div style={{ border: `1px solid ${borderColour}`, background: isDarkMode ? colours.dark.cardBackground : withAlpha(colours.light.cardBackground, 0.98), padding: 10, minHeight: 62 }}>
     <div style={{ color: mutedColour, fontSize: 10, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{label}</div>
     <div style={{ color: textColour, fontSize: 13, fontWeight: 900, marginTop: 5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={value}>{value}</div>
   </div>
 );
 
-export default MatterReplayView;
+export default MatterReplayWorkbench;

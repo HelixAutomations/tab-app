@@ -52,7 +52,7 @@
 		{
 			"label": "Start frontend",
 			"type": "shell",
-			"command": "npm run start:dev",
+			"command": "npm run dev:fast",
 			"isBackground": true,
 			"options": {
 				"cwd": "${workspaceFolder}"

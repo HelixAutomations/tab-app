@@ -1477,6 +1477,12 @@ const AppWithContext: React.FC = () => {
         try { fn(eventDetail); } catch { /* ignore downstream errors */ }
       });
 
+      try {
+        window.dispatchEvent(new CustomEvent('helix:enquiriesChanged', {
+          detail: { changeType, enquiryId, deletedCount: deletedIds.length },
+        }));
+      } catch { /* ignore */ }
+
       // ── Patch-first approach: apply local patches immediately, reconcile later ──
 
       if (changeType === 'claim' && enquiryId) {

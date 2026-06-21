@@ -18,6 +18,7 @@ import { app } from '@microsoft/teams-js';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';
 import { useRealtimeChannel } from '../../hooks/useRealtimeChannel';
+import { fetchWithRetry } from '../../utils/fetchUtils';
 import ReportShell from './components/ReportShell';
 import { useReportRange, type DateRange, type RangeKey } from './hooks/useReportRange';
 import type { WorkbenchJourneyStage } from '../../components/workbench/WorkbenchJourneyRail';
@@ -27,6 +28,13 @@ import './ReceptionReport.css';
 // ── MD-parity chip helpers (mirror ManagementDashboard summary chips) ──
 
 const DAY_MS = 86_400_000;
+const RECEPTION_KPIS_FETCH_OPTIONS = {
+  credentials: 'include' as const,
+  timeout: 45000,
+  retries: 1,
+  retryDelay: 1200,
+  retryStatuses: [408, 425, 429, 500, 502, 503, 504],
+};
 
 const summaryChipStyle = (isDarkMode: boolean): CSSProperties => ({
   display: 'flex',
@@ -886,7 +894,7 @@ const ReceptionReport: React.FC<ReceptionReportProps> = ({
     }
     setLoading(true);
     setError(null);
-    fetch(`/api/reporting/reception-kpis?from=${fromIso}&to=${toIso}`, { credentials: 'include' })
+    fetchWithRetry(`/api/reporting/reception-kpis?from=${fromIso}&to=${toIso}`, RECEPTION_KPIS_FETCH_OPTIONS)
       .then(async (res) => {
         if (!res.ok) throw new Error(`Reception KPIs request failed (${res.status})`);
         return res.json() as Promise<ReceptionKpisResponse>;

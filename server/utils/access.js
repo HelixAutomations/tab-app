@@ -40,6 +40,7 @@ const EMERGENCY_DEFAULTS = {
   'feature:firm-wide-home': ['user:LZ', 'user:KW', 'user:EA'],
   'feature:hub-controls': ['user:LZ'],
   'feature:activity-tab': ['user:LZ', 'user:AC', 'user:EA'],
+  'feature:tasks-tab': ['user:LZ'],
   'feature:ccl': ['group:*'],
   'action:matter-oneoff-replay': ['user:LZ'],
 };

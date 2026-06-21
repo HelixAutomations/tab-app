@@ -6,6 +6,7 @@ interface FetchOptions extends RequestInit {
   timeout?: number;
   retries?: number;
   retryDelay?: number;
+  retryStatuses?: number[];
 }
 
 /**
@@ -46,6 +47,7 @@ export async function fetchWithRetry(
     timeout = 30000,
     retries = 3,
     retryDelay = 1000,
+    retryStatuses = [],
     ...fetchOptions
   } = options;
 
@@ -53,7 +55,17 @@ export async function fetchWithRetry(
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      return await fetchWithTimeout(url, fetchOptions, timeout);
+      const response = await fetchWithTimeout(url, fetchOptions, timeout);
+      if (retryStatuses.includes(response.status) && attempt < retries) {
+        lastError = new Error(`HTTP ${response.status} ${response.statusText}`);
+        const delay = retryDelay * Math.pow(2, attempt);
+        console.log(
+          `Retry ${attempt + 1}/${retries} for ${url} after ${delay}ms (${lastError.message})`
+        );
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        continue;
+      }
+      return response;
     } catch (error) {
       lastError = error as Error;
 
